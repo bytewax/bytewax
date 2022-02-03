@@ -1,3 +1,4 @@
+import operator
 from dataclasses import dataclass
 from typing import List
 
@@ -6,41 +7,41 @@ import bytewax
 
 @dataclass
 class AppOpen:
-    user_id: int
+    user: int
 
 
 @dataclass
 class Search:
-    user_id: int
+    user: int
     query: str
 
 
 @dataclass
 class Results:
-    user_id: int
+    user: int
     items: List[str]
 
 
 @dataclass
 class ClickResult:
-    user_id: int
+    user: int
     item: str
 
 
 @dataclass
 class AppClose:
-    user_id: int
+    user: int
 
 
 @dataclass
 class Timeout:
-    user_id: int
+    user: int
 
 
 IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS = [
     # epoch, event
-    (0, AppOpen(user_id=1)),
-    (1, Search(user_id=1, query="dogs")),
+    (0, AppOpen(user=1)),
+    (1, Search(user=1, query="dogs")),
     # Eliding named args...
     (2, Results(1, ["fido", "rover", "buddy"])),
     (3, ClickResult(1, "rover")),
@@ -55,33 +56,21 @@ IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS = [
 ]
 
 
-def inp():
-    return IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS
+def group_by_user(event):
+    return event.user, [event]
 
 
-def key_on_user_id(event):
-    return (event.user_id, event)
-
-
-# Input data must look like (k, v).
-# Takes in (key, value, state).
-# Returns (new_state, output_iterable).
-def sessionizer(user_session, user_id, event):
-    # Events are supplied in epoch order, so this will be an ordered list.
-    user_session.append(event)
-    if not isinstance(event, AppClose):  # Session still going.
-        # Return updated session state for next call.
-        # Don't emit any events yet cuz session isn't done.
-        return user_session, []
-    else:  # Session: OVER.
-        # Return a 2-tuple:
-        # 1. Updated session state; None if we're done.
-        # 2. Events to send downstream, with current / latest epoch. Send the whole session.
-        return None, [user_session]
+def session_has_closed(session):
+    return any(isinstance(event, AppClose) for event in session)
 
 
 def is_search(event):
     return isinstance(event, Search)
+
+
+def remove_key(user_event):
+    user, event = user_event
+    return event
 
 
 def has_search(session):
@@ -90,16 +79,13 @@ def has_search(session):
 
 # From a list of events in a user session, split by Search() and return a list of search sessions.
 def split_into_searches(user_session):
-    search_sessions = []
     search_session = []
     for event in user_session:
         if is_search(event):
-            search_sessions.append(search_session)
+            if len(search_session) > 0:
+                yield search_session
             search_session = []
         search_session.append(event)
-    search_sessions.append(search_session)
-    search_sessions = filter(has_search, search_sessions)
-    return search_sessions
 
 
 def calc_ctr(search_session):
@@ -110,15 +96,15 @@ def calc_ctr(search_session):
 
 
 ec = bytewax.Executor()
-# inp() returns (epoch, event) stream where epoch is just event order.
-flow = ec.Dataflow(inp())
-# state_machine() aggregates across epochs by k in (k, v) pairs, so
-# pull out user as key.
-flow.map(key_on_user_id)
-# Wait until we see AppClose for a user and then send all events in
-# session downstream with that epoch. This means that now we only have
-# one epoch per session.
-flow.state_machine(list, sessionizer)
+flow = ec.Dataflow(IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS)
+# event
+flow.map(group_by_user)
+# (user, [event])
+flow.key_fold(list, operator.add, session_has_closed)
+# (user, [event, ...])
+flow.map(remove_key)
+# [event, ...]
+flow.filter(has_search)
 # Take a user session and split it up into a search session, one per
 # search.
 flow.flat_map(split_into_searches)

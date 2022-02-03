@@ -1,8 +1,8 @@
-import re
 import collections
+import operator
+import re
 
 import bytewax
-from nltk.tokenize import RegexpTokenizer
 from bytewax import inp
 
 
@@ -10,24 +10,25 @@ def tokenize(x):
     return re.findall(r'[^\s!,.?":;0-9]+', x)
 
 
-def build_new_accumulator():
-    word_to_count = {}
-    return word_to_count
-
-
-def acc(word_to_count, words):
-    for word in words:
-        if word not in word_to_count:
-            word_to_count[word] = 0
-        word_to_count[word] += 1
-    return word_to_count
+def initial_count(word):
+    return word, 1
 
 
 ec = bytewax.Executor()
 flow = ec.Dataflow(inp.single_batch(open("pyexamples/sample_data/wordcount.txt")))
+# "Here we have full sentences"
 flow.flat_map(tokenize)
-flow.accumulate(build_new_accumulator, acc)
+# "Words"
+flow.map(str.lower)
+# "word"
+flow.filter(lambda x: x != "and")
+# "word_no_and"
+flow.map(initial_count)
+# ("word", 1)
+flow.key_fold_epoch(lambda: 0, operator.add)
+# ("word", count)
 flow.inspect(print)
 
+
 if __name__ == "__main__":
-    exec.build_and_run()
+    ec.build_and_run()

@@ -1,39 +1,40 @@
 import json
+import operator
 import time
 from collections import defaultdict
 
 import bytewax
 from bytewax import inp
-from utils import twitter
 
 
 def decode(x):
-    # add try/except to handle nulls
     try:
-        return json.loads(x)
+        return [json.loads(x)]
     except ValueError:
-        return {"matching_rules": []}
+        return []  # Ignore errors. This will skip because in flat_map.
 
 
-# get all of the mentioned hashtags
 def coin_name(data_dict):
+    # Get all of the mentioned hashtags.
     return [x["tag"] for x in data_dict["matching_rules"]]
 
 
-# count the mentions
-def count_edits(acc, tags):
-    for tag in tags:
-        acc[tag] += 1
-    return acc
+def initial_count(coin):
+    return coin, 1
 
 
 ec = bytewax.Executor()
-df = ec.Dataflow(inp.tumbling_epoch(5.0, twitter.get_stream()))
-df.map(decode)
-df.flat_map(coin_name)
-df.exchange(hash)
-df.accumulate(lambda: defaultdict(int), count_edits)
-df.inspect(print)
+flow = ec.Dataflow(inp.epoch_every_sec(2, twitter.get_stream()))
+# "event_json"
+flow.flat_map(decode)
+# {event_dict}
+flow.flat_map(coin_name)
+# "coin"
+flow.map(initial_count)
+# ("coin", 1)
+flow.key_fold_epoch(lambda: 0, operator.add)
+# ("coin", count)
+flow.inspect(print)
 
 
 if __name__ == "__main__":

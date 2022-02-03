@@ -1,15 +1,16 @@
 import collections
 import json
+import operator
 import time
 
-import sseclient
-
 import bytewax
+
+import sseclient
 import urllib3
 from bytewax import inp
 
 
-def gen_input():
+def open_stream():
     pool = urllib3.PoolManager()
     resp = pool.request(
         "GET",
@@ -23,22 +24,19 @@ def gen_input():
         yield event.data
 
 
-def server_name(data_dict):
-    return data_dict["server_name"]
-
-
-def count_edits(acc, server_names):
-    for server_name in server_names:
-        acc[server_name] += 1
-    return acc
+def group_by_server(data_dict):
+    return data_dict["server_name"], 1
 
 
 ec = bytewax.Executor()
-flow = ec.Dataflow(inp.tumbling_epoch(2.0, gen_input()))
+flow = ec.Dataflow(inp.tumbling_epoch(2.0, open_stream()))
+# "event_json"
 flow.map(json.loads)
-flow.map(server_name)
-flow.exchange(hash)
-flow.accumulate(lambda: collections.defaultdict(int), count_edits)
+# {"server_name": "server.name", ...}
+flow.map(group_by_server)
+# ("server.name", 1)
+flow.key_fold_epoch(lambda: 0, operator.add)
+# ("server.name", count)
 flow.inspect_epoch(print)
 
 
