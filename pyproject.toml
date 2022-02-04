@@ -26,3 +26,7 @@ classifiers = [
 Issues = "https://github.com/bytewax/bytewax/issues"
 Documentation = "https://docs.bytewax.io/"
 Changelog = "https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md"
+
+[metadata]
+long_description= "file: README.md"
+long_description_content_type = "text/markdown"
