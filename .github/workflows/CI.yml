@@ -62,7 +62,7 @@ jobs:
           python-version: 3.9
       - name: Publish to PyPI
         env:
-          TWINE_USERNAME: __token__
+          TWINE_USERNAME: bytewax
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
         run: |
           pip install --upgrade twine
