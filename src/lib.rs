@@ -148,21 +148,32 @@ impl<'de> serde::Deserialize<'de> for TdPyAny {
 /// Timely requires this whenever it internally "groups by".
 impl PartialEq for TdPyAny {
     fn eq(&self, other: &Self) -> bool {
+        use pyo3::class::basic::CompareOp;
+
         Python::with_gil(|py| {
-            // There is an impl Eq for Py<> but I think it checks
-            // identity since it's doing == between ffi::PyObject.
+            // Don't use Py.eq or PyAny.eq since it only checks
+            // pointer identity.
             let self_ = self.as_ref(py);
             let other = other.as_ref(py);
-            self_.eq(other)
+            with_traceback!(py, self_.rich_compare(other, CompareOp::Eq)?.is_true())
         })
     }
 }
 
+/// Possibly a footgun.
+///
+/// Timely internally stores values in [`HashMap`] which require keys
+/// to be [`Eq`] so we have to implement this (or somehow write our
+/// own hash maps that could ignore this), but we can't actually
+/// guarantee that any Python type will actually have a correct sense
+/// of total equality. It's possible broken `__eq__` implementations
+/// will cause mysterious behavior.
 impl Eq for TdPyAny {}
 
 /// Re-use Python's hashing semantics in Rust.
 ///
-/// Timely requires this whenever it accumulates data in hash maps.
+/// Timely requires this whenever it exchanges or accumulates data in
+/// hash maps.
 impl Hash for TdPyAny {
     fn hash<H: Hasher>(&self, state: &mut H) {
         Python::with_gil(|py| {
