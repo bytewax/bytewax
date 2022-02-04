@@ -1,0 +1,18 @@
+[package]
+name = "bytewax"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "bytewax"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.15.1", features = ["extension-module"] }
+timely = { version = "0.12.0", features = ["bincode"] }
+serde = { version = "1.0.134" }
+ctrlc = { version = "3.2.1" }
+axum = { version = "0.4.3" }
+tokio = { version = "1.15.0", features = ["full"] }
+rand = { version = "0.8.4" }
