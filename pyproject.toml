@@ -4,7 +4,6 @@ build-backend = "maturin"
 
 [project]
 name = "bytewax"
-license = {file = "LICENSE.md"}
 requires-python = ">=3.7"
 classifiers = [
     "Development Status :: 3 - Alpha",
