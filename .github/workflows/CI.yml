@@ -7,8 +7,15 @@ on:
 jobs:
   linux:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.7', '3.8', '3.9', '3.10']
     steps:
     - uses: actions/checkout@v2
+    - uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+        architecture: x64
     - uses: messense/maturin-action@v1
       with:
         manylinux: auto
@@ -22,8 +29,15 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ['3.7', '3.8', '3.9', '3.10']
     steps:
     - uses: actions/checkout@v2
+    - uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+        architecture: x64
     - uses: messense/maturin-action@v1
       with:
         command: build
@@ -36,8 +50,15 @@ jobs:
 
   macos:
     runs-on: macos-latest
+    strategy:
+      matrix:
+        python-version: ['3.7', '3.8', '3.9', '3.10']
     steps:
     - uses: actions/checkout@v2
+    - uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+        architecture: x64      
     - uses: messense/maturin-action@v1
       with:
         command: build
