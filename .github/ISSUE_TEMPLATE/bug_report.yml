@@ -1,0 +1,47 @@
+name: 🐛 Bug Report
+description: Create a bug report
+labels: [BUG]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for filing this bug report! Your feedback is extremely important to the community.
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: Please provide a clear and concise description of what the bug is.
+      placeholder: The bug is...
+    validations:
+      required: true
+  - type: input
+    id: py_version
+    attributes:
+      label: Python version (`python -V`)
+      placeholder: ex. Python 3.10.0
+    validations:
+      required: true
+  - type: input
+    id: bytewax_version
+    attributes:
+      label: Bytewax version (pip list | grep bytewax)
+      placeholder: ex. bytewax 0.6.1
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Relevant log output
+      description: Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks.
+      render: shell
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Please list the exact steps required to reproduce your error with all command output and if possible with a repository
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
