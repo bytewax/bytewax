@@ -1,12 +1,7 @@
 import collections
 
 import bytewax
-
-
-def read_lines():
-    with open("pyexamples/sample_data/wordcount.txt") as lines:
-        for line in lines:
-            yield (1, line)
+from bytewax import inp
 
 
 def count(acc, xs):
@@ -38,7 +33,7 @@ def inspector(count_count):
 
 
 ec = bytewax.Executor()
-flow = ec.Dataflow(read_lines())
+flow = ec.Dataflow(inp.single_batch(open("pyexamples/sample_data/wordcount.txt")))
 # "at this point we have full sentences as items in the dataflow"
 flow.flat_map(str.split)
 # "words"

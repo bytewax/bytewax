@@ -2,7 +2,10 @@
 
 macro_rules! with_traceback {
     ($py:expr, $pyfunc:expr) => {
-        match $pyfunc {
+        // This would be the perfect use for the
+        // https://doc.rust-lang.org/nightly/unstable-book/language-features/try-blocks.html
+        // feature.
+        match (|| $pyfunc)() {
             Ok(r) => r,
             Err(err) => {
                 let traceback_msg = match err.ptraceback($py) {

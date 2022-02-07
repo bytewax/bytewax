@@ -2,11 +2,8 @@ import re
 import collections
 
 import bytewax
-
-
-def file_input():
-    for line in open("sample_data/wordcount.txt", "r").readlines():
-        yield (1, line)
+from nltk.tokenize import RegexpTokenizer
+from bytewax import inp
 
 
 def tokenize(x):
@@ -26,9 +23,8 @@ def acc(word_to_count, words):
     return word_to_count
 
 
-exec = bytewax.Executor()
-flow = exec.Dataflow(file_input())
-flow.map(lambda x: x.lower())
+ec = bytewax.Executor()
+flow = ec.Dataflow(inp.single_batch(open("pyexamples/sample_data/wordcount.txt")))
 flow.flat_map(tokenize)
 flow.accumulate(build_new_accumulator, acc)
 flow.inspect(print)

@@ -1,7 +1,8 @@
-import requests
-import os
 import json
-from kafka import KafkaProducer
+import os
+
+import requests
+
 
 # To set your enviornment variables in your terminal run the following line:
 # export 'BEARER_TOKEN'='<your_bearer_token>'
@@ -39,7 +40,7 @@ def delete_all_rules(rules):
     response = requests.post(
         "https://api.twitter.com/2/tweets/search/stream/rules",
         auth=bearer_oauth,
-        json=payload
+        json=payload,
     )
     if response.status_code != 200:
         raise Exception(
@@ -74,8 +75,10 @@ def set_rules(delete):
 
 def get_stream():
     response = requests.get(
-        "https://api.twitter.com/2/tweets/search/stream", 
-        auth=bearer_oauth, stream=True, params={'tweet.fields': 'text','expansions': 'referenced_tweets.id'}
+        "https://api.twitter.com/2/tweets/search/stream",
+        auth=bearer_oauth,
+        stream=True,
+        params={"tweet.fields": "text", "expansions": "referenced_tweets.id"},
     )
     print(response.status_code)
     if response.status_code != 200:

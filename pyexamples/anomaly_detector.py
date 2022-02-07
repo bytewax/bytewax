@@ -1,11 +1,12 @@
 import random
 
-from bytewax import Executor
+import bytewax
+from bytewax import inp
 
 
 def random_datapoints():
     for _ in range(20):
-        yield (1, random.randrange(0, 10))
+        yield random.randrange(0, 10)
 
 
 class ZTestDetector:
@@ -17,9 +18,10 @@ class ZTestDetector:
     from the mean (Z-score) of the last 10 items. Mark as anomalous if
     over the threshold specified.
     """
+
     def __init__(self, threshold_z):
         self.threshold_z = threshold_z
-        
+
         self.last_10 = []
         self.mu = None
         self.sigma = None
@@ -33,7 +35,7 @@ class ZTestDetector:
         self.mu = sum(self.last_10) / last_len
         sigma_sq = sum((x - self.mu) ** 2 for x in self.last_10) / last_len
         self.sigma = sigma_sq ** 0.5
-        
+
     def __call__(self, x):
         is_anomalous = False
         if self.mu and self.sigma:
@@ -41,17 +43,17 @@ class ZTestDetector:
 
         self._push(x)
         self._recalc_stats()
-        
+
         return (x, self.mu, self.sigma, is_anomalous)
 
 
 def inspector(x_mu_sigma_anomalous):
     x, mu, sigma, is_anomalous = x_mu_sigma_anomalous
     print(f"x = {x}, mu = {mu:.2f}, sigma = {sigma:.2f}, {is_anomalous}")
-    
 
-ec = Executor()
-flow = ec.Dataflow(random_datapoints())
+
+ec = bytewax.Executor()
+flow = ec.Dataflow(inp.single_batch(random_datapoints()))
 # Think about what semantics you'd want with multiple workers / epochs.
 flow.map(ZTestDetector(2.0))
 flow.inspect(inspector)

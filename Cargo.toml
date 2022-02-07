@@ -8,6 +8,9 @@ edition = "2021"
 name = "bytewax"
 crate-type = ["cdylib"]
 
+[package.metadata.maturin]
+python-source = "pysrc"
+
 [dependencies]
 pyo3 = { version = "0.15.1", features = ["extension-module"] }
 timely = { version = "0.12.0", features = ["bincode"] }

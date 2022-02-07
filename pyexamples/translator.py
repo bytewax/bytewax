@@ -1,15 +1,10 @@
 import bytewax
+from bytewax import inp
 from transformers import pipeline
 
 
 # Load my fancy model translator
 translator = pipeline("translation_en_to_de")
-
-
-def gen_input():
-    with open("pyexamples/sample_data/lyrics.txt") as lines:
-        for line in lines:
-            yield (1, line)
 
 
 def predict(x):
@@ -19,7 +14,7 @@ def predict(x):
 
 
 ec = bytewax.Executor()
-flow = ec.Dataflow(gen_input())
+flow = ec.Dataflow(inp.single_batch(open("pyexamples/sample_data/lyrics.txt")))
 flow.map(str.strip)
 flow.map(predict)
 flow.inspect(print)

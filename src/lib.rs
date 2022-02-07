@@ -148,26 +148,38 @@ impl<'de> serde::Deserialize<'de> for TdPyAny {
 /// Timely requires this whenever it internally "groups by".
 impl PartialEq for TdPyAny {
     fn eq(&self, other: &Self) -> bool {
+        use pyo3::class::basic::CompareOp;
+
         Python::with_gil(|py| {
-            // There is an impl Eq for Py<> but I think it checks
-            // identity since it's doing == between ffi::PyObject.
+            // Don't use Py.eq or PyAny.eq since it only checks
+            // pointer identity.
             let self_ = self.as_ref(py);
             let other = other.as_ref(py);
-            self_.eq(other)
+            with_traceback!(py, self_.rich_compare(other, CompareOp::Eq)?.is_true())
         })
     }
 }
 
+/// Possibly a footgun.
+///
+/// Timely internally stores values in [`HashMap`] which require keys
+/// to be [`Eq`] so we have to implement this (or somehow write our
+/// own hash maps that could ignore this), but we can't actually
+/// guarantee that any Python type will actually have a correct sense
+/// of total equality. It's possible broken `__eq__` implementations
+/// will cause mysterious behavior.
 impl Eq for TdPyAny {}
 
 /// Re-use Python's hashing semantics in Rust.
 ///
-/// Timely requires this whenever it accumulates data in hash maps.
+/// Timely requires this whenever it exchanges or accumulates data in
+/// hash maps.
 impl Hash for TdPyAny {
     fn hash<H: Hasher>(&self, state: &mut H) {
         Python::with_gil(|py| {
             let self_ = self.as_ref(py);
-            state.write_isize(self_.hash().unwrap());
+            let hash = with_traceback!(py, self_.hash());
+            state.write_isize(hash);
         });
     }
 }
@@ -212,7 +224,7 @@ impl Iterator for TdPyIterator {
     fn next(&mut self) -> Option<Self::Item> {
         Python::with_gil(|py| {
             let mut iter = self.0.as_ref(py);
-            iter.next().map(|r| r.unwrap().into())
+            iter.next().map(|r| with_traceback!(py, r).into())
         })
     }
 }
@@ -396,20 +408,18 @@ fn map(f: &TdPyCallable, x: TdPyAny) -> TdPyAny {
 }
 
 fn flat_map(f: &TdPyCallable, x: TdPyAny) -> TdPyIterator {
-    Python::with_gil(|py| with_traceback!(py, f.call1(py, (x,))).extract(py).unwrap())
+    Python::with_gil(|py| with_traceback!(py, f.call1(py, (x,))?.extract(py)))
 }
 
 fn exchange(f: &TdPyCallable, x: &TdPyAny) -> u64 {
     // need to specify signed int to prevent python from converting negative int to unsigned
     Python::with_gil(|py| {
-        with_traceback!(py, f.call1(py, (x,)))
-            .extract::<i64>(py)
-            .unwrap() as u64
+        with_traceback!(py, f.call1(py, (x,))?.extract::<i64>(py).map(|x| x as u64))
     })
 }
 
 fn filter(f: &TdPyCallable, x: &TdPyAny) -> bool {
-    Python::with_gil(|py| with_traceback!(py, f.call1(py, (x,))).extract(py).unwrap())
+    Python::with_gil(|py| with_traceback!(py, f.call1(py, (x,))?.extract(py)))
 }
 
 fn inspect(f: &TdPyCallable, x: &TdPyAny) {
@@ -445,10 +455,11 @@ fn state_machine(
     value: TdPyAny,
 ) -> (bool, TdPyIterator) {
     Python::with_gil(|py| {
-        let (updated_aggregator, output_xs): (TdPyAny, TdPyIterator) =
-            with_traceback!(py, f.call1(py, (aggregator.clone_ref(py), key, value)))
+        let (updated_aggregator, output_xs): (TdPyAny, TdPyIterator) = with_traceback!(
+            py,
+            f.call1(py, (aggregator.clone_ref(py), key, value))?
                 .extract(py)
-                .unwrap();
+        );
         let should_discard_aggregator = updated_aggregator.is_none(py);
         *aggregator = updated_aggregator;
         (should_discard_aggregator, output_xs)
@@ -457,16 +468,16 @@ fn state_machine(
 
 /// Turn a Python 2-tuple into a Rust 2-tuple.
 fn lift_2tuple(key_value_pytuple: TdPyAny) -> (TdPyAny, TdPyAny) {
-    Python::with_gil(|py| key_value_pytuple.as_ref(py).extract().unwrap())
+    Python::with_gil(|py| with_traceback!(py, key_value_pytuple.as_ref(py).extract()))
 }
 
 fn aggregate(f: &TdPyCallable, aggregator: &mut TdPyAny, key: &TdPyAny, value: TdPyAny) {
     Python::with_gil(|py| {
-        let updated_aggregator: TdPyAny = f
-            .call1(py, (aggregator.clone_ref(py), key, value))
-            .unwrap()
-            .extract(py)
-            .unwrap();
+        let updated_aggregator: TdPyAny = with_traceback!(
+            py,
+            f.call1(py, (aggregator.clone_ref(py), key, value))?
+                .extract(py)
+        );
         *aggregator = updated_aggregator;
     });
 }
@@ -502,7 +513,7 @@ impl Pump {
         Python::with_gil(|py| {
             let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
             if let Some(epoch_x_pytuple) = pull_from_pyiter.next() {
-                let (epoch, x) = epoch_x_pytuple.unwrap().extract().unwrap();
+                let (epoch, x) = with_traceback!(py, epoch_x_pytuple?.extract());
                 self.push_to_timely.advance_to(epoch);
                 self.push_to_timely.send(x);
             } else {

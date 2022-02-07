@@ -22,12 +22,6 @@ def peek(x):
     print(f"peekin at {x}")
 
 
-def hax(x):
-    h = hash(x)
-    print(f"exchanged {x} with {h}")
-    return h
-
-
 ec = bytewax.Executor()
 flow = ec.Dataflow(inp())
 flow.map(double)

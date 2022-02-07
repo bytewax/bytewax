@@ -1,22 +1,12 @@
-import json
-import sseclient
-import urllib3
 import collections
+import json
 import time
 
+import sseclient
+
 import bytewax
-
-
-def tick_every(interval_sec):
-    epoch = 0
-    last_bump_sec = time.time() - interval_sec
-    while True:
-        yield epoch
-        now_sec = time.time()
-        frac_intervals = (now_sec - last_bump_sec) / interval_sec
-        if frac_intervals >= 1.0:
-            epoch += int(frac_intervals)
-            last_bump_sec = now_sec
+import urllib3
+from bytewax import inp
 
 
 def gen_input():
@@ -29,8 +19,8 @@ def gen_input():
     )
     client = sseclient.SSEClient(resp)
 
-    for epoch, event in zip(tick_every(2), client.events()):
-        yield epoch, event.data
+    for event in client.events():
+        yield event.data
 
 
 def server_name(data_dict):
@@ -44,7 +34,7 @@ def count_edits(acc, server_names):
 
 
 ec = bytewax.Executor()
-flow = ec.Dataflow(gen_input())
+flow = ec.Dataflow(inp.tumbling_epoch(2.0, gen_input()))
 flow.map(json.loads)
 flow.map(server_name)
 flow.exchange(hash)
