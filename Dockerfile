@@ -1,7 +1,12 @@
-FROM konstin2/maturin:v0.12.5 as maturin-builder
+FROM konstin2/maturin:v0.12.6 as maturin-builder
 
-COPY . /tiny-dancer
-WORKDIR /tiny-dancer
+COPY . /bytewax
+WORKDIR /bytewax
+
+RUN rustup install 1.58.1
+RUN rustup override set 1.58.1
+RUN cargo --version
+RUN rustc --version
 
 RUN maturin build --interpreter python3.9
 
@@ -11,11 +16,10 @@ RUN apt-get update && \
     python3 -m venv /venv && \
     /venv/bin/pip install --upgrade pip setuptools wheel
 
-COPY --from=maturin-builder /tiny-dancer/target/wheels/tiny_dancer-0.1.0-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl /tiny-dancer/target/wheels/tiny_dancer-0.1.0-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl
-RUN /venv/bin/pip3 install /tiny-dancer/target/wheels/tiny_dancer-0.1.0-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl
+COPY --from=maturin-builder /bytewax/target/wheels/bytewax-0.6.1-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl /bytewax/target/wheels/bytewax-0.6.1-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl
+RUN /venv/bin/pip3 install /bytewax/target/wheels/bytewax-0.6.1-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl
 
 FROM gcr.io/distroless/python3-debian11:debug
 COPY --from=build /venv /venv
-WORKDIR /tiny-dancer
-COPY ./pyexamples/ ./pyexamples/.
+WORKDIR /bytewax
 COPY ./entrypoint.sh .
