@@ -104,7 +104,7 @@ checksum = "c4872d67bab6358e59559027aa3b9157c53d9358c51423c17554809a8858e0f8"
 
 [[package]]
 name = "bytewax"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "axum",
  "ctrlc",
