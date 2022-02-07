@@ -16,8 +16,8 @@ RUN apt-get update && \
     python3 -m venv /venv && \
     /venv/bin/pip install --upgrade pip setuptools wheel
 
-COPY --from=maturin-builder /bytewax/target/wheels/bytewax-0.6.0-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl /bytewax/target/wheels/bytewax-0.6.0-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl
-RUN /venv/bin/pip3 install /bytewax/target/wheels/bytewax-0.6.0-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl
+COPY --from=maturin-builder /bytewax/target/wheels/bytewax-0.6.1-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl /bytewax/target/wheels/bytewax-0.6.1-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl
+RUN /venv/bin/pip3 install /bytewax/target/wheels/bytewax-0.6.1-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl
 
 FROM gcr.io/distroless/python3-debian11:debug
 COPY --from=build /venv /venv
