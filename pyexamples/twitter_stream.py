@@ -32,7 +32,7 @@ flow.flat_map(coin_name)
 # "coin"
 flow.map(initial_count)
 # ("coin", 1)
-flow.key_fold_epoch(lambda: 0, operator.add)
+flow.reduce_epoch(operator.add)
 # ("coin", count)
 flow.inspect(print)
 

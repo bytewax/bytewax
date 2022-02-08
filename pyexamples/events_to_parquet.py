@@ -23,11 +23,11 @@ def add_date_columns(event):
 
 
 def group_by_page(event):
-    return event["page_url_path"], event
+    return event["page_url_path"], DataFrame([event])
 
 
-def append_event(df, event):
-    return pandas.concat([df, DataFrame([event])])
+def append_event(events_df, event_df):
+    return pandas.concat([events_df, event_df])
 
 
 def write_parquet(path__events_df):
@@ -54,8 +54,8 @@ flow.map(json.loads)
 flow.map(add_date_columns)
 # {"page_url_path": "/path", "year": 2022, "month": 1, "day": 5, ... }
 flow.map(group_by_page)
-# ("/path", {"page_url_path": "/path", "year": 2022, "month": 1, "day": 5, ... })
-flow.key_fold_epoch_local(DataFrame, append_event)
+# ("/path", DataFrame([{"page_url_path": "/path", "year": 2022, "month": 1, "day": 5, ... })])
+flow.reduce_epoch_local(append_event)
 # ("/path", DataFrame([{"page_url_path": "/path", ...}, ...])
 flow.map(write_parquet)
 # None

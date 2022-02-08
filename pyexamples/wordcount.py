@@ -25,7 +25,7 @@ flow.filter(lambda x: x != "and")
 # "word_no_and"
 flow.map(initial_count)
 # ("word", 1)
-flow.key_fold_epoch(lambda: 0, operator.add)
+flow.reduce_epoch(operator.add)
 # ("word", count)
 flow.inspect(print)
 

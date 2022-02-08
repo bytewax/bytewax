@@ -100,7 +100,7 @@ flow = ec.Dataflow(IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS)
 # event
 flow.map(group_by_user)
 # (user, [event])
-flow.key_fold(list, operator.add, session_has_closed)
+flow.reduce(operator.add, session_has_closed)
 # (user, [event, ...])
 flow.map(remove_key)
 # [event, ...]

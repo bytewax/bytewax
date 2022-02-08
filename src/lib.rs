@@ -344,22 +344,19 @@ enum Step {
     InspectEpoch {
         inspector: TdPyCallable,
     },
-    KeyFold {
-        builder: TdPyCallable,
-        folder: TdPyCallable,
+    Reduce {
+        reducer: TdPyCallable,
         is_complete: TdPyCallable,
     },
-    KeyFoldEpoch {
-        builder: TdPyCallable,
-        folder: TdPyCallable,
+    ReduceEpoch {
+        reducer: TdPyCallable,
     },
-    KeyFoldEpochLocal {
-        builder: TdPyCallable,
-        folder: TdPyCallable,
+    ReduceEpochLocal {
+        reducer: TdPyCallable,
     },
-    KeyTransition {
+    MapStateful {
         builder: TdPyCallable,
-        transition: TdPyCallable,
+        mapper: TdPyCallable,
     },
 }
 
@@ -386,7 +383,7 @@ impl Dataflow {
 
     /// **Map** is a one-to-one transformation of items.
     ///
-    /// It calls a function `mapper(item: Any) => transformed_x: Any`
+    /// It calls a function `mapper(item: Any) => updated_item: Any`
     /// on each item.
     ///
     /// It emits each transformed item downstream.
@@ -438,101 +435,94 @@ impl Dataflow {
         self.steps.push(Step::InspectEpoch { inspector });
     }
 
-    /// **Key Fold** lets you combine items for a key into an
+    /// **Reduce** lets you combine items for a key into an
     /// aggregator in epoch order.
     ///
-    /// It requires the the input stream has items that are `(key,
-    /// value)` tuples.
+    /// Since this is a stateful operator, it requires the the input
+    /// stream has items that are `(key, value)` tuples so we can
+    /// ensure that all relevant values are routed to the relevant
+    /// aggregator.
     ///
-    /// It emits `(key, aggregator)` tuples downstream when you tell
-    /// it to.
+    /// It calls two functions:
     ///
-    /// It takes three functions:
-    ///
-    /// - A `builder() => new_aggregator: Any` which returns a new
-    /// aggregator and will be called whenever a new key is
-    /// encountered.
-    ///
-    /// - A `folder(aggregator: Any, value: Any) =>
-    /// updated_aggregator: Any` which incorporates a new value. This
-    /// will be called once for each value for a given key. Values
+    /// - A `reducer(aggregator: Any, value: Any) =>
+    /// updated_aggregator: Any` which combines two values. The
+    /// aggregator is initially the first value seen for a key. Values
     /// will be passed in epoch order, but no order is defined within
     /// an epoch.
     ///
-    /// - An `is_complete(updated_aggregator: Any) => should_emit:
-    /// bool` which returns true if the `(key, aggregator)` should be
-    /// emitted downstream and the aggregator for that key forgotten.
-    fn key_fold(&mut self, builder: TdPyCallable, folder: TdPyCallable, is_complete: TdPyCallable) {
-        self.steps.push(Step::KeyFold {
-            builder,
-            folder,
+    /// - An `is_complete(updated_aggregator: Any) => should_emit: bool` which
+    /// returns true if the most recent `(key, aggregator)` should be
+    /// emitted downstream and the aggregator for that key
+    /// forgotten. If there was only a single value for a key, it is
+    /// passed in as the aggregator here.
+    ///
+    /// It emits `(key, aggregator)` tuples downstream when you tell
+    /// it to.
+    fn reduce(&mut self, reducer: TdPyCallable, is_complete: TdPyCallable) {
+        self.steps.push(Step::Reduce {
+            reducer,
             is_complete,
         });
     }
 
-    /// **Key Fold Epoch** lets you combine all items for a key within
+    /// **Reduce Epoch** lets you combine all items for a key within
     /// an epoch into an aggregator.
     ///
-    /// It requires the the input stream has items that are `(key,
-    /// value)` tuples.
+    /// This is like `reduce` but marks the aggregator as complete
+    /// automatically at the end of each epoch.
+    ///
+    /// Since this is a stateful operator, it requires the the input
+    /// stream has items that are `(key, value)` tuples so we can
+    /// ensure that all relevant values are routed to the relevant
+    /// aggregator.
+    ///
+    /// It calls a function `reducer(aggregator: Any, value: Any) =>
+    /// updated_aggregator: Any` which combines two values. The
+    /// aggregator is initially the first value seen for a key. Values
+    /// will be passed in arbitrary order.
     ///
     /// It emits `(key, aggregator)` tuples downstream at the end of
     /// each epoch.
-    ///
-    /// It takes two functions:
-    ///
-    /// - A `builder() => new_aggregator: Any` which returns a new
-    /// aggregator and will be called whenever a new key is
-    /// encountered.
-    ///
-    /// - A `folder(aggregator: Any, value: Any) =>
-    /// updated_aggregator: Any` which incorporates a new value. This
-    /// will be called once for each value for a given key. Values are
-    /// passed in arbitrary order.
-    ///
-    /// This is like `key_fold` but marks the aggregator as complete
-    /// automatically at the end of each epoch
-    fn key_fold_epoch(&mut self, builder: TdPyCallable, folder: TdPyCallable) {
-        self.steps.push(Step::KeyFoldEpoch { builder, folder });
+    fn reduce_epoch(&mut self, reducer: TdPyCallable) {
+        self.steps.push(Step::ReduceEpoch { reducer });
     }
 
-    /// **Key Fold Epoch Local** lets you combine all items for a key
+    /// **Reduce Epoch Local** lets you combine all items for a key
     /// within an epoch _on a single worker._
     ///
-    /// It is exactly like `key_fold_epoch` but does no internal
+    /// It is exactly like `reduce_epoch` but does no internal
     /// exchange between workers. You'll probably should use that
     /// instead unless you are using this as a network-overhead
     /// optimization.
-    fn key_fold_epoch_local(&mut self, builder: TdPyCallable, folder: TdPyCallable) {
-        self.steps.push(Step::KeyFoldEpochLocal { builder, folder });
+    fn reduce_epoch_local(&mut self, reducer: TdPyCallable) {
+        self.steps.push(Step::ReduceEpochLocal { reducer });
     }
 
-    /// **Key Transition** lets you modify some persistent state for a
-    /// key each time a new item is encountered and emit transition
-    /// events.
+    /// **Stateful Map** is a one-to-one transformation of values in
+    /// `(key, value)` pairs, but allows you to reference a persistent
+    /// state for each key when doing the transformation.
     ///
-    /// It requires the the input stream has items that are `(key,
-    /// value)` tuples.
+    /// Since this is a stateful operator, it requires the the input
+    /// stream has items that are `(key, value)` tuples so we can
+    /// ensure that all relevant values are routed to the relevant
+    /// state.
     ///
-    /// It emits multiple `(key, transition)` tuples downstream.
-    ///
-    /// It takes three functions:
+    /// It calls two functions:
     ///
     /// - A `builder() => new_state: Any` which returns a new state
     /// and will be called whenever a new key is encountered.
     ///
-    /// - A `transition(state: Any, value: Any) => (updated_state:
-    /// Any, transitions: Iterator[Any])` which incorporates a new
-    /// value into the state. This will be called once for each value
-    /// for a given key. Values will be passed in epoch order, but no
-    /// order is defined within an epoch. If the updated state is
-    /// `None` the state will be forgotten. One `(key, transition)`
-    /// item will be emitted downstream for each transition returned.
-    fn key_transition(&mut self, builder: TdPyCallable, transition: TdPyCallable) {
-        self.steps.push(Step::KeyTransition {
-            builder,
-            transition,
-        });
+    /// - A `mapper(state: Any, value: Any) => (updated_state: Any,
+    /// updated_value: Any)` which transforms values. Values will be
+    /// passed in epoch order, but no order is defined within an
+    /// epoch. If the updated state is `None`, the state will be
+    /// forgotten.
+    ///
+    /// It emits a `(key, updated_value)` tuple downstream for each
+    /// input item.
+    fn stateful_map(&mut self, builder: TdPyCallable, mapper: TdPyCallable) {
+        self.steps.push(Step::MapStateful { builder, mapper });
     }
 }
 
@@ -583,16 +573,20 @@ fn hash(key: &TdPyAny) -> u64 {
     hasher.finish()
 }
 
-fn key_fold(
-    folder: &TdPyCallable,
+fn reduce(
+    reducer: &TdPyCallable,
     is_complete: &TdPyCallable,
-    aggregator: &mut TdPyAny,
+    aggregator: &mut Option<TdPyAny>,
     key: &TdPyAny,
     value: TdPyAny,
 ) -> (bool, impl IntoIterator<Item = TdPyAny>) {
     Python::with_gil(|py| {
-        let updated_aggregator: TdPyAny =
-            with_traceback!(py, folder.call1(py, (aggregator.clone_ref(py), value))).into();
+        let updated_aggregator = match aggregator {
+            Some(aggregator) => {
+                with_traceback!(py, reducer.call1(py, (aggregator.clone_ref(py), value))).into()
+            }
+            None => value,
+        };
         let should_emit_and_discard_aggregator: bool = with_traceback!(
             py,
             is_complete
@@ -600,12 +594,10 @@ fn key_fold(
                 .extract(py)
         );
 
-        *aggregator = updated_aggregator;
+        *aggregator = Some(updated_aggregator.clone_ref(py));
 
         if should_emit_and_discard_aggregator {
-            let emit = (key.clone_ref(py), aggregator.clone_ref(py))
-                .to_object(py)
-                .into();
+            let emit = (key.clone_ref(py), updated_aggregator).to_object(py).into();
             (true, Some(emit))
         } else {
             (false, None)
@@ -613,53 +605,59 @@ fn key_fold(
     })
 }
 
-fn key_fold_epoch(folder: &TdPyCallable, aggregator: &mut TdPyAny, _key: &TdPyAny, value: TdPyAny) {
+fn reduce_epoch(
+    reducer: &TdPyCallable,
+    aggregator: &mut Option<TdPyAny>,
+    _key: &TdPyAny,
+    value: TdPyAny,
+) {
     Python::with_gil(|py| {
-        let updated_aggregator =
-            with_traceback!(py, folder.call1(py, (aggregator.clone_ref(py), value))).into();
-        *aggregator = updated_aggregator;
+        let updated_aggregator = match aggregator {
+            Some(aggregator) => {
+                with_traceback!(py, reducer.call1(py, (aggregator.clone_ref(py), value))).into()
+            }
+            None => value,
+        };
+        *aggregator = Some(updated_aggregator);
     });
 }
 
-fn key_fold_epoch_local(
-    builder: &TdPyCallable,
-    folder: &TdPyCallable,
+fn reduce_epoch_local(
+    reducer: &TdPyCallable,
     aggregators: &mut HashMap<TdPyAny, TdPyAny>,
     all_key_value_in_epoch: &Vec<(TdPyAny, TdPyAny)>,
 ) {
     Python::with_gil(|py| {
         for (key, value) in all_key_value_in_epoch {
-            let aggregator = aggregators
+            aggregators
                 .entry(key.clone_ref(py))
-                .or_insert_with(|| build(&builder));
-            *aggregator =
-                with_traceback!(py, folder.call1(py, (aggregator.clone_ref(py), value))).into();
+                .and_modify(|aggregator| {
+                    *aggregator =
+                        with_traceback!(py, reducer.call1(py, (aggregator.clone_ref(py), value)))
+                            .into()
+                })
+                .or_insert(value.clone_ref(py));
         }
     });
 }
 
-fn key_transition(
-    transition: &TdPyCallable,
+fn stateful_map(
+    mapper: &TdPyCallable,
     state: &mut TdPyAny,
     key: &TdPyAny,
     value: TdPyAny,
 ) -> (bool, impl IntoIterator<Item = TdPyAny>) {
     Python::with_gil(|py| {
-        let (updated_state, emit): (TdPyAny, TdPyAny) = with_traceback!(
+        let (updated_state, emit_value): (TdPyAny, TdPyAny) = with_traceback!(
             py,
-            transition
-                .call1(py, (state.clone_ref(py), value))?
-                .extract(py)
+            mapper.call1(py, (state.clone_ref(py), value))?.extract(py)
         );
 
         *state = updated_state;
 
         let discard_state = Python::with_gil(|py| state.is_none(py));
-
-        (
-            discard_state,
-            std::iter::once((key, emit).to_object(py).into()),
-        )
+        let emit = (key, emit_value).to_object(py).into();
+        (discard_state, std::iter::once(emit))
     })
 }
 
@@ -751,69 +749,53 @@ where
                     stream = stream
                         .inspect_time(move |epoch, item| inspect_epoch(&inspector, epoch, item));
                 }
-                Step::KeyFold {
-                    builder,
-                    folder,
+                Step::Reduce {
+                    reducer,
                     is_complete,
                 } => {
-                    let builder = builder.clone_ref(py);
-                    let folder = folder.clone_ref(py);
+                    let reducer = reducer.clone_ref(py);
                     let is_complete = is_complete.clone_ref(py);
                     stream = stream.map(lift_2tuple).state_machine(
-                        move |key, value, maybe_uninit_aggregator: &mut Option<TdPyAny>| {
-                            let aggregator =
-                                maybe_uninit_aggregator.get_or_insert_with(|| build(&builder));
-                            key_fold(&folder, &is_complete, aggregator, key, value)
+                        move |key, value, aggregator: &mut Option<TdPyAny>| {
+                            reduce(&reducer, &is_complete, aggregator, key, value)
                         },
                         hash,
                     );
                 }
-                Step::KeyFoldEpoch { builder, folder } => {
-                    let builder_for_fold = builder.clone_ref(py);
-                    let builder_for_emit = builder.clone_ref(py);
-                    let folder = folder.clone_ref(py);
+                Step::ReduceEpoch { reducer } => {
+                    let reducer = reducer.clone_ref(py);
                     stream = stream.map(lift_2tuple).aggregate(
-                        move |key, value, maybe_uninit_aggregator: &mut Option<TdPyAny>| {
-                            let aggregator = maybe_uninit_aggregator
-                                .get_or_insert_with(|| build(&builder_for_fold));
-                            key_fold_epoch(&folder, aggregator, key, value);
+                        move |key, value, aggregator: &mut Option<TdPyAny>| {
+                            reduce_epoch(&reducer, aggregator, key, value);
                         },
-                        move |key, maybe_uninit_aggregator: Option<TdPyAny>| {
-                            let aggregator =
-                                maybe_uninit_aggregator.unwrap_or_else(|| build(&builder_for_emit));
-                            wrap_2tuple((key, aggregator))
+                        move |key, aggregator: Option<TdPyAny>| {
+                            // Aggregator will only exist for keys
+                            // that exist, so it will have been filled
+                            // into Some(value) above.
+                            wrap_2tuple((key, aggregator.unwrap()))
                         },
                         hash,
                     );
                 }
-                Step::KeyFoldEpochLocal { builder, folder } => {
-                    let builder = builder.clone_ref(py);
-                    let folder = folder.clone_ref(py);
+                Step::ReduceEpochLocal { reducer } => {
+                    let reducer = reducer.clone_ref(py);
                     stream = stream
                         .map(lift_2tuple)
                         .accumulate(
                             HashMap::new(),
                             move |aggregators, all_key_value_in_epoch| {
-                                key_fold_epoch_local(
-                                    &builder,
-                                    &folder,
-                                    aggregators,
-                                    &all_key_value_in_epoch,
-                                );
+                                reduce_epoch_local(&reducer, aggregators, &all_key_value_in_epoch);
                             },
                         )
                         .flat_map(|aggregators| aggregators.into_iter().map(wrap_2tuple));
                 }
-                Step::KeyTransition {
-                    builder,
-                    transition,
-                } => {
+                Step::MapStateful { builder, mapper } => {
                     let builder = builder.clone_ref(py);
-                    let transition = transition.clone_ref(py);
+                    let mapper = mapper.clone_ref(py);
                     stream = stream.map(lift_2tuple).state_machine(
                         move |key, value, maybe_uninit_state: &mut Option<TdPyAny>| {
                             let state = maybe_uninit_state.get_or_insert_with(|| build(&builder));
-                            key_transition(&transition, state, key, value)
+                            stateful_map(&mapper, state, key, value)
                         },
                         hash,
                     );

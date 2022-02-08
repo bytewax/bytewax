@@ -40,7 +40,7 @@ def sum_to_weight(node_sum):
 ec = bytewax.Executor()
 flow = ec.Dataflow(read_edges("pyexamples/sample_data/graph.txt"))
 # (parent, {child}) per edge
-flow.key_fold_epoch(set, operator.or_)
+flow.reduce_epoch(operator.or_)
 # (parent, children) per parent
 
 # TODO: Some sort of state capture here. This will be tricky because
@@ -56,10 +56,10 @@ flow.flat_map(parent_contribs)
 # contribution sums in the worker before sending them to other
 # workers. See
 # https://github.com/frankmcsherry/blog/blob/master/posts/2015-07-08.md#implementation-2-worker-level-aggregation
-flow.key_fold_epoch_local(lambda: 0.0, operator.add)
+flow.reduce_epoch_local(operator.add)
 
 # (node, sum_contrib) per node per worker
-flow.key_fold_epoch(lambda: 0.0, operator.add)
+flow.reduce_epoch(operator.add)
 # (node, sum_contrib) per node
 flow.map(sum_to_weight)
 # (node, updated_weight) per node

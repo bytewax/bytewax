@@ -12,7 +12,7 @@ def random_datapoints():
 class ZTestDetector:
     """Anomaly detector.
 
-    Use with a call to flow.key_transition().
+    Use with a call to flow.stateful_map().
 
     Looks at how many standard deviations the current item is away
     from the mean (Z-score) of the last 10 items. Mark as anomalous if
@@ -57,7 +57,7 @@ def inspector(metric__value_mu_sigma_anomalous):
 ec = bytewax.Executor()
 flow = ec.Dataflow(inp.fully_ordered(random_datapoints()))
 # ("metric", value)
-flow.key_transition(lambda: ZTestDetector(2.0), ZTestDetector.push)
+flow.stateful_map(lambda: ZTestDetector(2.0), ZTestDetector.push)
 # ("metric", (value, mu, sigma, is_anomalous))
 flow.inspect(inspector)
 

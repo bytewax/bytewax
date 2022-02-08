@@ -10,8 +10,8 @@ from bytewax import inp
 def calc_counts(flow):
     """Add steps to this flow which counts the frequencies of input
     items and emits (item, count) tuples downstream."""
-    flow.map(lambda x: x, 1)
-    flow.key_fold_epoch(lambda: 0, operator.add)
+    flow.map(lambda x: (x, 1))
+    flow.reduce_epoch(operator.add)
 
 
 def get_count(word_count):

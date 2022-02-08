@@ -24,7 +24,7 @@ def open_stream():
         yield event.data
 
 
-def group_by_server(data_dict):
+def initial_count(data_dict):
     return data_dict["server_name"], 1
 
 
@@ -35,7 +35,7 @@ flow.map(json.loads)
 # {"server_name": "server.name", ...}
 flow.map(group_by_server)
 # ("server.name", 1)
-flow.key_fold_epoch(lambda: 0, operator.add)
+flow.reduce_epoch(operator.add)
 # ("server.name", count)
 flow.inspect_epoch(print)
 
