@@ -589,7 +589,7 @@ fn key_fold(
     aggregator: &mut TdPyAny,
     key: &TdPyAny,
     value: TdPyAny,
-) -> (bool, Vec<TdPyAny>) {
+) -> (bool, impl IntoIterator<Item = TdPyAny>) {
     Python::with_gil(|py| {
         let updated_aggregator: TdPyAny =
             with_traceback!(py, folder.call1(py, (aggregator.clone_ref(py), value))).into();
@@ -603,14 +603,12 @@ fn key_fold(
         *aggregator = updated_aggregator;
 
         if should_emit_and_discard_aggregator {
-            (
-                true,
-                vec![(key.clone_ref(py), aggregator.clone_ref(py))
-                    .to_object(py)
-                    .into()],
-            )
+            let emit = (key.clone_ref(py), aggregator.clone_ref(py))
+                .to_object(py)
+                .into();
+            (true, Some(emit))
         } else {
-            (false, vec![])
+            (false, None)
         }
     })
 }
