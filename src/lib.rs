@@ -15,6 +15,8 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use timely::WorkerConfig;
+
 use timely::dataflow::operators::aggregation::*;
 use timely::dataflow::operators::*;
 use timely::dataflow::*;
@@ -815,6 +817,45 @@ impl Executor {
         // how to revert to default. Also FWIW, Python's Thread.join()
         // *can* be interrupted by ctrl-c, so maybe there's some way
         // to make this work...
+    }
+
+    /// Build all of the previously-defined dataflow blueprints and
+    /// then run them on the number of threads specified.
+    ///
+    /// Unlike `build_and_run()`, this function does not take command-line
+    /// arguments to control the number of workers or threads.
+    fn execute_directly(self_: Py<Self>, py: Python, threads: usize) -> PyResult<()> {
+        let interrupt_flag = Arc::new(AtomicBool::new(false)); // Unused
+
+        // Instead of taking command line arguments, run a workflow in a single thread
+        let (builders, other) = timely::CommunicationConfig::Process(threads).try_build().unwrap();
+        let guards = timely::execute::execute_from(
+            builders,
+            other,
+            WorkerConfig::default(),
+            move |worker| {
+                let mut all_pumps = Vec::new();
+                let mut all_probes = Vec::new();
+
+                Python::with_gil(|py| {
+                    let self_ = self_.as_ref(py).borrow();
+                    for dataflow in &self_.dataflows {
+                        let dataflow = dataflow.as_ref(py).borrow();
+                        let (pump, probe) = build_dataflow(worker, py, &dataflow);
+                        all_pumps.extend(pump);
+                        all_probes.push(probe);
+                    }
+                });
+
+                worker_main(all_pumps, all_probes, &interrupt_flag, worker);
+            },
+        )
+        .map_err(pyo3::exceptions::PyException::new_err)?;
+
+        py.allow_threads(|| {
+            guards.join();
+        });
+        Ok(())
     }
 }
 
