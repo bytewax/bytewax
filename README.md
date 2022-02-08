@@ -10,11 +10,13 @@ Dataflow programming is a programming paradigm where program execution is concep
 
 At a high level, Bytewax provides a few major benefits:
 
-The operators in Bytewax are largely “data-parallel”, meaning they can operate on independent parts of the data concurrently.
-The ability to express higher-level control constructs, like iteration.
-Bytewax allows you to develop and run your code locally, and then easily scale that code to multiple workers or processes without changes.
+* The operators in Bytewax are largely “data-parallel”, meaning they can operate on independent parts of the data concurrently.
+* The ability to express higher-level control constructs, like iteration.
+* Bytewax allows you to develop and run your code locally, and then easily scale that code to multiple workers or processes without changes.
 
 Bytewax uses [PyO3](https://github.com/PyO3/pyo3/) to provide Python bindings to the [Timely Dataflow](https://timelydataflow.github.io/timely-dataflow/) Rust library.
+
+Visit our [documentation site](https://docs.bytewax.io/) for full documentation
 
 ## Usage
 
@@ -29,6 +31,7 @@ pip install bytewax
 Here is an example of a simple dataflow program using Bytewax:
 
 ``` python
+# pyexamples/simple.py
 from bytewax import Executor
 
 ec = Executor()
@@ -44,7 +47,7 @@ if __name__ == "__main__":
 Running the program:
 
 ``` bash
-python ./pyexamples/wordcount.py
+python ./pyexamples/simple.py
 0
 1
 4
