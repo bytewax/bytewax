@@ -33,7 +33,7 @@ flow = ec.Dataflow(inp.tumbling_epoch(2.0, open_stream()))
 # "event_json"
 flow.map(json.loads)
 # {"server_name": "server.name", ...}
-flow.map(group_by_server)
+flow.map(initial_count)
 # ("server.name", 1)
 flow.reduce_epoch(operator.add)
 # ("server.name", count)

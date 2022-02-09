@@ -1,4 +1,5 @@
 import bytewax
+from bytewax import inp
 from transformers import pipeline
 
 

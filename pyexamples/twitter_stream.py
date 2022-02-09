@@ -6,6 +6,8 @@ from collections import defaultdict
 import bytewax
 from bytewax import inp
 
+from utils import twitter
+
 
 def decode(x):
     try:
@@ -24,7 +26,7 @@ def initial_count(coin):
 
 
 ec = bytewax.Executor()
-flow = ec.Dataflow(inp.epoch_every_sec(2, twitter.get_stream()))
+flow = ec.Dataflow(inp.tumbling_epoch(2.0, twitter.get_stream()))
 # "event_json"
 flow.flat_map(decode)
 # {event_dict}
