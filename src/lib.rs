@@ -192,16 +192,28 @@ impl PartialEq for TdPyAny {
 /// will cause mysterious behavior.
 impl Eq for TdPyAny {}
 
-/// Re-use Python's hashing semantics in Rust.
+/// Custom hashing semantics.
+///
+/// We can't use Python's `hash` because it is not consistent across
+/// processes. Instead we have our own "exchange hash". See module
+/// `bytewax.exhash` for definitions and how to implement for your own
+/// types.
 ///
 /// Timely requires this whenever it exchanges or accumulates data in
 /// hash maps.
 impl Hash for TdPyAny {
     fn hash<H: Hasher>(&self, state: &mut H) {
         Python::with_gil(|py| {
-            let self_ = self.as_ref(py);
-            let hash = with_traceback!(py, self_.hash());
-            state.write_isize(hash);
+            with_traceback!(py, {
+                let exhash = PyModule::import(py, "bytewax.exhash")?;
+                let digest = exhash
+                    .getattr("exhash")?
+                    .call1((self,))?
+                    .call_method0("digest")?
+                    .extract()?;
+                state.write(digest);
+                PyResult::Ok(())
+            });
         });
     }
 }
