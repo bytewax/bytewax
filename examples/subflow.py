@@ -27,7 +27,7 @@ def inspector(count_count):
 
 
 ec = bytewax.Executor()
-flow = ec.Dataflow(inp.single_batch(open("pyexamples/sample_data/wordcount.txt")))
+flow = ec.Dataflow(inp.single_batch(open("examples/sample_data/wordcount.txt")))
 # "at this point we have full sentences as items in the dataflow"
 flow.flat_map(str.split)
 # "words"

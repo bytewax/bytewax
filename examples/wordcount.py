@@ -15,7 +15,7 @@ def initial_count(word):
 
 
 ec = bytewax.Executor()
-flow = ec.Dataflow(inp.single_batch(open("pyexamples/sample_data/wordcount.txt")))
+flow = ec.Dataflow(inp.single_batch(open("examples/sample_data/wordcount.txt")))
 # "Here we have full sentences"
 flow.flat_map(tokenize)
 # "Words"

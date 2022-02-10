@@ -17,7 +17,7 @@ def inspector(en_de):
 
 
 ec = bytewax.Executor()
-flow = ec.Dataflow(inp.single_batch(open("pyexamples/sample_data/lyrics.txt")))
+flow = ec.Dataflow(inp.single_batch(open("examples/sample_data/lyrics.txt")))
 flow.map(str.strip)
 flow.map(predict)
 flow.inspect(inspector)
