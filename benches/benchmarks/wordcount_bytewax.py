@@ -1,7 +1,7 @@
 import re
 import operator
 
-from bytewax import Executor, inp, workers
+from bytewax import Executor, inp, processes
 
 
 def tokenize(x):
@@ -20,4 +20,4 @@ flow.map(initial_count)
 flow.reduce_epoch(operator.add)
 
 if __name__ == "__main__":
-    workers.start_local_processes(ec, number_of_processes=3)
+    processes.start_local(ec, number_of_processes=6)

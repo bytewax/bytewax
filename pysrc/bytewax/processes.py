@@ -7,7 +7,7 @@ import multiprocessing as mp
 from bytewax import Executor
 
 
-def start_local_processes(
+def start_local(
     executor: Executor,
     number_of_processes: int = 1,
     threads_per_process: int = 1,
