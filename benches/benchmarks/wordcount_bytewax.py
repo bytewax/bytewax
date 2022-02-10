@@ -18,8 +18,6 @@ def tokenize(x):
 
 def acc(word_to_count, words):
     for word in words:
-        if word not in word_to_count:
-            word_to_count[word] = 0
         word_to_count[word] += 1
     return word_to_count
 
@@ -30,4 +28,4 @@ flow.flat_map(tokenize)
 flow.accumulate(lambda: defaultdict(int), acc)
 
 if __name__ == "__main__":
-    exec.execute_directly(1)
+    exec.build_and_run(ctrlc=False)

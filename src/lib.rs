@@ -910,11 +910,33 @@ impl Executor {
     }
 
     /// Build all of the previously-defined dataflow blueprints and
-    /// then run them.
+    /// run them.
     ///
-    /// Will start up the number of workers specified on the command
-    /// line.
-    fn build_and_run(self_: Py<Self>, py: Python) -> PyResult<()> {
+    ///
+    /// # Arguments
+    ///
+    /// * `threads` - The number of per-process worker threads to use.
+    /// * `processes` - The number of processes that were started.
+    /// * `process` - Which process number this instance represents.
+    /// * `processes` - The total number of processes.
+    /// * `ctrlc` - A boolean flag to set a Ctrl-C handler on the main thread.
+    /// * `addresses` - An optional list of host/port addresses for other Bytewax workers.
+    #[args(
+        threads = "1",
+        processes = "0",
+        process = "0",
+        ctrlc = true,
+        addresses = "None"
+    )]
+    fn build_and_run(
+        self_: Py<Self>,
+        py: Python,
+        threads: usize,
+        process: usize,
+        processes: usize,
+        ctrlc: bool,
+        addresses: Option<Vec<String>>,
+    ) -> PyResult<()> {
         // We can't use Python::check_signals() in the worker threads
         // since according to
         // https://docs.python.org/3/c-api/exceptions.html#c.PyErr_CheckSignals
@@ -926,51 +948,69 @@ impl Executor {
         // the main Python thread blocks below waiting for the workers
         // to join(), we have to spin up another thread to listen for
         // interrupts.
-        ctrlc::set_handler(move || {
-            interrupt_flag_for_ctrlc_thread.store(true, Ordering::Relaxed);
-        })
-        .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+
+        if ctrlc {
+            ctrlc::set_handler(move || {
+                interrupt_flag_for_ctrlc_thread.store(true, Ordering::Relaxed);
+            })
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+        }
+
+        let (builders, other) = match processes {
+            0 => timely::CommunicationConfig::Process(threads),
+            _ => {
+                let addresses = addresses.unwrap_or_else(|| {
+                    let mut local_addrs = Vec::new();
+                    for index in 0..processes {
+                        local_addrs.push(format!("localhost:{}", 2101 + index));
+                    }
+                    local_addrs
+                });
+                timely::CommunicationConfig::Cluster {
+                    threads,
+                    process,
+                    addresses,
+                    report: false,
+                    log_fn: Box::new(|_| None),
+                }
+            }
+        }
+        .try_build()
+        .unwrap();
 
         let interrupt_flag_for_worker_threads = interrupt_flag.clone();
-        let guards = timely::execute_from_args(std::env::args(), move |worker| {
-            let mut all_pumps = Vec::new();
-            let mut all_probes = Vec::new();
+        let guards = timely::execute::execute_from(
+            builders,
+            other,
+            WorkerConfig::default(),
+            move |worker| {
+                let mut all_pumps = Vec::new();
+                let mut all_probes = Vec::new();
 
-            Python::with_gil(|py| {
-                // These borrows should be safe because nobody else
-                // will have a mut ref. Although they might have
-                // shared refs.
-                let self_ = self_.as_ref(py).borrow();
-                for dataflow in &self_.dataflows {
-                    let dataflow = dataflow.as_ref(py).borrow();
-                    let (pump, probe) = build_dataflow(worker, py, &dataflow);
-                    all_pumps.extend(pump);
-                    all_probes.push(probe);
-                }
-            });
+                Python::with_gil(|py| {
+                    // These borrows should be safe because nobody else
+                    // will have a mut ref. Although they might have
+                    // shared refs.
+                    let self_ = self_.as_ref(py).borrow();
+                    for dataflow in &self_.dataflows {
+                        let dataflow = dataflow.as_ref(py).borrow();
+                        let (pump, probe) = build_dataflow(worker, py, &dataflow);
+                        all_pumps.extend(pump);
+                        all_probes.push(probe);
+                    }
+                });
 
-            worker_main(
-                all_pumps,
-                all_probes,
-                &interrupt_flag_for_worker_threads,
-                worker,
-            );
-        })
+                worker_main(
+                    all_pumps,
+                    all_probes,
+                    &interrupt_flag_for_worker_threads,
+                    worker,
+                );
+            },
+        )
         .map_err(pyo3::exceptions::PyException::new_err)?;
 
         py.allow_threads(|| {
-            // TODO: Disabled until there is something to show.
-            // tokio::runtime::Builder::new_multi_thread()
-            //     .enable_all()
-            //     .build()
-            //     .unwrap()
-            //     .block_on(webserver::start());
-            //
-            // This is
-            // blocking. https://docs.python.org/3/library/signal.html#execution-of-python-signal-handlers
-            // says that Python-side signal handlers will only be
-            // called on the main thread, so nothing ever gets
-            // triggered by ctrl-c while we're blocked here.
             guards.join();
         });
 
@@ -988,45 +1028,6 @@ impl Executor {
         // how to revert to default. Also FWIW, Python's Thread.join()
         // *can* be interrupted by ctrl-c, so maybe there's some way
         // to make this work...
-    }
-
-    /// Build all of the previously-defined dataflow blueprints and
-    /// then run them on the number of threads specified.
-    ///
-    /// Unlike `build_and_run()`, this function does not take command-line
-    /// arguments to control the number of workers or threads.
-    fn execute_directly(self_: Py<Self>, py: Python, threads: usize) -> PyResult<()> {
-        let interrupt_flag = Arc::new(AtomicBool::new(false)); // Unused
-
-        // Instead of taking command line arguments, run a workflow in a single thread
-        let (builders, other) = timely::CommunicationConfig::Process(threads).try_build().unwrap();
-        let guards = timely::execute::execute_from(
-            builders,
-            other,
-            WorkerConfig::default(),
-            move |worker| {
-                let mut all_pumps = Vec::new();
-                let mut all_probes = Vec::new();
-
-                Python::with_gil(|py| {
-                    let self_ = self_.as_ref(py).borrow();
-                    for dataflow in &self_.dataflows {
-                        let dataflow = dataflow.as_ref(py).borrow();
-                        let (pump, probe) = build_dataflow(worker, py, &dataflow);
-                        all_pumps.extend(pump);
-                        all_probes.push(probe);
-                    }
-                });
-
-                worker_main(all_pumps, all_probes, &interrupt_flag, worker);
-            },
-        )
-        .map_err(pyo3::exceptions::PyException::new_err)?;
-
-        py.allow_threads(|| {
-            guards.join();
-        });
-        Ok(())
     }
 }
 

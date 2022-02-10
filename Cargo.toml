@@ -31,3 +31,6 @@ harness = false
 [features]
 extension-module = ["pyo3/extension-module"]
 default = ["extension-module"]
+
+[profile.release]
+debug = 1
