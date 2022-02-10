@@ -1,13 +1,8 @@
 import collections
+import operator
 
 import bytewax
 from bytewax import inp
-
-
-def count(acc, xs):
-    for x in xs:
-        acc[x] += 1
-    return acc
 
 
 # You can define your own functions which add groupings of steps to a
@@ -15,9 +10,8 @@ def count(acc, xs):
 def calc_counts(flow):
     """Add steps to this flow which counts the frequencies of input
     items and emits (item, count) tuples downstream."""
-    flow.exchange(hash)
-    flow.accumulate(lambda: collections.defaultdict(int), count)
-    flow.flat_map(dict.items)
+    flow.map(lambda x: (x, 1))
+    flow.reduce_epoch(operator.add)
 
 
 def get_count(word_count):

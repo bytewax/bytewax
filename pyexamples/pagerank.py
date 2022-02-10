@@ -1,4 +1,5 @@
 import collections
+import operator
 
 import bytewax
 
@@ -12,12 +13,7 @@ def read_edges(filename):
             line = line.strip()
             if line:
                 parent, child = tuple(x.strip() for x in line.split(","))
-                yield FIRST_ITERATION, (parent, child)
-
-
-def collect_children(children, parent, new_child):
-    children.add(new_child)
-    return children
+                yield FIRST_ITERATION, (parent, {child})
 
 
 INITIAL_WEIGHT = 1.0
@@ -35,16 +31,6 @@ def parent_contribs(parent_weight_children):
         yield child, contrib_from_parent
 
 
-def pre_sum_contrib(node_to_sum_contrib, node_contribs):
-    for node, contrib in node_contribs:
-        node_to_sum_contrib[node] += contrib
-    return node_to_sum_contrib
-
-
-def sum_contrib(sum_contrib, node, contrib):
-    return sum_contrib + contrib
-
-
 def sum_to_weight(node_sum):
     node, sum_contrib = node_sum
     updated_weight = 0.15 + 0.85 * sum_contrib
@@ -53,8 +39,8 @@ def sum_to_weight(node_sum):
 
 ec = bytewax.Executor()
 flow = ec.Dataflow(read_edges("pyexamples/sample_data/graph.txt"))
-# (parent, child) per edge
-flow.aggregate(set, collect_children)
+# (parent, {child}) per edge
+flow.reduce_epoch(operator.or_)
 # (parent, children) per parent
 
 # TODO: Some sort of state capture here. This will be tricky because
@@ -70,12 +56,10 @@ flow.flat_map(parent_contribs)
 # contribution sums in the worker before sending them to other
 # workers. See
 # https://github.com/frankmcsherry/blog/blob/master/posts/2015-07-08.md#implementation-2-worker-level-aggregation
-flow.accumulate(lambda: collections.defaultdict(float), pre_sum_contrib)
-# {node: sum_contrib per node} per worker
-flow.flat_map(dict.items)
+flow.reduce_epoch_local(operator.add)
 
 # (node, sum_contrib) per node per worker
-flow.aggregate(float, sum_contrib)
+flow.reduce_epoch(operator.add)
 # (node, sum_contrib) per node
 flow.map(sum_to_weight)
 # (node, updated_weight) per node

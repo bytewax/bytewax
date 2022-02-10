@@ -6,6 +6,7 @@ use pyo3::prelude::*;
 use pyo3::types::*;
 use serde::ser::Error;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -32,6 +33,13 @@ pub(crate) mod macros;
 /// newtype and what they are.
 #[derive(Clone, FromPyObject)]
 struct TdPyAny(Py<PyAny>);
+
+/// Rewrite some [`Py`] methods to automatically re-wrap as [`TdPyAny`].
+impl TdPyAny {
+    fn clone_ref(&self, py: Python) -> Self {
+        self.0.clone_ref(py).into()
+    }
+}
 
 /// Have access to all [`Py`] methods.
 impl Deref for TdPyAny {
@@ -63,7 +71,7 @@ impl IntoPy<PyObject> for TdPyAny {
 /// explicit conversion.
 impl IntoPy<PyObject> for &TdPyAny {
     fn into_py(self, _py: Python) -> Py<PyAny> {
-        self.clone_ref(_py)
+        self.0.clone_ref(_py)
     }
 }
 
@@ -78,6 +86,18 @@ impl From<&PyAny> for TdPyAny {
 impl From<Py<PyAny>> for TdPyAny {
     fn from(x: Py<PyAny>) -> Self {
         Self(x)
+    }
+}
+
+/// Allows you to debug print Python objects using their repr.
+impl std::fmt::Debug for TdPyAny {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let s: PyResult<String> = Python::with_gil(|py| {
+            let self_ = self.as_ref(py);
+            let repr = self_.repr()?.to_str()?;
+            Ok(String::from(repr))
+        });
+        f.write_str(&s.map_err(|_| std::fmt::Error {})?)
     }
 }
 
@@ -309,23 +329,34 @@ enum Input {
 /// <https://docs.rs/timely/latest/timely/dataflow/operators/index.html>
 /// for Timely's operators. We try to keep the same semantics here.
 enum Step {
-    Map(TdPyCallable),
-    FlatMap(TdPyCallable),
-    Exchange(TdPyCallable),
-    Filter(TdPyCallable),
-    Inspect(TdPyCallable),
-    InspectEpoch(TdPyCallable),
-    Accumulate {
-        build_new_aggregator: TdPyCallable,
+    Map {
+        mapper: TdPyCallable,
+    },
+    FlatMap {
+        mapper: TdPyCallable,
+    },
+    Filter {
+        predicate: TdPyCallable,
+    },
+    Inspect {
+        inspector: TdPyCallable,
+    },
+    InspectEpoch {
+        inspector: TdPyCallable,
+    },
+    Reduce {
+        reducer: TdPyCallable,
+        is_complete: TdPyCallable,
+    },
+    ReduceEpoch {
         reducer: TdPyCallable,
     },
-    StateMachine {
-        build_new_aggregator: TdPyCallable,
+    ReduceEpochLocal {
         reducer: TdPyCallable,
     },
-    Aggregate {
-        build_new_aggregator: TdPyCallable,
-        reducer: TdPyCallable,
+    MapStateful {
+        builder: TdPyCallable,
+        mapper: TdPyCallable,
     },
 }
 
@@ -350,96 +381,190 @@ impl Dataflow {
         }
     }
 
-    fn map(&mut self, f: TdPyCallable) {
-        self.steps.push(Step::Map(f));
+    /// **Map** is a one-to-one transformation of items.
+    ///
+    /// It calls a function `mapper(item: Any) => updated_item: Any`
+    /// on each item.
+    ///
+    /// It emits each transformed item downstream.
+    fn map(&mut self, mapper: TdPyCallable) {
+        self.steps.push(Step::Map { mapper });
     }
 
-    fn flat_map(&mut self, f: TdPyCallable) {
-        self.steps.push(Step::FlatMap(f));
+    /// **Flat Map** is a one-to-many transformation of items.
+    ///
+    /// It calls a function `mapper(item: Any) => emit: Iterable[Any]`
+    /// on each item.
+    ///
+    /// It emits each element in the downstream iterator individually.
+    fn flat_map(&mut self, mapper: TdPyCallable) {
+        self.steps.push(Step::FlatMap { mapper });
     }
 
-    fn exchange(&mut self, f: TdPyCallable) {
-        self.steps.push(Step::Exchange(f));
+    /// **Filter** selectively keeps only some items.
+    ///
+    /// It calls a function `predicate(item: Any) => should_emit:
+    /// bool` on each item.
+    ///
+    /// It emits the item downstream unmodified if the predicate
+    /// returns `True`.
+    fn filter(&mut self, predicate: TdPyCallable) {
+        self.steps.push(Step::Filter { predicate });
     }
 
-    fn filter(&mut self, f: TdPyCallable) {
-        self.steps.push(Step::Filter(f));
+    /// **Inspect** allows you to observe, but not modify, items.
+    ///
+    /// It calls a function `inspector(item: Any) => None` on each
+    /// item.
+    ///
+    /// The return value is ignored; it emits items downstream
+    /// unmodified.
+    fn inspect(&mut self, inspector: TdPyCallable) {
+        self.steps.push(Step::Inspect { inspector });
     }
 
-    fn inspect(&mut self, f: TdPyCallable) {
-        self.steps.push(Step::Inspect(f));
+    /// **Inspect Epoch** allows you to observe, but not modify, items
+    /// and their epochs.
+    ///
+    /// It calls a function `inspector(epoch: int, item: Any) => None`
+    /// on each item with its epoch.
+    ///
+    /// The return value is ignored; it emits items downstream
+    /// unmodified.
+    fn inspect_epoch(&mut self, inspector: TdPyCallable) {
+        self.steps.push(Step::InspectEpoch { inspector });
     }
 
-    fn inspect_epoch(&mut self, f: TdPyCallable) {
-        self.steps.push(Step::InspectEpoch(f));
-    }
-
-    fn accumulate(&mut self, build_new_aggregator: TdPyCallable, reducer: TdPyCallable) {
-        self.steps.push(Step::Accumulate {
-            build_new_aggregator,
+    /// **Reduce** lets you combine items for a key into an
+    /// aggregator in epoch order.
+    ///
+    /// Since this is a stateful operator, it requires the the input
+    /// stream has items that are `(key, value)` tuples so we can
+    /// ensure that all relevant values are routed to the relevant
+    /// aggregator.
+    ///
+    /// It calls two functions:
+    ///
+    /// - A `reducer(aggregator: Any, value: Any) =>
+    /// updated_aggregator: Any` which combines two values. The
+    /// aggregator is initially the first value seen for a key. Values
+    /// will be passed in epoch order, but no order is defined within
+    /// an epoch.
+    ///
+    /// - An `is_complete(updated_aggregator: Any) => should_emit: bool` which
+    /// returns true if the most recent `(key, aggregator)` should be
+    /// emitted downstream and the aggregator for that key
+    /// forgotten. If there was only a single value for a key, it is
+    /// passed in as the aggregator here.
+    ///
+    /// It emits `(key, aggregator)` tuples downstream when you tell
+    /// it to.
+    fn reduce(&mut self, reducer: TdPyCallable, is_complete: TdPyCallable) {
+        self.steps.push(Step::Reduce {
             reducer,
+            is_complete,
         });
     }
 
-    fn state_machine(&mut self, build_new_aggregator: TdPyCallable, reducer: TdPyCallable) {
-        self.steps.push(Step::StateMachine {
-            build_new_aggregator,
-            reducer,
-        });
+    /// **Reduce Epoch** lets you combine all items for a key within
+    /// an epoch into an aggregator.
+    ///
+    /// This is like `reduce` but marks the aggregator as complete
+    /// automatically at the end of each epoch.
+    ///
+    /// Since this is a stateful operator, it requires the the input
+    /// stream has items that are `(key, value)` tuples so we can
+    /// ensure that all relevant values are routed to the relevant
+    /// aggregator.
+    ///
+    /// It calls a function `reducer(aggregator: Any, value: Any) =>
+    /// updated_aggregator: Any` which combines two values. The
+    /// aggregator is initially the first value seen for a key. Values
+    /// will be passed in arbitrary order.
+    ///
+    /// It emits `(key, aggregator)` tuples downstream at the end of
+    /// each epoch.
+    fn reduce_epoch(&mut self, reducer: TdPyCallable) {
+        self.steps.push(Step::ReduceEpoch { reducer });
     }
 
-    fn aggregate(&mut self, build_new_aggregator: TdPyCallable, reducer: TdPyCallable) {
-        self.steps.push(Step::Aggregate {
-            build_new_aggregator,
-            reducer,
-        });
+    /// **Reduce Epoch Local** lets you combine all items for a key
+    /// within an epoch _on a single worker._
+    ///
+    /// It is exactly like `reduce_epoch` but does no internal
+    /// exchange between workers. You'll probably should use that
+    /// instead unless you are using this as a network-overhead
+    /// optimization.
+    fn reduce_epoch_local(&mut self, reducer: TdPyCallable) {
+        self.steps.push(Step::ReduceEpochLocal { reducer });
+    }
+
+    /// **Stateful Map** is a one-to-one transformation of values in
+    /// `(key, value)` pairs, but allows you to reference a persistent
+    /// state for each key when doing the transformation.
+    ///
+    /// Since this is a stateful operator, it requires the the input
+    /// stream has items that are `(key, value)` tuples so we can
+    /// ensure that all relevant values are routed to the relevant
+    /// state.
+    ///
+    /// It calls two functions:
+    ///
+    /// - A `builder() => new_state: Any` which returns a new state
+    /// and will be called whenever a new key is encountered.
+    ///
+    /// - A `mapper(state: Any, value: Any) => (updated_state: Any,
+    /// updated_value: Any)` which transforms values. Values will be
+    /// passed in epoch order, but no order is defined within an
+    /// epoch. If the updated state is `None`, the state will be
+    /// forgotten.
+    ///
+    /// It emits a `(key, updated_value)` tuple downstream for each
+    /// input item.
+    fn stateful_map(&mut self, builder: TdPyCallable, mapper: TdPyCallable) {
+        self.steps.push(Step::MapStateful { builder, mapper });
     }
 }
 
 // These are all shims which map the Timely Rust API into equivalent
 // calls to Python functions through PyO3.
 
-fn build(f: &TdPyCallable) -> TdPyAny {
-    Python::with_gil(|py| with_traceback!(py, f.call0(py)).into())
+fn build(builder: &TdPyCallable) -> TdPyAny {
+    Python::with_gil(|py| with_traceback!(py, builder.call0(py)).into())
 }
 
-fn map(f: &TdPyCallable, x: TdPyAny) -> TdPyAny {
-    Python::with_gil(|py| with_traceback!(py, f.call1(py, (x,))).into())
+fn map(mapper: &TdPyCallable, item: TdPyAny) -> TdPyAny {
+    Python::with_gil(|py| with_traceback!(py, mapper.call1(py, (item,))).into())
 }
 
-fn flat_map(f: &TdPyCallable, x: TdPyAny) -> TdPyIterator {
-    Python::with_gil(|py| with_traceback!(py, f.call1(py, (x,))?.extract(py)))
+fn flat_map(mapper: &TdPyCallable, item: TdPyAny) -> TdPyIterator {
+    Python::with_gil(|py| with_traceback!(py, mapper.call1(py, (item,))?.extract(py)))
 }
 
-fn exchange(f: &TdPyCallable, x: &TdPyAny) -> u64 {
-    // need to specify signed int to prevent python from converting negative int to unsigned
+fn filter(predicate: &TdPyCallable, item: &TdPyAny) -> bool {
+    Python::with_gil(|py| with_traceback!(py, predicate.call1(py, (item,))?.extract(py)))
+}
+
+fn inspect(inspector: &TdPyCallable, item: &TdPyAny) {
     Python::with_gil(|py| {
-        with_traceback!(py, f.call1(py, (x,))?.extract::<i64>(py).map(|x| x as u64))
-    })
-}
-
-fn filter(f: &TdPyCallable, x: &TdPyAny) -> bool {
-    Python::with_gil(|py| with_traceback!(py, f.call1(py, (x,))?.extract(py)))
-}
-
-fn inspect(f: &TdPyCallable, x: &TdPyAny) {
-    Python::with_gil(|py| {
-        with_traceback!(py, f.call1(py, (x,)));
+        with_traceback!(py, inspector.call1(py, (item,)));
     });
 }
 
-fn inspect_epoch(f: &TdPyCallable, epoch: &u64, x: &TdPyAny) {
+fn inspect_epoch(inspector: &TdPyCallable, epoch: &u64, item: &TdPyAny) {
     Python::with_gil(|py| {
-        with_traceback!(py, f.call1(py, (*epoch, x)));
+        with_traceback!(py, inspector.call1(py, (*epoch, item)));
     });
 }
 
-fn accumulate(f: &TdPyCallable, aggregator: &mut TdPyAny, all_xs_in_epoch: &Vec<TdPyAny>) {
-    Python::with_gil(|py| {
-        let all_xs_in_epoch = all_xs_in_epoch.clone();
-        *aggregator =
-            with_traceback!(py, f.call1(py, (aggregator.clone_ref(py), all_xs_in_epoch))).into();
-    });
+/// Turn a Python 2-tuple into a Rust 2-tuple.
+fn lift_2tuple(key_value_pytuple: TdPyAny) -> (TdPyAny, TdPyAny) {
+    Python::with_gil(|py| with_traceback!(py, key_value_pytuple.as_ref(py).extract()))
+}
+
+/// Turn a Rust 2-tuple into a Python 2-tuple.
+fn wrap_2tuple(key_value: (TdPyAny, TdPyAny)) -> TdPyAny {
+    Python::with_gil(|py| key_value.to_object(py).into())
 }
 
 fn hash(key: &TdPyAny) -> u64 {
@@ -448,42 +573,92 @@ fn hash(key: &TdPyAny) -> u64 {
     hasher.finish()
 }
 
-fn state_machine(
-    f: &TdPyCallable,
-    aggregator: &mut TdPyAny,
+fn reduce(
+    reducer: &TdPyCallable,
+    is_complete: &TdPyCallable,
+    aggregator: &mut Option<TdPyAny>,
     key: &TdPyAny,
     value: TdPyAny,
-) -> (bool, TdPyIterator) {
+) -> (bool, impl IntoIterator<Item = TdPyAny>) {
     Python::with_gil(|py| {
-        let (updated_aggregator, output_xs): (TdPyAny, TdPyIterator) = with_traceback!(
+        let updated_aggregator = match aggregator {
+            Some(aggregator) => {
+                with_traceback!(py, reducer.call1(py, (aggregator.clone_ref(py), value))).into()
+            }
+            None => value,
+        };
+        let should_emit_and_discard_aggregator: bool = with_traceback!(
             py,
-            f.call1(py, (aggregator.clone_ref(py), key, value))?
+            is_complete
+                .call1(py, (updated_aggregator.clone_ref(py),))?
                 .extract(py)
         );
-        let should_discard_aggregator = updated_aggregator.is_none(py);
-        *aggregator = updated_aggregator;
-        (should_discard_aggregator, output_xs)
+
+        *aggregator = Some(updated_aggregator.clone_ref(py));
+
+        if should_emit_and_discard_aggregator {
+            let emit = (key.clone_ref(py), updated_aggregator).to_object(py).into();
+            (true, Some(emit))
+        } else {
+            (false, None)
+        }
     })
 }
 
-/// Turn a Python 2-tuple into a Rust 2-tuple.
-fn lift_2tuple(key_value_pytuple: TdPyAny) -> (TdPyAny, TdPyAny) {
-    Python::with_gil(|py| with_traceback!(py, key_value_pytuple.as_ref(py).extract()))
-}
-
-fn aggregate(f: &TdPyCallable, aggregator: &mut TdPyAny, key: &TdPyAny, value: TdPyAny) {
+fn reduce_epoch(
+    reducer: &TdPyCallable,
+    aggregator: &mut Option<TdPyAny>,
+    _key: &TdPyAny,
+    value: TdPyAny,
+) {
     Python::with_gil(|py| {
-        let updated_aggregator: TdPyAny = with_traceback!(
-            py,
-            f.call1(py, (aggregator.clone_ref(py), key, value))?
-                .extract(py)
-        );
-        *aggregator = updated_aggregator;
+        let updated_aggregator = match aggregator {
+            Some(aggregator) => {
+                with_traceback!(py, reducer.call1(py, (aggregator.clone_ref(py), value))).into()
+            }
+            None => value,
+        };
+        *aggregator = Some(updated_aggregator);
     });
 }
 
-fn emit_2tuple(key: TdPyAny, final_aggregator: TdPyAny) -> TdPyAny {
-    Python::with_gil(|py| (key, final_aggregator).to_object(py).into())
+fn reduce_epoch_local(
+    reducer: &TdPyCallable,
+    aggregators: &mut HashMap<TdPyAny, TdPyAny>,
+    all_key_value_in_epoch: &Vec<(TdPyAny, TdPyAny)>,
+) {
+    Python::with_gil(|py| {
+        for (key, value) in all_key_value_in_epoch {
+            aggregators
+                .entry(key.clone_ref(py))
+                .and_modify(|aggregator| {
+                    *aggregator =
+                        with_traceback!(py, reducer.call1(py, (aggregator.clone_ref(py), value)))
+                            .into()
+                })
+                .or_insert(value.clone_ref(py));
+        }
+    });
+}
+
+fn stateful_map(
+    mapper: &TdPyCallable,
+    state: &mut TdPyAny,
+    key: &TdPyAny,
+    value: TdPyAny,
+) -> (bool, impl IntoIterator<Item = TdPyAny>) {
+    Python::with_gil(|py| {
+        let (updated_state, emit_value): (TdPyAny, TdPyAny) = with_traceback!(
+            py,
+            mapper.call1(py, (state.clone_ref(py), value))?.extract(py)
+        );
+
+        *state = updated_state;
+
+        let discard_state = Python::with_gil(|py| state.is_none(py));
+        let emit = (key, emit_value).to_object(py).into();
+        (discard_state, std::iter::once(emit))
+    })
 }
 
 // End of shim functions.
@@ -512,10 +687,10 @@ impl Pump {
     fn pump(&mut self) {
         Python::with_gil(|py| {
             let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
-            if let Some(epoch_x_pytuple) = pull_from_pyiter.next() {
-                let (epoch, x) = with_traceback!(py, epoch_x_pytuple?.extract());
+            if let Some(epoch_item_pytuple) = pull_from_pyiter.next() {
+                let (epoch, item) = with_traceback!(py, epoch_item_pytuple?.extract());
                 self.push_to_timely.advance_to(epoch);
-                self.push_to_timely.send(x);
+                self.push_to_timely.send(item);
             } else {
                 self.pyiter_is_empty = true;
             }
@@ -549,82 +724,78 @@ where
         let steps = &dataflow.steps;
         for step in steps {
             match step {
-                Step::Map(f) => {
+                Step::Map { mapper } => {
                     // All these closure lifetimes are static, so tell
                     // Python's GC that there's another pointer to the
                     // mapping function that's going to hang around
                     // for a while when it's moved into the closure.
-                    let f = f.clone_ref(py);
-                    stream = stream.map(move |x| map(&f, x));
+                    let mapper = mapper.clone_ref(py);
+                    stream = stream.map(move |item| map(&mapper, item));
                 }
-                Step::FlatMap(f) => {
-                    let f = f.clone_ref(py);
-                    stream = stream.flat_map(move |x| flat_map(&f, x));
+                Step::FlatMap { mapper } => {
+                    let mapper = mapper.clone_ref(py);
+                    stream = stream.flat_map(move |item| flat_map(&mapper, item));
                 }
-                Step::Exchange(f) => {
-                    let f = f.clone_ref(py);
-                    stream = stream.exchange(move |x| exchange(&f, x));
+                Step::Filter { predicate } => {
+                    let predicate = predicate.clone_ref(py);
+                    stream = stream.filter(move |item| filter(&predicate, item));
                 }
-                Step::Filter(f) => {
-                    let f = f.clone_ref(py);
-                    stream = stream.filter(move |x| filter(&f, x));
+                Step::Inspect { inspector } => {
+                    let inspector = inspector.clone_ref(py);
+                    stream = stream.inspect(move |item| inspect(&inspector, item));
                 }
-                Step::Inspect(f) => {
-                    let f = f.clone_ref(py);
-                    stream = stream.inspect(move |x| inspect(&f, x));
-                }
-                Step::InspectEpoch(f) => {
-                    let f = f.clone_ref(py);
-                    stream = stream.inspect_time(move |epoch, x| inspect_epoch(&f, epoch, x));
-                }
-                Step::Accumulate {
-                    build_new_aggregator,
-                    reducer,
-                } => {
-                    let build_new_aggregator = build_new_aggregator.clone_ref(py);
-                    let reducer = reducer.clone_ref(py);
+                Step::InspectEpoch { inspector } => {
+                    let inspector = inspector.clone_ref(py);
                     stream = stream
-                        .accumulate(None, move |maybe_uninit_aggregator, all_xs_in_epoch| {
-                            let aggregator = maybe_uninit_aggregator
-                                .get_or_insert_with(|| build(&build_new_aggregator));
-                            accumulate(&reducer, aggregator, &all_xs_in_epoch);
-                        })
-                        // Unwrap the Option<TdPyAny> used above just
-                        // to signal a new aggregator.
-                        .flat_map(|maybe_uninit_aggregator| maybe_uninit_aggregator);
+                        .inspect_time(move |epoch, item| inspect_epoch(&inspector, epoch, item));
                 }
-                Step::StateMachine {
-                    build_new_aggregator,
+                Step::Reduce {
                     reducer,
+                    is_complete,
                 } => {
-                    let build_new_aggregator = build_new_aggregator.clone_ref(py);
                     let reducer = reducer.clone_ref(py);
+                    let is_complete = is_complete.clone_ref(py);
                     stream = stream.map(lift_2tuple).state_machine(
-                        move |key, value, maybe_uninit_aggregator: &mut Option<TdPyAny>| {
-                            let aggregator = maybe_uninit_aggregator
-                                .get_or_insert_with(|| build(&build_new_aggregator));
-                            state_machine(&reducer, aggregator, key, value)
+                        move |key, value, aggregator: &mut Option<TdPyAny>| {
+                            reduce(&reducer, &is_complete, aggregator, key, value)
                         },
                         hash,
                     );
                 }
-                Step::Aggregate {
-                    build_new_aggregator,
-                    reducer,
-                } => {
-                    let build_for_fold = build_new_aggregator.clone_ref(py);
-                    let build_for_emit = build_new_aggregator.clone_ref(py);
+                Step::ReduceEpoch { reducer } => {
                     let reducer = reducer.clone_ref(py);
                     stream = stream.map(lift_2tuple).aggregate(
-                        move |key, value, maybe_uninit_aggregator: &mut Option<TdPyAny>| {
-                            let aggregator = maybe_uninit_aggregator
-                                .get_or_insert_with(|| build(&build_for_fold));
-                            aggregate(&reducer, aggregator, key, value);
+                        move |key, value, aggregator: &mut Option<TdPyAny>| {
+                            reduce_epoch(&reducer, aggregator, key, value);
                         },
-                        move |key, maybe_uninit_aggregator: Option<TdPyAny>| {
-                            let aggregator =
-                                maybe_uninit_aggregator.unwrap_or_else(|| build(&build_for_emit));
-                            emit_2tuple(key, aggregator)
+                        move |key, aggregator: Option<TdPyAny>| {
+                            // Aggregator will only exist for keys
+                            // that exist, so it will have been filled
+                            // into Some(value) above.
+                            wrap_2tuple((key, aggregator.unwrap()))
+                        },
+                        hash,
+                    );
+                }
+                Step::ReduceEpochLocal { reducer } => {
+                    let reducer = reducer.clone_ref(py);
+                    stream = stream
+                        .map(lift_2tuple)
+                        .accumulate(
+                            HashMap::new(),
+                            move |aggregators, all_key_value_in_epoch| {
+                                reduce_epoch_local(&reducer, aggregators, &all_key_value_in_epoch);
+                            },
+                        )
+                        .flat_map(|aggregators| aggregators.into_iter().map(wrap_2tuple));
+                }
+                Step::MapStateful { builder, mapper } => {
+                    let builder = builder.clone_ref(py);
+                    let mapper = mapper.clone_ref(py);
+                    stream = stream.map(lift_2tuple).state_machine(
+                        move |key, value, maybe_uninit_state: &mut Option<TdPyAny>| {
+                            let state = maybe_uninit_state.get_or_insert_with(|| build(&builder));
+                            stateful_map(&mapper, state, key, value)
                         },
                         hash,
                     );
