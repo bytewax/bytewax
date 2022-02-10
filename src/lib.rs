@@ -360,6 +360,9 @@ enum Step {
         builder: TdPyCallable,
         mapper: TdPyCallable,
     },
+    Capture {
+        captor: TdPyCallable,
+    },
 }
 
 /// The definition of Bytewax dataflow graph.
@@ -526,6 +529,16 @@ impl Dataflow {
     fn stateful_map(&mut self, builder: TdPyCallable, mapper: TdPyCallable) {
         self.steps.push(Step::MapStateful { builder, mapper });
     }
+
+    /// **Capture** records all `(epoch, item)` pairs that pass by.
+    ///
+    /// All data on all workers will be captured.
+    ///
+    /// It calls a function `captor(epoch_item: tuple[int, Any]) =>
+    /// None` on each item of data. There are no ordering guarantees.
+    fn capture(&mut self, captor: TdPyCallable) {
+        self.steps.push(Step::Capture { captor });
+    }
 }
 
 // These are all shims which map the Timely Rust API into equivalent
@@ -661,6 +674,10 @@ fn stateful_map(
         let emit = (key, emit_value).to_object(py).into();
         (discard_state, std::iter::once(emit))
     })
+}
+
+fn capture(captor: &TdPyCallable, epoch: &u64, item: &TdPyAny) {
+    Python::with_gil(|py| with_traceback!(py, captor.call1(py, ((*epoch, item.clone_ref(py)),))));
 }
 
 // End of shim functions.
@@ -801,6 +818,17 @@ where
                         },
                         hash,
                     );
+                }
+                Step::Capture { captor } => {
+                    let captor = captor.clone_ref(py);
+                    // TODO: Figure out which worker is running
+                    // build_and_run() and make sure we exchange to
+                    // that one so the "controlling process" will be
+                    // the one with the output data. Returning 0 here
+                    // doesn't guaratnee worker 0.
+                    stream = stream
+                        .exchange(|_| 0)
+                        .inspect_time(move |epoch, item| capture(&captor, epoch, item));
                 }
             }
         }
