@@ -9,7 +9,7 @@ Bytewax calls `exhash` internally to do routing.
 
 If you need to route on a new key type, register a new version as is
 done below in your own code. You _must_ make sure that if two objects
-are `exhash(x) == exhash(y)` they also are `x == y`.
+are `x == y` they also are `exhash(x) == exhash(y)`.
 
 """
 from functools import singledispatch
