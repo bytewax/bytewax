@@ -21,6 +21,11 @@ jobs:
         manylinux: auto
         command: build
         args: --release -o dist
+    - name: Run tests
+      run: |
+        pip install bytewax --no-index --find-links dist --force-reinstall
+        pip install --upgrade pytest==7.0.0
+        python -m pytest pytests/
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -42,6 +47,11 @@ jobs:
       with:
         command: build
         args: --release --no-sdist -o dist
+    - name: Run tests
+      run: |
+        pip install bytewax --no-index --find-links dist --force-reinstall
+        pip install --upgrade pytest==7.0.0
+        python -m pytest pytests/
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -58,11 +68,16 @@ jobs:
     - uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
-        architecture: x64      
+        architecture: x64
     - uses: messense/maturin-action@v1
       with:
         command: build
         args: --release --no-sdist -o dist --universal2
+    - name: Run tests
+      run: |
+        pip install bytewax --no-index --find-links dist --force-reinstall
+        pip install --upgrade pytest==7.0.0
+        python -m pytest pytests/
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
