@@ -1,6 +1,8 @@
 extern crate rand;
+#[macro_use(defer)]
+extern crate scopeguard;
 
-use pyo3::exceptions::PyKeyboardInterrupt;
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::*;
@@ -12,6 +14,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Deref;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
@@ -947,115 +950,129 @@ impl Executor {
     /// * `processes` - The number of processes that were started.
     /// * `process` - Which process number this instance represents.
     /// * `processes` - The total number of processes.
-    /// * `ctrlc` - A boolean flag to set a Ctrl-C handler on the main thread.
     /// * `addresses` - An optional list of host/port addresses for other Bytewax workers.
-    #[args(
-        threads = "1",
-        processes = "0",
-        process = "0",
-        ctrlc = true,
-        addresses = "None"
-    )]
+    #[args(threads = 1, processes = 0, process = 0, addresses = "None")]
     fn build_and_run(
         self_: Py<Self>,
         py: Python,
         threads: usize,
         process: usize,
         processes: usize,
-        ctrlc: bool,
         addresses: Option<Vec<String>>,
     ) -> PyResult<()> {
-        // We can't use Python::check_signals() in the worker threads
-        // since according to
-        // https://docs.python.org/3/c-api/exceptions.html#c.PyErr_CheckSignals
-        // it does nothing unless called on the main thread! But that
-        // thread is blocked!
-        let interrupt_flag = Arc::new(AtomicBool::new(false));
-        let interrupt_flag_for_ctrlc_thread = interrupt_flag.clone();
-        // Worker threads have to be gracefully shutdown, but since
-        // the main Python thread blocks below waiting for the workers
-        // to join(), we have to spin up another thread to listen for
-        // interrupts.
-
-        if ctrlc {
-            ctrlc::set_handler(move || {
-                interrupt_flag_for_ctrlc_thread.store(true, Ordering::Relaxed);
-            })
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
-        }
-
-        let (builders, other) = match processes {
-            0 => timely::CommunicationConfig::Process(threads),
-            _ => {
-                let addresses = addresses.unwrap_or_else(|| {
-                    let mut local_addrs = Vec::new();
-                    for index in 0..processes {
-                        local_addrs.push(format!("localhost:{}", 2101 + index));
+        py.allow_threads(move || {
+            let (builders, other) = match processes {
+                0 => timely::CommunicationConfig::Process(threads),
+                _ => {
+                    let addresses = addresses.unwrap_or_else(|| {
+                        let mut local_addrs = Vec::new();
+                        for index in 0..processes {
+                            local_addrs.push(format!("localhost:{}", 2101 + index));
+                        }
+                        local_addrs
+                    });
+                    timely::CommunicationConfig::Cluster {
+                        threads,
+                        process,
+                        addresses,
+                        report: false,
+                        log_fn: Box::new(|_| None),
                     }
-                    local_addrs
-                });
-                timely::CommunicationConfig::Cluster {
-                    threads,
-                    process,
-                    addresses,
-                    report: false,
-                    log_fn: Box::new(|_| None),
                 }
             }
-        }
-        .try_build()
-        .unwrap();
+            .try_build()
+            .map_err(PyRuntimeError::new_err)?;
 
-        let interrupt_flag_for_worker_threads = interrupt_flag.clone();
-        let guards = timely::execute::execute_from(
-            builders,
-            other,
-            WorkerConfig::default(),
-            move |worker| {
-                let mut all_pumps = Vec::new();
-                let mut all_probes = Vec::new();
+            let should_shutdown = Arc::new(AtomicBool::new(false));
+            let should_shutdown_w = should_shutdown.clone();
+            let should_shutdown_p = should_shutdown.clone();
+            // We can drop these if we want to use nightly
+            // Thread::is_running
+            // https://github.com/rust-lang/rust/issues/90470
+            let shutdown_worker_count = Arc::new(AtomicUsize::new(0));
+            let shutdown_worker_count_w = shutdown_worker_count.clone();
+            let shutdown_worker_count_p = shutdown_worker_count.clone();
 
-                Python::with_gil(|py| {
-                    // These borrows should be safe because nobody else
-                    // will have a mut ref. Although they might have
-                    // shared refs.
-                    let self_ = self_.as_ref(py).borrow();
-                    for dataflow in &self_.dataflows {
-                        let dataflow = dataflow.as_ref(py).borrow();
-                        let (pump, probe) = build_dataflow(worker, py, &dataflow);
-                        all_pumps.extend(pump);
-                        all_probes.push(probe);
+            // Panic hook is per-process, so this isn't perfect as you
+            // can't call Executor.build_and_run() concurrently.
+            let default_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                should_shutdown_p.store(true, Ordering::Relaxed);
+                shutdown_worker_count_p.fetch_add(1, Ordering::Relaxed);
+
+                if let Some(pyerr) = info.payload().downcast_ref::<PyErr>() {
+                    Python::with_gil(|py| pyerr.print(py));
+                } else {
+                    default_hook(info);
+                }
+            }));
+            // Don't chain panic hooks if we run multiple
+            // dataflows. Really this is all a hack because the panic
+            // hook is global state. There's some talk of per-thread
+            // panic hooks which would help
+            // here. https://internals.rust-lang.org/t/pre-rfc-should-std-set-hook-have-a-per-thread-version/9518/3
+            defer! {
+                let _ = std::panic::take_hook();
+            }
+
+            let guards = timely::execute::execute_from(
+                builders,
+                other,
+                WorkerConfig::default(),
+                move |worker| {
+                    let mut all_pumps = Vec::new();
+                    let mut all_probes = Vec::new();
+
+                    Python::with_gil(|py| {
+                        // These borrows should be safe because nobody else
+                        // will have a mut ref. Although they might have
+                        // shared refs.
+                        let self_ = self_.as_ref(py).borrow();
+                        for dataflow in &self_.dataflows {
+                            let dataflow = dataflow.as_ref(py).borrow();
+                            let (pump, probe) = build_dataflow(worker, py, &dataflow);
+                            all_pumps.extend(pump);
+                            all_probes.push(probe);
+                        }
+                    });
+
+                    worker_main(all_pumps, all_probes, &should_shutdown_w, worker);
+
+                    // Timely spins until all dataflows have been
+                    // explicitly dropped. Drop everything now to
+                    // allow graceful shutdown.
+                    for dataflow_id in worker.installed_dataflows() {
+                        worker.drop_dataflow(dataflow_id);
                     }
-                });
+                    shutdown_worker_count_w.fetch_add(1, Ordering::Relaxed);
+                },
+            )
+            .map_err(PyRuntimeError::new_err)?;
 
-                worker_main(
-                    all_pumps,
-                    all_probes,
-                    &interrupt_flag_for_worker_threads,
-                    worker,
-                );
-            },
-        )
-        .map_err(pyo3::exceptions::PyException::new_err)?;
+            // Recreating what Python does in Thread.join() to "block"
+            // but also check interrupt handlers.
+            // https://github.com/python/cpython/blob/204946986feee7bc80b233350377d24d20fcb1b8/Modules/_threadmodule.c#L81
+            let workers_in_proc_count = guards.guards().len();
+            while shutdown_worker_count.load(Ordering::Relaxed) < workers_in_proc_count {
+                thread::sleep(Duration::from_millis(1));
+                Python::with_gil(|py| Python::check_signals(py)).map_err(|err| {
+                    should_shutdown.store(true, Ordering::Relaxed);
+                    err
+                })?;
+            }
+            for maybe_worker_panic in guards.join() {
+                // See if we can PR Timely to not cast panic info to
+                // String. Then we could re-raise Python exception in
+                // main thread and not need to print in
+                // panic::set_hook above, although we still need it to
+                // tell the other workers to do graceful shutdown.
+                maybe_worker_panic.map_err(|_| {
+                    PyRuntimeError::new_err("Worker thread died; look for errors above")
+                })?;
+            }
 
-        py.allow_threads(|| {
-            guards.join();
-        });
-
-        // Pass through if we got interrupted.
-        if interrupt_flag.load(Ordering::Relaxed) {
-            Err(PyKeyboardInterrupt::new_err(""))
-        } else {
             Ok(())
-        }
-        // TODO: My understanding is POSIX says you can only have one
-        // signal callback per process. So by setting our custom one
-        // above, we're clobbering Python's default one. So if someone
-        // caught this KeyboardInterrupt and then tried to continue on
-        // in the main thread, ctrl-c would do nothing there. Not sure
-        // how to revert to default. Also FWIW, Python's Thread.join()
-        // *can* be interrupted by ctrl-c, so maybe there's some way
-        // to make this work...
+        })
     }
 }
 

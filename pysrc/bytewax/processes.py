@@ -11,7 +11,6 @@ def start_local(
     executor: Executor,
     number_of_processes: int = 1,
     threads_per_process: int = 1,
-    ctrlc=True,
 ):
     """Start a number of local workers
 
@@ -22,11 +21,10 @@ def start_local(
         executor(:obj:`Executor`): The bytewax executor
         number_of_workers(int): Number of local process workers to start
         threads_per_worker(int): Number of threads per worker process
-        ctrlc(bool): Configure a ctrlc handler for this worker
     """
     for i in range(number_of_processes):
         p = mp.Process(
             target=executor.build_and_run,
-            args=(threads_per_process, i, number_of_processes, ctrlc),
+            args=(threads_per_process, i, number_of_processes),
         )
         p.start()
