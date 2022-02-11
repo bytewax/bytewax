@@ -45,8 +45,7 @@ def _(key: dict, h=None):
 def _(key: int, h=None):
     if h is None:
         h = new_hasher()
-    # This will throw on gigantic arbitrary precision integers.
-    h.update(key.to_bytes(8, byteorder="little"))
+    h.update(key.to_bytes(key.bit_length() // 8 + 1, byteorder="little", signed=True))
     return h
 
 
@@ -54,7 +53,7 @@ def _(key: int, h=None):
 def _(key: str, h=None):
     if h is None:
         h = new_hasher()
-    h.update(key.encode("utf8"))
+    h.update(key.encode())
     return h
 
 

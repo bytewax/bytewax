@@ -4,6 +4,7 @@ from pytest import raises
 
 def test_exhash_int():
     assert exhash(5).digest() == exhash(5).digest()
+    assert exhash(-5).digest() == exhash(-5).digest()
     assert exhash(5).digest() != exhash(4).digest()
 
 
