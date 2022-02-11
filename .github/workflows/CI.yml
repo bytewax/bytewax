@@ -86,7 +86,7 @@ jobs:
       - name: Run tests
         run: |
           pip install --upgrade pytest==7.0.0
-          pytest
+          python -m pytest pytests/
 
   release:
     name: Release
