@@ -1,11 +1,10 @@
-"""Implementation of a consistent hash for "exchanging" data. Hence
-"exhash".
+"""`exhash` is a consistent hash that Bytewax calls internally to
+route data to workers.
 
-Bytewax uses this to ensure that items are routed to workers correctly
-and consistently. We cannot use Python's `__hash__` because is not
-consistent across processes by default.
-
-Bytewax calls `exhash` internally to do routing.
+We do not use Python's `hash` because it is not consistent between
+processes by default and do not want to force modifying hash behavior
+in unrelated code via
+[`PYTHONHASHSEED`](https://docs.python.org/3/using/cmdline.html#envvar-PYTHONHASHSEED).
 
 If you need to route on a new key type, register a new version as is
 done below in your own code. You _must_ make sure that if two objects
