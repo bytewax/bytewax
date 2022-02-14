@@ -3,11 +3,9 @@ import json
 import operator
 import time
 
-import bytewax
-
 import sseclient
 import urllib3
-from bytewax import inp
+from bytewax import Dataflow, inp, parse, run_cluster
 
 
 def open_stream():
@@ -28,8 +26,7 @@ def initial_count(data_dict):
     return data_dict["server_name"], 1
 
 
-ec = bytewax.Executor()
-flow = ec.Dataflow(inp.tumbling_epoch(2.0, open_stream()))
+flow = Dataflow()
 # "event_json"
 flow.map(json.loads)
 # {"server_name": "server.name", ...}
@@ -41,4 +38,4 @@ flow.inspect_epoch(print)
 
 
 if __name__ == "__main__":
-    ec.build_and_run()
+    run_cluster(flow, inp.tumbling_epoch(2.0, open_stream()), **parse.cluster_args())

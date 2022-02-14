@@ -1,8 +1,7 @@
 import collections
 import operator
 
-import bytewax
-from bytewax import inp
+from bytewax import Dataflow, inp, parse, run_cluster
 
 
 # You can define your own functions which add groupings of steps to a
@@ -26,8 +25,7 @@ def inspector(count_count):
     )
 
 
-ec = bytewax.Executor()
-flow = ec.Dataflow(inp.single_batch(open("examples/sample_data/wordcount.txt")))
+flow = Dataflow()
 # "at this point we have full sentences as items in the dataflow"
 flow.flat_map(str.split)
 # "words"
@@ -41,4 +39,8 @@ flow.inspect(inspector)
 
 
 if __name__ == "__main__":
-    ec.build_and_run()
+    run_cluster(
+        flow,
+        inp.single_batch(open("examples/sample_data/wordcount.txt")),
+        **parse.cluster_args(),
+    )

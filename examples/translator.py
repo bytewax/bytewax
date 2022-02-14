@@ -1,9 +1,6 @@
 import bytewax
-from bytewax import inp
+from bytewax import Dataflow, inp, parse, run_cluster
 from transformers import pipeline
-
-
-translator = pipeline("translation_en_to_de")
 
 
 def predict(en):
@@ -16,12 +13,17 @@ def inspector(en_de):
     print(f"{en} -> {de}")
 
 
-ec = bytewax.Executor()
-flow = ec.Dataflow(inp.single_batch(open("examples/sample_data/lyrics.txt")))
+flow = Dataflow()
 flow.map(str.strip)
 flow.map(predict)
 flow.inspect(inspector)
 
 
 if __name__ == "__main__":
-    ec.build_and_run()
+    translator = pipeline("translation_en_to_de")
+
+    run_cluster(
+        flow,
+        inp.single_batch(open("examples/sample_data/lyrics.txt")),
+        **parse.cluster_args(),
+    )

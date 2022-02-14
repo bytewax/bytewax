@@ -2,7 +2,7 @@ import operator
 from dataclasses import dataclass
 from typing import List
 
-import bytewax
+from bytewax import Dataflow, parse, run_cluster
 
 
 @dataclass
@@ -95,8 +95,7 @@ def calc_ctr(search_session):
         return 0.0
 
 
-ec = bytewax.Executor()
-flow = ec.Dataflow(IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS)
+flow = Dataflow()
 # event
 flow.map(group_by_user)
 # (user, [event])
@@ -115,4 +114,4 @@ flow.inspect_epoch(print)
 
 
 if __name__ == "__main__":
-    ec.build_and_run()
+    run_cluster(flow, IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS, **parse.cluster_args())

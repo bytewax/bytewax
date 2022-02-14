@@ -1,7 +1,7 @@
 import re
 import operator
 
-from bytewax import Executor, inp, processes
+from bytewax import inp, run_sync, Dataflow
 
 
 def tokenize(x):
@@ -13,11 +13,10 @@ def initial_count(word):
     return word, 1
 
 
-ec = Executor()
-flow = ec.Dataflow(inp.single_batch(open("benches/benchmarks/collected-works.txt")))
+flow = Dataflow()
 flow.flat_map(tokenize)
 flow.map(initial_count)
 flow.reduce_epoch(operator.add)
 
 if __name__ == "__main__":
-    processes.start_local(ec, number_of_processes=6)
+    run_sync(flow, inp.single_batch(open("benches/benchmarks/collected-works.txt")))

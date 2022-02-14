@@ -3,8 +3,7 @@ import operator
 import time
 from collections import defaultdict
 
-import bytewax
-from bytewax import inp
+from bytewax import Dataflow, inp, parse, run_cluster
 
 from utils import twitter
 
@@ -25,8 +24,7 @@ def initial_count(coin):
     return coin, 1
 
 
-ec = bytewax.Executor()
-flow = ec.Dataflow(inp.tumbling_epoch(2.0, twitter.get_stream()))
+flow = Dataflow()
 # "event_json"
 flow.flat_map(decode)
 # {event_dict}
@@ -40,4 +38,6 @@ flow.inspect(print)
 
 
 if __name__ == "__main__":
-    ec.build_and_run()
+    run_cluster(
+        flow, inp.tumbling_epoch(2.0, twitter.get_stream()), **parse.cluster_args()
+    )

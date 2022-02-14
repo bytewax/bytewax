@@ -1,7 +1,6 @@
 import re
 
-import bytewax
-from bytewax import inp
+from bytewax import Dataflow, inp, parse, run_cluster
 
 
 def file_input():
@@ -25,8 +24,7 @@ def add(count1, count2):
     return count1 + count2
 
 
-ec = bytewax.Executor()
-flow = ec.Dataflow(file_input())
+flow = Dataflow()
 # "Here, we have FULL sentences."
 flow.map(lower)
 # "here, we have lowercase sentences."
@@ -40,4 +38,4 @@ flow.inspect_epoch(print)
 
 
 if __name__ == "__main__":
-    ec.build_and_run()
+    run_cluster(flow, file_input(), **parse.cluster_args())

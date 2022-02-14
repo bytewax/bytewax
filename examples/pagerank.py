@@ -1,7 +1,7 @@
 import collections
 import operator
 
-import bytewax
+from bytewax import Dataflow, parse, run_cluster
 
 
 FIRST_ITERATION = 0
@@ -37,8 +37,7 @@ def sum_to_weight(node_sum):
     return node, updated_weight
 
 
-ec = bytewax.Executor()
-flow = ec.Dataflow(read_edges("examples/sample_data/graph.txt"))
+flow = Dataflow()
 # (parent, {child}) per edge
 flow.reduce_epoch(operator.or_)
 # (parent, children) per parent
@@ -72,4 +71,6 @@ flow.inspect_epoch(print)
 
 
 if __name__ == "__main__":
-    ec.build_and_run()
+    run_cluster(
+        flow, read_edges("examples/sample_data/graph.txt"), **parse.cluster_args()
+    )

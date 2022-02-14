@@ -1,4 +1,4 @@
-import bytewax
+from bytewax import Dataflow, parse, run_cluster
 
 
 def inp():
@@ -22,13 +22,12 @@ def peek(x):
     print(f"peekin at {x}")
 
 
-ec = bytewax.Executor()
-flow = ec.Dataflow(inp())
+flow = Dataflow()
 flow.map(double)
 flow.map(minus_one)
 flow.map(stringy)
-flow.inspect(peek)
+flow.inspect(print)
 
 
 if __name__ == "__main__":
-    ec.build_and_run()
+    run_cluster(flow, inp(), **parse.cluster_args())

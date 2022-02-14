@@ -29,3 +29,6 @@ Changelog = "https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md"
 [metadata]
 long_description= "file: README.md"
 long_description_content_type = "text/markdown"
+
+[dependencies]
+multiprocess = "0.70.12.2"

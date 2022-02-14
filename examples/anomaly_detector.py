@@ -1,7 +1,6 @@
 import random
 
-import bytewax
-from bytewax import inp
+from bytewax import Dataflow, inp, parse, run_cluster
 
 
 def random_datapoints():
@@ -54,8 +53,7 @@ def inspector(metric__value_mu_sigma_anomalous):
     )
 
 
-ec = bytewax.Executor()
-flow = ec.Dataflow(inp.fully_ordered(random_datapoints()))
+flow = Dataflow()
 # ("metric", value)
 flow.stateful_map(lambda: ZTestDetector(2.0), ZTestDetector.push)
 # ("metric", (value, mu, sigma, is_anomalous))
@@ -63,4 +61,4 @@ flow.inspect(inspector)
 
 
 if __name__ == "__main__":
-    ec.build_and_run()
+    run_cluster(flow, inp.fully_ordered(random_datapoints()), **parse.cluster_args())
