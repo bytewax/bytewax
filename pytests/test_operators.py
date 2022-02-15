@@ -19,7 +19,7 @@ def test_map():
     flow.map(add_one)
     flow.capture(out.append)
 
-    ec.build_and_run(ctrlc=False)
+    ec.build_and_run()
 
     assert sorted(out) == sorted(
         [
@@ -45,7 +45,7 @@ def test_flat_map():
     flow.flat_map(split_into_words)
     flow.capture(out.append)
 
-    ec.build_and_run(ctrlc=False)
+    ec.build_and_run()
 
     assert sorted(out) == sorted(
         [
@@ -72,7 +72,7 @@ def test_filter():
     flow.filter(is_odd)
     flow.capture(out.append)
 
-    ec.build_and_run(ctrlc=False)
+    ec.build_and_run()
 
     assert sorted(out) == sorted([(0, 1), (0, 3)])
 
@@ -104,7 +104,7 @@ def test_inspect_epoch():
     )
     flow.inspect_epoch(lambda epoch, item: out.append((epoch, item)))
 
-    ec.build_and_run(ctrlc=False)
+    ec.build_and_run()
 
     assert out == [(1, "a")]
 
@@ -135,7 +135,7 @@ def test_reduce():
     flow.reduce(extend_session, session_complete)
     flow.capture(out.append)
 
-    ec.build_and_run(ctrlc=False)
+    ec.build_and_run()
 
     assert sorted(out) == sorted(
         [
@@ -186,7 +186,7 @@ def test_reduce_epoch():
     flow.reduce_epoch(count)
     flow.capture(out.append)
 
-    ec.build_and_run(ctrlc=False)
+    ec.build_and_run()
 
     assert sorted(out) == sorted(
         [
@@ -239,7 +239,7 @@ def test_stateful_map():
     flow.flat_map(remove_seen)
     flow.capture(out.append)
 
-    ec.build_and_run(ctrlc=False)
+    ec.build_and_run()
 
     assert sorted(out) == sorted(
         [
@@ -260,6 +260,6 @@ def test_capture():
     flow = ec.Dataflow(inp)
     flow.capture(out.append)
 
-    ec.build_and_run(ctrlc=False)
+    ec.build_and_run()
 
     assert sorted(out) == sorted(inp)
