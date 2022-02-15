@@ -3,11 +3,10 @@
 Use these to wrap an existing iterator which yields items.
 """
 import time
-from collections.abc import Iterable
-from typing import Any
+from typing import Any, Iterable, Tuple
 
 
-def single_batch(wrap_iter: Iterable, epoch: int = 0) -> Iterable[tuple[int, Any]]:
+def single_batch(wrap_iter: Iterable, epoch: int = 0) -> Iterable[Tuple[int, Any]]:
     """All input items are part of the same epoch.
 
     Use this for non-streaming-style batch processing.
@@ -27,7 +26,7 @@ def single_batch(wrap_iter: Iterable, epoch: int = 0) -> Iterable[tuple[int, Any
 
 def tumbling_epoch(
     epoch_length_sec: float, wrap_iter: Iterable
-) -> Iterable[tuple[int, Any]]:
+) -> Iterable[Tuple[int, Any]]:
     """All inputs within a tumbling window are part of the same epoch.
 
     >>> items = [
@@ -55,7 +54,7 @@ def tumbling_epoch(
             last_epoch_start_sec = now_sec
 
 
-def fully_ordered(wrap_iter: Iterable) -> Iterable[tuple[int, any]]:
+def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, any]]:
     """Each input item increments the epoch.
 
     Be carful using this in high-volume streams with many workers, as
