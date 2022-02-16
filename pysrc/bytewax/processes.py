@@ -33,8 +33,7 @@ def start_local(
 
 
 def start_kubernetes(
-    executor: Executor,
-    ctrlc=True,
+    executor: Executor
 ):
     """Start a number of workers in a kubernetes cluster
 
@@ -43,7 +42,6 @@ def start_kubernetes(
 
     Args:
         executor(:obj:`Executor`): The bytewax executor
-        ctrlc(bool): Configure a ctrlc handler for this worker
     """
 
     threads_per_process = int(os.getenv("BYTEWAX_WORKERS_PER_PROCESS"))
@@ -55,12 +53,11 @@ def start_kubernetes(
     number_of_processes = int(os.getenv("BYTEWAX_REPLICAS"))
 
     BYTEWAX_HOSTFILE_PATH = os.getenv("BYTEWAX_HOSTFILE_PATH")
-    hostfile = open(BYTEWAX_HOSTFILE_PATH, "r")
-    addresses = hostfile.read().splitlines()
-    hostfile.close()    
+    with open(BYTEWAX_HOSTFILE_PATH, "r") as hostfile:
+        addresses = hostfile.read().splitlines()
 
     p = mp.Process(
         target=executor.build_and_run,
-        args=(threads_per_process, process, number_of_processes, ctrlc, addresses),
+        args=(threads_per_process, process, number_of_processes, addresses),
     )
     p.start()
