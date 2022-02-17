@@ -24,7 +24,7 @@ jobs:
     - name: Run tests
       run: |
         pip install multiprocess
-        pip install bytewax --no-index --find-links dist --force-reinstall
+        pip install bytewax --no-index --find-links dist
         pip install --upgrade pytest==7.0.0
         python -m pytest pytests/
     - name: Upload wheels
