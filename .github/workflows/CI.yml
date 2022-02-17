@@ -23,7 +23,8 @@ jobs:
         args: --release -o dist
     - name: Run tests
       run: |
-        pip install ./dist/bytewax*.whl --force-reinstall
+        pip install multiprocess
+        pip install bytewax --no-index --find-links dist --force-reinstall
         pip install --upgrade pytest==7.0.0
         python -m pytest pytests/
     - name: Upload wheels
