@@ -50,7 +50,8 @@ jobs:
         args: --release --no-sdist -o dist
     - name: Run tests
       run: |
-        pip install ./dist/bytewax*.whl --force-reinstall
+        pip install multiprocess
+        pip install bytewax --no-index --find-links dist
         pip install --upgrade pytest==7.0.0
         python -m pytest pytests/
     - name: Upload wheels
@@ -76,7 +77,8 @@ jobs:
         args: --release --no-sdist -o dist --universal2
     - name: Run tests
       run: |
-        pip install ./dist/bytewax*.whl --force-reinstall
+        pip install multiprocess
+        pip install bytewax --no-index --find-links dist
         pip install --upgrade pytest==7.0.0
         python -m pytest pytests/
     - name: Upload wheels
