@@ -2,6 +2,8 @@ import json
 import time
 from datetime import datetime
 
+import pandas
+
 import pyarrow.parquet as parquet
 from bytewax import Dataflow, inp, main_cluster, parse
 from pandas import DataFrame

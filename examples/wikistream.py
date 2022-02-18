@@ -5,7 +5,7 @@ import time
 
 import sseclient
 import urllib3
-from bytewax import Dataflow, inp, parse, run_cluster
+from bytewax import Dataflow, inp, main_cluster, parse
 
 
 def open_stream():
@@ -22,6 +22,17 @@ def open_stream():
         yield event.data
 
 
+def input_builder(worker_index, worker_count):
+    if worker_index == 0:
+        return inp.tumbling_epoch(2.0, open_stream())
+    else:
+        return []
+
+
+def output_builder(worker_index, worker_count):
+    return print
+
+
 def initial_count(data_dict):
     return data_dict["server_name"], 1
 
@@ -34,8 +45,8 @@ flow.map(initial_count)
 # ("server.name", 1)
 flow.reduce_epoch(operator.add)
 # ("server.name", count)
-flow.inspect_epoch(print)
+flow.capture()
 
 
 if __name__ == "__main__":
-    run_cluster(flow, inp.tumbling_epoch(2.0, open_stream()), **parse.cluster_args())
+    main_cluster(flow, input_builder, output_builder, **parse.cluster_args())

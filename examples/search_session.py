@@ -61,11 +61,13 @@ def group_by_user(event):
 
 
 def session_has_closed(session):
-    return any(isinstance(event, AppClose) for event in session)
+    # isinstance does not work on objects sent through pickling, which
+    # Bytewax does when there are multiple workers.
+    return any(type(event).__name__ == "AppClose" for event in session)
 
 
 def is_search(event):
-    return isinstance(event, Search)
+    return type(event).__name__ == "Search"
 
 
 def remove_key(user_event):
@@ -89,7 +91,7 @@ def split_into_searches(user_session):
 
 
 def calc_ctr(search_session):
-    if any(isinstance(event, ClickResult) for event in search_session):
+    if any(type(event).__name__ == "ClickResult" for event in search_session):
         return 1.0
     else:
         return 0.0

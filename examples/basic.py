@@ -26,8 +26,10 @@ flow = Dataflow()
 flow.map(double)
 flow.map(minus_one)
 flow.map(stringy)
-flow.inspect(print)
+flow.capture()
 
 
 if __name__ == "__main__":
-    run_cluster(flow, inp(), **parse.cluster_args())
+    out = run_cluster(flow, inp(), **parse.cluster_args())
+    for e_i in out:
+        print(e_i)

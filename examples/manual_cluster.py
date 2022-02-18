@@ -64,4 +64,4 @@ if __name__ == "__main__":
     # When using `main_proc()` you have to coordinate ensuring each
     # process knows the address of all other processes in the cluster
     # and their unique process ID.
-    main_proc(flow, input_builder, output_builder, **parse.main_args())
+    main_proc(flow, input_builder, output_builder, **parse.proc_args())

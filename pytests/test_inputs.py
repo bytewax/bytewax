@@ -1,5 +1,5 @@
 from bytewax import Dataflow, run_sync
-from bytewax.inp import single_batch, fully_ordered
+from bytewax.inp import fully_ordered, single_batch
 
 
 def test_single_batch():
