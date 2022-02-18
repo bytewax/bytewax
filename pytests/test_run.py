@@ -1,4 +1,4 @@
-from bytewax import Dataflow, run_cluster, run_sync
+from bytewax import Dataflow, inp, run_cluster, run_sync
 
 from pytest import mark, raises
 
@@ -8,7 +8,7 @@ def test_run_sync():
     flow.map(lambda x: x + 1)
     flow.capture()
 
-    out = run_sync(flow, enumerate(range(3)))
+    out = run_sync(flow, inp.fully_ordered(range(3)))
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 
@@ -17,7 +17,9 @@ def test_run_cluster():
     flow.map(lambda x: x + 1)
     flow.capture()
 
-    out = run_cluster(flow, enumerate(range(3)), proc_count=2)
+    out = run_cluster(
+        flow, inp.fully_ordered(range(3)), proc_count=2, worker_count_per_proc=2
+    )
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 

@@ -13,6 +13,9 @@ def run_sync(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, 
     Handles distributing input and collecting output. You'd commonly
     use this for tests or prototyping in notebooks.
 
+    Input must be finite, otherwise collected output will grow
+    unbounded.
+
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
     >>> flow.capture()
@@ -124,6 +127,10 @@ def run_cluster(
     commonly use this for notebook analysis that needs parallelism and
     higher throughput, or simple stand-alone demo programs.
 
+    Input must be finite because reified into a list before
+    distribution to cluster and otherwise collected output will grow
+    unbounded.
+
     See `main_cluster()` for starting a cluster locally with full
     control over inputs and outputs.
 
@@ -145,10 +152,9 @@ def run_cluster(
         worker_count_per_proc: Number of worker threads to start on
             each process.
     Returns: List of `(epoch, item)` tuples seen by capture operators.
-
     """
     man = Manager()
-    inp = man.list(inp)
+    inp = man.list(list(inp))
 
     def input_builder(worker_index, worker_count):
         for i, epoch_item in enumerate(inp):
