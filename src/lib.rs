@@ -785,20 +785,20 @@ fn build_dataflow<A>(
 where
     A: timely::communication::Allocate,
 {
-    let this_worker_index = timely_worker.index();
-    let total_worker_count = timely_worker.peers();
+    let worker_index = timely_worker.index();
+    let worker_count = timely_worker.peers();
     timely_worker.dataflow(|scope| {
         let mut timely_input = InputHandle::new();
         let mut end_of_steps_probe = ProbeHandle::new();
         let mut stream = timely_input.to_stream(scope);
 
         let worker_input: TdPyIterator = input_builder
-            .call1(py, (this_worker_index, total_worker_count))
+            .call1(py, (worker_index, worker_count))
             .unwrap()
             .extract(py)
             .unwrap();
         let worker_output: TdPyCallable = output_builder
-            .call1(py, (this_worker_index, total_worker_count))
+            .call1(py, (worker_index, worker_count))
             .unwrap()
             .extract(py)
             .unwrap();
@@ -1014,9 +1014,9 @@ fn main_sync(
 /// machine.
 ///
 /// >>> flow = Dataflow()
-/// >>> def input_builder(worker_index, total_worker_count):
+/// >>> def input_builder(worker_index, worker_count):
 /// ...     return enumerate(range(3))
-/// >>> def output_builder(worker_index, total_worker_count):
+/// >>> def output_builder(worker_index, worker_count):
 /// ...     return print
 /// >>> main_proc(flow, input_builder, output_builder)
 ///

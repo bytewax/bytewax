@@ -8,7 +8,7 @@ read_dir = Path("./examples/sample_data/cluster/")
 write_dir = Path("./cluster_out/")
 
 
-def input_builder(worker_index, total_worker_count):
+def input_builder(worker_index, worker_count):
     # List all the input partitions in the reading directory.
     all_partitions = read_dir.glob("*.txt")
     # Then have this worker only read every `n` files so each worker
@@ -16,7 +16,7 @@ def input_builder(worker_index, total_worker_count):
     this_worker_partitions = [
         path
         for i, path in enumerate(all_partitions)
-        if i % total_worker_count == worker_index
+        if i % worker_count == worker_index
     ]
     # Open all the ones that this worker should read.
     files = [open(path) for path in this_worker_partitions]
@@ -25,7 +25,7 @@ def input_builder(worker_index, total_worker_count):
         yield 0, line.strip()
 
 
-def output_builder(worker_index, total_worker_count):
+def output_builder(worker_index, worker_count):
     write_dir.mkdir(exist_ok=True)
     # Open a file that just this worker will write to.
     write_to = open(write_dir / f"{worker_index}.out", "w")

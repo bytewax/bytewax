@@ -24,15 +24,14 @@ def run_sync(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, 
         flow: Dataflow to run.
         inp: Input data.
     Returns: List of `(epoch, item)` tuples seen by capture operators.
-
     """
 
-    def input_builder(worker_index, total_worker_count):
+    def input_builder(worker_index, worker_count):
         return inp
 
     out = []
 
-    def output_builder(worker_index, total_worker_count):
+    def output_builder(worker_index, worker_count):
         return out.append
 
     main_sync(flow, input_builder, output_builder)
@@ -67,9 +66,9 @@ def main_cluster(
     distributed situation.
 
     >>> flow = Dataflow()
-    >>> def input_builder(worker_index, total_worker_count):
+    >>> def input_builder(worker_index, worker_count):
     ...     return enumerate(range(3))
-    >>> def output_builder(worker_index, total_worker_count):
+    >>> def output_builder(worker_index, worker_count):
     ...     return print
     >>> main_cluster(flow, input_builder, output_builder, proc_count=2)
 
@@ -151,14 +150,14 @@ def run_cluster(
     man = Manager()
     inp = man.list(inp)
 
-    def input_builder(worker_index, total_worker_count):
+    def input_builder(worker_index, worker_count):
         for i, epoch_item in enumerate(inp):
-            if i % total_worker_count == worker_index:
+            if i % worker_count == worker_index:
                 yield epoch_item
 
     out = man.list()
 
-    def output_builder(worker_index, total_worker_count):
+    def output_builder(worker_index, worker_count):
         return out.append
 
     main_cluster(flow, input_builder, output_builder, proc_count, worker_count_per_proc)

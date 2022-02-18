@@ -13,7 +13,7 @@ from utils import fake_events
 # Parquet datasets. `fake_events` will generate events for multiple
 # days around today. Each worker will generate independent fake
 # events.
-def input_builder(worker_index, total_worker_count):
+def input_builder(worker_index, worker_count):
     return inp.tumbling_epoch(5.0, fake_events.generate_web_events())
 
 
@@ -33,7 +33,7 @@ def write_parquet(epoch__events_df):
 
 # Each worker writes using the same code because we don't need to
 # further partition because of the UUID described above.
-def output_builder(worker_index, total_worker_count):
+def output_builder(worker_index, worker_count):
     return write_parquet
 
 
