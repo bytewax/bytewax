@@ -23,8 +23,7 @@ jobs:
         args: --release -o dist
     - name: Run tests
       run: |
-        pip install multiprocess
-        pip install bytewax --no-index --find-links dist
+        pip install bytewax --find-links dist -v
         pip install --upgrade pytest==7.0.0
         python -m pytest pytests/
     - name: Upload wheels
@@ -50,8 +49,7 @@ jobs:
         args: --release --no-sdist -o dist
     - name: Run tests
       run: |
-        pip install multiprocess
-        pip install bytewax --no-index --find-links dist
+        pip install bytewax --find-links dist -v
         pip install --upgrade pytest==7.0.0
         python -m pytest pytests/
     - name: Upload wheels
@@ -77,8 +75,7 @@ jobs:
         args: --release --no-sdist -o dist --universal2
     - name: Run tests
       run: |
-        pip install multiprocess
-        pip install bytewax --no-index --find-links dist
+        pip install bytewax --find-links dist -v
         pip install --upgrade pytest==7.0.0
         python -m pytest pytests/
     - name: Upload wheels
