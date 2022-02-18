@@ -131,7 +131,7 @@ impl serde::Serialize for TdPyAny {
     {
         let bytes: Result<Vec<u8>, PyErr> = Python::with_gil(|py| {
             let x = self.as_ref(py);
-            let pickle = py.import("pickle")?;
+            let pickle = py.import("dill")?;
             let bytes = pickle.call_method1("dumps", (x,))?.extract()?;
             Ok(bytes)
         });
@@ -152,7 +152,7 @@ impl<'de> serde::de::Visitor<'de> for PickleVisitor {
         E: serde::de::Error,
     {
         let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
-            let pickle = py.import("pickle")?;
+            let pickle = py.import("dill")?;
             let x = pickle.call_method1("loads", (bytes,))?.into();
             Ok(x)
         });
