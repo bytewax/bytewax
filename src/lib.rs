@@ -884,11 +884,11 @@ where
                 }
                 Step::Capture {} => {
                     let worker_output = worker_output.clone_ref(py);
-                    stream.inspect_time(move |epoch, item| capture(&worker_output, epoch, item));
+                    stream.inspect_time(move |epoch, item| capture(&worker_output, epoch, item))
+                        .probe_with(&mut end_of_steps_probe);
                 }
             }
         }
-        stream.probe_with(&mut end_of_steps_probe);
 
         let pump = Pump::new(worker_input, timely_input);
         (pump, end_of_steps_probe)

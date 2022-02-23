@@ -271,3 +271,25 @@ def test_capture():
     out = run(flow, inp)
 
     assert sorted(out) == sorted(inp)
+
+
+def test_capture_multiple():
+    inp = [
+        (0, "a"),
+        (1, "b"),
+    ]
+    out = []
+
+    flow = Dataflow()
+    flow.capture()
+    flow.map(str.upper)
+    flow.capture()
+
+    out = run(flow, inp)
+
+    assert sorted(out) == sorted([
+        (0, "a"),
+        (0, "A"),
+        (1, "b"),
+        (1, "B"),
+    ])
