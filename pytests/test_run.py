@@ -23,12 +23,20 @@ def test_run_cluster():
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 
+def test_run_requires_caputre():
+    flow = Dataflow()
+
+    with raises(ValueError):
+        run(flow, enumerate(range(3)))
+
+
 def test_run_sync_reraises_exception():
     def boom(item):
         raise RuntimeError()
 
     flow = Dataflow()
     flow.map(boom)
+    flow.capture()
 
     with raises(RuntimeError):
         run(flow, enumerate(range(3)))
@@ -46,6 +54,7 @@ def test_run_cluster_reraises_exception():
 
     flow = Dataflow()
     flow.map(boom)
+    flow.capture()
 
     with raises(RuntimeError):
         run_cluster(flow, enumerate(range(3)), proc_count=2)

@@ -4,7 +4,8 @@
 
 - Capture operator no longer takes arguments. Items that flow through
   those points in the dataflow graph will be processed by the output
-  handlers setup by each execution entry point.
+  handlers setup by each execution entry point. Every dataflow
+  requires at least one capture.
 
 - `Executor.build_and_run()` is replaced with four entry points for
   specific use cases:

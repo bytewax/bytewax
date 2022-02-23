@@ -73,29 +73,30 @@ def test_inspect():
     inp = [
         (1, "a"),
     ]
-    out = []
+    seen = []
 
     flow = Dataflow()
-    flow.inspect(out.append)
+    flow.inspect(seen.append)
     flow.capture()
 
     run(flow, inp)
 
-    assert out == ["a"]
+    assert seen == ["a"]
 
 
 def test_inspect_epoch():
     inp = [
         (1, "a"),
     ]
-    out = []
+    seen = []
 
     flow = Dataflow()
-    flow.inspect_epoch(lambda epoch, item: out.append((epoch, item)))
+    flow.inspect_epoch(lambda epoch, item: seen.append((epoch, item)))
+    flow.capture()
 
     run(flow, inp)
 
-    assert out == [(1, "a")]
+    assert seen == [(1, "a")]
 
 
 def test_reduce():

@@ -585,6 +585,8 @@ impl Dataflow {
     /// this point in the Dataflow to be passed to the Dataflow's
     /// output handler.
     ///
+    /// Every dataflow must contain at least one capture.
+    ///
     /// If you use this operator multiple times, the results will be
     /// combined.
     ///
@@ -781,7 +783,7 @@ fn build_dataflow<A>(
     flow: &Dataflow,
     input_builder: TdPyCallable,
     output_builder: TdPyCallable,
-) -> (Pump, ProbeHandle<u64>)
+) -> Result<(Pump, ProbeHandle<u64>), String>
 where
     A: timely::communication::Allocate,
 {
@@ -790,6 +792,7 @@ where
     timely_worker.dataflow(|scope| {
         let mut timely_input = InputHandle::new();
         let mut end_of_steps_probe = ProbeHandle::new();
+        let mut has_capture = false;
         let mut stream = timely_input.to_stream(scope);
 
         let worker_input: TdPyIterator = input_builder
@@ -887,12 +890,17 @@ where
                     stream
                         .inspect_time(move |epoch, item| capture(&worker_output, epoch, item))
                         .probe_with(&mut end_of_steps_probe);
+                    has_capture = true;
                 }
             }
         }
 
-        let pump = Pump::new(worker_input, timely_input);
-        (pump, end_of_steps_probe)
+        if has_capture {
+            let pump = Pump::new(worker_input, timely_input);
+            Ok((pump, end_of_steps_probe))
+        } else {
+            Err("Dataflow needs to contain at least one capture".into())
+        }
     })
 }
 
@@ -963,26 +971,37 @@ fn run_(
 ) -> PyResult<()> {
     let result = py.allow_threads(move || {
         std::panic::catch_unwind(|| {
-            timely::execute::execute_directly(move |worker| {
+            // TODO: See if we can PR Timely to not cast result error
+            // to a String. Then we could "raise" Python errors from
+            // the builder directly. Probably also as part of the
+            // panic recast issue below.
+            timely::execute::execute_directly::<Result<(), String>, _>(move |worker| {
                 let (pump, probe) = Python::with_gil(|py| {
                     let flow = &flow.as_ref(py).borrow();
                     build_dataflow(worker, py, flow, input_builder, output_builder)
-                });
+                })?;
 
                 worker_main(vec![pump], vec![probe], &AtomicBool::new(false), worker);
 
                 shutdown_worker(worker);
-            });
+
+                Ok(())
+            })
         })
     });
 
-    result.map_err(|box_err| {
-        if let Some(pyerr) = box_err.downcast_ref::<PyErr>() {
-            pyerr.clone_ref(py)
-        } else {
-            PyRuntimeError::new_err("Panic in Rust code")
+    match result {
+        Ok(Ok(ok)) => Ok(ok),
+        Ok(Err(build_err_str)) => Err(PyValueError::new_err(build_err_str)),
+        Err(panic_err) => {
+            let pyerr = if let Some(pyerr) = panic_err.downcast_ref::<PyErr>() {
+                pyerr.clone_ref(py)
+            } else {
+                PyRuntimeError::new_err("Panic in Rust code")
+            };
+            Err(pyerr)
         }
-    })
+    }
 }
 
 /// Execute a dataflow in the current process as part of a cluster.
@@ -1075,7 +1094,7 @@ fn cluster_main(
             let _ = std::panic::take_hook();
         }
 
-        let guards = timely::execute::execute_from(
+        let guards = timely::execute::execute_from::<_, Result<(), String>, _>(
             builders,
             other,
             timely::WorkerConfig::default(),
@@ -1085,12 +1104,14 @@ fn cluster_main(
                     let input_builder = input_builder.clone_ref(py);
                     let output_builder = output_builder.clone_ref(py);
                     build_dataflow(worker, py, flow, input_builder, output_builder)
-                });
+                })?;
 
                 worker_main(vec![pump], vec![probe], &should_shutdown_w, worker);
 
                 shutdown_worker(worker);
                 shutdown_worker_count_w.fetch_add(1, Ordering::Relaxed);
+
+                Ok(())
             },
         )
         .map_err(PyRuntimeError::new_err)?;
@@ -1107,14 +1128,18 @@ fn cluster_main(
             })?;
         }
         for maybe_worker_panic in guards.join() {
-            // See if we can PR Timely to not cast panic info to
-            // String. Then we could re-raise Python exception in
-            // main thread and not need to print in
-            // panic::set_hook above, although we still need it to
-            // tell the other workers to do graceful shutdown.
-            maybe_worker_panic.map_err(|_| {
-                PyRuntimeError::new_err("Worker thread died; look for errors above")
-            })?;
+            // TODO: See if we can PR Timely to not cast panic info to
+            // String. Then we could re-raise Python exception in main
+            // thread and not need to print in panic::set_hook above,
+            // although we still need it to tell the other workers to
+            // do graceful shutdown.
+            match maybe_worker_panic {
+                Ok(Ok(ok)) => Ok(ok),
+                Ok(Err(build_err_str)) => Err(PyValueError::new_err(build_err_str)),
+                Err(_panic_err) => Err(PyRuntimeError::new_err(
+                    "Worker thread died; look for errors above",
+                )),
+            }?;
         }
 
         Ok(())
