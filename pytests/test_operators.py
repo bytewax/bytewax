@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from bytewax import Dataflow, run_cluster, run
+from bytewax import Dataflow, run, run_cluster
 
 
 def test_map():
@@ -287,9 +287,11 @@ def test_capture_multiple():
 
     out = run(flow, inp)
 
-    assert sorted(out) == sorted([
-        (0, "a"),
-        (0, "A"),
-        (1, "b"),
-        (1, "B"),
-    ])
+    assert sorted(out) == sorted(
+        [
+            (0, "a"),
+            (0, "A"),
+            (1, "b"),
+            (1, "B"),
+        ]
+    )

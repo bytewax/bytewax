@@ -1,7 +1,7 @@
 from itertools import chain
 from pathlib import Path
 
-from bytewax import Dataflow, cluster_main, parse
+from bytewax import cluster_main, Dataflow, parse
 
 
 read_dir = Path("./examples/sample_data/cluster/")

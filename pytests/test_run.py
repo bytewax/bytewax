@@ -1,4 +1,4 @@
-from bytewax import Dataflow, inp, run_cluster, run
+from bytewax import Dataflow, inp, run, run_cluster
 
 from pytest import mark, raises
 

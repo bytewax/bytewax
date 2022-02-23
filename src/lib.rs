@@ -884,7 +884,8 @@ where
                 }
                 Step::Capture {} => {
                     let worker_output = worker_output.clone_ref(py);
-                    stream.inspect_time(move |epoch, item| capture(&worker_output, epoch, item))
+                    stream
+                        .inspect_time(move |epoch, item| capture(&worker_output, epoch, item))
                         .probe_with(&mut end_of_steps_probe);
                 }
             }
@@ -951,7 +952,7 @@ where
 /// Shim for `run()` but takes builder functions so we can re-use
 /// `build_dataflow()`.
 #[pyfunction]
-#[pyo3(name="_run")]
+#[pyo3(name = "_run")]
 fn run_internal(
     py: Python,
     flow: Py<Dataflow>,

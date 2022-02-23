@@ -5,7 +5,7 @@ import time
 
 import sseclient
 import urllib3
-from bytewax import Dataflow, inp, spawn_cluster, parse
+from bytewax import Dataflow, inp, parse, spawn_cluster
 
 
 def open_stream():

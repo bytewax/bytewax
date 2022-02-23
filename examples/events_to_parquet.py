@@ -5,7 +5,7 @@ from datetime import datetime
 import pandas
 
 import pyarrow.parquet as parquet
-from bytewax import Dataflow, inp, spawn_cluster, parse
+from bytewax import Dataflow, inp, parse, spawn_cluster
 from pandas import DataFrame
 from pyarrow import Table
 

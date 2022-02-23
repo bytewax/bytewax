@@ -168,6 +168,8 @@ def run_cluster(
     def output_builder(worker_index, worker_count):
         return out.append
 
-    spawn_cluster(flow, input_builder, output_builder, proc_count, worker_count_per_proc)
+    spawn_cluster(
+        flow, input_builder, output_builder, proc_count, worker_count_per_proc
+    )
 
     return out
