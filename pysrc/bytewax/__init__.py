@@ -5,7 +5,7 @@ from multiprocess import Manager, Pool
 from .bytewax import *  # This will import PyO3 module contents.
 
 
-def run_sync(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]:
+def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]:
     """Pass data through a dataflow running in the current thread.
 
     Blocks until execution is complete.
@@ -30,14 +30,16 @@ def run_sync(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, 
     """
 
     def input_builder(worker_index, worker_count):
+        assert worker_index == 0
         return inp
 
     out = []
 
     def output_builder(worker_index, worker_count):
+        assert worker_index == 0
         return out.append
 
-    main_sync(flow, input_builder, output_builder)
+    _run(flow, input_builder, output_builder)
 
     return out
 
@@ -46,14 +48,14 @@ def _gen_addresses(proc_count: int) -> Iterable[str]:
     return [f"localhost:{proc_id + 2101}" for proc_id in range(proc_count)]
 
 
-def main_cluster(
+def spawn_cluster(
     flow: Dataflow,
     input_builder: Callable[[int, int], Iterable[Tuple[int, Any]]],
     output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]],
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
 ) -> List[Tuple[int, Any]]:
-    """Execute a dataflow as a local cluster of processes.
+    """Execute a dataflow as a cluster of processes on this machine.
 
     Blocks until execution is complete.
 
@@ -65,7 +67,7 @@ def main_cluster(
     See `run_cluster()` for a convenience method to pass data through
     a dataflow for notebook development.
 
-    See `main_proc()` for starting one process in a cluster in a
+    See `cluster_main()` for starting one process in a cluster in a
     distributed situation.
 
     >>> flow = Dataflow()
@@ -73,7 +75,7 @@ def main_cluster(
     ...     return enumerate(range(3))
     >>> def output_builder(worker_index, worker_count):
     ...     return print
-    >>> main_cluster(flow, input_builder, output_builder, proc_count=2)
+    >>> spawn_cluster(flow, input_builder, output_builder, proc_count=2)
 
     Args:
         flow: Dataflow to run.
@@ -90,7 +92,7 @@ def main_cluster(
     with Pool(processes=proc_count) as pool:
         futures = [
             pool.apply_async(
-                main_proc,
+                cluster_main,
                 (
                     flow,
                     input_builder,
@@ -117,8 +119,8 @@ def run_cluster(
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
 ) -> List[Tuple[int, Any]]:
-    """Pass data through a dataflow running as a local cluster of
-    processes.
+    """Pass data through a dataflow running as a cluster of processes on
+    this machine.
 
     Blocks until execution is complete.
 
@@ -131,11 +133,11 @@ def run_cluster(
     distribution to cluster and otherwise collected output will grow
     unbounded.
 
-    See `main_cluster()` for starting a cluster locally with full
-    control over inputs and outputs.
+    See `spawn_cluster()` for starting a cluster on this machine with
+    full control over inputs and outputs.
 
-    See `main_proc()` for starting a cluster in a distributed
-    situation.
+    See `cluster_main()` for starting one process in a cluster in a
+    distributed situation.
 
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
@@ -166,6 +168,6 @@ def run_cluster(
     def output_builder(worker_index, worker_count):
         return out.append
 
-    main_cluster(flow, input_builder, output_builder, proc_count, worker_count_per_proc)
+    spawn_cluster(flow, input_builder, output_builder, proc_count, worker_count_per_proc)
 
     return out

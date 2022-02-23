@@ -1,4 +1,4 @@
-from bytewax import Dataflow, inp, run_cluster, run_sync
+from bytewax import Dataflow, inp, run_cluster, run
 
 from pytest import mark, raises
 
@@ -8,7 +8,7 @@ def test_run_sync():
     flow.map(lambda x: x + 1)
     flow.capture()
 
-    out = run_sync(flow, inp.fully_ordered(range(3)))
+    out = run(flow, inp.fully_ordered(range(3)))
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 
@@ -31,7 +31,7 @@ def test_run_sync_reraises_exception():
     flow.map(boom)
 
     with raises(RuntimeError):
-        run_sync(flow, enumerate(range(3)))
+        run(flow, enumerate(range(3)))
 
 
 @mark.skip(

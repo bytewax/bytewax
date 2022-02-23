@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from bytewax import Dataflow, run_cluster, run_sync
+from bytewax import Dataflow, run_cluster, run
 
 
 def test_map():
@@ -17,7 +17,7 @@ def test_map():
     flow.map(add_one)
     flow.capture()
 
-    out = run_sync(flow, inp)
+    out = run(flow, inp)
 
     assert sorted(out) == sorted(
         [
@@ -40,7 +40,7 @@ def test_flat_map():
     flow.flat_map(split_into_words)
     flow.capture()
 
-    out = run_sync(flow, inp)
+    out = run(flow, inp)
 
     assert sorted(out) == sorted(
         [
@@ -64,7 +64,7 @@ def test_filter():
     flow.filter(is_odd)
     flow.capture()
 
-    out = run_sync(flow, inp)
+    out = run(flow, inp)
 
     assert sorted(out) == sorted([(0, 1), (0, 3)])
 
@@ -79,7 +79,7 @@ def test_inspect():
     flow.inspect(out.append)
     flow.capture()
 
-    run_sync(flow, inp)
+    run(flow, inp)
 
     assert out == ["a"]
 
@@ -93,7 +93,7 @@ def test_inspect_epoch():
     flow = Dataflow()
     flow.inspect_epoch(lambda epoch, item: out.append((epoch, item)))
 
-    run_sync(flow, inp)
+    run(flow, inp)
 
     assert out == [(1, "a")]
 
@@ -121,7 +121,7 @@ def test_reduce():
     flow.reduce(extend_session, session_complete)
     flow.capture()
 
-    out = run_sync(flow, inp)
+    out = run(flow, inp)
 
     assert sorted(out) == sorted(
         [
@@ -169,7 +169,7 @@ def test_reduce_epoch():
     flow.reduce_epoch(count)
     flow.capture()
 
-    out = run_sync(flow, inp)
+    out = run(flow, inp)
 
     assert sorted(out) == sorted(
         [
@@ -248,7 +248,7 @@ def test_stateful_map():
     flow.flat_map(remove_seen)
     flow.capture()
 
-    out = run_sync(flow, inp)
+    out = run(flow, inp)
 
     assert sorted(out) == sorted(
         [
@@ -268,6 +268,6 @@ def test_capture():
     flow = Dataflow()
     flow.capture()
 
-    out = run_sync(flow, inp)
+    out = run(flow, inp)
 
     assert sorted(out) == sorted(inp)

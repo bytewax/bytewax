@@ -1,7 +1,7 @@
 from itertools import chain
 from pathlib import Path
 
-from bytewax import Dataflow, main_proc, parse
+from bytewax import Dataflow, cluster_main, parse
 
 
 read_dir = Path("./examples/sample_data/cluster/")
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     # You could imagine reading from / writing to separate Kafaka
     # partitions, S3 blobs, etc.
 
-    # When using `main_proc()` you have to coordinate ensuring each
+    # When using `cluster_main()` you have to coordinate ensuring each
     # process knows the address of all other processes in the cluster
     # and their unique process ID.
-    main_proc(flow, input_builder, output_builder, **parse.proc_args())
+    cluster_main(flow, input_builder, output_builder, **parse.proc_args())

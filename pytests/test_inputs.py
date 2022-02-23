@@ -1,4 +1,4 @@
-from bytewax import Dataflow, run_sync
+from bytewax import Dataflow, run
 from bytewax.inp import fully_ordered, single_batch
 
 
@@ -12,7 +12,7 @@ def test_single_batch():
     flow.map(add_one)
     flow.capture()
 
-    out = run_sync(flow, batch)
+    out = run(flow, batch)
 
     assert sorted(out) == sorted(
         [
@@ -33,7 +33,7 @@ def test_fully_ordered():
     flow.map(add_one)
     flow.capture()
 
-    out = run_sync(flow, ordered)
+    out = run(flow, ordered)
 
     assert sorted(out) == sorted(
         [

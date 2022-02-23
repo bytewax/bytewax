@@ -5,7 +5,7 @@ from datetime import datetime
 import pandas
 
 import pyarrow.parquet as parquet
-from bytewax import Dataflow, inp, main_cluster, parse
+from bytewax import Dataflow, inp, spawn_cluster, parse
 from pandas import DataFrame
 from pyarrow import Table
 
@@ -75,4 +75,4 @@ flow.capture()
 
 
 if __name__ == "__main__":
-    main_cluster(flow, input_builder, output_builder, **parse.cluster_args())
+    spawn_cluster(flow, input_builder, output_builder, **parse.cluster_args())

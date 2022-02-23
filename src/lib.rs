@@ -948,27 +948,11 @@ where
     }
 }
 
-/// Execute a dataflow in the current thread.
-///
-/// Blocks until execution is complete.
-///
-/// See `run_sync()` for a convenience method to pass data through a
-/// dataflow for notebook development.
-///
-/// >>> flow = Dataflow()
-/// >>> def input_builder(_, _):
-/// ...     return enumerate(range(3))
-/// >>> def output_builder(_, _):
-/// ...     return print
-/// >>> main_sync(flow, input_builder, output_builder)
-///
-/// Args:
-///     flow: Dataflow to run.
-///     input_builder: Returns all input to be processed.
-///     output_builder: Returns a function which will be called with
-///         each `(epoch, item)` that passes by a capture operator.
+/// Shim for `run()` but takes builder functions so we can re-use
+/// `build_dataflow()`.
 #[pyfunction]
-fn main_sync(
+#[pyo3(name="_run")]
+fn run_internal(
     py: Python,
     flow: Py<Dataflow>,
     input_builder: TdPyCallable,
@@ -1010,7 +994,7 @@ fn main_sync(
 /// See `run_cluster()` for a convenience method to pass data through
 /// a dataflow for notebook development.
 ///
-/// See `main_cluster()` for starting a simple cluster locally on one
+/// See `spawn_cluster()` for starting a simple cluster locally on one
 /// machine.
 ///
 /// >>> flow = Dataflow()
@@ -1018,7 +1002,7 @@ fn main_sync(
 /// ...     return enumerate(range(3))
 /// >>> def output_builder(worker_index, worker_count):
 /// ...     return print
-/// >>> main_proc(flow, input_builder, output_builder)
+/// >>> cluster_main(flow, input_builder, output_builder)
 ///
 /// Args:
 ///     flow: Dataflow to run.
@@ -1031,7 +1015,7 @@ fn main_sync(
 ///         this cluster (including this one).
 ///     proc_id: Index of this process in cluster; starts from 0.
 #[pyfunction]
-fn main_proc(
+fn cluster_main(
     py: Python,
     flow: Py<Dataflow>,
     input_builder: TdPyCallable,
@@ -1151,8 +1135,8 @@ fn sleep_release_gil(py: Python, secs: u64) {
 fn mod_tiny_dancer(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Dataflow>()?;
 
-    m.add_function(wrap_pyfunction!(main_sync, m)?)?;
-    m.add_function(wrap_pyfunction!(main_proc, m)?)?;
+    m.add_function(wrap_pyfunction!(run_internal, m)?)?;
+    m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
 
     m.add_function(wrap_pyfunction!(sleep_keep_gil, m)?)?;
     m.add_function(wrap_pyfunction!(sleep_release_gil, m)?)?;
