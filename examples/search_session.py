@@ -112,8 +112,11 @@ flow.flat_map(split_into_searches)
 # Calculate search CTR per search.
 flow.map(calc_ctr)
 # TODO: Mix in a "clock" stream so we can get the mean CTR per minute.
-flow.inspect_epoch(print)
+flow.capture()
 
 
 if __name__ == "__main__":
-    run_cluster(flow, IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS, **parse.cluster_args())
+    for epoch, item in run_cluster(
+        flow, IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS, **parse.cluster_args()
+    ):
+        print(epoch, item)

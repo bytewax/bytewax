@@ -31,10 +31,11 @@ flow.inspect(print)
 # flow.map(slow)
 flow.map(busy)
 flow.map(output)
-flow.inspect(print)
+flow.capture()
 
 
 if __name__ == "__main__":
-    run_cluster(
+    for epoch, item in run_cluster(
         flow, enumerate(["in1", "in2", "in3", "in4", "in5"]), **parse.cluster_args()
-    )
+    ):
+        print(epoch, item)

@@ -34,8 +34,9 @@ flow.map(initial_count)
 # ("word", 1)
 flow.reduce_epoch(add)
 # ("word", count)
-flow.inspect_epoch(print)
+flow.capture()
 
 
 if __name__ == "__main__":
-    run_cluster(flow, file_input(), **parse.cluster_args())
+    for epoch, item in run_cluster(flow, file_input(), **parse.cluster_args()):
+        print(epoch, item)

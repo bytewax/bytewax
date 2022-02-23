@@ -31,5 +31,5 @@ flow.capture()
 
 if __name__ == "__main__":
     out = run_cluster(flow, inp(), **parse.cluster_args())
-    for e_i in out:
-        print(e_i)
+    for epoch, item in out:
+        print(epoch, item)

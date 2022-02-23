@@ -34,10 +34,11 @@ flow.map(initial_count)
 # ("coin", 1)
 flow.reduce_epoch(operator.add)
 # ("coin", count)
-flow.inspect(print)
+flow.capture()
 
 
 if __name__ == "__main__":
-    run_cluster(
+    for epoch, item in run_cluster(
         flow, inp.tumbling_epoch(2.0, twitter.get_stream()), **parse.cluster_args()
-    )
+    ):
+        print(epoch, item)

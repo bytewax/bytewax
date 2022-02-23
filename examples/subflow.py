@@ -35,12 +35,13 @@ flow.map(get_count)
 # count
 calc_counts(flow)
 # (that_same_count, num_words_with_the_same_count)
-flow.inspect(inspector)
+flow.capture()
 
 
 if __name__ == "__main__":
-    run_cluster(
+    for epoch, item in run_cluster(
         flow,
         inp.single_batch(open("examples/sample_data/wordcount.txt")),
         **parse.cluster_args(),
-    )
+    ):
+        inspector(item)

@@ -46,10 +46,10 @@ class ZTestDetector:
         return self, (value, self.mu, self.sigma, is_anomalous)
 
 
-def inspector(metric__value_mu_sigma_anomalous):
+def inspector(epoch, metric__value_mu_sigma_anomalous):
     metric, (value, mu, sigma, is_anomalous) = metric__value_mu_sigma_anomalous
     print(
-        f"{metric}: value = {value}, mu = {mu:.2f}, sigma = {sigma:.2f}, {is_anomalous}"
+        f"{metric} @ {epoch}: value = {value}, mu = {mu:.2f}, sigma = {sigma:.2f}, {is_anomalous}"
     )
 
 
@@ -57,8 +57,11 @@ flow = Dataflow()
 # ("metric", value)
 flow.stateful_map(lambda: ZTestDetector(2.0), ZTestDetector.push)
 # ("metric", (value, mu, sigma, is_anomalous))
-flow.inspect(inspector)
+flow.capture()
 
 
 if __name__ == "__main__":
-    run_cluster(flow, inp.fully_ordered(random_datapoints()), **parse.cluster_args())
+    for epoch, item in run_cluster(
+        flow, inp.fully_ordered(random_datapoints()), **parse.cluster_args()
+    ):
+        inspector(epoch, item)

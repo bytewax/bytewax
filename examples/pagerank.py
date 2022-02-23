@@ -67,10 +67,11 @@ flow.map(sum_to_weight)
 # re-join with the graph to get connectivity. Also figure out how to
 # iterate.
 
-flow.inspect_epoch(print)
+flow.capture()
 
 
 if __name__ == "__main__":
-    run_cluster(
+    for epoch, item in run_cluster(
         flow, read_edges("examples/sample_data/graph.txt"), **parse.cluster_args()
-    )
+    ):
+        print(epoch, item)
