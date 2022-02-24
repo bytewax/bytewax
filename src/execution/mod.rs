@@ -14,7 +14,7 @@ use timely::dataflow::ProbeHandle;
 
 use crate::dataflow::{build_dataflow, Dataflow};
 use crate::Pump;
-use crate::TdPyCallable;
+use crate::pyo3_extensions::TdPyCallable;
 
 /// "Main loop" of a Timely worker thread.
 ///

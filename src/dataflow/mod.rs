@@ -8,12 +8,12 @@ use timely::dataflow::*;
 use timely::dataflow::operators::aggregation::*;
 use timely::dataflow::operators::*;
 
+use crate::Pump;
+use crate::pyo3_extensions::{build, hash, lift_2tuple, wrap_2tuple, TdPyAny, TdPyCallable, TdPyIterator};
 use crate::operators::{
     capture, filter, flat_map, inspect, inspect_epoch, map, reduce, reduce_epoch,
     reduce_epoch_local, stateful_map,
 };
-
-use crate::{build, hash, lift_2tuple, wrap_2tuple, Pump, TdPyAny, TdPyCallable, TdPyIterator};
 
 /// The definition of Bytewax dataflow graph.
 ///

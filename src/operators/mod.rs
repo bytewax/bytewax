@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use pyo3::prelude::*;
 
-use crate::{with_traceback, TdPyAny, TdPyCallable, TdPyIterator};
+use crate::with_traceback;
+use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 
 // These are all shims which map the Timely Rust API into equivalent
 // calls to Python functions through PyO3.
