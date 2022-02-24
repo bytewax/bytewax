@@ -1,4 +1,10 @@
-from bytewax import Dataflow, inp, run, run_cluster
+import multiprocessing
+import os
+import signal
+import threading
+from time import sleep
+
+from bytewax import cluster_main, Dataflow, inp, run, run_cluster
 
 from pytest import mark, raises
 
@@ -37,7 +43,7 @@ def test_run_cluster_requires_capture():
         run_cluster(flow, enumerate(range(3)))
 
 
-def test_run_sync_reraises_exception():
+def test_run_reraises_exception():
     def boom(item):
         raise RuntimeError()
 
@@ -65,3 +71,87 @@ def test_run_cluster_reraises_exception():
 
     with raises(RuntimeError):
         run_cluster(flow, enumerate(range(3)), proc_count=2)
+
+
+def test_run_can_be_sigint():
+    is_running = threading.Event()
+    test_pid = os.getpid()
+
+    def send_signal():
+        is_running.wait()
+        os.kill(test_pid, signal.SIGINT)
+
+    def mapper(item):
+        is_running.set()
+
+    flow = Dataflow()
+    flow.map(mapper)
+    flow.capture()
+
+    killer = threading.Thread(target=send_signal)
+    killer.start()
+
+    with raises(KeyboardInterrupt):
+        run(flow, inp.fully_ordered(range(1000)))
+
+    killer.join()
+
+
+def test_run_cluster_can_be_sigint():
+    manager = multiprocessing.Manager()
+    is_running = manager.Event()
+    test_pid = os.getpid()
+
+    def send_signal():
+        is_running.wait()
+        os.kill(test_pid, signal.SIGINT)
+
+    def mapper(item):
+        is_running.set()
+
+    flow = Dataflow()
+    flow.map(mapper)
+    flow.capture()
+
+    killer = threading.Thread(target=send_signal)
+    killer.start()
+
+    with raises(KeyboardInterrupt):
+        run_cluster(
+            flow, inp.fully_ordered(range(1000)), proc_count=2, worker_count_per_proc=2
+        )
+
+    killer.join()
+
+
+def test_cluster_main_can_be_sigint():
+    is_running = threading.Event()
+    test_pid = os.getpid()
+
+    def input_builder(worker_index, worker_count):
+        return inp.fully_ordered(range(1000))
+
+    def output_builder(worker_index, worker_count):
+        def out(epoch_item):
+            pass
+
+        return out
+
+    def send_signal():
+        is_running.wait()
+        os.kill(test_pid, signal.SIGINT)
+
+    def mapper(item):
+        is_running.set()
+
+    flow = Dataflow()
+    flow.map(mapper)
+    flow.capture()
+
+    killer = threading.Thread(target=send_signal)
+    killer.start()
+
+    with raises(KeyboardInterrupt):
+        cluster_main(flow, input_builder, output_builder, [], 0, 1)
+
+    killer.join()
