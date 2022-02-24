@@ -1,13 +1,13 @@
-use std::fmt;
-use std::ops::Deref;
 use std::collections::hash_map::DefaultHasher;
+use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Deref;
 
-use pyo3::prelude::*;
-use pyo3::types::*;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
+use pyo3::prelude::*;
+use pyo3::types::*;
 use serde::ser::Error;
 
 use crate::with_traceback;
@@ -155,7 +155,6 @@ impl<'de> serde::Deserialize<'de> for TdPyAny {
 /// Timely requires this whenever it internally "groups by".
 impl PartialEq for TdPyAny {
     fn eq(&self, other: &Self) -> bool {
-
         Python::with_gil(|py| {
             // Don't use Py.eq or PyAny.eq since it only checks
             // pointer identity.
