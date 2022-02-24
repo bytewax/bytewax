@@ -1,9 +1,11 @@
+#![allow(non_snake_case)]
 extern crate rand;
 #[macro_use(defer)]
 extern crate scopeguard;
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use serde::ser::Error;
@@ -19,7 +21,6 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use timely::WorkerConfig;
 
 use timely::dataflow::operators::aggregation::*;
 use timely::dataflow::operators::*;
@@ -131,7 +132,7 @@ impl serde::Serialize for TdPyAny {
     {
         let bytes: Result<Vec<u8>, PyErr> = Python::with_gil(|py| {
             let x = self.as_ref(py);
-            let pickle = py.import("pickle")?;
+            let pickle = py.import("dill")?;
             let bytes = pickle.call_method1("dumps", (x,))?.extract()?;
             Ok(bytes)
         });
@@ -152,7 +153,7 @@ impl<'de> serde::de::Visitor<'de> for PickleVisitor {
         E: serde::de::Error,
     {
         let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
-            let pickle = py.import("pickle")?;
+            let pickle = py.import("dill")?;
             let x = pickle.call_method1("loads", (bytes,))?.into();
             Ok(x)
         });
@@ -243,18 +244,6 @@ impl From<&PyIterator> for TdPyIterator {
     }
 }
 
-/// Restricted Rust interface that only makes sense for iterators.
-///
-/// Just pass through to [`Py`].
-///
-/// This is mostly empty because [`Iterator`] does the heavy lifting
-/// for defining the iterator API.
-impl TdPyIterator {
-    fn clone_ref(&self, py: Python) -> Self {
-        Self(self.0.clone_ref(py))
-    }
-}
-
 impl Iterator for TdPyIterator {
     type Item = TdPyAny;
 
@@ -286,6 +275,12 @@ impl<'source> FromPyObject<'source> for TdPyCallable {
     }
 }
 
+impl ToPyObject for TdPyCallable {
+    fn to_object(&self, py: Python) -> Py<PyAny> {
+        self.0.clone_ref(py)
+    }
+}
+
 /// Restricted Rust interface that only makes sense on callable
 /// objects.
 ///
@@ -302,40 +297,6 @@ impl TdPyCallable {
     fn call1(&self, py: Python, args: impl IntoPy<Py<PyTuple>>) -> PyResult<Py<PyAny>> {
         self.0.call1(py, args)
     }
-}
-
-/// Styles of input for a Bytewax dataflow. Built as part of
-/// calling [`Dataflow::new`].
-///
-/// PyO3 will automatically generate one of these given the Python
-/// object is an iterator or a callable.
-#[derive(FromPyObject)]
-enum Input {
-    /// A dataflow that uses a Singleton as its input will receive
-    /// data from a single Python `Iterator[Tuple[int, Any]]` where
-    /// the `int` is the timestamp for that element and `Any` is the
-    /// data element itself.
-    ///
-    /// Only worker `0` will run this iterator and then we'll
-    /// immediately distribute the items to every worker randomly.
-    // Have PyO3 ignore that this is a named field and just try to
-    // make a TdPyIterator out of the argument it's trying to turn
-    // into this.
-    #[pyo3(transparent)]
-    Singleton { worker_0s_input: TdPyIterator },
-
-    /// A dataflow that uses a Partitioned input will have each worker
-    /// generate its own input from a builder function `def
-    /// build(worker_index: int, total_workers: int) ->
-    /// Iterable[Tuple[int, Any]]` where `int` is the timestamp for
-    /// that element and `Any` is the data element itself.
-    ///
-    /// Each worker will call this function independently so they
-    /// should return disjoint data.
-    #[pyo3(transparent)]
-    Partitioned {
-        per_worker_input_builder: TdPyCallable,
-    },
 }
 
 /// The definition of one step in a Bytewax dataflow graph.
@@ -371,13 +332,82 @@ enum Step {
     ReduceEpochLocal {
         reducer: TdPyCallable,
     },
-    MapStateful {
+    StatefulMap {
         builder: TdPyCallable,
         mapper: TdPyCallable,
     },
-    Capture {
-        captor: TdPyCallable,
-    },
+    Capture {},
+}
+
+/// Represent Steps in Python as (name, funcs...) tuples.
+///
+/// Required for pickling.
+impl ToPyObject for Step {
+    fn to_object(&self, py: Python) -> Py<PyAny> {
+        match self {
+            Self::Map { mapper } => ("Map", mapper).to_object(py),
+            Self::FlatMap { mapper } => ("FlatMap", mapper).to_object(py),
+            Self::Filter { predicate } => ("Filter", predicate).to_object(py),
+            Self::Inspect { inspector } => ("Inspect", inspector).to_object(py),
+            Self::InspectEpoch { inspector } => ("InspectEpoch", inspector).to_object(py),
+            Self::Reduce {
+                reducer,
+                is_complete,
+            } => ("Reduce", reducer, is_complete).to_object(py),
+            Self::ReduceEpoch { reducer } => ("ReduceEpoch", reducer).to_object(py),
+            Self::ReduceEpochLocal { reducer } => ("ReduceEpochLocal", reducer).to_object(py),
+            Self::StatefulMap { builder, mapper } => ("StatefulMap", builder, mapper).to_object(py),
+            Self::Capture {} => ("Capture",).to_object(py),
+        }
+        .into()
+    }
+}
+
+/// Decode Steps from Python (name, funcs...) tuples.
+///
+/// Required for pickling.
+impl<'source> FromPyObject<'source> for Step {
+    fn extract(obj: &'source PyAny) -> PyResult<Self> {
+        let tuple: &PySequence = obj.downcast()?;
+
+        if let Ok(("Map", mapper)) = tuple.extract() {
+            return Ok(Self::Map { mapper });
+        }
+        if let Ok(("FlatMap", mapper)) = tuple.extract() {
+            return Ok(Self::FlatMap { mapper });
+        }
+        if let Ok(("Filter", predicate)) = tuple.extract() {
+            return Ok(Self::Filter { predicate });
+        }
+        if let Ok(("Inspect", inspector)) = tuple.extract() {
+            return Ok(Self::Inspect { inspector });
+        }
+        if let Ok(("InspectEpoch", inspector)) = tuple.extract() {
+            return Ok(Self::InspectEpoch { inspector });
+        }
+        if let Ok(("Reduce", reducer, is_complete)) = tuple.extract() {
+            return Ok(Self::Reduce {
+                reducer,
+                is_complete,
+            });
+        }
+        if let Ok(("ReduceEpoch", reducer)) = tuple.extract() {
+            return Ok(Self::ReduceEpoch { reducer });
+        }
+        if let Ok(("ReduceEpochLocal", reducer)) = tuple.extract() {
+            return Ok(Self::ReduceEpochLocal { reducer });
+        }
+        if let Ok(("StatefulMap", builder, mapper)) = tuple.extract() {
+            return Ok(Self::StatefulMap { builder, mapper });
+        }
+        if let Ok(("Capture",)) = tuple.extract() {
+            return Ok(Self::Capture {});
+        }
+
+        Err(PyValueError::new_err(format!(
+            "bad python repr when unpickling Step: {obj:?}"
+        )))
+    }
 }
 
 /// The definition of Bytewax dataflow graph.
@@ -385,20 +415,27 @@ enum Step {
 /// This isn't actually used during execution, just during building.
 ///
 /// TODO: Right now this is just a linear dataflow only.
-#[pyclass]
+#[pyclass(module = "bytewax")] // Required to support pickling.
 struct Dataflow {
-    input: Input,
     steps: Vec<Step>,
 }
 
 #[pymethods]
 impl Dataflow {
     #[new]
-    fn new(input: Input) -> Self {
-        Self {
-            input: input,
-            steps: Vec::new(),
-        }
+    fn new() -> Self {
+        Self { steps: Vec::new() }
+    }
+
+    /// Pickle a Dataflow as a list of the steps.
+    fn __getstate__(&self, py: Python) -> PyResult<Py<PyAny>> {
+        Ok(self.steps.to_object(py))
+    }
+
+    /// Unpickle a Dataflow as a list of the steps.
+    fn __setstate__(&mut self, py: Python, state: Py<PyAny>) -> PyResult<()> {
+        self.steps = state.as_ref(py).extract()?;
+        Ok(())
     }
 
     /// **Map** is a one-to-one transformation of items.
@@ -542,17 +579,22 @@ impl Dataflow {
     /// It emits a `(key, updated_value)` tuple downstream for each
     /// input item.
     fn stateful_map(&mut self, builder: TdPyCallable, mapper: TdPyCallable) {
-        self.steps.push(Step::MapStateful { builder, mapper });
+        self.steps.push(Step::StatefulMap { builder, mapper });
     }
 
-    /// **Capture** records all `(epoch, item)` pairs that pass by.
+    /// **Capture** causes all `(epoch, item)` tuples that pass by
+    /// this point in the Dataflow to be passed to the Dataflow's
+    /// output handler.
     ///
-    /// All data on all workers will be captured.
+    /// Every dataflow must contain at least one capture.
     ///
-    /// It calls a function `captor(epoch_item: tuple[int, Any]) =>
-    /// None` on each item of data. There are no ordering guarantees.
-    fn capture(&mut self, captor: TdPyCallable) {
-        self.steps.push(Step::Capture { captor });
+    /// If you use this operator multiple times, the results will be
+    /// combined.
+    ///
+    /// There are no guarantees on the order that output is passed to
+    /// the handler. Read the attached epoch to discern order.
+    fn capture(&mut self) {
+        self.steps.push(Step::Capture {});
     }
 }
 
@@ -739,23 +781,33 @@ impl Pump {
 fn build_dataflow<A>(
     timely_worker: &mut timely::worker::Worker<A>,
     py: Python,
-    dataflow: &Dataflow,
-) -> (Option<Pump>, ProbeHandle<u64>)
+    flow: &Dataflow,
+    input_builder: TdPyCallable,
+    output_builder: TdPyCallable,
+) -> Result<(Pump, ProbeHandle<u64>), String>
 where
     A: timely::communication::Allocate,
 {
-    let this_worker_index = timely_worker.index();
-    let total_worker_count = timely_worker.peers();
+    let worker_index = timely_worker.index();
+    let worker_count = timely_worker.peers();
     timely_worker.dataflow(|scope| {
         let mut timely_input = InputHandle::new();
         let mut end_of_steps_probe = ProbeHandle::new();
+        let mut has_capture = false;
         let mut stream = timely_input.to_stream(scope);
 
-        if let Input::Singleton { .. } = dataflow.input {
-            stream = stream.exchange(|_| rand::random());
-        }
+        let worker_input: TdPyIterator = input_builder
+            .call1(py, (worker_index, worker_count))
+            .unwrap()
+            .extract(py)
+            .unwrap();
+        let worker_output: TdPyCallable = output_builder
+            .call1(py, (worker_index, worker_count))
+            .unwrap()
+            .extract(py)
+            .unwrap();
 
-        let steps = &dataflow.steps;
+        let steps = &flow.steps;
         for step in steps {
             match step {
                 Step::Map { mapper } => {
@@ -823,7 +875,7 @@ where
                         )
                         .flat_map(|aggregators| aggregators.into_iter().map(wrap_2tuple));
                 }
-                Step::MapStateful { builder, mapper } => {
+                Step::StatefulMap { builder, mapper } => {
                     let builder = builder.clone_ref(py);
                     let mapper = mapper.clone_ref(py);
                     stream = stream.map(lift_2tuple).state_machine(
@@ -834,43 +886,22 @@ where
                         hash,
                     );
                 }
-                Step::Capture { captor } => {
-                    let captor = captor.clone_ref(py);
-                    // TODO: Figure out which worker is running
-                    // build_and_run() and make sure we exchange to
-                    // that one so the "controlling process" will be
-                    // the one with the output data. Returning 0 here
-                    // doesn't guaratnee worker 0.
-                    stream = stream
-                        .exchange(|_| 0)
-                        .inspect_time(move |epoch, item| capture(&captor, epoch, item));
+                Step::Capture {} => {
+                    let worker_output = worker_output.clone_ref(py);
+                    stream
+                        .inspect_time(move |epoch, item| capture(&worker_output, epoch, item))
+                        .probe_with(&mut end_of_steps_probe);
+                    has_capture = true;
                 }
             }
         }
-        stream.probe_with(&mut end_of_steps_probe);
 
-        let pump: Option<Pump> = match &dataflow.input {
-            Input::Singleton { worker_0s_input } => {
-                if this_worker_index == 0 {
-                    let worker_0s_input = worker_0s_input.clone_ref(py);
-                    Some(Pump::new(worker_0s_input, timely_input))
-                } else {
-                    None
-                }
-            }
-            Input::Partitioned {
-                per_worker_input_builder,
-            } => {
-                let this_builders_input_iter = per_worker_input_builder
-                    .call1(py, (this_worker_index, total_worker_count))
-                    .unwrap()
-                    .extract(py)
-                    .unwrap();
-                Some(Pump::new(this_builders_input_iter, timely_input))
-            }
-        };
-
-        (pump, end_of_steps_probe)
+        if has_capture {
+            let pump = Pump::new(worker_input, timely_input);
+            Ok((pump, end_of_steps_probe))
+        } else {
+            Err("Dataflow needs to contain at least one capture".into())
+        }
     })
 }
 
@@ -886,7 +917,7 @@ where
 fn worker_main<A>(
     mut pumps_with_input_remaining: Vec<Pump>,
     mut probes_with_timestamps_inflight: Vec<ProbeHandle<u64>>,
-    interrupt_flag: &Arc<AtomicBool>,
+    interrupt_flag: &AtomicBool,
     worker: &mut timely::worker::Worker<A>,
 ) where
     A: timely::communication::Allocate,
@@ -918,184 +949,210 @@ fn worker_main<A>(
     }
 }
 
-/// Main Bytewax class that handles defining and executing
-/// dataflows.
-///
-/// Create a new dataflow for a stream of input with
-/// [`Dataflow`], add steps to it using the methods within
-/// (e.g. `map`), then build and run it using [`build_and_run`].
-#[pyclass]
-struct Executor {
-    dataflows: Vec<Py<Dataflow>>,
+fn shutdown_worker<A>(worker: &mut timely::worker::Worker<A>)
+where
+    A: timely::communication::Allocate,
+{
+    for dataflow_id in worker.installed_dataflows() {
+        worker.drop_dataflow(dataflow_id);
+    }
 }
 
-#[pymethods]
-impl Executor {
-    #[new]
-    fn new() -> Self {
-        Executor {
-            dataflows: Vec::new(),
+/// Private shim for `run()` but takes builder functions so we can
+/// re-use `build_dataflow()`.
+#[pyfunction]
+fn _run(
+    py: Python,
+    flow: Py<Dataflow>,
+    input_builder: TdPyCallable,
+    output_builder: TdPyCallable,
+) -> PyResult<()> {
+    let result = py.allow_threads(move || {
+        std::panic::catch_unwind(|| {
+            // TODO: See if we can PR Timely to not cast result error
+            // to a String. Then we could "raise" Python errors from
+            // the builder directly. Probably also as part of the
+            // panic recast issue below.
+            timely::execute::execute_directly::<Result<(), String>, _>(move |worker| {
+                let (pump, probe) = Python::with_gil(|py| {
+                    let flow = &flow.as_ref(py).borrow();
+                    build_dataflow(worker, py, flow, input_builder, output_builder)
+                })?;
+
+                worker_main(vec![pump], vec![probe], &AtomicBool::new(false), worker);
+
+                shutdown_worker(worker);
+
+                Ok(())
+            })
+        })
+    });
+
+    match result {
+        Ok(Ok(ok)) => Ok(ok),
+        Ok(Err(build_err_str)) => Err(PyValueError::new_err(build_err_str)),
+        Err(panic_err) => {
+            let pyerr = if let Some(pyerr) = panic_err.downcast_ref::<PyErr>() {
+                pyerr.clone_ref(py)
+            } else {
+                PyRuntimeError::new_err("Panic in Rust code")
+            };
+            Err(pyerr)
         }
     }
+}
 
-    /// Create a new empty dataflow blueprint that you can add steps
-    /// to.
-    #[pyo3(name = "Dataflow")] // Cuz it's sort of the class constructor.
-    fn dataflow(&mut self, py: Python, input: Input) -> PyResult<Py<Dataflow>> {
-        // For some reason we can only return Rust-owned objects in
-        // #[new], which is totally unlike the API of PyList::new(py,
-        // ...) which returns something already on the Python
-        // heap. This means we need to send it to Python right away to
-        // have a Py pointer we can clone into the vec and return now.
-        let dataflow = Py::new(py, Dataflow::new(input))?;
-        self.dataflows.push(dataflow.clone());
-        Ok(dataflow)
-    }
-
-    /// Build all of the previously-defined dataflow blueprints and
-    /// run them.
-    ///
-    ///
-    /// # Arguments
-    ///
-    /// * `threads` - The number of per-process worker threads to use.
-    /// * `processes` - The number of processes that were started.
-    /// * `process` - Which process number this instance represents.
-    /// * `processes` - The total number of processes.
-    /// * `addresses` - An optional list of host/port addresses for other Bytewax workers.
-    #[args(threads = 1, processes = 0, process = 0, addresses = "None")]
-    fn build_and_run(
-        self_: Py<Self>,
-        py: Python,
-        threads: usize,
-        process: usize,
-        processes: usize,
-        addresses: Option<Vec<String>>,
-    ) -> PyResult<()> {
-        py.allow_threads(move || {
-            let (builders, other) = match processes {
-                0 => timely::CommunicationConfig::Process(threads),
-                _ => {
-                    let addresses = addresses.unwrap_or_else(|| {
-                        let mut local_addrs = Vec::new();
-                        for index in 0..processes {
-                            local_addrs.push(format!("localhost:{}", 2101 + index));
-                        }
-                        local_addrs
-                    });
-                    timely::CommunicationConfig::Cluster {
-                        threads,
-                        process,
-                        addresses,
-                        report: false,
-                        log_fn: Box::new(|_| None),
-                    }
-                }
+/// Execute a dataflow in the current process as part of a cluster.
+///
+/// You have to coordinate starting up all the processes in the
+/// cluster and ensuring they each are assigned a unique ID and know
+/// the addresses of other processes. You'd commonly use this for
+/// starting processes as part of a Kubernetes cluster.
+///
+/// Blocks until execution is complete.
+///
+/// See `run_cluster()` for a convenience method to pass data through
+/// a dataflow for notebook development.
+///
+/// See `spawn_cluster()` for starting a simple cluster locally on one
+/// machine.
+///
+/// >>> flow = Dataflow()
+/// >>> def input_builder(worker_index, worker_count):
+/// ...     return enumerate(range(3))
+/// >>> def output_builder(worker_index, worker_count):
+/// ...     return print
+/// >>> cluster_main(flow, input_builder, output_builder)
+///
+/// Args:
+///     flow: Dataflow to run.
+///     input_builder: Returns input that each worker thread should
+///         process.
+///     output_builder: Returns a callback function for each worker
+///         thread, called with `(epoch, item)` whenever and item
+///         passes by a capture operator on this process.
+///     addresses: List of host/port addresses for all processes in
+///         this cluster (including this one).
+///     proc_id: Index of this process in cluster; starts from 0.
+#[pyfunction]
+fn cluster_main(
+    py: Python,
+    flow: Py<Dataflow>,
+    input_builder: TdPyCallable,
+    output_builder: TdPyCallable,
+    addresses: Option<Vec<String>>,
+    proc_id: usize,
+    worker_count_per_proc: usize,
+) -> PyResult<()> {
+    py.allow_threads(move || {
+        let addresses = addresses.unwrap_or_default();
+        let (builders, other) = if addresses.len() < 1 {
+            timely::CommunicationConfig::Process(worker_count_per_proc)
+        } else {
+            timely::CommunicationConfig::Cluster {
+                threads: worker_count_per_proc,
+                process: proc_id,
+                addresses,
+                report: false,
+                log_fn: Box::new(|_| None),
             }
-            .try_build()
-            .map_err(PyRuntimeError::new_err)?;
+        }
+        .try_build()
+        .map_err(PyRuntimeError::new_err)?;
 
-            let should_shutdown = Arc::new(AtomicBool::new(false));
-            let should_shutdown_w = should_shutdown.clone();
-            let should_shutdown_p = should_shutdown.clone();
-            // We can drop these if we want to use nightly
-            // Thread::is_running
-            // https://github.com/rust-lang/rust/issues/90470
-            let shutdown_worker_count = Arc::new(AtomicUsize::new(0));
-            let shutdown_worker_count_w = shutdown_worker_count.clone();
-            let shutdown_worker_count_p = shutdown_worker_count.clone();
+        let should_shutdown = Arc::new(AtomicBool::new(false));
+        let should_shutdown_w = should_shutdown.clone();
+        let should_shutdown_p = should_shutdown.clone();
+        // We can drop these if we want to use nightly
+        // Thread::is_running
+        // https://github.com/rust-lang/rust/issues/90470
+        let shutdown_worker_count = Arc::new(AtomicUsize::new(0));
+        let shutdown_worker_count_w = shutdown_worker_count.clone();
 
-            // Panic hook is per-process, so this isn't perfect as you
-            // can't call Executor.build_and_run() concurrently.
-            let default_hook = std::panic::take_hook();
-            std::panic::set_hook(Box::new(move |info| {
-                should_shutdown_p.store(true, Ordering::Relaxed);
-                shutdown_worker_count_p.fetch_add(1, Ordering::Relaxed);
+        // Panic hook is per-process, so this isn't perfect as you
+        // can't call Executor.build_and_run() concurrently.
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            should_shutdown_p.store(true, Ordering::Relaxed);
 
-                if let Some(pyerr) = info.payload().downcast_ref::<PyErr>() {
-                    Python::with_gil(|py| pyerr.print(py));
-                } else {
-                    default_hook(info);
-                }
-            }));
-            // Don't chain panic hooks if we run multiple
-            // dataflows. Really this is all a hack because the panic
-            // hook is global state. There's some talk of per-thread
-            // panic hooks which would help
-            // here. https://internals.rust-lang.org/t/pre-rfc-should-std-set-hook-have-a-per-thread-version/9518/3
-            defer! {
-                let _ = std::panic::take_hook();
+            if let Some(pyerr) = info.payload().downcast_ref::<PyErr>() {
+                Python::with_gil(|py| pyerr.print(py));
+            } else {
+                default_hook(info);
             }
+        }));
+        // Don't chain panic hooks if we run multiple
+        // dataflows. Really this is all a hack because the panic
+        // hook is global state. There's some talk of per-thread
+        // panic hooks which would help
+        // here. https://internals.rust-lang.org/t/pre-rfc-should-std-set-hook-have-a-per-thread-version/9518/3
+        defer! {
+            let _ = std::panic::take_hook();
+        }
 
-            let guards = timely::execute::execute_from(
-                builders,
-                other,
-                WorkerConfig::default(),
-                move |worker| {
-                    let mut all_pumps = Vec::new();
-                    let mut all_probes = Vec::new();
-
-                    Python::with_gil(|py| {
-                        // These borrows should be safe because nobody else
-                        // will have a mut ref. Although they might have
-                        // shared refs.
-                        let self_ = self_.as_ref(py).borrow();
-                        for dataflow in &self_.dataflows {
-                            let dataflow = dataflow.as_ref(py).borrow();
-                            let (pump, probe) = build_dataflow(worker, py, &dataflow);
-                            all_pumps.extend(pump);
-                            all_probes.push(probe);
-                        }
-                    });
-
-                    worker_main(all_pumps, all_probes, &should_shutdown_w, worker);
-
-                    // Timely spins until all dataflows have been
-                    // explicitly dropped. Drop everything now to
-                    // allow graceful shutdown.
-                    for dataflow_id in worker.installed_dataflows() {
-                        worker.drop_dataflow(dataflow_id);
-                    }
+        let guards = timely::execute::execute_from::<_, Result<(), String>, _>(
+            builders,
+            other,
+            timely::WorkerConfig::default(),
+            move |worker| {
+                defer! {
                     shutdown_worker_count_w.fetch_add(1, Ordering::Relaxed);
-                },
-            )
-            .map_err(PyRuntimeError::new_err)?;
+                }
 
-            // Recreating what Python does in Thread.join() to "block"
-            // but also check interrupt handlers.
-            // https://github.com/python/cpython/blob/204946986feee7bc80b233350377d24d20fcb1b8/Modules/_threadmodule.c#L81
-            let workers_in_proc_count = guards.guards().len();
-            while shutdown_worker_count.load(Ordering::Relaxed) < workers_in_proc_count {
-                thread::sleep(Duration::from_millis(1));
-                Python::with_gil(|py| Python::check_signals(py)).map_err(|err| {
-                    should_shutdown.store(true, Ordering::Relaxed);
-                    err
+                let (pump, probe) = Python::with_gil(|py| {
+                    let flow = &flow.as_ref(py).borrow();
+                    let input_builder = input_builder.clone_ref(py);
+                    let output_builder = output_builder.clone_ref(py);
+                    build_dataflow(worker, py, flow, input_builder, output_builder)
                 })?;
-            }
-            for maybe_worker_panic in guards.join() {
-                // See if we can PR Timely to not cast panic info to
-                // String. Then we could re-raise Python exception in
-                // main thread and not need to print in
-                // panic::set_hook above, although we still need it to
-                // tell the other workers to do graceful shutdown.
-                maybe_worker_panic.map_err(|_| {
-                    PyRuntimeError::new_err("Worker thread died; look for errors above")
-                })?;
-            }
 
-            Ok(())
-        })
-    }
+                worker_main(vec![pump], vec![probe], &should_shutdown_w, worker);
+
+                shutdown_worker(worker);
+
+                Ok(())
+            },
+        )
+        .map_err(PyRuntimeError::new_err)?;
+
+        // Recreating what Python does in Thread.join() to "block"
+        // but also check interrupt handlers.
+        // https://github.com/python/cpython/blob/204946986feee7bc80b233350377d24d20fcb1b8/Modules/_threadmodule.c#L81
+        let workers_in_proc_count = guards.guards().len();
+        while shutdown_worker_count.load(Ordering::Relaxed) < workers_in_proc_count {
+            thread::sleep(Duration::from_millis(1));
+            Python::with_gil(|py| Python::check_signals(py)).map_err(|err| {
+                should_shutdown.store(true, Ordering::Relaxed);
+                err
+            })?;
+        }
+        for maybe_worker_panic in guards.join() {
+            // TODO: See if we can PR Timely to not cast panic info to
+            // String. Then we could re-raise Python exception in main
+            // thread and not need to print in panic::set_hook above,
+            // although we still need it to tell the other workers to
+            // do graceful shutdown.
+            match maybe_worker_panic {
+                Ok(Ok(ok)) => Ok(ok),
+                Ok(Err(build_err_str)) => Err(PyValueError::new_err(build_err_str)),
+                Err(_panic_err) => Err(PyRuntimeError::new_err(
+                    "Worker thread died; look for errors above",
+                )),
+            }?;
+        }
+
+        Ok(())
+    })
 }
 
 #[pyfunction]
-fn sleep_keep_gil(_py: Python, secs: u64) -> () {
+fn sleep_keep_gil(secs: u64) {
     thread::sleep(Duration::from_secs(secs));
 }
 
 #[pyfunction]
-fn sleep_release_gil(_py: Python, secs: u64) -> () {
-    _py.allow_threads(|| {
+fn sleep_release_gil(py: Python, secs: u64) {
+    py.allow_threads(|| {
         thread::sleep(Duration::from_secs(secs));
     });
 }
@@ -1104,7 +1161,9 @@ fn sleep_release_gil(_py: Python, secs: u64) -> () {
 #[pyo3(name = "bytewax")]
 fn mod_tiny_dancer(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Dataflow>()?;
-    m.add_class::<Executor>()?;
+
+    m.add_function(wrap_pyfunction!(_run, m)?)?;
+    m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
 
     m.add_function(wrap_pyfunction!(sleep_keep_gil, m)?)?;
     m.add_function(wrap_pyfunction!(sleep_release_gil, m)?)?;

@@ -19,6 +19,7 @@ classifiers = [
     "Topic :: System :: Networking",
     "Topic :: System :: Distributed Computing"
 ]
+dependencies = ["multiprocess>=0.70"]
 
 [project.urls]
 "Source Code" = "https://github.com/bytewax/bytewax"

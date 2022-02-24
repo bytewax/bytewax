@@ -31,23 +31,24 @@ pip install bytewax
 Here is an example of a simple dataflow program using Bytewax:
 
 ``` python
-# pyexamples/simple.py
-from bytewax import Executor
+# examples/simple.py
+from bytewax import Dataflow, run
 
-ec = Executor()
-flow = ec.Dataflow(enumerate(range(10)))
+
+flow = Dataflow()
 flow.map(lambda x: x * x)
-flow.inspect(print)
+flow.capture()
 
 
 if __name__ == "__main__":
-    ec.build_and_run()
+    for epoch, y in sorted(run(flow, enumerate(range(10)))):
+        print(y)
 ```
 
 Running the program:
 
 ``` bash
-python ./pyexamples/simple.py
+python ./examples/simple.py
 0
 1
 4
@@ -56,8 +57,8 @@ python ./pyexamples/simple.py
 25
 36
 49
-81
 64
+81
 ```
 
 For a more complete example, and documentation on the available operators, check out the [User Guide](https://docs.bytewax.io/).

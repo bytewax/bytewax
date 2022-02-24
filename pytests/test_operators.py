@@ -1,25 +1,23 @@
-import bytewax
-import pytest
+from collections import defaultdict
+
+from bytewax import Dataflow, run, run_cluster
 
 
 def test_map():
-    out = []
-
     def add_one(item):
         return item + 1
 
-    ec = bytewax.Executor()
-    flow = ec.Dataflow(
-        [
-            (0, 0),
-            (0, 1),
-            (0, 2),
-        ]
-    )
-    flow.map(add_one)
-    flow.capture(out.append)
+    inp = [
+        (0, 0),
+        (0, 1),
+        (0, 2),
+    ]
 
-    ec.build_and_run()
+    flow = Dataflow()
+    flow.map(add_one)
+    flow.capture()
+
+    out = run(flow, inp)
 
     assert sorted(out) == sorted(
         [
@@ -31,21 +29,18 @@ def test_map():
 
 
 def test_flat_map():
-    out = []
-
     def split_into_words(sentence):
         return sentence.split()
 
-    ec = bytewax.Executor()
-    flow = ec.Dataflow(
-        [
-            (1, "split this"),
-        ]
-    )
-    flow.flat_map(split_into_words)
-    flow.capture(out.append)
+    inp = [
+        (1, "split this"),
+    ]
 
-    ec.build_and_run()
+    flow = Dataflow()
+    flow.flat_map(split_into_words)
+    flow.capture()
+
+    out = run(flow, inp)
 
     assert sorted(out) == sorted(
         [
@@ -56,62 +51,55 @@ def test_flat_map():
 
 
 def test_filter():
-    out = []
-
     def is_odd(item):
         return item % 2 != 0
 
-    ec = bytewax.Executor()
-    flow = ec.Dataflow(
-        [
-            (0, 1),
-            (0, 2),
-            (0, 3),
-        ]
-    )
-    flow.filter(is_odd)
-    flow.capture(out.append)
+    inp = [
+        (0, 1),
+        (0, 2),
+        (0, 3),
+    ]
 
-    ec.build_and_run()
+    flow = Dataflow()
+    flow.filter(is_odd)
+    flow.capture()
+
+    out = run(flow, inp)
 
     assert sorted(out) == sorted([(0, 1), (0, 3)])
 
 
 def test_inspect():
-    out = []
+    inp = [
+        (1, "a"),
+    ]
+    seen = []
 
-    ec = bytewax.Executor()
-    flow = ec.Dataflow(
-        [
-            (1, "a"),
-        ]
-    )
-    flow.inspect(out.append)
+    flow = Dataflow()
+    flow.inspect(seen.append)
+    flow.capture()
 
-    ec.build_and_run()
+    run(flow, inp)
 
-    assert out == ["a"]
+    assert seen == ["a"]
 
 
 def test_inspect_epoch():
-    out = []
+    inp = [
+        (1, "a"),
+    ]
+    seen = []
 
-    ec = bytewax.Executor()
-    flow = ec.Dataflow(
-        [
-            (1, "a"),
-        ]
-    )
-    flow.inspect_epoch(lambda epoch, item: out.append((epoch, item)))
+    flow = Dataflow()
+    flow.inspect_epoch(lambda epoch, item: seen.append((epoch, item)))
+    flow.capture()
 
-    ec.build_and_run()
+    run(flow, inp)
 
-    assert out == [(1, "a")]
+    assert seen == [(1, "a")]
 
 
 def test_reduce():
-    out = []
-
     def user_as_key(event):
         return (event["user"], [event])
 
@@ -121,21 +109,20 @@ def test_reduce():
     def session_complete(session):
         return any(event["type"] == "logout" for event in session)
 
-    ec = bytewax.Executor()
-    flow = ec.Dataflow(
-        [
-            (0, {"user": "a", "type": "login"}),
-            (1, {"user": "a", "type": "post"}),
-            (1, {"user": "b", "type": "login"}),
-            (2, {"user": "a", "type": "logout"}),
-            (3, {"user": "b", "type": "logout"}),
-        ]
-    )
+    inp = [
+        (0, {"user": "a", "type": "login"}),
+        (1, {"user": "a", "type": "post"}),
+        (1, {"user": "b", "type": "login"}),
+        (2, {"user": "a", "type": "logout"}),
+        (3, {"user": "b", "type": "logout"}),
+    ]
+
+    flow = Dataflow()
     flow.map(user_as_key)
     flow.reduce(extend_session, session_complete)
-    flow.capture(out.append)
+    flow.capture()
 
-    ec.build_and_run()
+    out = run(flow, inp)
 
     assert sorted(out) == sorted(
         [
@@ -165,28 +152,25 @@ def test_reduce():
 
 
 def test_reduce_epoch():
-    out = []
-
     def add_initial_count(event):
         return event["user"], 1
 
     def count(count, event_count):
         return count + event_count
 
-    ec = bytewax.Executor()
-    flow = ec.Dataflow(
-        [
-            (0, {"user": "a", "type": "login"}),
-            (0, {"user": "a", "type": "post"}),
-            (0, {"user": "b", "type": "login"}),
-            (1, {"user": "b", "type": "post"}),
-        ]
-    )
+    inp = [
+        (0, {"user": "a", "type": "login"}),
+        (0, {"user": "a", "type": "post"}),
+        (0, {"user": "b", "type": "login"}),
+        (1, {"user": "b", "type": "post"}),
+    ]
+
+    flow = Dataflow()
     flow.map(add_initial_count)
     flow.reduce_epoch(count)
-    flow.capture(out.append)
+    flow.capture()
 
-    ec.build_and_run()
+    out = run(flow, inp)
 
     assert sorted(out) == sorted(
         [
@@ -198,13 +182,41 @@ def test_reduce_epoch():
 
 
 def test_reduce_epoch_local():
-    # Can't run multiple workers from code yet.
-    pass
+    def add_initial_count(event):
+        return event["user"], 1
+
+    def count(count, event_count):
+        return count + event_count
+
+    inp = [
+        (0, {"user": "a", "type": "login"}),
+        (0, {"user": "a", "type": "post"}),
+        (0, {"user": "a", "type": "post"}),
+        (0, {"user": "b", "type": "login"}),
+        (1, {"user": "b", "type": "post"}),
+        (1, {"user": "b", "type": "post"}),
+    ]
+
+    flow = Dataflow()
+    flow.map(add_initial_count)
+    flow.reduce_epoch_local(count)
+    flow.capture()
+
+    workers = 2
+    out = run_cluster(flow, inp, proc_count=workers)
+
+    # out should look like (epoch, (user, event_count)) per worker. So
+    # if we count the number of output items that have a given (epoch,
+    # user), we should get some that the counts == number of workers.
+    epoch_user_to_count = defaultdict(int)
+    for epoch, user_count in out:
+        user, count = user_count
+        epoch_user_to_count[(epoch, user)] += 1
+
+    assert workers in set(epoch_user_to_count.values())
 
 
 def test_stateful_map():
-    out = []
-
     def build_seen():
         return set()
 
@@ -225,21 +237,19 @@ def test_stateful_map():
         else:
             return []
 
-    ec = bytewax.Executor()
-    flow = ec.Dataflow(
-        [
-            (0, "a"),
-            (0, "a"),
-            (1, "a"),
-            (1, "b"),
-        ]
-    )
+    inp = [
+        (0, "a"),
+        (0, "a"),
+        (1, "a"),
+        (1, "b"),
+    ]
+    flow = Dataflow()
     flow.map(add_key)
     flow.stateful_map(build_seen, check)
     flow.flat_map(remove_seen)
-    flow.capture(out.append)
+    flow.capture()
 
-    ec.build_and_run()
+    out = run(flow, inp)
 
     assert sorted(out) == sorted(
         [
@@ -250,16 +260,39 @@ def test_stateful_map():
 
 
 def test_capture():
-    out = []
-
     inp = [
         (0, "a"),
         (1, "b"),
     ]
-    ec = bytewax.Executor()
-    flow = ec.Dataflow(inp)
-    flow.capture(out.append)
+    out = []
 
-    ec.build_and_run()
+    flow = Dataflow()
+    flow.capture()
+
+    out = run(flow, inp)
 
     assert sorted(out) == sorted(inp)
+
+
+def test_capture_multiple():
+    inp = [
+        (0, "a"),
+        (1, "b"),
+    ]
+    out = []
+
+    flow = Dataflow()
+    flow.capture()
+    flow.map(str.upper)
+    flow.capture()
+
+    out = run(flow, inp)
+
+    assert sorted(out) == sorted(
+        [
+            (0, "a"),
+            (0, "A"),
+            (1, "b"),
+            (1, "B"),
+        ]
+    )

@@ -1,22 +1,18 @@
-import bytewax
-
-from bytewax.inp import single_batch, fully_ordered
+from bytewax import Dataflow, run
+from bytewax.inp import fully_ordered, single_batch
 
 
 def test_single_batch():
-    out = []
-
     def add_one(item):
         return item + 1
 
     batch = single_batch([0, 1, 2])
 
-    ec = bytewax.Executor()
-    flow = ec.Dataflow(batch)
+    flow = Dataflow()
     flow.map(add_one)
-    flow.capture(out.append)
+    flow.capture()
 
-    ec.build_and_run()
+    out = run(flow, batch)
 
     assert sorted(out) == sorted(
         [
@@ -28,19 +24,16 @@ def test_single_batch():
 
 
 def test_fully_ordered():
-    out = []
-
     def add_one(item):
         return item + 1
 
     ordered = fully_ordered([0, 1, 2])
 
-    ec = bytewax.Executor()
-    flow = ec.Dataflow(ordered)
+    flow = Dataflow()
     flow.map(add_one)
-    flow.capture(out.append)
+    flow.capture()
 
-    ec.build_and_run()
+    out = run(flow, ordered)
 
     assert sorted(out) == sorted(
         [

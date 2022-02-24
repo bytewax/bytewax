@@ -2,7 +2,7 @@ import operator
 from dataclasses import dataclass
 from typing import List
 
-import bytewax
+from bytewax import Dataflow, parse, run_cluster
 
 
 @dataclass
@@ -61,11 +61,13 @@ def group_by_user(event):
 
 
 def session_has_closed(session):
-    return any(isinstance(event, AppClose) for event in session)
+    # isinstance does not work on objects sent through pickling, which
+    # Bytewax does when there are multiple workers.
+    return any(type(event).__name__ == "AppClose" for event in session)
 
 
 def is_search(event):
-    return isinstance(event, Search)
+    return type(event).__name__ == "Search"
 
 
 def remove_key(user_event):
@@ -89,14 +91,13 @@ def split_into_searches(user_session):
 
 
 def calc_ctr(search_session):
-    if any(isinstance(event, ClickResult) for event in search_session):
+    if any(type(event).__name__ == "ClickResult" for event in search_session):
         return 1.0
     else:
         return 0.0
 
 
-ec = bytewax.Executor()
-flow = ec.Dataflow(IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS)
+flow = Dataflow()
 # event
 flow.map(group_by_user)
 # (user, [event])
@@ -111,8 +112,11 @@ flow.flat_map(split_into_searches)
 # Calculate search CTR per search.
 flow.map(calc_ctr)
 # TODO: Mix in a "clock" stream so we can get the mean CTR per minute.
-flow.inspect_epoch(print)
+flow.capture()
 
 
 if __name__ == "__main__":
-    ec.build_and_run()
+    for epoch, item in run_cluster(
+        flow, IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS, **parse.cluster_args()
+    ):
+        print(epoch, item)
