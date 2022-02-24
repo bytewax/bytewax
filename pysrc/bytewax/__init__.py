@@ -19,13 +19,14 @@ def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
     >>> flow.capture()
-    >>> out = run_sync(flow, [(0, "a"), (1, "b"), (2, "c")])
+    >>> out = run(flow, [(0, "a"), (1, "b"), (2, "c")])
     >>> sorted(out)
     [(0, 'A'), (1, 'B'), (2, 'C')]
 
     Args:
         flow: Dataflow to run.
         inp: Input data.
+
     Returns: List of `(epoch, item)` tuples seen by capture operators.
     """
 
@@ -129,7 +130,7 @@ def run_cluster(
     commonly use this for notebook analysis that needs parallelism and
     higher throughput, or simple stand-alone demo programs.
 
-    Input must be finite because reified into a list before
+    Input must be finite because it is reified into a list before
     distribution to cluster and otherwise collected output will grow
     unbounded.
 
@@ -153,6 +154,7 @@ def run_cluster(
         proc_count: Number of processes to start.
         worker_count_per_proc: Number of worker threads to start on
             each process.
+
     Returns: List of `(epoch, item)` tuples seen by capture operators.
     """
     man = Manager()
