@@ -3,7 +3,7 @@ from bytewax import Dataflow, inp, run, run_cluster
 from pytest import mark, raises
 
 
-def test_run_sync():
+def test_run():
     flow = Dataflow()
     flow.map(lambda x: x + 1)
     flow.capture()
@@ -23,11 +23,18 @@ def test_run_cluster():
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 
-def test_run_requires_caputre():
+def test_run_requires_capture():
     flow = Dataflow()
 
     with raises(ValueError):
         run(flow, enumerate(range(3)))
+
+
+def test_run_cluster_requires_capture():
+    flow = Dataflow()
+
+    with raises(ValueError):
+        run_cluster(flow, enumerate(range(3)))
 
 
 def test_run_sync_reraises_exception():

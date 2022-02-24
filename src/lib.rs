@@ -1070,14 +1070,12 @@ fn cluster_main(
         // https://github.com/rust-lang/rust/issues/90470
         let shutdown_worker_count = Arc::new(AtomicUsize::new(0));
         let shutdown_worker_count_w = shutdown_worker_count.clone();
-        let shutdown_worker_count_p = shutdown_worker_count.clone();
 
         // Panic hook is per-process, so this isn't perfect as you
         // can't call Executor.build_and_run() concurrently.
         let default_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             should_shutdown_p.store(true, Ordering::Relaxed);
-            shutdown_worker_count_p.fetch_add(1, Ordering::Relaxed);
 
             if let Some(pyerr) = info.payload().downcast_ref::<PyErr>() {
                 Python::with_gil(|py| pyerr.print(py));
@@ -1099,6 +1097,10 @@ fn cluster_main(
             other,
             timely::WorkerConfig::default(),
             move |worker| {
+                defer! {
+                    shutdown_worker_count_w.fetch_add(1, Ordering::Relaxed);
+                }
+
                 let (pump, probe) = Python::with_gil(|py| {
                     let flow = &flow.as_ref(py).borrow();
                     let input_builder = input_builder.clone_ref(py);
@@ -1109,7 +1111,6 @@ fn cluster_main(
                 worker_main(vec![pump], vec![probe], &should_shutdown_w, worker);
 
                 shutdown_worker(worker);
-                shutdown_worker_count_w.fetch_add(1, Ordering::Relaxed);
 
                 Ok(())
             },
