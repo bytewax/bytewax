@@ -23,7 +23,7 @@ jobs:
         args: --release -o dist --interpreter python${{ matrix.python-version }}
     - name: Run tests
       run: |
-        pip install bytewax --find-links dist -v
+        pip install bytewax --find-links dist -v --pre
         pip install --upgrade pytest==7.0.0
         python -m pytest pytests/
     - name: Upload wheels
@@ -53,7 +53,7 @@ jobs:
         args: --release --no-sdist -o dist --interpreter ${{ env.PYTHON_PATH }}
     - name: Run tests
       run: |
-        pip install bytewax --find-links dist -v
+        pip install bytewax --find-links dist -v --pre
         pip install --upgrade pytest==7.0.0
         python -m pytest pytests/
     - name: Upload wheels
@@ -79,7 +79,7 @@ jobs:
         args: --release --no-sdist -o dist --universal2 --interpreter python${{ matrix.python-version }}
     - name: Run tests
       run: |
-        pip install bytewax --find-links dist -v
+        pip install bytewax --find-links dist -v --pre
         pip install --upgrade pytest==7.0.0
         python -m pytest pytests/
     - name: Upload wheels
