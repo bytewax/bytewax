@@ -76,10 +76,14 @@ def test_run_cluster_reraises_exception():
 def test_run_can_be_sigint():
     is_running = threading.Event()
     test_pid = os.getpid()
+    if os.name == "nt":
+        sig = signal.CTRL_C_EVENT
+    else:
+        sig = signal.SIGINT
 
     def send_signal():
         is_running.wait()
-        os.kill(test_pid, signal.SIGINT)
+        os.kill(test_pid, sig)
 
     def mapper(item):
         is_running.set()
@@ -101,10 +105,14 @@ def test_run_cluster_can_be_sigint():
     manager = multiprocessing.Manager()
     is_running = manager.Event()
     test_pid = os.getpid()
+    if os.name == "nt":
+        sig = signal.CTRL_C_EVENT
+    else:
+        sig = signal.SIGINT
 
     def send_signal():
         is_running.wait()
-        os.kill(test_pid, signal.SIGINT)
+        os.kill(test_pid, sig)
 
     def mapper(item):
         is_running.set()
