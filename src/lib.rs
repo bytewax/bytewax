@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 extern crate rand;
 #[macro_use(defer)]
 extern crate scopeguard;
@@ -960,10 +961,7 @@ where
 /// Private shim for `run()` but takes builder functions so we can
 /// re-use `build_dataflow()`.
 #[pyfunction]
-// I wanted to name it this directly, but I keep getting warnings
-// about no snake case that I can't turn off.
-#[pyo3(name = "_run")]
-fn run_(
+fn _run(
     py: Python,
     flow: Py<Dataflow>,
     input_builder: TdPyCallable,
@@ -1164,7 +1162,7 @@ fn sleep_release_gil(py: Python, secs: u64) {
 fn mod_tiny_dancer(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Dataflow>()?;
 
-    m.add_function(wrap_pyfunction!(run_, m)?)?;
+    m.add_function(wrap_pyfunction!(_run, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
 
     m.add_function(wrap_pyfunction!(sleep_keep_gil, m)?)?;
