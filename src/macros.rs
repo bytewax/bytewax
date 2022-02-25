@@ -1,4 +1,5 @@
 //! Internal macros
+#[macro_export]
 
 macro_rules! with_traceback {
     ($py:expr, $pyfunc:expr) => {
