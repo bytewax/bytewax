@@ -186,7 +186,7 @@ def tumbling_epoch(
 def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, any]]:
     """Each input item increments the epoch.
 
-    Be carful using this in high-volume streams with many workers, as
+    Be careful using this in high-volume streams with many workers, as
     the worker overhead goes up with finely granulated epochs.
 
     >>> list(fully_ordered(["a", "b", "c"]))
