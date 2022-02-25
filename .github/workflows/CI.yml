@@ -136,6 +136,30 @@ jobs:
     - name: Set RELEASE_VERSION Environment Variable
       run: echo "RELEASE_VERSION=$(echo ${GITHUB_REF:11})" >> $GITHUB_ENV
 
+    - name: Install ansible
+      run: |
+        pip install ansible==3.4.0
+        ansible -m ping localhost
+
+    - name: Create task file
+      run: |
+        cat << EOF > ./pip_task.yaml
+        ---
+        - name: Try install bytewax using pip
+          hosts: localhost
+          tasks:
+          - name: Loop
+            shell: "pip install bytewax=={{ bytewax_version }}"
+            register: pip_result
+            retries: 60
+            until: pip_result.rc == 0
+            delay: 10
+        EOF
+
+    - name: Check PyPI index before building docker image
+      run: |
+        ansible-playbook ./pip_task.yaml -e bytewax_version=${{ env.RELEASE_VERSION }} -vvv
+
     - name: Build and push to Docker Hub
       id: docker_build
       uses: docker/build-push-action@v2
