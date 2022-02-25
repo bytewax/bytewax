@@ -1,11 +1,11 @@
 import json
 import time
-from datetime import datetime
+import datetime
 
 import pandas
 
 import pyarrow.parquet as parquet
-from bytewax import Dataflow, inp, parse, spawn_cluster
+from bytewax import Dataflow, inputs, parse, spawn_cluster
 from pandas import DataFrame
 from pyarrow import Table
 
@@ -16,7 +16,7 @@ from utils import fake_events
 # days around today. Each worker will generate independent fake
 # events.
 def input_builder(worker_index, worker_count):
-    return inp.tumbling_epoch(5.0, fake_events.generate_web_events())
+    return inputs.tumbling_epoch(fake_events.generate_web_events(), datetime.timedelta(seconds=5))
 
 
 # Arrow assigns a UUID to each worker / window's file so they won't
@@ -40,7 +40,7 @@ def output_builder(worker_index, worker_count):
 
 
 def add_date_columns(event):
-    timestamp = datetime.fromisoformat(event["event_timestamp"])
+    timestamp = datetime.datetime.fromisoformat(event["event_timestamp"])
     event["year"] = timestamp.year
     event["month"] = timestamp.month
     event["day"] = timestamp.day

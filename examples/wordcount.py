@@ -1,6 +1,6 @@
 import re
 
-from bytewax import Dataflow, inp, parse, run_cluster
+from bytewax import Dataflow, parse, run_cluster
 
 
 def file_input():

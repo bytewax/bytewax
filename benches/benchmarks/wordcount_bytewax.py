@@ -1,7 +1,7 @@
 import re
 import operator
 
-from bytewax import inp, run_sync, Dataflow
+from bytewax import inputs, run, Dataflow
 
 
 def tokenize(x):
@@ -19,4 +19,4 @@ flow.map(initial_count)
 flow.reduce_epoch(operator.add)
 
 if __name__ == "__main__":
-    run_sync(flow, inp.single_batch(open("benches/benchmarks/collected-works.txt")))
+    run(flow, inputs.single_batch(open("benches/benchmarks/collected-works.txt")))

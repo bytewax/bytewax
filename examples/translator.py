@@ -1,5 +1,5 @@
 import bytewax
-from bytewax import Dataflow, inp, parse, run_cluster
+from bytewax import Dataflow, inputs, parse, run_cluster
 from transformers import pipeline
 
 
@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
     for epoch, item in run_cluster(
         flow,
-        inp.single_batch(open("examples/sample_data/lyrics.txt")),
+        inputs.single_batch(open("examples/sample_data/lyrics.txt")),
         **parse.cluster_args(),
     ):
         inspector(item)
