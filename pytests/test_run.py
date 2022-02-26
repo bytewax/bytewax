@@ -1,8 +1,9 @@
-import multiprocessing
 import os
 import signal
 import threading
 from time import sleep
+
+import multiprocess
 
 from bytewax import cluster_main, Dataflow, inp, run, run_cluster
 
@@ -102,7 +103,7 @@ def test_run_can_be_sigint():
 
 
 def test_run_cluster_can_be_sigint():
-    manager = multiprocessing.Manager()
+    manager = multiprocess.Manager()
     is_running = manager.Event()
     test_pid = os.getpid()
     if os.name == "nt":
