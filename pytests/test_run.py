@@ -1,11 +1,10 @@
 import os
 import signal
 import threading
-from time import sleep
-
-import multiprocess
 
 from bytewax import cluster_main, Dataflow, inp, run, run_cluster
+
+from multiprocess import Manager, Process
 
 from pytest import mark, raises
 
@@ -74,93 +73,96 @@ def test_run_cluster_reraises_exception():
         run_cluster(flow, enumerate(range(3)), proc_count=2)
 
 
-def test_run_can_be_sigint():
-    is_running = threading.Event()
-    test_pid = os.getpid()
-    if os.name == "nt":
-        sig = signal.CTRL_C_EVENT
-    else:
-        sig = signal.SIGINT
+def test_run_can_be_ctrl_c():
+    manager = Manager()
+    is_running = manager.Event()
 
-    def send_signal():
-        is_running.wait()
-        os.kill(test_pid, sig)
+    def proc_main():
+        def mapper(item):
+            is_running.set()
 
-    def mapper(item):
-        is_running.set()
+        flow = Dataflow()
+        flow.map(mapper)
+        flow.capture()
 
-    flow = Dataflow()
-    flow.map(mapper)
-    flow.capture()
-
-    killer = threading.Thread(target=send_signal)
-    killer.start()
-
-    with raises(KeyboardInterrupt):
         run(flow, inp.fully_ordered(range(1000)))
 
-    killer.join()
+    test_proc = Process(target=proc_main)
+    test_proc.start()
 
-
-def test_run_cluster_can_be_sigint():
-    manager = multiprocess.Manager()
-    is_running = manager.Event()
-    test_pid = os.getpid()
+    assert is_running.wait(timeout=1.0), "Timeout waiting for test proc to start"
     if os.name == "nt":
         sig = signal.CTRL_C_EVENT
     else:
         sig = signal.SIGINT
+    os.kill(test_proc.pid, sig)
+    test_proc.join()
 
-    def send_signal():
-        is_running.wait()
-        os.kill(test_pid, sig)
+    assert test_proc.exitcode != 0
 
-    def mapper(item):
-        is_running.set()
 
-    flow = Dataflow()
-    flow.map(mapper)
-    flow.capture()
+def test_run_cluster_can_be_ctrl_c():
+    manager = Manager()
+    is_running = manager.Event()
 
-    killer = threading.Thread(target=send_signal)
-    killer.start()
+    def proc_main():
+        def mapper(item):
+            is_running.set()
 
-    with raises(KeyboardInterrupt):
+        flow = Dataflow()
+        flow.map(mapper)
+        flow.capture()
+
         run_cluster(
             flow, inp.fully_ordered(range(1000)), proc_count=2, worker_count_per_proc=2
         )
 
-    killer.join()
+    test_proc = Process(target=proc_main)
+    test_proc.start()
+
+    assert is_running.wait(timeout=1.0), "Timeout waiting for test proc to start"
+    if os.name == "nt":
+        sig = signal.CTRL_C_EVENT
+    else:
+        sig = signal.SIGINT
+    os.kill(test_proc.pid, sig)
+    test_proc.join()
+
+    assert test_proc.exitcode != 0
 
 
-def test_cluster_main_can_be_sigint():
-    is_running = threading.Event()
-    test_pid = os.getpid()
+def test_cluster_main_can_be_ctrl_c():
+    manager = Manager()
+    is_running = manager.Event()
 
-    def input_builder(worker_index, worker_count):
-        return inp.fully_ordered(range(1000))
+    def proc_main():
+        def input_builder(worker_index, worker_count):
+            return inp.fully_ordered(range(1000))
 
-    def output_builder(worker_index, worker_count):
-        def out(epoch_item):
-            pass
+        def output_builder(worker_index, worker_count):
+            def out(epoch_item):
+                pass
 
-        return out
+            return out
 
-    def send_signal():
-        is_running.wait()
-        os.kill(test_pid, signal.SIGINT)
+        def mapper(item):
+            is_running.set()
 
-    def mapper(item):
-        is_running.set()
+        flow = Dataflow()
+        flow.map(mapper)
+        flow.capture()
 
-    flow = Dataflow()
-    flow.map(mapper)
-    flow.capture()
-
-    killer = threading.Thread(target=send_signal)
-    killer.start()
-
-    with raises(KeyboardInterrupt):
         cluster_main(flow, input_builder, output_builder, [], 0, 1)
 
-    killer.join()
+    test_proc = Process(target=proc_main)
+    test_proc.start()
+
+    assert is_running.wait(timeout=1.0), "Timeout waiting for test proc to start"
+    if os.name == "nt":
+        sig = signal.CTRL_C_EVENT
+    else:
+        sig = signal.SIGINT
+    os.kill(test_proc.pid, sig)
+    test_proc.join()
+
+    assert test_proc.exitcode != 0
