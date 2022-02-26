@@ -1,7 +1,7 @@
 import datetime
 
 from bytewax import Dataflow, run
-from bytewax.inputs import fully_ordered, single_batch, tumbling_epoch, order
+from bytewax.inputs import fully_ordered, single_batch, sorted_window, tumbling_epoch
 
 
 def test_single_batch():
@@ -19,36 +19,6 @@ def test_single_batch():
             (0, "c"),
         ]
     )
-
-
-def test_order():
-    items = [
-        (2, "c"),
-        (1, "b"),
-        (0, "a"),
-        (3, "d"),
-        (4, "e"),
-    ]
-    out = order(items, 2)
-
-    assert list(out) == sorted(items)
-
-
-def test_order_drops_too_late():
-    items = [
-        (2, "c"),
-        (1, "b"),
-        (0, "a"),
-    ]
-
-    dropped = []
-    out = order(items, 1, on_drop = dropped.append)
-
-    assert list(out) == [
-        (1, "b"),
-        (2, "c"),
-    ]
-    assert dropped == [(0, "a")]
 
 
 def test_tumbling_epoch():
@@ -72,11 +42,13 @@ def test_tumbling_epoch():
 
     out = run(flow, inp)
 
-    assert sorted(out) == sorted([
-        (0, "a"),
-        (0, "b"),
-        (2, "c"),
-    ])
+    assert sorted(out) == sorted(
+        [
+            (0, "a"),
+            (0, "b"),
+            (2, "c"),
+        ]
+    )
 
 
 def test_fully_ordered():
@@ -94,3 +66,33 @@ def test_fully_ordered():
             (2, "c"),
         ]
     )
+
+
+def test_sorted_window():
+    items = [
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 4), "value": "b"},
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 5), "value": "c"},
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 3), "value": "a"},
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 6), "value": "d"},
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 8), "value": "f"},
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 7), "value": "e"},
+    ]
+
+    dropped = []
+    out = sorted_window(
+        items,
+        datetime.timedelta(seconds=2),
+        lambda item: item["timestamp"],
+        on_drop=dropped.append,
+    )
+
+    assert list(out) == [
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 4), "value": "b"},
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 5), "value": "c"},
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 6), "value": "d"},
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 7), "value": "e"},
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 8), "value": "f"},
+    ]
+    assert dropped == [
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 3), "value": "a"},
+    ]

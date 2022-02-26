@@ -4,8 +4,7 @@ Use these to wrap an existing iterator which yields items.
 """
 import datetime
 import heapq
-from operator import itemgetter
-from typing import Any, Iterable, Tuple, Callable
+from typing import Any, Callable, Iterable, Tuple
 
 
 def single_batch(wrap_iter: Iterable) -> Iterable[Tuple[int, Any]]:
@@ -24,94 +23,13 @@ def single_batch(wrap_iter: Iterable) -> Iterable[Tuple[int, Any]]:
     """
     for item in wrap_iter:
         yield (0, item)
-        
 
-def order(
-        wrap_iter: Iterable,
-        window_length: Any,
-        time_getter: Callable[[Any], Any] = itemgetter(0),
-        on_drop: Callable[[Any], None] = None,
-) -> Iterable[Tuple[int, Any]]:
-    """Order out-of-order values within a sliding window.
-
-    Values are emitted in order after seeing a new time that would
-    push them out of the sliding window. Values that arrive after they
-    would have been emitted are too late and are dropped.
-
-    Use if you have a possibly out-of-order data source as Bytewax
-    requires inputs to dataflows to be in epoch order.
-
-    >>> items = [
-    ...     {
-    ...         "timestamp": datetime.datetime(2022, 2, 22, 1, 2, 4),
-    ...         "value": "c",
-    ...     },
-    ...     {
-    ...         "timestamp": datetime.datetime(2022, 2, 22, 1, 2, 3),
-    ...         "value": "b",
-    ...     },
-    ...     {
-    ...         "timestamp": datetime.datetime(2022, 2, 22, 1, 2, 0),
-    ...         "value": "a",
-    ...     },
-    ... ]
-    >>> [
-    ...     item["value"]
-    ...     for item
-    ...     in order(
-    ...         items,
-    ...         datetime.timedelta(seconds=2),
-    ...         itemgetter("timestamp"),
-    ...     )
-    ... ]
-    ['b', 'c']
-
-    Args:
-    
-        wrap_iter: Existing input iterable.
-   
-        window_length: Maximum out-of-order-ness before dropping
-            values.
-
-        time_getter: Function to call to produce a timestamp for each
-            value. Defaults to using the first item in each value;
-            e.g. `(time, x)`.
-
-        on_drop: Function to call with each dropped item. Defaults to
-            nothing.
-
-    Yields: Values in order.
-    """
-    buffer_heap = []
-    buffer_close_time = None
-    for item in wrap_iter:
-        time = time_getter(item)
-        if buffer_close_time is None or time >= buffer_close_time:
-            heapq.heappush(buffer_heap, (time, item))
-
-            buffer_close_time_item = time - window_length
-            if buffer_close_time is None or buffer_close_time_item > buffer_close_time:
-                buffer_close_time = buffer_close_time_item
-        
-                while len(buffer_heap) > 0 and buffer_heap[0][0] < buffer_close_time:
-                    time, item = heapq.heappop(buffer_heap)
-                    yield item
-            # Else: This item didn't push forward the window, so no
-            # items could be emitted.
-        elif on_drop:
-            on_drop(item)
-
-    # Emit everything remaining.
-    while len(buffer_heap) > 0:
-        time, item = heapq.heappop(buffer_heap)
-        yield item
-        
 
 def tumbling_epoch(
-        wrap_iter: Iterable,
-        epoch_length: Any,
-        time_getter: Callable[[Any], Any] = lambda _: datetime.datetime.now(),
-        epoch_0_start_time: Any = None,
+    wrap_iter: Iterable,
+    epoch_length: Any,
+    time_getter: Callable[[Any], Any] = lambda _: datetime.datetime.now(),
+    epoch_0_start_time: Any = None,
 ) -> Iterable[Tuple[int, Any]]:
     """All inputs within a tumbling window are part of the same epoch.
 
@@ -139,7 +57,7 @@ def tumbling_epoch(
     ...     in tumbling_epoch(
     ...         items,
     ...         datetime.timedelta(seconds=2),
-    ...         itemgetter("timestamp"),
+    ...         lambda item: item["timestamp"],
     ...     )
     ... ]
     [(0, 'a'), (0, 'b'), (2, 'c')]
@@ -173,7 +91,7 @@ def tumbling_epoch(
     """
     for item in wrap_iter:
         time = time_getter(item)
-        
+
         if epoch_0_start_time is None:
             epoch_0_start_time = time
             epoch = 0
@@ -182,7 +100,7 @@ def tumbling_epoch(
 
         yield (epoch, item)
 
-                      
+
 def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, any]]:
     """Each input item increments the epoch.
 
@@ -202,3 +120,102 @@ def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, any]]:
     for item in wrap_iter:
         yield (epoch, item)
         epoch += 1
+
+
+def sorted_window(
+    wrap_iter: Iterable,
+    window_length: Any,
+    time_getter: Callable[[Any], Any],
+    on_drop: Callable[[Any], None] = None,
+) -> Iterable[Tuple[int, Any]]:
+    """Sort a iterator to be increasing by some timestamp.
+
+    To support a possibly infinite iterator, store a limited sorted
+    buffer of items and only emit things downstream once a certain
+    window of time has passed, as indicated by the timestamp on new
+    items.
+
+    New input items which are older than those already emitted will be
+    dropped to maintain sorted output.
+
+    The window length needs to be tuned for how "out of order" your
+    input data is and how much data you're willing to drop: Already
+    perfectly ordered input data can have a window of "0" and nothing
+    will be dropped. Completely reversed input data needs a window
+    that is the difference between the oldest and youngest timestamp
+    to ensure nothing will be dropped.
+
+    >>> items = [
+    ...     {
+    ...         "timestamp": datetime.datetime(2022, 2, 22, 1, 2, 4),
+    ...         "value": "c",
+    ...     },
+    ...     {
+    ...         "timestamp": datetime.datetime(2022, 2, 22, 1, 2, 3),
+    ...         "value": "b",
+    ...     },
+    ...     {
+    ...         "timestamp": datetime.datetime(2022, 2, 22, 1, 2, 0),
+    ...         "value": "a",
+    ...     },
+    ... ]
+    >>> list(
+    ...     sorted_window(
+    ...         items,
+    ...         datetime.timedelta(seconds=2),
+    ...         lambda item: item["timestamp"],
+    ...     )
+    ... )
+    [
+        {'timestamp': datetime.datetime(2022, 2, 22, 1, 2, 3), 'value': 'b'},
+        {'timestamp': datetime.datetime(2022, 2, 22, 1, 2, 4), 'value': 'c'}
+    ]
+
+    Args:
+
+        wrap_iter: Existing input iterable.
+
+        window_length: Buffering duration. Values will be emitted once
+            this amount of time has passed.
+
+        time_getter: Function to call to produce a timestamp for each
+            value.
+
+        on_drop: Function to call with each dropped item. E.g. log or
+            increment metrics on drop events to refine your window
+            length.
+
+    Yields: Values in increasing timestamp order.
+
+    """
+    sorted_buffer = []
+    newest_time = None
+    drop_older_than = None
+
+    def is_too_late(time):
+        return drop_older_than is not None and time <= drop_older_than
+
+    def is_newest_item(time):
+        return newest_time is None or time > newest_time
+
+    def emit_all(emit_older_than):
+        while len(sorted_buffer) > 0 and sorted_buffer[0][0] <= emit_older_than:
+            time, item = heapq.heappop(sorted_buffer)
+            yield item
+
+    for item in wrap_iter:
+        time = time_getter(item)
+
+        if is_too_late(time):
+            if on_drop:
+                on_drop(item)
+        else:
+            heapq.heappush(sorted_buffer, (time, item))
+
+            if is_newest_item(time):
+                newest_time = time
+                drop_older_than = time - window_length
+
+                yield from emit_all(drop_older_than)
+
+    yield from emit_all(newest_time)
