@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-  pull_request:
+    branches:
+    - main
+  pull_request: {}
 
 jobs:
   linux:
@@ -16,16 +18,20 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         architecture: x64
+    - name: Run tests
+      shell: bash
+      run: |
+        python -m venv venv
+        source venv/bin/activate
+        pip install -U pip
+        pip install -r build.requirements.txt
+        maturin develop
+        python -m pytest
     - uses: messense/maturin-action@v1
       with:
         manylinux: auto
         command: build
         args: --release -o dist --interpreter python${{ matrix.python-version }}
-    - name: Run tests
-      run: |
-        pip install bytewax --find-links dist -v --pre
-        pip install --upgrade pytest==7.0.0
-        python -m pytest pytests/
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -37,7 +43,7 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.7', '3.8', '3.9', '3.10']
-    steps: 
+    steps:
     - uses: actions/checkout@v2
     - uses: actions/setup-python@v2
       with:
@@ -47,15 +53,17 @@ jobs:
       run: |
         $python_path = python -c "import sys; print(sys.executable)"
         echo "PYTHON_PATH=$python_path" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf-8 -Append
+    - name: Run tests
+      run: |
+        python -m venv venv
+        venv\Scripts\activate
+        python -m pip install -r build.requirements.txt
+        maturin develop
+        python -m pytest
     - uses: messense/maturin-action@v1
       with:
         command: build
         args: --release --no-sdist -o dist --interpreter ${{ env.PYTHON_PATH }}
-    - name: Run tests
-      run: |
-        pip install bytewax --find-links dist -v --pre
-        pip install --upgrade pytest==7.0.0
-        python -m pytest pytests/
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -73,15 +81,19 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         architecture: x64
+    - name: Run tests
+      shell: bash
+      run: |
+        python -m venv venv
+        source venv/bin/activate
+        pip install -U pip
+        pip install -r build.requirements.txt
+        maturin develop
+        python -m pytest
     - uses: messense/maturin-action@v1
       with:
         command: build
         args: --release --no-sdist -o dist --universal2 --interpreter python${{ matrix.python-version }}
-    - name: Run tests
-      run: |
-        pip install bytewax --find-links dist -v --pre
-        pip install --upgrade pytest==7.0.0
-        python -m pytest pytests/
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
