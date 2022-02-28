@@ -4,29 +4,37 @@ use pyo3::prelude::*;
 
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 use crate::with_traceback;
+use crate::log_func;
+
+use log::debug;
 
 // These are all shims which map the Timely Rust API into equivalent
 // calls to Python functions through PyO3.
 
 pub(crate) fn map(mapper: &TdPyCallable, item: TdPyAny) -> TdPyAny {
+    debug!("{}, mapper:{:?}, item:{:?}", log_func!(), mapper, item);
     Python::with_gil(|py| with_traceback!(py, mapper.call1(py, (item,))).into())
 }
 
 pub(crate) fn flat_map(mapper: &TdPyCallable, item: TdPyAny) -> TdPyIterator {
+    debug!("{}, mapper:{:?}, item:{:?}", log_func!(), mapper, item);
     Python::with_gil(|py| with_traceback!(py, mapper.call1(py, (item,))?.extract(py)))
 }
 
 pub(crate) fn filter(predicate: &TdPyCallable, item: &TdPyAny) -> bool {
+    debug!("{}, predicate:{:?}, item:{:?}", log_func!(), predicate, item);
     Python::with_gil(|py| with_traceback!(py, predicate.call1(py, (item,))?.extract(py)))
 }
 
 pub(crate) fn inspect(inspector: &TdPyCallable, item: &TdPyAny) {
+    debug!("{}, inspector:{:?}, item:{:?}", log_func!(), inspector, item);
     Python::with_gil(|py| {
         with_traceback!(py, inspector.call1(py, (item,)));
     });
 }
 
 pub(crate) fn inspect_epoch(inspector: &TdPyCallable, epoch: &u64, item: &TdPyAny) {
+    debug!("{}, inspector:{:?}, item:{:?}", log_func!(), inspector, item);
     Python::with_gil(|py| {
         with_traceback!(py, inspector.call1(py, (*epoch, item)));
     });
@@ -40,6 +48,7 @@ pub(crate) fn reduce(
     value: TdPyAny,
 ) -> (bool, impl IntoIterator<Item = TdPyAny>) {
     Python::with_gil(|py| {
+        debug!("{}, reducer:{:?}, key:{:?}, value:{:?}", log_func!(), reducer, key, value);
         let updated_aggregator = match aggregator {
             Some(aggregator) => {
                 with_traceback!(py, reducer.call1(py, (aggregator.clone_ref(py), value))).into()
@@ -57,6 +66,7 @@ pub(crate) fn reduce(
 
         if should_emit_and_discard_aggregator {
             let emit = (key.clone_ref(py), updated_aggregator).to_object(py).into();
+            debug!("{}, reducer:{:?}, key:{:?}, emit:{:?}, complete:{:?}", log_func!(), reducer, key, emit, should_emit_and_discard_aggregator);
             (true, Some(emit))
         } else {
             (false, None)
@@ -70,6 +80,7 @@ pub(crate) fn reduce_epoch(
     _key: &TdPyAny,
     value: TdPyAny,
 ) {
+    debug!("{}, reducer:{:?}, key:{:?}, value:{:?}, agg:{:?}", log_func!(), reducer, _key, value, aggregator);
     Python::with_gil(|py| {
         let updated_aggregator = match aggregator {
             Some(aggregator) => {
@@ -88,6 +99,7 @@ pub(crate) fn reduce_epoch_local(
 ) {
     Python::with_gil(|py| {
         for (key, value) in all_key_value_in_epoch {
+            debug!("{}, reducer:{:?}, key:{:?}, value:{:?}", log_func!(), reducer, key, value);
             aggregators
                 .entry(key.clone_ref(py))
                 .and_modify(|aggregator| {
@@ -106,11 +118,13 @@ pub(crate) fn stateful_map(
     key: &TdPyAny,
     value: TdPyAny,
 ) -> (bool, impl IntoIterator<Item = TdPyAny>) {
+    debug!("{}, mapper:{:?}, key:{:?}, value:{:?}", log_func!(), mapper, key, value);
     Python::with_gil(|py| {
         let (updated_state, emit_value): (TdPyAny, TdPyAny) = with_traceback!(
             py,
             mapper.call1(py, (state.clone_ref(py), value))?.extract(py)
         );
+        debug!("{}, mapper:{:?}, key:{:?}, emit:{:?}", log_func!(), mapper, key, emit_value);
 
         *state = updated_state;
 
