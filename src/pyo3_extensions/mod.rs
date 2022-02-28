@@ -88,6 +88,17 @@ impl std::fmt::Debug for TdPyAny {
     }
 }
 
+impl fmt::Debug for TdPyCallable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s: PyResult<String> = Python::with_gil(|py| {
+            let self_ = self.0.as_ref(py);
+            let name: String = self_.getattr("__name__")?.extract()?;
+            Ok(name)
+        });
+        f.write_str(&s.map_err(|_| std::fmt::Error {})?)
+    }
+}
+
 /// Serialize Python objects flowing through Timely that cross
 /// process bounds as pickled bytes.
 impl serde::Serialize for TdPyAny {
