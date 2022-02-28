@@ -1,11 +1,11 @@
 import collections
 import json
 import operator
-import time
+from datetime import timedelta
 
 import sseclient
 import urllib3
-from bytewax import Dataflow, inp, parse, spawn_cluster
+from bytewax import Dataflow, inputs, parse, spawn_cluster
 
 
 def open_stream():
@@ -24,7 +24,7 @@ def open_stream():
 
 def input_builder(worker_index, worker_count):
     if worker_index == 0:
-        return inp.tumbling_epoch(2.0, open_stream())
+        return inputs.tumbling_epoch(open_stream(), timedelta(seconds=2))
     else:
         return []
 

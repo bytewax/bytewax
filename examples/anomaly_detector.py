@@ -1,6 +1,6 @@
 import random
 
-from bytewax import Dataflow, inp, parse, run_cluster
+from bytewax import Dataflow, inputs, parse, run_cluster
 
 
 def random_datapoints():
@@ -62,6 +62,6 @@ flow.capture()
 
 if __name__ == "__main__":
     for epoch, item in run_cluster(
-        flow, inp.fully_ordered(random_datapoints()), **parse.cluster_args()
+        flow, inputs.fully_ordered(random_datapoints()), **parse.cluster_args()
     ):
         inspector(epoch, item)

@@ -31,3 +31,5 @@
   arguments and environment variables for the above entrypoints.
   
 - Adds `manual_cluster` example.
+
+- Renames `bytewax.inp` to `bytewax.inputs`.
