@@ -26,7 +26,7 @@ jobs:
         pip install -U pip
         pip install -r build.requirements.txt
         maturin develop
-        python -m pytest
+        python -m pytest -v
     - uses: messense/maturin-action@v1
       with:
         manylinux: auto
@@ -59,7 +59,7 @@ jobs:
         venv\Scripts\activate
         python -m pip install -r build.requirements.txt
         maturin develop
-        python -m pytest
+        python -m pytest -v
     - uses: messense/maturin-action@v1
       with:
         command: build
@@ -89,7 +89,7 @@ jobs:
         pip install -U pip
         pip install -r build.requirements.txt
         maturin develop
-        python -m pytest
+        python -m pytest -v
     - uses: messense/maturin-action@v1
       with:
         command: build
