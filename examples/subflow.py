@@ -1,7 +1,7 @@
 import collections
 import operator
 
-from bytewax import Dataflow, inp, parse, run_cluster
+from bytewax import Dataflow, inputs, parse, run_cluster
 
 
 # You can define your own functions which add groupings of steps to a
@@ -41,7 +41,7 @@ flow.capture()
 if __name__ == "__main__":
     for epoch, item in run_cluster(
         flow,
-        inp.single_batch(open("examples/sample_data/wordcount.txt")),
+        inputs.single_batch(open("examples/sample_data/wordcount.txt")),
         **parse.cluster_args(),
     ):
         inspector(item)

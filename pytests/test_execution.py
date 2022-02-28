@@ -3,7 +3,7 @@ import signal
 import threading
 from sys import exit
 
-from bytewax import cluster_main, Dataflow, inp, run, run_cluster
+from bytewax import cluster_main, Dataflow, inputs, run, run_cluster
 
 from multiprocess import Manager, Process
 
@@ -15,7 +15,7 @@ def test_run():
     flow.map(lambda x: x + 1)
     flow.capture()
 
-    out = run(flow, inp.fully_ordered(range(3)))
+    out = run(flow, inputs.fully_ordered(range(3)))
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 
@@ -25,7 +25,7 @@ def test_run_cluster():
     flow.capture()
 
     out = run_cluster(
-        flow, inp.fully_ordered(range(3)), proc_count=2, worker_count_per_proc=2
+        flow, inputs.fully_ordered(range(3)), proc_count=2, worker_count_per_proc=2
     )
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
@@ -88,7 +88,7 @@ def test_run_can_be_ctrl_c():
         flow.capture()
 
         try:
-            for epoch_item in run(flow, inp.fully_ordered(range(1000))):
+            for epoch_item in run(flow, inputs.fully_ordered(range(1000))):
                 out.append(epoch_item)
         except KeyboardInterrupt:
             exit(99)
@@ -124,7 +124,7 @@ def test_run_cluster_can_be_ctrl_c():
         try:
             for epoch_item in run_cluster(
                 flow,
-                inp.fully_ordered(range(1000)),
+                inputs.fully_ordered(range(1000)),
                 proc_count=2,
                 worker_count_per_proc=2,
             ):
@@ -154,7 +154,7 @@ def test_cluster_main_can_be_ctrl_c():
 
     def proc_main():
         def input_builder(worker_index, worker_count):
-            return inp.fully_ordered(range(1000))
+            return inputs.fully_ordered(range(1000))
 
         def output_builder(worker_index, worker_count):
             def out_handler(epoch_item):
