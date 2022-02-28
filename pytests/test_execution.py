@@ -74,6 +74,10 @@ def test_run_cluster_reraises_exception():
         run_cluster(flow, enumerate(range(3)), proc_count=2)
 
 
+@mark.skipif(
+    os.name == "nt",
+    reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
+)
 def test_run_can_be_ctrl_c():
     manager = Manager()
     is_running = manager.Event()
@@ -97,17 +101,17 @@ def test_run_can_be_ctrl_c():
     test_proc.start()
 
     assert is_running.wait(timeout=1.0), "Timeout waiting for test proc to start"
-    if os.name == "nt":
-        sig = signal.CTRL_C_EVENT
-    else:
-        sig = signal.SIGINT
-    os.kill(test_proc.pid, sig)
+    os.kill(test_proc.pid, signal.SIGINT)
     test_proc.join()
 
     assert test_proc.exitcode == 99
     assert len(out) < 1000
 
 
+@mark.skipif(
+    os.name == "nt",
+    reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
+)
 def test_run_cluster_can_be_ctrl_c():
     manager = Manager()
     is_running = manager.Event()
@@ -136,17 +140,17 @@ def test_run_cluster_can_be_ctrl_c():
     test_proc.start()
 
     assert is_running.wait(timeout=1.0), "Timeout waiting for test proc to start"
-    if os.name == "nt":
-        sig = signal.CTRL_C_EVENT
-    else:
-        sig = signal.SIGINT
-    os.kill(test_proc.pid, sig)
+    os.kill(test_proc.pid, signal.SIGINT)
     test_proc.join()
 
     assert test_proc.exitcode == 99
     assert len(out) < 1000
 
 
+@mark.skipif(
+    os.name == "nt",
+    reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
+)
 def test_cluster_main_can_be_ctrl_c():
     manager = Manager()
     is_running = manager.Event()
@@ -178,11 +182,7 @@ def test_cluster_main_can_be_ctrl_c():
     test_proc.start()
 
     assert is_running.wait(timeout=1.0), "Timeout waiting for test proc to start"
-    if os.name == "nt":
-        sig = signal.CTRL_C_EVENT
-    else:
-        sig = signal.SIGINT
-    os.kill(test_proc.pid, sig)
+    os.kill(test_proc.pid, signal.SIGINT)
     test_proc.join()
 
     assert test_proc.exitcode == 99
