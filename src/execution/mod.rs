@@ -1,37 +1,34 @@
 #![allow(non_snake_case)]
 
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-
-use std::thread;
-use std::time::Duration;
+use pyo3::exceptions::PyStopIteration;
+use pyo3::iter::IterNextOutput;
+use send_wrapper::SendWrapper;
+use std::collections::HashMap;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use timely::communication::allocator::zero_copy::initialize::CommsGuard as TCommsGuard;
+use timely::communication::allocator::GenericBuilder as TBuilder;
 use timely::dataflow::InputHandle;
 use timely::dataflow::ProbeHandle;
 
-use crate::dataflow::{build_dataflow, Dataflow};
-use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
-use crate::with_traceback;
+use crate::dataflow::Dataflow;
+use crate::pyo3_extensions::*;
+
+type TWorker = timely::worker::Worker<timely::communication::allocator::generic::Generic>;
 
 /// Encapsulates the process of pulling data out of the input Python
 /// iterator and feeding it into Timely.
 ///
 /// This will be called in the worker's "main" loop to feed data in.
-pub(crate) struct Pump {
+struct Pump {
     pull_from_pyiter: TdPyIterator,
     pyiter_is_empty: bool,
     push_to_timely: InputHandle<u64, TdPyAny>,
 }
 
 impl Pump {
-    pub(crate) fn new(
-        pull_from_pyiter: TdPyIterator,
-        push_to_timely: InputHandle<u64, TdPyAny>,
-    ) -> Self {
+    fn new(pull_from_pyiter: TdPyIterator, push_to_timely: InputHandle<u64, TdPyAny>) -> Self {
         Self {
             pull_from_pyiter,
             pyiter_is_empty: false,
@@ -41,17 +38,16 @@ impl Pump {
 
     /// Take a single data element and timestamp and feed it into the
     /// dataflow.
-    fn pump(&mut self) {
-        Python::with_gil(|py| {
-            let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
-            if let Some(epoch_item_pytuple) = pull_from_pyiter.next() {
-                let (epoch, item) = with_traceback!(py, epoch_item_pytuple?.extract());
-                self.push_to_timely.advance_to(epoch);
-                self.push_to_timely.send(item);
-            } else {
-                self.pyiter_is_empty = true;
-            }
-        });
+    fn pump(&mut self, py: Python) -> PyResult<()> {
+        let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
+        if let Some(epoch_item_pytuple) = pull_from_pyiter.next() {
+            let (epoch, item) = epoch_item_pytuple?.extract()?;
+            self.push_to_timely.advance_to(epoch);
+            self.push_to_timely.send(item);
+        } else {
+            self.pyiter_is_empty = true;
+        }
+        Ok(())
     }
 
     fn input_remains(&self) -> bool {
@@ -59,248 +55,447 @@ impl Pump {
     }
 }
 
-/// "Main loop" of a Timely worker thread.
+/// Coroutine representing a worker thread's "main" loop.
 ///
-/// 1. Pump [`Pump`]s (get input data from Python into Timely).
+/// Can be `await`ed from an async function, passed to `asyncio.run()`
+/// to block and run, or stepped through via `send()`.
 ///
-/// 2. Dispose of empty [`Pump`]s and Probes which indicate there's no
-/// data left to process in that dataflow.
-///
-/// 3. Call [timely::worker::Worker::step] to tell Timely to do
-/// whatever work it can.
-pub(crate) fn worker_main<A>(
-    mut pumps_with_input_remaining: Vec<Pump>,
-    mut probes_with_timestamps_inflight: Vec<ProbeHandle<u64>>,
-    interrupt_flag: &AtomicBool,
-    worker: &mut timely::worker::Worker<A>,
-) where
-    A: timely::communication::Allocate,
-{
-    while (!pumps_with_input_remaining.is_empty() || !probes_with_timestamps_inflight.is_empty())
-        && !interrupt_flag.load(Ordering::Relaxed)
-    {
-        if !pumps_with_input_remaining.is_empty() {
-            let mut updated_pumps = Vec::new();
-            for mut pump in pumps_with_input_remaining.into_iter() {
-                pump.pump();
-                if pump.input_remains() {
-                    updated_pumps.push(pump);
-                }
-            }
-            pumps_with_input_remaining = updated_pumps;
-        }
-        if !probes_with_timestamps_inflight.is_empty() {
-            let mut updated_probes = Vec::new();
-            for probe in probes_with_timestamps_inflight.into_iter() {
-                if !probe.done() {
-                    updated_probes.push(probe);
-                }
-            }
-            probes_with_timestamps_inflight = updated_probes;
-        }
+/// Created via `WorkerBuilder.build()` in the final execution
+/// thread. Do not use from other threads.
+#[pyclass(unsendable)]
+struct WorkerCoro {
+    /// None if this worker panic'd and is poisoned and thus should
+    /// not be used again. Use SendWrapper because of py.allow_threads
+    /// requiring Send, not because we actually are sending between
+    /// threads; could be dropped once
+    /// https://github.com/PyO3/pyo3/issues/2141 is done.
+    timely_worker: Option<SendWrapper<TWorker>>,
+    input_pumps: Vec<Pump>,
+    output_probes: Vec<ProbeHandle<u64>>,
+    should_stop: TdPyCallable,
+}
 
-        worker.step();
+impl WorkerCoro {
+    /// Compile a Bytewax dataflow into a Timely dataflow.
+    fn compile(
+        py: Python,
+        mut timely_worker: SendWrapper<TWorker>,
+        flow: &Dataflow,
+        input_builder: TdPyCallable,
+        output_builder: TdPyCallable,
+        should_stop: TdPyCallable,
+    ) -> PyResult<Self> {
+        use timely::dataflow::operators::aggregation::*;
+        use timely::dataflow::operators::*;
+
+        use crate::dataflow::Step;
+        use crate::operators::*;
+
+        let worker_index = timely_worker.index();
+        let worker_count = timely_worker.peers();
+
+        let worker_input: TdPyIterator = input_builder
+            .call1(py, (worker_index, worker_count))
+            .unwrap()
+            .extract(py)
+            .unwrap();
+        let mut timely_input = InputHandle::new();
+
+        let worker_output: TdPyCallable = output_builder
+            .call1(py, (worker_index, worker_count))
+            .unwrap()
+            .extract(py)
+            .unwrap();
+        let mut output_probes = Vec::new();
+
+        timely_worker.dataflow(|scope| {
+            let mut stream = timely_input.to_stream(scope);
+            let steps = &flow.steps;
+            for step in steps {
+                match step {
+                    Step::Map { mapper } => {
+                        // All these closure lifetimes are static, so tell
+                        // Python's GC that there's another pointer to the
+                        // mapping function that's going to hang around
+                        // for a while when it's moved into the closure.
+                        let mapper = mapper.clone_ref(py);
+                        stream = stream.map(move |item| map(&mapper, item));
+                    }
+                    Step::FlatMap { mapper } => {
+                        let mapper = mapper.clone_ref(py);
+                        stream = stream.flat_map(move |item| flat_map(&mapper, item));
+                    }
+                    Step::Filter { predicate } => {
+                        let predicate = predicate.clone_ref(py);
+                        stream = stream.filter(move |item| filter(&predicate, item));
+                    }
+                    Step::Inspect { inspector } => {
+                        let inspector = inspector.clone_ref(py);
+                        stream = stream.inspect(move |item| inspect(&inspector, item));
+                    }
+                    Step::InspectEpoch { inspector } => {
+                        let inspector = inspector.clone_ref(py);
+                        stream = stream.inspect_time(move |epoch, item| {
+                            inspect_epoch(&inspector, epoch, item)
+                        });
+                    }
+                    Step::Reduce {
+                        reducer,
+                        is_complete,
+                    } => {
+                        let reducer = reducer.clone_ref(py);
+                        let is_complete = is_complete.clone_ref(py);
+                        stream = stream.map(lift_2tuple).state_machine(
+                            move |key, value, aggregator: &mut Option<TdPyAny>| {
+                                reduce(&reducer, &is_complete, aggregator, key, value)
+                            },
+                            hash,
+                        );
+                    }
+                    Step::ReduceEpoch { reducer } => {
+                        let reducer = reducer.clone_ref(py);
+                        stream = stream.map(lift_2tuple).aggregate(
+                            move |key, value, aggregator: &mut Option<TdPyAny>| {
+                                reduce_epoch(&reducer, aggregator, key, value);
+                            },
+                            move |key, aggregator: Option<TdPyAny>| {
+                                // Aggregator will only exist for keys
+                                // that exist, so it will have been filled
+                                // into Some(value) above.
+                                wrap_2tuple((key, aggregator.unwrap()))
+                            },
+                            hash,
+                        );
+                    }
+                    Step::ReduceEpochLocal { reducer } => {
+                        let reducer = reducer.clone_ref(py);
+                        stream = stream
+                            .map(lift_2tuple)
+                            .accumulate(
+                                HashMap::new(),
+                                move |aggregators, all_key_value_in_epoch| {
+                                    reduce_epoch_local(
+                                        &reducer,
+                                        aggregators,
+                                        &all_key_value_in_epoch,
+                                    );
+                                },
+                            )
+                            .flat_map(|aggregators| aggregators.into_iter().map(wrap_2tuple));
+                    }
+                    Step::StatefulMap { builder, mapper } => {
+                        let builder = builder.clone_ref(py);
+                        let mapper = mapper.clone_ref(py);
+                        stream = stream.map(lift_2tuple).state_machine(
+                            move |key, value, maybe_uninit_state: &mut Option<TdPyAny>| {
+                                let state =
+                                    maybe_uninit_state.get_or_insert_with(|| build(&builder));
+                                stateful_map(&mapper, state, key, value)
+                            },
+                            hash,
+                        );
+                    }
+                    Step::Capture {} => {
+                        let worker_output = worker_output.clone_ref(py);
+                        let mut output_probe = ProbeHandle::new();
+                        stream
+                            .inspect_time(move |epoch, item| capture(&worker_output, epoch, item))
+                            .probe_with(&mut output_probe);
+                        output_probes.push(output_probe);
+                    }
+                }
+            }
+
+            if output_probes.is_empty() {
+                return Err(PyValueError::new_err(
+                    "Dataflow needs to contain at least one capture",
+                ));
+            }
+
+            Ok(())
+        })?;
+
+        let pump = Pump::new(worker_input, timely_input);
+        let worker = Self {
+            timely_worker: Some(timely_worker),
+            input_pumps: vec![pump],
+            output_probes,
+            should_stop,
+        };
+        Ok(worker)
     }
 }
 
-pub(crate) fn shutdown_worker<A>(worker: &mut timely::worker::Worker<A>)
-where
-    A: timely::communication::Allocate,
-{
-    for dataflow_id in worker.installed_dataflows() {
-        worker.drop_dataflow(dataflow_id);
-    }
-}
+#[pymethods]
+impl WorkerCoro {
+    /// "Main" loop of this worker thread.
+    ///
+    /// 1. Pump `Pump`s (get input data from Python into Timely).
+    ///
+    /// 2. Dispose of empty `Pump`s which indicate there's no more
+    /// input data.
+    ///
+    /// 3. Step the worker to do whatever work it can. This will
+    /// execute operators.
+    ///
+    /// 4. Dispose of empty probes which indicates that all output has
+    /// been emitted from that caputre operator.
+    ///
+    /// 5. Determine if the worker should exit.
+    fn send(&mut self, py: Python, _value: Py<PyAny>) -> PyResult<()> {
+        let timely_worker = self.timely_worker.as_mut().ok_or(PyRuntimeError::new_err(
+            "Dataflow previously threw unhandled exception; can't be used again",
+        ))?;
 
-/// Private shim for `run()` but takes builder functions so we can
-/// re-use `build_dataflow()`.
-#[pyfunction]
-pub(crate) fn _run(
-    py: Python,
-    flow: Py<Dataflow>,
-    input_builder: TdPyCallable,
-    output_builder: TdPyCallable,
-) -> PyResult<()> {
-    let result = py.allow_threads(move || {
-        std::panic::catch_unwind(|| {
-            // TODO: See if we can PR Timely to not cast result error
-            // to a String. Then we could "raise" Python errors from
-            // the builder directly. Probably also as part of the
-            // panic recast issue below.
-            timely::execute::execute_directly::<Result<(), String>, _>(move |worker| {
-                let (pump, probe) = Python::with_gil(|py| {
-                    let flow = &flow.as_ref(py).borrow();
-                    build_dataflow(worker, py, flow, input_builder, output_builder)
-                })?;
+        for pump in self.input_pumps.iter_mut() {
+            pump.pump(py)?;
+        }
+        self.input_pumps = self
+            .input_pumps
+            .drain(..)
+            .filter(Pump::input_remains)
+            .collect();
 
-                worker_main(vec![pump], vec![probe], &AtomicBool::new(false), worker);
-
-                shutdown_worker(worker);
-
-                Ok(())
+        // SAFETY: TWorker must outlive the catch_unwind boundary to
+        // allow async resume. But TWorker is implemented in Timely
+        // using some things that are not UnwindSafe. Thus after a
+        // panic, throw away the TWorker via assigning None so logic
+        // safety can be enforced by never being able to use the
+        // possibly-corrupt TWorker again.
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            py.allow_threads(|| {
+                timely_worker.step();
             })
-        })
-    });
+        }))
+        .map_err(|err| {
+            // Never allow calls to this possibly-corrupted by
+            // panic TWorker again.
+            self.timely_worker = None;
 
-    match result {
-        Ok(Ok(ok)) => Ok(ok),
-        Ok(Err(build_err_str)) => Err(PyValueError::new_err(build_err_str)),
-        Err(panic_err) => {
-            let pyerr = if let Some(pyerr) = panic_err.downcast_ref::<PyErr>() {
+            if let Some(pyerr) = err.downcast_ref::<PyErr>() {
                 pyerr.clone_ref(py)
             } else {
                 PyRuntimeError::new_err("Panic in Rust code")
-            };
-            Err(pyerr)
+            }
+        })?;
+
+        self.output_probes = self
+            .output_probes
+            .drain(..)
+            .filter(|probe| !probe.done())
+            .collect();
+
+        let should_stop = self.should_stop.call0(py)?.extract(py)?;
+        let work_complete = self.input_pumps.is_empty() && self.output_probes.is_empty();
+
+        if should_stop || work_complete {
+            Err(PyStopIteration::new_err(()))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Run code on shutdown of worker.
+    fn close(&mut self) -> PyResult<()> {
+        let timely_worker = self.timely_worker.as_mut().ok_or(PyRuntimeError::new_err(
+            "Dataflow previously threw unhandled exception; can't be used again",
+        ))?;
+
+        for dataflow_id in timely_worker.installed_dataflows() {
+            timely_worker.drop_dataflow(dataflow_id);
+        }
+        Ok(())
+    }
+
+    fn throw(&mut self, _typ: &PyAny, _value: &PyAny, _traceback: &PyAny) -> PyResult<()> {
+        let _timely_worker = self.timely_worker.as_mut().ok_or(PyRuntimeError::new_err(
+            "Dataflow previously threw unhandled exception; can't be used again",
+        ))?;
+
+        Ok(())
+    }
+
+    // Shims to allow this coroutine to be `await`ed upon.
+
+    fn __await__(self_: PyRef<Self>) -> PyRef<Self> {
+        self_
+    }
+
+    fn __next__(&mut self, py: Python) -> PyResult<IterNextOutput<(), ()>> {
+        match self.send(py, ().into_py(py)) {
+            Ok(ok) => Ok(IterNextOutput::Yield(ok)),
+            Err(err) if err.is_instance::<PyStopIteration>(py) => Ok(IterNextOutput::Return(())),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn __iter__(self_: PyRef<Self>) -> PyRef<Self> {
+        self_
+    }
+}
+
+/// Contains handles to Timely's background communication threads in a
+/// cluster setting.
+///
+/// You must call `join()` on this after the workers have been
+/// shutdown.
+#[pyclass(unsendable)]
+struct CommsThreads {
+    guard: Option<Box<TCommsGuard>>,
+}
+
+impl CommsThreads {
+    fn new(guard: Box<TCommsGuard>) -> Self {
+        Self { guard: Some(guard) }
+    }
+}
+
+#[pymethods]
+impl CommsThreads {
+    /// Block until background communication threads have flushed and
+    /// exited.
+    fn join(&mut self) -> PyResult<()> {
+        self.guard.take();
+        Ok(())
+    }
+}
+
+/// Used to configure and build a worker thread.
+///
+/// See the static methods on this class for how to build workers for
+/// the various contexts (e.g. single thread, cluster).
+#[pyclass]
+struct WorkerBuilder {
+    /// Consumed once built into a coroutine.
+    timely_builder: Option<TBuilder>,
+}
+
+impl WorkerBuilder {
+    fn new(timely_builder: TBuilder) -> Self {
+        Self {
+            timely_builder: Some(timely_builder),
         }
     }
 }
 
-/// Execute a dataflow in the current process as part of a cluster.
-///
-/// You have to coordinate starting up all the processes in the
-/// cluster and ensuring they each are assigned a unique ID and know
-/// the addresses of other processes. You'd commonly use this for
-/// starting processes as part of a Kubernetes cluster.
-///
-/// Blocks until execution is complete.
-///
-/// See `run_cluster()` for a convenience method to pass data through
-/// a dataflow for notebook development.
-///
-/// See `spawn_cluster()` for starting a simple cluster locally on one
-/// machine.
-///
-/// >>> flow = Dataflow()
-/// >>> def input_builder(worker_index, worker_count):
-/// ...     return enumerate(range(3))
-/// >>> def output_builder(worker_index, worker_count):
-/// ...     return print
-/// >>> cluster_main(flow, input_builder, output_builder)
-///
-/// Args:
-///     flow: Dataflow to run.
-///     input_builder: Returns input that each worker thread should
-///         process.
-///     output_builder: Returns a callback function for each worker
-///         thread, called with `(epoch, item)` whenever and item
-///         passes by a capture operator on this process.
-///     addresses: List of host/port addresses for all processes in
-///         this cluster (including this one).
-///     proc_id: Index of this process in cluster; starts from 0.
-#[pyfunction]
-pub(crate) fn cluster_main(
-    py: Python,
-    flow: Py<Dataflow>,
-    input_builder: TdPyCallable,
-    output_builder: TdPyCallable,
-    addresses: Option<Vec<String>>,
-    proc_id: usize,
-    worker_count_per_proc: usize,
-) -> PyResult<()> {
-    py.allow_threads(move || {
+#[pymethods]
+impl WorkerBuilder {
+    /// Create a new builder which will produce a worker which runs in
+    /// the current thread.
+    ///
+    /// Returns: A single builder.
+    #[staticmethod]
+    fn sync() -> Self {
+        Self::new(TBuilder::Thread(
+            timely::communication::allocator::thread::ThreadBuilder {},
+        ))
+    }
+
+    /// Create a set of builders which correspond to the worker
+    /// threads on this process in a Bytewax cluster.
+    ///
+    /// Will start up background communication threads that will need
+    /// to be joined after the worker is done.
+    ///
+    /// Args:
+    ///
+    ///     addresses: List of host/port addresses for all processes
+    ///         in this cluster (including this one).
+    ///         
+    ///     proc_id: Index of this process in cluster; starts from 0.
+    ///     
+    ///     worker_count_per_proc: Number of worker threads to start
+    ///         on this process.
+    ///
+    /// Returns:
+    ///
+    ///     builders: One buidler for each worker thread on this
+    ///         process.
+    ///
+    ///     comms_guard: Handle to background communication
+    ///         threads. Call `join()` on this after worker is complete.
+    #[staticmethod]
+    fn cluster(
+        py: Python,
+        addresses: Option<Vec<String>>,
+        proc_id: usize,
+        worker_count_per_proc: usize,
+    ) -> PyResult<(Vec<Self>, CommsThreads)> {
         let addresses = addresses.unwrap_or_default();
-        let (builders, other) = if addresses.len() < 1 {
-            timely::CommunicationConfig::Process(worker_count_per_proc)
-        } else {
-            timely::CommunicationConfig::Cluster {
-                threads: worker_count_per_proc,
-                process: proc_id,
-                addresses,
-                report: false,
-                log_fn: Box::new(|_| None),
-            }
-        }
-        .try_build()
-        .map_err(PyRuntimeError::new_err)?;
 
-        let should_shutdown = Arc::new(AtomicBool::new(false));
-        let should_shutdown_w = should_shutdown.clone();
-        let should_shutdown_p = should_shutdown.clone();
-        // We can drop these if we want to use nightly
-        // Thread::is_running
-        // https://github.com/rust-lang/rust/issues/90470
-        let shutdown_worker_count = Arc::new(AtomicUsize::new(0));
-        let shutdown_worker_count_w = shutdown_worker_count.clone();
-
-        // Panic hook is per-process, so this isn't perfect as you
-        // can't call Executor.build_and_run() concurrently.
-        let default_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            should_shutdown_p.store(true, Ordering::Relaxed);
-
-            if let Some(pyerr) = info.payload().downcast_ref::<PyErr>() {
-                Python::with_gil(|py| pyerr.print(py));
-            } else {
-                default_hook(info);
-            }
-        }));
-        // Don't chain panic hooks if we run multiple
-        // dataflows. Really this is all a hack because the panic
-        // hook is global state. There's some talk of per-thread
-        // panic hooks which would help
-        // here. https://internals.rust-lang.org/t/pre-rfc-should-std-set-hook-have-a-per-thread-version/9518/3
-        defer! {
-            let _ = std::panic::take_hook();
-        }
-
-        let guards = timely::execute::execute_from::<_, Result<(), String>, _>(
-            builders,
-            other,
-            timely::WorkerConfig::default(),
-            move |worker| {
-                defer! {
-                    shutdown_worker_count_w.fetch_add(1, Ordering::Relaxed);
+        let (timely_builders, comms_guard) = py
+            .allow_threads(|| {
+                timely::CommunicationConfig::Cluster {
+                    threads: worker_count_per_proc,
+                    process: proc_id,
+                    addresses,
+                    report: false,
+                    log_fn: Box::new(|_| None),
                 }
+                .try_build()
+            })
+            .map_err(PyRuntimeError::new_err)?;
+        let comms_guard = comms_guard
+            .downcast::<TCommsGuard>()
+            .map_err(|_| PyRuntimeError::new_err("Timely did not give Bytewax a CommsGuard"))?;
 
-                let (pump, probe) = Python::with_gil(|py| {
-                    let flow = &flow.as_ref(py).borrow();
-                    let input_builder = input_builder.clone_ref(py);
-                    let output_builder = output_builder.clone_ref(py);
-                    build_dataflow(worker, py, flow, input_builder, output_builder)
-                })?;
+        let builders = timely_builders.into_iter().map(Self::new).collect();
+        Ok((builders, CommsThreads::new(comms_guard)))
+    }
 
-                worker_main(vec![pump], vec![probe], &should_shutdown_w, worker);
+    /// Once this `WorkerBuilder` has been sent to the thread it
+    /// should run in, convert it into an actual worker which will run
+    /// the provided `Dataflow` and IO.
+    ///
+    /// Args:
+    ///
+    ///     flow: Dataflow to run.
+    ///     
+    ///     input_builder: Returns input that each worker thread
+    ///         should process.
+    ///     
+    ///     output_builder: Returns a callback function for each
+    ///         worker thread, called with `(epoch, item)` whenever and
+    ///         item passes by a capture operator on this process.
+    ///     
+    ///     should_stop: Returns if this worker should gracefully
+    ///         shutdown soon.
+    ///
+    /// Returns: Worker coroutine, ready to run.
+    fn build(
+        &mut self,
+        py: Python,
+        flow: &Dataflow,
+        input_builder: TdPyCallable,
+        output_builder: TdPyCallable,
+        should_stop: TdPyCallable,
+    ) -> PyResult<WorkerCoro> {
+        use timely::communication::allocator::AllocateBuilder;
 
-                shutdown_worker(worker);
+        let timely_builder = self.timely_builder.take().ok_or(PyRuntimeError::new_err(
+            "Can't reuse WorkerConfig; each should turn into a single worker thread",
+        ))?;
 
-                Ok(())
-            },
+        let allocator = py.allow_threads(|| SendWrapper::new(timely_builder.build()));
+
+        let timely_worker = SendWrapper::new(TWorker::new(
+            timely::WorkerConfig::default(),
+            allocator.take(),
+        ));
+        WorkerCoro::compile(
+            py,
+            timely_worker,
+            flow,
+            input_builder,
+            output_builder,
+            should_stop,
         )
-        .map_err(PyRuntimeError::new_err)?;
-
-        // Recreating what Python does in Thread.join() to "block"
-        // but also check interrupt handlers.
-        // https://github.com/python/cpython/blob/204946986feee7bc80b233350377d24d20fcb1b8/Modules/_threadmodule.c#L81
-        let workers_in_proc_count = guards.guards().len();
-        while shutdown_worker_count.load(Ordering::Relaxed) < workers_in_proc_count {
-            thread::sleep(Duration::from_millis(1));
-            Python::with_gil(|py| Python::check_signals(py)).map_err(|err| {
-                should_shutdown.store(true, Ordering::Relaxed);
-                err
-            })?;
-        }
-        for maybe_worker_panic in guards.join() {
-            // TODO: See if we can PR Timely to not cast panic info to
-            // String. Then we could re-raise Python exception in main
-            // thread and not need to print in panic::set_hook above,
-            // although we still need it to tell the other workers to
-            // do graceful shutdown.
-            match maybe_worker_panic {
-                Ok(Ok(ok)) => Ok(ok),
-                Ok(Err(build_err_str)) => Err(PyValueError::new_err(build_err_str)),
-                Err(_panic_err) => Err(PyRuntimeError::new_err(
-                    "Worker thread died; look for errors above",
-                )),
-            }?;
-        }
-
-        Ok(())
-    })
+    }
 }
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(_run, m)?)?;
-    m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
+    m.add_class::<WorkerCoro>()?;
+    m.add_class::<WorkerBuilder>()?;
+    m.add_class::<CommsThreads>()?;
     Ok(())
 }

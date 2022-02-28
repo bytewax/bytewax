@@ -1,7 +1,7 @@
 import json
 import operator
-from datetime import timedelta
 from collections import defaultdict
+from datetime import timedelta
 
 from bytewax import Dataflow, inputs, parse, run_cluster
 
@@ -39,6 +39,8 @@ flow.capture()
 
 if __name__ == "__main__":
     for epoch, item in run_cluster(
-        flow, inputs.tumbling_epoch(twitter.get_stream(), timedelta(seconds=2)), **parse.cluster_args()
+        flow,
+        inputs.tumbling_epoch(twitter.get_stream(), timedelta(seconds=2)),
+        **parse.cluster_args()
     ):
         print(epoch, item)

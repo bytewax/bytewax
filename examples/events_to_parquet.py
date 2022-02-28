@@ -1,6 +1,7 @@
+import asyncio
+import datetime
 import json
 import time
-import datetime
 
 import pandas
 
@@ -16,7 +17,9 @@ from utils import fake_events
 # days around today. Each worker will generate independent fake
 # events.
 def input_builder(worker_index, worker_count):
-    return inputs.tumbling_epoch(fake_events.generate_web_events(), datetime.timedelta(seconds=5))
+    return inputs.tumbling_epoch(
+        fake_events.generate_web_events(), datetime.timedelta(seconds=5)
+    )
 
 
 # Arrow assigns a UUID to each worker / window's file so they won't
@@ -26,6 +29,7 @@ def write_parquet(epoch__events_df):
     """Write events as partitioned Parquet in `$PWD/parquet_demo_out/`"""
     epoch, events_df = epoch__events_df
     table = Table.from_pandas(events_df)
+    print("Writing partition file")
     parquet.write_to_dataset(
         table,
         root_path="parquet_demo_out",
@@ -75,4 +79,7 @@ flow.capture()
 
 
 if __name__ == "__main__":
-    spawn_cluster(flow, input_builder, output_builder, **parse.cluster_args())
+    asyncio.run(
+        spawn_cluster(flow, input_builder, output_builder, **parse.cluster_args())
+    )
+    print("Output in ./parquet_demo_out/")

@@ -1,6 +1,3 @@
-#[macro_use(defer)]
-extern crate scopeguard;
-
 use pyo3::prelude::*;
 use std::thread;
 use std::time::Duration;
@@ -27,8 +24,7 @@ fn sleep_release_gil(py: Python, secs: u64) {
 }
 
 #[pymodule]
-#[pyo3(name = "bytewax")]
-fn mod_tiny_dancer(_py: Python, m: &PyModule) -> PyResult<()> {
+fn bytewax(_py: Python, m: &PyModule) -> PyResult<()> {
     pyo3_log::init();
 
     execution::register(_py, m)?;

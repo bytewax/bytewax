@@ -33,3 +33,17 @@
 - Adds `manual_cluster` example.
 
 - Renames `bytewax.inp` to `bytewax.inputs`.
+
+## 0.9.0
+
+- `run()` and `run_cluster()` are now generators, allowing you to
+  lazily process infinite inputs. Computation will only happen as you
+  are consuming the output, though; use `list()` to block like the old
+  behavior.
+
+- `spawn_cluster()` is async. Use `asyncio.run()` if you want to
+  immediately block, like the old behavior.
+
+- Adds a `run_main()` which mimics the interface of `run_cluster()`
+  but run in the current thread. This will let you prototype IO
+  builders.

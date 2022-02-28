@@ -79,8 +79,14 @@ def test_inspect():
     flow.inspect(seen.append)
     flow.capture()
 
-    run(flow, inp)
+    out = run(flow, inp)
 
+    assert sorted(out) == sorted(
+        [
+            (1, "a"),
+        ]
+    )
+    # Check side-effects after execution is complete.
     assert seen == ["a"]
 
 
@@ -94,8 +100,14 @@ def test_inspect_epoch():
     flow.inspect_epoch(lambda epoch, item: seen.append((epoch, item)))
     flow.capture()
 
-    run(flow, inp)
+    out = run(flow, inp)
 
+    assert sorted(out) == sorted(
+        [
+            (1, "a"),
+        ]
+    )
+    # Check side-effects after execution is complete.
     assert seen == [(1, "a")]
 
 

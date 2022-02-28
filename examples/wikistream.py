@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import sseclient
 import urllib3
-from bytewax import Dataflow, inputs, parse, spawn_cluster
+from bytewax import Dataflow, inputs, parse, run_cluster
 
 
 def open_stream():
@@ -20,17 +20,6 @@ def open_stream():
 
     for event in client.events():
         yield event.data
-
-
-def input_builder(worker_index, worker_count):
-    if worker_index == 0:
-        return inputs.tumbling_epoch(open_stream(), timedelta(seconds=2))
-    else:
-        return []
-
-
-def output_builder(worker_index, worker_count):
-    return print
 
 
 def initial_count(data_dict):
@@ -49,4 +38,9 @@ flow.capture()
 
 
 if __name__ == "__main__":
-    spawn_cluster(flow, input_builder, output_builder, **parse.cluster_args())
+    for epoch, item in run_cluster(
+        flow,
+        inputs.tumbling_epoch(open_stream(), timedelta(seconds=2)),
+        **parse.cluster_args()
+    ):
+        print(epoch, item)
