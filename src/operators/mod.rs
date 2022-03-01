@@ -48,7 +48,15 @@ pub(crate) fn reduce(
     value: TdPyAny,
 ) -> (bool, impl IntoIterator<Item = TdPyAny>) {
     Python::with_gil(|py| {
-        debug!("{}, reducer:{:?}, key:{:?}, value:{:?}", log_func!(), reducer, key, value);
+        debug!(
+            "{}, reducer:{:?}, key:{:?}, value:{:?}, is_complete:{:?}(agg={:?})",
+            log_func!(),
+            reducer,
+            key,
+            value,
+            is_complete,
+            aggregator
+        );
         let updated_aggregator = match aggregator {
             Some(aggregator) => {
                 with_traceback!(py, reducer.call1(py, (aggregator.clone_ref(py), value))).into()
@@ -63,10 +71,18 @@ pub(crate) fn reduce(
         );
 
         *aggregator = Some(updated_aggregator.clone_ref(py));
+        debug!(
+            "{}, reducer:{:?}, key:{:?}, is_complete:{:?}(updated_agg={:?} => {}",
+            log_func!(),
+            reducer,
+            key,
+            is_complete,
+            updated_aggregator,
+            should_emit_and_discard_aggregator
+        );
 
         if should_emit_and_discard_aggregator {
             let emit = (key.clone_ref(py), updated_aggregator).to_object(py).into();
-            debug!("{}, reducer:{:?}, key:{:?}, emit:{:?}, complete:{:?}", log_func!(), reducer, key, emit, should_emit_and_discard_aggregator);
             (true, Some(emit))
         } else {
             (false, None)
@@ -89,6 +105,13 @@ pub(crate) fn reduce_epoch(
             None => value,
         };
         *aggregator = Some(updated_aggregator);
+        debug!(
+            "{}, reducer:{:?}, key:{:?}, updated_aggregator:{:?}",
+            log_func!(),
+            reducer,
+            _key,
+            aggregator
+        );
     });
 }
 
@@ -99,13 +122,29 @@ pub(crate) fn reduce_epoch_local(
 ) {
     Python::with_gil(|py| {
         for (key, value) in all_key_value_in_epoch {
-            debug!("{}, reducer:{:?}, key:{:?}, value:{:?}", log_func!(), reducer, key, value);
-            aggregators
-                .entry(key.clone_ref(py))
+            let aggregator = aggregators.entry(key.clone_ref(py));
+            debug!(
+                "worker_name:{:?}, {}, reducer:{:?}, key:{:?}, value:{:?}, aggregator:{:?}",
+                worker_name,
+                log_func!(),
+                reducer,
+                key,
+                value,
+                aggregator
+            );
+            aggregator
                 .and_modify(|aggregator| {
                     *aggregator =
                         with_traceback!(py, reducer.call1(py, (aggregator.clone_ref(py), value)))
-                            .into()
+                            .into();
+                    debug!(
+                        "{}, reducer:{:?}, key:{:?}, value:{:?}, updated_aggregator:{:?}",
+                        log_func!(),
+                        reducer,
+                        key,
+                        value,
+                        *aggregator
+                    );
                 })
                 .or_insert(value.clone_ref(py));
         }
@@ -118,13 +157,25 @@ pub(crate) fn stateful_map(
     key: &TdPyAny,
     value: TdPyAny,
 ) -> (bool, impl IntoIterator<Item = TdPyAny>) {
-    debug!("{}, mapper:{:?}, key:{:?}, value:{:?}", log_func!(), mapper, key, value);
+    debug!(
+        "{}, mapper:{:?}, key:{:?}, value:{:?}",
+        log_func!(),
+        mapper,
+        key,
+        value
+    );
     Python::with_gil(|py| {
         let (updated_state, emit_value): (TdPyAny, TdPyAny) = with_traceback!(
             py,
             mapper.call1(py, (state.clone_ref(py), value))?.extract(py)
         );
-        debug!("{}, mapper:{:?}, key:{:?}, emit:{:?}", log_func!(), mapper, key, emit_value);
+        debug!(
+            "{}, mapper:{:?}, key:{:?}, emit:{:?}",
+            log_func!(),
+            mapper,
+            key,
+            emit_value
+        );
 
         *state = updated_state;
 
