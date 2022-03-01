@@ -2,10 +2,9 @@ use std::collections::HashMap;
 
 use pyo3::prelude::*;
 
+use crate::log_func;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 use crate::with_traceback;
-use crate::log_func;
-
 use log::debug;
 
 // These are all shims which map the Timely Rust API into equivalent
@@ -22,19 +21,34 @@ pub(crate) fn flat_map(mapper: &TdPyCallable, item: TdPyAny) -> TdPyIterator {
 }
 
 pub(crate) fn filter(predicate: &TdPyCallable, item: &TdPyAny) -> bool {
-    debug!("{}, predicate:{:?}, item:{:?}", log_func!(), predicate, item);
+    debug!(
+        "{}, predicate:{:?}, item:{:?}",
+        log_func!(),
+        predicate,
+        item
+    );
     Python::with_gil(|py| with_traceback!(py, predicate.call1(py, (item,))?.extract(py)))
 }
 
 pub(crate) fn inspect(inspector: &TdPyCallable, item: &TdPyAny) {
-    debug!("{}, inspector:{:?}, item:{:?}", log_func!(), inspector, item);
+    debug!(
+        "{}, inspector:{:?}, item:{:?}",
+        log_func!(),
+        inspector,
+        item
+    );
     Python::with_gil(|py| {
         with_traceback!(py, inspector.call1(py, (item,)));
     });
 }
 
 pub(crate) fn inspect_epoch(inspector: &TdPyCallable, epoch: &u64, item: &TdPyAny) {
-    debug!("{}, inspector:{:?}, item:{:?}", log_func!(), inspector, item);
+    debug!(
+        "{}, inspector:{:?}, item:{:?}",
+        log_func!(),
+        inspector,
+        item
+    );
     Python::with_gil(|py| {
         with_traceback!(py, inspector.call1(py, (*epoch, item)));
     });
@@ -96,7 +110,14 @@ pub(crate) fn reduce_epoch(
     _key: &TdPyAny,
     value: TdPyAny,
 ) {
-    debug!("{}, reducer:{:?}, key:{:?}, value:{:?}, agg:{:?}", log_func!(), reducer, _key, value, aggregator);
+    debug!(
+        "{}, reducer:{:?}, key:{:?}, value:{:?}, aggregator:{:?}",
+        log_func!(),
+        reducer,
+        _key,
+        value,
+        aggregator
+    );
     Python::with_gil(|py| {
         let updated_aggregator = match aggregator {
             Some(aggregator) => {
