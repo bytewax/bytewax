@@ -6,6 +6,7 @@ use crate::log_func;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 use crate::with_traceback;
 use log::debug;
+use std::thread;
 
 // These are all shims which map the Timely Rust API into equivalent
 // calls to Python functions through PyO3.
@@ -142,11 +143,13 @@ pub(crate) fn reduce_epoch_local(
     all_key_value_in_epoch: &Vec<(TdPyAny, TdPyAny)>,
 ) {
     Python::with_gil(|py| {
+        let _current = thread::current();
+        let id = _current.id();
         for (key, value) in all_key_value_in_epoch {
             let aggregator = aggregators.entry(key.clone_ref(py));
             debug!(
-                "worker_name:{:?}, {}, reducer:{:?}, key:{:?}, value:{:?}, aggregator:{:?}",
-                worker_name,
+                "thread:{:?}, {}, reducer:{:?}, key:{:?}, value:{:?}, aggregator:{:?}",
+                id,
                 log_func!(),
                 reducer,
                 key,
