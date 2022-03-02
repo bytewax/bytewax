@@ -137,7 +137,9 @@ version = "0.8.0-beta.0"
 dependencies = [
  "axum",
  "criterion",
+ "log",
  "pyo3",
+ "pyo3-log",
  "rand",
  "scopeguard",
  "serde",
@@ -786,6 +788,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dbf9e4d128bfbddc898ad3409900080d8d5095c379632fbbfbb9c8cfb1fb852b"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "pyo3-log"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57d43bb6bf4460e400696a4c8b4b647362e1eddc4ac31b993998692e4c2a9a5f"
+dependencies = [
+ "arc-swap",
+ "log",
+ "pyo3",
 ]
 
 [[package]]
