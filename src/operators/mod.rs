@@ -64,12 +64,11 @@ pub(crate) fn reduce(
 ) -> (bool, impl IntoIterator<Item = TdPyAny>) {
     Python::with_gil(|py| {
         debug!(
-            "{}, reducer:{:?}, key:{:?}, value:{:?}, is_complete:{:?}(agg={:?})",
+            "{}, reducer:{:?}, key:{:?}, value:{:?}, aggregator={:?})",
             log_func!(),
             reducer,
             key,
             value,
-            is_complete,
             aggregator
         );
         let updated_aggregator = match aggregator {
@@ -87,9 +86,8 @@ pub(crate) fn reduce(
 
         *aggregator = Some(updated_aggregator.clone_ref(py));
         debug!(
-            "{}, reducer:{:?}, key:{:?}, is_complete:{:?}(updated_agg={:?} => {}",
+            "{}, key:{:?}, is_complete:{:?}(updated_agg={:?} => {}",
             log_func!(),
-            reducer,
             key,
             is_complete,
             updated_aggregator,
@@ -182,8 +180,9 @@ pub(crate) fn stateful_map(
     value: TdPyAny,
 ) -> (bool, impl IntoIterator<Item = TdPyAny>) {
     debug!(
-        "{}, mapper:{:?}, key:{:?}, value:{:?}",
+        "{}, mapper:{:?}, state:{:?}, key:{:?}, value:{:?}",
         log_func!(),
+        state,
         mapper,
         key,
         value
@@ -194,8 +193,9 @@ pub(crate) fn stateful_map(
             mapper.call1(py, (state.clone_ref(py), value))?.extract(py)
         );
         debug!(
-            "{}, mapper:{:?}, key:{:?}, emit:{:?}",
+            "{}, mapper:{:?}, updated_state:{:?}, key:{:?}, emit_value:{:?}",
             log_func!(),
+            updated_state,
             mapper,
             key,
             emit_value
