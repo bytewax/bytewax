@@ -29,6 +29,8 @@ fn sleep_release_gil(py: Python, secs: u64) {
 #[pymodule]
 #[pyo3(name = "bytewax")]
 fn mod_tiny_dancer(_py: Python, m: &PyModule) -> PyResult<()> {
+    pyo3_log::init();
+
     execution::register(_py, m)?;
     dataflow::register(_py, m)?;
 
