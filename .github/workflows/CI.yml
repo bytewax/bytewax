@@ -28,7 +28,7 @@ jobs:
       run: |
         WHEEL_FILE=$(ls ./dist/*.whl)
         pip install $WHEEL_FILE -v
-        python -m pip install -r build.requirements.txt
+        pip install -r build.requirements.txt
         python -m pytest -v
     - name: Upload wheels
       uses: actions/upload-artifact@v2
@@ -58,8 +58,8 @@ jobs:
     - name: Run tests
       run: |
         $WHEEL_FILE=Get-ChildItem ./dist | Select Name -ExpandProperty Name
-        pip install $WHEEL_FILE -v
-        python -m pip install -r build.requirements.txt
+        pip install ./dist/$WHEEL_FILE -v
+        pip install -r build.requirements.txt
         python -m pytest -v
     - name: Upload wheels
       uses: actions/upload-artifact@v2
@@ -87,7 +87,7 @@ jobs:
       run: |
         WHEEL_FILE=$(ls ./dist/*.whl)
         pip install $WHEEL_FILE -v
-        python -m pip install -r build.requirements.txt
+        pip install -r build.requirements.txt
         python -m pytest -v
     - name: Upload wheels
       uses: actions/upload-artifact@v2
