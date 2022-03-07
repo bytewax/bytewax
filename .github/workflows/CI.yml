@@ -51,16 +51,16 @@ jobs:
       run: |
         $python_path = python -c "import sys; print(sys.executable)"
         echo "PYTHON_PATH=$python_path" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf-8 -Append
+    - uses: messense/maturin-action@v1
+      with:
+        command: build
+        args: --release --no-sdist -o dist --interpreter ${{ env.PYTHON_PATH }}
     - name: Run tests
       run: |
         $WHEEL_FILE=Get-ChildItem ./dist | Select Name -ExpandProperty Name
         pip install $WHEEL_FILE -v
         python -m pip install -r build.requirements.txt
         python -m pytest -v
-    - uses: messense/maturin-action@v1
-      with:
-        command: build
-        args: --release --no-sdist -o dist --interpreter ${{ env.PYTHON_PATH }}
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -78,6 +78,10 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         architecture: x64
+    - uses: messense/maturin-action@v1
+      with:
+        command: build
+        args: --release --no-sdist -o dist --universal2 --interpreter python${{ matrix.python-version }}
     - name: Run tests
       shell: bash
       run: |
@@ -85,10 +89,6 @@ jobs:
         pip install $WHEEL_FILE -v
         python -m pip install -r build.requirements.txt
         python -m pytest -v
-    - uses: messense/maturin-action@v1
-      with:
-        command: build
-        args: --release --no-sdist -o dist --universal2 --interpreter python${{ matrix.python-version }}
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
