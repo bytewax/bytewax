@@ -18,20 +18,18 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         architecture: x64
-    - name: Run tests
-      shell: bash
-      run: |
-        python -m venv venv
-        source venv/bin/activate
-        pip install -U pip
-        pip install -r build.requirements.txt
-        maturin develop
-        python -m pytest -v
     - uses: messense/maturin-action@v1
       with:
         manylinux: auto
         command: build
         args: --release -o dist --interpreter python${{ matrix.python-version }}
+    - name: Run tests
+      shell: bash
+      run: |
+        WHEEL_FILE=$(ls ./dist/*.whl)
+        pip install $WHEEL_FILE -v
+        python -m pip install -r build.requirements.txt
+        python -m pytest -v
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
