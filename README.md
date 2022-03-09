@@ -90,5 +90,4 @@ Contributions are welcome! This community and project would not be what it is wi
 </br>
 
 <p align="center"> With ❤️ Bytewax</p> 
-<p align="center"><img src="https://user-images.githubusercontent.com/6073079/157471730-af5c0b29-173c-49d3-94d1-d15d68381f1f.jpg" width="50" /> </p>
-
+<p align="center"><img src="https://user-images.githubusercontent.com/6073079/157482621-331ad886-df3c-4c92-8948-9e50accd38c9.png" width="50" /> </p>
