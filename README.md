@@ -13,7 +13,7 @@ Check out our [getting started guide](https://docs.bytewax.io/getting-started/ov
 
 ## About
 
-Bytewax let's you build python based dataflows to process your data for augmentation, advanced analysis, machine learning and more. It is based on [Timely Dataflow](https://timelydataflow.github.io/timely-dataflow/), which is a cyclic dataflow computational model. At a high-level, dataflow programming is a programming paradigm where program execution is conceptualized as data flowing through a series of operator based steps. Operators are the processing primitives of bytewax. Each of them gives you a “shape” of data transformation, and you give them functions to customize them to a specific task you need. The combination of each operator and their custom logic functions we call a dataflow step. You chain together steps in a dataflow to solve your high-level data processing problem.
+Bytewax lets you build Python based dataflows to process your data for augmentation, advanced analysis, machine learning and more. It is based on [Timely Dataflow](https://timelydataflow.github.io/timely-dataflow/), which is a cyclic dataflow computational model. At a high-level, dataflow programming is a programming paradigm where program execution is conceptualized as data flowing through a series of operator based steps. Operators are the processing primitives of bytewax. Each of them gives you a “shape” of data transformation, and you give them functions to customize them to a specific task you need. The combination of each operator and their custom logic functions we call a dataflow step. You chain together steps in a dataflow to solve your high-level data processing problem.
 
 At a high level, Bytewax provides a few major benefits:
 
@@ -29,7 +29,7 @@ At a high level, Bytewax provides a few major benefits:
 
 [GitHub Issues](https://github.com/bytewax/bytewax/issues) is reserved only for actual issues. Please use the slack community for discussions.
 
-[Code of conduct code](https://github.com/bytewax/bytewax/blob/main/CODE_OF_CONDUCT.md)
+[Code of Conduct](https://github.com/bytewax/bytewax/blob/main/CODE_OF_CONDUCT.md)
 
 ## Usage
 
