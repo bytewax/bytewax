@@ -30,6 +30,7 @@ def tumbling_epoch(
     epoch_length: Any,
     time_getter: Callable[[Any], Any] = lambda _: datetime.datetime.now(),
     epoch_0_start_time: Any = None,
+    epoch_start: Any = 0,
 ) -> Iterable[Tuple[int, Any]]:
     """All inputs within a tumbling window are part of the same epoch.
 
@@ -94,9 +95,9 @@ def tumbling_epoch(
 
         if epoch_0_start_time is None:
             epoch_0_start_time = time
-            epoch = 0
+            epoch = epoch_start
         else:
-            epoch = int((time - epoch_0_start_time) / epoch_length)
+            epoch = int((time - epoch_0_start_time) / epoch_length) + epoch_start
 
         yield (epoch, item)
 
