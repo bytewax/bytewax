@@ -29,8 +29,8 @@ def tumbling_epoch(
     wrap_iter: Iterable,
     epoch_length: Any,
     time_getter: Callable[[Any], Any] = lambda _: datetime.datetime.now(),
-    epoch_0_start_time: Any = None,
-    epoch_start: Any = 0,
+    epoch_start_time: Any = None,
+    epoch_start: int = 0,
 ) -> Iterable[Tuple[int, Any]]:
     """All inputs within a tumbling window are part of the same epoch.
 
@@ -84,20 +84,23 @@ def tumbling_epoch(
         time_getter: Function that returns a timestamp given an
             item. Defaults to current wall time.
 
-        epoch_0_start_time: The timestamp that should correspond to
+        epoch_start_time: The timestamp that should correspond to
             the start of the 0th epoch. Otherwise defaults to the time
             found on the first item.
+        
+        epoch_start: The integer value to start counting epochs from.
+            This can be used for continuity during processing.
 
     Yields: Tuples of (epoch, item).
     """
     for item in wrap_iter:
         time = time_getter(item)
 
-        if epoch_0_start_time is None:
-            epoch_0_start_time = time
+        if epoch_start_time is None:
+            epoch_start_time = time
             epoch = epoch_start
         else:
-            epoch = int((time - epoch_0_start_time) / epoch_length) + epoch_start
+            epoch = int((time - epoch_start_time) / epoch_length) + epoch_start
 
         yield (epoch, item)
 
