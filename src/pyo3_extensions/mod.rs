@@ -280,17 +280,16 @@ impl TdPyCallable {
         Self(self.0.clone_ref(py))
     }
 
-    pub(crate) fn call0(&self, py: Python) -> PyResult<Py<PyAny>> {
-        self.0.call0(py)
-    }
-
     pub(crate) fn call1(&self, py: Python, args: impl IntoPy<Py<PyTuple>>) -> PyResult<Py<PyAny>> {
         self.0.call1(py, args)
     }
 }
 
-pub(crate) fn build(builder: &TdPyCallable) -> TdPyAny {
-    Python::with_gil(|py| with_traceback!(py, builder.call0(py)).into())
+pub(crate) fn build(builder: &TdPyCallable, key: &TdPyAny) -> TdPyAny {
+    Python::with_gil(|py| {
+        let key = key.clone_ref(py);
+        with_traceback!(py, builder.call1(py, (key,))).into()
+    })
 }
 
 /// Turn a Python 2-tuple into a Rust 2-tuple.
