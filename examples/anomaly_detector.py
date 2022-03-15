@@ -55,7 +55,7 @@ def inspector(epoch, metric__value_mu_sigma_anomalous):
 
 flow = Dataflow()
 # ("metric", value)
-flow.stateful_map(lambda: ZTestDetector(2.0), ZTestDetector.push)
+flow.stateful_map(lambda key: ZTestDetector(2.0), ZTestDetector.push)
 # ("metric", (value, mu, sigma, is_anomalous))
 flow.capture()
 

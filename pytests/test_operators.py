@@ -217,7 +217,7 @@ def test_reduce_epoch_local():
 
 
 def test_stateful_map():
-    def build_seen():
+    def build_seen(key):
         return set()
 
     def add_key(item):

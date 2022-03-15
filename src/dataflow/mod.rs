@@ -418,7 +418,8 @@ where
                     let mapper = mapper.clone_ref(py);
                     stream = stream.map(lift_2tuple).state_machine(
                         move |key, value, maybe_uninit_state: &mut Option<TdPyAny>| {
-                            let state = maybe_uninit_state.get_or_insert_with(|| build(&builder));
+                            let state =
+                                maybe_uninit_state.get_or_insert_with(|| build(&builder, key));
                             stateful_map(&mapper, state, key, value)
                         },
                         hash,
