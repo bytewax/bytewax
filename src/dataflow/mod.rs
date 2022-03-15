@@ -174,8 +174,9 @@ impl Dataflow {
     ///
     /// It calls two functions:
     ///
-    /// - A `builder() => new_state: Any` which returns a new state
-    /// and will be called whenever a new key is encountered.
+    /// - A `builder(key: Any) => new_state: Any` which returns a
+    /// new state and will be called whenever a new key is encountered
+    /// with the key as a parameter.
     ///
     /// - A `mapper(state: Any, value: Any) => (updated_state: Any,
     /// updated_value: Any)` which transforms values. Values will be
