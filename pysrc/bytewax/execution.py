@@ -5,6 +5,13 @@ from multiprocess import Manager, Pool
 from .bytewax import *  # This will import PyO3 module contents.
 
 
+def __skip_doctest_on_win_gha():
+    import os, pytest
+
+    if os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None:
+        pytest.skip("Hangs in Windows GitHub Actions")
+
+
 def __fix_pickling_in_doctest():
     import dill.settings
 
@@ -77,6 +84,7 @@ def spawn_cluster(
     See `cluster_main()` for starting one process in a cluster in a
     distributed situation.
 
+    >>> __skip_doctest_on_win_gha()
     >>> __fix_pickling_in_doctest()
     >>> flow = Dataflow()
     >>> flow.capture()
@@ -148,6 +156,7 @@ def run_cluster(
     See `cluster_main()` for starting one process in a cluster in a
     distributed situation.
 
+    >>> __skip_doctest_on_win_gha()
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
     >>> flow.capture()

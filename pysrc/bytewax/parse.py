@@ -3,6 +3,13 @@ from argparse import ArgumentParser
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
+def __skip_doctest_on_win_gha():
+    import os, pytest
+
+    if os.name == "nt" and os.environ.get("GITHUB_ACTION"):
+        pytest.skip("Hangs in Windows GitHub Actions")
+
+
 def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
     """Parse command line arguments to generate arguments for
     `run_cluster()`
@@ -10,6 +17,7 @@ def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
     See documentation for `run_cluster()` for semantics of these
     variables.
 
+    >>> __skip_doctest_on_win_gha()
     >>> from bytewax import Dataflow, run_cluster
     >>> flow = Dataflow()
     >>> flow.capture()
@@ -75,6 +83,7 @@ def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
       E.g. `cluster_name-0` and `cluster_name` and we will calculate
       the process ID from that.
 
+    >>> __skip_doctest_on_win_gha()
     >>> from bytewax import Dataflow, cluster_main
     >>> flow = Dataflow()
     >>> flow.capture()
@@ -124,6 +133,7 @@ def proc_args(args: Iterable[str] = None) -> Dict[str, Any]:
     See documentation for `cluster_main()` for semantics of these
     variables.
 
+    >>> __skip_doctest_on_win_gha()
     >>> from bytewax import Dataflow, cluster_main
     >>> flow = Dataflow()
     >>> flow.capture()
