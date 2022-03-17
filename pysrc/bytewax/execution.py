@@ -5,6 +5,12 @@ from multiprocess import Manager, Pool
 from .bytewax import *  # This will import PyO3 module contents.
 
 
+def __fix_pickling_in_doctest():
+    import dill.settings
+
+    dill.settings["recurse"] = True
+
+
 def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]:
     """Pass data through a dataflow running in the current thread.
 
@@ -71,6 +77,7 @@ def spawn_cluster(
     See `cluster_main()` for starting one process in a cluster in a
     distributed situation.
 
+    >>> __fix_pickling_in_doctest()
     >>> flow = Dataflow()
     >>> flow.capture()
     >>> def input_builder(worker_index, worker_count):
