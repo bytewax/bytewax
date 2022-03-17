@@ -12,7 +12,11 @@ def single_batch(wrap_iter: Iterable) -> Iterable[Tuple[int, Any]]:
 
     Use this for non-streaming-style batch processing.
 
-    >>> list(single_batch(["a", "b", "c"]))
+    >>> from bytewax import Dataflow, run
+    >>> flow = Dataflow()
+    >>> flow.capture()
+    >>> out = run(flow, single_batch(["a", "b", "c"]))
+    >>> sorted(out)
     [(0, 'a'), (0, 'b'), (0, 'c')]
 
     Args:
@@ -37,6 +41,7 @@ def tumbling_epoch(
     epoch. Out-of-order items will cause issues as Bytewax requires
     inputs to dataflows to be in epoch order. See `order()`.
 
+    >>> from bytewax import Dataflow, run
     >>> items = [
     ...     {
     ...         "timestamp": datetime.datetime(2022, 2, 22, 1, 2, 3),
@@ -51,15 +56,15 @@ def tumbling_epoch(
     ...         "value": "c",
     ...     },
     ... ]
-    >>> [
-    ...     (epoch, item["value"])
-    ...     for epoch, item
-    ...     in tumbling_epoch(
-    ...         items,
-    ...         datetime.timedelta(seconds=2),
-    ...         lambda item: item["timestamp"],
-    ...     )
-    ... ]
+    >>> flow = Dataflow()
+    >>> flow.map(lambda item: item["value"])
+    >>> flow.capture()
+    >>> out = run(flow, tumbling_epoch(
+    ...     items,
+    ...     datetime.timedelta(seconds=2),
+    ...     lambda item: item["timestamp"],
+    ... ))
+    >>> sorted(out)
     [(0, 'a'), (0, 'b'), (2, 'c')]
 
     By default, uses "ingestion time" and you don't need to specify a
@@ -72,7 +77,7 @@ def tumbling_epoch(
     ...     "c",
     ... ]
     >>> list(tumbling_epoch(items, datetime.timedelta(seconds=2)))
-    [(0, 'a'), (0, 'b'), (2, 'c')]
+    [(0, 'a'), (2, 'b'), (2, 'c')]
 
     Args:
 
@@ -107,7 +112,11 @@ def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, any]]:
     Be careful using this in high-volume streams with many workers, as
     the worker overhead goes up with finely granulated epochs.
 
-    >>> list(fully_ordered(["a", "b", "c"]))
+    >>> from bytewax import Dataflow, run
+    >>> flow = Dataflow()
+    >>> flow.capture()
+    >>> out = run(flow, fully_ordered(["a", "b", "c"]))
+    >>> sorted(out)
     [(0, 'a'), (1, 'b'), (2, 'c')]
 
     Args:
@@ -145,6 +154,7 @@ def sorted_window(
     that is the difference between the oldest and youngest timestamp
     to ensure nothing will be dropped.
 
+    >>> from bytewax import Dataflow, run
     >>> items = [
     ...     {
     ...         "timestamp": datetime.datetime(2022, 2, 22, 1, 2, 4),
@@ -159,17 +169,30 @@ def sorted_window(
     ...         "value": "a",
     ...     },
     ... ]
-    >>> list(
+    >>> sorted_items = list(
     ...     sorted_window(
     ...         items,
     ...         datetime.timedelta(seconds=2),
     ...         lambda item: item["timestamp"],
     ...     )
     ... )
-    [
-        {'timestamp': datetime.datetime(2022, 2, 22, 1, 2, 3), 'value': 'b'},
-        {'timestamp': datetime.datetime(2022, 2, 22, 1, 2, 4), 'value': 'c'}
-    ]
+    >>> sorted_items
+    [{'timestamp': datetime.datetime(2022, 2, 22, 1, 2, 3), 'value': 'b'},
+    {'timestamp': datetime.datetime(2022, 2, 22, 1, 2, 4), 'value': 'c'}]
+
+    You could imagine using it with `tumbling_epoch()` to ensure you
+    get in-order, bucketed data into your dataflow.
+
+    >>> flow = Dataflow()
+    >>> flow.map(lambda item: item["value"])
+    >>> flow.capture()
+    >>> out = run(flow, tumbling_epoch(
+    ...     sorted_items,
+    ...     datetime.timedelta(seconds=0.5),
+    ...     lambda item: item["timestamp"],
+    ... ))
+    >>> sorted(out)
+    [(0, 'b'), (2, 'c')]
 
     Args:
 
