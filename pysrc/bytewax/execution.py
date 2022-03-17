@@ -72,6 +72,7 @@ def spawn_cluster(
     distributed situation.
 
     >>> flow = Dataflow()
+    >>> flow.capture()
     >>> def input_builder(worker_index, worker_count):
     ...     return enumerate(range(3))
     >>> def output_builder(worker_index, worker_count):
