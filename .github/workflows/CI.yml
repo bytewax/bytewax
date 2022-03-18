@@ -29,7 +29,8 @@ jobs:
         WHEEL_FILE=$(ls ./dist/*.whl)
         pip install $WHEEL_FILE -v
         pip install -r build.requirements.txt
-        python -m pytest -v
+        # Set this env var to ignore the fact that we're running doctests from the source tree but importing code from the installed package. See https://github.com/pytest-dev/pytest/issues/2042
+        PY_IGNORE_IMPORTMISMATCH=1 pytest
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -60,7 +61,8 @@ jobs:
         $WHEEL_FILE=Get-ChildItem ./dist | Select Name -ExpandProperty Name
         pip install ./dist/$WHEEL_FILE -v
         pip install -r build.requirements.txt
-        python -m pytest -v
+        $env:PY_IGNORE_IMPORTMISMATCH=1
+        pytest
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -88,7 +90,7 @@ jobs:
         WHEEL_FILE=$(ls ./dist/*.whl)
         pip install $WHEEL_FILE -v
         pip install -r build.requirements.txt
-        python -m pytest -v
+        PY_IGNORE_IMPORTMISMATCH=1 pytest
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:

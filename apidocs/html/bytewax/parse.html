@@ -38,6 +38,13 @@ from argparse import ArgumentParser
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
+def __skip_doctest_on_win_gha():
+    import os, pytest
+
+    if os.name == &#34;nt&#34; and os.environ.get(&#34;GITHUB_ACTION&#34;):
+        pytest.skip(&#34;Hangs in Windows GitHub Actions&#34;)
+
+
 def cluster_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
     &#34;&#34;&#34;Parse command line arguments to generate arguments for
     `bytewax.run_cluster()`.
@@ -45,6 +52,7 @@ def cluster_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
     See documentation for `bytewax.run_cluster()` for semantics of
     these variables.
 
+    &gt;&gt;&gt; __skip_doctest_on_win_gha()
     &gt;&gt;&gt; from bytewax import Dataflow, run_cluster
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
@@ -116,6 +124,7 @@ def proc_env(env: Dict[str, str] = os.environ) -&gt; Dict[str, Any]:
       E.g. `cluster_name-0` and `cluster_name` and we will calculate
       the process ID from that.
 
+    &gt;&gt;&gt; __skip_doctest_on_win_gha()
     &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
@@ -165,11 +174,13 @@ def proc_env(env: Dict[str, str] = os.environ) -&gt; Dict[str, Any]:
 
 def proc_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
     &#34;&#34;&#34;Parse command line arguments to generate arguments for
-    `bytewax.cluster_main()` when you are manually launching a cluster.
+    `bytewax.cluster_main()` when you are manually launching a
+    cluster.
 
     See documentation for `bytewax.cluster_main()` for semantics of
     these variables.
 
+    &gt;&gt;&gt; __skip_doctest_on_win_gha()
     &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
@@ -237,7 +248,8 @@ def proc_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
 <code><a title="bytewax.run_cluster" href="index.html#bytewax.run_cluster">run_cluster()</a></code>.</p>
 <p>See documentation for <code><a title="bytewax.run_cluster" href="index.html#bytewax.run_cluster">run_cluster()</a></code> for semantics of
 these variables.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, run_cluster
+<pre><code class="language-python-repl">&gt;&gt;&gt; __skip_doctest_on_win_gha()
+&gt;&gt;&gt; from bytewax import Dataflow, run_cluster
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.capture()
 &gt;&gt;&gt; args = &quot;-w2 -n2&quot;.split()
@@ -263,6 +275,7 @@ these variables.</p>
     See documentation for `bytewax.run_cluster()` for semantics of
     these variables.
 
+    &gt;&gt;&gt; __skip_doctest_on_win_gha()
     &gt;&gt;&gt; from bytewax import Dataflow, run_cluster
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
@@ -309,10 +322,12 @@ these variables.</p>
 </code></dt>
 <dd>
 <div class="desc"><p>Parse command line arguments to generate arguments for
-<code><a title="bytewax.cluster_main" href="index.html#bytewax.cluster_main">cluster_main()</a></code> when you are manually launching a cluster.</p>
+<code><a title="bytewax.cluster_main" href="index.html#bytewax.cluster_main">cluster_main()</a></code> when you are manually launching a
+cluster.</p>
 <p>See documentation for <code><a title="bytewax.cluster_main" href="index.html#bytewax.cluster_main">cluster_main()</a></code> for semantics of
 these variables.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+<pre><code class="language-python-repl">&gt;&gt;&gt; __skip_doctest_on_win_gha()
+&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.capture()
 &gt;&gt;&gt; ib = lambda i, n: enumerate(range(3))
@@ -336,11 +351,13 @@ these variables.</p>
 </summary>
 <pre><code class="python">def proc_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
     &#34;&#34;&#34;Parse command line arguments to generate arguments for
-    `bytewax.cluster_main()` when you are manually launching a cluster.
+    `bytewax.cluster_main()` when you are manually launching a
+    cluster.
 
     See documentation for `bytewax.cluster_main()` for semantics of
     these variables.
 
+    &gt;&gt;&gt; __skip_doctest_on_win_gha()
     &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
@@ -429,7 +446,8 @@ E.g. <code>cluster_name-0</code> and <code>cluster_name</code> and we will calcu
 the process ID from that.</p>
 </li>
 </ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+<pre><code class="language-python-repl">&gt;&gt;&gt; __skip_doctest_on_win_gha()
+&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.capture()
 &gt;&gt;&gt; ib = lambda i, n: enumerate(range(3))
@@ -485,6 +503,7 @@ the process ID from that.</p>
       E.g. `cluster_name-0` and `cluster_name` and we will calculate
       the process ID from that.
 
+    &gt;&gt;&gt; __skip_doctest_on_win_gha()
     &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()

@@ -8,6 +8,19 @@ from multiprocess import Manager, Pool
 from .bytewax import _run, cluster_main, Dataflow
 
 
+def __skip_doctest_on_win_gha():
+    import os, pytest
+
+    if os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None:
+        pytest.skip("Hangs in Windows GitHub Actions")
+
+
+def __fix_pickling_in_doctest():
+    import dill.settings
+
+    dill.settings["recurse"] = True
+
+
 def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]:
     """Pass data through a dataflow running in the current thread.
 
@@ -79,8 +92,8 @@ def spawn_cluster(
     See `bytewax.cluster_main()` for starting one process in a cluster
     in a distributed situation.
 
-    >>> # Some shenanigains to allow dill to work in doctests.
-    >>> import dill.settings; dill.settings["recurse"] = True
+    >>> __skip_doctest_on_win_gha()
+    >>> __fix_pickling_in_doctest()
     >>> flow = Dataflow()
     >>> flow.capture()
     >>> def input_builder(worker_index, worker_count):
@@ -157,6 +170,7 @@ def run_cluster(
     See `bytewax.cluster_main()` for starting one process in a cluster
     in a distributed situation.
 
+    >>> __skip_doctest_on_win_gha()
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
     >>> flow.capture()

@@ -83,7 +83,7 @@ line.</p></div>
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
 <dt id="bytewax.cluster_main"><code class="name flex">
-<span>def <span class="ident">cluster_main</span></span>(<span>...)</span>
+<span>def <span class="ident">cluster_main</span></span>(<span>flow, input_builder, output_builder, addresses, proc_id, worker_count_per_proc)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Execute a dataflow in the current process as part of a cluster.</p>
@@ -92,10 +92,10 @@ cluster and ensuring they each are assigned a unique ID and know
 the addresses of other processes. You'd commonly use this for
 starting processes as part of a Kubernetes cluster.</p>
 <p>Blocks until execution is complete.</p>
-<p>See <code><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster()</a></code> for a convenience method to pass data through
-a dataflow for notebook development.</p>
-<p>See <code><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster()</a></code> for starting a simple cluster locally on one
-machine.</p>
+<p>See <code><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster()</a></code> for a convenience method to pass data
+through a dataflow for notebook development.</p>
+<p>See <code><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster()</a></code> for starting a simple cluster
+locally on one machine.</p>
 <pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; def input_builder(worker_index, worker_count):
 ...     return enumerate(range(3))
@@ -119,6 +119,9 @@ passes by a capture operator on this process.</dd>
 this cluster (including this one).</dd>
 <dt><strong><code>proc_id</code></strong></dt>
 <dd>Index of this process in cluster; starts from 0.</dd>
+<dt><strong><code>worker_count_per_proc</code></strong></dt>
+<dd>Number of worker threads to start on
+each process.</dd>
 </dl></div>
 </dd>
 <dt id="bytewax.run"><code class="name flex">
@@ -214,7 +217,8 @@ unbounded.</p>
 machine with full control over inputs and outputs.</p>
 <p>See <code><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main()</a></code> for starting one process in a cluster
 in a distributed situation.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
+<pre><code class="language-python-repl">&gt;&gt;&gt; __skip_doctest_on_win_gha()
+&gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.map(str.upper)
 &gt;&gt;&gt; flow.capture()
 &gt;&gt;&gt; out = run_cluster(flow, [(0, &quot;a&quot;), (1, &quot;b&quot;), (2, &quot;c&quot;)], proc_count=2)
@@ -266,6 +270,7 @@ each process.</dd>
     See `bytewax.cluster_main()` for starting one process in a cluster
     in a distributed situation.
 
+    &gt;&gt;&gt; __skip_doctest_on_win_gha()
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.map(str.upper)
     &gt;&gt;&gt; flow.capture()
@@ -323,8 +328,8 @@ programs.</p>
 through a dataflow for notebook development.</p>
 <p>See <code><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main()</a></code> for starting one process in a cluster
 in a distributed situation.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; # Some shenanigains to allow dill to work in doctests.
-&gt;&gt;&gt; import dill.settings; dill.settings[&quot;recurse&quot;] = True
+<pre><code class="language-python-repl">&gt;&gt;&gt; __skip_doctest_on_win_gha()
+&gt;&gt;&gt; __fix_pickling_in_doctest()
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.capture()
 &gt;&gt;&gt; def input_builder(worker_index, worker_count):
@@ -376,8 +381,8 @@ each process.</dd>
     See `bytewax.cluster_main()` for starting one process in a cluster
     in a distributed situation.
 
-    &gt;&gt;&gt; # Some shenanigains to allow dill to work in doctests.
-    &gt;&gt;&gt; import dill.settings; dill.settings[&#34;recurse&#34;] = True
+    &gt;&gt;&gt; __skip_doctest_on_win_gha()
+    &gt;&gt;&gt; __fix_pickling_in_doctest()
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
     &gt;&gt;&gt; def input_builder(worker_index, worker_count):
@@ -435,21 +440,22 @@ each process.</dd>
 <dl>
 <dt id="bytewax.Dataflow"><code class="flex name class">
 <span>class <span class="ident">Dataflow</span></span>
-<span>(</span><span>...)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>The definition of Bytewax dataflow graph.</p>
-<p>This isn't actually used during execution, just during building.</p>
+<div class="desc"><p>A definition of a Bytewax dataflow graph.</p>
+<p>Use the methods defined on this class to add steps with operators
+of the same name.</p>
+<p>See the execution functions in the <code><a title="bytewax" href="#bytewax">bytewax</a></code> to run.</p>
 <p>TODO: Right now this is just a linear dataflow only.</p></div>
 <h3>Methods</h3>
 <dl>
 <dt id="bytewax.Dataflow.capture"><code class="name flex">
-<span>def <span class="ident">capture</span></span>(<span>...)</span>
+<span>def <span class="ident">capture</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"><p><strong>Capture</strong> causes all <code>(epoch, item)</code> tuples that pass by
-this point in the Dataflow to be passed to the Dataflow's
-output handler.</p>
+<div class="desc"><p>Capture causes all <code>(epoch, item)</code> tuples that pass by this
+point in the Dataflow to be passed to the Dataflow's output
+handler.</p>
 <p>Every dataflow must contain at least one capture.</p>
 <p>If you use this operator multiple times, the results will be
 combined.</p>
@@ -457,60 +463,60 @@ combined.</p>
 the handler. Read the attached epoch to discern order.</p></div>
 </dd>
 <dt id="bytewax.Dataflow.filter"><code class="name flex">
-<span>def <span class="ident">filter</span></span>(<span>...)</span>
+<span>def <span class="ident">filter</span></span>(<span>self, predicate)</span>
 </code></dt>
 <dd>
-<div class="desc"><p><strong>Filter</strong> selectively keeps only some items.</p>
+<div class="desc"><p>Filter selectively keeps only some items.</p>
 <p>It calls a function <code>predicate(item: Any) =&gt; should_emit:
 bool</code> on each item.</p>
 <p>It emits the item downstream unmodified if the predicate
 returns <code>True</code>.</p></div>
 </dd>
 <dt id="bytewax.Dataflow.flat_map"><code class="name flex">
-<span>def <span class="ident">flat_map</span></span>(<span>...)</span>
+<span>def <span class="ident">flat_map</span></span>(<span>self, mapper)</span>
 </code></dt>
 <dd>
-<div class="desc"><p><strong>Flat Map</strong> is a one-to-many transformation of items.</p>
+<div class="desc"><p>Flat Map is a one-to-many transformation of items.</p>
 <p>It calls a function <code>mapper(item: Any) =&gt; emit: Iterable[Any]</code>
 on each item.</p>
 <p>It emits each element in the downstream iterator individually.</p></div>
 </dd>
 <dt id="bytewax.Dataflow.inspect"><code class="name flex">
-<span>def <span class="ident">inspect</span></span>(<span>...)</span>
+<span>def <span class="ident">inspect</span></span>(<span>self, inspector)</span>
 </code></dt>
 <dd>
-<div class="desc"><p><strong>Inspect</strong> allows you to observe, but not modify, items.</p>
+<div class="desc"><p>Inspect allows you to observe, but not modify, items.</p>
 <p>It calls a function <code>inspector(item: Any) =&gt; None</code> on each
 item.</p>
 <p>The return value is ignored; it emits items downstream
 unmodified.</p></div>
 </dd>
 <dt id="bytewax.Dataflow.inspect_epoch"><code class="name flex">
-<span>def <span class="ident">inspect_epoch</span></span>(<span>...)</span>
+<span>def <span class="ident">inspect_epoch</span></span>(<span>self, inspector)</span>
 </code></dt>
 <dd>
-<div class="desc"><p><strong>Inspect Epoch</strong> allows you to observe, but not modify, items
-and their epochs.</p>
+<div class="desc"><p>Inspect Epoch allows you to observe, but not modify, items and
+their epochs.</p>
 <p>It calls a function <code>inspector(epoch: int, item: Any) =&gt; None</code>
 on each item with its epoch.</p>
 <p>The return value is ignored; it emits items downstream
 unmodified.</p></div>
 </dd>
 <dt id="bytewax.Dataflow.map"><code class="name flex">
-<span>def <span class="ident">map</span></span>(<span>...)</span>
+<span>def <span class="ident">map</span></span>(<span>self, mapper)</span>
 </code></dt>
 <dd>
-<div class="desc"><p><strong>Map</strong> is a one-to-one transformation of items.</p>
+<div class="desc"><p>Map is a one-to-one transformation of items.</p>
 <p>It calls a function <code>mapper(item: Any) =&gt; updated_item: Any</code>
 on each item.</p>
-<p>It emits each transformed item downstream.</p></div>
+<p>It emits each updated item downstream.</p></div>
 </dd>
 <dt id="bytewax.Dataflow.reduce"><code class="name flex">
-<span>def <span class="ident">reduce</span></span>(<span>...)</span>
+<span>def <span class="ident">reduce</span></span>(<span>self, reducer, is_complete)</span>
 </code></dt>
 <dd>
-<div class="desc"><p><strong>Reduce</strong> lets you combine items for a key into an
-aggregator in epoch order.</p>
+<div class="desc"><p>Reduce lets you combine items for a key into an aggregator in
+epoch order.</p>
 <p>Since this is a stateful operator, it requires the the input
 stream has items that are <code>(key, value)</code> tuples so we can
 ensure that all relevant values are routed to the relevant
@@ -536,11 +542,11 @@ passed in as the aggregator here.</p>
 it to.</p></div>
 </dd>
 <dt id="bytewax.Dataflow.reduce_epoch"><code class="name flex">
-<span>def <span class="ident">reduce_epoch</span></span>(<span>...)</span>
+<span>def <span class="ident">reduce_epoch</span></span>(<span>self, reducer)</span>
 </code></dt>
 <dd>
-<div class="desc"><p><strong>Reduce Epoch</strong> lets you combine all items for a key within
-an epoch into an aggregator.</p>
+<div class="desc"><p>Reduce Epoch lets you combine all items for a key within an
+epoch into an aggregator.</p>
 <p>This is like <code>reduce</code> but marks the aggregator as complete
 automatically at the end of each epoch.</p>
 <p>Since this is a stateful operator, it requires the the input
@@ -555,21 +561,21 @@ will be passed in arbitrary order.</p>
 each epoch.</p></div>
 </dd>
 <dt id="bytewax.Dataflow.reduce_epoch_local"><code class="name flex">
-<span>def <span class="ident">reduce_epoch_local</span></span>(<span>...)</span>
+<span>def <span class="ident">reduce_epoch_local</span></span>(<span>self, reducer)</span>
 </code></dt>
 <dd>
-<div class="desc"><p><strong>Reduce Epoch Local</strong> lets you combine all items for a key
-within an epoch <em>on a single worker.</em></p>
+<div class="desc"><p>Reduce Epoch Local lets you combine all items for a key within
+an epoch <em>on a single worker.</em></p>
 <p>It is exactly like <code>reduce_epoch</code> but does no internal
 exchange between workers. You'll probably should use that
 instead unless you are using this as a network-overhead
 optimization.</p></div>
 </dd>
 <dt id="bytewax.Dataflow.stateful_map"><code class="name flex">
-<span>def <span class="ident">stateful_map</span></span>(<span>...)</span>
+<span>def <span class="ident">stateful_map</span></span>(<span>self, builder, mapper)</span>
 </code></dt>
 <dd>
-<div class="desc"><p><strong>Stateful Map</strong> is a one-to-one transformation of values in
+<div class="desc"><p>Stateful Map is a one-to-one transformation of values in
 <code>(key, value)</code> pairs, but allows you to reference a persistent
 state for each key when doing the transformation.</p>
 <p>Since this is a stateful operator, it requires the the input
@@ -579,8 +585,9 @@ state.</p>
 <p>It calls two functions:</p>
 <ul>
 <li>
-<p>A <code>builder() =&gt; new_state: Any</code> which returns a new state
-and will be called whenever a new key is encountered.</p>
+<p>A <code>builder(key: Any) =&gt; new_state: Any</code> which returns a
+new state and will be called whenever a new key is encountered
+with the key as a parameter.</p>
 </li>
 <li>
 <p>A <code>mapper(state: Any, value: Any) =&gt; (updated_state: Any,

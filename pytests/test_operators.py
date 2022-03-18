@@ -1,6 +1,9 @@
+import os
+
 from collections import defaultdict
 
 from bytewax import Dataflow, run, run_cluster
+from pytest import mark
 
 
 def test_map():
@@ -181,6 +184,10 @@ def test_reduce_epoch():
     )
 
 
+@mark.skipif(
+    os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None,
+    reason="Hangs in Windows GitHub Actions",
+)
 def test_reduce_epoch_local():
     def add_initial_count(event):
         return event["user"], 1
@@ -217,7 +224,7 @@ def test_reduce_epoch_local():
 
 
 def test_stateful_map():
-    def build_seen():
+    def build_seen(key):
         return set()
 
     def add_key(item):

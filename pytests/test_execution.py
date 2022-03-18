@@ -19,6 +19,10 @@ def test_run():
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 
+@mark.skipif(
+    os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None,
+    reason="Hangs in Windows GitHub Actions",
+)
 def test_run_cluster():
     flow = Dataflow()
     flow.map(lambda x: x + 1)
@@ -37,6 +41,10 @@ def test_run_requires_capture():
         run(flow, enumerate(range(3)))
 
 
+@mark.skipif(
+    os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None,
+    reason="Hangs in Windows GitHub Actions",
+)
 def test_run_cluster_requires_capture():
     flow = Dataflow()
 
@@ -100,7 +108,7 @@ def test_run_can_be_ctrl_c():
     test_proc = Process(target=proc_main)
     test_proc.start()
 
-    assert is_running.wait(timeout=1.0), "Timeout waiting for test proc to start"
+    assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
     os.kill(test_proc.pid, signal.SIGINT)
     test_proc.join()
 
@@ -139,7 +147,7 @@ def test_run_cluster_can_be_ctrl_c():
     test_proc = Process(target=proc_main)
     test_proc.start()
 
-    assert is_running.wait(timeout=1.0), "Timeout waiting for test proc to start"
+    assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
     os.kill(test_proc.pid, signal.SIGINT)
     test_proc.join()
 
@@ -181,7 +189,7 @@ def test_cluster_main_can_be_ctrl_c():
     test_proc = Process(target=proc_main)
     test_proc.start()
 
-    assert is_running.wait(timeout=1.0), "Timeout waiting for test proc to start"
+    assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
     os.kill(test_proc.pid, signal.SIGINT)
     test_proc.join()
 
