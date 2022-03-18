@@ -3,6 +3,13 @@ from argparse import ArgumentParser
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
+def __skip_doctest_on_win_gha():
+    import os, pytest
+
+    if os.name == "nt" and os.environ.get("GITHUB_ACTION"):
+        pytest.skip("Hangs in Windows GitHub Actions")
+
+
 def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
     """Parse command line arguments to generate arguments for
     `run_cluster()`
@@ -10,6 +17,7 @@ def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
     See documentation for `run_cluster()` for semantics of these
     variables.
 
+    >>> __skip_doctest_on_win_gha()
     >>> from bytewax import Dataflow, run_cluster
     >>> flow = Dataflow()
     >>> flow.capture()
@@ -47,12 +55,12 @@ def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
 
 
 def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
-    """Parse environment variables to generate arguments for `main_proc()`
-    when you are manually launching a cluster.
+    """Parse environment variables to generate arguments for
+    `cluster_main()` when you are manually launching a cluster.
 
     This is probably what you want to use in Kubernetes.
 
-    See documentation for `main_proc()` for semantics of these
+    See documentation for `cluster_main()` for semantics of these
     variables.
 
     The environment variables you need set are:
@@ -75,21 +83,25 @@ def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
       E.g. `cluster_name-0` and `cluster_name` and we will calculate
       the process ID from that.
 
-    >>> from bytewax import Dataflow, main_proc
+    >>> __skip_doctest_on_win_gha()
+    >>> from bytewax import Dataflow, cluster_main
     >>> flow = Dataflow()
-    >>> ih = lambda i, n: enumerate(range(3))
-    >>> oh = lambda i, n: print
+    >>> flow.capture()
+    >>> ib = lambda i, n: enumerate(range(3))
+    >>> ob = lambda i, n: print
     >>> env = {
     ...     "BYTEWAX_ADDRESSES": "localhost:2101",
     ...     "BYTEWAX_PROCESS_ID": "0",
     ...     "BYTEWAX_WORKERS_PER_PROCESS": "2",
     ... }
-    >>> main_proc(flow, ih, oh, **proc_env(env))
+    >>> cluster_main(flow, ib, ob, **proc_env(env))  # doctest: +ELLIPSIS
+    (0, 0)
+    ...
+    (2, 2)
 
     Args:
         env: Environment variables. Defaults to `os.environ`.
-    Returns: kwargs to pass to `main_proc()`.
-
+    Returns: kwargs to pass to `cluster_main()`.
     """
     if "BYTEWAX_ADDRESSES" in env:
         addresses = env["BYTEWAX_ADDRESSES"].split(";")
@@ -116,21 +128,26 @@ def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
 
 def proc_args(args: Iterable[str] = None) -> Dict[str, Any]:
     """Parse command line arguments to generate arguments for
-    `main_proc()` when you are manually launching a cluster.
+    `cluster_main()` when you are manually launching a cluster.
 
-    See documentation for `main_proc()` for semantics of these
+    See documentation for `cluster_main()` for semantics of these
     variables.
 
-    >>> from bytewax import Dataflow, main_proc
+    >>> __skip_doctest_on_win_gha()
+    >>> from bytewax import Dataflow, cluster_main
     >>> flow = Dataflow()
-    >>> ih = lambda i, n: enumerate(range(3))
-    >>> oh = lambda i, n: print
+    >>> flow.capture()
+    >>> ib = lambda i, n: enumerate(range(3))
+    >>> ob = lambda i, n: print
     >>> args = "-w2 -p0 -a localhost:2101".split()
-    >>> main_proc(flow, ih, oh, **proc_args(args))
+    >>> cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS
+    (0, 0)
+    ...
+    (2, 2)
 
     Args:
         args: List of arguments to parse. Defaults to `sys.argv`.
-    Returns: kwargs to pass to `main_proc()`.
+    Returns: kwargs to pass to `cluster_main()`.
     """
     p = ArgumentParser()
     p.add_argument(
