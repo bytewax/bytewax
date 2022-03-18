@@ -43,8 +43,7 @@ pip install bytewax
 
 Here is an example of a simple dataflow program using Bytewax:
 
-``` python
-# examples/simple.py
+```python
 from bytewax import Dataflow, run
 
 
@@ -54,14 +53,13 @@ flow.capture()
 
 
 if __name__ == "__main__":
-    for epoch, y in sorted(run(flow, enumerate(range(10)))):
-        print(y)
+    for epoch, x in sorted(run(flow, enumerate(range(10)))):
+        print(x)
 ```
 
-Running the program:
+Running the program prints the following output:
 
-``` bash
-python ./examples/simple.py
+```
 0
 1
 4

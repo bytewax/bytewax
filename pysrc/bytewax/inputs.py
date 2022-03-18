@@ -1,6 +1,7 @@
 """Helpers to let you quickly define epoch / batching semantics.
 
 Use these to wrap an existing iterator which yields items.
+
 """
 import datetime
 import heapq
@@ -23,7 +24,10 @@ def single_batch(wrap_iter: Iterable) -> Iterable[Tuple[int, Any]]:
 
         wrap_iter: Existing input iterable of just items.
 
-    Yields: Tuples of (epoch, item).
+    Yields:
+
+        Tuples of `(epoch, item)`.
+
     """
     for item in wrap_iter:
         yield (0, item)
@@ -40,7 +44,8 @@ def tumbling_epoch(
 
     The time of the first item will be used as start of the 0
     epoch. Out-of-order items will cause issues as Bytewax requires
-    inputs to dataflows to be in epoch order. See `order()`.
+    inputs to dataflows to be in epoch order. See
+    `bytewax.inputs.fully_ordered()`.
 
     >>> from bytewax import Dataflow, run
     >>> items = [
@@ -96,7 +101,10 @@ def tumbling_epoch(
         epoch_start: The integer value to start counting epochs from.
             This can be used for continuity during processing.
 
-    Yields: Tuples of (epoch, item).
+    Yields:
+
+        Tuples of `(epoch, item)`.
+
     """
     for item in wrap_iter:
         time = time_getter(item)
@@ -110,7 +118,7 @@ def tumbling_epoch(
         yield (epoch, item)
 
 
-def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, any]]:
+def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, Any]]:
     """Each input item increments the epoch.
 
     Be careful using this in high-volume streams with many workers, as
@@ -127,7 +135,10 @@ def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, any]]:
 
         wrap_iter: Existing input iterable of just items.
 
-    Yields: Tuples of (epoch, item).
+    Yields:
+
+        Tuples of `(epoch, item)`.
+
     """
     epoch = 0
     for item in wrap_iter:
@@ -212,7 +223,9 @@ def sorted_window(
             increment metrics on drop events to refine your window
             length.
 
-    Yields: Values in increasing timestamp order.
+    Yields:
+
+        Values in increasing timestamp order.
 
     """
     sorted_buffer = []

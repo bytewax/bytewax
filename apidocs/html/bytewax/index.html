@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+<meta name="generator" content="pdoc 0.10.0" />
+<title>bytewax API documentation</title>
+<meta name="description" content="Bytewax is an open source Python framework for building highly
+scalable dataflows in a streaming or batch context …" />
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/sanitize.min.css" integrity="sha256-PK9q560IAAa6WVRRh76LtCaI8pjTJ2z11v0miyNNjrs=" crossorigin>
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/typography.min.css" integrity="sha256-7l/o7C8jubJiy74VsKTidCy1yBkRtiUGbVkYBylBqUg=" crossorigin>
+<link rel="stylesheet preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/styles/github.min.css" crossorigin>
+<style>:root{--highlight-color:#fe9}.flex{display:flex !important}body{line-height:1.5em}#content{padding:20px}#sidebar{padding:30px;overflow:hidden}#sidebar > *:last-child{margin-bottom:2cm}.http-server-breadcrumbs{font-size:130%;margin:0 0 15px 0}#footer{font-size:.75em;padding:5px 30px;border-top:1px solid #ddd;text-align:right}#footer p{margin:0 0 0 1em;display:inline-block}#footer p:last-child{margin-right:30px}h1,h2,h3,h4,h5{font-weight:300}h1{font-size:2.5em;line-height:1.1em}h2{font-size:1.75em;margin:1em 0 .50em 0}h3{font-size:1.4em;margin:25px 0 10px 0}h4{margin:0;font-size:105%}h1:target,h2:target,h3:target,h4:target,h5:target,h6:target{background:var(--highlight-color);padding:.2em 0}a{color:#058;text-decoration:none;transition:color .3s ease-in-out}a:hover{color:#e82}.title code{font-weight:bold}h2[id^="header-"]{margin-top:2em}.ident{color:#900}pre code{background:#f8f8f8;font-size:.8em;line-height:1.4em}code{background:#f2f2f1;padding:1px 4px;overflow-wrap:break-word}h1 code{background:transparent}pre{background:#f8f8f8;border:0;border-top:1px solid #ccc;border-bottom:1px solid #ccc;margin:1em 0;padding:1ex}#http-server-module-list{display:flex;flex-flow:column}#http-server-module-list div{display:flex}#http-server-module-list dt{min-width:10%}#http-server-module-list p{margin-top:0}.toc ul,#index{list-style-type:none;margin:0;padding:0}#index code{background:transparent}#index h3{border-bottom:1px solid #ddd}#index ul{padding:0}#index h4{margin-top:.6em;font-weight:bold}@media (min-width:200ex){#index .two-column{column-count:2}}@media (min-width:300ex){#index .two-column{column-count:3}}dl{margin-bottom:2em}dl dl:last-child{margin-bottom:4em}dd{margin:0 0 1em 3em}#header-classes + dl > dd{margin-bottom:3em}dd dd{margin-left:2em}dd p{margin:10px 0}.name{background:#eee;font-weight:bold;font-size:.85em;padding:5px 10px;display:inline-block;min-width:40%}.name:hover{background:#e0e0e0}dt:target .name{background:var(--highlight-color)}.name > span:first-child{white-space:nowrap}.name.class > span:nth-child(2){margin-left:.4em}.inherited{color:#999;border-left:5px solid #eee;padding-left:1em}.inheritance em{font-style:normal;font-weight:bold}.desc h2{font-weight:400;font-size:1.25em}.desc h3{font-size:1em}.desc dt code{background:inherit}.source summary,.git-link-div{color:#666;text-align:right;font-weight:400;font-size:.8em;text-transform:uppercase}.source summary > *{white-space:nowrap;cursor:pointer}.git-link{color:inherit;margin-left:1em}.source pre{max-height:500px;overflow:auto;margin:0}.source pre code{font-size:12px;overflow:visible}.hlist{list-style:none}.hlist li{display:inline}.hlist li:after{content:',\2002'}.hlist li:last-child:after{content:none}.hlist .hlist{display:inline;padding-left:1em}img{max-width:100%}td{padding:0 .5em}.admonition{padding:.1em .5em;margin-bottom:1em}.admonition-title{font-weight:bold}.admonition.note,.admonition.info,.admonition.important{background:#aef}.admonition.todo,.admonition.versionadded,.admonition.tip,.admonition.hint{background:#dfd}.admonition.warning,.admonition.versionchanged,.admonition.deprecated{background:#fd4}.admonition.error,.admonition.danger,.admonition.caution{background:lightpink}</style>
+<style media="screen and (min-width: 700px)">@media screen and (min-width:700px){#sidebar{width:30%;height:100vh;overflow:auto;position:sticky;top:0}#content{width:70%;max-width:100ch;padding:3em 4em;border-left:1px solid #ddd}pre code{font-size:1em}.item .name{font-size:1em}main{display:flex;flex-direction:row-reverse;justify-content:flex-end}.toc ul ul,#index ul{padding-left:1.5em}.toc > ul > li{margin-top:.5em}}</style>
+<style media="print">@media print{#sidebar h1{page-break-before:always}.source{display:none}}@media print{*{background:transparent !important;color:#000 !important;box-shadow:none !important;text-shadow:none !important}a[href]:after{content:" (" attr(href) ")";font-size:90%}a[href][title]:after{content:none}abbr[title]:after{content:" (" attr(title) ")"}.ir a:after,a[href^="javascript:"]:after,a[href^="#"]:after{content:""}pre,blockquote{border:1px solid #999;page-break-inside:avoid}thead{display:table-header-group}tr,img{page-break-inside:avoid}img{max-width:100% !important}@page{margin:0.5cm}p,h2,h3{orphans:3;widows:3}h1,h2,h3,h4,h5,h6{page-break-after:avoid}}</style>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/highlight.min.js" integrity="sha256-Uv3H6lx7dJmRfRvH8TH6kJD1TSK1aFcwgx+mdg3epi8=" crossorigin></script>
+<script>window.addEventListener('DOMContentLoaded', () => hljs.initHighlighting())</script>
+</head>
+<body>
+<main>
+<article id="content">
+<header>
+<h1 class="title">Package <code>bytewax</code></h1>
+</header>
+<section id="section-intro">
+<p>Bytewax is an open source Python framework for building highly
+scalable dataflows in a streaming or batch context.</p>
+<p><a href="https://github.com/bytewax/bytewax">See our readme for more
+documentation.</a></p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">&#34;&#34;&#34;Bytewax is an open source Python framework for building highly
+scalable dataflows in a streaming or batch context.
+
+[See our readme for more
+documentation.](https://github.com/bytewax/bytewax)
+
+&#34;&#34;&#34;
+from .bytewax import cluster_main, Dataflow
+from .execution import run, run_cluster, spawn_cluster
+
+__all__ = [
+    &#34;Dataflow&#34;,
+    &#34;run&#34;,
+    &#34;run_cluster&#34;,
+    &#34;spawn_cluster&#34;,
+    &#34;cluster_main&#34;,
+]
+
+__pdoc__ = {
+    # This is the PyO3 module that has to be named &#34;bytewax&#34;. Hide it
+    # since we import all its members here.
+    &#34;bytewax&#34;: False,
+    # Hide execution because we import all its members here.
+    &#34;execution&#34;: False,
+}</code></pre>
+</details>
+</section>
+<section>
+<h2 class="section-title" id="header-submodules">Sub-modules</h2>
+<dl>
+<dt><code class="name"><a title="bytewax.exhash" href="exhash.html">bytewax.exhash</a></code></dt>
+<dd>
+<div class="desc"><p>Exhash is a consistent hash that Bytewax calls internally to
+route data to workers …</p></div>
+</dd>
+<dt><code class="name"><a title="bytewax.inputs" href="inputs.html">bytewax.inputs</a></code></dt>
+<dd>
+<div class="desc"><p>Helpers to let you quickly define epoch / batching semantics …</p></div>
+</dd>
+<dt><code class="name"><a title="bytewax.parse" href="parse.html">bytewax.parse</a></code></dt>
+<dd>
+<div class="desc"><p>Helpers to read execution arguments from the environment or command
+line.</p></div>
+</dd>
+</dl>
+</section>
+<section>
+</section>
+<section>
+<h2 class="section-title" id="header-functions">Functions</h2>
+<dl>
+<dt id="bytewax.cluster_main"><code class="name flex">
+<span>def <span class="ident">cluster_main</span></span>(<span>flow, input_builder, output_builder, addresses, proc_id, worker_count_per_proc)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Execute a dataflow in the current process as part of a cluster.</p>
+<p>You have to coordinate starting up all the processes in the
+cluster and ensuring they each are assigned a unique ID and know
+the addresses of other processes. You'd commonly use this for
+starting processes as part of a Kubernetes cluster.</p>
+<p>Blocks until execution is complete.</p>
+<p>See <code><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster()</a></code> for a convenience method to pass data
+through a dataflow for notebook development.</p>
+<p>See <code><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster()</a></code> for starting a simple cluster
+locally on one machine.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; def input_builder(worker_index, worker_count):
+...     return enumerate(range(3))
+&gt;&gt;&gt; def output_builder(worker_index, worker_count):
+...     return print
+&gt;&gt;&gt; cluster_main(flow, input_builder, output_builder)
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>flow</code></strong></dt>
+<dd>Dataflow to run.</dd>
+<dt><strong><code>input_builder</code></strong></dt>
+<dd>Returns input that each worker thread should
+process.</dd>
+<dt><strong><code>output_builder</code></strong></dt>
+<dd>Returns a callback function for each worker
+thread, called with <code>(epoch, item)</code> whenever and item
+passes by a capture operator on this process.</dd>
+<dt><strong><code>addresses</code></strong></dt>
+<dd>List of host/port addresses for all processes in
+this cluster (including this one).</dd>
+<dt><strong><code>proc_id</code></strong></dt>
+<dd>Index of this process in cluster; starts from 0.</dd>
+<dt><strong><code>worker_count_per_proc</code></strong></dt>
+<dd>Number of worker threads to start on
+each process.</dd>
+</dl></div>
+</dd>
+<dt id="bytewax.run"><code class="name flex">
+<span>def <span class="ident">run</span></span>(<span>flow: <a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>, inp: Iterable[Tuple[int, Any]]) ‑> List[Tuple[int, Any]]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Pass data through a dataflow running in the current thread.</p>
+<p>Blocks until execution is complete.</p>
+<p>Handles distributing input and collecting output. You'd commonly
+use this for tests or prototyping in notebooks.</p>
+<p>Input must be finite, otherwise collected output will grow
+unbounded.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.map(str.upper)
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; out = run(flow, [(0, &quot;a&quot;), (1, &quot;b&quot;), (2, &quot;c&quot;)])
+&gt;&gt;&gt; sorted(out)
+[(0, 'A'), (1, 'B'), (2, 'C')]
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>flow</code></strong></dt>
+<dd>Dataflow to run.</dd>
+<dt><strong><code>inp</code></strong></dt>
+<dd>Input data.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>List of <code>(epoch, item)</code> tuples seen by capture operators.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -&gt; List[Tuple[int, Any]]:
+    &#34;&#34;&#34;Pass data through a dataflow running in the current thread.
+
+    Blocks until execution is complete.
+
+    Handles distributing input and collecting output. You&#39;d commonly
+    use this for tests or prototyping in notebooks.
+
+    Input must be finite, otherwise collected output will grow
+    unbounded.
+
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.map(str.upper)
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; out = run(flow, [(0, &#34;a&#34;), (1, &#34;b&#34;), (2, &#34;c&#34;)])
+    &gt;&gt;&gt; sorted(out)
+    [(0, &#39;A&#39;), (1, &#39;B&#39;), (2, &#39;C&#39;)]
+
+    Args:
+
+        flow: Dataflow to run.
+
+        inp: Input data.
+
+    Returns:
+
+        List of `(epoch, item)` tuples seen by capture operators.
+
+    &#34;&#34;&#34;
+
+    def input_builder(worker_index, worker_count):
+        assert worker_index == 0
+        return inp
+
+    out = []
+
+    def output_builder(worker_index, worker_count):
+        assert worker_index == 0
+        return out.append
+
+    _run(flow, input_builder, output_builder)
+
+    return out</code></pre>
+</details>
+</dd>
+<dt id="bytewax.run_cluster"><code class="name flex">
+<span>def <span class="ident">run_cluster</span></span>(<span>flow: <a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>, inp: Iterable[Tuple[int, Any]], proc_count: int = 1, worker_count_per_proc: int = 1) ‑> List[Tuple[int, Any]]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Pass data through a dataflow running as a cluster of processes on
+this machine.</p>
+<p>Blocks until execution is complete.</p>
+<p>Starts up cluster processes for you, handles connecting them
+together, distributing input, and collecting output. You'd
+commonly use this for notebook analysis that needs parallelism and
+higher throughput, or simple stand-alone demo programs.</p>
+<p>Input must be finite because it is reified into a list before
+distribution to cluster and otherwise collected output will grow
+unbounded.</p>
+<p>See <code><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster()</a></code> for starting a cluster on this
+machine with full control over inputs and outputs.</p>
+<p>See <code><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main()</a></code> for starting one process in a cluster
+in a distributed situation.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; __skip_doctest_on_win_gha()
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.map(str.upper)
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; out = run_cluster(flow, [(0, &quot;a&quot;), (1, &quot;b&quot;), (2, &quot;c&quot;)], proc_count=2)
+&gt;&gt;&gt; sorted(out)
+[(0, 'A'), (1, 'B'), (2, 'C')]
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>flow</code></strong></dt>
+<dd>Dataflow to run.</dd>
+<dt><strong><code>inp</code></strong></dt>
+<dd>Input data. Will be reifyied to a list before sending to
+processes. Will be partitioned between workers for you.</dd>
+<dt><strong><code>proc_count</code></strong></dt>
+<dd>Number of processes to start.</dd>
+<dt><strong><code>worker_count_per_proc</code></strong></dt>
+<dd>Number of worker threads to start on
+each process.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>List of <code>(epoch, item)</code> tuples seen by capture operators.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def run_cluster(
+    flow: Dataflow,
+    inp: Iterable[Tuple[int, Any]],
+    proc_count: int = 1,
+    worker_count_per_proc: int = 1,
+) -&gt; List[Tuple[int, Any]]:
+    &#34;&#34;&#34;Pass data through a dataflow running as a cluster of processes on
+    this machine.
+
+    Blocks until execution is complete.
+
+    Starts up cluster processes for you, handles connecting them
+    together, distributing input, and collecting output. You&#39;d
+    commonly use this for notebook analysis that needs parallelism and
+    higher throughput, or simple stand-alone demo programs.
+
+    Input must be finite because it is reified into a list before
+    distribution to cluster and otherwise collected output will grow
+    unbounded.
+
+    See `bytewax.spawn_cluster()` for starting a cluster on this
+    machine with full control over inputs and outputs.
+
+    See `bytewax.cluster_main()` for starting one process in a cluster
+    in a distributed situation.
+
+    &gt;&gt;&gt; __skip_doctest_on_win_gha()
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.map(str.upper)
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; out = run_cluster(flow, [(0, &#34;a&#34;), (1, &#34;b&#34;), (2, &#34;c&#34;)], proc_count=2)
+    &gt;&gt;&gt; sorted(out)
+    [(0, &#39;A&#39;), (1, &#39;B&#39;), (2, &#39;C&#39;)]
+
+    Args:
+        flow: Dataflow to run.
+
+        inp: Input data. Will be reifyied to a list before sending to
+            processes. Will be partitioned between workers for you.
+
+        proc_count: Number of processes to start.
+
+        worker_count_per_proc: Number of worker threads to start on
+            each process.
+
+    Returns:
+
+        List of `(epoch, item)` tuples seen by capture operators.
+
+    &#34;&#34;&#34;
+    man = Manager()
+    inp = man.list(list(inp))
+
+    def input_builder(worker_index, worker_count):
+        for i, epoch_item in enumerate(inp):
+            if i % worker_count == worker_index:
+                yield epoch_item
+
+    out = man.list()
+
+    def output_builder(worker_index, worker_count):
+        return out.append
+
+    spawn_cluster(
+        flow, input_builder, output_builder, proc_count, worker_count_per_proc
+    )
+
+    return out</code></pre>
+</details>
+</dd>
+<dt id="bytewax.spawn_cluster"><code class="name flex">
+<span>def <span class="ident">spawn_cluster</span></span>(<span>flow: <a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>, input_builder: Callable[[int, int], Iterable[Tuple[int, Any]]], output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]], proc_count: int = 1, worker_count_per_proc: int = 1) ‑> List[Tuple[int, Any]]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Execute a dataflow as a cluster of processes on this machine.</p>
+<p>Blocks until execution is complete.</p>
+<p>Starts up cluster processes for you and handles connecting them
+together. You'd commonly use this for notebook analysis that needs
+parallelism and higher throughput, or simple stand-alone demo
+programs.</p>
+<p>See <code><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster()</a></code> for a convenience method to pass data
+through a dataflow for notebook development.</p>
+<p>See <code><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main()</a></code> for starting one process in a cluster
+in a distributed situation.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; __skip_doctest_on_win_gha()
+&gt;&gt;&gt; __fix_pickling_in_doctest()
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; def input_builder(worker_index, worker_count):
+...     return enumerate(range(3))
+&gt;&gt;&gt; def output_builder(worker_index, worker_count):
+...     return print
+&gt;&gt;&gt; spawn_cluster(flow, input_builder, output_builder, proc_count=2)
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>flow</code></strong></dt>
+<dd>Dataflow to run.</dd>
+<dt><strong><code>input_builder</code></strong></dt>
+<dd>Returns input that each worker thread should
+process.</dd>
+<dt><strong><code>output_builder</code></strong></dt>
+<dd>Returns a callback function for each worker
+thread, called with <code>(epoch, item)</code> whenever and item
+passes by a capture operator on this process.</dd>
+<dt><strong><code>proc_count</code></strong></dt>
+<dd>Number of processes to start.</dd>
+<dt><strong><code>worker_count_per_proc</code></strong></dt>
+<dd>Number of worker threads to start on
+each process.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def spawn_cluster(
+    flow: Dataflow,
+    input_builder: Callable[[int, int], Iterable[Tuple[int, Any]]],
+    output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]],
+    proc_count: int = 1,
+    worker_count_per_proc: int = 1,
+) -&gt; List[Tuple[int, Any]]:
+    &#34;&#34;&#34;Execute a dataflow as a cluster of processes on this machine.
+
+    Blocks until execution is complete.
+
+    Starts up cluster processes for you and handles connecting them
+    together. You&#39;d commonly use this for notebook analysis that needs
+    parallelism and higher throughput, or simple stand-alone demo
+    programs.
+
+    See `bytewax.run_cluster()` for a convenience method to pass data
+    through a dataflow for notebook development.
+
+    See `bytewax.cluster_main()` for starting one process in a cluster
+    in a distributed situation.
+
+    &gt;&gt;&gt; __skip_doctest_on_win_gha()
+    &gt;&gt;&gt; __fix_pickling_in_doctest()
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; def input_builder(worker_index, worker_count):
+    ...     return enumerate(range(3))
+    &gt;&gt;&gt; def output_builder(worker_index, worker_count):
+    ...     return print
+    &gt;&gt;&gt; spawn_cluster(flow, input_builder, output_builder, proc_count=2)
+
+    Args:
+
+        flow: Dataflow to run.
+
+        input_builder: Returns input that each worker thread should
+            process.
+
+        output_builder: Returns a callback function for each worker
+            thread, called with `(epoch, item)` whenever and item
+            passes by a capture operator on this process.
+
+        proc_count: Number of processes to start.
+
+        worker_count_per_proc: Number of worker threads to start on
+            each process.
+
+    &#34;&#34;&#34;
+    addresses = _gen_addresses(proc_count)
+    with Pool(processes=proc_count) as pool:
+        futures = [
+            pool.apply_async(
+                cluster_main,
+                (
+                    flow,
+                    input_builder,
+                    output_builder,
+                    addresses,
+                    proc_id,
+                    worker_count_per_proc,
+                ),
+            )
+            for proc_id in range(proc_count)
+        ]
+        pool.close()
+
+        for future in futures:
+            # Will re-raise exceptions from subprocesses.
+            future.get()
+
+        pool.join()</code></pre>
+</details>
+</dd>
+</dl>
+</section>
+<section>
+<h2 class="section-title" id="header-classes">Classes</h2>
+<dl>
+<dt id="bytewax.Dataflow"><code class="flex name class">
+<span>class <span class="ident">Dataflow</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>A definition of a Bytewax dataflow graph.</p>
+<p>Use the methods defined on this class to add steps with operators
+of the same name.</p>
+<p>See the execution functions in the <code><a title="bytewax" href="#bytewax">bytewax</a></code> to run.</p>
+<p>TODO: Right now this is just a linear dataflow only.</p></div>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.Dataflow.capture"><code class="name flex">
+<span>def <span class="ident">capture</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Capture causes all <code>(epoch, item)</code> tuples that pass by this
+point in the Dataflow to be passed to the Dataflow's output
+handler.</p>
+<p>Every dataflow must contain at least one capture.</p>
+<p>If you use this operator multiple times, the results will be
+combined.</p>
+<p>There are no guarantees on the order that output is passed to
+the handler. Read the attached epoch to discern order.</p></div>
+</dd>
+<dt id="bytewax.Dataflow.filter"><code class="name flex">
+<span>def <span class="ident">filter</span></span>(<span>self, predicate)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Filter selectively keeps only some items.</p>
+<p>It calls a function <code>predicate(item: Any) =&gt; should_emit:
+bool</code> on each item.</p>
+<p>It emits the item downstream unmodified if the predicate
+returns <code>True</code>.</p></div>
+</dd>
+<dt id="bytewax.Dataflow.flat_map"><code class="name flex">
+<span>def <span class="ident">flat_map</span></span>(<span>self, mapper)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Flat Map is a one-to-many transformation of items.</p>
+<p>It calls a function <code>mapper(item: Any) =&gt; emit: Iterable[Any]</code>
+on each item.</p>
+<p>It emits each element in the downstream iterator individually.</p></div>
+</dd>
+<dt id="bytewax.Dataflow.inspect"><code class="name flex">
+<span>def <span class="ident">inspect</span></span>(<span>self, inspector)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Inspect allows you to observe, but not modify, items.</p>
+<p>It calls a function <code>inspector(item: Any) =&gt; None</code> on each
+item.</p>
+<p>The return value is ignored; it emits items downstream
+unmodified.</p></div>
+</dd>
+<dt id="bytewax.Dataflow.inspect_epoch"><code class="name flex">
+<span>def <span class="ident">inspect_epoch</span></span>(<span>self, inspector)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Inspect Epoch allows you to observe, but not modify, items and
+their epochs.</p>
+<p>It calls a function <code>inspector(epoch: int, item: Any) =&gt; None</code>
+on each item with its epoch.</p>
+<p>The return value is ignored; it emits items downstream
+unmodified.</p></div>
+</dd>
+<dt id="bytewax.Dataflow.map"><code class="name flex">
+<span>def <span class="ident">map</span></span>(<span>self, mapper)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Map is a one-to-one transformation of items.</p>
+<p>It calls a function <code>mapper(item: Any) =&gt; updated_item: Any</code>
+on each item.</p>
+<p>It emits each updated item downstream.</p></div>
+</dd>
+<dt id="bytewax.Dataflow.reduce"><code class="name flex">
+<span>def <span class="ident">reduce</span></span>(<span>self, reducer, is_complete)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Reduce lets you combine items for a key into an aggregator in
+epoch order.</p>
+<p>Since this is a stateful operator, it requires the the input
+stream has items that are <code>(key, value)</code> tuples so we can
+ensure that all relevant values are routed to the relevant
+aggregator.</p>
+<p>It calls two functions:</p>
+<ul>
+<li>
+<p>A <code>reducer(aggregator: Any, value: Any) =&gt;
+updated_aggregator: Any</code> which combines two values. The
+aggregator is initially the first value seen for a key. Values
+will be passed in epoch order, but no order is defined within
+an epoch.</p>
+</li>
+<li>
+<p>An <code>is_complete(updated_aggregator: Any) =&gt; should_emit: bool</code> which
+returns true if the most recent <code>(key, aggregator)</code> should be
+emitted downstream and the aggregator for that key
+forgotten. If there was only a single value for a key, it is
+passed in as the aggregator here.</p>
+</li>
+</ul>
+<p>It emits <code>(key, aggregator)</code> tuples downstream when you tell
+it to.</p></div>
+</dd>
+<dt id="bytewax.Dataflow.reduce_epoch"><code class="name flex">
+<span>def <span class="ident">reduce_epoch</span></span>(<span>self, reducer)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Reduce Epoch lets you combine all items for a key within an
+epoch into an aggregator.</p>
+<p>This is like <code>reduce</code> but marks the aggregator as complete
+automatically at the end of each epoch.</p>
+<p>Since this is a stateful operator, it requires the the input
+stream has items that are <code>(key, value)</code> tuples so we can
+ensure that all relevant values are routed to the relevant
+aggregator.</p>
+<p>It calls a function <code>reducer(aggregator: Any, value: Any) =&gt;
+updated_aggregator: Any</code> which combines two values. The
+aggregator is initially the first value seen for a key. Values
+will be passed in arbitrary order.</p>
+<p>It emits <code>(key, aggregator)</code> tuples downstream at the end of
+each epoch.</p></div>
+</dd>
+<dt id="bytewax.Dataflow.reduce_epoch_local"><code class="name flex">
+<span>def <span class="ident">reduce_epoch_local</span></span>(<span>self, reducer)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Reduce Epoch Local lets you combine all items for a key within
+an epoch <em>on a single worker.</em></p>
+<p>It is exactly like <code>reduce_epoch</code> but does no internal
+exchange between workers. You'll probably should use that
+instead unless you are using this as a network-overhead
+optimization.</p></div>
+</dd>
+<dt id="bytewax.Dataflow.stateful_map"><code class="name flex">
+<span>def <span class="ident">stateful_map</span></span>(<span>self, builder, mapper)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Stateful Map is a one-to-one transformation of values in
+<code>(key, value)</code> pairs, but allows you to reference a persistent
+state for each key when doing the transformation.</p>
+<p>Since this is a stateful operator, it requires the the input
+stream has items that are <code>(key, value)</code> tuples so we can
+ensure that all relevant values are routed to the relevant
+state.</p>
+<p>It calls two functions:</p>
+<ul>
+<li>
+<p>A <code>builder(key: Any) =&gt; new_state: Any</code> which returns a
+new state and will be called whenever a new key is encountered
+with the key as a parameter.</p>
+</li>
+<li>
+<p>A <code>mapper(state: Any, value: Any) =&gt; (updated_state: Any,
+updated_value: Any)</code> which transforms values. Values will be
+passed in epoch order, but no order is defined within an
+epoch. If the updated state is <code>None</code>, the state will be
+forgotten.</p>
+</li>
+</ul>
+<p>It emits a <code>(key, updated_value)</code> tuple downstream for each
+input item.</p></div>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+</article>
+<nav id="sidebar">
+<h1>Index</h1>
+<div class="toc">
+<ul></ul>
+</div>
+<ul id="index">
+<li><h3><a href="#header-submodules">Sub-modules</a></h3>
+<ul>
+<li><code><a title="bytewax.exhash" href="exhash.html">bytewax.exhash</a></code></li>
+<li><code><a title="bytewax.inputs" href="inputs.html">bytewax.inputs</a></code></li>
+<li><code><a title="bytewax.parse" href="parse.html">bytewax.parse</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-functions">Functions</a></h3>
+<ul class="">
+<li><code><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main</a></code></li>
+<li><code><a title="bytewax.run" href="#bytewax.run">run</a></code></li>
+<li><code><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster</a></code></li>
+<li><code><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-classes">Classes</a></h3>
+<ul>
+<li>
+<h4><code><a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a></code></h4>
+<ul class="two-column">
+<li><code><a title="bytewax.Dataflow.capture" href="#bytewax.Dataflow.capture">capture</a></code></li>
+<li><code><a title="bytewax.Dataflow.filter" href="#bytewax.Dataflow.filter">filter</a></code></li>
+<li><code><a title="bytewax.Dataflow.flat_map" href="#bytewax.Dataflow.flat_map">flat_map</a></code></li>
+<li><code><a title="bytewax.Dataflow.inspect" href="#bytewax.Dataflow.inspect">inspect</a></code></li>
+<li><code><a title="bytewax.Dataflow.inspect_epoch" href="#bytewax.Dataflow.inspect_epoch">inspect_epoch</a></code></li>
+<li><code><a title="bytewax.Dataflow.map" href="#bytewax.Dataflow.map">map</a></code></li>
+<li><code><a title="bytewax.Dataflow.reduce" href="#bytewax.Dataflow.reduce">reduce</a></code></li>
+<li><code><a title="bytewax.Dataflow.reduce_epoch" href="#bytewax.Dataflow.reduce_epoch">reduce_epoch</a></code></li>
+<li><code><a title="bytewax.Dataflow.reduce_epoch_local" href="#bytewax.Dataflow.reduce_epoch_local">reduce_epoch_local</a></code></li>
+<li><code><a title="bytewax.Dataflow.stateful_map" href="#bytewax.Dataflow.stateful_map">stateful_map</a></code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
+<footer id="footer">
+<p>Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.</p>
+</footer>
+</body>
+</html>
