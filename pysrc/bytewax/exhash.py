@@ -1,4 +1,4 @@
-"""`exhash` is a consistent hash that Bytewax calls internally to
+"""Exhash is a consistent hash that Bytewax calls internally to
 route data to workers.
 
 We do not use Python's `hash` because it is not consistent between
@@ -22,6 +22,11 @@ def exhash(key, h=None):
 
 
 def new_hasher():
+    """Build a new `hashlib` hasher object.
+
+    Override this if you want to use a different hashing method.
+
+    """
     return blake2b(digest_size=8)
 
 

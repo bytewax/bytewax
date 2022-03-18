@@ -165,11 +165,11 @@ pub(crate) fn _run(
 ///
 /// Blocks until execution is complete.
 ///
-/// See `run_cluster()` for a convenience method to pass data through
-/// a dataflow for notebook development.
+/// See `bytewax.run_cluster()` for a convenience method to pass data
+/// through a dataflow for notebook development.
 ///
-/// See `spawn_cluster()` for starting a simple cluster locally on one
-/// machine.
+/// See `bytewax.spawn_cluster()` for starting a simple cluster
+/// locally on one machine.
 ///
 /// >>> flow = Dataflow()
 /// >>> def input_builder(worker_index, worker_count):
@@ -179,16 +179,27 @@ pub(crate) fn _run(
 /// >>> cluster_main(flow, input_builder, output_builder)
 ///
 /// Args:
+///
 ///     flow: Dataflow to run.
+///
 ///     input_builder: Returns input that each worker thread should
 ///         process.
+///
 ///     output_builder: Returns a callback function for each worker
 ///         thread, called with `(epoch, item)` whenever and item
 ///         passes by a capture operator on this process.
+///
 ///     addresses: List of host/port addresses for all processes in
 ///         this cluster (including this one).
+///
 ///     proc_id: Index of this process in cluster; starts from 0.
+///
+///     worker_count_per_proc: Number of worker threads to start on
+///         each process.
 #[pyfunction]
+#[pyo3(
+    text_signature = "(flow, input_builder, output_builder, addresses, proc_id, worker_count_per_proc)"
+)]
 pub(crate) fn cluster_main(
     py: Python,
     flow: Py<Dataflow>,

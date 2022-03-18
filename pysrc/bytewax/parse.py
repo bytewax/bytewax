@@ -1,3 +1,7 @@
+"""Helpers to read execution arguments from the environment or command
+line.
+
+"""
 import os
 from argparse import ArgumentParser
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -5,10 +9,10 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
     """Parse command line arguments to generate arguments for
-    `run_cluster()`
+    `bytewax.run_cluster()`.
 
-    See documentation for `run_cluster()` for semantics of these
-    variables.
+    See documentation for `bytewax.run_cluster()` for semantics of
+    these variables.
 
     >>> from bytewax import Dataflow, run_cluster
     >>> flow = Dataflow()
@@ -19,8 +23,13 @@ def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
     [(0, 0), (1, 1), (2, 2)]
 
     Args:
+
         args: List of arguments to parse. Defaults to `sys.argv`.
-    Returns: kwargs to pass to `run_cluster()`.
+
+    Returns:
+
+        kwargs to pass to `bytewax.run_cluster()`.
+
     """
     p = ArgumentParser()
     p.add_argument(
@@ -47,13 +56,14 @@ def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
 
 
 def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
-    """Parse environment variables to generate arguments for `main_proc()`
-    when you are manually launching a cluster.
+    """Parse environment variables to generate arguments for
+    `bytewax.cluster_main()` when you are manually launching a
+    cluster.
 
     This is probably what you want to use in Kubernetes.
 
-    See documentation for `main_proc()` for semantics of these
-    variables.
+    See documentation for `bytewax.cluster_main()` for semantics of
+    these variables.
 
     The environment variables you need set are:
 
@@ -75,20 +85,28 @@ def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
       E.g. `cluster_name-0` and `cluster_name` and we will calculate
       the process ID from that.
 
-    >>> from bytewax import Dataflow, main_proc
+    >>> from bytewax import Dataflow, cluster_main
     >>> flow = Dataflow()
-    >>> ih = lambda i, n: enumerate(range(3))
-    >>> oh = lambda i, n: print
+    >>> flow.capture()
+    >>> ib = lambda i, n: enumerate(range(3))
+    >>> ob = lambda i, n: print
     >>> env = {
     ...     "BYTEWAX_ADDRESSES": "localhost:2101",
     ...     "BYTEWAX_PROCESS_ID": "0",
     ...     "BYTEWAX_WORKERS_PER_PROCESS": "2",
     ... }
-    >>> main_proc(flow, ih, oh, **proc_env(env))
+    >>> cluster_main(flow, ib, ob, **proc_env(env))  # doctest: +ELLIPSIS
+    (0, 0)
+    ...
+    (2, 2)
 
     Args:
+
         env: Environment variables. Defaults to `os.environ`.
-    Returns: kwargs to pass to `main_proc()`.
+
+    Returns:
+
+        kwargs to pass to `bytewax.cluster_main()`.
 
     """
     if "BYTEWAX_ADDRESSES" in env:
@@ -116,21 +134,30 @@ def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
 
 def proc_args(args: Iterable[str] = None) -> Dict[str, Any]:
     """Parse command line arguments to generate arguments for
-    `main_proc()` when you are manually launching a cluster.
+    `bytewax.cluster_main()` when you are manually launching a cluster.
 
-    See documentation for `main_proc()` for semantics of these
-    variables.
+    See documentation for `bytewax.cluster_main()` for semantics of
+    these variables.
 
-    >>> from bytewax import Dataflow, main_proc
+    >>> from bytewax import Dataflow, cluster_main
     >>> flow = Dataflow()
-    >>> ih = lambda i, n: enumerate(range(3))
-    >>> oh = lambda i, n: print
+    >>> flow.capture()
+    >>> ib = lambda i, n: enumerate(range(3))
+    >>> ob = lambda i, n: print
     >>> args = "-w2 -p0 -a localhost:2101".split()
-    >>> main_proc(flow, ih, oh, **proc_args(args))
+    >>> cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS
+    (0, 0)
+    ...
+    (2, 2)
 
     Args:
+
         args: List of arguments to parse. Defaults to `sys.argv`.
-    Returns: kwargs to pass to `main_proc()`.
+
+    Returns:
+
+        kwargs to pass to `bytewax.cluster_main()`.
+
     """
     p = ArgumentParser()
     p.add_argument(

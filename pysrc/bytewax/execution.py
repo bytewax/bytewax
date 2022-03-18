@@ -1,8 +1,11 @@
+"""Entry point functions to execute `bytewax.Dataflow`s.
+
+"""
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from multiprocess import Manager, Pool
 
-from .bytewax import *  # This will import PyO3 module contents.
+from .bytewax import _run, cluster_main, Dataflow
 
 
 def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]:
@@ -24,10 +27,15 @@ def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]
     [(0, 'A'), (1, 'B'), (2, 'C')]
 
     Args:
+
         flow: Dataflow to run.
+
         inp: Input data.
 
-    Returns: List of `(epoch, item)` tuples seen by capture operators.
+    Returns:
+
+        List of `(epoch, item)` tuples seen by capture operators.
+
     """
 
     def input_builder(worker_index, worker_count):
@@ -65,13 +73,16 @@ def spawn_cluster(
     parallelism and higher throughput, or simple stand-alone demo
     programs.
 
-    See `run_cluster()` for a convenience method to pass data through
-    a dataflow for notebook development.
+    See `bytewax.run_cluster()` for a convenience method to pass data
+    through a dataflow for notebook development.
 
-    See `cluster_main()` for starting one process in a cluster in a
-    distributed situation.
+    See `bytewax.cluster_main()` for starting one process in a cluster
+    in a distributed situation.
 
+    >>> # Some shenanigains to allow dill to work in doctests.
+    >>> import dill.settings; dill.settings["recurse"] = True
     >>> flow = Dataflow()
+    >>> flow.capture()
     >>> def input_builder(worker_index, worker_count):
     ...     return enumerate(range(3))
     >>> def output_builder(worker_index, worker_count):
@@ -79,15 +90,21 @@ def spawn_cluster(
     >>> spawn_cluster(flow, input_builder, output_builder, proc_count=2)
 
     Args:
+
         flow: Dataflow to run.
+
         input_builder: Returns input that each worker thread should
             process.
+
         output_builder: Returns a callback function for each worker
             thread, called with `(epoch, item)` whenever and item
             passes by a capture operator on this process.
+
         proc_count: Number of processes to start.
+
         worker_count_per_proc: Number of worker threads to start on
             each process.
+
     """
     addresses = _gen_addresses(proc_count)
     with Pool(processes=proc_count) as pool:
@@ -134,11 +151,11 @@ def run_cluster(
     distribution to cluster and otherwise collected output will grow
     unbounded.
 
-    See `spawn_cluster()` for starting a cluster on this machine with
-    full control over inputs and outputs.
+    See `bytewax.spawn_cluster()` for starting a cluster on this
+    machine with full control over inputs and outputs.
 
-    See `cluster_main()` for starting one process in a cluster in a
-    distributed situation.
+    See `bytewax.cluster_main()` for starting one process in a cluster
+    in a distributed situation.
 
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
@@ -149,13 +166,19 @@ def run_cluster(
 
     Args:
         flow: Dataflow to run.
+
         inp: Input data. Will be reifyied to a list before sending to
             processes. Will be partitioned between workers for you.
+
         proc_count: Number of processes to start.
+
         worker_count_per_proc: Number of worker threads to start on
             each process.
 
-    Returns: List of `(epoch, item)` tuples seen by capture operators.
+    Returns:
+
+        List of `(epoch, item)` tuples seen by capture operators.
+
     """
     man = Manager()
     inp = man.list(list(inp))

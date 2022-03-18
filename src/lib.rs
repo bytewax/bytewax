@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 #[macro_use(defer)]
 extern crate scopeguard;
 
@@ -15,11 +17,13 @@ pub(crate) mod webserver;
 pub(crate) mod macros;
 
 #[pyfunction]
+#[pyo3(text_signature = "(secs)")]
 fn sleep_keep_gil(secs: u64) {
     thread::sleep(Duration::from_secs(secs));
 }
 
 #[pyfunction]
+#[pyo3(text_signature = "(secs)")]
 fn sleep_release_gil(py: Python, secs: u64) {
     py.allow_threads(|| {
         thread::sleep(Duration::from_secs(secs));
@@ -28,7 +32,7 @@ fn sleep_release_gil(py: Python, secs: u64) {
 
 #[pymodule]
 #[pyo3(name = "bytewax")]
-fn mod_tiny_dancer(_py: Python, m: &PyModule) -> PyResult<()> {
+fn mod_bytewax(_py: Python, m: &PyModule) -> PyResult<()> {
     pyo3_log::init();
 
     execution::register(_py, m)?;

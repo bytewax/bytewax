@@ -1,6 +1,7 @@
 """Helpers to let you quickly define epoch / batching semantics.
 
 Use these to wrap an existing iterator which yields items.
+
 """
 import datetime
 import heapq
@@ -19,7 +20,10 @@ def single_batch(wrap_iter: Iterable) -> Iterable[Tuple[int, Any]]:
 
         wrap_iter: Existing input iterable of just items.
 
-    Yields: Tuples of (epoch, item).
+    Yields:
+
+        Tuples of `(epoch, item)`.
+
     """
     for item in wrap_iter:
         yield (0, item)
@@ -35,7 +39,8 @@ def tumbling_epoch(
 
     The time of the first item will be used as start of the 0
     epoch. Out-of-order items will cause issues as Bytewax requires
-    inputs to dataflows to be in epoch order. See `order()`.
+    inputs to dataflows to be in epoch order. See
+    `bytewax.inputs.fully_ordered()`.
 
     >>> items = [
     ...     {
@@ -87,7 +92,10 @@ def tumbling_epoch(
             the start of the 0th epoch. Otherwise defaults to the time
             found on the first item.
 
-    Yields: Tuples of (epoch, item).
+    Yields:
+
+        Tuples of `(epoch, item)`.
+
     """
     for item in wrap_iter:
         time = time_getter(item)
@@ -101,7 +109,7 @@ def tumbling_epoch(
         yield (epoch, item)
 
 
-def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, any]]:
+def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, Any]]:
     """Each input item increments the epoch.
 
     Be careful using this in high-volume streams with many workers, as
@@ -114,7 +122,10 @@ def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, any]]:
 
         wrap_iter: Existing input iterable of just items.
 
-    Yields: Tuples of (epoch, item).
+    Yields:
+
+        Tuples of `(epoch, item)`.
+
     """
     epoch = 0
     for item in wrap_iter:
@@ -166,10 +177,8 @@ def sorted_window(
     ...         lambda item: item["timestamp"],
     ...     )
     ... )
-    [
-        {'timestamp': datetime.datetime(2022, 2, 22, 1, 2, 3), 'value': 'b'},
-        {'timestamp': datetime.datetime(2022, 2, 22, 1, 2, 4), 'value': 'c'}
-    ]
+    [{'timestamp': datetime.datetime(2022, 2, 22, 1, 2, 3), 'value': 'b'},
+    {'timestamp': datetime.datetime(2022, 2, 22, 1, 2, 4), 'value': 'c'}]
 
     Args:
 
@@ -185,7 +194,9 @@ def sorted_window(
             increment metrics on drop events to refine your window
             length.
 
-    Yields: Values in increasing timestamp order.
+    Yields:
+
+        Values in increasing timestamp order.
 
     """
     sorted_buffer = []
