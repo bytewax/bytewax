@@ -17,7 +17,7 @@ classifiers = [
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Topic :: System :: Networking",
-    "Topic :: System :: Distributed Computing"
+    "Topic :: System :: Distributed Computing",
 ]
 dependencies = ["multiprocess>=0.70"]
 
@@ -28,5 +28,13 @@ Documentation = "https://docs.bytewax.io/"
 Changelog = "https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md"
 
 [metadata]
-long_description= "file: README.md"
+long_description = "file: README.md"
 long_description_content_type = "text/markdown"
+
+[tool.pytest.ini_options]
+addopts = "-v --doctest-modules"
+doctest_optionflags = "NORMALIZE_WHITESPACE"
+testpaths = [
+    "pytests",
+    "pysrc",
+]

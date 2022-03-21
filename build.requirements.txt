@@ -1,2 +1,1 @@
 pytest==7.0.0
-maturin==0.12.9

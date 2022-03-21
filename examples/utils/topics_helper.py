@@ -1,11 +1,11 @@
 import json
 from time import sleep
 
-import pandas as pd
-from kafka import KafkaProducer, KafkaAdminClient, KafkaConsumer
-from kafka.admin import NewTopic
 import fake_events
 
+import pandas as pd
+from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
+from kafka.admin import NewTopic
 
 
 def create_events(topic_name, servers=["localhost:9092"]):
@@ -24,6 +24,7 @@ def create_events(topic_name, servers=["localhost:9092"]):
         producer.send(topic_name, json.dumps(event).encode())
         # print(f"Published message to message broker. {event}")
 
+
 def create_anomaly_stream(topic_name, servers=["localhost:9092"]):
     topic_name = topic_name
     producer = KafkaProducer(bootstrap_servers=servers)
@@ -37,8 +38,9 @@ def create_anomaly_stream(topic_name, servers=["localhost:9092"]):
         print(f"Topic {topic_name} is already created")
 
     df = pd.read_csv("examples/sample_data/ec2_metrics.csv")
-    for row in df[["index", "timestamp", "value", "instance"]].to_dict('records'):
+    for row in df[["index", "timestamp", "value", "instance"]].to_dict("records"):
         producer.send(topic_name, json.dumps(row).encode())
 
+
 if __name__ == "__main__":
-    create_anomaly_stream('ec2_metrics')
+    create_anomaly_stream("ec2_metrics")

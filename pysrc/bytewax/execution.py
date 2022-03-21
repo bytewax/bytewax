@@ -1,3 +1,6 @@
+"""Entry point functions to execute `bytewax.Dataflow`s.
+
+"""
 import asyncio
 import threading
 import time
@@ -9,7 +12,20 @@ from typing import Any, Callable, Iterable, Tuple
 
 from multiprocess import Manager, Pool, TimeoutError
 
-from .bytewax import Dataflow, WorkerBuilder, WorkerCoro
+from .bytewax import Dataflow, WorkerCoro, WorkerBuilder
+
+
+def __skip_doctest_on_win_gha():
+    import os, pytest
+
+    if os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None:
+        pytest.skip("Hangs in Windows GitHub Actions")
+
+
+def __fix_pickling_in_doctest():
+    import dill.settings
+
+    dill.settings["recurse"] = True
 
 
 class WorkerCoroWrapper(abc.Coroutine, abc.Iterable):
@@ -122,7 +138,9 @@ def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> Iterable[Tuple[int, A
 
         inp: Input data.
 
-    Yields: `(epoch, item)` tuples seen by capture operators.
+    Yields:
+
+        `(epoch, item)` tuples seen by capture operators.
 
     """
 
@@ -249,13 +267,16 @@ async def spawn_cluster(
     parallelism and higher throughput, or simple stand-alone demo
     programs.
 
-    See `run_cluster()` for a convenience method to pass data through
-    a dataflow for notebook development.
+    See `bytewax.run_cluster()` for a convenience method to pass data
+    through a dataflow for notebook development.
 
-    See `cluster_main()` for starting one process in a cluster in a
-    distributed situation.
+    See `bytewax.cluster_main()` for starting one process in a cluster
+    in a distributed situation.
 
+    >>> __skip_doctest_on_win_gha()
+    >>> __fix_pickling_in_doctest()
     >>> flow = Dataflow()
+    >>> flow.capture()
     >>> def input_builder(worker_index, worker_count):
     ...     return enumerate(range(3))
     >>> def output_builder(worker_index, worker_count):
@@ -337,12 +358,13 @@ def run_cluster(
     See `run()` for an easier to debug, in-thread version of this
     function.
 
-    See `spawn_cluster()` for starting a cluster on this machine with
-    full control over inputs and outputs.
+    See `bytewax.spawn_cluster()` for starting a cluster on this
+    machine with full control over inputs and outputs.
 
-    See `cluster_main()` for starting one process in a cluster in a
-    distributed situation.
+    See `bytewax.cluster_main()` for starting one process in a cluster
+    in a distributed situation.
 
+    >>> __skip_doctest_on_win_gha()
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
     >>> flow.capture()
@@ -366,7 +388,9 @@ def run_cluster(
             communicating to subprocesses. Defaults to total number of
             worker threads in cluster * 2.
 
-    Yields: `(epoch, item)` tuples seen by capture operators.
+    Yields:
+
+        `(epoch, item)` tuples seen by capture operators.
 
     """
     worker_count = proc_count * worker_count_per_proc
