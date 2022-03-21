@@ -97,17 +97,17 @@ def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
     >>> from bytewax import Dataflow, cluster_main
     >>> flow = Dataflow()
     >>> flow.capture()
-    >>> ib = lambda i, n: enumerate(range(3))
-    >>> ob = lambda i, n: print
+    >>> def input_builder(worker_index, worker_count):
+    ...     return enumerate(range(3))
+    >>> def output_builder(worker_index, worker_count):
+    ...     return print
     >>> env = {
     ...     "BYTEWAX_ADDRESSES": "localhost:2101",
     ...     "BYTEWAX_PROCESS_ID": "0",
     ...     "BYTEWAX_WORKERS_PER_PROCESS": "2",
     ... }
-    >>> cluster_main(flow, ib, ob, **proc_env(env))  # doctest: +ELLIPSIS
-    (0, 0)
-    ...
-    (2, 2)
+    >>> cluster_main(flow, input_builder, output_builder, **proc_env(env))  # doctest: +ELLIPSIS
+    (...)
 
     Args:
 
@@ -153,13 +153,13 @@ def proc_args(args: Iterable[str] = None) -> Dict[str, Any]:
     >>> from bytewax import Dataflow, cluster_main
     >>> flow = Dataflow()
     >>> flow.capture()
-    >>> ib = lambda i, n: enumerate(range(3))
-    >>> ob = lambda i, n: print
+    >>> def input_builder(worker_index, worker_count):
+    ...     return enumerate(range(3))
+    >>> def output_builder(worker_index, worker_count):
+    ...     return print
     >>> args = "-w2 -p0 -a localhost:2101".split()
-    >>> cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS
-    (0, 0)
-    ...
-    (2, 2)
+    >>> cluster_main(flow, input_builder, output_builder, **proc_args(args))  # doctest: +ELLIPSIS
+    (...)
 
     Args:
 

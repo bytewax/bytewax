@@ -29,36 +29,97 @@ def test_requires_capture():
             flow, input_builder, output_builder, should_stop=lambda: False
         )
 
-        
-@mark.skipif(
-    os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None,
-    reason="Hangs in Windows GitHub Actions",
-)
-def test_run_cluster():
+
+def test_run_main():
+    def mapper(worker_x):
+        worker, x = worker_x
+        return (worker, x + 1)
+    
     flow = Dataflow()
-    flow.map(lambda x: x + 1)
+    flow.map(mapper)
     flow.capture()
 
     def input_builder(worker_index, worker_count):
-        assert worker_index == 0
-        return [(0, 0), (1, 1), (2, 2)]
+        for i in range(3):
+            yield (0, (worker_index, i))
 
     out = []
 
     def output_builder(worker_index, worker_count):
-        assert worker_index == 0
         return out.append
 
-    asyncio.run(
-        run_main(
-            flow,
-            input_builder,
-            output_builder,
-        )
-    )
+    asyncio.run(run_main(flow, input_builder, output_builder))
 
-    assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
+    assert sorted(out) == sorted([(0, (0, 1)), (0, (0, 2)), (0, (0, 3))])
 
+
+def test_run_main_reraises_exception():
+    def boom(worker_x):
+        worker, x = worker_x
+        if x == 1:
+            return x / 0
+        else:
+            return x
+
+    flow = Dataflow()
+    flow.map(boom)
+    flow.capture()
+
+    def input_builder(worker_index, worker_count):
+        for i in range(3):
+            yield (0, (worker_index, i))
+
+    out = []
+
+    def output_builder(worker_index, worker_count):
+        return out.append
+
+    with raises(ZeroDivisionError):
+        asyncio.run(run_main(flow, input_builder, output_builder))
+
+
+@mark.skipif(
+    os.name == "nt",
+    reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
+)
+def test_run_main_can_be_ctrl_c():
+    manager = Manager()
+    is_running = manager.Event()
+    out = manager.list()
+
+    def proc_main():
+        def input_builder(worker_index, worker_count):
+            return inputs.fully_ordered(range(1000))
+
+        def output_builder(worker_index, worker_count):
+            def out_handler(epoch_item):
+                out.append(epoch_item)
+
+            return out_handler
+
+        def mapper(item):
+            is_running.set()
+            return item
+
+        flow = Dataflow()
+        flow.map(mapper)
+        flow.capture()
+
+        try:
+            asyncio.run(run_main(flow, input_builder, output_builder))
+        except KeyboardInterrupt:
+            exit(99)
+
+    test_proc = Process(target=proc_main)
+    test_proc.start()
+
+    assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
+    os.kill(test_proc.pid, signal.SIGINT)
+    test_proc.join()
+
+    assert test_proc.exitcode == 99
+    assert len(out) < 1000 * 2
+        
 
 def test_run_supports_generator():
     flow = Dataflow()
@@ -111,6 +172,7 @@ def test_run_can_be_ctrl_c():
     def proc_main():
         def mapper(item):
             is_running.set()
+            return item
 
         flow = Dataflow()
         flow.map(mapper)
@@ -134,12 +196,17 @@ def test_run_can_be_ctrl_c():
 
 
 def test_cluster_main():
+    def mapper(worker_x):
+        worker, x = worker_x
+        return (worker, x + 1)
+    
     flow = Dataflow()
-    flow.map(lambda x: x + 1)
+    flow.map(mapper)
     flow.capture()
 
     def input_builder(worker_index, worker_count):
-        return [(0, worker_index)]
+        for i in range(3):
+            yield (0, (worker_index, i))
 
     out = []
 
@@ -152,25 +219,30 @@ def test_cluster_main():
         output_builder,
         addresses=["localhost:2101"],
         proc_id=0,
-        worker_count_per_proc=3,
+        worker_count_per_proc=2,
     )
 
-    assert sorted(out) == sorted([(0, 1), (0, 2), (0, 3)])
+    assert sorted(out) == sorted([
+        (0, (0, 1)), (0, (0, 2)), (0, (0, 3)),
+        (0, (1, 1)), (0, (1, 2)), (0, (1, 3)),
+    ])
 
 
 def test_cluster_main_reraises_exception():
-    def boom(item):
-        if item == 1:
-            return item / 0
+    def boom(worker_x):
+        worker, x = worker_x
+        if x == 1:
+            return x / 0
         else:
-            return item
+            return x
 
     flow = Dataflow()
     flow.map(boom)
     flow.capture()
 
     def input_builder(worker_index, worker_count):
-        return [(0, worker_index)]
+        for i in range(3):
+            yield (0, (worker_index, i))
 
     out = []
 
@@ -209,6 +281,7 @@ def test_cluster_main_can_be_ctrl_c():
 
         def mapper(item):
             is_running.set()
+            return item
 
         flow = Dataflow()
         flow.map(mapper)
@@ -237,6 +310,126 @@ def test_cluster_main_can_be_ctrl_c():
     assert len(out) < 1000 * 2
 
 
+def test_spawn_cluster():
+    manager = Manager()
+    out = manager.list()
+
+    def mapper(worker_x):
+        worker, x = worker_x
+        return (worker, x + 1)
+    
+    flow = Dataflow()
+    flow.map(mapper)
+    flow.capture()
+
+    def input_builder(worker_index, worker_count):
+        for i in range(3):
+            yield (0, (worker_index, i))
+
+
+    def output_builder(worker_index, worker_count):
+        return out.append
+
+    asyncio.run(spawn_cluster(
+        flow,
+        input_builder,
+        output_builder,
+        proc_count=2,
+        worker_count_per_proc=2,
+    ))
+
+    assert sorted(out) == sorted([
+        (0, (0, 1)), (0, (0, 2)), (0, (0, 3)),
+        (0, (1, 1)), (0, (1, 2)), (0, (1, 3)),
+        (0, (2, 1)), (0, (2, 2)), (0, (2, 3)),
+        (0, (3, 1)), (0, (3, 2)), (0, (3, 3)),
+    ])
+
+
+def test_spawn_cluster_reraises_exception():
+    def boom(worker_x):
+        worker, x = worker_x
+        if x == 1:
+            return x / 0
+        else:
+            return x
+
+    flow = Dataflow()
+    flow.map(boom)
+    flow.capture()
+
+    def input_builder(worker_index, worker_count):
+        for i in range(3):
+            yield (0, (worker_index, i))
+
+    out = []
+
+    def output_builder(worker_index, worker_count):
+        return out.append
+
+    with raises(ZeroDivisionError):
+        asyncio.run(spawn_cluster(
+            flow,
+            input_builder,
+            output_builder,
+            proc_count=2,
+            worker_count_per_proc=2,
+        ))
+
+
+@mark.skipif(
+    os.name == "nt",
+    reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
+)
+def test_spawn_cluster_can_be_ctrl_c():
+    manager = Manager()
+    is_running = manager.Event()
+    out = manager.list()
+
+    def proc_main():
+        def input_builder(worker_index, worker_count):
+            return inputs.fully_ordered(range(1000))
+
+        def output_builder(worker_index, worker_count):
+            def out_handler(epoch_item):
+                out.append(epoch_item)
+
+            return out_handler
+
+        def mapper(item):
+            is_running.set()
+            return item
+
+        flow = Dataflow()
+        flow.map(mapper)
+        flow.capture()
+
+        try:
+            asyncio.run(spawn_cluster(
+                flow,
+                input_builder,
+                output_builder,
+                proc_count=2,
+                worker_count_per_proc=2,
+            ))
+        except KeyboardInterrupt:
+            exit(99)
+
+    test_proc = Process(target=proc_main)
+    test_proc.start()
+
+    assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
+    os.kill(test_proc.pid, signal.SIGINT)
+    test_proc.join()
+
+    assert test_proc.exitcode == 99
+    assert len(out) < 1000 * 2
+
+
+@mark.skipif(
+    os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None,
+    reason="Hangs in Windows GitHub Actions",
+)
 def test_run_cluster_supports_generator():
     flow = Dataflow()
     flow.map(lambda x: x + 1)
@@ -248,6 +441,11 @@ def test_run_cluster_supports_generator():
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 
+
+@mark.skipif(
+    os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None,
+    reason="Hangs in Windows GitHub Actions",
+)
 def test_run_cluster_supports_iterator():
     flow = Dataflow()
     flow.map(lambda x: x + 1)
@@ -257,6 +455,10 @@ def test_run_cluster_supports_iterator():
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 
+@mark.skipif(
+    os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None,
+    reason="Hangs in Windows GitHub Actions",
+)
 def test_run_cluster_supports_list():
     flow = Dataflow()
     flow.map(lambda x: x + 1)
@@ -268,6 +470,10 @@ def test_run_cluster_supports_list():
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 
+@mark.skipif(
+    os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None,
+    reason="Hangs in Windows GitHub Actions",
+)
 def test_run_cluster_reraises_exception():
     def boom(item):
         if item == 1:
@@ -298,6 +504,7 @@ def test_run_cluster_can_be_ctrl_c():
     def proc_main():
         def mapper(item):
             is_running.set()
+            return item
 
         flow = Dataflow()
         flow.map(mapper)
