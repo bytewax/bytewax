@@ -1,9 +1,9 @@
 <main class="api__content">
 <article class="api__article" id="content">
-<header>
-<h1 class="title">Package <code>bytewax</code></h1>
+<header class="api__article-header">
+<h1 class="api__article-title">Package <code>bytewax</code></h1>
 </header>
-<section id="section-intro">
+<section class="api__article-intro" id="section-intro">
 <p>Bytewax is an open source Python framework for building highly
 scalable dataflows in a streaming or batch context.</p>
 <p><a href="https://github.com/bytewax/bytewax">See our readme for more
@@ -40,7 +40,7 @@ __pdoc__ = {
 </details>
 </section>
 <section>
-<h2 class="section-title" id="header-submodules">Sub-modules</h2>
+<h2 class="api__article-subtitle" id="header-submodules">Sub-modules</h2>
 <dl>
 <dt><code class="name"><a title="bytewax.exhash" href="exhash.html">bytewax.exhash</a></code></dt>
 <dd>
@@ -61,7 +61,7 @@ line.</p></div>
 <section>
 </section>
 <section>
-<h2 class="section-title" id="header-functions">Functions</h2>
+<h2 class="api__article-subtitle" id="header-functions">Functions</h2>
 <dl>
 <dt id="bytewax.cluster_main"><code class="name flex">
 <span>def <span class="ident">cluster_main</span></span>(<span>flow, input_builder, output_builder, addresses, proc_id, worker_count_per_proc)</span>
@@ -417,7 +417,7 @@ each process.</dd>
 </dl>
 </section>
 <section>
-<h2 class="section-title" id="header-classes">Classes</h2>
+<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
 <dl>
 <dt id="bytewax.Dataflow"><code class="flex name class">
 <span>class <span class="ident">Dataflow</span></span>
@@ -585,9 +585,7 @@ input item.</p></div>
 </dd>
 </dl>
 </section>
-</article>
 <nav class="api__sidebar" id="sidebar">
-<h1>Index</h1>
 <div class="toc">
 <ul></ul>
 </div>
@@ -595,13 +593,19 @@ input item.</p></div>
 <li class="api__sidebar-nav-item"><h3 class="api__sidebar-nav-title"><a href="#header-submodules">Sub-modules</a></h3>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item">
-<code class="api__sidebar-nav-menu-id"><a title="bytewax.exhash" href="exhash.html">bytewax.exhash</a></code>
+<router-link class="api__sidebar-nav-menu-link" :to="{ name: 'apidoc', params: { name: 'bytewax.exhash' } }">
+bytewax.exhash
+</router-link>
 </li>
 <li class="api__sidebar-nav-menu-item">
-<code class="api__sidebar-nav-menu-id"><a title="bytewax.inputs" href="inputs.html">bytewax.inputs</a></code>
+<router-link class="api__sidebar-nav-menu-link" :to="{ name: 'apidoc', params: { name: 'bytewax.inputs' } }">
+bytewax.inputs
+</router-link>
 </li>
 <li class="api__sidebar-nav-menu-item">
-<code class="api__sidebar-nav-menu-id"><a title="bytewax.parse" href="parse.html">bytewax.parse</a></code>
+<router-link class="api__sidebar-nav-menu-link" :to="{ name: 'apidoc', params: { name: 'bytewax.parse' } }">
+bytewax.parse
+</router-link>
 </li>
 </ul>
 </li>
@@ -609,11 +613,11 @@ input item.</p></div>
 <h3 class="api__sidebar-nav-title">
 <a href="#header-functions">Functions</a>
 </h3>
-<ul class="">
-<li><code><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main</a></code></li>
-<li><code><a title="bytewax.run" href="#bytewax.run">run</a></code></li>
-<li><code><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster</a></code></li>
-<li><code><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster</a></code></li>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.run" href="#bytewax.run">run</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
@@ -623,28 +627,29 @@ input item.</p></div>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item">
 <h4 class="api__sidebar-nav-menu-title">
-<code class="api__sidebar-nav-menu-id"><a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a></code>
+<a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>
 </h4>
-<ul class="two-column">
-<li><code><a title="bytewax.Dataflow.capture" href="#bytewax.Dataflow.capture">capture</a></code></li>
-<li><code><a title="bytewax.Dataflow.filter" href="#bytewax.Dataflow.filter">filter</a></code></li>
-<li><code><a title="bytewax.Dataflow.flat_map" href="#bytewax.Dataflow.flat_map">flat_map</a></code></li>
-<li><code><a title="bytewax.Dataflow.inspect" href="#bytewax.Dataflow.inspect">inspect</a></code></li>
-<li><code><a title="bytewax.Dataflow.inspect_epoch" href="#bytewax.Dataflow.inspect_epoch">inspect_epoch</a></code></li>
-<li><code><a title="bytewax.Dataflow.map" href="#bytewax.Dataflow.map">map</a></code></li>
-<li><code><a title="bytewax.Dataflow.reduce" href="#bytewax.Dataflow.reduce">reduce</a></code></li>
-<li><code><a title="bytewax.Dataflow.reduce_epoch" href="#bytewax.Dataflow.reduce_epoch">reduce_epoch</a></code></li>
-<li><code><a title="bytewax.Dataflow.reduce_epoch_local" href="#bytewax.Dataflow.reduce_epoch_local">reduce_epoch_local</a></code></li>
-<li><code><a title="bytewax.Dataflow.stateful_map" href="#bytewax.Dataflow.stateful_map">stateful_map</a></code></li>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.Dataflow.capture" href="#bytewax.Dataflow.capture">capture</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.Dataflow.filter" href="#bytewax.Dataflow.filter">filter</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.Dataflow.flat_map" href="#bytewax.Dataflow.flat_map">flat_map</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.Dataflow.inspect" href="#bytewax.Dataflow.inspect">inspect</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.Dataflow.inspect_epoch" href="#bytewax.Dataflow.inspect_epoch">inspect_epoch</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.Dataflow.map" href="#bytewax.Dataflow.map">map</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.Dataflow.reduce" href="#bytewax.Dataflow.reduce">reduce</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.Dataflow.reduce_epoch" href="#bytewax.Dataflow.reduce_epoch">reduce_epoch</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.Dataflow.reduce_epoch_local" href="#bytewax.Dataflow.reduce_epoch_local">reduce_epoch_local</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.Dataflow.stateful_map" href="#bytewax.Dataflow.stateful_map">stateful_map</a></li>
 </ul>
 </li>
 </ul>
 </li>
 </ul>
 </nav>
-</main>
 <footer class="api__footer" id="footer">
 <p class="api__footer-copyright">
 Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
 </p>
 </footer>
+</article>
+</main>
