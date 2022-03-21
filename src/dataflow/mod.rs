@@ -12,7 +12,9 @@ use crate::pyo3_extensions::TdPyCallable;
 /// See the execution functions in the `bytewax` to run.
 ///
 /// TODO: Right now this is just a linear dataflow only.
-#[pyclass(module = "bytewax")] // Required to support pickling.
+// Mark that bytewax.Dataflow is where this class can be imported to
+// support pickling.
+#[pyclass(module = "bytewax")]
 #[pyo3(text_signature = "()")]
 pub(crate) struct Dataflow {
     pub steps: Vec<Step>,
