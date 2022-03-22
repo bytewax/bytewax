@@ -4,7 +4,7 @@
 import asyncio
 import threading
 import time
-from collections import abc, deque
+from collections import abc
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from queue import Empty, Full
@@ -289,15 +289,20 @@ def _proc_main(
     """Make a little wrapper function that uses dill for pickling lambdas.
 
     """
-    cluster_main(
-        dill.loads(flow_bytes),
-        dill.loads(input_builder_bytes),
-        dill.loads(output_builder_bytes),
-        addresses,
-        proc_id,
-        worker_count_per_proc,
-        proc_raised_ex.is_set,
-    )
+    try:
+        cluster_main(
+            dill.loads(flow_bytes),
+            dill.loads(input_builder_bytes),
+            dill.loads(output_builder_bytes),
+            addresses,
+            proc_id,
+            worker_count_per_proc,
+            proc_raised_ex.is_set,
+        )
+    # Handle exceptions that aren't pickle-able by wrapping original
+    # exception into __cause__.
+    except Exception as ex:
+        raise RuntimeError(f"exception in process {proc_id}; see above for full traceback") from ex
 
 
 async def spawn_cluster(
@@ -424,8 +429,8 @@ async def _pull_output(output_addr, worker_count):
                 done_count += 1
             else:
                 raise ValueError("unknown output IPC type: {typ!r}")
-            print(f"Main done count {done_count}")
-        print("Main output complete")
+            print(f"Main done count {done_count}/{worker_count}")
+    print("Main output complete")
 
             
 def run_cluster(
@@ -496,6 +501,7 @@ def run_cluster(
                         epoch_item = data
                         yield epoch_item
                     elif typ == "return":
+                        print(f"Worker {worker_index} returned")
                         return
                     else:
                         raise ValueError(f"unknown input IPC type: {typ!r}")
@@ -545,26 +551,23 @@ def run_cluster(
 
         pending_tasks = [cluster_task, input_task, output_step_task]
         while len(pending_tasks) > 0:
-            # Will block until one of our tasks completes.
             print(pending_tasks)
+            # Will block until one of our tasks completes.
             for coro in asyncio.as_completed(pending_tasks):
+                # Will re-raise exception from finished task.
                 loop.run_until_complete(coro)
                 break
             pending_tasks = []
             
-            if cluster_task.done():
-                if cluster_task.exception():
-                    raise cluster_task.exception()
-            else:
+            if not cluster_task.done():
                 pending_tasks.append(cluster_task)
                 
-            if input_task.done():
-                if input_task.exception():
-                    raise input_task.exception()
-            else:
+            if not input_task.done():
                 pending_tasks.append(input_task)
                 
-            if output_step_task.done():
+            if not output_step_task.done():
+                pending_tasks.append(output_step_task)
+            else:
                 try:
                     yield output_step_task.result()
 
@@ -572,5 +575,3 @@ def run_cluster(
                     pending_tasks.append(output_step_task)
                 except StopAsyncIteration:
                     pass
-            else:
-                pending_tasks.append(output_step_task)    
