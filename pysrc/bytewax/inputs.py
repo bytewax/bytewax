@@ -5,6 +5,7 @@ Use these to wrap an existing iterator which yields items.
 """
 import datetime
 import heapq
+from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Tuple
 
 
@@ -97,7 +98,7 @@ def tumbling_epoch(
         epoch_start_time: The timestamp that should correspond to
             the start of the 0th epoch. Otherwise defaults to the time
             found on the first item.
-        
+
         epoch_start: The integer value to start counting epochs from.
             This can be used for continuity during processing.
 
@@ -144,6 +145,23 @@ def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, Any]]:
     for item in wrap_iter:
         yield (epoch, item)
         epoch += 1
+
+
+@dataclass
+class HeapItem:
+    """Wrapper class which holds pairs of time and item for implementing
+    `sorted_window()`.
+
+    We need some class that has an ordering only based on the time.
+
+    """
+
+    time: Any
+    item: Any
+
+    def __lt__(self, other):
+        """Compare just by timestamp. Ignore the item."""
+        return self.time < other.time
 
 
 def sorted_window(
@@ -239,9 +257,9 @@ def sorted_window(
         return newest_time is None or time > newest_time
 
     def emit_all(emit_older_than):
-        while len(sorted_buffer) > 0 and sorted_buffer[0][0] <= emit_older_than:
-            time, item = heapq.heappop(sorted_buffer)
-            yield item
+        while len(sorted_buffer) > 0 and sorted_buffer[0].time <= emit_older_than:
+            sort_item = heapq.heappop(sorted_buffer)
+            yield sort_item.item
 
     for item in wrap_iter:
         time = time_getter(item)
@@ -250,7 +268,7 @@ def sorted_window(
             if on_drop:
                 on_drop(item)
         else:
-            heapq.heappush(sorted_buffer, (time, item))
+            heapq.heappush(sorted_buffer, HeapItem(time, item))
 
             if is_newest_item(time):
                 newest_time = time
