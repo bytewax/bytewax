@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from queue import Empty, Full
 from multiprocessing import Manager
 from tempfile import TemporaryDirectory
+import traceback
 
 from typing import Any, Callable, Iterable, Tuple
 
@@ -400,6 +401,7 @@ async def _push_input(input_addr, worker_count, inp):
             await socket.asend(msg_bytes)
             
         # Input is complete, signal workers to shutdown.
+        print("Main input complete")
         for i in range(worker_count):
             msg = ("return", None)
             print(f"Main sent {msg}")
@@ -423,6 +425,7 @@ async def _pull_output(output_addr, worker_count):
             else:
                 raise ValueError("unknown output IPC type: {typ!r}")
             print(f"Main done count {done_count}")
+        print("Main output complete")
 
             
 def run_cluster(
@@ -500,19 +503,24 @@ def run_cluster(
         def output_builder(worker_index, worker_count):
             socket = pynng.Push0(dial=output_addr)
             def out_put(epoch_item):
-                msg = ("yield", epoch_item)
-                print(f"Worker {worker_index} sent {msg}")
-                msg_bytes = dill.dumps(msg)
-                socket.send(msg_bytes)
+                try:
+                    msg = ("yield", epoch_item)
+                    print(f"Worker {worker_index} sent {msg}")
+                    msg_bytes = dill.dumps(msg)
+                    socket.send(msg_bytes)
                 
-                # TODO: How do we signal output is done from this worker
-                # and close the socket? Use an iterator instead of a
-                # callback?
-                msg = ("done", None)
-                print(f"Worker {worker_index} sent {msg}")
-                msg_bytes = dill.dumps(msg)
-                socket.send(msg_bytes)
-                socket.close()
+                    # TODO: How do we signal output is done from this worker
+                    # and close the socket? Use an iterator instead of a
+                    # callback?
+                    msg = ("done", None)
+                    print(f"Worker {worker_index} sent {msg}")
+                    msg_bytes = dill.dumps(msg)
+                    socket.send(msg_bytes)
+                    socket.close()
+                except Exception as ex:
+                    traceback.print_exc()
+                    print(f"POOP{ex!r}POOP")
+                    raise
             return out_put
 
         loop = asyncio.new_event_loop()
