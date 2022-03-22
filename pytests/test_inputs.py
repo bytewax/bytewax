@@ -50,6 +50,7 @@ def test_sorted_window():
     items = [
         {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 4), "value": "b"},
         {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 5), "value": "c"},
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 6), "value": "d"},
         {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 3), "value": "a"},
         {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 6), "value": "d"},
         {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 8), "value": "f"},
@@ -67,6 +68,7 @@ def test_sorted_window():
     assert list(out) == [
         {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 4), "value": "b"},
         {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 5), "value": "c"},
+        {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 6), "value": "d"},
         {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 6), "value": "d"},
         {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 7), "value": "e"},
         {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 8), "value": "f"},
