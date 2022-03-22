@@ -5,12 +5,16 @@ import asyncio
 import threading
 import time
 from collections import abc, deque
-from concurrent.futures import as_completed, ThreadPoolExecutor
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from queue import Empty, Full
+from multiprocessing import Manager
+from tempfile import TemporaryDirectory
 
 from typing import Any, Callable, Iterable, Tuple
 
-from multiprocess import Manager, Pool, TimeoutError
+import dill
+import pynng
 
 from .bytewax import Dataflow, WorkerCoro, WorkerBuilder
 
@@ -254,7 +258,9 @@ def cluster_main(
         futures = [pool.submit(worker_main, builder) for builder in builders]
 
         try:
-            for future in as_completed(futures):
+            # Note that these are not `asyncio.Future`s, so we use a
+            # different waiting function.
+            for future in concurrent.futures.as_completed(futures):
                 if future.exception():
                     raise future.exception()
         # Do this out here to also catch KeyboardInterrupt during
@@ -268,6 +274,29 @@ def cluster_main(
 
 def _gen_addresses(proc_count: int) -> Iterable[str]:
     return [f"localhost:{proc_id + 2101}" for proc_id in range(proc_count)]
+
+
+def _proc_main(
+        flow_bytes,
+        input_builder_bytes,
+        output_builder_bytes,
+        addresses,
+        proc_id,
+        worker_count_per_proc,
+        proc_raised_ex,
+):
+    """Make a little wrapper function that uses dill for pickling lambdas.
+
+    """
+    cluster_main(
+        dill.loads(flow_bytes),
+        dill.loads(input_builder_bytes),
+        dill.loads(output_builder_bytes),
+        addresses,
+        proc_id,
+        worker_count_per_proc,
+        proc_raised_ex.is_set,
+    )
 
 
 async def spawn_cluster(
@@ -332,47 +361,75 @@ async def spawn_cluster(
     manager = Manager()
     proc_raised_ex = manager.Event()
 
-    def proc_main(proc_id):
-        cluster_main(
-            flow,
-            input_builder,
-            output_builder,
-            addresses,
-            proc_id,
-            worker_count_per_proc,
-            proc_raised_ex.is_set,
-        )
-
-    # Can't use concurrent.ProcessPoolExecutor because it doesn't
-    # support dill pickling.
-    with Pool(processes=proc_count) as pool:
-        results = [
-            pool.apply_async(proc_main, (proc_id,)) for proc_id in range(proc_count)
+    with ProcessPoolExecutor(max_workers=proc_count) as pool:
+        pending_futures = [
+            asyncio.wrap_future(pool.submit(
+                _proc_main,
+                dill.dumps(flow),
+                dill.dumps(input_builder),
+                dill.dumps(output_builder),
+                addresses,
+                proc_id,
+                worker_count_per_proc,
+                proc_raised_ex,
+            )) for proc_id in range(proc_count)
         ]
-        pool.close()
 
-        while len(results) > 0:
-            not_ready = []
-            for result in results:
-                try:
-                    # Will re-raise exceptions from subprocesses.
-                    result.get(0)
-                except TimeoutError:
-                    not_ready.append(result)
-                except:
-                    proc_raised_ex.set()
-                    raise
-            results = not_ready
-            await asyncio.sleep(0)
-        pool.join()
+        try:
+            while len(pending_futures) > 0:
+                completed_futures, pending_futures = await asyncio.wait(
+                    pending_futures,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for future in completed_futures:
+                    if future.exception():
+                        raise future.exception()
+        # Do this out here to also catch KeyboardInterrupt during
+        # await.
+        except:
+            proc_raised_ex.set()
+            raise
 
 
+async def _push_input(input_addr, worker_count, inp):
+    with pynng.Push0(listen=input_addr) as socket:
+        for epoch_item in inp:
+            msg = ("yield", epoch_item)
+            print(f"Main sent {msg}")
+            msg_bytes = dill.dumps(msg)
+            await socket.asend(msg_bytes)
+            
+        # Input is complete, signal workers to shutdown.
+        for i in range(worker_count):
+            msg = ("return", None)
+            print(f"Main sent {msg}")
+            msg_bytes = dill.dumps(msg)
+            await socket.asend(msg_bytes)
+
+
+async def _pull_output(output_addr, worker_count):
+    with pynng.Pull0(listen=output_addr) as socket:
+        done_count = 0
+        while done_count < worker_count:
+            msg_bytes = await socket.arecv()
+            msg = dill.loads(msg_bytes)
+            print(f"Main got {msg}")
+            typ, data = msg
+            if typ == "yield":
+                epoch_item = data
+                yield epoch_item
+            elif typ == "done":
+                done_count += 1
+            else:
+                raise ValueError("unknown output IPC type: {typ!r}")
+            print(f"Main done count {done_count}")
+
+            
 def run_cluster(
     flow: Dataflow,
     inp: Iterable[Tuple[int, Any]],
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
-    ipc_buffer_size: int = None,
 ) -> Iterable[Tuple[int, Any]]:
     """Pass data through a dataflow running as a cluster of processes on
     this machine.
@@ -411,85 +468,101 @@ def run_cluster(
         worker_count_per_proc: Number of worker threads to start on
             each process.
 
-        ipc_buffer_size: How big to make the IO queues when
-            communicating to subprocesses. Defaults to total number of
-            worker threads in cluster * 2.
-
     Yields:
 
         `(epoch, item)` tuples seen by capture operators.
 
     """
     worker_count = proc_count * worker_count_per_proc
-    if ipc_buffer_size is None:
-        ipc_buffer_size = worker_count * 2
-    manager = Manager()
 
-    in_q = manager.Queue(ipc_buffer_size)
+    with TemporaryDirectory() as ipc_dir:
+        input_addr = f"ipc://{ipc_dir}/input"
+        output_addr = f"ipc://{ipc_dir}/output"
 
-    def input_builder(worker_index, worker_count):
-        def in_get():
-            while True:
-                msg, data = in_q.get()
-                if msg == "yield":
-                    yield data
-                elif msg == "done":
-                    return
+        def input_builder(worker_index, worker_count):
+            # We're using pynng because there's no version of
+            # `multiprocessing.Queue` that is async aware, and doesn't
+            # use threads.
+            with pynng.Pull0(dial=input_addr) as socket:
+                while True:
+                    msg_bytes = socket.recv()
+                    msg = dill.loads(msg_bytes)
+                    print(f"Worker {worker_index} got {msg}")
+                    typ, data = msg
+                    if typ == "yield":
+                        epoch_item = data
+                        yield epoch_item
+                    elif typ == "return":
+                        return
+                    else:
+                        raise ValueError(f"unknown input IPC type: {typ!r}")
 
-        return in_get()
-
-    out_q = manager.Queue(ipc_buffer_size)
-
-    def output_builder(worker_index, worker_count):
-        def out_put(epoch_item):
-            out_q.put(epoch_item)
-
-        return out_put
-
-    inp_iter = iter(inp)
-    coro = spawn_cluster(
-        flow, input_builder, output_builder, proc_count, worker_count_per_proc
-    )
-
-    work_remains = True
-    input_remains = True
-    # Use an input buffer in this proc to store items we've
-    # irreversibly popped off the input iterator in case the worker
-    # input queue is full.
-    input_buffer = deque()
-    while work_remains or input_remains or len(input_buffer) > 0 or not out_q.empty():
-        # 1. Check on workers.
-        if work_remains:
-            work_remains = _step_coro(coro)
-            # If input / output queues are full / empty, this'll be a
-            # hot busy loop so slow down to wait for IO to do.
-            time.sleep(0.001)
-
-        # 2. Read and buffer some input.
-        while input_remains and len(input_buffer) < ipc_buffer_size:
-            try:
-                msg = ("yield", next(inp_iter))
-                input_buffer.appendleft(msg)
-            except StopIteration:
-                input_remains = False
-                # If the input is complete, enqueue messages to
-                # workers to stop work.
+        def output_builder(worker_index, worker_count):
+            socket = pynng.Push0(dial=output_addr)
+            def out_put(epoch_item):
+                msg = ("yield", epoch_item)
+                print(f"Worker {worker_index} sent {msg}")
+                msg_bytes = dill.dumps(msg)
+                socket.send(msg_bytes)
+                
+                # TODO: How do we signal output is done from this worker
+                # and close the socket? Use an iterator instead of a
+                # callback?
                 msg = ("done", None)
-                for _ in range(worker_count):
-                    input_buffer.appendleft(msg)
+                print(f"Worker {worker_index} sent {msg}")
+                msg_bytes = dill.dumps(msg)
+                socket.send(msg_bytes)
+                socket.close()
+            return out_put
 
-        # 3. Send as much input as we can to workers.
-        while len(input_buffer) > 0:
-            try:
-                msg = input_buffer.pop()
-                in_q.put(msg, False)
-            except Full:
-                input_buffer.append(msg)
-                break
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        cluster_task = loop.create_task(spawn_cluster(
+            flow,
+            input_builder,
+            output_builder,
+            proc_count,
+            worker_count_per_proc,
+        ))
+        input_task = loop.create_task(_push_input(
+            input_addr,
+            worker_count,
+            inp,
+        ))
+        output_aiter = _pull_output(
+            output_addr,
+            worker_count,
+        )
+        output_step_task = loop.create_task(output_aiter.__anext__())
 
-        # 4. Get as much output as we can from workers.
-        while not out_q.empty():
-            try:
-                yield out_q.get(False)
-            except Empty:
+        pending_tasks = [cluster_task, input_task, output_step_task]
+        while len(pending_tasks) > 0:
+            # Will block until one of our tasks completes.
+            print(pending_tasks)
+            for coro in asyncio.as_completed(pending_tasks):
+                loop.run_until_complete(coro)
                 break
+            pending_tasks = []
+            
+            if cluster_task.done():
+                if cluster_task.exception():
+                    raise cluster_task.exception()
+            else:
+                pending_tasks.append(cluster_task)
+                
+            if input_task.done():
+                if input_task.exception():
+                    raise input_task.exception()
+            else:
+                pending_tasks.append(input_task)
+                
+            if output_step_task.done():
+                try:
+                    yield output_step_task.result()
+
+                    output_step_task = loop.create_task(output_aiter.__anext__())
+                    pending_tasks.append(output_step_task)
+                except StopAsyncIteration:
+                    pass
+            else:
+                pending_tasks.append(output_step_task)    

@@ -7,7 +7,7 @@ from sys import exit
 from bytewax import inputs
 from bytewax.execution import *
 
-from multiprocess import Manager, Process
+from multiprocessing import Manager, Process
 
 from pytest import mark, raises
 
