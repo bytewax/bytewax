@@ -17,7 +17,7 @@ are <code>x == y</code> they also are <code>exhash(x) == exhash(y)</code>.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">&#34;&#34;&#34;Exhash is a consistent hash that Bytewax calls internally to
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Exhash is a consistent hash that Bytewax calls internally to
 route data to workers.
 
 We do not use Python&#39;s `hash` because it is not consistent between
@@ -122,7 +122,7 @@ def _(key: frozenset, h=None):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@singledispatch
+<pre class="language-python line-numbers"><code class="language-python">@singledispatch
 def exhash(key, h=None):
     &#34;&#34;&#34;A consistent hash of a value.&#34;&#34;&#34;
     raise NotImplementedError(f&#34;{type(key)} isn&#39;t exhash-able&#34;)</code></pre>
@@ -138,7 +138,7 @@ def exhash(key, h=None):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def new_hasher():
+<pre class="language-python line-numbers"><code class="language-python">def new_hasher():
     &#34;&#34;&#34;Build a new `hashlib` hasher object.
 
     Override this if you want to use a different hashing method.
@@ -170,9 +170,7 @@ bytewax
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
-<h3 class="api__sidebar-nav-title">
-<a href="#header-functions">Functions</a>
-</h3>
+<h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.exhash.exhash" href="#bytewax.exhash.exhash">exhash</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.exhash.new_hasher" href="#bytewax.exhash.new_hasher">new_hasher</a></li>

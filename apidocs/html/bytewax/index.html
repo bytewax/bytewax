@@ -12,7 +12,7 @@ documentation.</a></p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">&#34;&#34;&#34;Bytewax is an open source Python framework for building highly
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Bytewax is an open source Python framework for building highly
 scalable dataflows in a streaming or batch context.
 
 [See our readme for more
@@ -135,7 +135,7 @@ unbounded.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -&gt; List[Tuple[int, Any]]:
+<pre class="language-python line-numbers"><code class="language-python">def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -&gt; List[Tuple[int, Any]]:
     &#34;&#34;&#34;Pass data through a dataflow running in the current thread.
 
     Blocks until execution is complete.
@@ -225,7 +225,7 @@ each process.</dd>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def run_cluster(
+<pre class="language-python line-numbers"><code class="language-python">def run_cluster(
     flow: Dataflow,
     inp: Iterable[Tuple[int, Any]],
     proc_count: int = 1,
@@ -340,7 +340,7 @@ each process.</dd>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def spawn_cluster(
+<pre class="language-python line-numbers"><code class="language-python">def spawn_cluster(
     flow: Dataflow,
     input_builder: Callable[[int, int], Iterable[Tuple[int, Any]]],
     output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]],
@@ -613,9 +613,7 @@ bytewax.parse
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
-<h3 class="api__sidebar-nav-title">
-<a href="#header-functions">Functions</a>
-</h3>
+<h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.run" href="#bytewax.run">run</a></li>
@@ -624,14 +622,10 @@ bytewax.parse
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
-<h3 class="api__sidebar-nav-title">
-<a href="#header-classes">Classes</a>
-</h3>
+<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title">
-<a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>
-</h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a></h4>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.Dataflow.capture" href="#bytewax.Dataflow.capture">capture</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.Dataflow.filter" href="#bytewax.Dataflow.filter">filter</a></li>

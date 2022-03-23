@@ -38,7 +38,7 @@
               <a href="${git_link}" class="git-link">Browse git</a>
             %endif
         </summary>
-        <pre><code class="python">${d.source | h}</code></pre>
+        <pre class="language-python line-numbers"><code class="language-python">${d.source | h}</code></pre>
       </details>
     % elif git_link:
       <div class="git-link-div"><a href="${git_link}" class="git-link">Browse git</a></div>
@@ -316,33 +316,25 @@
 
     % if variables:
     <li class="api__sidebar-nav-item">
-      <h3 class="api__sidebar-nav-title">
-        <a href="#header-variables">Global variables</a>
-      </h3>
+      <h3 class="api__sidebar-nav-title"><a href="#header-variables">Global variables</a></h3>
       ${show_column_list(variables)}
     </li>
     % endif
 
     % if functions:
     <li class="api__sidebar-nav-item">
-      <h3 class="api__sidebar-nav-title">
-        <a href="#header-functions">Functions</a>
-      </h3>
+      <h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
       ${show_column_list(functions)}
     </li>
     % endif
 
     % if classes:
     <li class="api__sidebar-nav-item">
-      <h3 class="api__sidebar-nav-title">
-        <a href="#header-classes">Classes</a>
-      </h3>
+      <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
       <ul class="api__sidebar-nav-classes">
       % for c in classes:
         <li class="api__sidebar-nav-classes-item">
-          <h4 class="api__sidebar-nav-classes-title">
-            ${link(c)}
-          </h4>
+          <h4 class="api__sidebar-nav-classes-title">${link(c)}</h4>
         <%
             members = c.functions(sort=sort_identifiers) + c.methods(sort=sort_identifiers)
             if list_class_variables_in_index:

@@ -10,7 +10,7 @@
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">&#34;&#34;&#34;Helpers to let you quickly define epoch / batching semantics.
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Helpers to let you quickly define epoch / batching semantics.
 
 Use these to wrap an existing iterator which yields items.
 
@@ -305,7 +305,7 @@ the worker overhead goes up with finely granulated epochs.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def fully_ordered(wrap_iter: Iterable) -&gt; Iterable[Tuple[int, Any]]:
+<pre class="language-python line-numbers"><code class="language-python">def fully_ordered(wrap_iter: Iterable) -&gt; Iterable[Tuple[int, Any]]:
     &#34;&#34;&#34;Each input item increments the epoch.
 
     Be careful using this in high-volume streams with many workers, as
@@ -357,7 +357,7 @@ the worker overhead goes up with finely granulated epochs.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def single_batch(wrap_iter: Iterable) -&gt; Iterable[Tuple[int, Any]]:
+<pre class="language-python line-numbers"><code class="language-python">def single_batch(wrap_iter: Iterable) -&gt; Iterable[Tuple[int, Any]]:
     &#34;&#34;&#34;All input items are part of the same epoch.
 
     Use this for non-streaming-style batch processing.
@@ -459,7 +459,7 @@ length.</dd>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def sorted_window(
+<pre class="language-python line-numbers"><code class="language-python">def sorted_window(
     wrap_iter: Iterable,
     window_length: Any,
     time_getter: Callable[[Any], Any],
@@ -643,7 +643,7 @@ This can be used for continuity during processing.</dd>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def tumbling_epoch(
+<pre class="language-python line-numbers"><code class="language-python">def tumbling_epoch(
     wrap_iter: Iterable,
     epoch_length: Any,
     time_getter: Callable[[Any], Any] = lambda _: datetime.datetime.now(),
@@ -751,9 +751,7 @@ bytewax
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
-<h3 class="api__sidebar-nav-title">
-<a href="#header-functions">Functions</a>
-</h3>
+<h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.fully_ordered" href="#bytewax.inputs.fully_ordered">fully_ordered</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.single_batch" href="#bytewax.inputs.single_batch">single_batch</a></li>

@@ -10,7 +10,7 @@ line.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">&#34;&#34;&#34;Helpers to read execution arguments from the environment or command
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Helpers to read execution arguments from the environment or command
 line.
 
 &#34;&#34;&#34;
@@ -249,7 +249,7 @@ these variables.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def cluster_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
+<pre class="language-python line-numbers"><code class="language-python">def cluster_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
     &#34;&#34;&#34;Parse command line arguments to generate arguments for
     `bytewax.run_cluster()`.
 
@@ -330,7 +330,7 @@ these variables.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def proc_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
+<pre class="language-python line-numbers"><code class="language-python">def proc_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
     &#34;&#34;&#34;Parse command line arguments to generate arguments for
     `bytewax.cluster_main()` when you are manually launching a
     cluster.
@@ -454,7 +454,7 @@ the process ID from that.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def proc_env(env: Dict[str, str] = os.environ) -&gt; Dict[str, Any]:
+<pre class="language-python line-numbers"><code class="language-python">def proc_env(env: Dict[str, str] = os.environ) -&gt; Dict[str, Any]:
     &#34;&#34;&#34;Parse environment variables to generate arguments for
     `bytewax.cluster_main()` when you are manually launching a
     cluster.
@@ -555,9 +555,7 @@ bytewax
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
-<h3 class="api__sidebar-nav-title">
-<a href="#header-functions">Functions</a>
-</h3>
+<h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.parse.cluster_args" href="#bytewax.parse.cluster_args">cluster_args</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.parse.proc_args" href="#bytewax.parse.proc_args">proc_args</a></li>

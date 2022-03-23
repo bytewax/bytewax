@@ -8,7 +8,7 @@
 
     html_lang = 'en'
     show_inherited_members = False
-    extract_module_toc_into_sidebar = True
+    extract_module_toc_into_sidebar = False
     list_class_variables_in_index = True
     sort_identifiers = True
     show_type_annotations = True
