@@ -99,8 +99,9 @@ def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
     >>> flow.capture()
     >>> def input_builder(worker_index, worker_count):
     ...     return enumerate(range(3))
-    >>> def output_builder(worker_index, worker_count):
-    ...     return print
+    >>> async def output_builder(worker_index, worker_count, epoch_items):
+    ...     async for epoch, item in epoch_items:
+    ...         print(epoch, item)
     >>> env = {
     ...     "BYTEWAX_ADDRESSES": "localhost:2101",
     ...     "BYTEWAX_PROCESS_ID": "0",
@@ -155,8 +156,9 @@ def proc_args(args: Iterable[str] = None) -> Dict[str, Any]:
     >>> flow.capture()
     >>> def input_builder(worker_index, worker_count):
     ...     return enumerate(range(3))
-    >>> def output_builder(worker_index, worker_count):
-    ...     return print
+    >>> async def output_builder(worker_index, worker_count, epoch_items):
+    ...     async for epoch, item in epoch_items:
+    ...         print(epoch, item)
     >>> args = "-w2 -p0 -a localhost:2101".split()
     >>> cluster_main(flow, input_builder, output_builder, **proc_args(args))  # doctest: +ELLIPSIS
     (...)

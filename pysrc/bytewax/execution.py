@@ -85,8 +85,9 @@ async def run_main(
     >>> flow.capture()
     >>> def input_builder(worker_index, worker_count):
     ...     return enumerate(range(3))
-    >>> def output_builder(worker_index, worker_count):
-    ...     return print
+    >>> async def output_builder(worker_index, worker_count, epoch_items):
+    ...     async for epoch, item in epoch_items:
+    ...         print(epoch, item)
     >>> asyncio.run(run_main(flow, input_builder, output_builder))  # doctest: +ELLIPSIS
     (...)
 
@@ -166,8 +167,9 @@ def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> Iterable[Tuple[int, A
 
     out_buffer = []
 
-    def output_builder(worker_index, worker_count):
-        return out_buffer.append
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            out_buffer.append(epoch_item)
 
     coro = run_main(flow, input_builder, output_builder)
 
@@ -202,8 +204,9 @@ def cluster_main(
     >>> flow.capture()
     >>> def input_builder(worker_index, worker_count):
     ...     return enumerate(range(3))
-    >>> def output_builder(worker_index, worker_count):
-    ...     return print
+    >>> async def output_builder(worker_index, worker_count, epoch_items):
+    ...     async for epoch, item in epoch_items:
+    ...         print(epoch, item)
     >>> cluster_main(
     ...     flow,
     ...     input_builder,
@@ -329,8 +332,9 @@ async def spawn_cluster(
     >>> flow.capture()
     >>> def input_builder(worker_index, worker_count):
     ...     return enumerate(range(3))
-    >>> def output_builder(worker_index, worker_count):
-    ...     return print
+    >>> async def output_builder(worker_index, worker_count, epoch_items):
+    ...     async for epoch, item in epoch_items:
+    ...         return print(epoch, item)
     >>> asyncio.run(spawn_cluster(
     ...     flow,
     ...     input_builder,
@@ -506,28 +510,18 @@ def run_cluster(
                     else:
                         raise ValueError(f"unknown input IPC type: {typ!r}")
 
-        def output_builder(worker_index, worker_count):
-            socket = pynng.Push0(dial=output_addr)
-            def out_put(epoch_item):
-                try:
+        async def output_builder(worker_index, worker_count, epoch_items):
+            with pynng.Push0(dial=output_addr) as socket:
+                async for epoch, item in epoch_items:
                     msg = ("yield", epoch_item)
                     print(f"Worker {worker_index} sent {msg}")
                     msg_bytes = dill.dumps(msg)
                     socket.send(msg_bytes)
                 
-                    # TODO: How do we signal output is done from this worker
-                    # and close the socket? Use an iterator instead of a
-                    # callback?
-                    msg = ("done", None)
-                    print(f"Worker {worker_index} sent {msg}")
-                    msg_bytes = dill.dumps(msg)
-                    socket.send(msg_bytes)
-                    socket.close()
-                except Exception as ex:
-                    traceback.print_exc()
-                    print(f"POOP{ex!r}POOP")
-                    raise
-            return out_put
+                msg = ("done", None)
+                print(f"Worker {worker_index} sent {msg}")
+                msg_bytes = dill.dumps(msg)
+                socket.send(msg_bytes)
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)

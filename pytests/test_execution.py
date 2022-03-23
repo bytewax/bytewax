@@ -18,11 +18,9 @@ def test_requires_capture():
     def input_builder(worker_index, worker_count):
         return []
 
-    def output_builder(worker_index, worker_count):
-        def output_handler(epoch_item):
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch, item in epoch_items:
             pass
-
-        return output_handler
 
     with raises(ValueError):
         WorkerBuilder.sync().build(
@@ -45,8 +43,9 @@ def test_run_main():
 
     out = []
 
-    def output_builder(worker_index, worker_count):
-        return out.append
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            out.append(epoch_item)
 
     asyncio.run(run_main(flow, input_builder, output_builder))
 
@@ -71,8 +70,9 @@ def test_run_main_reraises_exception():
 
     out = []
 
-    def output_builder(worker_index, worker_count):
-        return out.append
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            out.append(epoch_item)
 
     with raises(ZeroDivisionError):
         asyncio.run(run_main(flow, input_builder, output_builder))
@@ -91,11 +91,9 @@ def test_run_main_can_be_ctrl_c():
         def input_builder(worker_index, worker_count):
             return inputs.fully_ordered(range(1000))
 
-        def output_builder(worker_index, worker_count):
-            def out_handler(epoch_item):
+        async def output_builder(worker_index, worker_count, epoch_items):
+            async for epoch_item in epoch_items:
                 out.append(epoch_item)
-
-            return out_handler
 
         def mapper(item):
             is_running.set()
@@ -210,8 +208,9 @@ def test_cluster_main():
 
     out = []
 
-    def output_builder(worker_index, worker_count):
-        return out.append
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            out.append(epoch_item)
 
     cluster_main(
         flow,
@@ -246,8 +245,9 @@ def test_cluster_main_reraises_exception():
 
     out = []
 
-    def output_builder(worker_index, worker_count):
-        return out.append
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            out.append(epoch_item)
 
     with raises(ZeroDivisionError):
         cluster_main(
@@ -273,11 +273,9 @@ def test_cluster_main_can_be_ctrl_c():
         def input_builder(worker_index, worker_count):
             return inputs.fully_ordered(range(1000))
 
-        def output_builder(worker_index, worker_count):
-            def out_handler(epoch_item):
+        async def output_builder(worker_index, worker_count, epoch_items):
+            async for epoch_item in epoch_items:
                 out.append(epoch_item)
-
-            return out_handler
 
         def mapper(item):
             is_running.set()
@@ -327,8 +325,9 @@ def test_spawn_cluster():
             yield (0, (worker_index, i))
 
 
-    def output_builder(worker_index, worker_count):
-        return out.append
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            out.append(epoch_item)
 
     asyncio.run(spawn_cluster(
         flow,
@@ -364,8 +363,9 @@ def test_spawn_cluster_reraises_exception():
 
     out = []
 
-    def output_builder(worker_index, worker_count):
-        return out.append
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            out.append(epoch_item)
 
     with raises(ZeroDivisionError):
         asyncio.run(spawn_cluster(
@@ -390,11 +390,9 @@ def test_spawn_cluster_can_be_ctrl_c():
         def input_builder(worker_index, worker_count):
             return inputs.fully_ordered(range(1000))
 
-        def output_builder(worker_index, worker_count):
-            def out_handler(epoch_item):
+        async def output_builder(worker_index, worker_count, epoch_items):
+            async for epoch_item in epoch_items:
                 out.append(epoch_item)
-
-            return out_handler
 
         def mapper(item):
             is_running.set()

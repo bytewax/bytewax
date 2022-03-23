@@ -55,6 +55,24 @@ impl Pump {
     }
 }
 
+#[pyclass]
+struct CaptureAiter {
+}
+
+#[pymethods]
+impl CaptureAiter {
+    fn __aiter__(self) -> Self {
+        self
+    }
+
+    fn __anext__(self) -> Self {
+        self
+    }
+
+    fn __await__(self) {
+    }
+}
+
 /// Coroutine representing a worker thread's "main" loop.
 ///
 /// Can be `await`ed from an async function, passed to `asyncio.run()`
@@ -101,11 +119,13 @@ impl WorkerCoro {
             .unwrap();
         let mut timely_input = InputHandle::new();
 
-        let worker_output: TdPyCallable = output_builder
-            .call1(py, (worker_index, worker_count))
+        let capture_aiter: CaptureAiter = CaptureAiter::new();
+        let worker_output: TdPyCoroutine = output_builder
+            .call1(py, (worker_index, worker_count, capture_aiter))
             .unwrap()
             .extract(py)
             .unwrap();
+        worker_output.send(PyNone)?;
         let mut output_probes = Vec::new();
 
         timely_worker.dataflow(|scope| {
