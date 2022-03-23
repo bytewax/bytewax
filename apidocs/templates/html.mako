@@ -55,9 +55,9 @@
       <p class="inheritance">
           <em>Inherited from:</em>
           % if hasattr(d.inherits, 'cls'):
-              <code>${link(d.inherits.cls)}</code>.<code>${link(d.inherits, d.name)}</code>
+              <code class="language-python">${link(d.inherits.cls)}</code>.<code>${link(d.inherits, d.name)}</code>
           % else:
-              <code>${link(d.inherits)}</code>
+              <code class="language-python">${link(d.inherits)}</code>
           % endif
       </p>
   % endif
@@ -104,7 +104,7 @@
   %>
 
   <%def name="show_func(f)">
-    <dt id="${f.refname}"><code class="name flex">
+    <dt id="${f.refname}"><code class="language-python name flex">
         <%
             params = ', '.join(f.params(annotate=show_type_annotations, link=link))
             return_type = get_annotation(f.return_annotation, '\N{non-breaking hyphen}>')
@@ -127,7 +127,7 @@
   % endif
   <h1 class="api__article-title">${'Namespace' if module.is_namespace else  \
                       'Package' if module.is_package and not module.supermodule else \
-                      'Module'} <code>${module.name}</code></h1>
+                      'Module'} <strong>${module.name}</strong></h1>
   </header>
 
   <section class="api__article-intro" id="section-intro">
@@ -138,12 +138,14 @@
   <section>
     % if submodules:
     <h2 class="api__article-subtitle" id="header-submodules">Sub-modules</h2>
-    <dl>
+    <div class="api__article-submodules">
     % for m in submodules:
-      <dt><a class="api-submodule" href="${(m.name)}">${(m.name)}</a></dt>
-      <dd>${show_desc(m, short=True)}</dd>
+      <div class="api__article-submodules-item">
+        <h4><a class="api-submodule" href="${(m.name)}">${(m.name)}</a></h4>
+        <p>${show_desc(m, short=True)}</p>
+      </div>
     % endfor
-    </dl>
+    </div>
     % endif
   </section>
 
@@ -153,7 +155,7 @@
     <dl>
     % for v in variables:
       <% return_type = get_annotation(v.type_annotation) %>
-      <dt id="${v.refname}"><code class="name">var ${ident(v.name)}${return_type}</code></dt>
+      <dt id="${v.refname}"><code class="language-python name">var ${ident(v.name)}${return_type}</code></dt>
       <dd>${show_desc(v)}</dd>
     % endfor
     </dl>
@@ -185,7 +187,7 @@
       subclasses = c.subclasses()
       params = ', '.join(c.params(annotate=show_type_annotations, link=link))
       %>
-      <dt id="${c.refname}"><code class="flex name class">
+      <dt id="${c.refname}"><code class="language-python flex name class">
           <span>class ${ident(c.name)}</span>
           % if params:
               <span>(</span><span>${params})</span>
@@ -216,7 +218,7 @@
           <dl>
           % for v in class_vars:
               <% return_type = get_annotation(v.type_annotation) %>
-              <dt id="${v.refname}"><code class="name">var ${ident(v.name)}${return_type}</code></dt>
+              <dt id="${v.refname}"><code class="language-python name">var ${ident(v.name)}${return_type}</code></dt>
               <dd>${show_desc(v)}</dd>
           % endfor
           </dl>
@@ -234,7 +236,7 @@
           <dl>
           % for v in inst_vars:
               <% return_type = get_annotation(v.type_annotation) %>
-              <dt id="${v.refname}"><code class="name">var ${ident(v.name)}${return_type}</code></dt>
+              <dt id="${v.refname}"><code class="language-python name">var ${ident(v.name)}${return_type}</code></dt>
               <dd>${show_desc(v)}</dd>
           % endfor
           </dl>
@@ -256,10 +258,10 @@
               <h3>Inherited members</h3>
               <ul class="hlist">
               % for cls, mems in members:
-                  <li><code><b>${link(cls)}</b></code>:
+                  <li><code class="language-python"><b>${link(cls)}</b></code>:
                       <ul class="hlist">
                           % for m in mems:
-                              <li><code>${link(m, name=m.name)}</code></li>
+                              <li><code class="language-python">${link(m, name=m.name)}</code></li>
                           % endfor
                       </ul>
 
