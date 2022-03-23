@@ -82,7 +82,7 @@ IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS = [
 
 Let's breakdown some of the details here.
 
-One of Bytewax's cool powers is givving you a high level control over
+One of Bytewax's cool powers is giving you a high level control over
 the concept of time in your execution via attaching a kind of
 timestamp called an **epoch** to each **item** of input data.
 
@@ -114,8 +114,8 @@ Let's talk about the tasks high-level plan for how to sessionize:
 
 - Sessions without a search shouldn't contribute.
 
-- Let's calculate one metric: **click through rate** (or **CTR**), if
-  a user clicked on any result in a search.
+- Calculate one metric: **click through rate** (or **CTR**), if a user
+  clicked on any result in a search.
 
 The Dataflow
 ------------
@@ -132,7 +132,7 @@ flow = Dataflow()
 ```
 
 You can then add a series of **steps** to the dataflow. Steps are made
-up of **operators**, that provide a "kind" of transformation", and
+up of **operators**, that provide a "shape" of transformation, and
 **logic functions**, that you supply to do your specific
 transformation. [You can read more about all the operators in our
 documentation.](operators)
@@ -140,8 +140,9 @@ documentation.](operators)
 Our first task is to make sure to group incoming events by user since
 no session deals with multiple users.
 
-Any Bytewax operators that perform grouping do so by requiring the
-input to be a `(key, value)` two tuple and grouping off the key.
+All Bytewax operators that perform grouping require that their input
+be in the form of a `(key, value)` tuple, where `key` is the value the
+dataflow will group by before passing to the operator logic.
 
 The operator which modifies all data flowing through it is
 [map](operators/map). Let's use that and pull each event's user into
@@ -155,12 +156,13 @@ flow.map(initial_session)
 ```
 
 For the value, we're planning ahead a little bit to our next task:
-sessionization. The operator best shaped for this is
-[reduce operator](operators/reduce) which groups items by key, then combines
+sessionization. The operator best shaped for this is the [reduce
+operator](operators/reduce) which groups items by key, then combines
 them together into an **aggregator** in order. We can think about our
 reduce step as "combine together sessions if they should be
 joined". We'll be modeling a session as a list of events, so have the
-values be a list of a single event `[event]` that we will combine now.
+values be a list of a single event `[event]` that we will combine with
+our reducer function.
 
 Reduce requires two bits of logic:
 
@@ -199,7 +201,7 @@ flow.map(remove_key)
 ```
 
 Our next task is to split user sessions into search sessions. To do
-that, we'll use the [flat map operator](operators/flat-map), which
+that, we'll use the [flat map operator](operators/flat-map), that
 allows you to emit multiple items downstream (search sessions) for
 each input item (user session).
 
@@ -225,11 +227,9 @@ def split_into_searches(user_session):
 flow.flat_map(split_into_searches)
 ```
 
-The last little bit to get search sessions we need to filter out edge
-cases produced by the above splitting code: no searches, events before
-searches, etc. We can use the [filter operator](operators/filter) to
-get rid of all search sessions that don't contain searches and
-shouldn't contribute to metrics.
+We can use the [filter operator](operators/filter) to get rid of all
+search sessions that don't contain searches and shouldn't contribute
+to metrics.
 
 ```python
 def has_search(search_session):
@@ -274,7 +274,8 @@ Execution
 [Bytewax provides a few different entry points for executing your
 dataflow](execution), but because we're focusing on the dataflow in
 this example, we're going to use `bytewax.run` which is the most basic
-one that pushes items in an iterator through the dataflow in-thread.
+execution mode that pushes input items in an iterator through the
+dataflow.
 
 Let's take our example list of events and pipe it in:
 
@@ -294,16 +295,18 @@ Let's inspect the output and see if it makes sense.
 11 0.0
 ```
 
-Since the [capture](operators/capture) step is immediately after calculating CTR,
-we should see one output item for each search session. That checks
-out! There were three searches in the input: "dogs", "cats", and
-"fruit". Only the first two resulted in a click, so they contributed
-`1.0` to the CTR, while the no-click search contributed `0.0`.
+Since the [capture](operators/capture) step is immediately after
+calculating CTR, we should see one output item for each search
+session. That checks out! There were three searches in the input:
+"dogs", "cats", and "fruit". Only the first two resulted in a click,
+so they contributed `1.0` to the CTR, while the no-click search
+contributed `0.0`.
 
-Now let's talk about the output epochs briefly. In general, operators
-do not modify the epoch unless they explicitly say so. The only
-operator that deals with the epoch here is [reduce](operators/reduce)
-which emits output at the timestamp of the past-processed input. Since
-we were generating user sessions via reduce, this will correspond to
-the `AppClose` events which have an epoch originally asigned of `10`
-and `11`.
+The first number on each output line is the epoch of that data
+item. Most operators do not modify the epoch attached to each item as
+they transform it. The only operator that modifies the epoch in this
+example is [reduce](operators/reduce) which emits output at the epoch
+of the input that is marked as "complete". Since we are marking user
+sessions as complete when reduce has an `AppClose` event as input
+(originally assigned epochs `10` and `11`), those epochs are applied
+to the resulting sessions and are carried through to the output here.
