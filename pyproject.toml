@@ -37,4 +37,5 @@ doctest_optionflags = "NORMALIZE_WHITESPACE"
 testpaths = [
     "pytests",
     "pysrc",
+    "docs",
 ]
