@@ -2,7 +2,7 @@ import json
 import datetime as dt
 import pandas as pd
 
-from kafka import KafkaConsumer
+from kafka import KafkaConsumer, OffsetType
 
 from bytewax import Dataflow, cluster_main, inputs
 
@@ -14,7 +14,7 @@ store = FeatureStore(repo_path=".")
 
 def input_builder(worker_index, worker_count):
     def consume_from_kafka():
-        consumer = KafkaConsumer(bootstrap_servers="localhost:9092", auto_offset_reset="earliest")
+        consumer = KafkaConsumer(bootstrap_servers="localhost:9092", auto_offset_reset=OffsetType.EARLIEST)
         consumer.subscribe("drivers")
         for msg in consumer:
             yield json.loads(msg.value)
