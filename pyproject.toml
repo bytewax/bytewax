@@ -21,7 +21,6 @@ classifiers = [
 ]
 dependencies = [
     "dill>=0.3.4",
-    "pynng>=0.5.0",
 ]
 
 [project.urls]
