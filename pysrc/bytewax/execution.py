@@ -2,22 +2,21 @@
 
 """
 import asyncio
-import threading
-import time
-from collections import abc
 import concurrent.futures
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-from queue import Empty, Full
+import logging
+import threading
+import traceback
+from collections import abc
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import Manager
 from tempfile import TemporaryDirectory
-import traceback
 
 from typing import Any, Callable, Iterable, Tuple
 
 import dill
 import pynng
 
-from .bytewax import Dataflow, WorkerCoro, WorkerBuilder
+from .bytewax import Dataflow, WorkerBuilder, WorkerCoro
 
 
 def __skip_doctest_on_win_gha():
@@ -281,17 +280,15 @@ def _gen_addresses(proc_count: int) -> Iterable[str]:
 
 
 def _proc_main(
-        flow_bytes,
-        input_builder_bytes,
-        output_builder_bytes,
-        addresses,
-        proc_id,
-        worker_count_per_proc,
-        proc_raised_ex,
+    flow_bytes,
+    input_builder_bytes,
+    output_builder_bytes,
+    addresses,
+    proc_id,
+    worker_count_per_proc,
+    proc_raised_ex,
 ):
-    """Make a little wrapper function that uses dill for pickling lambdas.
-
-    """
+    """Make a little wrapper function that uses dill for pickling lambdas."""
     try:
         cluster_main(
             dill.loads(flow_bytes),
@@ -305,7 +302,9 @@ def _proc_main(
     # Handle exceptions that aren't pickle-able by wrapping original
     # exception into __cause__.
     except Exception as ex:
-        raise RuntimeError(f"exception in process {proc_id}; see above for full traceback") from ex
+        raise RuntimeError(
+            f"exception in process {proc_id}; see above for full traceback"
+        ) from ex
 
 
 async def spawn_cluster(
@@ -373,16 +372,19 @@ async def spawn_cluster(
 
     with ProcessPoolExecutor(max_workers=proc_count) as pool:
         pending_futures = [
-            asyncio.wrap_future(pool.submit(
-                _proc_main,
-                dill.dumps(flow),
-                dill.dumps(input_builder),
-                dill.dumps(output_builder),
-                addresses,
-                proc_id,
-                worker_count_per_proc,
-                proc_raised_ex,
-            )) for proc_id in range(proc_count)
+            asyncio.wrap_future(
+                pool.submit(
+                    _proc_main,
+                    dill.dumps(flow),
+                    dill.dumps(input_builder),
+                    dill.dumps(output_builder),
+                    addresses,
+                    proc_id,
+                    worker_count_per_proc,
+                    proc_raised_ex,
+                )
+            )
+            for proc_id in range(proc_count)
         ]
 
         try:
@@ -402,41 +404,46 @@ async def spawn_cluster(
 
 
 async def _push_input(input_addr, worker_count, inp):
+    logging.debug("Input task started")
     with pynng.Push0(listen=input_addr) as socket:
         for epoch_item in inp:
             msg = ("yield", epoch_item)
-            print(f"Main sent {msg}")
             msg_bytes = dill.dumps(msg)
             await socket.asend(msg_bytes)
-            
+            logging.debug("Input sent %s", msg)
+
+        logging.debug("Input iterator complete")
         # Input is complete, signal workers to shutdown.
-        print("Main input complete")
         for i in range(worker_count):
             msg = ("return", None)
-            print(f"Main sent {msg}")
             msg_bytes = dill.dumps(msg)
             await socket.asend(msg_bytes)
+            logging.debug("Input sent %s", msg)
+    logging.debug("Input task done")
 
 
 async def _pull_output(output_addr, worker_count):
+    logging.debug("Output task started")
     with pynng.Pull0(listen=output_addr) as socket:
         done_count = 0
         while done_count < worker_count:
             msg_bytes = await socket.arecv()
             msg = dill.loads(msg_bytes)
-            print(f"Main got {msg}")
+            logging.debug("Output got %s", msg)
             typ, data = msg
             if typ == "yield":
                 epoch_item = data
                 yield epoch_item
             elif typ == "done":
                 done_count += 1
+                logging.debug(
+                    "Output waiting for %s/%s workers", done_count, worker_count
+                )
             else:
                 raise ValueError("unknown output IPC type: {typ!r}")
-            print(f"Main done count {done_count}/{worker_count}")
-    print("Main output complete")
+    logging.debug("Output task done")
 
-            
+
 def run_cluster(
     flow: Dataflow,
     inp: Iterable[Tuple[int, Any]],
@@ -495,77 +502,94 @@ def run_cluster(
             # We're using pynng because there's no version of
             # `multiprocessing.Queue` that is async aware, and doesn't
             # use threads.
+            logging.debug("Worker %s input starting", worker_index)
             with pynng.Pull0(dial=input_addr) as socket:
                 while True:
                     msg_bytes = socket.recv()
                     msg = dill.loads(msg_bytes)
-                    print(f"Worker {worker_index} got {msg}")
+                    logging.debug("Worker %s got %s", worker_index, msg)
                     typ, data = msg
                     if typ == "yield":
                         epoch_item = data
                         yield epoch_item
                     elif typ == "return":
-                        print(f"Worker {worker_index} returned")
                         return
                     else:
                         raise ValueError(f"unknown input IPC type: {typ!r}")
+            logging.debug("Worker %s input done", worker_index)
 
         async def output_builder(worker_index, worker_count, epoch_items):
+            logging.debug("Worker %s output starting", worker_index)
             with pynng.Push0(dial=output_addr) as socket:
-                async for epoch, item in epoch_items:
+                async for epoch_item in epoch_items:
                     msg = ("yield", epoch_item)
-                    print(f"Worker {worker_index} sent {msg}")
                     msg_bytes = dill.dumps(msg)
                     socket.send(msg_bytes)
-                
+                    logging.debug("Worker %s sent %s", worker_index, msg)
+
                 msg = ("done", None)
-                print(f"Worker {worker_index} sent {msg}")
                 msg_bytes = dill.dumps(msg)
                 socket.send(msg_bytes)
+                logging.debug("Worker %s sent %s", worker_index, msg)
+            logging.debug("Worker %s output done", worker_index)
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        cluster_task = loop.create_task(spawn_cluster(
-            flow,
-            input_builder,
-            output_builder,
-            proc_count,
-            worker_count_per_proc,
-        ))
-        input_task = loop.create_task(_push_input(
-            input_addr,
-            worker_count,
-            inp,
-        ))
+        cluster_task = loop.create_task(
+            spawn_cluster(
+                flow,
+                input_builder,
+                output_builder,
+                proc_count,
+                worker_count_per_proc,
+            ),
+            name="cluster-task",
+        )
+        input_task = loop.create_task(
+            _push_input(
+                input_addr,
+                worker_count,
+                inp,
+            ),
+            name="input-task",
+        )
         output_aiter = _pull_output(
             output_addr,
             worker_count,
         )
-        output_step_task = loop.create_task(output_aiter.__anext__())
+        output_step_task = loop.create_task(
+            output_aiter.__anext__(),
+            name="output-step-task",
+        )
 
         pending_tasks = [cluster_task, input_task, output_step_task]
         while len(pending_tasks) > 0:
-            print(pending_tasks)
             # Will block until one of our tasks completes.
             for coro in asyncio.as_completed(pending_tasks):
                 # Will re-raise exception from finished task.
-                loop.run_until_complete(coro)
+                try:
+                    loop.run_until_complete(coro)
+                except StopAsyncIteration:
+                    pass
                 break
             pending_tasks = []
-            
+
             if not cluster_task.done():
                 pending_tasks.append(cluster_task)
-                
+
             if not input_task.done():
                 pending_tasks.append(input_task)
-                
+
             if not output_step_task.done():
                 pending_tasks.append(output_step_task)
             else:
                 try:
                     yield output_step_task.result()
 
-                    output_step_task = loop.create_task(output_aiter.__anext__())
+                    output_step_task = loop.create_task(
+                        output_aiter.__anext__(),
+                        name="output-step-task",
+                    )
                     pending_tasks.append(output_step_task)
                 except StopAsyncIteration:
                     pass

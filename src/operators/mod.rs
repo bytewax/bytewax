@@ -1,3 +1,4 @@
+use crate::pyo3_extensions::TdPyCoroutine;
 use std::collections::HashMap;
 
 use pyo3::prelude::*;
@@ -209,6 +210,6 @@ pub(crate) fn stateful_map(
     })
 }
 
-pub(crate) fn capture(captor: &TdPyCallable, epoch: &u64, item: &TdPyAny) {
-    Python::with_gil(|py| with_traceback!(py, captor.call1(py, ((*epoch, item.clone_ref(py)),))));
+pub(crate) fn capture(coro: &TdPyCoroutine, epoch: &u64, item: &TdPyAny) {
+    Python::with_gil(|py| with_traceback!(py, coro.send(py, (epoch, item).to_object(py))));
 }

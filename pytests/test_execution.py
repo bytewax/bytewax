@@ -32,7 +32,7 @@ def test_run_main():
     def mapper(worker_x):
         worker, x = worker_x
         return (worker, x + 1)
-    
+
     flow = Dataflow()
     flow.map(mapper)
     flow.capture()
@@ -117,7 +117,7 @@ def test_run_main_can_be_ctrl_c():
 
     assert test_proc.exitcode == 99
     assert len(out) < 1000 * 2
-        
+
 
 def test_run_supports_generator():
     flow = Dataflow()
@@ -197,7 +197,7 @@ def test_cluster_main():
     def mapper(worker_x):
         worker, x = worker_x
         return (worker, x + 1)
-    
+
     flow = Dataflow()
     flow.map(mapper)
     flow.capture()
@@ -221,10 +221,16 @@ def test_cluster_main():
         worker_count_per_proc=2,
     )
 
-    assert sorted(out) == sorted([
-        (0, (0, 1)), (0, (0, 2)), (0, (0, 3)),
-        (0, (1, 1)), (0, (1, 2)), (0, (1, 3)),
-    ])
+    assert sorted(out) == sorted(
+        [
+            (0, (0, 1)),
+            (0, (0, 2)),
+            (0, (0, 3)),
+            (0, (1, 1)),
+            (0, (1, 2)),
+            (0, (1, 3)),
+        ]
+    )
 
 
 def test_cluster_main_reraises_exception():
@@ -315,7 +321,7 @@ def test_spawn_cluster():
     def mapper(worker_x):
         worker, x = worker_x
         return (worker, x + 1)
-    
+
     flow = Dataflow()
     flow.map(mapper)
     flow.capture()
@@ -324,25 +330,36 @@ def test_spawn_cluster():
         for i in range(3):
             yield (0, (worker_index, i))
 
-
     async def output_builder(worker_index, worker_count, epoch_items):
         async for epoch_item in epoch_items:
             out.append(epoch_item)
 
-    asyncio.run(spawn_cluster(
-        flow,
-        input_builder,
-        output_builder,
-        proc_count=2,
-        worker_count_per_proc=2,
-    ))
+    asyncio.run(
+        spawn_cluster(
+            flow,
+            input_builder,
+            output_builder,
+            proc_count=2,
+            worker_count_per_proc=2,
+        )
+    )
 
-    assert sorted(out) == sorted([
-        (0, (0, 1)), (0, (0, 2)), (0, (0, 3)),
-        (0, (1, 1)), (0, (1, 2)), (0, (1, 3)),
-        (0, (2, 1)), (0, (2, 2)), (0, (2, 3)),
-        (0, (3, 1)), (0, (3, 2)), (0, (3, 3)),
-    ])
+    assert sorted(out) == sorted(
+        [
+            (0, (0, 1)),
+            (0, (0, 2)),
+            (0, (0, 3)),
+            (0, (1, 1)),
+            (0, (1, 2)),
+            (0, (1, 3)),
+            (0, (2, 1)),
+            (0, (2, 2)),
+            (0, (2, 3)),
+            (0, (3, 1)),
+            (0, (3, 2)),
+            (0, (3, 3)),
+        ]
+    )
 
 
 def test_spawn_cluster_reraises_exception():
@@ -367,14 +384,16 @@ def test_spawn_cluster_reraises_exception():
         async for epoch_item in epoch_items:
             out.append(epoch_item)
 
-    with raises(ZeroDivisionError):
-        asyncio.run(spawn_cluster(
-            flow,
-            input_builder,
-            output_builder,
-            proc_count=2,
-            worker_count_per_proc=2,
-        ))
+    with raises(RuntimeError):
+        asyncio.run(
+            spawn_cluster(
+                flow,
+                input_builder,
+                output_builder,
+                proc_count=2,
+                worker_count_per_proc=2,
+            )
+        )
 
 
 @mark.skipif(
@@ -403,13 +422,15 @@ def test_spawn_cluster_can_be_ctrl_c():
         flow.capture()
 
         try:
-            asyncio.run(spawn_cluster(
-                flow,
-                input_builder,
-                output_builder,
-                proc_count=2,
-                worker_count_per_proc=2,
-            ))
+            asyncio.run(
+                spawn_cluster(
+                    flow,
+                    input_builder,
+                    output_builder,
+                    proc_count=2,
+                    worker_count_per_proc=2,
+                )
+            )
         except KeyboardInterrupt:
             exit(99)
 
@@ -437,7 +458,6 @@ def test_run_cluster_supports_generator():
         flow, inputs.fully_ordered(range(3)), proc_count=2, worker_count_per_proc=2
     )
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
-
 
 
 @mark.skipif(
@@ -483,7 +503,7 @@ def test_run_cluster_reraises_exception():
     flow.map(boom)
     flow.capture()
 
-    with raises(ZeroDivisionError):
+    with raises(RuntimeError):
         out = run_cluster(
             flow, enumerate(range(3)), proc_count=2, worker_count_per_proc=2
         )

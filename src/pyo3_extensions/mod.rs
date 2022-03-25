@@ -289,6 +289,37 @@ impl TdPyCallable {
     }
 }
 
+pub(crate) struct TdPyCoroutine(Py<PyAny>);
+
+impl<'source> FromPyObject<'source> for TdPyCoroutine {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        if !ob.getattr("send")?.is_none() {
+            Ok(Self(ob.into()))
+        } else {
+            let msg = if let Ok(type_name) = ob.get_type().name() {
+                format!("'{type_name}' object is not a coroutine")
+            } else {
+                "object is not a coroutine".to_string()
+            };
+            Err(PyTypeError::new_err(msg))
+        }
+    }
+}
+
+impl TdPyCoroutine {
+    pub(crate) fn clone_ref(&self, py: Python) -> Self {
+        Self(self.0.clone_ref(py))
+    }
+
+    pub(crate) fn send(&self, py: Python, value: Py<PyAny>) -> PyResult<Py<PyAny>> {
+        self.0.call_method1(py, "send", (value,))
+    }
+
+    pub(crate) fn throw1(&self, py: Python, typ: PyErr) -> PyResult<Py<PyAny>> {
+        self.0.call_method1(py, "throw", (typ,))
+    }
+}
+
 pub(crate) fn build(builder: &TdPyCallable, key: &TdPyAny) -> TdPyAny {
     Python::with_gil(|py| {
         let key = key.clone_ref(py);

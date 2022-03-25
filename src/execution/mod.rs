@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+use pyo3::exceptions::PyStopAsyncIteration;
 use pyo3::exceptions::PyStopIteration;
 use pyo3::iter::IterNextOutput;
 use send_wrapper::SendWrapper;
@@ -21,13 +22,13 @@ type TWorker = timely::worker::Worker<timely::communication::allocator::generic:
 /// iterator and feeding it into Timely.
 ///
 /// This will be called in the worker's "main" loop to feed data in.
-struct Pump {
+struct InputPump {
     pull_from_pyiter: TdPyIterator,
     pyiter_is_empty: bool,
     push_to_timely: InputHandle<u64, TdPyAny>,
 }
 
-impl Pump {
+impl InputPump {
     fn new(pull_from_pyiter: TdPyIterator, push_to_timely: InputHandle<u64, TdPyAny>) -> Self {
         Self {
             pull_from_pyiter,
@@ -55,21 +56,31 @@ impl Pump {
     }
 }
 
-#[pyclass]
-struct CaptureAiter {
+struct OutputPump {
+    coro: TdPyCoroutine,
+    probe: ProbeHandle<u64>,
 }
 
-#[pymethods]
-impl CaptureAiter {
-    fn __aiter__(self) -> Self {
-        self
+impl OutputPump {
+    fn new(coro: TdPyCoroutine, probe: ProbeHandle<u64>) -> Self {
+        Self { coro, probe }
     }
 
-    fn __anext__(self) -> Self {
-        self
+    fn output_remains(&self) -> bool {
+        !self.probe.done()
     }
 
-    fn __await__(self) {
+    fn stop(&self, py: Python) -> PyResult<()> {
+        match self
+            .coro
+            .throw1(py, PyStopAsyncIteration::new_err("output probe done"))
+        {
+            Err(err) if err.is_instance::<PyStopIteration>(py) => Ok(()),
+            Err(err) => Err(err),
+            Ok(_) => Err(PyRuntimeError::new_err(
+                "output coroutine did not raise StopIteration",
+            )),
+        }
     }
 }
 
@@ -88,8 +99,8 @@ struct WorkerCoro {
     /// threads; could be dropped once
     /// https://github.com/PyO3/pyo3/issues/2141 is done.
     timely_worker: Option<SendWrapper<TWorker>>,
-    input_pumps: Vec<Pump>,
-    output_probes: Vec<ProbeHandle<u64>>,
+    input_pumps: Vec<InputPump>,
+    output_pumps: Vec<OutputPump>,
     should_stop: TdPyCallable,
 }
 
@@ -119,16 +130,9 @@ impl WorkerCoro {
             .unwrap();
         let mut timely_input = InputHandle::new();
 
-        let capture_aiter: CaptureAiter = CaptureAiter::new();
-        let worker_output: TdPyCoroutine = output_builder
-            .call1(py, (worker_index, worker_count, capture_aiter))
-            .unwrap()
-            .extract(py)
-            .unwrap();
-        worker_output.send(PyNone)?;
-        let mut output_probes = Vec::new();
+        let mut output_pumps = Vec::new();
 
-        timely_worker.dataflow(|scope| {
+        timely_worker.dataflow::<_, Result<(), PyErr>, _>(|scope| {
             let mut stream = timely_input.to_stream(scope);
             let steps = &flow.steps;
             for step in steps {
@@ -216,30 +220,42 @@ impl WorkerCoro {
                         );
                     }
                     Step::Capture {} => {
-                        let worker_output = worker_output.clone_ref(py);
+                        let aiter_mod = PyModule::import(py, "bytewax._capture_aiter")?;
+                        let epoch_items = aiter_mod.getattr("CaptureAiter")?.call0()?;
+                        let output_coro: TdPyCoroutine = output_builder
+                            .call1(py, (worker_index, worker_count, epoch_items))
+                            .unwrap()
+                            .extract(py)
+                            .unwrap();
+                        // Prime output handler until awaiting first captured output.
+                        output_coro.send(py, py.None())?;
                         let mut output_probe = ProbeHandle::new();
+
+                        let output_coro_op = output_coro.clone_ref(py);
                         stream
-                            .inspect_time(move |epoch, item| capture(&worker_output, epoch, item))
+                            .inspect_time(move |epoch, item| capture(&output_coro_op, epoch, item))
                             .probe_with(&mut output_probe);
-                        output_probes.push(output_probe);
+
+                        let output_pump = OutputPump::new(output_coro, output_probe);
+                        output_pumps.push(output_pump);
                     }
                 }
-            }
-
-            if output_probes.is_empty() {
-                return Err(PyValueError::new_err(
-                    "Dataflow needs to contain at least one capture",
-                ));
             }
 
             Ok(())
         })?;
 
-        let pump = Pump::new(worker_input, timely_input);
+        if output_pumps.is_empty() {
+            return Err(PyValueError::new_err(
+                "Dataflow needs to contain at least one capture",
+            ));
+        }
+
+        let input_pump = InputPump::new(worker_input, timely_input);
         let worker = Self {
             timely_worker: Some(timely_worker),
-            input_pumps: vec![pump],
-            output_probes,
+            input_pumps: vec![input_pump],
+            output_pumps: output_pumps,
             should_stop,
         };
         Ok(worker)
@@ -273,7 +289,7 @@ impl WorkerCoro {
         self.input_pumps = self
             .input_pumps
             .drain(..)
-            .filter(Pump::input_remains)
+            .filter(InputPump::input_remains)
             .collect();
 
         // SAFETY: TWorker must outlive the catch_unwind boundary to
@@ -299,16 +315,21 @@ impl WorkerCoro {
             }
         })?;
 
-        self.output_probes = self
-            .output_probes
-            .drain(..)
-            .filter(|probe| !probe.done())
-            .collect();
+        let (remaining_output_pumps, complete_output_pumps): (Vec<OutputPump>, Vec<OutputPump>) =
+            self.output_pumps
+                .drain(..)
+                .partition(OutputPump::output_remains);
+        for pump in complete_output_pumps {
+            pump.stop(py)?;
+        }
+        self.output_pumps = remaining_output_pumps;
 
         let should_stop = self.should_stop.call0(py)?.extract(py)?;
-        let work_complete = self.input_pumps.is_empty() && self.output_probes.is_empty();
+        let work_complete = self.input_pumps.is_empty() && self.output_pumps.is_empty();
 
         if should_stop || work_complete {
+            // We have to dispose of the worker before comms threads.
+            self.timely_worker = None;
             Err(PyStopIteration::new_err(()))
         } else {
             Ok(())
