@@ -289,6 +289,7 @@ impl WorkerCoro {
         let work_complete = self.input_pumps.is_empty() && self.output_probes.is_empty();
 
         if should_stop || work_complete {
+            self.close()?;
             Err(PyStopIteration::new_err(()))
         } else {
             Ok(())
@@ -304,15 +305,35 @@ impl WorkerCoro {
         for dataflow_id in timely_worker.installed_dataflows() {
             timely_worker.drop_dataflow(dataflow_id);
         }
+        self.timely_worker = None;
         Ok(())
     }
 
-    fn throw(&mut self, _typ: &PyAny, _value: &PyAny, _traceback: &PyAny) -> PyResult<()> {
+    /// We don't handle any exceptions in the worker code from the run
+    /// loop between steps. Re-raise them.
+    fn throw(&mut self, typ: &PyAny, value: &PyAny, traceback: &PyAny) -> PyResult<()> {
         let _timely_worker = self.timely_worker.as_mut().ok_or(PyRuntimeError::new_err(
             "Dataflow previously threw unhandled exception; can't be used again",
         ))?;
+        self.timely_worker = None;
 
-        Ok(())
+        // Translated from
+        // https://github.com/python/cpython/blob/785cc6770588de087d09e89a69110af2542be208/Lib/_collections_abc.py
+        let value = if value.is_none() && traceback.is_none() {
+            typ
+        } else if value.is_none() {
+            typ.call0()?
+        } else {
+            value
+        };
+
+        let value_with_traceback = if traceback.is_none() {
+            value
+        } else {
+            value.call_method1("with_traceback", (traceback,))?
+        };
+
+        Err(PyErr::from_instance(value_with_traceback))
     }
 
     // Shims to allow this coroutine to be `await`ed upon.
