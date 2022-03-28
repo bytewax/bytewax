@@ -12,7 +12,7 @@ from typing import Any, Callable, Iterable, Tuple
 
 from multiprocess import Manager, Pool, TimeoutError
 
-from .bytewax import Dataflow, WorkerCoro, WorkerBuilder
+from .bytewax import Dataflow, WorkerBuilder, WorkerCoro
 
 
 def __skip_doctest_on_win_gha():

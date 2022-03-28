@@ -6,7 +6,7 @@ documentation.](https://github.com/bytewax/bytewax)
 
 """
 from .bytewax import Dataflow
-from .execution import run, run_cluster, spawn_cluster, cluster_main
+from .execution import cluster_main, run, run_cluster, spawn_cluster
 
 __all__ = [
     "Dataflow",
