@@ -20,7 +20,11 @@ def input_builder(worker_index, worker_count):
             yield json.loads(msg.value)
 
     return inputs.tumbling_epoch(
-        consume_from_kafka(),
+        inputs.sorted_window(
+            consume_from_kafka(),
+            dt.timedelta(days=1),
+            lambda x: dt.datetime.fromisoformat(x["event_timestamp"]),
+        ),
         # Make epochs daily intervals to determine daily avg
         dt.timedelta(days=1),
         # Since we're taking in all input at once, use event timestamp for time
