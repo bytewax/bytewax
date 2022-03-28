@@ -13,6 +13,7 @@ use timely::communication::allocator::GenericBuilder as TBuilder;
 use timely::dataflow::InputHandle;
 use timely::dataflow::ProbeHandle;
 
+use log::debug;
 use crate::dataflow::Dataflow;
 use crate::pyo3_extensions::*;
 
@@ -284,7 +285,10 @@ impl WorkerCoro {
         ))?;
 
         for pump in self.input_pumps.iter_mut() {
-            pump.pump(py)?;
+            pump.pump(py).map_err(|err| {
+                self.timely_worker = None;
+                err
+            })?;
         }
         self.input_pumps = self
             .input_pumps
@@ -320,7 +324,10 @@ impl WorkerCoro {
                 .drain(..)
                 .partition(OutputPump::output_remains);
         for pump in complete_output_pumps {
-            pump.stop(py)?;
+            pump.stop(py).map_err(|err| {
+                self.timely_worker = None;
+                err
+            })?;
         }
         self.output_pumps = remaining_output_pumps;
 
@@ -328,32 +335,56 @@ impl WorkerCoro {
         let work_complete = self.input_pumps.is_empty() && self.output_pumps.is_empty();
 
         if should_stop || work_complete {
-            // We have to dispose of the worker before comms threads.
-            self.timely_worker = None;
+            debug!("Worker coro complete");
+            // We need to ensure that we dispose of this worker in the
+            // run loop thread otherwise Python's GC might call
+            // close() in the main thread with our unsendable self.
+            self.close()?;
             Err(PyStopIteration::new_err(()))
         } else {
             Ok(())
         }
     }
 
-    /// Run code on shutdown of worker.
+    /// Worker shutdown should close the dataflows and drop the Timely worker.
     fn close(&mut self) -> PyResult<()> {
         let timely_worker = self.timely_worker.as_mut().ok_or(PyRuntimeError::new_err(
             "Dataflow previously threw unhandled exception; can't be used again",
         ))?;
 
+        debug!("Worker closing");
         for dataflow_id in timely_worker.installed_dataflows() {
             timely_worker.drop_dataflow(dataflow_id);
         }
+        self.timely_worker = None;
         Ok(())
     }
 
-    fn throw(&mut self, _typ: &PyAny, _value: &PyAny, _traceback: &PyAny) -> PyResult<()> {
+    /// We don't handle any exceptions in the worker code. Re-raise them.
+    fn throw(&mut self, typ: &PyAny, value: &PyAny, traceback: &PyAny) -> PyResult<()> {
         let _timely_worker = self.timely_worker.as_mut().ok_or(PyRuntimeError::new_err(
             "Dataflow previously threw unhandled exception; can't be used again",
         ))?;
 
-        Ok(())
+        self.timely_worker = None;
+
+        // Translated from
+        // https://github.com/python/cpython/blob/785cc6770588de087d09e89a69110af2542be208/Lib/_collections_abc.py
+        let value = if value.is_none() && traceback.is_none() {
+            typ
+        } else if value.is_none() {
+            typ.call0()?
+        } else {
+            value
+        };
+        
+        let value_with_traceback = if traceback.is_none() {
+            value
+        } else {
+            value.call_method1("with_traceback", (traceback, ))?
+        };
+
+        Err(PyErr::from_instance(value_with_traceback))
     }
 
     // Shims to allow this coroutine to be `await`ed upon.

@@ -8,8 +8,13 @@ from bytewax import inputs
 from bytewax.execution import *
 
 from multiprocessing import Manager, Process
+import multiprocessing
 
 from pytest import mark, raises
+
+
+class BoomError(Exception):
+    pass
 
 
 def test_requires_capture():
@@ -38,8 +43,8 @@ def test_run_main():
     flow.capture()
 
     def input_builder(worker_index, worker_count):
-        for i in range(3):
-            yield (0, (worker_index, i))
+        for x in range(3):
+            yield (0, (worker_index, x))
 
     out = []
 
@@ -52,11 +57,11 @@ def test_run_main():
     assert sorted(out) == sorted([(0, (0, 1)), (0, (0, 2)), (0, (0, 3))])
 
 
-def test_run_main_reraises_exception():
+def test_run_main_operator_reraises_exception():
     def boom(worker_x):
         worker, x = worker_x
         if x == 1:
-            return x / 0
+            raise BoomError()
         else:
             return x
 
@@ -65,8 +70,8 @@ def test_run_main_reraises_exception():
     flow.capture()
 
     def input_builder(worker_index, worker_count):
-        for i in range(3):
-            yield (0, (worker_index, i))
+        for x in range(3):
+            yield (0, (worker_index, x))
 
     out = []
 
@@ -74,10 +79,74 @@ def test_run_main_reraises_exception():
         async for epoch_item in epoch_items:
             out.append(epoch_item)
 
-    with raises(ZeroDivisionError):
+    with raises(BoomError):
         asyncio.run(run_main(flow, input_builder, output_builder))
 
 
+def test_run_main_input_reraises_exception():
+    flow = Dataflow()
+    flow.capture()
+
+    def input_builder(worker_index, worker_count):
+        for x in range(3):
+            if x == 1:
+                raise BoomError()
+            yield (0, (worker_index, x))
+
+    out = []
+
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            out.append(epoch_item)
+
+    with raises(BoomError):
+        asyncio.run(run_main(flow, input_builder, output_builder))
+
+
+def test_run_main_output_reraises_exception():
+    flow = Dataflow()
+    flow.capture()
+
+    def input_builder(worker_index, worker_count):
+        for x in range(3):
+            yield (0, (worker_index, x))
+
+    out = []
+
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            epoch, item = epoch_item
+            worker_index, x = item
+            if x == 1:
+                raise BoomError()
+            out.append(epoch_item)
+
+    with raises(BoomError):
+        asyncio.run(run_main(flow, input_builder, output_builder))
+
+
+def proc_main_run_main(is_running, out):
+    def input_builder(worker_index, worker_count):
+        return inputs.fully_ordered(range(1000))
+
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            out.append(epoch_item)
+
+    def mapper(item):
+        is_running.set()
+        return item
+
+    flow = Dataflow()
+    flow.map(mapper)
+    flow.capture()
+
+    try:
+        asyncio.run(run_main(flow, input_builder, output_builder))
+    except KeyboardInterrupt:
+        exit(99)
+
+        
 @mark.skipif(
     os.name == "nt",
     reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
@@ -87,28 +156,8 @@ def test_run_main_can_be_ctrl_c():
     is_running = manager.Event()
     out = manager.list()
 
-    def proc_main():
-        def input_builder(worker_index, worker_count):
-            return inputs.fully_ordered(range(1000))
-
-        async def output_builder(worker_index, worker_count, epoch_items):
-            async for epoch_item in epoch_items:
-                out.append(epoch_item)
-
-        def mapper(item):
-            is_running.set()
-            return item
-
-        flow = Dataflow()
-        flow.map(mapper)
-        flow.capture()
-
-        try:
-            asyncio.run(run_main(flow, input_builder, output_builder))
-        except KeyboardInterrupt:
-            exit(99)
-
-    test_proc = Process(target=proc_main)
+    ctx = multiprocessing.get_context("spawn")
+    test_proc = ctx.Process(target=proc_main_run_main, args=(is_running, out))
     test_proc.start()
 
     assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
@@ -146,18 +195,51 @@ def test_run_supports_list():
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 
-def test_run_reraises_exception():
+def test_run_operator_reraises_exception():
     def boom(item):
-        return item / 0
+        if item == 1:
+            raise BoomError()
 
     flow = Dataflow()
     flow.map(boom)
     flow.capture()
 
-    with raises(ZeroDivisionError):
-        list(run(flow, enumerate(range(3))))
+    with raises(BoomError):
+        out = run(flow, enumerate(range(3)))
+        list(out)
 
 
+def test_run_input_reraises_exception():
+    flow = Dataflow()
+    flow.capture()
+
+    def boom_input():
+        for epoch, item in enumerate(range(3)):
+            if item == 1:
+                raise BoomError()
+            yield epoch, item
+
+    with raises(BoomError):
+        out = run(flow, boom_input())
+        list(out)
+
+
+def proc_main_run(is_running, out):
+    def mapper(item):
+        is_running.set()
+        return item
+
+    flow = Dataflow()
+    flow.map(mapper)
+    flow.capture()
+
+    try:
+        for epoch_item in run(flow, inputs.fully_ordered(range(1000))):
+            out.append(epoch_item)
+    except KeyboardInterrupt:
+        exit(99)
+
+        
 @mark.skipif(
     os.name == "nt",
     reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
@@ -167,22 +249,8 @@ def test_run_can_be_ctrl_c():
     is_running = manager.Event()
     out = manager.list()
 
-    def proc_main():
-        def mapper(item):
-            is_running.set()
-            return item
-
-        flow = Dataflow()
-        flow.map(mapper)
-        flow.capture()
-
-        try:
-            for epoch_item in run(flow, inputs.fully_ordered(range(1000))):
-                out.append(epoch_item)
-        except KeyboardInterrupt:
-            exit(99)
-
-    test_proc = Process(target=proc_main)
+    ctx = multiprocessing.get_context("spawn")
+    test_proc = ctx.Process(target=proc_main_run, args=(is_running, out))
     test_proc.start()
 
     assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
@@ -203,8 +271,8 @@ def test_cluster_main():
     flow.capture()
 
     def input_builder(worker_index, worker_count):
-        for i in range(3):
-            yield (0, (worker_index, i))
+        for x in range(3):
+            yield (0, (worker_index, x))
 
     out = []
 
@@ -233,11 +301,11 @@ def test_cluster_main():
     )
 
 
-def test_cluster_main_reraises_exception():
+def test_cluster_main_operator_reraises_exception():
     def boom(worker_x):
         worker, x = worker_x
         if x == 1:
-            return x / 0
+            raise BoomError()
         else:
             return x
 
@@ -246,8 +314,8 @@ def test_cluster_main_reraises_exception():
     flow.capture()
 
     def input_builder(worker_index, worker_count):
-        for i in range(3):
-            yield (0, (worker_index, i))
+        for x in range(3):
+            yield (0, (worker_index, x))
 
     out = []
 
@@ -255,7 +323,7 @@ def test_cluster_main_reraises_exception():
         async for epoch_item in epoch_items:
             out.append(epoch_item)
 
-    with raises(ZeroDivisionError):
+    with raises(BoomError):
         cluster_main(
             flow,
             input_builder,
@@ -266,6 +334,91 @@ def test_cluster_main_reraises_exception():
         )
 
 
+def test_cluster_main_input_reraises_exception():
+    flow = Dataflow()
+    flow.capture()
+
+    def input_builder(worker_index, worker_count):
+        for x in range(3):
+            if x == 1:
+                raise BoomError()
+            yield (0, (worker_index, x))
+
+    out = []
+
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            out.append(epoch_item)
+
+    with raises(BoomError):
+        cluster_main(
+            flow,
+            input_builder,
+            output_builder,
+            addresses=["localhost:2101"],
+            proc_id=0,
+            worker_count_per_proc=2,
+        )
+
+
+def test_cluster_main_output_reraises_exception():
+    flow = Dataflow()
+    flow.capture()
+
+    def input_builder(worker_index, worker_count):
+        for x in range(3):
+            yield (0, (worker_index, x))
+
+    out = []
+
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            epoch, item = epoch_item
+            worker_index, x = item
+            if x == 1:
+                raise BoomError()
+            out.append(epoch_item)
+
+    with raises(BoomError):
+        cluster_main(
+            flow,
+            input_builder,
+            output_builder,
+            addresses=["localhost:2101"],
+            proc_id=0,
+            worker_count_per_proc=2,
+        )
+
+        
+def proc_main_cluster_main(is_running, out):
+    def input_builder(worker_index, worker_count):
+        return inputs.fully_ordered(range(1000))
+
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            out.append(epoch_item)
+
+    def mapper(item):
+        is_running.set()
+        return item
+
+    flow = Dataflow()
+    flow.map(mapper)
+    flow.capture()
+
+    try:
+        cluster_main(
+            flow,
+            input_builder,
+            output_builder,
+            addresses=["localhost:2101"],
+            proc_id=0,
+            worker_count_per_proc=2,
+        )
+    except KeyboardInterrupt:
+        exit(99)
+
+            
 @mark.skipif(
     os.name == "nt",
     reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
@@ -275,35 +428,8 @@ def test_cluster_main_can_be_ctrl_c():
     is_running = manager.Event()
     out = manager.list()
 
-    def proc_main():
-        def input_builder(worker_index, worker_count):
-            return inputs.fully_ordered(range(1000))
-
-        async def output_builder(worker_index, worker_count, epoch_items):
-            async for epoch_item in epoch_items:
-                out.append(epoch_item)
-
-        def mapper(item):
-            is_running.set()
-            return item
-
-        flow = Dataflow()
-        flow.map(mapper)
-        flow.capture()
-
-        try:
-            cluster_main(
-                flow,
-                input_builder,
-                output_builder,
-                addresses=["localhost:2101"],
-                proc_id=0,
-                worker_count_per_proc=2,
-            )
-        except KeyboardInterrupt:
-            exit(99)
-
-    test_proc = Process(target=proc_main)
+    ctx = multiprocessing.get_context("spawn")
+    test_proc = ctx.Process(target=proc_main_cluster_main, args=(is_running, out))
     test_proc.start()
 
     assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
@@ -362,11 +488,11 @@ def test_spawn_cluster():
     )
 
 
-def test_spawn_cluster_reraises_exception():
+def test_spawn_cluster_operator_reraises_exception():
     def boom(worker_x):
         worker, x = worker_x
         if x == 1:
-            return x / 0
+            raise BoomError()
         else:
             return x
 
@@ -375,8 +501,8 @@ def test_spawn_cluster_reraises_exception():
     flow.capture()
 
     def input_builder(worker_index, worker_count):
-        for i in range(3):
-            yield (0, (worker_index, i))
+        for x in range(3):
+            yield (0, (worker_index, x))
 
     out = []
 
@@ -396,6 +522,93 @@ def test_spawn_cluster_reraises_exception():
         )
 
 
+def test_spawn_cluster_input_reraises_exception():
+    flow = Dataflow()
+    flow.capture()
+
+    def input_builder(worker_index, worker_count):
+        for x in range(3):
+            if x == 1:
+                raise BoomError()
+            yield (0, (worker_index, x))
+
+    out = []
+
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            out.append(epoch_item)
+
+    with raises(RuntimeError):
+        asyncio.run(
+            spawn_cluster(
+                flow,
+                input_builder,
+                output_builder,
+                proc_count=2,
+                worker_count_per_proc=2,
+            )
+        )
+
+
+def test_spawn_cluster_output_reraises_exception():
+    flow = Dataflow()
+    flow.capture()
+
+    def input_builder(worker_index, worker_count):
+        for x in range(3):
+            yield (0, (worker_index, x))
+
+    out = []
+
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            epoch, item = epoch_item
+            worker_index, x = item
+            if x == 1:
+                raise BoomError()
+            out.append(epoch_item)
+
+    with raises(RuntimeError):
+        asyncio.run(
+            spawn_cluster(
+                flow,
+                input_builder,
+                output_builder,
+                proc_count=2,
+                worker_count_per_proc=2,
+            )
+        )
+
+def proc_main_spawn_cluster(is_running, out):
+    def input_builder(worker_index, worker_count):
+        return inputs.fully_ordered(range(1000))
+
+    async def output_builder(worker_index, worker_count, epoch_items):
+        async for epoch_item in epoch_items:
+            out.append(epoch_item)
+
+    def mapper(item):
+        is_running.set()
+        return item
+
+    flow = Dataflow()
+    flow.map(mapper)
+    flow.capture()
+
+    try:
+        asyncio.run(
+            spawn_cluster(
+                flow,
+                input_builder,
+                output_builder,
+                proc_count=2,
+                worker_count_per_proc=2,
+            )
+        )
+    except KeyboardInterrupt:
+        exit(99)
+
+            
 @mark.skipif(
     os.name == "nt",
     reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
@@ -405,36 +618,8 @@ def test_spawn_cluster_can_be_ctrl_c():
     is_running = manager.Event()
     out = manager.list()
 
-    def proc_main():
-        def input_builder(worker_index, worker_count):
-            return inputs.fully_ordered(range(1000))
-
-        async def output_builder(worker_index, worker_count, epoch_items):
-            async for epoch_item in epoch_items:
-                out.append(epoch_item)
-
-        def mapper(item):
-            is_running.set()
-            return item
-
-        flow = Dataflow()
-        flow.map(mapper)
-        flow.capture()
-
-        try:
-            asyncio.run(
-                spawn_cluster(
-                    flow,
-                    input_builder,
-                    output_builder,
-                    proc_count=2,
-                    worker_count_per_proc=2,
-                )
-            )
-        except KeyboardInterrupt:
-            exit(99)
-
-    test_proc = Process(target=proc_main)
+    ctx = multiprocessing.get_context("spawn")
+    test_proc = ctx.Process(target=proc_main_spawn_cluster, args=(is_running, out))
     test_proc.start()
 
     assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
@@ -492,10 +677,10 @@ def test_run_cluster_supports_list():
     os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None,
     reason="Hangs in Windows GitHub Actions",
 )
-def test_run_cluster_reraises_exception():
+def test_run_cluster_operator_reraises_exception():
     def boom(item):
         if item == 1:
-            return item / 0
+            raise BoomError()
         else:
             return item
 
@@ -510,6 +695,42 @@ def test_run_cluster_reraises_exception():
         list(out)
 
 
+def test_run_cluster_input_reraises_exception():
+    flow = Dataflow()
+    flow.capture()
+
+    def boom_input():
+        for epoch, item in enumerate(range(3)):
+            if item == 1:
+                raise BoomError()
+            yield epoch, item
+
+    with raises(BoomError):
+        out = run_cluster(flow, boom_input())
+        list(out)
+
+        
+def proc_main_run_cluster(is_running, out):
+    def mapper(item):
+        is_running.set()
+        return item
+
+    flow = Dataflow()
+    flow.map(mapper)
+    flow.capture()
+
+    try:
+        for epoch_item in run_cluster(
+            flow,
+            inputs.fully_ordered(range(1000)),
+            proc_count=2,
+            worker_count_per_proc=2,
+        ):
+            out.append(epoch_item)
+    except KeyboardInterrupt:
+        exit(99)
+
+        
 @mark.skipif(
     os.name == "nt",
     reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
@@ -519,27 +740,8 @@ def test_run_cluster_can_be_ctrl_c():
     is_running = manager.Event()
     out = manager.list()
 
-    def proc_main():
-        def mapper(item):
-            is_running.set()
-            return item
-
-        flow = Dataflow()
-        flow.map(mapper)
-        flow.capture()
-
-        try:
-            for epoch_item in run_cluster(
-                flow,
-                inputs.fully_ordered(range(1000)),
-                proc_count=2,
-                worker_count_per_proc=2,
-            ):
-                out.append(epoch_item)
-        except KeyboardInterrupt:
-            exit(99)
-
-    test_proc = Process(target=proc_main)
+    ctx = multiprocessing.get_context("spawn")
+    test_proc = ctx.Process(target=proc_main, args=(is_running, out))
     test_proc.start()
 
     assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"

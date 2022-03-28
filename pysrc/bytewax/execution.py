@@ -2,6 +2,7 @@
 
 """
 import asyncio
+from asyncio import CancelledError
 import concurrent.futures
 import logging
 import threading
@@ -9,7 +10,7 @@ import traceback
 from collections import abc
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import Manager
-from tempfile import TemporaryDirectory
+import multiprocessing
 
 from typing import Any, Callable, Iterable, Tuple
 
@@ -255,7 +256,7 @@ def cluster_main(
     def worker_main(builder):
         coro = builder.build(flow, input_builder, output_builder, worker_should_stop)
         asyncio.run(WorkerCoroWrapper(coro))
-
+            
     with ThreadPoolExecutor(max_workers=worker_count_per_proc) as pool:
         futures = [pool.submit(worker_main, builder) for builder in builders]
 
@@ -376,7 +377,8 @@ async def spawn_cluster(
     def proc_should_stop():
         return cluster_should_stop() or proc_raised_ex.is_set()
 
-    with ProcessPoolExecutor(max_workers=proc_count) as pool:
+    ctx = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=proc_count, mp_context=ctx) as pool:
         pending_futures = [
             asyncio.wrap_future(
                 pool.submit(
@@ -409,54 +411,8 @@ async def spawn_cluster(
             raise
 
 
-def _input_task(in_q, worker_count, inp):
-    logging.debug("Input task started")
-    for epoch_item in inp:
-        msg = ("yield", epoch_item)
-        msg_bytes = dill.dumps(msg)
-        in_q.put(msg_bytes)
-        logging.debug("Input sent %s", msg)
-
-    logging.debug("Input iterator complete")
-    # Input is complete, signal workers to shutdown.
-    for i in range(worker_count):
-        msg = ("return", None)
-        msg_bytes = dill.dumps(msg)
-        in_q.put(msg_bytes)
-        logging.debug("Input sent %s", msg)
-    logging.debug("Input task done")
-
-
-def _output_iter(out_q, worker_count):
-    logging.debug("Output task started")
-    done_count = 0
-    while done_count < worker_count:
-        msg_bytes = out_q.get()
-        msg = dill.loads(msg_bytes)
-        logging.debug("Output got %s", msg)
-        typ, data = msg
-        if typ == "yield":
-            epoch_item = data
-            yield epoch_item
-        elif typ == "done":
-            done_count += 1
-            logging.debug(
-                "Output waiting for %s/%s workers", done_count, worker_count
-            )
-        else:
-            raise ValueError("unknown output IPC type: {typ!r}")
-    logging.debug("Output task done")
-
-
 class _StopIterationShim(Exception):
     pass
-    
-
-def _step_output_iter(output_iter):
-    try:
-        return output_iter.__next__()
-    except StopIteration as ex:
-        raise _StopIterationShim() from ex
 
 
 def run_cluster(
@@ -521,6 +477,29 @@ def run_cluster(
     
     in_q = manager.Queue(ipc_buffer_size)
 
+    def input_task():
+        logging.debug("Input task started")
+        for epoch_item in inp:
+            msg = ("yield", epoch_item)
+            msg_bytes = dill.dumps(msg)
+            in_q.put(msg_bytes)
+            if main_raised_ex.is_set():
+                logging.debug("Input task shutdown")
+                return
+            logging.debug("Input sent %s", msg)
+
+        logging.debug("Input iterator complete")
+        # Input is complete, signal workers to shutdown.
+        for i in range(worker_count):
+            msg = ("return", None)
+            msg_bytes = dill.dumps(msg)
+            in_q.put(msg_bytes)
+            if main_raised_ex.is_set():
+                logging.debug("Input task shutdown")
+                return
+            logging.debug("Input sent %s", msg)
+        logging.debug("Input task done")
+
     def input_builder(worker_index, worker_count):
         logging.debug("Worker %s input starting", worker_index)
         while True:
@@ -553,6 +532,29 @@ def run_cluster(
         logging.debug("Worker %s sent %s", worker_index, msg)
         logging.debug("Worker %s output done", worker_index)
 
+    def output_task():
+        logging.debug("Output task started")
+        done_count = 0
+        while done_count < worker_count:
+            msg_bytes = out_q.get()
+            if main_raised_ex.is_set():
+                logging.debug("Output task shutdown")
+                return
+            msg = dill.loads(msg_bytes)
+            logging.debug("Output got %s", msg)
+            typ, data = msg
+            if typ == "yield":
+                epoch_item = data
+                yield epoch_item
+            elif typ == "done":
+                done_count += 1
+                logging.debug(
+                    "Output waiting for %s/%s workers", done_count, worker_count
+                )
+            else:
+                raise ValueError("unknown output IPC type: {typ!r}")
+        logging.debug("Output task done")
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     # Spawn before making threads. Threads and (possible) forks don't
@@ -564,36 +566,33 @@ def run_cluster(
             output_builder,
             proc_count,
             worker_count_per_proc,
-            main_raised_ex.is_set,
+            # main_raised_ex.is_set,
         ),
         name="cluster-task",
     )
     input_task = loop.create_task(
-        asyncio.to_thread(
-            _input_task,
-            in_q,
-            worker_count,
-            inp,
-        ),
+        asyncio.to_thread(input_task),
         name="input-task",
     )
-    output_iter = _output_iter(
-        out_q,
-        worker_count,
-    )
-    output_step_task = loop.create_task(
-        asyncio.to_thread(_step_output_iter, output_iter),
+    
+    output_iter = output_task()
+    def next_shim():
+        try:
+            return next(output_iter)
+        except StopIteration as ex:
+            raise _StopIterationShim() from ex
+        
+    output_next_task = loop.create_task(
+        asyncio.to_thread(next_shim),
         name="output-step-task",
     )
 
-    pending_tasks = [cluster_task, input_task, output_step_task]
+    pending_tasks = [cluster_task, input_task, output_next_task]
     try:
         while len(pending_tasks) > 0:
             # Will block until one of our tasks completes.
             for coro in asyncio.as_completed(pending_tasks):
-                # This is like a combo of run-then-result, but we want to
-                # handle exceptions differently per-task, so swallow
-                # everything here and we'll re-raise them below.
+                # This is like a combo of run-then-result.
                 try:
                     loop.run_until_complete(coro)
                 except _StopIterationShim:
@@ -605,27 +604,54 @@ def run_cluster(
 
             if not cluster_task.done():
                 pending_tasks.append(cluster_task)
-            elif cluster_task.exception():
-                raise cluster_task.exception()
 
             if not input_task.done():
                 pending_tasks.append(input_task)
-            elif input_task.exception():
-                raise input_task.exception()
 
-            if not output_step_task.done():
-                pending_tasks.append(output_step_task)
+            if not output_next_task.done():
+                pending_tasks.append(output_next_task)
             else:
                 try:
-                    yield output_step_task.result()
+                    yield output_next_task.result()
 
-                    output_step_task = loop.create_task(
-                        asyncio.to_thread(_step_output_iter, output_iter),
+                    output_next_task = loop.create_task(
+                        asyncio.to_thread(next_shim),
                         name="output-step-task",
                     )
-                    pending_tasks.append(output_step_task)
+                    pending_tasks.append(output_next_task)
                 except _StopIterationShim:
                     pass
     except:
+        logging.debug("Attempting shutdown")
+        
+        if not cluster_task.done():
+            cluster_task.cancel()
+            try:
+                loop.run_until_complete(cluster_task)
+            except CancelledError:
+                pass
+        
         main_raised_ex.set()
+
+        if not input_task.done():
+            try:
+                in_q.get(False)
+            except Full:
+                pass
+            loop.run_until_complete(input_task)
+
+        if not output_next_task.done():
+            try:
+                msg = ("done", None)
+                msg_bytes = dill.dumps(msg)
+                out_q.put(msg_bytes)
+            except Empty:
+                pass
+            try:
+                loop.run_until_complete(output_next_task)
+            except _StopIterationShim:
+                pass
+
+        loop.close()
+        
         raise
