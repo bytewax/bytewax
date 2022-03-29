@@ -1,5 +1,10 @@
 # Bytewax Changelog
 
+## Latest
+
+__Add any extra change notes here and we'll put them in the release
+notes on GitHub when we make a new release.__
+
 ## 0.8.0
 
 - Capture operator no longer takes arguments. Items that flow through
@@ -30,6 +35,4 @@
 - Adds `bytewax.parse` module to help with reading command line
   arguments and environment variables for the above entrypoints.
   
-- Adds `manual_cluster` example.
-
 - Renames `bytewax.inp` to `bytewax.inputs`.
