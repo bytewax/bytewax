@@ -5,6 +5,9 @@ on:
     branches:
     - main
   pull_request: {}
+  release:
+    types:
+    - published
 
 jobs:
   linux:
