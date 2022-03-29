@@ -17,7 +17,8 @@ def input_builder(worker_index, worker_count):
         consumer = KafkaConsumer(bootstrap_servers="localhost:9092", auto_offset_reset="earliest")
         consumer.subscribe("drivers")
         for msg in consumer:
-            yield json.loads(msg.value)
+            event = msg.value
+            yield json.loads(event)
 
     return inputs.tumbling_epoch(
         inputs.sorted_window(
@@ -47,7 +48,7 @@ def output_builder(worker_index, worker_count):
     """
 
     def output_fn(epoch_dataframe):
-        panda_df = epoch_dataframe[1]
+        _, panda_df = epoch_dataframe
         store.write_to_online_store("driver_daily_stats", panda_df)
         driver_id = panda_df.iloc[0]["driver_id"]
 
@@ -63,35 +64,35 @@ def output_builder(worker_index, worker_count):
 
     return output_fn
 
-def collect_events(all_events, event):
-    all_events.extend(event)
+def collect_events(all_events, new_events):
+    all_events.extend(new_events)
     return all_events
 
 def calculate_avg(driver_events):
-    driver_events = driver_events[1]
+    driver_id, driver_events = driver_events
     total_events = len(driver_events)
-    e = driver_events[0]
+    first_event = driver_events[0]
     conv_rates = [event["conv_rate"] for event in driver_events]
     acc_rates = [event["acc_rate"] for event in driver_events]
     new_conv_avg = sum(conv_rates)/total_events
     new_acc_avg = sum(acc_rates)/total_events
 
-    event_df = pd.DataFrame.from_dict(
+    panda_df = pd.DataFrame.from_dict(
         {
-            "driver_id": [e["driver_id"]],
+            "driver_id": [driver_id],
             # Assuming 24 hour window falls on single day for timestamp
-            "event_timestamp": [e["event_timestamp"]],
+            "event_timestamp": [first_event["event_timestamp"]],
             "created": [dt.datetime.now()],
             "conv_rate": [new_conv_avg],
             "acc_rate": [new_acc_avg],
         }
     )
 
-    return event_df
+    return panda_df
 
-def add_driver_id(record):
-    # Record needs to be an array for `collect_events`
-    return record["driver_id"], [record]
+def add_driver_id(event):
+    # Event needs to be within an array for `collect_events`
+    return event["driver_id"], [event]
 
 
 if __name__ == "__main__":
