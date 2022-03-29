@@ -148,7 +148,7 @@ def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, Any]]:
 
 
 @dataclass
-class HeapItem:
+class _HeapItem:
     """Wrapper class which holds pairs of time and item for implementing
     `sorted_window()`.
 
@@ -268,7 +268,7 @@ def sorted_window(
             if on_drop:
                 on_drop(item)
         else:
-            heapq.heappush(sorted_buffer, HeapItem(time, item))
+            heapq.heappush(sorted_buffer, _HeapItem(time, item))
 
             if is_newest_item(time):
                 newest_time = time
