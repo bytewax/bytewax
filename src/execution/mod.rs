@@ -1,5 +1,3 @@
-#![allow(non_snake_case)]
-
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -112,10 +110,44 @@ where
     }
 }
 
-/// Private shim for `run()` but takes builder functions so we can
-/// re-use `build_dataflow()`.
+/// Execute a dataflow in the current thread.
+///
+/// Blocks until execution is complete.
+///
+/// You'd commonly use this for prototyping custom input and output
+/// builders with a single worker before using them in a cluster
+/// setting.
+///
+/// >>> import asyncio
+/// >>> flow = Dataflow()
+/// >>> flow.capture()
+/// >>> def input_builder(worker_index, worker_count):
+/// ...     return enumerate(range(3))
+/// >>> async def output_builder(worker_index, worker_count, epoch_items):
+/// ...     async for epoch, item in epoch_items:
+/// ...         print(epoch, item)
+/// >>> asyncio.run(run_main(flow, input_builder, output_builder))  # doctest: +ELLIPSIS
+/// (...)
+///
+/// See `bytewax.run()` for a convenience method to not need to worry
+/// about input or output builders.
+///
+/// See `bytewax.spawn_cluster()` for starting a cluster on this
+/// machine with full control over inputs and outputs.
+///
+/// Args:
+///
+///     flow: Dataflow to run.
+///
+///     input_builder: Returns input that each worker thread should
+///         process.
+///
+///     output_builder: Returns a callback function for each worker
+///         thread, called with `(epoch, item)` whenever and item
+///         passes by a capture operator on this process.
 #[pyfunction]
-pub(crate) fn _run(
+#[pyo3(text_signature = "(flow, input_builder, output_builder)")]
+pub(crate) fn run_main(
     py: Python,
     flow: Py<Dataflow>,
     input_builder: TdPyCallable,
@@ -165,18 +197,21 @@ pub(crate) fn _run(
 ///
 /// Blocks until execution is complete.
 ///
-/// See `bytewax.run_cluster()` for a convenience method to pass data
-/// through a dataflow for notebook development.
-///
-/// See `bytewax.spawn_cluster()` for starting a simple cluster
-/// locally on one machine.
-///
 /// >>> flow = Dataflow()
 /// >>> def input_builder(worker_index, worker_count):
 /// ...     return enumerate(range(3))
 /// >>> def output_builder(worker_index, worker_count):
 /// ...     return print
 /// >>> cluster_main(flow, input_builder, output_builder)
+///
+/// See `bytewax.run_main()` for a way to test input and output
+/// builders without the complexity of starting a cluster.
+///
+/// See `bytewax.run_cluster()` for a convenience method to pass data
+/// through a dataflow for notebook development.
+///
+/// See `bytewax.spawn_cluster()` for starting a simple cluster
+/// locally on one machine.
 ///
 /// Args:
 ///
@@ -311,7 +346,7 @@ pub(crate) fn cluster_main(
 }
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(_run, m)?)?;
+    m.add_function(wrap_pyfunction!(run_main, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
     Ok(())
 }
