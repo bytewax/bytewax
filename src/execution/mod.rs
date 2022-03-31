@@ -110,6 +110,7 @@ where
     }
 }
 
+// TODO: pytest --doctest-modules does not find doctests in PyO3 code.
 /// Execute a dataflow in the current thread.
 ///
 /// Blocks until execution is complete.
@@ -118,15 +119,13 @@ where
 /// builders with a single worker before using them in a cluster
 /// setting.
 ///
-/// >>> import asyncio
 /// >>> flow = Dataflow()
 /// >>> flow.capture()
 /// >>> def input_builder(worker_index, worker_count):
 /// ...     return enumerate(range(3))
-/// >>> async def output_builder(worker_index, worker_count, epoch_items):
-/// ...     async for epoch, item in epoch_items:
-/// ...         print(epoch, item)
-/// >>> asyncio.run(run_main(flow, input_builder, output_builder))  # doctest: +ELLIPSIS
+/// >>> def output_builder(worker_index, worker_count):
+/// ...     return print
+/// >>> run_main(flow, input_builder, output_builder)  # doctest: +ELLIPSIS
 /// (...)
 ///
 /// See `bytewax.run()` for a convenience method to not need to worry

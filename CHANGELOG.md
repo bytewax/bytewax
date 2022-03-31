@@ -5,6 +5,9 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Adds `run_main()` as a way to test input and output builders without
+  starting a cluster.
+
 ## 0.8.0
 
 - Capture operator no longer takes arguments. Items that flow through
