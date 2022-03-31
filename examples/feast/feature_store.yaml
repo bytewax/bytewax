@@ -1,0 +1,11 @@
+registry: data/registry.db
+project: feature_repo
+provider: local
+online_store:
+  type: sqlite
+  path: data/online_store.db
+offline_store:
+  type: file
+flags:
+  alpha_features: true
+  direct_ingest_to_online_store: true
