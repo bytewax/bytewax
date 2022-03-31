@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from multiprocess import Manager, Pool
 
-from .bytewax import _run, cluster_main, Dataflow
+from .bytewax import cluster_main, Dataflow, run_main
 
 
 def __skip_doctest_on_win_gha():
@@ -61,7 +61,7 @@ def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]
         assert worker_index == 0
         return out.append
 
-    _run(flow, input_builder, output_builder)
+    run_main(flow, input_builder, output_builder)
 
     return out
 
@@ -86,12 +86,6 @@ def spawn_cluster(
     parallelism and higher throughput, or simple stand-alone demo
     programs.
 
-    See `bytewax.run_cluster()` for a convenience method to pass data
-    through a dataflow for notebook development.
-
-    See `bytewax.cluster_main()` for starting one process in a cluster
-    in a distributed situation.
-
     >>> __skip_doctest_on_win_gha()
     >>> __fix_pickling_in_doctest()
     >>> flow = Dataflow()
@@ -101,6 +95,15 @@ def spawn_cluster(
     >>> def output_builder(worker_index, worker_count):
     ...     return print
     >>> spawn_cluster(flow, input_builder, output_builder, proc_count=2)
+
+    See `bytewax.run_main()` for a way to test input and output
+    builders without the complexity of starting a cluster.
+
+    See `bytewax.run_cluster()` for a convenience method to pass data
+    through a dataflow for notebook development.
+
+    See `bytewax.cluster_main()` for starting one process in a cluster
+    in a distributed situation.
 
     Args:
 
@@ -164,12 +167,6 @@ def run_cluster(
     distribution to cluster and otherwise collected output will grow
     unbounded.
 
-    See `bytewax.spawn_cluster()` for starting a cluster on this
-    machine with full control over inputs and outputs.
-
-    See `bytewax.cluster_main()` for starting one process in a cluster
-    in a distributed situation.
-
     >>> __skip_doctest_on_win_gha()
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
@@ -177,6 +174,12 @@ def run_cluster(
     >>> out = run_cluster(flow, [(0, "a"), (1, "b"), (2, "c")], proc_count=2)
     >>> sorted(out)
     [(0, 'A'), (1, 'B'), (2, 'C')]
+
+    See `bytewax.spawn_cluster()` for starting a cluster on this
+    machine with full control over inputs and outputs.
+
+    See `bytewax.cluster_main()` for starting one process in a cluster
+    in a distributed situation.
 
     Args:
         flow: Dataflow to run.
