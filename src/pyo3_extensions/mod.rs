@@ -285,10 +285,9 @@ impl TdPyCallable {
     }
 }
 
-pub(crate) fn build(builder: &TdPyCallable, key: &TdPyAny) -> TdPyAny {
+pub(crate) fn build(builder: &TdPyCallable, value: &TdPyAny) -> TdPyAny {
     Python::with_gil(|py| {
-        let key = key.clone_ref(py);
-        with_traceback!(py, builder.call1(py, (key,))).into()
+        with_traceback!(py, builder.call1(py, (value,))).into()
     })
 }
 
