@@ -1,0 +1,11 @@
+meet,apricot,bread,milk,water
+candy,soda,milk
+milk
+candy,tea,sandwich
+pie,wine,flowers,cheese,pomigranade
+milk,bread
+bread,water,meat,celery,milk
+pepper,meat,olive oil
+coffee,sandwich,tee
+tea,milk
+milk,meat,potato,apple,banana,bread,sandwich,salt
