@@ -26,3 +26,7 @@ FROM gcr.io/distroless/python3-debian11:debug
 COPY --from=build /venv /venv
 WORKDIR /bytewax
 COPY ./entrypoint.sh .
+
+ENV BYTEWAX_WORKDIR=/bytewax
+
+ENTRYPOINT ["/bin/sh", "-c", "./entrypoint.sh"]

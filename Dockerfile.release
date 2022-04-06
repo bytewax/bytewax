@@ -1,4 +1,6 @@
-FROM debian:11-slim AS build
+ARG PYTHON_VERSION=3.9
+
+FROM python:$PYTHON_VERSION-slim-bullseye AS build
 
 ARG BYTEWAX_VERSION
 
@@ -9,7 +11,11 @@ RUN apt-get update && \
 
 RUN /venv/bin/pip3 install bytewax==$BYTEWAX_VERSION
 
-FROM gcr.io/distroless/python3-debian11:debug
+FROM python:$PYTHON_VERSION-slim-bullseye AS runner
 COPY --from=build /venv /venv
 WORKDIR /bytewax
 COPY ./entrypoint.sh .
+
+ENV BYTEWAX_WORKDIR=/bytewax
+
+ENTRYPOINT ["/bin/sh", "-c", "./entrypoint.sh"]
