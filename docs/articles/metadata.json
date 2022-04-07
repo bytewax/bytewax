@@ -5,7 +5,7 @@
     "articles": [
       {
         "title": "Overview",
-        "filename": "operators"
+        "filename": "overview"
       },
       {
         "title": "Installing bytewax",
