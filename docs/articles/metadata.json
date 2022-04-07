@@ -5,23 +5,23 @@
     "articles": [
       {
         "title": "Overview",
-        "filename": "operators.md"
+        "filename": "operators"
       },
       {
         "title": "Installing bytewax",
-        "filename": "installation.md"
+        "filename": "installation"
       },
       {
         "title": "A simple example",
-        "filename": "simple_example.md"
+        "filename": "simple-example"
       },
       {
         "title": "Understanding epochs",
-        "filename": "epochs.md"
+        "filename": "epochs"
       },
       {
         "title": "Execution",
-        "filename": "execution.md"
+        "filename": "execution"
       }
     ]
   },
@@ -31,7 +31,7 @@
     "articles": [
       {
         "title": "Operators",
-        "filename": "operators.md"
+        "filename": "operators"
       }
     ]
   }
