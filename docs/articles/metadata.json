@@ -1,0 +1,38 @@
+[
+  {
+    "category": "Getting started",
+    "directory": "getting-started",
+    "articles": [
+      {
+        "title": "Overview",
+        "filename": "overview"
+      },
+      {
+        "title": "Installing bytewax",
+        "filename": "installation"
+      },
+      {
+        "title": "A simple example",
+        "filename": "simple-example"
+      },
+      {
+        "title": "Understanding epochs",
+        "filename": "epochs"
+      },
+      {
+        "title": "Execution",
+        "filename": "execution"
+      }
+    ]
+  },
+  {
+    "category": "Operators",
+    "directory": "operators",
+    "articles": [
+      {
+        "title": "Operators",
+        "filename": "operators"
+      }
+    ]
+  }
+]
