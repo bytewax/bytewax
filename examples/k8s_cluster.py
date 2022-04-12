@@ -45,23 +45,29 @@ flow.capture()
 
 
 if __name__ == "__main__":
-    # Run these two commands in separate terminals:
+    # We are going to use Waxctl, you can download it from https://bytewax.io/downloads
+    # Run these commands in your terminal to run a cluster of two containers:
 
-    # $ python ./examples/manual_cluster.py -p0 -a localhost:2101 -a localhost:2102
-    # $ python ./examples/manual_cluster.py -p1 -a localhost:2101 -a localhost:2102
+    # $ tar -C ./ -cvf cluster.tar examples
+    # $ waxctl dataflow deploy ./cluster.tar --name k8s-cluster --python-file-name examples/k8s_cluster.py -p2 
 
-    # They'll collectively read the files in
+    # Each worker will read the files in
     # ./examples/sample_data/cluster/*.txt which have lines like
     # `one1`.
 
     # They will then both finish and you'll see ./cluster_out/0.out
     # and ./cluster_out/1.out with the data that each process in the
     # cluster wrote with the lines uppercased.
+    # To see that files in each container you can run these commands:
+
+    # kubectl exec -it k8s-cluster-0 -cprocess -- cat /var/bytewax/cluster_out/0.out
+    # kubectl exec -it k8s-cluster-1 -cprocess -- cat /var/bytewax/cluster_out/1.out
 
     # You could imagine reading from / writing to separate Kafka
     # partitions, S3 blobs, etc.
 
     # When using `cluster_main()` you have to coordinate ensuring each
     # process knows the address of all other processes in the cluster
-    # and their unique process ID.
-    cluster_main(flow, input_builder, output_builder, **parse.proc_args())
+    # and their unique process ID. You can address that easily by deploying your 
+    # dataflow program using Waxctl or installing the Bytewax Helm Chart
+    cluster_main(flow, input_builder, output_builder, **parse.proc_env())
