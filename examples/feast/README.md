@@ -9,7 +9,7 @@ From `feast` directory,
 Bring up docker container with `docker-compose up`.
 Run `pip install -r requirements.txt` to install dependencies.
 Run `feast apply` to establish feature store/views.
-Run `utils/python stream_data.py` to populate kafka stream.
+Run `python utils/stream_data.py` to populate kafka stream.
 
 if you run 
 ```
@@ -18,4 +18,4 @@ docker exec --interactive --tty broker kafka-console-consumer --bootstrap-server
 
 you should see the "streaming" data in Kafka
 
-Run `python feast_example.py` to see data store in the online store.
+Run `python feast_dataflow.py` to see data store in the online store.
