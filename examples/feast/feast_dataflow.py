@@ -50,9 +50,9 @@ def output_builder(worker_index, worker_count):
     def output_fn(epoch_dataframe):
         _, panda_df = epoch_dataframe
         store.write_to_online_store("driver_daily_stats", panda_df)
-        driver_id = panda_df.iloc[0]["driver_id"]
 
         # Retrieve/print from store for demonstrative purposes
+        driver_id = panda_df.iloc[0]["driver_id"]
         feature_views = store.get_online_features(
             features=[
                 "driver_daily_stats:conv_rate",
