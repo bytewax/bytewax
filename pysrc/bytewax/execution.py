@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from multiprocess import get_context
 
-from .bytewax import cluster_main, Dataflow, run_main
+from .bytewax import cluster_main, Dataflow, run_main, AdvanceTo, Send
 
 
 def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]:
@@ -40,7 +40,9 @@ def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]
 
     def input_builder(worker_index, worker_count):
         assert worker_index == 0
-        return inp
+        for epoch, input in inp:
+            yield AdvanceTo(epoch)
+            yield Send(input)
 
     out = []
 
@@ -147,7 +149,7 @@ def spawn_cluster(
 
 def run_cluster(
     flow: Dataflow,
-    inp: Iterable[Tuple[int, Any]],
+    inp: Iterable[Tuple[Any]],
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
     mp_ctx=get_context("spawn"),
@@ -212,7 +214,8 @@ def run_cluster(
         def input_builder(worker_index, worker_count):
             for i, epoch_item in enumerate(inp):
                 if i % worker_count == worker_index:
-                    yield epoch_item
+                    yield AdvanceTo(i)
+                    yield Send(epoch_item)
 
         out = man.list()
 

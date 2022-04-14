@@ -5,7 +5,7 @@ scalable dataflows in a streaming or batch context.
 documentation.](https://github.com/bytewax/bytewax)
 
 """
-from .bytewax import cluster_main, Dataflow, run_main
+from .bytewax import cluster_main, Dataflow, run_main, AdvanceTo, Send
 from .execution import run, run_cluster, spawn_cluster
 
 __all__ = [
@@ -15,6 +15,8 @@ __all__ = [
     "run_cluster",
     "spawn_cluster",
     "cluster_main",
+    "AdvanceTo",
+    "Send",
 ]
 
 __pdoc__ = {

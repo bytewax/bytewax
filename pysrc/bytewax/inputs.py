@@ -3,8 +3,12 @@
 Use these to wrap an existing iterator which yields items.
 
 """
+
 import datetime
 import heapq
+
+from .bytewax import AdvanceTo, Send
+
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Tuple
 

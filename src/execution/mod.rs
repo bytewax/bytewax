@@ -8,12 +8,44 @@ use std::time::Duration;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyLong;
 use timely::dataflow::InputHandle;
 use timely::dataflow::ProbeHandle;
 
 use crate::dataflow::{build_dataflow, Dataflow};
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 use crate::with_traceback;
+
+#[pyclass(name = "AdvanceTo")]
+#[pyo3(text_signature = "(epoch)")]
+pub(crate) struct TdAdvanceTo {
+    #[pyo3(get)]
+    epoch: u64,
+}
+
+#[pymethods]
+impl TdAdvanceTo {
+    #[new]
+    fn new(epoch: Py<PyLong>) -> Self {
+        let new_epoch = Python::with_gil(|py| with_traceback!(py, epoch.extract(py)));
+        Self { epoch: new_epoch }
+    }
+}
+
+#[pyclass(name = "Send")]
+#[pyo3(text_signature = "(item)")]
+pub(crate) struct TdSend {
+    #[pyo3(get)]
+    item: TdPyAny,
+}
+
+#[pymethods]
+impl TdSend {
+    #[new]
+    fn new(item: Py<PyAny>) -> Self {
+        Self { item: item.into() }
+    }
+}
 
 /// Encapsulates the process of pulling data out of the input Python
 /// iterator and feeding it into Timely.
@@ -42,10 +74,19 @@ impl Pump {
     fn pump(&mut self) {
         Python::with_gil(|py| {
             let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
-            if let Some(epoch_item_pytuple) = pull_from_pyiter.next() {
-                let (epoch, item) = with_traceback!(py, epoch_item_pytuple?.extract());
-                self.push_to_timely.advance_to(epoch);
-                self.push_to_timely.send(item);
+            if let Some(epoch_item) = pull_from_pyiter.next() {
+                match epoch_item {
+                    Ok(item) => {
+                        if let Ok(send) = item.downcast::<PyCell<TdSend>>() {
+                            self.push_to_timely.send(send.borrow().item.clone());
+                        } else if let Ok(advance_to) = item.downcast::<PyCell<TdAdvanceTo>>() {
+                            self.push_to_timely.advance_to(advance_to.borrow().epoch);
+                        }
+                    }
+                    Err(err) => {
+                        panic!("Error during pump: {err}");
+                    }
+                }
             } else {
                 self.pyiter_is_empty = true;
             }
@@ -68,36 +109,29 @@ impl Pump {
 /// whatever work it can.
 pub(crate) fn worker_main<A>(
     mut pumps_with_input_remaining: Vec<Pump>,
-    mut probes_with_timestamps_inflight: Vec<ProbeHandle<u64>>,
+    probe: ProbeHandle<u64>,
     interrupt_flag: &AtomicBool,
     worker: &mut timely::worker::Worker<A>,
 ) where
     A: timely::communication::Allocate,
 {
-    while (!pumps_with_input_remaining.is_empty() || !probes_with_timestamps_inflight.is_empty())
-        && !interrupt_flag.load(Ordering::Relaxed)
-    {
+    while !interrupt_flag.load(Ordering::Relaxed) && !probe.done() {
         if !pumps_with_input_remaining.is_empty() {
+            // We have input remaining, pump the pumps, and step the workers while
+            // there is work less than the current epoch to do.
             let mut updated_pumps = Vec::new();
             for mut pump in pumps_with_input_remaining.into_iter() {
                 pump.pump();
+                worker.step_while(|| probe.less_than(&pump.push_to_timely.time()));
                 if pump.input_remains() {
                     updated_pumps.push(pump);
                 }
             }
             pumps_with_input_remaining = updated_pumps;
+        } else {
+            // Inputs are empty, step the workers until probe is done.
+            worker.step();
         }
-        if !probes_with_timestamps_inflight.is_empty() {
-            let mut updated_probes = Vec::new();
-            for probe in probes_with_timestamps_inflight.into_iter() {
-                if !probe.done() {
-                    updated_probes.push(probe);
-                }
-            }
-            probes_with_timestamps_inflight = updated_probes;
-        }
-
-        worker.step();
     }
 }
 
@@ -164,7 +198,7 @@ pub(crate) fn run_main(
                     build_dataflow(worker, py, flow, input_builder, output_builder)
                 })?;
 
-                worker_main(vec![pump], vec![probe], &AtomicBool::new(false), worker);
+                worker_main(vec![pump], probe, &AtomicBool::new(false), worker);
 
                 shutdown_worker(worker);
 
@@ -306,7 +340,7 @@ pub(crate) fn cluster_main(
                     build_dataflow(worker, py, flow, input_builder, output_builder)
                 })?;
 
-                worker_main(vec![pump], vec![probe], &should_shutdown_w, worker);
+                worker_main(vec![pump], probe, &should_shutdown_w, worker);
 
                 shutdown_worker(worker);
 
@@ -348,5 +382,7 @@ pub(crate) fn cluster_main(
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_main, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
+    m.add_class::<TdSend>()?;
+    m.add_class::<TdAdvanceTo>()?;
     Ok(())
 }
