@@ -44,7 +44,7 @@ flow.map(str.lower)
 flow.flat_map(tokenize)
 flow.map(initial_count)
 flow.reduce_epoch(add)
-flow.inspect(print)
+flow.capture()
 
 
 if __name__ == "__main__":
