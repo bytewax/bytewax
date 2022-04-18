@@ -32,10 +32,10 @@ long_description = "file: README.md"
 long_description_content_type = "text/markdown"
 
 [tool.pytest.ini_options]
-addopts = "-v --doctest-modules"
+addopts = "-v"
 doctest_optionflags = "NORMALIZE_WHITESPACE"
 testpaths = [
     "pytests",
-    "pysrc",
+    # TODO: Add back in doctests when we can figure out how to run them without import problems.
     "docs",
 ]
