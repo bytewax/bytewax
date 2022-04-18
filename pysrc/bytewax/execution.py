@@ -3,7 +3,7 @@
 """
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
-from multiprocess import Manager, Pool
+from multiprocess import get_context
 
 from .bytewax import cluster_main, Dataflow, run_main
 
@@ -76,6 +76,7 @@ def spawn_cluster(
     output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]],
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
+    mp_ctx=get_context("spawn"),
 ) -> List[Tuple[int, Any]]:
     """Execute a dataflow as a cluster of processes on this machine.
 
@@ -121,9 +122,13 @@ def spawn_cluster(
         worker_count_per_proc: Number of worker threads to start on
             each process.
 
+        mp_ctx: `multiprocessing` context to use. Use this to
+            configure starting up subprocesses via spawn or
+            fork. Defaults to spawn.
+
     """
     addresses = _gen_addresses(proc_count)
-    with Pool(processes=proc_count) as pool:
+    with mp_ctx.Pool(processes=proc_count) as pool:
         futures = [
             pool.apply_async(
                 cluster_main,
@@ -152,6 +157,7 @@ def run_cluster(
     inp: Iterable[Tuple[int, Any]],
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
+    mp_ctx=get_context("spawn"),
 ) -> List[Tuple[int, Any]]:
     """Pass data through a dataflow running as a cluster of processes on
     this machine.
@@ -192,26 +198,38 @@ def run_cluster(
         worker_count_per_proc: Number of worker threads to start on
             each process.
 
+        mp_ctx: `multiprocessing` context to use. Use this to
+            configure starting up subprocesses via spawn or
+            fork. Defaults to spawn.
+
     Returns:
 
         List of `(epoch, item)` tuples seen by capture operators.
 
     """
-    man = Manager()
-    inp = man.list(list(inp))
+    # A Manager starts up a background process to manage shared state.
+    with mp_ctx.Manager() as man:
+        inp = man.list(list(inp))
 
-    def input_builder(worker_index, worker_count):
-        for i, epoch_item in enumerate(inp):
-            if i % worker_count == worker_index:
-                yield epoch_item
+        def input_builder(worker_index, worker_count):
+            for i, epoch_item in enumerate(inp):
+                if i % worker_count == worker_index:
+                    yield epoch_item
 
-    out = man.list()
+        out = man.list()
 
-    def output_builder(worker_index, worker_count):
-        return out.append
+        def output_builder(worker_index, worker_count):
+            return out.append
 
-    spawn_cluster(
-        flow, input_builder, output_builder, proc_count, worker_count_per_proc
-    )
+        spawn_cluster(
+            flow,
+            input_builder,
+            output_builder,
+            proc_count,
+            worker_count_per_proc,
+            mp_ctx,
+        )
 
-    return out
+        # We have to copy out the shared state before process
+        # shutdown.
+        return list(out)
