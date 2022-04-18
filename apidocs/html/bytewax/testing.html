@@ -1,0 +1,287 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.testing</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<p>Helper tools for testing dataflows.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Helper tools for testing dataflows.
+&#34;&#34;&#34;
+import multiprocessing.dummy
+from contextlib import contextmanager
+from threading import Lock
+
+
+_print_lock = Lock()
+
+
+def test_print(*args, **kwargs):
+    &#34;&#34;&#34;A version of `print()` which takes an in-process lock to prevent
+    multiple worker threads from writing simultaneously which results
+    in interleaved output.
+
+    You&#39;d use this if you&#39;re integration testing a dataflow and want
+    more deterministic output. Remember that even with this, the items
+    from multi-worker output might be &#34;out-of-order&#34; because each
+    worker is racing each other. You probably want to sort your output
+    in some way.
+
+    Arguments are passed through to `print()` unmodified.
+
+    &#34;&#34;&#34;
+    with _print_lock:
+        print(*args, flush=True, **kwargs)
+
+
+doctest_ctx = multiprocessing.dummy
+&#34;&#34;&#34;Use this `multiprocessing` context when running in doctests.
+
+Pass to `bytewax.spawn_cluster()` and `bytewax.run_cluster()`.
+
+Spawning subprocesses is fraught in doctest contexts, so use this to
+demonstrate the API works, but not actually run via multiple
+processes. We have other normal `pytest` tests which actually test
+behavior. Don&#39;t worry.
+
+&#34;&#34;&#34;
+
+
+@contextmanager
+def _Manager():
+    &#34;&#34;&#34;`multiprocessing.dummy.Manager()` doesn&#39;t support being a context
+    manager like a real `multiprocessing.Manager()` does... So let&#39;s
+    monkey patch it.
+
+    &#34;&#34;&#34;
+    yield doctest_ctx
+
+
+doctest_ctx.Manager = _Manager</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-variables">Global variables</h2>
+<dl>
+<dt id="bytewax.testing.doctest_ctx"><code class="language-python name">var <span class="ident">doctest_ctx</span></code></dt>
+<dd>
+<div class="desc"><p>Use this <code>multiprocessing</code> context when running in doctests.</p>
+<p>Pass to <code><a title="bytewax.spawn_cluster" href="index.html#bytewax.spawn_cluster">spawn_cluster()</a></code> and <code><a title="bytewax.run_cluster" href="index.html#bytewax.run_cluster">run_cluster()</a></code>.</p>
+<p>Spawning subprocesses is fraught in doctest contexts, so use this to
+demonstrate the API works, but not actually run via multiple
+processes. We have other normal <code>pytest</code> tests which actually test
+behavior. Don't worry.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">#
+# Support for the API of the multiprocessing package using threads
+#
+# multiprocessing/dummy/__init__.py
+#
+# Copyright (c) 2006-2008, R Oudkerk
+# Licensed to PSF under a Contributor Agreement.
+#
+
+__all__ = [
+    &#39;Process&#39;, &#39;current_process&#39;, &#39;active_children&#39;, &#39;freeze_support&#39;,
+    &#39;Lock&#39;, &#39;RLock&#39;, &#39;Semaphore&#39;, &#39;BoundedSemaphore&#39;, &#39;Condition&#39;,
+    &#39;Event&#39;, &#39;Barrier&#39;, &#39;Queue&#39;, &#39;Manager&#39;, &#39;Pipe&#39;, &#39;Pool&#39;, &#39;JoinableQueue&#39;
+    ]
+
+#
+# Imports
+#
+
+import threading
+import sys
+import weakref
+import array
+
+from .connection import Pipe
+from threading import Lock, RLock, Semaphore, BoundedSemaphore
+from threading import Event, Condition, Barrier
+from queue import Queue
+
+#
+#
+#
+
+class DummyProcess(threading.Thread):
+
+    def __init__(self, group=None, target=None, name=None, args=(), kwargs={}):
+        threading.Thread.__init__(self, group, target, name, args, kwargs)
+        self._pid = None
+        self._children = weakref.WeakKeyDictionary()
+        self._start_called = False
+        self._parent = current_process()
+
+    def start(self):
+        if self._parent is not current_process():
+            raise RuntimeError(
+                &#34;Parent is {0!r} but current_process is {1!r}&#34;.format(
+                    self._parent, current_process()))
+        self._start_called = True
+        if hasattr(self._parent, &#39;_children&#39;):
+            self._parent._children[self] = None
+        threading.Thread.start(self)
+
+    @property
+    def exitcode(self):
+        if self._start_called and not self.is_alive():
+            return 0
+        else:
+            return None
+
+#
+#
+#
+
+Process = DummyProcess
+current_process = threading.current_thread
+current_process()._children = weakref.WeakKeyDictionary()
+
+def active_children():
+    children = current_process()._children
+    for p in list(children):
+        if not p.is_alive():
+            children.pop(p, None)
+    return list(children)
+
+def freeze_support():
+    pass
+
+#
+#
+#
+
+class Namespace(object):
+    def __init__(self, /, **kwds):
+        self.__dict__.update(kwds)
+    def __repr__(self):
+        items = list(self.__dict__.items())
+        temp = []
+        for name, value in items:
+            if not name.startswith(&#39;_&#39;):
+                temp.append(&#39;%s=%r&#39; % (name, value))
+        temp.sort()
+        return &#39;%s(%s)&#39; % (self.__class__.__name__, &#39;, &#39;.join(temp))
+
+dict = dict
+list = list
+
+def Array(typecode, sequence, lock=True):
+    return array.array(typecode, sequence)
+
+class Value(object):
+    def __init__(self, typecode, value, lock=True):
+        self._typecode = typecode
+        self._value = value
+
+    @property
+    def value(self):
+        return self._value
+
+    @value.setter
+    def value(self, value):
+        self._value = value
+
+    def __repr__(self):
+        return &#39;&lt;%s(%r, %r)&gt;&#39;%(type(self).__name__,self._typecode,self._value)
+
+def Manager():
+    return sys.modules[__name__]
+
+def shutdown():
+    pass
+
+def Pool(processes=None, initializer=None, initargs=()):
+    from ..pool import ThreadPool
+    return ThreadPool(processes, initializer, initargs)
+
+JoinableQueue = Queue</code></pre>
+</details>
+</dd>
+</dl>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-functions">Functions</h2>
+<dl>
+<dt id="bytewax.testing.test_print"><code class="language-python name flex">
+<span>def <span class="ident">test_print</span></span>(<span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>A version of <code>print()</code> which takes an in-process lock to prevent
+multiple worker threads from writing simultaneously which results
+in interleaved output.</p>
+<p>You'd use this if you're integration testing a dataflow and want
+more deterministic output. Remember that even with this, the items
+from multi-worker output might be "out-of-order" because each
+worker is racing each other. You probably want to sort your output
+in some way.</p>
+<p>Arguments are passed through to <code>print()</code> unmodified.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def test_print(*args, **kwargs):
+    &#34;&#34;&#34;A version of `print()` which takes an in-process lock to prevent
+    multiple worker threads from writing simultaneously which results
+    in interleaved output.
+
+    You&#39;d use this if you&#39;re integration testing a dataflow and want
+    more deterministic output. Remember that even with this, the items
+    from multi-worker output might be &#34;out-of-order&#34; because each
+    worker is racing each other. You probably want to sort your output
+    in some way.
+
+    Arguments are passed through to `print()` unmodified.
+
+    &#34;&#34;&#34;
+    with _print_lock:
+        print(*args, flush=True, **kwargs)</code></pre>
+</details>
+</dd>
+</dl>
+</section>
+<section>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a class="api__sidebar-nav-menu-link api-supermodule">
+bytewax
+</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-variables">Global variables</a></h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.testing.doctest_ctx" href="#bytewax.testing.doctest_ctx">doctest_ctx</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.testing.test_print" href="#bytewax.testing.test_print">test_print</a></li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
