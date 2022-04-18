@@ -7,13 +7,6 @@ from argparse import ArgumentParser
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
-def __skip_doctest_on_win_gha():
-    import os, pytest
-
-    if os.name == "nt" and os.environ.get("GITHUB_ACTION"):
-        pytest.skip("Hangs in Windows GitHub Actions")
-
-
 def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
     """Parse command line arguments to generate arguments for
     `bytewax.run_cluster()`.
@@ -21,12 +14,17 @@ def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
     See documentation for `bytewax.run_cluster()` for semantics of
     these variables.
 
-    >>> __skip_doctest_on_win_gha()
     >>> from bytewax import Dataflow, run_cluster
+    >>> from bytewax.testing import doctest_ctx
     >>> flow = Dataflow()
     >>> flow.capture()
     >>> args = "-w2 -n2".split()
-    >>> out = run_cluster(flow, enumerate(range(3)), **cluster_args(args))
+    >>> out = run_cluster(
+    ...     flow,
+    ...     enumerate(range(3)),
+    ...     mp_ctx=doctest_ctx,
+    ...     **cluster_args(args),
+    ... )
     >>> sorted(out)
     [(0, 0), (1, 1), (2, 2)]
 
@@ -93,7 +91,6 @@ def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
       E.g. `cluster_name-0` and `cluster_name` and we will calculate
       the process ID from that.
 
-    >>> __skip_doctest_on_win_gha()
     >>> from bytewax import Dataflow, cluster_main
     >>> flow = Dataflow()
     >>> flow.capture()
@@ -105,9 +102,7 @@ def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
     ...     "BYTEWAX_WORKERS_PER_PROCESS": "2",
     ... }
     >>> cluster_main(flow, ib, ob, **proc_env(env))  # doctest: +ELLIPSIS
-    (0, 0)
-    ...
-    (2, 2)
+    (...)
 
     Args:
 
@@ -149,7 +144,6 @@ def proc_args(args: Iterable[str] = None) -> Dict[str, Any]:
     See documentation for `bytewax.cluster_main()` for semantics of
     these variables.
 
-    >>> __skip_doctest_on_win_gha()
     >>> from bytewax import Dataflow, cluster_main
     >>> flow = Dataflow()
     >>> flow.capture()
@@ -157,9 +151,7 @@ def proc_args(args: Iterable[str] = None) -> Dict[str, Any]:
     >>> ob = lambda i, n: print
     >>> args = "-w2 -p0 -a localhost:2101".split()
     >>> cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS
-    (0, 0)
-    ...
-    (2, 2)
+    (...)
 
     Args:
 

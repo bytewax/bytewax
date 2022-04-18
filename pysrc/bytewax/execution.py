@@ -8,19 +8,6 @@ from multiprocess import get_context
 from .bytewax import cluster_main, Dataflow, run_main
 
 
-def __skip_doctest_on_win_gha():
-    import os, pytest
-
-    if os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None:
-        pytest.skip("Hangs in Windows GitHub Actions")
-
-
-def __fix_pickling_in_doctest():
-    import dill.settings
-
-    dill.settings["recurse"] = True
-
-
 def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]:
     """Pass data through a dataflow running in the current thread.
 
@@ -87,15 +74,21 @@ def spawn_cluster(
     parallelism and higher throughput, or simple stand-alone demo
     programs.
 
-    >>> __skip_doctest_on_win_gha()
-    >>> __fix_pickling_in_doctest()
+    >>> from bytewax.testing import doctest_ctx
     >>> flow = Dataflow()
     >>> flow.capture()
     >>> def input_builder(worker_index, worker_count):
     ...     return enumerate(range(3))
     >>> def output_builder(worker_index, worker_count):
     ...     return print
-    >>> spawn_cluster(flow, input_builder, output_builder, proc_count=2)
+    >>> spawn_cluster(
+    ...     flow,
+    ...     input_builder,
+    ...     output_builder,
+    ...     proc_count=2,
+    ...     mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
+    ... )  # doctest: +ELLIPSIS
+    (...)
 
     See `bytewax.run_main()` for a way to test input and output
     builders without the complexity of starting a cluster.
@@ -173,11 +166,16 @@ def run_cluster(
     distribution to cluster and otherwise collected output will grow
     unbounded.
 
-    >>> __skip_doctest_on_win_gha()
+    >>> from bytewax.testing import doctest_ctx
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
     >>> flow.capture()
-    >>> out = run_cluster(flow, [(0, "a"), (1, "b"), (2, "c")], proc_count=2)
+    >>> out = run_cluster(
+    ...     flow,
+    ...     [(0, "a"), (1, "b"), (2, "c")],
+    ...     proc_count=2,
+    ...     mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
+    ... )
     >>> sorted(out)
     [(0, 'A'), (1, 'B'), (2, 'C')]
 
