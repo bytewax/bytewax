@@ -10,26 +10,29 @@ See our API docs or docstrings for a detailed description of arguments to these 
 
 ## Single Worker Run
 
-The simplest entry point is `bytewax.run()`. It will run your dataflow on a single worker in the current process. It has a simple iterator-based API takes input as an iterator of `(epoch, item)` tuples and collects all output into a list of `(epoch, item)` tuples and returns it.
+The simplest entry point is `bytewax.run()`. It will run your dataflow on a single worker in the current process. It has a simple iterator-based API takes an **input iterator** of `(epoch, item)` tuples and collects all output into a list of `(epoch, item)` tuples and returns it.
 
 `run()` blocks until all output has been collected.
 
-```python
+```python doctest:SORT_OUTPUT
 from bytewax import Dataflow, run
+
 
 def input():
     for epoch, item in enumerate(range(3)):
         yield epoch, item
 
+
 flow = Dataflow()
 flow.map(lambda item: item + 1)
 flow.capture()
+
 
 for epoch, item in run(flow, input()):
     print(epoch, item)
 ```
 
-```
+```{testoutput}
 0 1
 1 2
 2 3
@@ -47,22 +50,32 @@ Input and output are identical to `run()`. `run_cluster()` takes an input genera
 
 `run_cluster()` blocks until all output has been collected.
 
-```python
+```python doctest:SORT_OUTPUT
 from bytewax import run_cluster
+from bytewax.testing import doctest_ctx
+
 
 def input():
     for epoch, item in enumerate(range(3)):
         yield epoch, item
 
+
 flow = Dataflow()
 flow.map(lambda item: item + 1)
 flow.capture()
 
-for epoch, item in run_cluster(flow, input()):
+
+for epoch, item in run_cluster(
+    flow,
+    input(),
+    proc_count=2,
+    worker_count_per_proc=2,
+    mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
+):
     print(epoch, item)
 ```
 
-```
+```{testoutput}
 0 1
 1 2
 2 3
@@ -78,40 +91,51 @@ Our next entry point introduces a more complex API to allow for more performance
 
 ### Builders
 
-You provide a input and output **builders**, functions that are called on each worker and will produce the input and handle the output for that worker. The input builder function should return an iterable that yields `(epoch, item)` tuples. The output builder function should return a callback function that can be called with each epoch and item of output produced.
+You provide a input and output **builders**, functions that are called on each worker and will produce the input and handle the output for that worker. The input builder function should return an iterable that yields `(epoch, item)` tuples. The output builder function should return a callback **output handler** function that can be called with each epoch and item of output produced.
 
 The per-worker input of `spawn_cluster()` has the extra requirement that the input data is not duplicated between workers. All data from each worker is introduced into the same dataflow. For example, if each worker reads the content of the same file, the input will be duplicated by the number of workers. Data sources like Apache Kafka or Redpanda can provide a partitioned stream of input which can be consumed by multiple workers in parallel without duplication, as each worker sees a unique partition.
 
 `run_cluster()` blocks until all output has been collected.
 
-```python
+```python doctest:SORT_OUTPUT
 from bytewax import spawn_cluster
+from bytewax.testing import test_print
 
 
 def input_builder(worker_index, worker_count):
     for epoch, x in enumerate(range(3)):
         yield epoch, {"input_from": worker_index, "x": x}
 
+
 def output_builder(worker_index, worker_count):
     def output_handler(epoch_item):
         epoch, item = epoch_item
-        print("Epoch:", epoch, "Worker", item["input_from"], " introduced:", item["x"])
+        test_print("Epoch:", epoch, "Worker", item["input_from"], "introduced:", item["x"])
 
     return output_handler
 
-flow = Dataflow()
 
 def incr(item):
     item["x"] += 1
     return item
 
+
+flow = Dataflow()
 flow.map(incr)
 flow.capture()
 
-spawn_cluster(flow, input_builder, output_builder, proc_count=2, worker_count_per_proc=2)
+
+spawn_cluster(
+    flow,
+    input_builder,
+    output_builder,
+    proc_count=2,
+    worker_count_per_proc=2,
+    mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
+)
 ```
 
-```
+```{testoutput}
 Epoch: 0 Worker 0 introduced: 1
 Epoch: 0 Worker 1 introduced: 1
 Epoch: 0 Worker 2 introduced: 1
@@ -140,7 +164,7 @@ The input builder function should return an iterable that yields `(epoch, item)`
 
 `cluster_main()` blocks until the dataflow is complete.
 
-```python
+```python doctest:SORT_OUTPUT
 from bytewax import cluster_main
 
 
@@ -148,23 +172,45 @@ def input_builder(worker_index, worker_count):
     for epoch, x in enumerate(range(3)):
         yield epoch, {"input_from": worker_index, "x": x}
 
+
 def output_builder(worker_index, worker_count):
     def output_handler(epoch_item):
         epoch, item = epoch_item
-        print("Epoch:", epoch, "Worker", item["input_from"], " introduced:", item["x"])
+        test_print("Epoch:", epoch, "Worker", item["input_from"], "introduced:", item["x"])
 
     return output_handler
 
+
 flow = Dataflow()
+
 
 def incr(item):
     item["x"] += 1
     return item
 
+
 flow.map(incr)
 flow.capture()
 
-cluster_main(flow, input_builder, output_builder, addresses=["localhost:2101", "localhost:2102"], proc_id=0, worker_count_per_proc=2)
+
+addresses = [
+    "localhost:2101",
+    # You would put the address and port of each other process in the cluster here:
+    # "localhost:2102",
+    # ...
+]
+cluster_main(flow, input_builder, output_builder, addresses=addresses, proc_id=0, worker_count_per_proc=2)
+```
+
+In this toy example here, the cluster is only of a single process with an ID of `0`, so there are only two workers in the sample output:
+
+```{testoutput}
+Epoch: 0 Worker 0 introduced: 1
+Epoch: 0 Worker 1 introduced: 1
+Epoch: 1 Worker 0 introduced: 2
+Epoch: 1 Worker 1 introduced: 2
+Epoch: 2 Worker 0 introduced: 3
+Epoch: 2 Worker 1 introduced: 3
 ```
 
 This is best used for using Bytewax as a long-running data processing service. You can scale up to take advantage of multiple machines.

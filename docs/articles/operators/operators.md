@@ -12,9 +12,37 @@ If not, no worries, we'll give a quick overview of each and links to our annotat
 
 # List of Operators
 
-## Inspect
+## Capture
+
+```
+Dataflow.capture()
+```
+
+**Capture** is how you specify the output of the dataflow. Capture is required on every dataflow.
+
+Whenever an item flows by a capture operator, the [output handler](./execution#builders) of the worker is called with that item and epoch. For `run()` and `run_cluster()` output handlers are setup for you that return the output as the return value.
+
+The return value is ignored; it emits items downstream unmodified. You can add multiple capture operators to a dataflow and the output from each will be passed to the output handler.
 
 ```python
+from bytewax import Dataflow, run
+
+
+flow = Dataflow()
+flow.capture()
+
+
+inp = enumerate(range(3))
+print(run(flow, inp))
+```
+
+```{testoutput}
+[(0, 0), (1, 1), (2, 2)]
+```
+
+## Inspect
+
+```
 Dataflow.inspect(inspector: Callable[[Any], None])
 ```
 
@@ -26,13 +54,23 @@ The return value is ignored; it emits items downstream unmodified.
 
 ```python
 def log(item):
-    print(f"Saw {item}")
+    print("Saw", item)
 
-flow = ec.Dataflow(enumerate(range(3)))
+
+flow = Dataflow()
 flow.inspect(log)
-# Saw 1
-# Saw 2
-# Saw 3
+flow.capture()
+
+
+inp = enumerate(range(3))
+for epoch, item in run(flow, inp):
+    pass
+```
+
+```{testoutput}
+Saw 0
+Saw 1
+Saw 2
 ```
 
 ### Examples
@@ -46,7 +84,7 @@ Inspect is pervasive and is in almost every example as a debugging tool.
 
 ## Map
 
-```python
+```
 Dataflow.map(mapper: Callable[[Any], Any])
 ```
 
@@ -56,16 +94,25 @@ It calls a function `mapper(item: Any) => transformed_x: Any` on each item.
 
 It emits each transformed item downstream.
 
-```python
+```python doctest:SORT_OUTPUT doctest:SORT_EXPECTED
 def add_one(item):
     return item + 1
 
-flow = ec.Dataflow(enumerate(range(3)))
+
+flow = Dataflow()
 flow.map(add_one)
-flow.inspect(print)
-# 2
-# 1
-# 3
+flow.capture()
+
+
+inp = enumerate(range(3))
+for epoch, item in run(flow, inp):
+    print(item)
+```
+
+```{testoutput}
+2
+1
+3
 ```
 
 ### Examples
@@ -82,7 +129,7 @@ Map is pervasive and in almost every example, but here are our most simple examp
 
 ## Filter
 
-```python
+```
 Dataflow.filter(predicate: Callable[[Any], bool])
 ```
 
@@ -92,15 +139,24 @@ It calls a function `predicate(item: Any) => should_emit: bool` on each item.
 
 It emits the item downstream unmodified if the predicate returns `True`.
 
-```python
+```python doctest:SORT_OUTPUT doctest:SORT_EXPECTED
 def is_odd(item):
     return item % 2 != 0
 
-flow = ec.Dataflow(enumerate(range(3)))
+
+flow = Dataflow()
 flow.filter(is_odd)
-flow.inspect(print)
-# 3
-# 1
+flow.capture()
+
+
+inp = enumerate(range(4))
+for epoch, item in run(flow, inp):
+    print(item)
+```
+
+```{testoutput}
+3
+1
 ```
 
 ### Examples
@@ -117,7 +173,7 @@ flow.inspect(print)
 
 ## Flat Map
 
-```python
+```
 Dataflow.flat_map(mapper: Callable[[Any], Iterable[Any]])
 ```
 
@@ -127,15 +183,24 @@ It calls a function `mapper(item: Any) => emit: Iterable[Any]` on each item.
 
 It emits each element in the downstream iterator individually.
 
-```python
+```python doctest:SORT_EXPECTED doctest:SORT_OUTPUT
 def split_into_words(sentence):
     return sentence.split()
 
-flow = ec.Dataflow(enumerate(["hello world"]))
+
+flow = Dataflow()
 flow.flat_map(split_into_words)
-flow.inspect(print)
-# world
-# hello
+flow.capture()
+
+
+inp = enumerate(["hello world"])
+for epoch, item in run(flow, inp):
+    print(item)
+```
+
+```{testoutput}
+world
+hello
 ```
 
 ### Examples
@@ -153,7 +218,7 @@ flow.inspect(print)
 
 ## Inspect Epoch
 
-```python
+```
 Dataflow.inspect_epoch(inspector: Callable[[int, Any], None])
 ```
 
@@ -163,15 +228,25 @@ It calls a function `inspector(epoch: int, item: Any) => None` on each item with
 
 The return value is ignored; it emits items downstream unmodified.
 
-```python
+```python doctest:SORT_OUTPUT doctest:SORT_EXPECTED
 def log(epoch, item):
     print(f"Saw {item} @ {epoch}")
 
-flow = ec.Dataflow(enumerate(range(3)))
+
+flow = Dataflow()
 flow.inspect_epoch(log)
-# Saw 1 @ 1
-# Saw 2 @ 2
-# Saw 3 @ 3
+flow.capture()
+
+
+inp = enumerate(range(3))
+for epoch, item in run(flow, inp):
+    pass
+```
+
+```{testoutput}
+Saw 0 @ 0
+Saw 2 @ 2
+Saw 1 @ 1
 ```
 
 ### Examples
@@ -183,46 +258,9 @@ Inspect epoch is pervasive and used in many examples as a debugging tool.
 - Debugging
 - Logging
 
-## Capture
-
-```python
-Dataflow.capture(captor: Callable[[int, Any], None])
-```
-
-**Capture** allows you to observe all items and their epochs that pass through a point on the dataflow _from all workers_.
-
-It calls a function `captor(epoch_item: tuple[int, Any]) => None` on each item of data.
-There are no ordering guarantees; this function can be called in any epoch or item order.
-
-Because capture allows you to observe and collect all data on all workers, it has larger overhead than other operators.
-
-The return value is ignored; it emits items downstream unmodified.
-
-```python
-out = []
-
-def append(epoch_item):
-    epoch, item = epoch_item
-    out.append(item)
-
-flow = ec.Dataflow(enumerate(range(3)))
-flow.capture(append)
-assert sorted(out) == sorted([1, 2, 3])
-```
-
-### Examples
-
-Capture is used in all of our dataflow unit tests.
-
-### Common Use Cases
-
-- Unit testing
-- Using a dataflow as part of a Jupyter notebook
-- Incorporating an isolated bytewax dataflow as part of a larger program like a webserver
-
 ## Reduce
 
-```python
+```
 Dataflow.reduce(
     reducer: Callable[[Any, Any], Any],
     is_complete: Callable[[Any], bool],
@@ -245,35 +283,46 @@ If there was only a single value for a key, it is passed in as the aggregator he
 
 It emits `(key, aggregator)` tuples downstream when you tell it to.
 
-```python
+```python doctest:SORT_OUTPUT doctest:SORT_EXPECTED
 def user_as_key(event):
-    return (event["user"], [event])
-    
+    return event["user"], [event]
+
+
 def extend_session(session, events):
-    session.extend(event)
+    session.extend(events)
     return session
-    
+
+
 def session_complete(session):
     return any(event["type"] == "logout" for event in session)
 
-flow = ec.Dataflow([
+
+flow = Dataflow()
+flow.map(user_as_key)
+flow.inspect_epoch(lambda epoch, item: print("Saw", item, "@", epoch))
+flow.reduce(extend_session, session_complete)
+flow.capture()
+
+
+inp = [
     (0, {"user": "a", "type": "login"}),
     (1, {"user": "a", "type": "post"}),
     (1, {"user": "b", "type": "login"}),
     (2, {"user": "a", "type": "logout"}),
     (3, {"user": "b", "type": "logout"}),
-])
-flow.map(user_as_key)
-flow.inspect_epoch(print)
-# 0 ("a", [{"user": "a", "type": "login"}]),
-# 1 ("b", [{"user": "b", "type": "login"}]),
-# 1 ("a", [{"user": "a", "type": "post"}]),
-# 2 ("a", [{"user": "a", "type": "logout"}]),
-# 3 ("b", [{"user": "b", "type": "logout"}]),
-flow.reduce(extend_session, session_complete)
-flow.inspect_epoch(print)
-# 2 ("a", [{"user": "a", "type": "login"}, {"user": "a", "type": "post"}, {"user": "a", "type": "logout"}])
-# 3 ("b", [{"user": "b", "type": "login"}, {"user": "b", "type": "logout"}])
+]
+for epoch, item in run(flow, inp):
+    print(epoch, item)
+```
+
+```{testoutput}
+Saw ('a', [{'user': 'a', 'type': 'login'}]) @ 0
+Saw ('b', [{'user': 'b', 'type': 'login'}]) @ 1
+Saw ('a', [{'user': 'a', 'type': 'post'}]) @ 1
+Saw ('a', [{'user': 'a', 'type': 'logout'}]) @ 2
+Saw ('b', [{'user': 'b', 'type': 'logout'}]) @ 3
+2 ('a', [{'user': 'a', 'type': 'login'}, {'user': 'a', 'type': 'post'}, {'user': 'a', 'type': 'logout'}])
+3 ('b', [{'user': 'b', 'type': 'login'}, {'user': 'b', 'type': 'logout'}])
 ```
 
 ### Examples
@@ -287,7 +336,7 @@ flow.inspect_epoch(print)
 
 ## Reduce Epoch
 
-```python
+```
 Dataflow.reduce_epoch(
     reducer: Callable[[Any, Any], Any],
 )
@@ -304,30 +353,40 @@ It calls a function `reducer(aggregator: Any, value: Any) => updated_aggregator:
 
 It emits `(key, aggregator)` tuples downstream at the end of each epoch.
 
-```python
+```python doctest:SORT_OUTPUT doctest:SORT_EXPECTED
 def add_initial_count(event):
     return event["user"], 1
-    
+
+
 def count(count, event_count):
     return count + event_count
 
-flow = ec.Dataflow([
+
+flow = Dataflow()
+flow.map(add_initial_count)
+flow.inspect_epoch(lambda epoch, item: print("Saw", item, "@", epoch))
+flow.reduce_epoch(count)
+flow.capture()
+
+
+inp = [
     (0, {"user": "a", "type": "login"}),
     (0, {"user": "a", "type": "post"}),
     (0, {"user": "b", "type": "login"}),
     (1, {"user": "b", "type": "post"}),
-])
-flow.map(add_initial_count)
-flow.inspect_epoch(print)
-# (0, ("a", 1))
-# (0, ("b", 1))
-# (0, ("a", 1))
-# (1, ("b", 1))
-flow.reduce_epoch(build_counter, count)
-flow.inspect_epoch(print)
-# (0, ("b", 1))
-# (0, ("a", 2))
-# (1, ("b", 1))
+]
+for epoch, item in run(flow, inp):
+    print(epoch, item)
+```
+
+```{testoutput}
+Saw ('a', 1) @ 0
+Saw ('b', 1) @ 0
+Saw ('a', 1) @ 0
+Saw ('b', 1) @ 1
+0 ('b', 1)
+0 ('a', 2)
+1 ('b', 1)
 ```
 
 ### Examples
@@ -344,7 +403,7 @@ flow.inspect_epoch(print)
 
 ## Reduce Epoch Local
 
-```python
+```
 Dataflow.reduce_epoch_local(
     reducer: Callable[[Any, Any], Any],
 )
@@ -366,7 +425,7 @@ You should prefer [reduce epoch](#reduce-epoch) over this operator unless you ne
 
 ## Stateful Map
 
-```python
+```
 Dataflow.stateful_map(
     builder: Callable[[], Any],
     mapper: Callable[[Any, Any], Any],
@@ -387,32 +446,52 @@ If the updated state is `None`, the state will be forgotten.
 
 It emits a `(key, updated_value)` tuple downstream for each input item.
 
-```python
-def build_seen():
-    return set()
-    
-def check(seen, item):
-    if item in seen:
-        return seen, None
+```python doctest:SORT_OUTPUT
+def self_as_key(item):
+    return item, item
+
+
+def build_count(key):
+    return 0
+
+
+def check(running_count, item):
+    running_count += 1
+    if running_count == 1:
+        return running_count, item
     else:
-        seen.add(item)
-        return seen, item
+        return running_count, None
 
-def remove_none(item):
-    return item is not None
 
-flow = ec.Dataflow([
+def remove_none_and_key(key_item):
+    key, item = key_item
+    if item is None:
+        return []
+    else:
+        return [item]
+
+
+flow = Dataflow()
+flow.map(self_as_key)
+flow.stateful_map(build_count, check)
+flow.flat_map(remove_none_and_key)
+flow.capture()
+
+
+inp = [
     (0, "a"),
     (0, "a"),
     (0, "a"),
     (1, "a"),
     (1, "b"),
-])
-flow.stateful_map(build_counter, count)
-flow.filter(remove_none)
-flow.inspect_epoch(print)
-# 0 "a"
-# 1 "b"
+]
+for epoch, item in run(flow, inp):
+    print(epoch, item)
+```
+
+```{testoutput}
+0 a
+1 b
 ```
 
 ### Examples
@@ -443,62 +522,189 @@ You can also use [lambdas](https://docs.python.org/3/tutorial/controlflow.html#l
 
 The following sets of examples are equivalent.
 
+For flat map:
+
 ```python
 def split_sentence(sentence):
     return sentence.split()
-    
+
+
+flow = Dataflow()
 flow.flat_map(split_sentence)
+flow.capture()
 
----
 
-flow.flat_map(lambda s: s.split())
-
----
-
-flow.flat_map(str.split)
+inp = [(0, "hello world")]
+print(run(flow, inp))
 ```
+
+```{testoutput}
+[(0, 'hello'), (0, 'world')]
+```
+
+```python
+flow = Dataflow()
+flow.flat_map(lambda s: s.split())
+flow.capture()
+
+
+inp = [(0, "hello world")]
+print(run(flow, inp))
+```
+
+```{testoutput}
+[(0, 'hello'), (0, 'world')]
+```
+
+```python
+flow = Dataflow()
+flow.flat_map(str.split)
+flow.capture()
+
+
+inp = [(0, "hello world")]
+print(run(flow, inp))
+```
+
+```{testoutput}
+[(0, 'hello'), (0, 'world')]
+```
+
+For inspect epoch:
 
 ```python
 def log(epoch, item):
     print(epoch, item)
-    
+
+
+flow = Dataflow()
 flow.inspect_epoch(log)
+flow.capture()
 
----
 
-flow.inspect_epoch(lambda e, x: print(e, x))
-
----
-
-flow.inspect_epoch(print)
+inp = [(0, "a"), (1, "b")]
+run(flow, inp)  # Note no print here.
 ```
+
+```{testoutput}
+0 a
+1 b
+```
+
+```python
+flow = Dataflow()
+flow.inspect_epoch(lambda e, i: print(e, i))
+flow.capture()
+
+
+inp = [(0, "a"), (1, "b")]
+run(flow, inp)
+```
+
+```{testoutput}
+0 a
+1 b
+```
+
+```python
+flow = Dataflow()
+flow.inspect_epoch(print)
+flow.capture()
+
+
+inp = [(0, "a"), (1, "b")]
+run(flow, inp)
+```
+
+```{testoutput}
+0 a
+1 b
+```
+
+For reduce epoch:
 
 ```python
 def add_to_list(l, items):
     l.extend(items)
     return l
-    
+
+
+flow = Dataflow()
 flow.reduce_epoch(add_to_list)
+flow.capture()
 
----
 
+inp = [(0, ("a", ["x"])), (0, ("a", ["y"]))]
+print(run(flow, inp))
+```
+
+```{testoutput}
+[(0, ('a', ['x', 'y']))]
+```
+
+```python
+flow = Dataflow()
 flow.reduce_epoch(lambda l1, l2: l1 + l2)
+flow.capture()
 
----
+
+inp = [(0, ("a", ["x"])), (0, ("a", ["y"]))]
+print(run(flow, inp))
+```
+
+```{testoutput}
+[(0, ('a', ['x', 'y']))]
+```
+
+```python
 import operator
 
+
+flow = Dataflow()
 flow.reduce_epoch(operator.add)
+flow.capture()
+
+
+inp = [(0, ("a", ["x"])), (0, ("a", ["y"]))]
+print(run(flow, inp))
 ```
+
+```{testoutput}
+[(0, ('a', ['x', 'y']))]
+```
+
+For filter:
 
 ```python
 def is_odd(item):
     return item % 2 == 1
-    
+
+
+flow = Dataflow()
 flow.filter(is_odd)
+flow.capture()
 
----
 
-flow.filter(lambda x: x % 2)
+inp = [(0, 5), (0, 9), (0, 2)]
+print(run(flow, inp))
+```
+
+```{testoutput}
+[(0, 5), (0, 9)]
+```
+
+```python
+flow = Dataflow()
+flow.filter(lambda x: x % 2 == 1)
+flow.capture()
+
+
+inp = [(0, 5), (0, 9), (0, 2)]
+print(run(flow, inp))
+```
+
+```{testoutput}
+[(0, 5), (0, 9)]
 ```
 
 ## Subflows
@@ -508,19 +714,34 @@ You can then call that subflow function whenever you need that step sequence.
 This is just calling a function.
 
 ```python
-def user_reducer(l, user, events):
-    return l.extend(events)
+def user_reducer(all_events, new_events):
+    return all_events + new_events
+
 
 def collect_user_events(flow):
     # event
-    flow.map(lambda e: (e.user, e))
-    # (user, event)
-    flow.aggregate(list, user_reducer)
-    # (user, events_for_user)
+    flow.map(lambda e: (e["user_id"], [e]))
+    # (user_id, event)
+    flow.reduce_epoch(user_reducer)
+    # (user_id, events_for_user)
     flow.map(lambda u_es: u_es[1])
     # events_for_user
 
+
+flow = Dataflow()
 collect_user_events(flow)
+flow.capture()
+
+
+inp = [
+    (0, {"user_id": 1, "type": "login"}),
+    (0, {"user_id": 1, "type": "logout"}),
+]
+print(run(flow, inp))
+```
+
+```{testoutput}
+[(0, [{'user_id': 1, 'type': 'login'}, {'user_id': 1, 'type': 'logout'}])]
 ```
 
 ### Examples
