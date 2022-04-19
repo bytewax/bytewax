@@ -19,10 +19,6 @@ def test_run():
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 
-@mark.skipif(
-    os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None,
-    reason="Hangs in Windows GitHub Actions",
-)
 def test_run_cluster():
     flow = Dataflow()
     flow.map(lambda x: x + 1)
@@ -41,10 +37,6 @@ def test_run_requires_capture():
         run(flow, enumerate(range(3)))
 
 
-@mark.skipif(
-    os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None,
-    reason="Hangs in Windows GitHub Actions",
-)
 def test_run_cluster_requires_capture():
     flow = Dataflow()
 
