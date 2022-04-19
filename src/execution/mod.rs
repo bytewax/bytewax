@@ -253,7 +253,8 @@ pub(crate) fn run_main(
 ///     flow: Dataflow to run.
 ///
 ///     input_builder: Returns input that each worker thread should
-///         process.
+///         process. Should yield either `AdvanceTo` or `Send` to
+///         advance the epoch, or input new data into the dataflow.
 ///
 ///     output_builder: Returns a callback function for each worker
 ///         thread, called with `(epoch, item)` whenever and item

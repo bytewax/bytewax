@@ -1,7 +1,7 @@
 """Entry point functions to execute `bytewax.Dataflow`s.
 
 """
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Iterable, List, Tuple, Union
 
 from multiprocess import get_context
 
@@ -61,7 +61,7 @@ def _gen_addresses(proc_count: int) -> Iterable[str]:
 
 def spawn_cluster(
     flow: Dataflow,
-    input_builder: Callable[[int, int], Iterable[Tuple[Any]]],
+    input_builder: Callable[[int, int], Iterable[Union[AdvanceTo, Send]]],
     output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]],
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
@@ -79,8 +79,10 @@ def spawn_cluster(
     >>> from bytewax.testing import doctest_ctx
     >>> flow = Dataflow()
     >>> flow.capture()
-    >>> def input_builder(worker_index, worker_count):
-    ...     return enumerate(range(3))
+    >>> def input_builder(i, n):
+    ...   for epoch, item in enumerate(range(3)):
+    ...     yield AdvanceTo(epoch)
+    ...     yield Send(item)
     >>> def output_builder(worker_index, worker_count):
     ...     return print
     >>> spawn_cluster(
