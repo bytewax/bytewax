@@ -5,8 +5,6 @@ from sys import exit
 
 from bytewax import cluster_main, Dataflow, inputs, run, run_cluster
 
-from multiprocess import Manager, Process
-
 from pytest import mark, raises
 
 
@@ -19,13 +17,17 @@ def test_run():
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 
-def test_run_cluster():
+def test_run_cluster(mp_ctx):
     flow = Dataflow()
     flow.map(lambda x: x + 1)
     flow.capture()
 
     out = run_cluster(
-        flow, inputs.fully_ordered(range(3)), proc_count=2, worker_count_per_proc=2
+        flow,
+        inputs.fully_ordered(range(3)),
+        proc_count=2,
+        worker_count_per_proc=2,
+        mp_ctx=mp_ctx,
     )
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
@@ -37,11 +39,11 @@ def test_run_requires_capture():
         run(flow, enumerate(range(3)))
 
 
-def test_run_cluster_requires_capture():
+def test_run_cluster_requires_capture(mp_ctx):
     flow = Dataflow()
 
     with raises(ValueError):
-        run_cluster(flow, enumerate(range(3)))
+        run_cluster(flow, enumerate(range(3)), mp_ctx=mp_ctx)
 
 
 def test_run_reraises_exception():
@@ -59,7 +61,7 @@ def test_run_reraises_exception():
 @mark.skip(
     reason="Timely is currently double panicking in cluster mode and that causes pool.join() to hang; it can be ctrl-c'd though"
 )
-def test_run_cluster_reraises_exception():
+def test_run_cluster_reraises_exception(mp_ctx):
     def boom(item):
         if item == 0:
             raise RuntimeError()
@@ -71,15 +73,15 @@ def test_run_cluster_reraises_exception():
     flow.capture()
 
     with raises(RuntimeError):
-        run_cluster(flow, enumerate(range(3)), proc_count=2)
+        run_cluster(flow, enumerate(range(3)), proc_count=2, mp_ctx=mp_ctx)
 
 
 @mark.skipif(
     os.name == "nt",
     reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
 )
-def test_run_can_be_ctrl_c():
-    with Manager() as man:
+def test_run_can_be_ctrl_c(mp_ctx):
+    with mp_ctx.Manager() as man:
         is_running = man.Event()
         out = man.list()
 
@@ -97,7 +99,7 @@ def test_run_can_be_ctrl_c():
             except KeyboardInterrupt:
                 exit(99)
 
-        test_proc = Process(target=proc_main)
+        test_proc = mp_ctx.Process(target=proc_main)
         test_proc.start()
 
         assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
@@ -112,8 +114,8 @@ def test_run_can_be_ctrl_c():
     os.name == "nt",
     reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
 )
-def test_run_cluster_can_be_ctrl_c():
-    with Manager() as man:
+def test_run_cluster_can_be_ctrl_c(mp_ctx):
+    with mp_ctx.Manager() as man:
         is_running = man.Event()
         out = man.list()
 
@@ -136,7 +138,7 @@ def test_run_cluster_can_be_ctrl_c():
             except KeyboardInterrupt:
                 exit(99)
 
-        test_proc = Process(target=proc_main)
+        test_proc = mp_ctx.Process(target=proc_main)
         test_proc.start()
 
         assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
@@ -151,8 +153,8 @@ def test_run_cluster_can_be_ctrl_c():
     os.name == "nt",
     reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
 )
-def test_cluster_main_can_be_ctrl_c():
-    with Manager() as man:
+def test_cluster_main_can_be_ctrl_c(mp_ctx):
+    with mp_ctx.Manager() as man:
         is_running = man.Event()
         out = man.list()
 
@@ -178,7 +180,7 @@ def test_cluster_main_can_be_ctrl_c():
             except KeyboardInterrupt:
                 exit(99)
 
-        test_proc = Process(target=proc_main)
+        test_proc = mp_ctx.Process(target=proc_main)
         test_proc.start()
 
         assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
