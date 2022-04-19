@@ -16,7 +16,8 @@ use crate::dataflow::{build_dataflow, Dataflow};
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 use crate::with_traceback;
 
-#[pyclass(name = "AdvanceTo")]
+
+#[pyclass(name = "AdvanceTo", module = "bytewax")]
 #[pyo3(text_signature = "(epoch)")]
 pub(crate) struct TdAdvanceTo {
     #[pyo3(get)]
@@ -32,7 +33,7 @@ impl TdAdvanceTo {
     }
 }
 
-#[pyclass(name = "Send")]
+#[pyclass(name = "Send", module = "bytewax")]
 #[pyo3(text_signature = "(item)")]
 pub(crate) struct TdSend {
     #[pyo3(get)]
@@ -84,7 +85,7 @@ impl Pump {
                         }
                     }
                     Err(err) => {
-                        panic!("Error during pump: {err}");
+                        std::panic::panic_any(err);
                     }
                 }
             } else {

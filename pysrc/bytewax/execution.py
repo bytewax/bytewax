@@ -61,7 +61,7 @@ def _gen_addresses(proc_count: int) -> Iterable[str]:
 
 def spawn_cluster(
     flow: Dataflow,
-    input_builder: Callable[[int, int], Iterable[Tuple[int, Any]]],
+    input_builder: Callable[[int, int], Iterable[Tuple[Any]]],
     output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]],
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
@@ -149,7 +149,7 @@ def spawn_cluster(
 
 def run_cluster(
     flow: Dataflow,
-    inp: Iterable[Tuple[Any]],
+    inp: Iterable[Tuple[int, Any]],
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
     mp_ctx=get_context("spawn"),
