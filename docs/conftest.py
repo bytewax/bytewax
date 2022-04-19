@@ -33,10 +33,10 @@ using subprocesses).
 """
 import doctest
 import os
-import sys
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, redirect_stdout
 from dataclasses import dataclass
 from doctest import Example, OPTIONFLAGS_BY_NAME, OutputChecker, register_optionflag
+from io import StringIO
 from pathlib import Path
 from traceback import print_exc
 from typing import Any, Iterator, Optional
@@ -166,26 +166,24 @@ class TestCode:
             "\n" * (self.source.content_first_line - 1) + self.source.content
         )
 
-        # pytest provides some slick fixtures for robustly capturing
-        # stdout, but apparently they only work in the pure-Python
-        # tests. https://github.com/pytest-dev/pytest/discussions/8936#discussioncomment-1041241
-        capture = FDCapture(1)
-        try:
-            capture.start()
-            code = compile(lineno_adjusted_source, self.source.path, "exec")
+        capture = StringIO()
+        # Note that this will not capture output from subprocesses or
+        # non-Python code. We hackily take advantage of this to
+        # sometimes ignore Timely's debug stdout output.
+        with redirect_stdout(capture):
+            try:
+                code = compile(lineno_adjusted_source, self.source.path, "exec")
 
-            with chdir(self.source.path.parent):
-                # For some reason, if we're running something
-                # representing a module, there's only a globals
-                # dictionary. See
-                # https://docs.python.org/3/library/functions.html#exec
-                exec(code, self.globs, self.globs)
-        except:
-            print_exc(file=sys.stdout)
-        finally:
-            found = capture.snap()
-            capture.done()
+                with chdir(self.source.path.parent):
+                    # For some reason, if we're running something
+                    # representing a module, there's only a globals
+                    # dictionary. See
+                    # https://docs.python.org/3/library/functions.html#exec
+                    exec(code, self.globs, self.globs)
+            except:
+                print_exc(file=capture)
 
+        found = capture.getvalue()
         expected = expected.text.content
         if not self.checker.check_output(expected, found, self.checker_flags):
             raise MdTestFailure(found)
