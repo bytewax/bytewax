@@ -102,7 +102,7 @@ def test_run_can_be_ctrl_c():
 
         assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
         os.kill(test_proc.pid, signal.SIGINT)
-        test_proc.join()
+        test_proc.join(timeout=5.0)
 
         assert test_proc.exitcode == 99
         assert len(out) < 1000
@@ -141,7 +141,7 @@ def test_run_cluster_can_be_ctrl_c():
 
         assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
         os.kill(test_proc.pid, signal.SIGINT)
-        test_proc.join()
+        test_proc.join(timeout=5.0)
 
         assert test_proc.exitcode == 99
         assert len(out) < 1000
@@ -183,7 +183,7 @@ def test_cluster_main_can_be_ctrl_c():
 
         assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
         os.kill(test_proc.pid, signal.SIGINT)
-        test_proc.join()
+        test_proc.join(timeout=5.0)
 
         assert test_proc.exitcode == 99
         assert len(out) < 1000
