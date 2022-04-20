@@ -3,22 +3,9 @@
 """
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
-from multiprocess import Manager, Pool
+from multiprocess import get_context
 
 from .bytewax import cluster_main, Dataflow, run_main
-
-
-def __skip_doctest_on_win_gha():
-    import os, pytest
-
-    if os.name == "nt" and os.environ.get("GITHUB_ACTION") is not None:
-        pytest.skip("Hangs in Windows GitHub Actions")
-
-
-def __fix_pickling_in_doctest():
-    import dill.settings
-
-    dill.settings["recurse"] = True
 
 
 def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]:
@@ -76,6 +63,7 @@ def spawn_cluster(
     output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]],
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
+    mp_ctx=get_context("spawn"),
 ) -> List[Tuple[int, Any]]:
     """Execute a dataflow as a cluster of processes on this machine.
 
@@ -86,15 +74,21 @@ def spawn_cluster(
     parallelism and higher throughput, or simple stand-alone demo
     programs.
 
-    >>> __skip_doctest_on_win_gha()
-    >>> __fix_pickling_in_doctest()
+    >>> from bytewax.testing import doctest_ctx
     >>> flow = Dataflow()
     >>> flow.capture()
     >>> def input_builder(worker_index, worker_count):
     ...     return enumerate(range(3))
     >>> def output_builder(worker_index, worker_count):
     ...     return print
-    >>> spawn_cluster(flow, input_builder, output_builder, proc_count=2)
+    >>> spawn_cluster(
+    ...     flow,
+    ...     input_builder,
+    ...     output_builder,
+    ...     proc_count=2,
+    ...     mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
+    ... )  # doctest: +ELLIPSIS
+    (...)
 
     See `bytewax.run_main()` for a way to test input and output
     builders without the complexity of starting a cluster.
@@ -121,9 +115,13 @@ def spawn_cluster(
         worker_count_per_proc: Number of worker threads to start on
             each process.
 
+        mp_ctx: `multiprocessing` context to use. Use this to
+            configure starting up subprocesses via spawn or
+            fork. Defaults to spawn.
+
     """
     addresses = _gen_addresses(proc_count)
-    with Pool(processes=proc_count) as pool:
+    with mp_ctx.Pool(processes=proc_count) as pool:
         futures = [
             pool.apply_async(
                 cluster_main,
@@ -152,6 +150,7 @@ def run_cluster(
     inp: Iterable[Tuple[int, Any]],
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
+    mp_ctx=get_context("spawn"),
 ) -> List[Tuple[int, Any]]:
     """Pass data through a dataflow running as a cluster of processes on
     this machine.
@@ -167,11 +166,16 @@ def run_cluster(
     distribution to cluster and otherwise collected output will grow
     unbounded.
 
-    >>> __skip_doctest_on_win_gha()
+    >>> from bytewax.testing import doctest_ctx
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
     >>> flow.capture()
-    >>> out = run_cluster(flow, [(0, "a"), (1, "b"), (2, "c")], proc_count=2)
+    >>> out = run_cluster(
+    ...     flow,
+    ...     [(0, "a"), (1, "b"), (2, "c")],
+    ...     proc_count=2,
+    ...     mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
+    ... )
     >>> sorted(out)
     [(0, 'A'), (1, 'B'), (2, 'C')]
 
@@ -192,26 +196,38 @@ def run_cluster(
         worker_count_per_proc: Number of worker threads to start on
             each process.
 
+        mp_ctx: `multiprocessing` context to use. Use this to
+            configure starting up subprocesses via spawn or
+            fork. Defaults to spawn.
+
     Returns:
 
         List of `(epoch, item)` tuples seen by capture operators.
 
     """
-    man = Manager()
-    inp = man.list(list(inp))
+    # A Manager starts up a background process to manage shared state.
+    with mp_ctx.Manager() as man:
+        inp = man.list(list(inp))
 
-    def input_builder(worker_index, worker_count):
-        for i, epoch_item in enumerate(inp):
-            if i % worker_count == worker_index:
-                yield epoch_item
+        def input_builder(worker_index, worker_count):
+            for i, epoch_item in enumerate(inp):
+                if i % worker_count == worker_index:
+                    yield epoch_item
 
-    out = man.list()
+        out = man.list()
 
-    def output_builder(worker_index, worker_count):
-        return out.append
+        def output_builder(worker_index, worker_count):
+            return out.append
 
-    spawn_cluster(
-        flow, input_builder, output_builder, proc_count, worker_count_per_proc
-    )
+        spawn_cluster(
+            flow,
+            input_builder,
+            output_builder,
+            proc_count,
+            worker_count_per_proc,
+            mp_ctx,
+        )
 
-    return out
+        # We have to copy out the shared state before process
+        # shutdown.
+        return list(out)

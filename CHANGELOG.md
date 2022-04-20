@@ -5,8 +5,14 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
-- Adds `run_main()` as a way to test input and output builders without
-  starting a cluster.
+- Adds `bytewax.run_main()` as a way to test input and output builders
+  without starting a cluster.
+  
+- Adds a `bytewax.testing` module with helpers for testing.
+
+- `bytewax.run_cluster()` and `bytewax.spawn_cluster()` now take a
+  `mp_ctx` argument to allow you to change the multiprocessing
+  behavior. E.g. from "fork" to "spawn". Defaults now to "spawn".
 
 ## 0.8.0
 

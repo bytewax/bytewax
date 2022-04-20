@@ -201,7 +201,8 @@ pub(crate) fn run_main(
 /// ...     return enumerate(range(3))
 /// >>> def output_builder(worker_index, worker_count):
 /// ...     return print
-/// >>> cluster_main(flow, input_builder, output_builder)
+/// >>> cluster_main(flow, input_builder, output_builder)  # doctest: +ELLIPSIS
+/// (...)
 ///
 /// See `bytewax.run_main()` for a way to test input and output
 /// builders without the complexity of starting a cluster.

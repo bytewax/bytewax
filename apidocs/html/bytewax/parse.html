@@ -19,13 +19,6 @@ from argparse import ArgumentParser
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
-def __skip_doctest_on_win_gha():
-    import os, pytest
-
-    if os.name == &#34;nt&#34; and os.environ.get(&#34;GITHUB_ACTION&#34;):
-        pytest.skip(&#34;Hangs in Windows GitHub Actions&#34;)
-
-
 def cluster_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
     &#34;&#34;&#34;Parse command line arguments to generate arguments for
     `bytewax.run_cluster()`.
@@ -33,12 +26,17 @@ def cluster_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
     See documentation for `bytewax.run_cluster()` for semantics of
     these variables.
 
-    &gt;&gt;&gt; __skip_doctest_on_win_gha()
     &gt;&gt;&gt; from bytewax import Dataflow, run_cluster
+    &gt;&gt;&gt; from bytewax.testing import doctest_ctx
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
     &gt;&gt;&gt; args = &#34;-w2 -n2&#34;.split()
-    &gt;&gt;&gt; out = run_cluster(flow, enumerate(range(3)), **cluster_args(args))
+    &gt;&gt;&gt; out = run_cluster(
+    ...     flow,
+    ...     enumerate(range(3)),
+    ...     mp_ctx=doctest_ctx,
+    ...     **cluster_args(args),
+    ... )
     &gt;&gt;&gt; sorted(out)
     [(0, 0), (1, 1), (2, 2)]
 
@@ -105,7 +103,6 @@ def proc_env(env: Dict[str, str] = os.environ) -&gt; Dict[str, Any]:
       E.g. `cluster_name-0` and `cluster_name` and we will calculate
       the process ID from that.
 
-    &gt;&gt;&gt; __skip_doctest_on_win_gha()
     &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
@@ -117,9 +114,7 @@ def proc_env(env: Dict[str, str] = os.environ) -&gt; Dict[str, Any]:
     ...     &#34;BYTEWAX_WORKERS_PER_PROCESS&#34;: &#34;2&#34;,
     ... }
     &gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_env(env))  # doctest: +ELLIPSIS
-    (0, 0)
-    ...
-    (2, 2)
+    (...)
 
     Args:
 
@@ -161,7 +156,6 @@ def proc_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
     See documentation for `bytewax.cluster_main()` for semantics of
     these variables.
 
-    &gt;&gt;&gt; __skip_doctest_on_win_gha()
     &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
@@ -169,9 +163,7 @@ def proc_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
     &gt;&gt;&gt; ob = lambda i, n: print
     &gt;&gt;&gt; args = &#34;-w2 -p0 -a localhost:2101&#34;.split()
     &gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS
-    (0, 0)
-    ...
-    (2, 2)
+    (...)
 
     Args:
 
@@ -229,12 +221,17 @@ def proc_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
 <code><a title="bytewax.run_cluster" href="index.html#bytewax.run_cluster">run_cluster()</a></code>.</p>
 <p>See documentation for <code><a title="bytewax.run_cluster" href="index.html#bytewax.run_cluster">run_cluster()</a></code> for semantics of
 these variables.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; __skip_doctest_on_win_gha()
-&gt;&gt;&gt; from bytewax import Dataflow, run_cluster
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, run_cluster
+&gt;&gt;&gt; from bytewax.testing import doctest_ctx
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.capture()
 &gt;&gt;&gt; args = &quot;-w2 -n2&quot;.split()
-&gt;&gt;&gt; out = run_cluster(flow, enumerate(range(3)), **cluster_args(args))
+&gt;&gt;&gt; out = run_cluster(
+...     flow,
+...     enumerate(range(3)),
+...     mp_ctx=doctest_ctx,
+...     **cluster_args(args),
+... )
 &gt;&gt;&gt; sorted(out)
 [(0, 0), (1, 1), (2, 2)]
 </code></pre>
@@ -256,12 +253,17 @@ these variables.</p>
     See documentation for `bytewax.run_cluster()` for semantics of
     these variables.
 
-    &gt;&gt;&gt; __skip_doctest_on_win_gha()
     &gt;&gt;&gt; from bytewax import Dataflow, run_cluster
+    &gt;&gt;&gt; from bytewax.testing import doctest_ctx
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
     &gt;&gt;&gt; args = &#34;-w2 -n2&#34;.split()
-    &gt;&gt;&gt; out = run_cluster(flow, enumerate(range(3)), **cluster_args(args))
+    &gt;&gt;&gt; out = run_cluster(
+    ...     flow,
+    ...     enumerate(range(3)),
+    ...     mp_ctx=doctest_ctx,
+    ...     **cluster_args(args),
+    ... )
     &gt;&gt;&gt; sorted(out)
     [(0, 0), (1, 1), (2, 2)]
 
@@ -307,17 +309,14 @@ these variables.</p>
 cluster.</p>
 <p>See documentation for <code><a title="bytewax.cluster_main" href="index.html#bytewax.cluster_main">cluster_main()</a></code> for semantics of
 these variables.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; __skip_doctest_on_win_gha()
-&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.capture()
 &gt;&gt;&gt; ib = lambda i, n: enumerate(range(3))
 &gt;&gt;&gt; ob = lambda i, n: print
 &gt;&gt;&gt; args = &quot;-w2 -p0 -a localhost:2101&quot;.split()
 &gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS
-(0, 0)
-...
-(2, 2)
+(...)
 </code></pre>
 <h2 id="args">Args</h2>
 <dl>
@@ -338,7 +337,6 @@ these variables.</p>
     See documentation for `bytewax.cluster_main()` for semantics of
     these variables.
 
-    &gt;&gt;&gt; __skip_doctest_on_win_gha()
     &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
@@ -346,9 +344,7 @@ these variables.</p>
     &gt;&gt;&gt; ob = lambda i, n: print
     &gt;&gt;&gt; args = &#34;-w2 -p0 -a localhost:2101&#34;.split()
     &gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS
-    (0, 0)
-    ...
-    (2, 2)
+    (...)
 
     Args:
 
@@ -427,8 +423,7 @@ E.g. <code>cluster_name-0</code> and <code>cluster_name</code> and we will calcu
 the process ID from that.</p>
 </li>
 </ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; __skip_doctest_on_win_gha()
-&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.capture()
 &gt;&gt;&gt; ib = lambda i, n: enumerate(range(3))
@@ -439,9 +434,7 @@ the process ID from that.</p>
 ...     &quot;BYTEWAX_WORKERS_PER_PROCESS&quot;: &quot;2&quot;,
 ... }
 &gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_env(env))  # doctest: +ELLIPSIS
-(0, 0)
-...
-(2, 2)
+(...)
 </code></pre>
 <h2 id="args">Args</h2>
 <dl>
@@ -484,7 +477,6 @@ the process ID from that.</p>
       E.g. `cluster_name-0` and `cluster_name` and we will calculate
       the process ID from that.
 
-    &gt;&gt;&gt; __skip_doctest_on_win_gha()
     &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
@@ -496,9 +488,7 @@ the process ID from that.</p>
     ...     &#34;BYTEWAX_WORKERS_PER_PROCESS&#34;: &#34;2&#34;,
     ... }
     &gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_env(env))  # doctest: +ELLIPSIS
-    (0, 0)
-    ...
-    (2, 2)
+    (...)
 
     Args:
 

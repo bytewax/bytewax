@@ -19,11 +19,12 @@ scalable dataflows in a streaming or batch context.
 documentation.](https://github.com/bytewax/bytewax)
 
 &#34;&#34;&#34;
-from .bytewax import cluster_main, Dataflow
+from .bytewax import cluster_main, Dataflow, run_main
 from .execution import run, run_cluster, spawn_cluster
 
 __all__ = [
     &#34;Dataflow&#34;,
+    &#34;run_main&#34;,
     &#34;run&#34;,
     &#34;run_cluster&#34;,
     &#34;spawn_cluster&#34;,
@@ -62,6 +63,12 @@ route data to workers …</p></div>
 line.</p></div>
 </p>
 </div>
+<div class="api__article-submodules-item">
+<h4><a class="api-submodule" href="bytewax.testing">bytewax.testing</a></h4>
+<p>
+<div class="desc"><p>Helper tools for testing dataflows.</p></div>
+</p>
+</div>
 </div>
 </section>
 <section>
@@ -79,17 +86,20 @@ cluster and ensuring they each are assigned a unique ID and know
 the addresses of other processes. You'd commonly use this for
 starting processes as part of a Kubernetes cluster.</p>
 <p>Blocks until execution is complete.</p>
-<p>See <code><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster()</a></code> for a convenience method to pass data
-through a dataflow for notebook development.</p>
-<p>See <code><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster()</a></code> for starting a simple cluster
-locally on one machine.</p>
 <pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; def input_builder(worker_index, worker_count):
 ...     return enumerate(range(3))
 &gt;&gt;&gt; def output_builder(worker_index, worker_count):
 ...     return print
-&gt;&gt;&gt; cluster_main(flow, input_builder, output_builder)
+&gt;&gt;&gt; cluster_main(flow, input_builder, output_builder)  # doctest: +ELLIPSIS
+(...)
 </code></pre>
+<p>See <code><a title="bytewax.run_main" href="#bytewax.run_main">run_main()</a></code> for a way to test input and output
+builders without the complexity of starting a cluster.</p>
+<p>See <code><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster()</a></code> for a convenience method to pass data
+through a dataflow for notebook development.</p>
+<p>See <code><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster()</a></code> for starting a simple cluster
+locally on one machine.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>flow</code></strong></dt>
@@ -181,13 +191,13 @@ unbounded.</p>
         assert worker_index == 0
         return out.append
 
-    _run(flow, input_builder, output_builder)
+    run_main(flow, input_builder, output_builder)
 
     return out</code></pre>
 </details>
 </dd>
 <dt id="bytewax.run_cluster"><code class="language-python name flex">
-<span>def <span class="ident">run_cluster</span></span>(<span>flow: <a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>, inp: Iterable[Tuple[int, Any]], proc_count: int = 1, worker_count_per_proc: int = 1) ‑> List[Tuple[int, Any]]</span>
+<span>def <span class="ident">run_cluster</span></span>(<span>flow: <a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>, inp: Iterable[Tuple[int, Any]], proc_count: int = 1, worker_count_per_proc: int = 1, mp_ctx=&lt;multiprocess.context.SpawnContext object&gt;) ‑> List[Tuple[int, Any]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Pass data through a dataflow running as a cluster of processes on
@@ -200,18 +210,23 @@ higher throughput, or simple stand-alone demo programs.</p>
 <p>Input must be finite because it is reified into a list before
 distribution to cluster and otherwise collected output will grow
 unbounded.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import doctest_ctx
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.map(str.upper)
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; out = run_cluster(
+...     flow,
+...     [(0, &quot;a&quot;), (1, &quot;b&quot;), (2, &quot;c&quot;)],
+...     proc_count=2,
+...     mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
+... )
+&gt;&gt;&gt; sorted(out)
+[(0, 'A'), (1, 'B'), (2, 'C')]
+</code></pre>
 <p>See <code><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster()</a></code> for starting a cluster on this
 machine with full control over inputs and outputs.</p>
 <p>See <code><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main()</a></code> for starting one process in a cluster
 in a distributed situation.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; __skip_doctest_on_win_gha()
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.map(str.upper)
-&gt;&gt;&gt; flow.capture()
-&gt;&gt;&gt; out = run_cluster(flow, [(0, &quot;a&quot;), (1, &quot;b&quot;), (2, &quot;c&quot;)], proc_count=2)
-&gt;&gt;&gt; sorted(out)
-[(0, 'A'), (1, 'B'), (2, 'C')]
-</code></pre>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>flow</code></strong></dt>
@@ -224,6 +239,10 @@ processes. Will be partitioned between workers for you.</dd>
 <dt><strong><code>worker_count_per_proc</code></strong></dt>
 <dd>Number of worker threads to start on
 each process.</dd>
+<dt><strong><code>mp_ctx</code></strong></dt>
+<dd><code>multiprocessing</code> context to use. Use this to
+configure starting up subprocesses via spawn or
+fork. Defaults to spawn.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>List of <code>(epoch, item)</code> tuples seen by capture operators.</p></div>
@@ -236,6 +255,7 @@ each process.</dd>
     inp: Iterable[Tuple[int, Any]],
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
+    mp_ctx=get_context(&#34;spawn&#34;),
 ) -&gt; List[Tuple[int, Any]]:
     &#34;&#34;&#34;Pass data through a dataflow running as a cluster of processes on
     this machine.
@@ -251,19 +271,24 @@ each process.</dd>
     distribution to cluster and otherwise collected output will grow
     unbounded.
 
+    &gt;&gt;&gt; from bytewax.testing import doctest_ctx
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.map(str.upper)
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; out = run_cluster(
+    ...     flow,
+    ...     [(0, &#34;a&#34;), (1, &#34;b&#34;), (2, &#34;c&#34;)],
+    ...     proc_count=2,
+    ...     mp_ctx=doctest_ctx,  # Outside a doctest, you&#39;d skip this.
+    ... )
+    &gt;&gt;&gt; sorted(out)
+    [(0, &#39;A&#39;), (1, &#39;B&#39;), (2, &#39;C&#39;)]
+
     See `bytewax.spawn_cluster()` for starting a cluster on this
     machine with full control over inputs and outputs.
 
     See `bytewax.cluster_main()` for starting one process in a cluster
     in a distributed situation.
-
-    &gt;&gt;&gt; __skip_doctest_on_win_gha()
-    &gt;&gt;&gt; flow = Dataflow()
-    &gt;&gt;&gt; flow.map(str.upper)
-    &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; out = run_cluster(flow, [(0, &#34;a&#34;), (1, &#34;b&#34;), (2, &#34;c&#34;)], proc_count=2)
-    &gt;&gt;&gt; sorted(out)
-    [(0, &#39;A&#39;), (1, &#39;B&#39;), (2, &#39;C&#39;)]
 
     Args:
         flow: Dataflow to run.
@@ -276,33 +301,80 @@ each process.</dd>
         worker_count_per_proc: Number of worker threads to start on
             each process.
 
+        mp_ctx: `multiprocessing` context to use. Use this to
+            configure starting up subprocesses via spawn or
+            fork. Defaults to spawn.
+
     Returns:
 
         List of `(epoch, item)` tuples seen by capture operators.
 
     &#34;&#34;&#34;
-    man = Manager()
-    inp = man.list(list(inp))
+    # A Manager starts up a background process to manage shared state.
+    with mp_ctx.Manager() as man:
+        inp = man.list(list(inp))
 
-    def input_builder(worker_index, worker_count):
-        for i, epoch_item in enumerate(inp):
-            if i % worker_count == worker_index:
-                yield epoch_item
+        def input_builder(worker_index, worker_count):
+            for i, epoch_item in enumerate(inp):
+                if i % worker_count == worker_index:
+                    yield epoch_item
 
-    out = man.list()
+        out = man.list()
 
-    def output_builder(worker_index, worker_count):
-        return out.append
+        def output_builder(worker_index, worker_count):
+            return out.append
 
-    spawn_cluster(
-        flow, input_builder, output_builder, proc_count, worker_count_per_proc
-    )
+        spawn_cluster(
+            flow,
+            input_builder,
+            output_builder,
+            proc_count,
+            worker_count_per_proc,
+            mp_ctx,
+        )
 
-    return out</code></pre>
+        # We have to copy out the shared state before process
+        # shutdown.
+        return list(out)</code></pre>
 </details>
 </dd>
+<dt id="bytewax.run_main"><code class="language-python name flex">
+<span>def <span class="ident">run_main</span></span>(<span>flow, input_builder, output_builder)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Execute a dataflow in the current thread.</p>
+<p>Blocks until execution is complete.</p>
+<p>You'd commonly use this for prototyping custom input and output
+builders with a single worker before using them in a cluster
+setting.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; def input_builder(worker_index, worker_count):
+...     return enumerate(range(3))
+&gt;&gt;&gt; def output_builder(worker_index, worker_count):
+...     return print
+&gt;&gt;&gt; run_main(flow, input_builder, output_builder)  # doctest: +ELLIPSIS
+(...)
+</code></pre>
+<p>See <code><a title="bytewax.run" href="#bytewax.run">run()</a></code> for a convenience method to not need to worry
+about input or output builders.</p>
+<p>See <code><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster()</a></code> for starting a cluster on this
+machine with full control over inputs and outputs.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>flow</code></strong></dt>
+<dd>Dataflow to run.</dd>
+<dt><strong><code>input_builder</code></strong></dt>
+<dd>Returns input that each worker thread should
+process.</dd>
+<dt><strong><code>output_builder</code></strong></dt>
+<dd>Returns a callback function for each worker
+thread, called with <code>(epoch, item)</code> whenever and item
+passes by a capture operator on this process.</dd>
+</dl></div>
+</dd>
 <dt id="bytewax.spawn_cluster"><code class="language-python name flex">
-<span>def <span class="ident">spawn_cluster</span></span>(<span>flow: <a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>, input_builder: Callable[[int, int], Iterable[Tuple[int, Any]]], output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]], proc_count: int = 1, worker_count_per_proc: int = 1) ‑> List[Tuple[int, Any]]</span>
+<span>def <span class="ident">spawn_cluster</span></span>(<span>flow: <a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>, input_builder: Callable[[int, int], Iterable[Tuple[int, Any]]], output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]], proc_count: int = 1, worker_count_per_proc: int = 1, mp_ctx=&lt;multiprocess.context.SpawnContext object&gt;) ‑> List[Tuple[int, Any]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Execute a dataflow as a cluster of processes on this machine.</p>
@@ -311,20 +383,28 @@ each process.</dd>
 together. You'd commonly use this for notebook analysis that needs
 parallelism and higher throughput, or simple stand-alone demo
 programs.</p>
-<p>See <code><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster()</a></code> for a convenience method to pass data
-through a dataflow for notebook development.</p>
-<p>See <code><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main()</a></code> for starting one process in a cluster
-in a distributed situation.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; __skip_doctest_on_win_gha()
-&gt;&gt;&gt; __fix_pickling_in_doctest()
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import doctest_ctx
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.capture()
 &gt;&gt;&gt; def input_builder(worker_index, worker_count):
 ...     return enumerate(range(3))
 &gt;&gt;&gt; def output_builder(worker_index, worker_count):
 ...     return print
-&gt;&gt;&gt; spawn_cluster(flow, input_builder, output_builder, proc_count=2)
+&gt;&gt;&gt; spawn_cluster(
+...     flow,
+...     input_builder,
+...     output_builder,
+...     proc_count=2,
+...     mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
+... )  # doctest: +ELLIPSIS
+(...)
 </code></pre>
+<p>See <code><a title="bytewax.run_main" href="#bytewax.run_main">run_main()</a></code> for a way to test input and output
+builders without the complexity of starting a cluster.</p>
+<p>See <code><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster()</a></code> for a convenience method to pass data
+through a dataflow for notebook development.</p>
+<p>See <code><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main()</a></code> for starting one process in a cluster
+in a distributed situation.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>flow</code></strong></dt>
@@ -341,6 +421,10 @@ passes by a capture operator on this process.</dd>
 <dt><strong><code>worker_count_per_proc</code></strong></dt>
 <dd>Number of worker threads to start on
 each process.</dd>
+<dt><strong><code>mp_ctx</code></strong></dt>
+<dd><code>multiprocessing</code> context to use. Use this to
+configure starting up subprocesses via spawn or
+fork. Defaults to spawn.</dd>
 </dl></div>
 <details class="source">
 <summary>
@@ -352,6 +436,7 @@ each process.</dd>
     output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]],
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
+    mp_ctx=get_context(&#34;spawn&#34;),
 ) -&gt; List[Tuple[int, Any]]:
     &#34;&#34;&#34;Execute a dataflow as a cluster of processes on this machine.
 
@@ -362,21 +447,30 @@ each process.</dd>
     parallelism and higher throughput, or simple stand-alone demo
     programs.
 
-    See `bytewax.run_cluster()` for a convenience method to pass data
-    through a dataflow for notebook development.
-
-    See `bytewax.cluster_main()` for starting one process in a cluster
-    in a distributed situation.
-
-    &gt;&gt;&gt; __skip_doctest_on_win_gha()
-    &gt;&gt;&gt; __fix_pickling_in_doctest()
+    &gt;&gt;&gt; from bytewax.testing import doctest_ctx
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
     &gt;&gt;&gt; def input_builder(worker_index, worker_count):
     ...     return enumerate(range(3))
     &gt;&gt;&gt; def output_builder(worker_index, worker_count):
     ...     return print
-    &gt;&gt;&gt; spawn_cluster(flow, input_builder, output_builder, proc_count=2)
+    &gt;&gt;&gt; spawn_cluster(
+    ...     flow,
+    ...     input_builder,
+    ...     output_builder,
+    ...     proc_count=2,
+    ...     mp_ctx=doctest_ctx,  # Outside a doctest, you&#39;d skip this.
+    ... )  # doctest: +ELLIPSIS
+    (...)
+
+    See `bytewax.run_main()` for a way to test input and output
+    builders without the complexity of starting a cluster.
+
+    See `bytewax.run_cluster()` for a convenience method to pass data
+    through a dataflow for notebook development.
+
+    See `bytewax.cluster_main()` for starting one process in a cluster
+    in a distributed situation.
 
     Args:
 
@@ -394,9 +488,13 @@ each process.</dd>
         worker_count_per_proc: Number of worker threads to start on
             each process.
 
+        mp_ctx: `multiprocessing` context to use. Use this to
+            configure starting up subprocesses via spawn or
+            fork. Defaults to spawn.
+
     &#34;&#34;&#34;
     addresses = _gen_addresses(proc_count)
-    with Pool(processes=proc_count) as pool:
+    with mp_ctx.Pool(processes=proc_count) as pool:
         futures = [
             pool.apply_async(
                 cluster_main,
@@ -616,6 +714,11 @@ bytewax.inputs
 bytewax.parse
 </a>
 </li>
+<li class="api__sidebar-nav-menu-item">
+<a class="api__sidebar-nav-menu-link api-submodule" href="bytewax.testing">
+bytewax.testing
+</a>
+</li>
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
@@ -624,6 +727,7 @@ bytewax.parse
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.run" href="#bytewax.run">run</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.run_main" href="#bytewax.run_main">run_main</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster</a></li>
 </ul>
 </li>

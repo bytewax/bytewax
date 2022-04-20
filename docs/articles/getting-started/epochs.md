@@ -1,91 +1,162 @@
-Now that we've seen an end-to-end example running a dataflow program, it's time to discuss **epochs**.
+Now that we've seen an end-to-end example running a dataflow program, it's time to discuss epochs.
 
 To explain what an epoch represents, let's imagine an unending stream of lines that we want to count words for. If the stream has no end, we'll need to introduce another concept to decide when we want to emit the current counts of words from the stream.
 
-Epochs are what allow us to influence ordering and batching within a dataflow. Increment the epoch when you know you need some data to be processed strictly after, or separately from the proceeding data.
+**Epochs** are what allow us to influence ordering and batching within a dataflow. Increment the epoch when you know you need some data to be processed strictly after, or separately from the proceeding data.
 
 ## Input example
 
-In our wordcount example in the previous section, we defined a function for our input:
+In our wordcount example in the previous section, we defined a `file_input()` generator to be our input iterator:
 
-``` python
+```python doctest:SORT_OUTPUT doctest:SORT_EXPECTED
+import re
+
+from bytewax import Dataflow, run
+
+
 def file_input():
     for line in open("wordcount.txt"):
         yield 1, line
+
+
+def lower(line):
+    return line.lower()
+
+
+def tokenize(line):
+    return re.findall(r'[^\s!,.?":;0-9]+', line)
+
+
+def initial_count(word):
+    return word, 1
+    
+    
+def add(count1, count2):
+    return count1 + count2
+
+
+flow = Dataflow()
+flow.map(lower)
+flow.flat_map(tokenize)
+flow.map(initial_count)
+flow.reduce_epoch(add)
+flow.capture()
+
+
+for epoch, item in run(flow, file_input()):
+    print(item)
 ```
 
-For each line in our file, we returned a two-tuple of `1`, and the line from the file.
+For each line in our file, the input builder returned a two-tuple of `1`, and the line from the file.
 
-The `1` in this example is what we refer to as an epoch. In our initial wordcount example, we're always emitting `1` as our epoch. This has the effect of counting all the words in our file together, as they all share the same epoch.
+The `1` in this example is what we refer to as an epoch. In our initial wordcount example, we're always emitting `1` as our epoch. This has the effect of counting all the words in our file together, as they all share the same epoch:
+
+```{testoutput}
+('fortune', 1)
+('a', 1)
+('whether', 1)
+('them', 1)
+('nobler', 1)
+("'tis", 1)
+('arrows', 1)
+('slings', 1)
+('and', 2)
+('outrageous', 1)
+('sea', 1)
+('by', 1)
+('or', 2)
+('not', 1)
+('opposing', 1)
+('question', 1)
+('mind', 1)
+('that', 1)
+('to', 4)
+('end', 1)
+('arms', 1)
+('suffer', 1)
+('take', 1)
+('in', 1)
+('against', 1)
+('is', 1)
+('of', 2)
+('the', 3)
+('be', 2)
+('troubles', 1)
+```
 
 ## Multiple epochs
 
 What if we modify our input to increment the epoch that is emitted for each line in the file?
 
 
-``` python
+```python doctest:SORT_OUTPUT doctest:SORT_EXPECTED
 def file_input():
     for i, line in enumerate(open("wordcount.txt")):
         yield i, line
+        
+        
+for epoch, item in run(flow, file_input()):
+    print(item)
 ```
 
 If we modify our function in this way, our final counts will change to count the words in each _line_ in the file, instead of the counts of words in the entire file.
 
 Our output will now look like this:
 
-```
-('or', 1)
+```{testoutput}
 ('not', 1)
 ('that', 1)
-('is', 1)
+('or', 1)
+('the', 1)
 ('be', 2)
-('the', 1)
-('to', 2)
+('is', 1)
 ('question', 1)
+('to', 2)
 ('mind', 1)
-('suffer', 1)
 ("'tis", 1)
-('the', 1)
 ('to', 1)
 ('nobler', 1)
-('whether', 1)
+('the', 1)
 ('in', 1)
+('whether', 1)
+('suffer', 1)
+('the', 1)
+('of', 1)
 ('slings', 1)
 ('arrows', 1)
 ('outrageous', 1)
 ('fortune', 1)
-('of', 1)
 ('and', 1)
-('the', 1)
-('or', 1)
 ('troubles', 1)
-('them', 1)
+('sea', 1)
+('against', 1)
+('to', 1)
 ('of', 1)
 ('a', 1)
+('or', 1)
 ('take', 1)
-('to', 1)
-('against', 1)
-('sea', 1)
 ('arms', 1)
-('by', 1)
-('and', 1)
-('end', 1)
+('them', 1)
 ('opposing', 1)
+('end', 1)
+('and', 1)
+('by', 1)
 ```
 
 Notice how there are multiple instances of counts of `to` and `and`, etc!
 
 ## Inspecting epochs
 
-To better illustrate that counts are per-line, we can use the [inspect epoch](/operators/operators#inspect-epoch) operator instead of [inspect](/operators/operators#inspect):
+To better illustrate that counts are per-line, we can print the epoch in addition to the output items when we run the dataflow:
 
-``` python
-flow.inspect_epoch(print)
+```python doctest:SORT_OUTPUT doctest:SORT_EXPECTED
+for epoch, item in run(flow, file_input()):
+    print(epoch, item)
 ```
 
 Running the program again:
 
-```
+```{testoutput}
 0 ('to', 2)
 0 ('question', 1)
 0 ('is', 1)
@@ -137,14 +208,15 @@ On that note, remember unless explicitly declared by a given operator _there are
 
 For example, especially in a multi-worker and multi-process execution, this behavior could happen:
 
-```python
+```python doctest:SORT_OUTPUT doctest:SORT_EXPECTED
 flow = Dataflow()
-flow.inspect_epoch(print)
+flow.capture()
 
-run(flow, enumerate(range(6)))
+for epoch, item in run(flow, enumerate(range(6))):
+    print(epoch, item)
 ```
 
-```
+```{testoutput}
 5 5
 2 2
 0 0
