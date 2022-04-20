@@ -7,7 +7,7 @@ Use these to wrap an existing iterator which yields items.
 import datetime
 import heapq
 
-from .bytewax import AdvanceTo, Send
+from .bytewax import AdvanceTo, Emit
 
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Tuple
@@ -39,7 +39,7 @@ def yield_epochs(fn: Callable):
         gen = fn(worker_index, worker_count)
         for (epoch, item) in gen:
             yield AdvanceTo(epoch)
-            yield Send(item)
+            yield Emit(item)
 
     return inner_fn
 

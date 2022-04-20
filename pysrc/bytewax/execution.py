@@ -5,7 +5,7 @@ from typing import Any, Callable, Iterable, List, Tuple, Union
 
 from multiprocess import get_context
 
-from .bytewax import cluster_main, Dataflow, run_main, AdvanceTo, Send
+from .bytewax import cluster_main, Dataflow, run_main, AdvanceTo, Emit
 
 
 def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]:
@@ -42,7 +42,7 @@ def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]
         assert worker_index == 0
         for epoch, input in inp:
             yield AdvanceTo(epoch)
-            yield Send(input)
+            yield Emit(input)
 
     out = []
 
@@ -61,7 +61,7 @@ def _gen_addresses(proc_count: int) -> Iterable[str]:
 
 def spawn_cluster(
     flow: Dataflow,
-    input_builder: Callable[[int, int], Iterable[Union[AdvanceTo, Send]]],
+    input_builder: Callable[[int, int], Iterable[Union[AdvanceTo, Emit]]],
     output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]],
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
@@ -82,7 +82,7 @@ def spawn_cluster(
     >>> def input_builder(i, n):
     ...   for epoch, item in enumerate(range(3)):
     ...     yield AdvanceTo(epoch)
-    ...     yield Send(item)
+    ...     yield Emit(item)
     >>> def output_builder(worker_index, worker_count):
     ...     return print
     >>> spawn_cluster(
@@ -158,18 +158,14 @@ def run_cluster(
 ) -> List[Tuple[int, Any]]:
     """Pass data through a dataflow running as a cluster of processes on
     this machine.
-
     Blocks until execution is complete.
-
     Starts up cluster processes for you, handles connecting them
     together, distributing input, and collecting output. You'd
     commonly use this for notebook analysis that needs parallelism and
     higher throughput, or simple stand-alone demo programs.
-
     Input must be finite because it is reified into a list before
     distribution to cluster and otherwise collected output will grow
     unbounded.
-
     >>> from bytewax.testing import doctest_ctx
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
@@ -182,32 +178,22 @@ def run_cluster(
     ... )
     >>> sorted(out)
     [(0, 'A'), (1, 'B'), (2, 'C')]
-
     See `bytewax.spawn_cluster()` for starting a cluster on this
     machine with full control over inputs and outputs.
-
     See `bytewax.cluster_main()` for starting one process in a cluster
     in a distributed situation.
-
     Args:
         flow: Dataflow to run.
-
         inp: Input data. Will be reifyied to a list before sending to
             processes. Will be partitioned between workers for you.
-
         proc_count: Number of processes to start.
-
         worker_count_per_proc: Number of worker threads to start on
             each process.
-
         mp_ctx: `multiprocessing` context to use. Use this to
             configure starting up subprocesses via spawn or
             fork. Defaults to spawn.
-
     Returns:
-
         List of `(epoch, item)` tuples seen by capture operators.
-
     """
     # A Manager starts up a background process to manage shared state.
     with mp_ctx.Manager() as man:
@@ -216,8 +202,9 @@ def run_cluster(
         def input_builder(worker_index, worker_count):
             for i, epoch_item in enumerate(inp):
                 if i % worker_count == worker_index:
-                    yield AdvanceTo(i)
-                    yield Send(epoch_item)
+                    (epoch, item) = epoch_item
+                    yield AdvanceTo(epoch)
+                    yield Emit(item)
 
         out = man.list()
 

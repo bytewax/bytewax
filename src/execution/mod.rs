@@ -13,33 +13,31 @@ use timely::dataflow::ProbeHandle;
 
 use crate::dataflow::{build_dataflow, Dataflow};
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
-use crate::with_traceback;
 
-
-#[pyclass(name = "AdvanceTo", module = "bytewax")]
+#[pyclass(module = "bytewax")]
 #[pyo3(text_signature = "(epoch)")]
-pub(crate) struct TdAdvanceTo {
+pub(crate) struct AdvanceTo {
     #[pyo3(get)]
     epoch: u64,
 }
 
 #[pymethods]
-impl TdAdvanceTo {
+impl AdvanceTo {
     #[new]
     fn new(epoch: u64) -> Self {
         Self { epoch }
     }
 }
 
-#[pyclass(name = "Send", module = "bytewax")]
+#[pyclass(module = "bytewax")]
 #[pyo3(text_signature = "(item)")]
-pub(crate) struct TdSend {
+pub(crate) struct Emit {
     #[pyo3(get)]
     item: TdPyAny,
 }
 
 #[pymethods]
-impl TdSend {
+impl Emit {
     #[new]
     fn new(item: Py<PyAny>) -> Self {
         Self { item: item.into() }
@@ -73,13 +71,15 @@ impl Pump {
     fn pump(&mut self) {
         Python::with_gil(|py| {
             let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
-            if let Some(epoch_item) = pull_from_pyiter.next() {
-                match epoch_item {
+            if let Some(input_action) = pull_from_pyiter.next() {
+                match input_action {
                     Ok(item) => {
-                        if let Ok(send) = item.downcast::<PyCell<TdSend>>() {
+                        if let Ok(send) = item.downcast::<PyCell<Emit>>() {
                             self.push_to_timely.send(send.borrow().item.clone());
-                        } else if let Ok(advance_to) = item.downcast::<PyCell<TdAdvanceTo>>() {
+                        } else if let Ok(advance_to) = item.downcast::<PyCell<AdvanceTo>>() {
                             self.push_to_timely.advance_to(advance_to.borrow().epoch);
+                        } else {
+                            panic!("Unknown input action")
                         }
                     }
                     Err(err) => {
@@ -382,7 +382,7 @@ pub(crate) fn cluster_main(
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_main, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
-    m.add_class::<TdSend>()?;
-    m.add_class::<TdAdvanceTo>()?;
+    m.add_class::<Emit>()?;
+    m.add_class::<AdvanceTo>()?;
     Ok(())
 }

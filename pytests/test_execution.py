@@ -3,7 +3,7 @@ import signal
 import threading
 from sys import exit
 
-from bytewax import cluster_main, Dataflow, inputs, run, run_cluster, AdvanceTo, Send
+from bytewax import cluster_main, Dataflow, inputs, run, run_cluster, AdvanceTo, Emit
 
 from pytest import mark, raises
 
@@ -162,7 +162,7 @@ def test_cluster_main_can_be_ctrl_c(mp_ctx):
             def input_builder(worker_index, worker_count):
                 for epoch, input in inputs.fully_ordered(range(1000)):
                     yield AdvanceTo(epoch)
-                    yield Send(input)
+                    yield Emit(input)
 
             def output_builder(worker_index, worker_count):
                 def out_handler(epoch_item):
