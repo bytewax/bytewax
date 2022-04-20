@@ -98,13 +98,14 @@ The per-worker input of `spawn_cluster()` has the extra requirement that the inp
 `run_cluster()` blocks until all output has been collected.
 
 ```python doctest:SORT_OUTPUT
-from bytewax import spawn_cluster
+from bytewax import spawn_cluster, AdvanceTo, Emit
 from bytewax.testing import test_print
 
 
 def input_builder(worker_index, worker_count):
     for epoch, x in enumerate(range(3)):
-        yield epoch, {"input_from": worker_index, "x": x}
+        yield AdvanceTo(epoch)
+        yield Emit({"input_from": worker_index, "x": x})
 
 
 def output_builder(worker_index, worker_count):
@@ -170,7 +171,8 @@ from bytewax import cluster_main
 
 def input_builder(worker_index, worker_count):
     for epoch, x in enumerate(range(3)):
-        yield epoch, {"input_from": worker_index, "x": x}
+        yield AdvanceTo(epoch)
+        yield Emit({"input_from": worker_index, "x": x})
 
 
 def output_builder(worker_index, worker_count):
