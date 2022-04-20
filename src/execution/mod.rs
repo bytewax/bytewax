@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyLong;
 use timely::dataflow::InputHandle;
 use timely::dataflow::ProbeHandle;
 
@@ -27,9 +26,8 @@ pub(crate) struct TdAdvanceTo {
 #[pymethods]
 impl TdAdvanceTo {
     #[new]
-    fn new(epoch: Py<PyLong>) -> Self {
-        let new_epoch = Python::with_gil(|py| with_traceback!(py, epoch.extract(py)));
-        Self { epoch: new_epoch }
+    fn new(epoch: u64) -> Self {
+        Self { epoch }
     }
 }
 
