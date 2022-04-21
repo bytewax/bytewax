@@ -1,0 +1,170 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.recovery</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<p>Bytewax's state recovery machinery.</p>
+<p>This allows you to <strong>recover</strong> a stateful dataflow; it will let you
+resume processing and output due to system outage or error without
+re-processing all initial data to re-calculate all internal state.</p>
+<ol>
+<li>
+<p>Pick a <strong>recovery store</strong> in which internal state will be
+continously backed up. Different storage systems will have
+different performance and reconfiguration tradeoffs.</p>
+</li>
+<li>
+<p>Create a <strong>recovery config</strong> for connecting to your recovery store.</p>
+</li>
+<li>
+<p>Pass that created config as the <code>recovery_config</code> argument to the
+entry point running your dataflow (e.g. <code><a title="bytewax.run_cluster" href="index.html#bytewax.run_cluster">run_cluster()</a></code>).</p>
+</li>
+<li>
+<p>Run your dataflow from the beginning, or resuming input from the
+last finalized epoch.</p>
+</li>
+</ol>
+<p>The epoch is the unit of recovery. It is your responsibility to design
+your input builders or iterators in such a way that it can be resumed
+from a given epoch; if it can't (because the input is ephemeral) then
+this feature won't allow complete recovery. It is possible that your
+output systems will see duplicate data right around the resumed epoch;
+design your systems to be idempotent or support at-least-once
+processing.</p>
+<p>Bytewax will automatically save and recover state from the recovery
+store during the execution of stateful operators. You know an operator
+is stateful when it takes a <code>step_id</code> argument.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Bytewax&#39;s state recovery machinery.
+
+This allows you to **recover** a stateful dataflow; it will let you
+resume processing and output due to system outage or error without
+re-processing all initial data to re-calculate all internal state.
+
+0. Pick a **recovery store** in which internal state will be
+   continously backed up. Different storage systems will have
+   different performance and reconfiguration tradeoffs.
+
+1. Create a **recovery config** for connecting to your recovery store.
+
+2. Pass that created config as the `recovery_config` argument to the
+   entry point running your dataflow (e.g. `bytewax.run_cluster()`).
+
+3. Run your dataflow from the beginning, or resuming input from the
+   last finalized epoch.
+
+The epoch is the unit of recovery. It is your responsibility to design
+your input builders or iterators in such a way that it can be resumed
+from a given epoch; if it can&#39;t (because the input is ephemeral) then
+this feature won&#39;t allow complete recovery. It is possible that your
+output systems will see duplicate data right around the resumed epoch;
+design your systems to be idempotent or support at-least-once
+processing.
+
+Bytewax will automatically save and recover state from the recovery
+store during the execution of stateful operators. You know an operator
+is stateful when it takes a `step_id` argument.
+
+&#34;&#34;&#34;
+from .bytewax import RecoveryConfig, SqliteRecoveryConfig</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
+<dl>
+<dt id="bytewax.recovery.RecoveryConfig"><code class="language-python flex name class">
+<span>class <span class="ident">RecoveryConfig</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for a recovery config.</p>
+<p>This describes how to connect to a recovery store.</p>
+<p>Use a specific subclass of this that matches the kind of storage
+system you are going to use. See the subclasses in this module.</p></div>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="bytewax.recovery.SqliteRecoveryConfig" href="#bytewax.recovery.SqliteRecoveryConfig">SqliteRecoveryConfig</a></li>
+</ul>
+</dd>
+<dt id="bytewax.recovery.SqliteRecoveryConfig"><code class="language-python flex name class">
+<span>class <span class="ident">SqliteRecoveryConfig</span></span>
+<span>(</span><span>db_file_name)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use <a href="https://sqlite.org/index.html">Sqlite</a> as recovery storage.</p>
+<p>Because it's not designed for high-concurrency, Sqlite should only
+be used for machine-local testing of dataflows. Multiple workers
+will <em>not</em> result in corrupted data, but there will be reduced
+performance due to contention for the DB lock.</p>
+<p>The Sqlite DB does not need any preparation. A <code>state</code> table will
+automatically be created and queried.</p>
+<p>Only one dataflow can be persisted per Sqlite DB. Use a new file
+for a new dataflow.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>db_file_name</code></strong></dt>
+<dd>Local path to the DB file in Sqlite3
+format. E.g. <code>./state.sqlite3</code></dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this as the <code>recovery_config</code> argument to
+your execution entry point.</p></div>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.recovery.RecoveryConfig" href="#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></li>
+</ul>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.recovery.SqliteRecoveryConfig.db_file_name"><code class="language-python name">var <span class="ident">db_file_name</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a class="api__sidebar-nav-menu-link api-supermodule">
+bytewax
+</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
+<ul class="api__sidebar-nav-classes">
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.recovery.RecoveryConfig" href="#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.recovery.SqliteRecoveryConfig" href="#bytewax.recovery.SqliteRecoveryConfig">SqliteRecoveryConfig</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.SqliteRecoveryConfig.db_file_name" href="#bytewax.recovery.SqliteRecoveryConfig.db_file_name">db_file_name</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
