@@ -13,6 +13,14 @@ notes on GitHub when we make a new release.__
 - `bytewax.run_cluster()` and `bytewax.spawn_cluster()` now take a
   `mp_ctx` argument to allow you to change the multiprocessing
   behavior. E.g. from "fork" to "spawn". Defaults now to "spawn".
+  
+- Adds dataflow recovery capabilities. See `bytewax.recovery`.
+
+- Stateful operators `bytewax.Dataflow.reduce()` and
+  `bytewax.Dataflow.stateful_map()` now require a `step_id` argument
+  to handle recovery.
+
+- Execution entry points now take configuration arguments as kwargs.
 
 ## 0.8.0
 
