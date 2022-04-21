@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use timely::dataflow::InputHandle;
@@ -26,6 +27,17 @@ impl AdvanceTo {
     #[new]
     fn new(epoch: u64) -> Self {
         Self { epoch }
+    }
+
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
+        match op {
+            CompareOp::Lt => Ok(self.epoch < other.epoch),
+            CompareOp::Le => Ok(self.epoch <= other.epoch),
+            CompareOp::Eq => Ok(self.epoch == other.epoch),
+            CompareOp::Ne => Ok(self.epoch != other.epoch),
+            CompareOp::Gt => Ok(self.epoch > other.epoch),
+            CompareOp::Ge => Ok(self.epoch >= other.epoch),
+        }
     }
 }
 
