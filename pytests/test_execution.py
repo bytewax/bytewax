@@ -176,7 +176,14 @@ def test_cluster_main_can_be_ctrl_c(mp_ctx):
             flow.capture()
 
             try:
-                cluster_main(flow, input_builder, output_builder, [], 0, 1)
+                cluster_main(
+                    flow,
+                    input_builder,
+                    output_builder,
+                    addresses=[],
+                    proc_id=0,
+                    worker_count_per_proc=2,
+                )
             except KeyboardInterrupt:
                 exit(99)
 

@@ -285,13 +285,6 @@ impl TdPyCallable {
     }
 }
 
-pub(crate) fn build(builder: &TdPyCallable, key: &TdPyAny) -> TdPyAny {
-    Python::with_gil(|py| {
-        let key = key.clone_ref(py);
-        with_traceback!(py, builder.call1(py, (key,))).into()
-    })
-}
-
 /// Turn a Python 2-tuple into a Rust 2-tuple.
 pub(crate) fn lift_2tuple(key_value_pytuple: TdPyAny) -> (TdPyAny, TdPyAny) {
     Python::with_gil(|py| with_traceback!(py, key_value_pytuple.as_ref(py).extract()))

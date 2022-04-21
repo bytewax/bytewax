@@ -1,3 +1,4 @@
+use crate::recovery::RecoveryConfig;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -139,18 +140,24 @@ where
 ///     flow: Dataflow to run.
 ///
 ///     input_builder: Returns input that each worker thread should
-///         process.
+///         process. If you are recovering a stateful dataflow, your
+///         code should resume from the last finalized epoch.
 ///
 ///     output_builder: Returns a callback function for each worker
 ///         thread, called with `(epoch, item)` whenever and item
 ///         passes by a capture operator on this process.
-#[pyfunction]
-#[pyo3(text_signature = "(flow, input_builder, output_builder)")]
+///
+///     recovery_config: State recovery config. See
+///         `bytewax.recovery`. If `None`, state will not be persisted.
+///
+#[pyfunction(flow, input_builder, output_builder, "*", recovery_config = "None")]
+#[pyo3(text_signature = "(flow, input_builder, output_builder, *, recovery_config)")]
 pub(crate) fn run_main(
     py: Python,
     flow: Py<Dataflow>,
     input_builder: TdPyCallable,
     output_builder: TdPyCallable,
+    recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
     let result = py.allow_threads(move || {
         std::panic::catch_unwind(|| {
@@ -161,7 +168,15 @@ pub(crate) fn run_main(
             timely::execute::execute_directly::<Result<(), String>, _>(move |worker| {
                 let (pump, probe) = Python::with_gil(|py| {
                     let flow = &flow.as_ref(py).borrow();
-                    build_dataflow(worker, py, flow, input_builder, output_builder)
+
+                    build_dataflow(
+                        worker,
+                        py,
+                        flow,
+                        input_builder,
+                        output_builder,
+                        recovery_config,
+                    )
                 })?;
 
                 worker_main(vec![pump], vec![probe], &AtomicBool::new(false), worker);
@@ -218,22 +233,35 @@ pub(crate) fn run_main(
 ///     flow: Dataflow to run.
 ///
 ///     input_builder: Returns input that each worker thread should
-///         process.
+///         process. If you are recovering a stateful dataflow, your
+///         code should resume from the last finalized epoch.
 ///
 ///     output_builder: Returns a callback function for each worker
 ///         thread, called with `(epoch, item)` whenever and item
 ///         passes by a capture operator on this process.
-///
+///         
 ///     addresses: List of host/port addresses for all processes in
 ///         this cluster (including this one).
 ///
 ///     proc_id: Index of this process in cluster; starts from 0.
 ///
+///     recovery_config: State recovery config. See
+///         `bytewax.recovery`. If `None`, state will not be persisted.
+///
 ///     worker_count_per_proc: Number of worker threads to start on
 ///         each process.
-#[pyfunction]
+#[pyfunction(
+    flow,
+    input_builder,
+    output_builder,
+    addresses,
+    proc_id,
+    "*",
+    recovery_config = "None",
+    worker_count_per_proc = "1"
+)]
 #[pyo3(
-    text_signature = "(flow, input_builder, output_builder, addresses, proc_id, worker_count_per_proc)"
+    text_signature = "(flow, input_builder, output_builder, addresses, proc_id, *, recovery_config, worker_count_per_proc)"
 )]
 pub(crate) fn cluster_main(
     py: Python,
@@ -242,6 +270,7 @@ pub(crate) fn cluster_main(
     output_builder: TdPyCallable,
     addresses: Option<Vec<String>>,
     proc_id: usize,
+    recovery_config: Option<Py<RecoveryConfig>>,
     worker_count_per_proc: usize,
 ) -> PyResult<()> {
     py.allow_threads(move || {
@@ -269,8 +298,8 @@ pub(crate) fn cluster_main(
         let shutdown_worker_count = Arc::new(AtomicUsize::new(0));
         let shutdown_worker_count_w = shutdown_worker_count.clone();
 
-        // Panic hook is per-process, so this isn't perfect as you
-        // can't call Executor.build_and_run() concurrently.
+        // Panic hook is per-process, so this won't work if you call
+        // `cluster_main()` twice concurrently.
         let default_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             should_shutdown_p.store(true, Ordering::Relaxed);
@@ -303,7 +332,16 @@ pub(crate) fn cluster_main(
                     let flow = &flow.as_ref(py).borrow();
                     let input_builder = input_builder.clone_ref(py);
                     let output_builder = output_builder.clone_ref(py);
-                    build_dataflow(worker, py, flow, input_builder, output_builder)
+                    let recovery_config = recovery_config.clone();
+
+                    build_dataflow(
+                        worker,
+                        py,
+                        flow,
+                        input_builder,
+                        output_builder,
+                        recovery_config,
+                    )
                 })?;
 
                 worker_main(vec![pump], vec![probe], &should_shutdown_w, worker);

@@ -5,19 +5,26 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from multiprocess import get_context
 
+from bytewax.recovery import RecoveryConfig
+
 from .bytewax import cluster_main, Dataflow, run_main
 
 
-def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]:
+def run(
+    flow: Dataflow,
+    inp: Iterable[Tuple[int, Any]],
+    *,
+    recovery_config: Optional[RecoveryConfig] = None,
+) -> List[Tuple[int, Any]]:
     """Pass data through a dataflow running in the current thread.
 
     Blocks until execution is complete.
 
+    Output is collected into a list before returning, thus output must
+    be finite.
+
     Handles distributing input and collecting output. You'd commonly
     use this for tests or prototyping in notebooks.
-
-    Input must be finite, otherwise collected output will grow
-    unbounded.
 
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
@@ -30,7 +37,12 @@ def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]
 
         flow: Dataflow to run.
 
-        inp: Input data.
+        inp: Input data. If you are recovering a stateful dataflow,
+            your input should resume from the last finalized epoch.
+
+        recovery_config: State recovery config. See
+            `bytewax.recovery`. If `None`, state will not be
+            persisted.
 
     Returns:
 
@@ -40,7 +52,8 @@ def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]
 
     def input_builder(worker_index, worker_count):
         assert worker_index == 0
-        return inp
+        for epoch_item in inp:
+            yield epoch_item
 
     out = []
 
@@ -48,7 +61,12 @@ def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -> List[Tuple[int, Any]]
         assert worker_index == 0
         return out.append
 
-    run_main(flow, input_builder, output_builder)
+    run_main(
+        flow,
+        input_builder,
+        output_builder,
+        recovery_config=recovery_config,
+    )
 
     return out
 
@@ -61,6 +79,8 @@ def spawn_cluster(
     flow: Dataflow,
     input_builder: Callable[[int, int], Iterable[Tuple[int, Any]]],
     output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]],
+    *,
+    recovery_config: Optional[RecoveryConfig] = None,
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
     mp_ctx=get_context("spawn"),
@@ -104,11 +124,16 @@ def spawn_cluster(
         flow: Dataflow to run.
 
         input_builder: Returns input that each worker thread should
-            process.
+            process. If you are recovering a stateful dataflow, your
+            code should resume from the last finalized epoch.
 
         output_builder: Returns a callback function for each worker
             thread, called with `(epoch, item)` whenever and item
             passes by a capture operator on this process.
+
+        recovery_config: State recovery config. See
+            `bytewax.recovery`. If `None`, state will not be
+            persisted.
 
         proc_count: Number of processes to start.
 
@@ -129,10 +154,13 @@ def spawn_cluster(
                     flow,
                     input_builder,
                     output_builder,
-                    addresses,
-                    proc_id,
-                    worker_count_per_proc,
                 ),
+                {
+                    "recovery_config": recovery_config,
+                    "addresses": addresses,
+                    "proc_id": proc_id,
+                    "worker_count_per_proc": worker_count_per_proc,
+                },
             )
             for proc_id in range(proc_count)
         ]
@@ -148,6 +176,8 @@ def spawn_cluster(
 def run_cluster(
     flow: Dataflow,
     inp: Iterable[Tuple[int, Any]],
+    *,
+    recovery_config: Optional[RecoveryConfig] = None,
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
     mp_ctx=get_context("spawn"),
@@ -157,16 +187,14 @@ def run_cluster(
 
     Blocks until execution is complete.
 
+    Both input and output are collected into lists, thus both must be
+    finite.
+
     Starts up cluster processes for you, handles connecting them
     together, distributing input, and collecting output. You'd
     commonly use this for notebook analysis that needs parallelism and
     higher throughput, or simple stand-alone demo programs.
 
-    Input must be finite because it is reified into a list before
-    distribution to cluster and otherwise collected output will grow
-    unbounded.
-
-    >>> from bytewax.testing import doctest_ctx
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
     >>> flow.capture()
@@ -189,7 +217,13 @@ def run_cluster(
         flow: Dataflow to run.
 
         inp: Input data. Will be reifyied to a list before sending to
-            processes. Will be partitioned between workers for you.
+            processes. Will be partitioned between workers for you. If
+            you are recovering a stateful dataflow, your input should
+            resume from the last finalized epoch.
+
+        recovery_config: State recovery config. See
+            `bytewax.recovery`. If `None`, state will not be
+            persisted.
 
         proc_count: Number of processes to start.
 
@@ -223,9 +257,10 @@ def run_cluster(
             flow,
             input_builder,
             output_builder,
-            proc_count,
-            worker_count_per_proc,
-            mp_ctx,
+            recovery_config=recovery_config,
+            proc_count=proc_count,
+            worker_count_per_proc=worker_count_per_proc,
+            mp_ctx=mp_ctx,
         )
 
         # We have to copy out the shared state before process
