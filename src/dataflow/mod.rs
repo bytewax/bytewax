@@ -1,28 +1,7 @@
-use crate::operators::build;
-use crate::operators::check_complete;
-use crate::operators::stateful_map;
-use crate::operators::Reduce;
-use crate::recovery::NoOpRecoveryStore;
-use crate::recovery::RecoveryConfig;
-use crate::recovery::RecoveryStore;
-use crate::recovery::SqliteRecoveryConfig;
-use crate::recovery::SqliteRecoveryStore;
+use crate::pyo3_extensions::TdPyCallable;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
-
-use std::collections::HashMap;
-use timely::dataflow::*;
-
-use timely::dataflow::operators::aggregation::*;
-use timely::dataflow::operators::*;
-
-use crate::execution::Pump;
-use crate::operators::{
-    capture, filter, flat_map, inspect, inspect_epoch, map, reduce, reduce_epoch,
-    reduce_epoch_local, StatefulMap,
-};
-use crate::pyo3_extensions::{hash, lift_2tuple, wrap_2tuple, TdPyAny, TdPyCallable, TdPyIterator};
 
 /// A definition of a Bytewax dataflow graph.
 ///
@@ -35,7 +14,7 @@ use crate::pyo3_extensions::{hash, lift_2tuple, wrap_2tuple, TdPyAny, TdPyCallab
 #[pyclass(module = "bytewax")] // Required to support pickling.
 #[pyo3(text_signature = "()")]
 pub(crate) struct Dataflow {
-    steps: Vec<Step>,
+    pub steps: Vec<Step>,
 }
 
 #[pymethods]
@@ -588,161 +567,6 @@ impl ToPyObject for Step {
         }
         .into()
     }
-}
-
-pub(crate) fn build_dataflow<A>(
-    timely_worker: &mut timely::worker::Worker<A>,
-    py: Python,
-    flow: &Dataflow,
-    input_builder: TdPyCallable,
-    output_builder: TdPyCallable,
-    recovery_config: Option<Py<RecoveryConfig>>,
-) -> Result<(Pump, ProbeHandle<u64>), String>
-where
-    A: timely::communication::Allocate,
-{
-    let worker_index = timely_worker.index();
-    let worker_count = timely_worker.peers();
-
-    timely_worker.dataflow(|scope| {
-        let mut timely_input = InputHandle::new();
-        let mut end_of_steps_probe = ProbeHandle::new();
-        let mut has_capture = false;
-        let mut stream = timely_input.to_stream(scope);
-
-        let worker_input: TdPyIterator = input_builder
-            .call1(py, (worker_index, worker_count))
-            .unwrap()
-            .extract(py)
-            .unwrap();
-        let worker_output: TdPyCallable = output_builder
-            .call1(py, (worker_index, worker_count))
-            .unwrap()
-            .extract(py)
-            .unwrap();
-
-        let recovery_store: Box<dyn RecoveryStore> = match recovery_config {
-            None => Box::new(NoOpRecoveryStore::new()),
-            Some(recovery_config) => {
-                let recovery_config = recovery_config.as_ref(py);
-                if let Ok(sqlite_recovery_config) =
-                    recovery_config.downcast::<PyCell<SqliteRecoveryConfig>>()
-                {
-                    let sqlite_recovery_config = sqlite_recovery_config.borrow();
-                    Box::new(SqliteRecoveryStore::new(sqlite_recovery_config))
-                } else {
-                    let pytype = recovery_config.get_type();
-                    return Err(format!("Unknown recovery_config type: {pytype}"));
-                }
-            }
-        };
-
-        let steps = &flow.steps;
-        for step in steps {
-            match step {
-                Step::Map { mapper } => {
-                    // All these closure lifetimes are static, so tell
-                    // Python's GC that there's another pointer to the
-                    // mapping function that's going to hang around
-                    // for a while when it's moved into the closure.
-                    let mapper = mapper.clone_ref(py);
-                    stream = stream.map(move |item| map(&mapper, item));
-                }
-                Step::FlatMap { mapper } => {
-                    let mapper = mapper.clone_ref(py);
-                    stream = stream.flat_map(move |item| flat_map(&mapper, item));
-                }
-                Step::Filter { predicate } => {
-                    let predicate = predicate.clone_ref(py);
-                    stream = stream.filter(move |item| filter(&predicate, item));
-                }
-                Step::Inspect { inspector } => {
-                    let inspector = inspector.clone_ref(py);
-                    stream = stream.inspect(move |item| inspect(&inspector, item));
-                }
-                Step::InspectEpoch { inspector } => {
-                    let inspector = inspector.clone_ref(py);
-                    stream = stream
-                        .inspect_time(move |epoch, item| inspect_epoch(&inspector, epoch, item));
-                }
-                Step::Reduce {
-                    step_id,
-                    reducer,
-                    is_complete,
-                } => {
-                    let reducer = reducer.clone_ref(py);
-                    let is_complete = is_complete.clone_ref(py);
-                    stream = stream
-                        .map(lift_2tuple)
-                        .reduce(
-                            recovery_store.for_step(step_id),
-                            move |key, aggregator, value| reduce(&reducer, key, aggregator, value),
-                            move |key, aggregator| check_complete(&is_complete, key, aggregator),
-                            hash,
-                        )
-                        .map(wrap_2tuple);
-                }
-                Step::ReduceEpoch { reducer } => {
-                    let reducer = reducer.clone_ref(py);
-                    stream = stream.map(lift_2tuple).aggregate(
-                        move |key, value, aggregator: &mut Option<TdPyAny>| {
-                            reduce_epoch(&reducer, aggregator, key, value);
-                        },
-                        move |key, aggregator: Option<TdPyAny>| {
-                            // Aggregator will only exist for keys
-                            // that exist, so it will have been filled
-                            // into Some(value) above.
-                            wrap_2tuple((key, aggregator.unwrap()))
-                        },
-                        hash,
-                    );
-                }
-                Step::ReduceEpochLocal { reducer } => {
-                    let reducer = reducer.clone_ref(py);
-                    stream = stream
-                        .map(lift_2tuple)
-                        .accumulate(
-                            HashMap::new(),
-                            move |aggregators, all_key_value_in_epoch| {
-                                reduce_epoch_local(&reducer, aggregators, &all_key_value_in_epoch);
-                            },
-                        )
-                        .flat_map(|aggregators| aggregators.into_iter().map(wrap_2tuple));
-                }
-                Step::StatefulMap {
-                    step_id,
-                    builder,
-                    mapper,
-                } => {
-                    let builder = builder.clone_ref(py);
-                    let mapper = mapper.clone_ref(py);
-                    stream = stream
-                        .map(lift_2tuple)
-                        .stateful_map(
-                            recovery_store.for_step(step_id),
-                            move |key| build(&builder, key),
-                            move |key, state, value| stateful_map(&mapper, key, state, value),
-                            hash,
-                        )
-                        .map(wrap_2tuple);
-                }
-                Step::Capture {} => {
-                    let worker_output = worker_output.clone_ref(py);
-                    stream
-                        .inspect_time(move |epoch, item| capture(&worker_output, epoch, item))
-                        .probe_with(&mut end_of_steps_probe);
-                    has_capture = true;
-                }
-            }
-        }
-
-        if has_capture {
-            let pump = Pump::new(worker_input, timely_input);
-            Ok((pump, end_of_steps_probe))
-        } else {
-            Err("Dataflow needs to contain at least one capture".into())
-        }
-    })
 }
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
