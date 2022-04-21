@@ -22,7 +22,7 @@ use crate::pyo3_extensions::{
 /// Use the methods defined on this class to add steps with operators
 /// of the same name.
 ///
-/// See the execution functions in the `bytewax` to run.
+/// See the execution functions in `bytewax` to run.
 ///
 /// TODO: Right now this is just a linear dataflow only.
 #[pyclass(module = "bytewax")] // Required to support pickling.
@@ -51,21 +51,63 @@ impl Dataflow {
 
     /// Map is a one-to-one transformation of items.
     ///
-    /// It calls a function `mapper(item: Any) => updated_item: Any`
-    /// on each item.
+    /// It calls a **mapper** function on each item.
     ///
     /// It emits each updated item downstream.
+    ///
+    /// It is commonly used for:
+    ///
+    /// - Extracting keys
+    /// - Turning JSON into objects
+    /// - So many things
+    ///
+    /// >>> def add_one(item):
+    /// ...     return item + 10
+    /// >>> flow = Dataflow()
+    /// >>> flow.map(add_one)
+    /// >>> flow.capture()
+    /// >>> inp = enumerate(range(3))
+    /// >>> for epoch, item in run(flow, inp):
+    /// ...     print(item)
+    /// 10
+    /// 11
+    /// 12
+    ///
+    /// Args:
+    ///
+    ///     mapper - `mapper(item: Any) => updated_item: Any`
     #[pyo3(text_signature = "(self, mapper)")]
     fn map(&mut self, mapper: TdPyCallable) {
         self.steps.push(Step::Map { mapper });
     }
 
-    /// Flat Map is a one-to-many transformation of items.
+    /// Flat map is a one-to-many transformation of items.
     ///
-    /// It calls a function `mapper(item: Any) => emit: Iterable[Any]`
-    /// on each item.
+    /// It calls a **mapper** function on each item.
     ///
-    /// It emits each element in the downstream iterator individually.
+    /// It emits each element in the returned iterator individually
+    /// downstream in the epoch of the input item.
+    ///
+    /// It is commonly used for:
+    ///
+    /// - Tokenizing
+    /// - Flattening hierarchical objects
+    /// - Breaking up aggregations for further processing
+    ///
+    /// >>> def split_into_words(sentence):
+    /// ...     return sentence.split()
+    /// >>> flow = Dataflow()
+    /// >>> flow.flat_map(split_into_words)
+    /// >>> flow.capture()
+    /// >>> inp = enumerate(["hello world"])
+    /// >>> for epoch, item in run(flow, inp):
+    /// ...     print(epoch, item)
+    /// 0 hello
+    /// 0 world
+    ///
+    /// Args:
+    ///
+    ///     mapper - `mapper(item: Any) => emit: Iterable[Any]`
     #[pyo3(text_signature = "(self, mapper)")]
     fn flat_map(&mut self, mapper: TdPyCallable) {
         self.steps.push(Step::FlatMap { mapper });
@@ -73,11 +115,32 @@ impl Dataflow {
 
     /// Filter selectively keeps only some items.
     ///
-    /// It calls a function `predicate(item: Any) => should_emit:
-    /// bool` on each item.
+    /// It calls a **predicate** function on each item.
     ///
     /// It emits the item downstream unmodified if the predicate
     /// returns `True`.
+    ///
+    /// It is commonly used for:
+    ///
+    /// - Selecting relevant events
+    /// - Removing empty events
+    /// - Removing sentinels
+    /// - Removing stop words
+    ///
+    /// >>> def is_odd(item):
+    /// ...     return item % 2 != 0
+    /// >>> flow = Dataflow()
+    /// >>> flow.filter(is_odd)
+    /// >>> flow.capture()
+    /// >>> inp = enumerate(range(3))
+    /// >>> for epoch, item in run(flow, inp):
+    /// ...    print(item)
+    /// 1
+    /// 3
+    ///
+    /// Args:
+    ///
+    ///     predicate - `predicate(item: Any) => should_emit: bool`
     #[pyo3(text_signature = "(self, predicate)")]
     fn filter(&mut self, predicate: TdPyCallable) {
         self.steps.push(Step::Filter { predicate });
@@ -85,24 +148,54 @@ impl Dataflow {
 
     /// Inspect allows you to observe, but not modify, items.
     ///
-    /// It calls a function `inspector(item: Any) => None` on each
-    /// item.
+    /// It calls an **inspector** callback on each item.
     ///
-    /// The return value is ignored; it emits items downstream
-    /// unmodified.
+    /// It emits items downstream unmodified.
+    ///
+    /// It is commonly used for debugging.
+    ///
+    /// >>> def log(item):
+    /// ...     print("Saw", item)
+    /// >>> flow = Dataflow()
+    /// >>> flow.inspect(log)
+    /// >>> flow.capture()
+    /// >>> inp = enumerate(range(3))
+    /// >>> for epoch, item in run(flow, inp):
+    /// ...     pass  # Don't print captured output.
+    /// Saw 1
+    /// Saw 2
+    /// Saw 3
+    ///
+    /// Args:
+    ///
+    ///     inspector - `inspector(item: Any) => None`
     #[pyo3(text_signature = "(self, inspector)")]
     fn inspect(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::Inspect { inspector });
     }
 
-    /// Inspect Epoch allows you to observe, but not modify, items and
+    /// Inspect epoch allows you to observe, but not modify, items and
     /// their epochs.
     ///
-    /// It calls a function `inspector(epoch: int, item: Any) => None`
-    /// on each item with its epoch.
+    /// It calls an **inspector** function on each item with its
+    /// epoch.
     ///
-    /// The return value is ignored; it emits items downstream
-    /// unmodified.
+    /// It emits items downstream unmodified.
+    ///
+    /// It is commonly used for debugging.
+    ///
+    /// >>> def log(epoch, item):
+    /// ...    print(f"Saw {item} @ {epoch}")
+    /// >>> flow = Dataflow()
+    /// >>> flow.inspect_epoch(log)
+    /// >>> flow.capture()
+    /// >>> inp = enumerate(range(3))
+    /// >>> for epoch, item in run(flow, inp):
+    /// ...    pass  # Don't print captured output.
+    ///
+    /// Args:
+    ///
+    ///     inspector - `inspector(epoch: int, item: Any) => None`
     #[pyo3(text_signature = "(self, inspector)")]
     fn inspect_epoch(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::InspectEpoch { inspector });
@@ -111,27 +204,68 @@ impl Dataflow {
     /// Reduce lets you combine items for a key into an aggregator in
     /// epoch order.
     ///
-    /// Since this is a stateful operator, it requires the the input
-    /// stream has items that are `(key, value)` tuples so we can
-    /// ensure that all relevant values are routed to the relevant
-    /// aggregator.
+    /// It is a stateful operator. It requires the the input stream
+    /// has items that are `(key, value)` tuples so we can ensure that
+    /// all relevant values are routed to the relevant aggregator.
+    ///
+    /// It is a recoverable operator. It requires a step ID to recover
+    /// the correct state.
     ///
     /// It calls two functions:
     ///
-    /// - A `reducer(aggregator: Any, value: Any) =>
-    /// updated_aggregator: Any` which combines two values. The
-    /// aggregator is initially the first value seen for a key. Values
-    /// will be passed in epoch order, but no order is defined within
-    /// an epoch.
+    /// - A **reducer** which combines a new value with an
+    /// aggregator. The aggregator is initially the first value seen
+    /// for a key. Values will be passed in epoch order, but no order
+    /// is defined within an epoch. If there is only a single value
+    /// for a key since the last completion, this function will not be
+    /// called.
     ///
-    /// - An `is_complete(updated_aggregator: Any) => should_emit: bool` which
-    /// returns true if the most recent `(key, aggregator)` should be
-    /// emitted downstream and the aggregator for that key
-    /// forgotten. If there was only a single value for a key, it is
-    /// passed in as the aggregator here.
+    /// - An **is complete** function which returns `True` if the most
+    /// recent `(key, aggregator)` should be emitted downstream and
+    /// the aggregator for that key forgotten. If there was only a
+    /// single value for a key, it is passed in as the aggregator
+    /// here.
     ///
-    /// It emits `(key, aggregator)` tuples downstream when you tell
-    /// it to.
+    /// It emits `(key, aggregator)` tuples downstream when the is
+    /// complete function returns `True` in the epoch of the most
+    /// recent value for that key.
+    ///
+    /// It is commonly used for:
+    ///
+    /// - Sessionization
+    /// - Emitting a summary of data that spans epochs
+    ///
+    /// >>> def user_as_key(event):
+    /// ...     return event["user"], [event]
+    /// >>> def extend_session(session, events):
+    /// ...     session.extend(events)
+    /// ...     return session
+    /// >>> def session_complete(session):
+    /// ...     return any(event["type"] == "logout" for event in session)
+    /// >>> flow = Dataflow()
+    /// >>> flow.map(user_as_key)
+    /// >>> flow.inspect_epoch(lambda epoch, item: print("Saw", item, "@", epoch))
+    /// >>> flow.reduce(extend_session, session_complete)
+    /// >>> flow.capture()
+    /// >>> inp = [
+    /// ...     (0, {"user": "a", "type": "login"}),
+    /// ...     (1, {"user": "a", "type": "post"}),
+    /// ...     (1, {"user": "b", "type": "login"}),
+    /// ...     (2, {"user": "a", "type": "logout"}),
+    /// ...     (3, {"user": "b", "type": "logout"}),
+    /// ... ]
+    /// >>> for epoch, item in run(flow, inp):
+    /// ...     print(epoch, item)
+    ///
+    /// Args:
+    ///
+    ///     step_id - Uniquely identifies this step for recovery.
+    ///
+    ///     reducer - `reducer(aggregator: Any, value: Any) =>
+    ///         updated_aggregator: Any`
+    ///
+    ///     is_complete - `is_complete(updated_aggregator: Any) =>
+    ///         should_emit: bool`
     #[pyo3(text_signature = "(self, reducer, is_complete)")]
     fn reduce(&mut self, reducer: TdPyCallable, is_complete: TdPyCallable) {
         self.steps.push(Step::Reduce {
@@ -140,80 +274,181 @@ impl Dataflow {
         });
     }
 
-    /// Reduce Epoch lets you combine all items for a key within an
+    /// Reduce epoch lets you combine all items for a key within an
     /// epoch into an aggregator.
     ///
-    /// This is like `reduce` but marks the aggregator as complete
-    /// automatically at the end of each epoch.
+    /// It is like `bytewax.Dataflow.reduce()` but marks the
+    /// aggregator as complete automatically at the end of each epoch.
     ///
-    /// Since this is a stateful operator, it requires the the input
-    /// stream has items that are `(key, value)` tuples so we can
-    /// ensure that all relevant values are routed to the relevant
-    /// aggregator.
+    /// It is a stateful operator. it requires the the input stream
+    /// has items that are `(key, value)` tuples so we can ensure that
+    /// all relevant values are routed to the relevant aggregator.
     ///
-    /// It calls a function `reducer(aggregator: Any, value: Any) =>
-    /// updated_aggregator: Any` which combines two values. The
+    /// It calls a **reducer** function which combines two values. The
     /// aggregator is initially the first value seen for a key. Values
-    /// will be passed in arbitrary order.
+    /// will be passed in arbitrary order. If there is only a single
+    /// value for a key in this epoch, this function will not be
+    /// called.
     ///
     /// It emits `(key, aggregator)` tuples downstream at the end of
     /// each epoch.
+    ///
+    /// It is commonly used for:
+    ///
+    /// - Counting within epochs
+    /// - Aggregation within epochs
+    ///
+    /// >>> def add_initial_count(event):
+    /// ...     return event["user"], 1
+    /// >>> def count(count, event_count):
+    /// ...     return count + event_count
+    /// >>> flow = Dataflow()
+    /// >>> flow.map(add_initial_count)
+    /// >>> flow.inspect_epoch(lambda epoch, item: print("Saw", item, "@", epoch))
+    /// >>> flow.reduce_epoch(count)
+    /// >>> flow.capture()
+    /// >>> inp = [
+    /// ...     (0, {"user": "a", "type": "login"}),
+    /// ...     (0, {"user": "a", "type": "post"}),
+    /// ...     (0, {"user": "b", "type": "login"}),
+    /// ...     (1, {"user": "b", "type": "post"}),
+    /// ... ]
+    /// >>> for epoch, item in run(flow, inp):
+    /// ...     print(epoch, item)
+    /// Saw ('a', 1) @ 0
+    /// Saw ('b', 1) @ 0
+    /// Saw ('a', 1) @ 0
+    /// Saw ('b', 1) @ 1
+    /// 0 ('b', 1)
+    /// 0 ('a', 2)
+    /// 1 ('b', 1)
+    ///
+    /// Args:
+    ///
+    ///     reducer - `reducer(aggregator: Any, value: Any) =>
+    ///         updated_aggregator: Any`
     #[pyo3(text_signature = "(self, reducer)")]
     fn reduce_epoch(&mut self, reducer: TdPyCallable) {
         self.steps.push(Step::ReduceEpoch { reducer });
     }
 
-    /// Reduce Epoch Local lets you combine all items for a key within
+    /// Reduce epoch local lets you combine all items for a key within
     /// an epoch _on a single worker._
     ///
-    /// It is exactly like `reduce_epoch` but does no internal
-    /// exchange between workers. You'll probably should use that
-    /// instead unless you are using this as a network-overhead
-    /// optimization.
+    /// It is exactly like `bytewax.Dataflow.reduce_epoch()` but does
+    /// _not_ ensure all values for a key are routed to the same
+    /// worker and thus there is only one output aggregator per key.
+    ///
+    /// You should use `bytewax.Dataflow.reduce_epoch()` unless you
+    /// need a network-overhead optimization and some later step does
+    /// full aggregation.
+    ///
+    /// It is only used for performance optimziation.
+    ///
+    /// Args:
+    ///
+    ///     reducer - `reducer(aggregator: Any, value: Any) =>
+    ///         updated_aggregator: Any`
     #[pyo3(text_signature = "(self, reducer)")]
     fn reduce_epoch_local(&mut self, reducer: TdPyCallable) {
         self.steps.push(Step::ReduceEpochLocal { reducer });
     }
 
-    /// Stateful Map is a one-to-one transformation of values in
+    /// Stateful map is a one-to-one transformation of values in
     /// `(key, value)` pairs, but allows you to reference a persistent
     /// state for each key when doing the transformation.
     ///
-    /// Since this is a stateful operator, it requires the the input
-    /// stream has items that are `(key, value)` tuples so we can
-    /// ensure that all relevant values are routed to the relevant
-    /// state.
+    /// It is a stateful operator. It requires the the input stream
+    /// has items that are `(key, value)` tuples so we can ensure that
+    /// all relevant values are routed to the relevant state.
+    ///
+    /// It is a recoverable operator. It requires a step ID to recover
+    /// the correct state.
     ///
     /// It calls two functions:
     ///
-    /// - A `builder(key: Any) => new_state: Any` which returns a
-    /// new state and will be called whenever a new key is encountered
-    /// with the key as a parameter.
+    /// - A **builder** which returns a new state and will be called
+    /// whenever a new key is encountered with the key as a parameter.
     ///
-    /// - A `mapper(state: Any, value: Any) => (updated_state: Any,
-    /// updated_value: Any)` which transforms values. Values will be
-    /// passed in epoch order, but no order is defined within an
-    /// epoch. If the updated state is `None`, the state will be
-    /// forgotten.
+    /// - A **mapper** which transforms values. Values will be passed
+    /// in epoch order, but no order is defined within an epoch. If
+    /// the updated state is `None`, the state will be forgotten.
     ///
     /// It emits a `(key, updated_value)` tuple downstream for each
     /// input item.
+    ///
+    /// It is commonly used for:
+    ///
+    /// - Anomaly detection
+    /// - State machines
+    ///
+    /// >>> def self_as_key(item):
+    /// ...     return item, item
+    /// >>> def build_count(key):
+    /// ...     return 0
+    /// >>> def check(running_count, item):
+    /// ...     running_count += 1
+    /// ...     if running_count == 1:
+    /// ...         return running_count, item
+    /// ...     else:
+    /// ...         return running_count, None
+    /// >>> def remove_none_and_key(key_item):
+    /// ...     key, item = key_item
+    /// ...     if item is None:
+    /// ...         return []
+    /// ...     else:
+    /// ...         return [item]
+    /// >>> flow = Dataflow()
+    /// >>> flow.map(self_as_key)
+    /// >>> flow.stateful_map(build_count, check)
+    /// >>> flow.flat_map(remove_none_and_key)
+    /// >>> flow.capture()
+    /// >>> inp = [
+    /// ...     (0, "a"),
+    /// ...     (0, "a"),
+    /// ...     (0, "a"),
+    /// ...     (1, "a"),
+    /// ...     (1, "b"),
+    /// ... ]
+    /// >>> for epoch, item in run(flow, inp):
+    /// ...     print(epoch, item)
+    /// 0 a
+    /// 1 b
+    ///
+    /// Args:
+    ///
+    ///     step_id -  Uniquely identifies this step for recovery.
+    ///
+    ///     builder - `builder(key: Any) => new_state: Any`
+    ///
+    ///     mapper - `mapper(state: Any, value: Any) =>
+    ///         (updated_state: Any, updated_value: Any)`
     #[pyo3(text_signature = "(self, builder, mapper)")]
     fn stateful_map(&mut self, builder: TdPyCallable, mapper: TdPyCallable) {
         self.steps.push(Step::StatefulMap { builder, mapper });
     }
 
-    /// Capture causes all `(epoch, item)` tuples that pass by this
-    /// point in the Dataflow to be passed to the Dataflow's output
-    /// handler.
+    /// Capture is how you specify output of a dataflow.
     ///
-    /// Every dataflow must contain at least one capture.
+    /// At least one capture is required on every dataflow.
     ///
-    /// If you use this operator multiple times, the results will be
-    /// combined.
+    /// It emits items downstream unmodified; you can capture midway
+    /// through a dataflow.
+    ///
+    /// Whenever an item flows into a capture operator, the [output
+    /// handler](./execution#builders) of the worker is called with
+    /// that item and epoch. For `bytewax.run()` and
+    /// `bytewax.run_cluster()` output handlers are setup for you that
+    /// return the output as the return value.
     ///
     /// There are no guarantees on the order that output is passed to
-    /// the handler. Read the attached epoch to discern order.
+    /// the output handler. Read the attached epoch to discern order.
+    ///
+    /// >>> flow = Dataflow()
+    /// >>> flow.capture()
+    /// >>> inp = enumerate(range(3))
+    /// >>> sorted(run(flow, inp))
+    /// [(0, 0), (1, 1), (2, 2)]
     #[pyo3(text_signature = "(self)")]
     fn capture(&mut self) {
         self.steps.push(Step::Capture {});
