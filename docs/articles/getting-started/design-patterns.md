@@ -18,6 +18,9 @@ The following sets of examples are equivalent.
 For flat map:
 
 ```python
+from bytewax import Dataflow, run
+
+
 def split_sentence(sentence):
     return sentence.split()
 
