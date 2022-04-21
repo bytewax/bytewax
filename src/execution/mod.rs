@@ -26,10 +26,8 @@ use crate::operators::{
 };
 use crate::pyo3_extensions::{hash, lift_2tuple, wrap_2tuple};
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
-use crate::recovery::NoOpRecoveryStore;
-use crate::recovery::RecoveryStore;
-use crate::recovery::SqliteRecoveryConfig;
-use crate::recovery::SqliteRecoveryStore;
+use crate::recovery::build_recovery_store;
+use crate::with_traceback;
 use std::collections::HashMap;
 
 pub(crate) fn build_dataflow<A>(
@@ -63,21 +61,7 @@ where
             .extract(py)
             .unwrap();
 
-        let recovery_store: Box<dyn RecoveryStore> = match recovery_config {
-            None => Box::new(NoOpRecoveryStore::new()),
-            Some(recovery_config) => {
-                let recovery_config = recovery_config.as_ref(py);
-                if let Ok(sqlite_recovery_config) =
-                    recovery_config.downcast::<PyCell<SqliteRecoveryConfig>>()
-                {
-                    let sqlite_recovery_config = sqlite_recovery_config.borrow();
-                    Box::new(SqliteRecoveryStore::new(sqlite_recovery_config))
-                } else {
-                    let pytype = recovery_config.get_type();
-                    return Err(format!("Unknown recovery_config type: {pytype}"));
-                }
-            }
-        };
+        let recovery_store = build_recovery_store(py, recovery_config)?;
 
         let steps = &flow.steps;
         for step in steps {

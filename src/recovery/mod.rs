@@ -133,6 +133,27 @@ pub(crate) trait StepRecovery<T, K, D> {
     fn save_complete(&self, completed_epoch: &T, key: &K, state: &Option<D>) -> ();
 }
 
+pub(crate) fn build_recovery_store(
+    py: Python,
+    recovery_config: Option<Py<RecoveryConfig>>,
+) -> Result<Box<dyn RecoveryStore>, String> {
+    match recovery_config {
+        None => Ok(Box::new(NoOpRecoveryStore::new())),
+        Some(recovery_config) => {
+            let recovery_config = recovery_config.as_ref(py);
+            if let Ok(sqlite_recovery_config) =
+                recovery_config.downcast::<PyCell<SqliteRecoveryConfig>>()
+            {
+                let sqlite_recovery_config = sqlite_recovery_config.borrow();
+                Ok(Box::new(SqliteRecoveryStore::new(sqlite_recovery_config)))
+            } else {
+                let pytype = recovery_config.get_type();
+                Err(format!("Unknown recovery_config type: {pytype}"))
+            }
+        }
+    }
+}
+
 /// A recovery store which does nothing.
 ///
 /// Saves are dropped and all recoveries result in "not found".
