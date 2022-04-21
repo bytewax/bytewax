@@ -83,8 +83,8 @@ impl Pump {
     fn pump(&mut self) {
         Python::with_gil(|py| {
             let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
-            if let Some(input_action) = pull_from_pyiter.next() {
-                match input_action {
+            if let Some(input_or_action) = pull_from_pyiter.next() {
+                match input_or_action {
                     Ok(item) => {
                         if let Ok(send) = item.downcast::<PyCell<Emit>>() {
                             self.push_to_timely.send(send.borrow().item.clone());

@@ -15,7 +15,7 @@ from typing import Any, Callable, Iterable, Tuple
 
 def yield_epochs(fn: Callable):
     """A decorator function to unwrap an iterator of [epoch, item]
-    into successive `AdvanceTo` and `Send` classes with the
+    into successive `AdvanceTo` and `Emit` classes with the
     contents of the iterator.
 
     Use this when you have an input_builder function that returns
