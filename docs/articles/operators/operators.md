@@ -262,6 +262,7 @@ Inspect epoch is pervasive and used in many examples as a debugging tool.
 
 ```
 Dataflow.reduce(
+    step_id: str,
     reducer: Callable[[Any, Any], Any],
     is_complete: Callable[[Any], bool],
 )
@@ -300,7 +301,7 @@ def session_complete(session):
 flow = Dataflow()
 flow.map(user_as_key)
 flow.inspect_epoch(lambda epoch, item: print("Saw", item, "@", epoch))
-flow.reduce(extend_session, session_complete)
+flow.reduce("sessionizer", extend_session, session_complete)
 flow.capture()
 
 
@@ -427,6 +428,7 @@ You should prefer [reduce epoch](#reduce-epoch) over this operator unless you ne
 
 ```
 Dataflow.stateful_map(
+    step_id: str,
     builder: Callable[[], Any],
     mapper: Callable[[Any, Any], Any],
 )
@@ -473,7 +475,7 @@ def remove_none_and_key(key_item):
 
 flow = Dataflow()
 flow.map(self_as_key)
-flow.stateful_map(build_count, check)
+flow.stateful_map("counter", build_count, check)
 flow.flat_map(remove_none_and_key)
 flow.capture()
 
