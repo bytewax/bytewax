@@ -15,10 +15,45 @@
 Use these to wrap an existing iterator which yields items.
 
 &#34;&#34;&#34;
+
 import datetime
 import heapq
+
+from .bytewax import AdvanceTo, Emit
+
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Tuple
+
+
+def yield_epochs(fn: Callable):
+    &#34;&#34;&#34;A decorator function to unwrap an iterator of [epoch, item]
+    into successive `AdvanceTo` and `Emit` classes with the
+    contents of the iterator.
+
+    Use this when you have an input_builder function that returns
+    a generator of (epoch, item) to be used with `cluster_main` or
+    `spawn_cluster`:
+
+    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+    &gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; @yield_epochs
+    ... def input_builder(i, n):
+    ...   return fully_ordered([&#34;a&#34;, &#34;b&#34;, &#34;c&#34;])
+    &gt;&gt;&gt; cluster_main(flow, input_builder, lambda i, n: print, [], 0, 1)
+    (0, &#39;a&#39;)
+    (1, &#39;b&#39;)
+    (2, &#39;c&#39;)
+    &#34;&#34;&#34;
+
+    def inner_fn(worker_index, worker_count):
+        gen = fn(worker_index, worker_count)
+        for (epoch, item) in gen:
+            yield AdvanceTo(epoch)
+            yield Emit(item)
+
+    return inner_fn
 
 
 def single_batch(wrap_iter: Iterable) -&gt; Iterable[Tuple[int, Any]]:
@@ -746,6 +781,63 @@ This can be used for continuity during processing.</dd>
         yield (epoch, item)</code></pre>
 </details>
 </dd>
+<dt id="bytewax.inputs.yield_epochs"><code class="language-python name flex">
+<span>def <span class="ident">yield_epochs</span></span>(<span>fn: Callable)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>A decorator function to unwrap an iterator of [epoch, item]
+into successive <code>AdvanceTo</code> and <code>Emit</code> classes with the
+contents of the iterator.</p>
+<p>Use this when you have an input_builder function that returns
+a generator of (epoch, item) to be used with <code>cluster_main</code> or
+<code>spawn_cluster</code>:</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+&gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; @yield_epochs
+... def input_builder(i, n):
+...   return fully_ordered([&quot;a&quot;, &quot;b&quot;, &quot;c&quot;])
+&gt;&gt;&gt; cluster_main(flow, input_builder, lambda i, n: print, [], 0, 1)
+(0, 'a')
+(1, 'b')
+(2, 'c')
+</code></pre></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def yield_epochs(fn: Callable):
+    &#34;&#34;&#34;A decorator function to unwrap an iterator of [epoch, item]
+    into successive `AdvanceTo` and `Emit` classes with the
+    contents of the iterator.
+
+    Use this when you have an input_builder function that returns
+    a generator of (epoch, item) to be used with `cluster_main` or
+    `spawn_cluster`:
+
+    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+    &gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; @yield_epochs
+    ... def input_builder(i, n):
+    ...   return fully_ordered([&#34;a&#34;, &#34;b&#34;, &#34;c&#34;])
+    &gt;&gt;&gt; cluster_main(flow, input_builder, lambda i, n: print, [], 0, 1)
+    (0, &#39;a&#39;)
+    (1, &#39;b&#39;)
+    (2, &#39;c&#39;)
+    &#34;&#34;&#34;
+
+    def inner_fn(worker_index, worker_count):
+        gen = fn(worker_index, worker_count)
+        for (epoch, item) in gen:
+            yield AdvanceTo(epoch)
+            yield Emit(item)
+
+    return inner_fn</code></pre>
+</details>
+</dd>
 </dl>
 </section>
 <section>
@@ -775,6 +867,7 @@ bytewax
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.single_batch" href="#bytewax.inputs.single_batch">single_batch</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.sorted_window" href="#bytewax.inputs.sorted_window">sorted_window</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.tumbling_epoch" href="#bytewax.inputs.tumbling_epoch">tumbling_epoch</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.yield_epochs" href="#bytewax.inputs.yield_epochs">yield_epochs</a></li>
 </ul>
 </li>
 </ul>

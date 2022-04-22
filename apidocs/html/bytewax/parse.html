@@ -103,10 +103,13 @@ def proc_env(env: Dict[str, str] = os.environ) -&gt; Dict[str, Any]:
       E.g. `cluster_name-0` and `cluster_name` and we will calculate
       the process ID from that.
 
-    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main, AdvanceTo, Emit
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; ib = lambda i, n: enumerate(range(3))
+    &gt;&gt;&gt; def ib(i, n):
+    ...   for epoch, item in enumerate(range(3)):
+    ...     yield AdvanceTo(epoch)
+    ...     yield Emit(item)
     &gt;&gt;&gt; ob = lambda i, n: print
     &gt;&gt;&gt; env = {
     ...     &#34;BYTEWAX_ADDRESSES&#34;: &#34;localhost:2101&#34;,
@@ -156,10 +159,13 @@ def proc_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
     See documentation for `bytewax.cluster_main()` for semantics of
     these variables.
 
-    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main, AdvanceTo, Emit
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; ib = lambda i, n: enumerate(range(3))
+    &gt;&gt;&gt; def ib(i, n):
+    ...   for epoch, item in enumerate(range(3)):
+    ...     yield AdvanceTo(epoch)
+    ...     yield Emit(item)
     &gt;&gt;&gt; ob = lambda i, n: print
     &gt;&gt;&gt; args = &#34;-w2 -p0 -a localhost:2101&#34;.split()
     &gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS
@@ -309,10 +315,13 @@ these variables.</p>
 cluster.</p>
 <p>See documentation for <code><a title="bytewax.cluster_main" href="index.html#bytewax.cluster_main">cluster_main()</a></code> for semantics of
 these variables.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main, AdvanceTo, Emit
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.capture()
-&gt;&gt;&gt; ib = lambda i, n: enumerate(range(3))
+&gt;&gt;&gt; def ib(i, n):
+...   for epoch, item in enumerate(range(3)):
+...     yield AdvanceTo(epoch)
+...     yield Emit(item)
 &gt;&gt;&gt; ob = lambda i, n: print
 &gt;&gt;&gt; args = &quot;-w2 -p0 -a localhost:2101&quot;.split()
 &gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS
@@ -337,10 +346,13 @@ these variables.</p>
     See documentation for `bytewax.cluster_main()` for semantics of
     these variables.
 
-    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main, AdvanceTo, Emit
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; ib = lambda i, n: enumerate(range(3))
+    &gt;&gt;&gt; def ib(i, n):
+    ...   for epoch, item in enumerate(range(3)):
+    ...     yield AdvanceTo(epoch)
+    ...     yield Emit(item)
     &gt;&gt;&gt; ob = lambda i, n: print
     &gt;&gt;&gt; args = &#34;-w2 -p0 -a localhost:2101&#34;.split()
     &gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS
@@ -423,10 +435,13 @@ E.g. <code>cluster_name-0</code> and <code>cluster_name</code> and we will calcu
 the process ID from that.</p>
 </li>
 </ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main, AdvanceTo, Emit
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.capture()
-&gt;&gt;&gt; ib = lambda i, n: enumerate(range(3))
+&gt;&gt;&gt; def ib(i, n):
+...   for epoch, item in enumerate(range(3)):
+...     yield AdvanceTo(epoch)
+...     yield Emit(item)
 &gt;&gt;&gt; ob = lambda i, n: print
 &gt;&gt;&gt; env = {
 ...     &quot;BYTEWAX_ADDRESSES&quot;: &quot;localhost:2101&quot;,
@@ -477,10 +492,13 @@ the process ID from that.</p>
       E.g. `cluster_name-0` and `cluster_name` and we will calculate
       the process ID from that.
 
-    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main, AdvanceTo, Emit
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; ib = lambda i, n: enumerate(range(3))
+    &gt;&gt;&gt; def ib(i, n):
+    ...   for epoch, item in enumerate(range(3)):
+    ...     yield AdvanceTo(epoch)
+    ...     yield Emit(item)
     &gt;&gt;&gt; ob = lambda i, n: print
     &gt;&gt;&gt; env = {
     ...     &#34;BYTEWAX_ADDRESSES&#34;: &#34;localhost:2101&#34;,
