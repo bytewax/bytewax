@@ -1,7 +1,15 @@
 import datetime
 
-from bytewax import Dataflow, run
-from bytewax.inputs import fully_ordered, single_batch, sorted_window, tumbling_epoch
+from unittest.mock import ANY
+
+from bytewax import Dataflow, run, AdvanceTo, Emit
+from bytewax.inputs import (
+    fully_ordered,
+    single_batch,
+    sorted_window,
+    tumbling_epoch,
+    yield_epochs,
+)
 
 
 def test_single_batch():
@@ -33,6 +41,33 @@ def test_tumbling_epoch():
         (0, {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 3), "value": "a"}),
         (0, {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 4), "value": "b"}),
         (2, {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 8), "value": "c"}),
+    ]
+
+
+def test_yield_epoch():
+    def time_getter(item):
+        return item["timestamp"]
+
+    @yield_epochs
+    def input_builder(i, n):
+        items = [
+            {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 3), "value": "a"},
+            {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 4), "value": "b"},
+            {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 8), "value": "c"},
+        ]
+        return tumbling_epoch(
+            items,
+            datetime.timedelta(seconds=2),
+            time_getter,
+        )
+
+    assert list(input_builder(0, 1)) == [
+        AdvanceTo(0),
+        ANY,
+        AdvanceTo(0),
+        ANY,
+        AdvanceTo(2),
+        ANY,
     ]
 
 

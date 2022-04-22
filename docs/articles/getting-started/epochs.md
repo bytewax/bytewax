@@ -1,6 +1,6 @@
 Now that we've seen an end-to-end example running a dataflow program, it's time to discuss epochs.
 
-To explain what an epoch represents, let's imagine an unending stream of lines that we want to count words for. If the stream has no end, we'll need to introduce another concept to decide when we want to emit the current counts of words from the stream.
+To explain what an epoch represents, let's imagine an unending stream of lines of text that we want to count words for. If the stream has no end, we'll need to introduce another concept to decide when we want to emit the current counts of words from the stream.
 
 **Epochs** are what allow us to influence ordering and batching within a dataflow. Increment the epoch when you know you need some data to be processed strictly after, or separately from the proceeding data.
 
@@ -235,4 +235,27 @@ There are some **input helpers** in the `bytewax.inputs` module which allow you 
 - **Tumbling epoch** increments the epoch every number of seconds.
 - **Fully ordered** increments the epoch every item.
 
-These allow you to conveniently assign epochs, but you can also assign them by having the input generator return tw-tuples of `(epoch, item)` like in the wordcount example.
+These allow you to conveniently assign epochs, but you can also assign them by having the input generator return two-tuples of `(epoch, item)` like in the wordcount example.
+
+## A closer look at epochs
+
+As mentioned previously, bytewax will "automatically" produce results from operators like [reduce epoch](/operators/operators#reduce-epoch) by "ending" its window of aggregation for each key at the end of each epoch. Let's look more closely at how this is accomplished, and how we can use this to control when work is done with bytewax.
+
+To do that, let's examine how `run()` works under the hood.
+
+Inside of the run function, the generator of input (named `inp` here) yields tuples of (epoch, input). That input generator is wrapped in an input_builder function:
+
+``` python
+def input_builder(worker_index, worker_count):
+    assert worker_index == 0
+    for epoch, input in inp:
+        yield AdvanceTo(epoch)
+        yield Emit(input)
+```
+
+Here we introduce two new primitives in Bytewax: `AdvanceTo` and `Emit`.
+
+These two dataclasses are how we inform Bytewax of new input and of the progress of epochs. `Emit` will introduce input into the dataflow at the current epoch, and `AdvanceTo` advances the current epoch to the value supplied.
+
+Importantly, when you advance the epoch, you are informing bytewax that it will no longer see any input at any of the previous epoch values. At that point, bytewax will continue to do work until output is produced for the previous epoch.
+

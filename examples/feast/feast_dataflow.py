@@ -12,9 +12,12 @@ from feast import FeatureStore
 store = FeatureStore(repo_path=".")
 
 
+@inputs.yield_epochs
 def input_builder(worker_index, worker_count):
     def consume_from_kafka():
-        consumer = KafkaConsumer(bootstrap_servers="localhost:9092", auto_offset_reset="earliest")
+        consumer = KafkaConsumer(
+            bootstrap_servers="localhost:9092", auto_offset_reset="earliest"
+        )
         consumer.subscribe("drivers")
         for msg in consumer:
             event = msg.value
@@ -57,16 +60,18 @@ def output_builder(worker_index, worker_count):
             features=[
                 "driver_daily_stats:conv_rate",
                 "driver_daily_stats:acc_rate",
-            ],    
-            entity_rows=[{"driver_id": driver_id}]
+            ],
+            entity_rows=[{"driver_id": driver_id}],
         ).to_dict()
         print("New values for driver:", feature_views)
 
     return output_fn
 
+
 def collect_events(all_events, new_events):
     all_events.extend(new_events)
     return all_events
+
 
 def calculate_avg(driver_events):
     driver_id, driver_events = driver_events
@@ -74,8 +79,8 @@ def calculate_avg(driver_events):
     first_event = driver_events[0]
     conv_rates = [event["conv_rate"] for event in driver_events]
     acc_rates = [event["acc_rate"] for event in driver_events]
-    new_conv_avg = sum(conv_rates)/total_events
-    new_acc_avg = sum(acc_rates)/total_events
+    new_conv_avg = sum(conv_rates) / total_events
+    new_acc_avg = sum(acc_rates) / total_events
 
     panda_df = pd.DataFrame.from_dict(
         {
@@ -89,6 +94,7 @@ def calculate_avg(driver_events):
     )
 
     return panda_df
+
 
 def add_driver_id(event):
     # Event needs to be within an array for `collect_events`

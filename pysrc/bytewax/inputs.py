@@ -3,10 +3,45 @@
 Use these to wrap an existing iterator which yields items.
 
 """
+
 import datetime
 import heapq
+
+from .bytewax import AdvanceTo, Emit
+
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Tuple
+
+
+def yield_epochs(fn: Callable):
+    """A decorator function to unwrap an iterator of [epoch, item]
+    into successive `AdvanceTo` and `Emit` classes with the
+    contents of the iterator.
+
+    Use this when you have an input_builder function that returns
+    a generator of (epoch, item) to be used with `cluster_main` or
+    `spawn_cluster`:
+
+    >>> from bytewax import Dataflow, cluster_main
+    >>> from bytewax.inputs import yield_epochs, fully_ordered
+    >>> flow = Dataflow()
+    >>> flow.capture()
+    >>> @yield_epochs
+    ... def input_builder(i, n):
+    ...   return fully_ordered(["a", "b", "c"])
+    >>> cluster_main(flow, input_builder, lambda i, n: print, [], 0, 1)
+    (0, 'a')
+    (1, 'b')
+    (2, 'c')
+    """
+
+    def inner_fn(worker_index, worker_count):
+        gen = fn(worker_index, worker_count)
+        for (epoch, item) in gen:
+            yield AdvanceTo(epoch)
+            yield Emit(item)
+
+    return inner_fn
 
 
 def single_batch(wrap_iter: Iterable) -> Iterable[Tuple[int, Any]]:
