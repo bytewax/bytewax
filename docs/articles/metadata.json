@@ -22,16 +22,14 @@
       {
         "title": "Execution",
         "filename": "execution"
-      }
-    ]
-  },
-  {
-    "category": "Operators",
-    "directory": "operators",
-    "articles": [
+      },
       {
         "title": "Operators",
         "filename": "operators"
+      },
+      {
+        "title": "Design patterns",
+        "filename": "design-patterns"
       }
     ]
   }
