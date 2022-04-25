@@ -9,21 +9,16 @@ you to **recover** your state and resume the dataflow after a fault.
 Not all dataflows are possible to be recovered. There are a few
 requirements:
 
-1. _Stateful Operators_ - Only the operators
-   [reduce](./operators#reduce) and [stateful
-   map](./operators#stateful_map) aggregate state _between_ epochs. If
-   your dataflow is simple enough to not be using these,
-
-2. _Regular Epochs_ - The [epoch](/getting-started/epochs) is the
+1. _Regular Epochs_ - The [epoch](/getting-started/epochs) is the
    minimum unit of recovery. Design your dataflow so that epochs are
    regularly occurring because it is not possible to coherently resume
    processing mid-epoch.
 
-3. _Replayable Input_ - Your data source needs to support re-playing
+2. _Replayable Input_ - Your data source needs to support re-playing
    input from a specific epoch in the past, we'll call the **recovery
    epoch**.
    
-4. _At-least-once Output_ - Bytewax only provides at-least-once
+3. _At-least-once Output_ - Bytewax only provides at-least-once
    guarantees when sending data into a downstream system when
    performing a recovery. You should design your architecture to
    support this via some sort of idempotency.
