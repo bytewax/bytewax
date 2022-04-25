@@ -7,7 +7,7 @@ for each customer have been paid. We're also going to design it to be
 ## Sample Data
 
 First let's make a local file containing our sample event data in JSON
-format. Save this as `cart-join.jsons`.
+format. Save this as `cart-join.json`.
 
 ```json
 {"user_id": "a", "type": "order", "order_id": 1}
@@ -32,7 +32,7 @@ import json
 
 def input_builder(worker_index, worker_count):
     assert worker_index == 0  # We're not going to worry about multiple workers yet.
-    with open("cart-join.jsons") as f:
+    with open("cart-join.json") as f:
         for epoch, line in enumerate(f):
             obj = json.loads(line)
             yield epoch, obj
