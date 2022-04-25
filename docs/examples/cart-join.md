@@ -175,7 +175,7 @@ RESUME_FROM_EPOCH = 0
 
 def input_builder(worker_index, worker_count):
     assert worker_index == 0  # We're not going to worry about multiple workers yet.
-    with open("cart-join.jsons") as f:
+    with open("cart-join.json") as f:
         for epoch, line in enumerate(f):
             if epoch < RESUME_FROM_EPOCH:
                 continue
@@ -225,7 +225,7 @@ time.
 ```python
 def input_builder(worker_index, worker_count):
     assert worker_index == 0  # We're not going to worry about multiple workers yet.
-    with open("cart-join.jsons") as f:
+    with open("cart-join.json") as f:
         for epoch, line in enumerate(f):
             if epoch < RESUME_FROM_EPOCH:
                 continue
