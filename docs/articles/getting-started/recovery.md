@@ -13,12 +13,17 @@ requirements:
    minimum unit of recovery. Design your dataflow so that epochs are
    regularly occurring because it is not possible to coherently resume
    processing mid-epoch.
-
-2. _Replayable Input_ - Your data source needs to support re-playing
-   input from a specific epoch in the past, we'll call the **recovery
-   epoch**.
    
-3. _At-least-once Output_ - Bytewax only provides at-least-once
+2. _Log output epochs_ - You need to use the epoch associated with
+   output to determine where in your input stream you should resume
+   processing data. Log or save the epoch associated with each output
+   item to be able to do this.
+
+3. _Replayable Input_ - Your data source needs to support re-playing
+   input from a specific epoch in the past to resume making progress
+   from where the failure happened.
+   
+4. _At-least-once Output_ - Bytewax only provides at-least-once
    guarantees when sending data into a downstream system when
    performing a recovery. You should design your architecture to
    support this via some sort of idempotency.
@@ -48,9 +53,10 @@ and have it resume processing from where it failed:
 
 1. Terminate the dataflow processes.
 
-2. Observe the previous dataflow output and note the final epoch
-   emitted from each process. Find the oldest / smallest epoch. The
-   epoch just _before_ this will be the recovery epoch.
+2. Observe the previous dataflow output and note the last epoch
+   emitted from each worker. Find the oldest / smallest epoch out of
+   the set of the last from each worker. The epoch just _before_ this
+   will be the recovery epoch.
 
 3. Restart your dataflow, but pass in this recovery epoch as the point
    in the input the input builder should resume from.
