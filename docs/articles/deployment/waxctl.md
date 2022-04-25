@@ -221,7 +221,7 @@ Dataflow my-dataflow deleted.
 
 `waxctl` uses a compiled-in [Bytewax helm chart](https://github.com/bytewax/helm-charts) to generate all the manifests except the Namespace and ConfigMap which are created by making calls to Kubernetes API directly. 
 
-You can check the entire architecture that `waxctl` deploys in our [Bytewax Ecosystem on Kubernetes](/deployment/k8s_ecosystem/) section.
+You can check the entire architecture that `waxctl` deploys in our [Bytewax Ecosystem on Kubernetes](/deployment/k8s-ecosystem/) section.
 
 ## More Examples
 
