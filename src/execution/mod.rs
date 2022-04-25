@@ -140,8 +140,9 @@ where
 ///     flow: Dataflow to run.
 ///
 ///     input_builder: Returns input that each worker thread should
-///         process. If you are recovering a stateful dataflow, your
-///         code should resume from the last finalized epoch.
+///         process. If you are recovering a stateful dataflow, you
+///         must ensure your input resumes from the last finalized
+///         epoch.
 ///
 ///     output_builder: Returns a callback function for each worker
 ///         thread, called with `(epoch, item)` whenever and item
@@ -233,8 +234,9 @@ pub(crate) fn run_main(
 ///     flow: Dataflow to run.
 ///
 ///     input_builder: Returns input that each worker thread should
-///         process. If you are recovering a stateful dataflow, your
-///         code should resume from the last finalized epoch.
+///         process. If you are recovering a stateful dataflow, you
+///         must ensure your input resumes from the last finalized
+///         epoch.
 ///
 ///     output_builder: Returns a callback function for each worker
 ///         thread, called with `(epoch, item)` whenever and item

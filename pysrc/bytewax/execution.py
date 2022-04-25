@@ -124,8 +124,9 @@ def spawn_cluster(
         flow: Dataflow to run.
 
         input_builder: Returns input that each worker thread should
-            process. If you are recovering a stateful dataflow, your
-            code should resume from the last finalized epoch.
+            process. If you are recovering a stateful dataflow, you
+            must ensure your input resumes from the last finalized
+            epoch.
 
         output_builder: Returns a callback function for each worker
             thread, called with `(epoch, item)` whenever and item
@@ -218,8 +219,8 @@ def run_cluster(
 
         inp: Input data. Will be reified to a list before sending to
             processes. Will be partitioned between workers for you. If
-            you are recovering a stateful dataflow, your input should
-            resume from the last finalized epoch.
+            you are recovering a stateful dataflow, you must ensure
+            your input resumes from the last finalized epoch.
 
         recovery_config: State recovery config. See
             `bytewax.recovery`. If `None`, state will not be
