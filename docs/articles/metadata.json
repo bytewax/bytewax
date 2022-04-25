@@ -32,5 +32,23 @@
         "filename": "design-patterns"
       }
     ]
+  },
+  {
+    "category": "Deployment",
+    "directory": "deployment",
+    "articles": [
+      {
+        "title": "Running a Dataflow Program in a Container",
+        "filename": "container"
+      },
+      {
+        "title": "Bytewax Ecosystem on Kubernetes",
+        "filename": "k8s-ecosystem"
+      },
+      {
+        "title": "Using waxctl to manage your Dataflows in Kubernetes",
+        "filename": "waxctl"
+      }
+    ]
   }
 ]
