@@ -43,7 +43,7 @@ pub(crate) struct RecoveryConfig;
 ///
 /// Args:
 ///
-///     db_file_name: Local path to the DB file in Sqlite3
+///     db_file_path: Local path to the DB file in Sqlite3
 ///         format. E.g. `./state.sqlite3`
 ///
 /// Returns:
@@ -51,29 +51,29 @@ pub(crate) struct RecoveryConfig;
 ///     Config object. Pass this as the `recovery_config` argument to
 ///     your execution entry point.
 #[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
-#[pyo3(text_signature = "(db_file_name)")]
+#[pyo3(text_signature = "(db_file_path)")]
 pub(crate) struct SqliteRecoveryConfig {
     #[pyo3(get)]
-    pub(crate) db_file_name: String,
+    pub(crate) db_file_path: String,
 }
 
 #[pymethods]
 impl SqliteRecoveryConfig {
     #[new]
-    fn new(db_file_name: String) -> (Self, RecoveryConfig) {
-        (Self { db_file_name }, RecoveryConfig {})
+    fn new(db_file_path: String) -> (Self, RecoveryConfig) {
+        (Self { db_file_path }, RecoveryConfig {})
     }
 
     /// Pickle as a tuple.
     fn __getstate__(&self) -> (&str, &str) {
-        ("SqliteRecoveryConfig", &self.db_file_name)
+        ("SqliteRecoveryConfig", &self.db_file_path)
     }
 
     /// Egregious hack because pickling assumes the type has "empty"
     /// mutable objects.
     ///
     /// Pickle always calls `__new__(*__getnewargs__())` but notice we
-    /// don't have access to the pickled `db_file_name` yet, so we
+    /// don't have access to the pickled `db_file_path` yet, so we
     /// have to pass in some dummy string value that will be
     /// overwritten by `__setstate__()` shortly.
     fn __getnewargs__(&self) -> (&str,) {
@@ -82,8 +82,8 @@ impl SqliteRecoveryConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("SqliteRecoveryConfig", db_file_name)) = state.extract() {
-            self.db_file_name = db_file_name;
+        if let Ok(("SqliteRecoveryConfig", db_file_path)) = state.extract() {
+            self.db_file_path = db_file_path;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -163,7 +163,7 @@ pub(crate) struct SqliteRecoveryStore {
 }
 
 impl SqliteRecoveryStore {
-    pub(crate) fn new(db_file_name: &str) -> Self {
+    pub(crate) fn new(db_file_path: &str) -> Self {
         let rt = SendWrapper::new(Rc::new(
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -175,7 +175,7 @@ impl SqliteRecoveryStore {
         // initial connection. So manually retry here.
         let pool = retry(Fixed::from_millis(100), || {
             let options = SqliteConnectOptions::new()
-                .filename(db_file_name)
+                .filename(db_file_path)
                 .create_if_missing(true)
                 .busy_timeout(Duration::from_secs(5))
                 .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
@@ -186,7 +186,7 @@ impl SqliteRecoveryStore {
             rt.block_on(future)
         })
         .unwrap();
-        debug!("Opened Sqlite connection pool to {db_file_name}");
+        debug!("Opened Sqlite connection pool to {db_file_path}");
 
         SqliteRecoveryStore { rt, pool }
     }

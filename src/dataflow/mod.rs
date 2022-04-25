@@ -394,10 +394,10 @@ where
                     recovery_config.downcast::<PyCell<SqliteRecoveryConfig>>()
                 {
                     let sqlite_recovery_config = sqlite_recovery_config.borrow();
-                    let db_file_name = &sqlite_recovery_config.db_file_name;
+                    let db_file_path = &sqlite_recovery_config.db_file_path;
                     // State store creation might spawn background
                     // threads.
-                    py.allow_threads(|| Box::new(SqliteRecoveryStore::new(db_file_name)))
+                    py.allow_threads(|| Box::new(SqliteRecoveryStore::new(db_file_path)))
                 } else {
                     let pytype = recovery_config.get_type();
                     return Err(format!("Unknown recovery_config type: {pytype}"));
