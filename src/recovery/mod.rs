@@ -146,13 +146,13 @@ struct NoOpStepRecovery {
 impl<T: Debug, K: Debug, D: Debug> StepRecovery<T, K, D> for NoOpStepRecovery {
     fn recover_last(&self, current_epoch: &T, key: &K) -> Option<D> {
         debug!(
-            "noop state fake-recovered step_id={} key={key:?}@epoch={current_epoch:?}",
+            "noop recovery queried step_id={} key={key:?}:state=None@epoch={current_epoch:?}",
             self.step_id
         );
         None
     }
     fn save_complete(&self, completed_epoch: &T, key: &K, state: &Option<D>) -> () {
-        debug!("noop state fake-stored step_id={} key={key:?}:state={state:?}@epoch={completed_epoch:?}", self.step_id);
+        debug!("noop recovery saved step_id={} key={key:?}:state={state:?}@epoch={completed_epoch:?}", self.step_id);
         ()
     }
 }
@@ -239,7 +239,7 @@ impl StepRecovery<u64, TdPyAny, TdPyAny> for SqliteStepRecovery {
             .map(|r: Result<TdPyAny, PyErr>| r.expect("Error unpickling state"));
 
         debug!(
-            "sqlite state recovered step_id={} key={key:?}:state={state:?}@epoch={current_epoch}",
+            "sqlite recovery queried step_id={} key={key:?}:state={state:?}@epoch={current_epoch}",
             self.step_id
         );
         state
@@ -267,7 +267,7 @@ impl StepRecovery<u64, TdPyAny, TdPyAny> for SqliteStepRecovery {
         self.rt.block_on(future).unwrap();
 
         debug!(
-            "sqlite state stored step_id={} key={key:?}:state={state:?}@epoch={completed_epoch}",
+            "sqlite recovery stored step_id={} key={key:?}:state={state:?}@epoch={completed_epoch}",
             self.step_id
         );
         // TODO: Warn on state overwriting?
