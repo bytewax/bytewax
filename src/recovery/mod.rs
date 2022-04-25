@@ -28,17 +28,17 @@ use pyo3::prelude::*;
 #[pyo3(text_signature = "()")]
 pub(crate) struct RecoveryConfig;
 
-/// Use [Sqlite](https://sqlite.org/index.html) as recovery storage.
+/// Use [SQLite](https://sqlite.org/index.html) as recovery storage.
 ///
-/// Because it's not designed for high-concurrency, Sqlite should only
+/// Because it's not designed for high-concurrency, SQLite should only
 /// be used for machine-local testing of dataflows. Multiple workers
 /// will _not_ result in corrupted data, but there will be reduced
 /// performance due to contention for the DB lock.
 ///
-/// The Sqlite DB does not need any preparation. A `state` table will
+/// The SQLite DB does not need any preparation. A `state` table will
 /// automatically be created and queried.
 ///
-/// Only one dataflow can be persisted per Sqlite DB. Use a new file
+/// Only one dataflow can be persisted per SQLite DB. Use a new file
 /// for a new dataflow.
 ///
 /// Args:
@@ -113,7 +113,7 @@ pub(crate) trait RecoveryStore {
 /// Per-operator interface for state recovery.
 ///
 /// Each [`RecoveryStore`] will need to implement this with the
-/// specific queryies or inserts needed.
+/// specific queries or inserts needed.
 pub(crate) trait StepRecovery<T, K, D> {
     fn recover_last(&self, current_epoch: &T, key: &K) -> Option<D>;
 
@@ -216,7 +216,7 @@ struct SqliteStepRecovery {
 impl StepRecovery<u64, TdPyAny, TdPyAny> for SqliteStepRecovery {
     fn recover_last(&self, current_epoch: &u64, key: &TdPyAny) -> Option<TdPyAny> {
         let current_epoch_int =
-            i64::try_from(*current_epoch).expect("Epoch too big to fit into Sqlite int");
+            i64::try_from(*current_epoch).expect("Epoch too big to fit into SQLite int");
         let key_string: String =
             Python::with_gil(|py| key.extract(py)).expect("Key cannot be cast to string");
 
@@ -247,7 +247,7 @@ impl StepRecovery<u64, TdPyAny, TdPyAny> for SqliteStepRecovery {
 
     fn save_complete(&self, completed_epoch: &u64, key: &TdPyAny, state: &Option<TdPyAny>) -> () {
         let completed_epoch_int =
-            i64::try_from(*completed_epoch).expect("Epoch too big to fit into Sqlite int");
+            i64::try_from(*completed_epoch).expect("Epoch too big to fit into SQLite int");
         let key_string: String =
             Python::with_gil(|py| key.extract(py)).expect("Key cannot be cast to string");
         let state_pickled: Option<Vec<u8>> = state.as_ref().map(|state| {

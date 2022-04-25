@@ -216,7 +216,7 @@ def run_cluster(
     Args:
         flow: Dataflow to run.
 
-        inp: Input data. Will be reifyied to a list before sending to
+        inp: Input data. Will be reified to a list before sending to
             processes. Will be partitioned between workers for you. If
             you are recovering a stateful dataflow, your input should
             resume from the last finalized epoch.

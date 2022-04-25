@@ -14,10 +14,10 @@ requirements:
    map](./operators#stateful_map) aggregate state _between_ epochs. If
    your dataflow is simple enough to not be using these,
 
-2. _Regular Epochs_ - The [epoch](/getting-started/epochs) is the minimum unit of
-   recovery. Design your dataflow so that epochs are regularly
-   occuring because it is not possible to coherently resume processing
-   mid-epoch.
+2. _Regular Epochs_ - The [epoch](/getting-started/epochs) is the
+   minimum unit of recovery. Design your dataflow so that epochs are
+   regularly occurring because it is not possible to coherently resume
+   processing mid-epoch.
 
 3. _Replayable Input_ - Your data source needs to support re-playing
    input from a specific epoch in the past, we'll call the **recovery
@@ -32,12 +32,13 @@ requirements:
 
 Your dataflow needs a few features to enable recovery on Bytewax:
 
-1. Design your [input builder](/getting-started/execution#builders) to be able to
-   resume and replay all data from a specific epoch onwards. You are
-   given the freedom to implement this however you'd like.
+1. Design your [input builder](/getting-started/execution#builders) to
+   be able to resume and replay all data from a specific epoch
+   onwards. You are given the freedom to implement this however you'd
+   like.
 
 2. Create a **recovery config** for your workers to know how to
-   connect to the **recovery store**, the database or filesystem that
+   connect to the **recovery store**, the database or file system that
    will store recovery data. See our API docs for `bytewax.recovery`
    on our supported options.
    

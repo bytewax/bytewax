@@ -5,16 +5,16 @@ resume processing and output due to system outage or error without
 re-processing all initial data to re-calculate all internal state.
 
 0. Pick a **recovery store** in which internal state will be
-   continously backed up. Different storage systems will have
-   different performance and reconfiguration tradeoffs.
+   continuously backed up. Different storage systems will have
+   different performance and reconfiguration trade-offs.
 
 1. Create a **recovery config** for connecting to your recovery store.
 
 2. Pass that created config as the `recovery_config` argument to the
    entry point running your dataflow (e.g. `bytewax.run_cluster()`).
 
-3. Run your dataflow from the beginning, or resuming input from the
-   last finalized epoch.
+3. Run your dataflow consuming input either from the beginning or
+   resuming input from the last finalized epoch.
 
 The epoch is the unit of recovery. It is your responsibility to design
 your input builders or iterators in such a way that it can be resumed

@@ -2,11 +2,11 @@ In this example, we're going to build a small online order fulfillment
 system. It will join two event streams: one containing customer orders
 and another containing successful payments, and then emit which orders
 for each customer have been paid. We're also going to design it to be
-**recoverable** and restartable after invalid data.
+**recoverable** and restart-able after invalid data.
 
 ## Sample Data
 
-First let's make a local file containig our sample event data in JSON
+First let's make a local file containing our sample event data in JSON
 format. Save this as `cart-join.jsons`.
 
 ```json
@@ -40,7 +40,7 @@ def input_builder(worker_index, worker_count):
 
 ## Dataflow
 
-Let's get our empty dataflow setup.
+Let's get our empty dataflow set up.
 
 ```python
 from bytewax import Dataflow
@@ -77,7 +77,7 @@ The constructor of the class can be re-used as the initial state
 builder.
 
 Now we need the join logic, which will return two values: the updated
-state and the item to emit downstream. Since we'd like to contiuously
+state and the item to emit downstream. Since we'd like to continuously
 be emitting the most updated join info, we'll emit the state again.
 
 ```python
@@ -153,7 +153,7 @@ Something went wrong! In this case it was that we had a non-JSON line
 `FAIL HERE` in the input, but you could imagine that Kafka consumer
 breaks or the VM is killed or something else bad happens!
 
-We've also built up very valuble state in our stateful map operator
+We've also built up very valuable state in our stateful map operator
 and we don't want to pay the penalty of having to re-read our input
 all the way from the beginning to build it back up. Let's see how we
 could have implemented state recovery to allow that to happen in the
@@ -184,7 +184,8 @@ def input_builder(worker_index, worker_count):
 
 
 We need a **recovery store**. For this example we'll use a local
-[Sqlite]() database because we're running on a single machine.
+[SQLite](https://sqlite.org/index.html) database because we're running
+on a single machine.
 
 
 ```python
@@ -195,10 +196,10 @@ recovery_dir = TemporaryDirectory()  # We'll store this somewhere temporary for 
 recovery_config = SqliteRecoveryConfig(recovery_dir.name + "/state-recovery.sqlite3")
 ```
 
-Now if we run the dataflow, every epoch the internal state will be
-persisted so we can recover from mid-way. Since we didn't run with any
-of the recovery systems activated last time, let's run the dataflow
-again with them enabled.
+Now if we run the dataflow, the internal state will be persisted at
+the end of each epoch so we can recover from mid-way. Since we didn't
+run with any of the recovery systems activated last time, let's run
+the dataflow again with them enabled.
 
 ```python doctest:IGNORE_EXCEPTION_DETAIL doctest:ELLIPSIS
 run_main(flow, input_builder, output_builder, recovery_config=recovery_config)

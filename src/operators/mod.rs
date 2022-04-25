@@ -140,7 +140,7 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> Reduce<S, K, V> for
                                     // store, which might be
                                     // explicitly (the logic threw it
                                     // away by returning None) or
-                                    // implicitly (a new key we'veñ
+                                    // implicitly (a new key we've
                                     // never seen) None.
                                     store.recover_last(time.time(), &key)
                                 });
