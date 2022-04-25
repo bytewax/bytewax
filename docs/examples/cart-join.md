@@ -161,8 +161,9 @@ future!
 
 ## Recovery Prep
 
-Following our checklist in [Bytewax's documentation on recovery]() we
-need to enhance our input builder with a few things.
+Following our checklist in [Bytewax's documentation on
+recovery](/getting-started/recovery/) we need to enhance our input
+builder with a few things.
 
 First, we need the ability to resume from an arbitrary epoch. Since
 we're using the line in the file as the epoch, we can skip ahead to
