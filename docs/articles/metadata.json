@@ -22,16 +22,32 @@
       {
         "title": "Execution",
         "filename": "execution"
+      },
+      {
+        "title": "Operators",
+        "filename": "operators"
+      },
+      {
+        "title": "Design patterns",
+        "filename": "design-patterns"
       }
     ]
   },
   {
-    "category": "Operators",
-    "directory": "operators",
+    "category": "Deployment",
+    "directory": "deployment",
     "articles": [
       {
-        "title": "Operators",
-        "filename": "operators"
+        "title": "Running a Dataflow Program in a Container",
+        "filename": "container"
+      },
+      {
+        "title": "Bytewax Ecosystem on Kubernetes",
+        "filename": "k8s-ecosystem"
+      },
+      {
+        "title": "Using waxctl to manage your Dataflows in Kubernetes",
+        "filename": "waxctl"
       }
     ]
   }

@@ -29,13 +29,16 @@ line index as the epoch, and emit the parsed JSON.
 ```python
 import json
 
+from bytewax import AdvanceTo, Emit
+
 
 def input_builder(worker_index, worker_count):
     assert worker_index == 0  # We're not going to worry about multiple workers yet.
     with open("cart-join.json") as f:
         for epoch, line in enumerate(f):
             obj = json.loads(line)
-            yield epoch, obj
+            yield AdvanceTo(epoch)
+            yield Emit(obj)
 ```
 
 ## Dataflow
@@ -144,6 +147,7 @@ Cool, we're chugging along and then OH NO!
 0 {"user_id": "a", "paid_order_ids": [], "unpaid_order_ids": [1]}
 1 {"user_id": "a", "paid_order_ids": [], "unpaid_order_ids": [1, 2]}
 2 {"user_id": "b", "paid_order_ids": [], "unpaid_order_ids": [3]}
+3 {"user_id": "a", "paid_order_ids": [2], "unpaid_order_ids": [1]}
 Traceback (most recent call last):
 ...
 json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
@@ -180,7 +184,8 @@ def input_builder(worker_index, worker_count):
             if epoch < RESUME_FROM_EPOCH:
                 continue
             obj = json.loads(line)
-            yield epoch, obj
+            yield AdvanceTo(epoch)
+            yield Emit(obj)
 ```
 
 
@@ -212,6 +217,7 @@ As expected, we have the same error.
 0 {"user_id": "a", "paid_order_ids": [], "unpaid_order_ids": [1]}
 1 {"user_id": "a", "paid_order_ids": [], "unpaid_order_ids": [1, 2]}
 2 {"user_id": "b", "paid_order_ids": [], "unpaid_order_ids": [3]}
+3 {"user_id": "a", "paid_order_ids": [2], "unpaid_order_ids": [1]}
 Traceback (most recent call last):
 ...
 json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
@@ -232,7 +238,8 @@ def input_builder(worker_index, worker_count):
             if line.startswith("FAIL"):  # Fix the bug.
                 continue
             obj = json.loads(line)
-            yield epoch, obj
+            yield AdvanceTo(epoch)
+            yield Emit(obj)
 ```
 
 How do we know which epoch to resume from? Use the epoch _before_ the

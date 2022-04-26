@@ -5,6 +5,12 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+
+## 0.9.0
+
+- Adds `bytewax.AdvanceTo` and `bytewax.Emit` to control when processing
+  happens.
+
 - Adds `bytewax.run_main()` as a way to test input and output builders
   without starting a cluster.
   

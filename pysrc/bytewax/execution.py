@@ -1,13 +1,13 @@
 """Entry point functions to execute `bytewax.Dataflow`s.
 
 """
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Iterable, List, Optional, Tuple, Union
 
 from multiprocess import get_context
 
 from bytewax.recovery import RecoveryConfig
 
-from .bytewax import cluster_main, Dataflow, run_main
+from .bytewax import AdvanceTo, cluster_main, Dataflow, Emit, run_main
 
 
 def run(
@@ -52,8 +52,9 @@ def run(
 
     def input_builder(worker_index, worker_count):
         assert worker_index == 0
-        for epoch_item in inp:
-            yield epoch_item
+        for epoch, item in inp:
+            yield AdvanceTo(epoch)
+            yield Emit(item)
 
     out = []
 
@@ -77,7 +78,7 @@ def _gen_addresses(proc_count: int) -> Iterable[str]:
 
 def spawn_cluster(
     flow: Dataflow,
-    input_builder: Callable[[int, int], Iterable[Tuple[int, Any]]],
+    input_builder: Callable[[int, int], Iterable[Union[AdvanceTo, Emit]]],
     output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]],
     *,
     recovery_config: Optional[RecoveryConfig] = None,
@@ -97,8 +98,10 @@ def spawn_cluster(
     >>> from bytewax.testing import doctest_ctx
     >>> flow = Dataflow()
     >>> flow.capture()
-    >>> def input_builder(worker_index, worker_count):
-    ...     return enumerate(range(3))
+    >>> def input_builder(i, n):
+    ...   for epoch, item in enumerate(range(3)):
+    ...     yield AdvanceTo(epoch)
+    ...     yield Emit(item)
     >>> def output_builder(worker_index, worker_count):
     ...     return print
     >>> spawn_cluster(
@@ -185,7 +188,6 @@ def run_cluster(
 ) -> List[Tuple[int, Any]]:
     """Pass data through a dataflow running as a cluster of processes on
     this machine.
-
     Blocks until execution is complete.
 
     Both input and output are collected into lists, thus both must be
@@ -196,6 +198,7 @@ def run_cluster(
     commonly use this for notebook analysis that needs parallelism and
     higher throughput, or simple stand-alone demo programs.
 
+    >>> from bytewax.testing import doctest_ctx
     >>> flow = Dataflow()
     >>> flow.map(str.upper)
     >>> flow.capture()
@@ -215,6 +218,7 @@ def run_cluster(
     in a distributed situation.
 
     Args:
+
         flow: Dataflow to run.
 
         inp: Input data. Will be reified to a list before sending to
@@ -238,7 +242,6 @@ def run_cluster(
     Returns:
 
         List of `(epoch, item)` tuples seen by capture operators.
-
     """
     # A Manager starts up a background process to manage shared state.
     with mp_ctx.Manager() as man:
@@ -247,7 +250,9 @@ def run_cluster(
         def input_builder(worker_index, worker_count):
             for i, epoch_item in enumerate(inp):
                 if i % worker_count == worker_index:
-                    yield epoch_item
+                    (epoch, item) = epoch_item
+                    yield AdvanceTo(epoch)
+                    yield Emit(item)
 
         out = man.list()
 

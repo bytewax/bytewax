@@ -39,6 +39,8 @@ flow.capture()
 
 if __name__ == "__main__":
     for epoch, item in run_cluster(
-        flow, inputs.tumbling_epoch(twitter.get_stream(), timedelta(seconds=2)), **parse.cluster_args()
+        flow,
+        inputs.tumbling_epoch(twitter.get_stream(), timedelta(seconds=2)),
+        **parse.cluster_args()
     ):
         print(epoch, item)

@@ -91,10 +91,13 @@ def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
       E.g. `cluster_name-0` and `cluster_name` and we will calculate
       the process ID from that.
 
-    >>> from bytewax import Dataflow, cluster_main
+    >>> from bytewax import Dataflow, cluster_main, AdvanceTo, Emit
     >>> flow = Dataflow()
     >>> flow.capture()
-    >>> ib = lambda i, n: enumerate(range(3))
+    >>> def ib(i, n):
+    ...   for epoch, item in enumerate(range(3)):
+    ...     yield AdvanceTo(epoch)
+    ...     yield Emit(item)
     >>> ob = lambda i, n: print
     >>> env = {
     ...     "BYTEWAX_ADDRESSES": "localhost:2101",
@@ -144,10 +147,13 @@ def proc_args(args: Iterable[str] = None) -> Dict[str, Any]:
     See documentation for `bytewax.cluster_main()` for semantics of
     these variables.
 
-    >>> from bytewax import Dataflow, cluster_main
+    >>> from bytewax import Dataflow, cluster_main, AdvanceTo, Emit
     >>> flow = Dataflow()
     >>> flow.capture()
-    >>> ib = lambda i, n: enumerate(range(3))
+    >>> def ib(i, n):
+    ...   for epoch, item in enumerate(range(3)):
+    ...     yield AdvanceTo(epoch)
+    ...     yield Emit(item)
     >>> ob = lambda i, n: print
     >>> args = "-w2 -p0 -a localhost:2101".split()
     >>> cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS

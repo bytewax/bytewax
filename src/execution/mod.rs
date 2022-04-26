@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use timely::dataflow::InputHandle;
@@ -14,7 +15,47 @@ use timely::dataflow::ProbeHandle;
 
 use crate::dataflow::{build_dataflow, Dataflow};
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
-use crate::with_traceback;
+
+#[pyclass(module = "bytewax")]
+#[pyo3(text_signature = "(epoch)")]
+pub(crate) struct AdvanceTo {
+    #[pyo3(get)]
+    epoch: u64,
+}
+
+#[pymethods]
+impl AdvanceTo {
+    #[new]
+    fn new(epoch: u64) -> Self {
+        Self { epoch }
+    }
+
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
+        match op {
+            CompareOp::Lt => Ok(self.epoch < other.epoch),
+            CompareOp::Le => Ok(self.epoch <= other.epoch),
+            CompareOp::Eq => Ok(self.epoch == other.epoch),
+            CompareOp::Ne => Ok(self.epoch != other.epoch),
+            CompareOp::Gt => Ok(self.epoch > other.epoch),
+            CompareOp::Ge => Ok(self.epoch >= other.epoch),
+        }
+    }
+}
+
+#[pyclass(module = "bytewax")]
+#[pyo3(text_signature = "(item)")]
+pub(crate) struct Emit {
+    #[pyo3(get)]
+    item: TdPyAny,
+}
+
+#[pymethods]
+impl Emit {
+    #[new]
+    fn new(item: Py<PyAny>) -> Self {
+        Self { item: item.into() }
+    }
+}
 
 /// Encapsulates the process of pulling data out of the input Python
 /// iterator and feeding it into Timely.
@@ -43,10 +84,21 @@ impl Pump {
     fn pump(&mut self) {
         Python::with_gil(|py| {
             let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
-            if let Some(epoch_item_pytuple) = pull_from_pyiter.next() {
-                let (epoch, item) = with_traceback!(py, epoch_item_pytuple?.extract());
-                self.push_to_timely.advance_to(epoch);
-                self.push_to_timely.send(item);
+            if let Some(input_or_action) = pull_from_pyiter.next() {
+                match input_or_action {
+                    Ok(item) => {
+                        if let Ok(send) = item.downcast::<PyCell<Emit>>() {
+                            self.push_to_timely.send(send.borrow().item.clone());
+                        } else if let Ok(advance_to) = item.downcast::<PyCell<AdvanceTo>>() {
+                            self.push_to_timely.advance_to(advance_to.borrow().epoch);
+                        } else {
+                            panic!("Unknown input action")
+                        }
+                    }
+                    Err(err) => {
+                        std::panic::panic_any(err);
+                    }
+                }
             } else {
                 self.pyiter_is_empty = true;
             }
@@ -69,36 +121,29 @@ impl Pump {
 /// whatever work it can.
 pub(crate) fn worker_main<A>(
     mut pumps_with_input_remaining: Vec<Pump>,
-    mut probes_with_timestamps_inflight: Vec<ProbeHandle<u64>>,
+    probe: ProbeHandle<u64>,
     interrupt_flag: &AtomicBool,
     worker: &mut timely::worker::Worker<A>,
 ) where
     A: timely::communication::Allocate,
 {
-    while (!pumps_with_input_remaining.is_empty() || !probes_with_timestamps_inflight.is_empty())
-        && !interrupt_flag.load(Ordering::Relaxed)
-    {
+    while !interrupt_flag.load(Ordering::Relaxed) && !probe.done() {
         if !pumps_with_input_remaining.is_empty() {
+            // We have input remaining, pump the pumps, and step the workers while
+            // there is work less than the current epoch to do.
             let mut updated_pumps = Vec::new();
             for mut pump in pumps_with_input_remaining.into_iter() {
                 pump.pump();
+                worker.step_while(|| probe.less_than(&pump.push_to_timely.time()));
                 if pump.input_remains() {
                     updated_pumps.push(pump);
                 }
             }
             pumps_with_input_remaining = updated_pumps;
+        } else {
+            // Inputs are empty, step the workers until probe is done.
+            worker.step();
         }
-        if !probes_with_timestamps_inflight.is_empty() {
-            let mut updated_probes = Vec::new();
-            for probe in probes_with_timestamps_inflight.into_iter() {
-                if !probe.done() {
-                    updated_probes.push(probe);
-                }
-            }
-            probes_with_timestamps_inflight = updated_probes;
-        }
-
-        worker.step();
     }
 }
 
@@ -180,7 +225,7 @@ pub(crate) fn run_main(
                     )
                 })?;
 
-                worker_main(vec![pump], vec![probe], &AtomicBool::new(false), worker);
+                worker_main(vec![pump], probe, &AtomicBool::new(false), worker);
 
                 shutdown_worker(worker);
 
@@ -234,9 +279,10 @@ pub(crate) fn run_main(
 ///     flow: Dataflow to run.
 ///
 ///     input_builder: Returns input that each worker thread should
-///         process. If you are recovering a stateful dataflow, you
-///         must ensure your input resumes from the last finalized
-///         epoch.
+///         process. Should yield either `AdvanceTo` or `Send` to
+///         advance the epoch, or input new data into the dataflow.
+///         If you are recovering a stateful dataflow, you must ensure
+///         your input resumes from the last finalized epoch.
 ///
 ///     output_builder: Returns a callback function for each worker
 ///         thread, called with `(epoch, item)` whenever and item
@@ -346,7 +392,7 @@ pub(crate) fn cluster_main(
                     )
                 })?;
 
-                worker_main(vec![pump], vec![probe], &should_shutdown_w, worker);
+                worker_main(vec![pump], probe, &should_shutdown_w, worker);
 
                 shutdown_worker(worker);
 
@@ -388,5 +434,7 @@ pub(crate) fn cluster_main(
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_main, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
+    m.add_class::<Emit>()?;
+    m.add_class::<AdvanceTo>()?;
     Ok(())
 }
