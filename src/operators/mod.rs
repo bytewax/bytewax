@@ -96,12 +96,12 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> Reduce<S, K, V> for
 
         let mut epoch_to_key_values_buffer: HashMap<S::Timestamp, Vec<(K, V)>> = HashMap::new();
         // A value will not exist in the hash map if we need to go to
-        // state storage to check for a value, but will exist and be
-        // None if it has been reset by logic code.
+        // the recovery store to check for a value, but will exist and
+        // be None if it has been reset by logic code.
         let mut state_cache: HashMap<K, Option<V>> = HashMap::new();
-        // Fill this with which keys' state have been updated and
-        // flush to state store each epoch. Will be emptied after each
-        // epoch.
+        // Fill this with which keys have had their state updated and
+        // flush to recovery store each epoch. Will be emptied after
+        // each epoch.
         let mut updated_keys_buffer = Vec::new();
 
         self.unary_notify(
@@ -135,9 +135,9 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> Reduce<S, K, V> for
                                 // If we've never seen this key before
                                 // (not even in the state cache),
                                 .unwrap_or_else(|| {
-                                    // Find what the last aggregator for
-                                    // this key was in the state
-                                    // store, which might be
+                                    // Find what the last aggregator
+                                    // for this key was in the
+                                    // recovery store, which might be
                                     // explicitly (the logic threw it
                                     // away by returning None) or
                                     // implicitly (a new key we've
@@ -156,13 +156,14 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> Reduce<S, K, V> for
                                     value
                                 };
 
-                            // Note which keys' state were modified to
-                            // write them to the state store once the
-                            // epoch is complete.
+                            // Note which keys have had their state
+                            // modified. Write that updated state to
+                            // the recovery store once the epoch is
+                            // complete.
                             updated_keys_buffer.push(key.clone());
                             // Save the aggregator so we can use it if
                             // multiple values within this epoch. We
-                            // do not save to the state store here
+                            // do not save to the recovery store here
                             // because we don't have finalized state
                             // for the epoch.
                             if is_complete(&key, &updated_aggregator_for_key) {
@@ -174,7 +175,7 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> Reduce<S, K, V> for
                         }
 
                         // Now that this epoch is complete, write out
-                        // any state modified.
+                        // any modified state.
                         for key in updated_keys_buffer.drain(..) {
                             if let Some(updated_aggregator_for_key) = state_cache.get(&key) {
                                 // TODO: Save all updated keys in one DB
@@ -335,12 +336,12 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> StatefulMap<S, K, V
 
         let mut epoch_to_key_values_buffer: HashMap<S::Timestamp, Vec<(K, V)>> = HashMap::new();
         // A value will not exist in the hash map if we need to go to
-        // state storage to check for a value, but will exist and be
-        // None if it has been reset by logic code.
+        // the recovery store to check for a value, but will exist and
+        // be None if it has been reset by logic code.
         let mut state_cache: HashMap<K, Option<D>> = HashMap::new();
-        // Fill this with which keys' state have been updated and
-        // flush to state store each epoch. Will be emptied after each
-        // epoch.
+        // Fill this with which keys have had their state updated and
+        // flush to recovery store each epoch. Will be emptied after
+        // each epoch.
         let mut updated_keys_buffer = Vec::new();
 
         self.unary_notify(
@@ -375,7 +376,7 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> StatefulMap<S, K, V
                                 // (not even in the state cache),
                                 .unwrap_or_else(|| {
                                     // Find what the last state for
-                                    // this key was in the state
+                                    // this key was in the recovery
                                     // store, which might be
                                     // explicitly (the logic threw it
                                     // away by returning None) or
@@ -390,22 +391,23 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> StatefulMap<S, K, V
                             let (updated_state_for_key, output) =
                                 mapper(&key, state_for_key, value);
 
-                            // Note which keys' state were modified to
-                            // write them to the state store once the
-                            // epoch is complete.
+                            // Note which keys have had their state
+                            // modified. Write that updated state to
+                            // the recovery store once the epoch is
+                            // complete.
                             updated_keys_buffer.push(key.clone());
                             output_session
                                 .give_iterator(output.into_iter().map(|item| (key.clone(), item)));
                             // Save the state so we can use it if
                             // multiple values within this epoch. We
-                            // do not save to the state store here
+                            // do not save to the recovery store here
                             // because we don't have finalized state
                             // for the epoch.
                             state_cache.insert(key, updated_state_for_key);
                         }
 
                         // Now that this epoch is complete, write out
-                        // any state modified.
+                        // any modified state.
                         for key in updated_keys_buffer.drain(..) {
                             if let Some(updated_state_for_key) = state_cache.get(&key) {
                                 // TODO: Save all updated keys in one DB
