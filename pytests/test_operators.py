@@ -168,7 +168,7 @@ def test_reduce():
 
 
 def test_reduce_recovery(tmp_path):
-    recovery_config = SqliteRecoveryConfig(str(tmp_path / "state.sqlite3"))
+    recovery_config = SqliteRecoveryConfig(str(tmp_path / "state.sqlite3"), create=True)
 
     inp1 = [
         (0, ("blake", 5)),
@@ -320,7 +320,7 @@ def test_stateful_map():
 
 
 def test_stateful_map_recovery(tmp_path):
-    recovery_config = SqliteRecoveryConfig(str(tmp_path / "state.sqlite3"))
+    recovery_config = SqliteRecoveryConfig(str(tmp_path / "state.sqlite3"), create=True)
 
     inp1 = [
         (0, ("a", 8)),

@@ -1,6 +1,7 @@
 use pyo3::exceptions::PyValueError;
 use retry::delay::Fixed;
 use retry::retry;
+use retry::OperationResult;
 use send_wrapper::SendWrapper;
 use sqlx::query;
 use sqlx::sqlite::SqliteConnectOptions;
@@ -35,8 +36,8 @@ pub(crate) struct RecoveryConfig;
 /// will _not_ result in corrupted data, but there will be reduced
 /// performance due to contention for the DB lock.
 ///
-/// The SQLite DB does not need any preparation. A `state` table will
-/// automatically be created and queried.
+/// A `state` table in this DB will automatically be created and
+/// queried.
 ///
 /// Only one dataflow can be persisted per SQLite DB. Use a new file
 /// for a new dataflow.
@@ -46,27 +47,38 @@ pub(crate) struct RecoveryConfig;
 ///     db_file_path: Local path to the DB file in Sqlite3
 ///         format. E.g. `./state.sqlite3`
 ///
+///     create: If the DB file is missing, create it. Defaults to
+///         `False`.
+///
 /// Returns:
 ///
 ///     Config object. Pass this as the `recovery_config` argument to
 ///     your execution entry point.
 #[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
-#[pyo3(text_signature = "(db_file_path)")]
+#[pyo3(text_signature = "(db_file_path, *, create)")]
 pub(crate) struct SqliteRecoveryConfig {
     #[pyo3(get)]
     pub(crate) db_file_path: String,
+    #[pyo3(get)]
+    pub(crate) create: bool,
 }
 
 #[pymethods]
 impl SqliteRecoveryConfig {
-    #[new]
-    fn new(db_file_path: String) -> (Self, RecoveryConfig) {
-        (Self { db_file_path }, RecoveryConfig {})
+    #[new(db_file_path, "*", create = "false")]
+    fn new(db_file_path: String, create: bool) -> (Self, RecoveryConfig) {
+        (
+            Self {
+                db_file_path,
+                create,
+            },
+            RecoveryConfig {},
+        )
     }
 
     /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, &str) {
-        ("SqliteRecoveryConfig", &self.db_file_path)
+    fn __getstate__(&self) -> (&str, &str, bool) {
+        ("SqliteRecoveryConfig", &self.db_file_path, self.create)
     }
 
     /// Egregious hack because pickling assumes the type has "empty"
@@ -76,14 +88,15 @@ impl SqliteRecoveryConfig {
     /// don't have access to the pickled `db_file_path` yet, so we
     /// have to pass in some dummy string value that will be
     /// overwritten by `__setstate__()` shortly.
-    fn __getnewargs__(&self) -> (&str,) {
-        ("UNINIT_PICKLED_STRING",)
+    fn __getnewargs__(&self) -> (&str, bool) {
+        ("UNINIT_PICKLED_STRING", false)
     }
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("SqliteRecoveryConfig", db_file_path)) = state.extract() {
+        if let Ok(("SqliteRecoveryConfig", db_file_path, create)) = state.extract() {
             self.db_file_path = db_file_path;
+            self.create = create;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -152,7 +165,10 @@ impl<T: Debug, K: Debug, D: Debug> StepRecovery<T, K, D> for NoOpStepRecovery {
         None
     }
     fn save_complete(&self, completed_epoch: &T, key: &K, state: &Option<D>) -> () {
-        debug!("noop recovery saved step_id={} key={key:?}:state={state:?}@epoch={completed_epoch:?}", self.step_id);
+        debug!(
+            "noop recovery saved step_id={} key={key:?}:state={state:?}@epoch={completed_epoch:?}",
+            self.step_id
+        );
         ()
     }
 }
@@ -163,7 +179,7 @@ pub(crate) struct SqliteRecoveryStore {
 }
 
 impl SqliteRecoveryStore {
-    pub(crate) fn new(db_file_path: &str) -> Self {
+    pub(crate) fn new(config: PyRef<SqliteRecoveryConfig>) -> Self {
         let rt = SendWrapper::new(Rc::new(
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -174,19 +190,31 @@ impl SqliteRecoveryStore {
         // For some reason the busy_timeout setting doesn't affect the
         // initial connection. So manually retry here.
         let pool = retry(Fixed::from_millis(100), || {
-            let options = SqliteConnectOptions::new()
-                .filename(db_file_path)
-                .create_if_missing(true)
+            let mut options = SqliteConnectOptions::new()
+                .filename(&config.db_file_path)
                 .busy_timeout(Duration::from_secs(5))
                 .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
                 .locking_mode(sqlx::sqlite::SqliteLockingMode::Normal)
                 .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
                 .thread_name(|i| format!("sqlx-sqlite-{i}"));
-            let future = SqlitePoolOptions::new().connect_with(options);
-            rt.block_on(future)
+            if config.create {
+                options = options.create_if_missing(true);
+            }
+            config.py().allow_threads(|| {
+                let future = SqlitePoolOptions::new().connect_with(options);
+                match rt.block_on(future) {
+                    Ok(pool) => OperationResult::Ok(pool),
+                    Err(err) => OperationResult::Err(err),
+                }
+            })
         })
         .unwrap();
-        debug!("Opened Sqlite connection pool to {db_file_path}");
+        debug!("Opened Sqlite connection pool to {}", config.db_file_path);
+
+        let future = query(
+            "CREATE TABLE IF NOT EXISTS states(epoch INTEGER, step_id, key, state, PRIMARY KEY (epoch, step_id, key));"
+        ).execute(&pool);
+        rt.block_on(future).unwrap();
 
         SqliteRecoveryStore { rt, pool }
     }
@@ -194,11 +222,6 @@ impl SqliteRecoveryStore {
 
 impl RecoveryStore for SqliteRecoveryStore {
     fn for_step(&self, step_id: &str) -> Box<dyn StepRecovery<u64, TdPyAny, TdPyAny>> {
-        let future = query(
-            "CREATE TABLE IF NOT EXISTS states(epoch INTEGER, step_id, key, state, PRIMARY KEY (epoch, step_id, key));"
-        ).execute(&self.pool);
-        self.rt.block_on(future).unwrap();
-
         Box::new(SqliteStepRecovery {
             step_id: step_id.to_string(),
             rt: self.rt.clone(),

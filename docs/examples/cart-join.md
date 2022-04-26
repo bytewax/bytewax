@@ -194,7 +194,7 @@ from tempfile import TemporaryDirectory
 from bytewax.recovery import SqliteRecoveryConfig
 
 recovery_dir = TemporaryDirectory()  # We'll store this somewhere temporary for this test.
-recovery_config = SqliteRecoveryConfig(recovery_dir.name + "/state-recovery.sqlite3")
+recovery_config = SqliteRecoveryConfig(recovery_dir.name + "/state-recovery.sqlite3", create=True)
 ```
 
 Now if we run the dataflow, the internal state will be persisted at
