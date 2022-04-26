@@ -11,8 +11,8 @@ re-processing all initial data to re-calculate all internal state.</p>
 <ol>
 <li>
 <p>Pick a <strong>recovery store</strong> in which internal state will be
-continously backed up. Different storage systems will have
-different performance and reconfiguration tradeoffs.</p>
+continuously backed up. Different storage systems will have
+different performance and reconfiguration trade-offs.</p>
 </li>
 <li>
 <p>Create a <strong>recovery config</strong> for connecting to your recovery store.</p>
@@ -22,8 +22,8 @@ different performance and reconfiguration tradeoffs.</p>
 entry point running your dataflow (e.g. <code><a title="bytewax.run_cluster" href="index.html#bytewax.run_cluster">run_cluster()</a></code>).</p>
 </li>
 <li>
-<p>Run your dataflow from the beginning, or resuming input from the
-last finalized epoch.</p>
+<p>Run your dataflow consuming input either from the beginning or
+resuming input from the last finalized epoch.</p>
 </li>
 </ol>
 <p>The epoch is the unit of recovery. It is your responsibility to design
@@ -47,16 +47,16 @@ resume processing and output due to system outage or error without
 re-processing all initial data to re-calculate all internal state.
 
 0. Pick a **recovery store** in which internal state will be
-   continously backed up. Different storage systems will have
-   different performance and reconfiguration tradeoffs.
+   continuously backed up. Different storage systems will have
+   different performance and reconfiguration trade-offs.
 
 1. Create a **recovery config** for connecting to your recovery store.
 
 2. Pass that created config as the `recovery_config` argument to the
    entry point running your dataflow (e.g. `bytewax.run_cluster()`).
 
-3. Run your dataflow from the beginning, or resuming input from the
-   last finalized epoch.
+3. Run your dataflow consuming input either from the beginning or
+   resuming input from the last finalized epoch.
 
 The epoch is the unit of recovery. It is your responsibility to design
 your input builders or iterators in such a way that it can be resumed
@@ -98,23 +98,26 @@ system you are going to use. See the subclasses in this module.</p></div>
 </dd>
 <dt id="bytewax.recovery.SqliteRecoveryConfig"><code class="language-python flex name class">
 <span>class <span class="ident">SqliteRecoveryConfig</span></span>
-<span>(</span><span>db_file_name)</span>
+<span>(</span><span>db_file_path, *, create)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Use <a href="https://sqlite.org/index.html">Sqlite</a> as recovery storage.</p>
-<p>Because it's not designed for high-concurrency, Sqlite should only
+<div class="desc"><p>Use <a href="https://sqlite.org/index.html">SQLite</a> as recovery storage.</p>
+<p>Because it's not designed for high-concurrency, SQLite should only
 be used for machine-local testing of dataflows. Multiple workers
 will <em>not</em> result in corrupted data, but there will be reduced
 performance due to contention for the DB lock.</p>
-<p>The Sqlite DB does not need any preparation. A <code>state</code> table will
-automatically be created and queried.</p>
-<p>Only one dataflow can be persisted per Sqlite DB. Use a new file
+<p>A <code>state</code> table in this DB will automatically be created and
+queried.</p>
+<p>Only one dataflow can be persisted per SQLite DB. Use a new file
 for a new dataflow.</p>
 <h2 id="args">Args</h2>
 <dl>
-<dt><strong><code>db_file_name</code></strong></dt>
+<dt><strong><code>db_file_path</code></strong></dt>
 <dd>Local path to the DB file in Sqlite3
 format. E.g. <code>./state.sqlite3</code></dd>
+<dt><strong><code>create</code></strong></dt>
+<dd>If the DB file is missing, create it. Defaults to
+<code>False</code>.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>recovery_config</code> argument to
@@ -125,7 +128,11 @@ your execution entry point.</p></div>
 </ul>
 <h3>Instance variables</h3>
 <dl>
-<dt id="bytewax.recovery.SqliteRecoveryConfig.db_file_name"><code class="language-python name">var <span class="ident">db_file_name</span></code></dt>
+<dt id="bytewax.recovery.SqliteRecoveryConfig.create"><code class="language-python name">var <span class="ident">create</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+<dt id="bytewax.recovery.SqliteRecoveryConfig.db_file_path"><code class="language-python name">var <span class="ident">db_file_path</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
@@ -160,7 +167,8 @@ bytewax
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.recovery.SqliteRecoveryConfig" href="#bytewax.recovery.SqliteRecoveryConfig">SqliteRecoveryConfig</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.SqliteRecoveryConfig.db_file_name" href="#bytewax.recovery.SqliteRecoveryConfig.db_file_name">db_file_name</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.SqliteRecoveryConfig.create" href="#bytewax.recovery.SqliteRecoveryConfig.create">create</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.SqliteRecoveryConfig.db_file_path" href="#bytewax.recovery.SqliteRecoveryConfig.db_file_path">db_file_path</a></li>
 </ul>
 </li>
 </ul>
