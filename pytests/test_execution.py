@@ -88,6 +88,7 @@ def test_run_can_be_ctrl_c(mp_ctx):
         def proc_main():
             def mapper(item):
                 is_running.set()
+                return item
 
             flow = Dataflow()
             flow.map(mapper)
@@ -104,7 +105,7 @@ def test_run_can_be_ctrl_c(mp_ctx):
 
         assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
         os.kill(test_proc.pid, signal.SIGINT)
-        test_proc.join(timeout=5.0)
+        test_proc.join(timeout=10.0)
 
         assert test_proc.exitcode == 99
         assert len(out) < 1000
@@ -122,6 +123,7 @@ def test_run_cluster_can_be_ctrl_c(mp_ctx):
         def proc_main():
             def mapper(item):
                 is_running.set()
+                return item
 
             flow = Dataflow()
             flow.map(mapper)
@@ -143,7 +145,7 @@ def test_run_cluster_can_be_ctrl_c(mp_ctx):
 
         assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
         os.kill(test_proc.pid, signal.SIGINT)
-        test_proc.join(timeout=5.0)
+        test_proc.join(timeout=10.0)
 
         assert test_proc.exitcode == 99
         assert len(out) < 1000
@@ -160,9 +162,9 @@ def test_cluster_main_can_be_ctrl_c(mp_ctx):
 
         def proc_main():
             def input_builder(worker_index, worker_count):
-                for epoch, input in inputs.fully_ordered(range(1000)):
+                for epoch, item in inputs.fully_ordered(range(1000)):
                     yield AdvanceTo(epoch)
-                    yield Emit(input)
+                    yield Emit(item)
 
             def output_builder(worker_index, worker_count):
                 def out_handler(epoch_item):
@@ -172,6 +174,7 @@ def test_cluster_main_can_be_ctrl_c(mp_ctx):
 
             def mapper(item):
                 is_running.set()
+                return item
 
             flow = Dataflow()
             flow.map(mapper)
@@ -194,7 +197,7 @@ def test_cluster_main_can_be_ctrl_c(mp_ctx):
 
         assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
         os.kill(test_proc.pid, signal.SIGINT)
-        test_proc.join(timeout=5.0)
+        test_proc.join(timeout=10.0)
 
         assert test_proc.exitcode == 99
         assert len(out) < 1000
