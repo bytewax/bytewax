@@ -3,7 +3,7 @@ import signal
 import threading
 from sys import exit
 
-from bytewax import cluster_main, Dataflow, inputs, run, run_cluster, AdvanceTo, Emit
+from bytewax import AdvanceTo, cluster_main, Dataflow, Emit, inputs, run, run_cluster
 
 from pytest import mark, raises
 

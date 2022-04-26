@@ -433,7 +433,11 @@ impl Dataflow {
     ///         (updated_state: Any, updated_value: Any)`
     #[pyo3(text_signature = "(self, step_id, builder, mapper)")]
     fn stateful_map(&mut self, step_id: String, builder: TdPyCallable, mapper: TdPyCallable) {
-        self.steps.push(Step::StatefulMap { step_id, builder, mapper });
+        self.steps.push(Step::StatefulMap {
+            step_id,
+            builder,
+            mapper,
+        });
     }
 
     /// Capture is how you specify output of a dataflow.

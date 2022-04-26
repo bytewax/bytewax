@@ -2,7 +2,7 @@ import datetime
 
 from unittest.mock import ANY
 
-from bytewax import Dataflow, run, AdvanceTo, Emit
+from bytewax import AdvanceTo, Dataflow, Emit, run
 from bytewax.inputs import (
     fully_ordered,
     single_batch,

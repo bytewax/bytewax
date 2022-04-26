@@ -24,12 +24,14 @@ def open_stream():
 
 
 def input_builder(worker_index, worker_count):
-    try: 
+    try:
         epoch_start = int(r.get("epoch_index")) + 1
     except IndexError:
         epoch_start = 0
     if worker_index == 0:
-        return inputs.tumbling_epoch(open_stream(), timedelta(seconds=2), epoch_start=epoch_start)
+        return inputs.tumbling_epoch(
+            open_stream(), timedelta(seconds=2), epoch_start=epoch_start
+        )
     else:
         return []
 
@@ -39,6 +41,7 @@ def output_builder(worker_index, worker_count):
         epoch, (server_name, counts) = data
         r.zadd(str(epoch), {server_name: counts})
         r.set("epoch_index", epoch)
+
     return write_to_redis
 
 
@@ -54,7 +57,7 @@ flow.map(initial_count)
 # ("server.name", 1)
 flow.reduce_epoch(operator.add)
 # ("server.name", count)
-pool = redis.ConnectionPool(host='localhost', port=6379, db=0)
+pool = redis.ConnectionPool(host="localhost", port=6379, db=0)
 r = redis.Redis(connection_pool=pool)
 flow.capture()
 
