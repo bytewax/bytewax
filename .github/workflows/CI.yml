@@ -5,9 +5,6 @@ on:
     branches:
     - main
   pull_request: {}
-  release:
-    types:
-    - published
 
 jobs:
   linux:
@@ -98,107 +95,23 @@ jobs:
         name: wheels
         path: dist
 
-  release:
-    name: Release
+  upload:
+    name: Store wheels in S3
     runs-on: ubuntu-latest
-    if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [ macos, windows, linux ]
-    outputs:
-      bytewax-version: ${{ steps.get-info.outputs.bytewax-version }}
-      version-image-tag: ${{ steps.get-info.outputs.version-image-tag }}
-      latest-image-tag: ${{ steps.get-info.outputs.latest-image-tag }}
+    if: "github.ref == 'refs/heads/main'"
+    needs: [ linux, macos, windows ]
     steps:
       - uses: actions/download-artifact@v2
         with:
           name: wheels
-      - uses: actions/setup-python@v2
+          path: wheels
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
         with:
-          python-version: 3.9
-      - name: Publish to PyPI
-        env:
-          TWINE_USERNAME: bytewax
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+          aws-access-key-id: ${{ secrets.ECR_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.ECR_SECRET_KEY }}
+          aws-region: us-west-2
+      - name: Upload files to S3 with AWS CLI
         run: |
-          pip install --upgrade twine
-          twine upload --skip-existing *
-      - name: Get Version and Tags
-        id: get-info
-        run: |
-          BYTEWAX_VERSION=${GITHUB_REF:11}
-          echo "::set-output name=bytewax-version::${BYTEWAX_VERSION}"
-          REPOSITORY=bytewax/bytewax
-          IMAGE_TAG="${REPOSITORY}:${GITHUB_REF:11}"
-          echo "::set-output name=version-image-tag::${IMAGE_TAG}"
-          echo "::set-output name=latest-image-tag::${REPOSITORY}:latest"
-      - name: Report Info
-        run: |
-          [ -n "${{steps.get-info.outputs.bytewax-version}}" ]
-          echo "::notice title=Bytewax Version::${{ steps.get-info.outputs.bytewax-version }}"
-          [ -n "${{steps.get-info.outputs.version-image-tag}}" ]
-          echo "::notice title=Base Tag::${{ steps.get-info.outputs.version-image-tag }}"
-          [ -n "${{steps.get-info.outputs.latest-image-tag}}" ]
-          echo "::notice title=Latest Tag::${{ steps.get-info.outputs.latest-image-tag }}"
-
-  check-pypi:
-    name: Check PyPI
-    runs-on: ubuntu-latest
-    if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [ release ]
-    steps:
-    - name: Install ansible
-      run: |
-        pip install ansible==3.4.0
-        ansible -m ping localhost
-    - name: Create task file
-      run: |
-        cat << EOF > ./pip_task.yaml
-        ---
-        - name: Try install bytewax using pip
-          hosts: localhost
-          tasks:
-          - name: Loop
-            shell: "pip install bytewax=={{ bytewax_version }}"
-            register: pip_result
-            retries: 60
-            until: pip_result.rc == 0
-            delay: 10
-        EOF
-    - name: Check PyPI index before building docker images
-      run: |
-        ansible-playbook ./pip_task.yaml -e bytewax_version=${{ needs.release.outputs.bytewax-version }} -vvv
-
-  publish-docker-hub:
-    name: Publish to Docker Hub
-    if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [ release, check-pypi ]
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.7', '3.8', '3.9', '3.10']
-    steps:
-    - uses: actions/checkout@v2
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v1
-    - name: Login to Docker Hub
-      uses: docker/login-action@v1
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_PASSWORD }}
-    - name: Build and push to Docker Hub
-      id: docker_build
-      uses: docker/build-push-action@v2
-      with:
-        push: true
-        tags: |
-          ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }}
-          ${{ needs.release.outputs.latest-image-tag }}-python${{ matrix.python-version }}
-        build-args: |
-          BYTEWAX_VERSION=${{ needs.release.outputs.bytewax-version }}
-          PYTHON_VERSION=${{ matrix.python-version }}
-        file: Dockerfile.release
-    - name: Tag latest
-      if: ${{ matrix.python-version == '3.9' }}
-      run: |
-        docker pull ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }}
-        docker tag ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }} ${{ needs.release.outputs.latest-image-tag }}
-        docker push ${{ needs.release.outputs.latest-image-tag }}
+          aws s3 sync ./wheels s3://${{ secrets.WHEELS_S3_BUCKET }}/${{ github.sha }} --delete
+          aws s3 ls s3://${{ secrets.WHEELS_S3_BUCKET }}/${{ github.sha }}
