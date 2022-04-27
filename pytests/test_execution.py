@@ -76,6 +76,7 @@ def test_run_cluster_reraises_exception(mp_ctx):
         run_cluster(flow, enumerate(range(3)), proc_count=2, mp_ctx=mp_ctx)
 
 
+@mark.skip(reason="Flakey in CI for some unknown reason")
 @mark.skipif(
     os.name == "nt",
     reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
@@ -111,6 +112,7 @@ def test_run_can_be_ctrl_c(mp_ctx):
         assert len(out) < 1000
 
 
+@mark.skip(reason="Flakey in CI for some unknown reason")
 @mark.skipif(
     os.name == "nt",
     reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
@@ -151,6 +153,7 @@ def test_run_cluster_can_be_ctrl_c(mp_ctx):
         assert len(out) < 1000
 
 
+@mark.skip(reason="Flakey in CI for some unknown reason")
 @mark.skipif(
     os.name == "nt",
     reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
