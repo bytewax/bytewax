@@ -173,6 +173,9 @@ Reduce requires two bits of logic:
 - When is a session complete? In this case, a session is complete when
   the last item in the session is the app closing. We'll write a
   `session_has_closed` function to answer that.
+  
+Reduce also takes a unique **step ID** to help organize the state
+saved internally.
 
 ```python
 import operator
@@ -184,7 +187,7 @@ def session_has_closed(session):
     return type(session[-1]).__name__ == "AppClose"
 
 
-flow.reduce(operator.add, session_has_closed)
+flow.reduce("sessionizer", operator.add, session_has_closed)
 ```
 
 We had to group by user because sessions were per-user, but now that

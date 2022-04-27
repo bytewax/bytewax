@@ -1,5 +1,3 @@
-#![allow(non_snake_case)]
-
 #[macro_use(defer)]
 extern crate scopeguard;
 
@@ -11,6 +9,7 @@ pub(crate) mod dataflow;
 pub(crate) mod execution;
 pub(crate) mod operators;
 pub(crate) mod pyo3_extensions;
+pub(crate) mod recovery;
 pub(crate) mod webserver;
 
 #[macro_use]
@@ -32,11 +31,12 @@ fn sleep_release_gil(py: Python, secs: u64) {
 
 #[pymodule]
 #[pyo3(name = "bytewax")]
-fn mod_bytewax(_py: Python, m: &PyModule) -> PyResult<()> {
+fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
     pyo3_log::init();
 
-    execution::register(_py, m)?;
-    dataflow::register(_py, m)?;
+    execution::register(py, m)?;
+    dataflow::register(py, m)?;
+    recovery::register(py, m)?;
 
     m.add_function(wrap_pyfunction!(sleep_keep_gil, m)?)?;
     m.add_function(wrap_pyfunction!(sleep_release_gil, m)?)?;

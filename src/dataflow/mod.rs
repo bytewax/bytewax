@@ -1,3 +1,12 @@
+use crate::operators::build;
+use crate::operators::check_complete;
+use crate::operators::stateful_map;
+use crate::operators::Reduce;
+use crate::recovery::NoOpRecoveryStore;
+use crate::recovery::RecoveryConfig;
+use crate::recovery::RecoveryStore;
+use crate::recovery::SqliteRecoveryConfig;
+use crate::recovery::SqliteRecoveryStore;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
@@ -11,11 +20,9 @@ use timely::dataflow::operators::*;
 use crate::execution::Pump;
 use crate::operators::{
     capture, filter, flat_map, inspect, inspect_epoch, map, reduce, reduce_epoch,
-    reduce_epoch_local, stateful_map,
+    reduce_epoch_local, StatefulMap,
 };
-use crate::pyo3_extensions::{
-    build, hash, lift_2tuple, wrap_2tuple, TdPyAny, TdPyCallable, TdPyIterator,
-};
+use crate::pyo3_extensions::{hash, lift_2tuple, wrap_2tuple, TdPyAny, TdPyCallable, TdPyIterator};
 
 /// A definition of a Bytewax dataflow graph.
 ///
@@ -266,9 +273,10 @@ impl Dataflow {
     ///
     ///     is_complete - `is_complete(updated_aggregator: Any) =>
     ///         should_emit: bool`
-    #[pyo3(text_signature = "(self, reducer, is_complete)")]
-    fn reduce(&mut self, reducer: TdPyCallable, is_complete: TdPyCallable) {
+    #[pyo3(text_signature = "(self, step_id, reducer, is_complete)")]
+    fn reduce(&mut self, step_id: String, reducer: TdPyCallable, is_complete: TdPyCallable) {
         self.steps.push(Step::Reduce {
+            step_id,
             reducer,
             is_complete,
         });
@@ -423,9 +431,13 @@ impl Dataflow {
     ///
     ///     mapper - `mapper(state: Any, value: Any) =>
     ///         (updated_state: Any, updated_value: Any)`
-    #[pyo3(text_signature = "(self, builder, mapper)")]
-    fn stateful_map(&mut self, builder: TdPyCallable, mapper: TdPyCallable) {
-        self.steps.push(Step::StatefulMap { builder, mapper });
+    #[pyo3(text_signature = "(self, step_id, builder, mapper)")]
+    fn stateful_map(&mut self, step_id: String, builder: TdPyCallable, mapper: TdPyCallable) {
+        self.steps.push(Step::StatefulMap {
+            step_id,
+            builder,
+            mapper,
+        });
     }
 
     /// Capture is how you specify output of a dataflow.
@@ -479,6 +491,7 @@ pub(crate) enum Step {
         inspector: TdPyCallable,
     },
     Reduce {
+        step_id: String,
         reducer: TdPyCallable,
         is_complete: TdPyCallable,
     },
@@ -489,6 +502,7 @@ pub(crate) enum Step {
         reducer: TdPyCallable,
     },
     StatefulMap {
+        step_id: String,
         builder: TdPyCallable,
         mapper: TdPyCallable,
     },
@@ -517,8 +531,9 @@ impl<'source> FromPyObject<'source> for Step {
         if let Ok(("InspectEpoch", inspector)) = tuple.extract() {
             return Ok(Self::InspectEpoch { inspector });
         }
-        if let Ok(("Reduce", reducer, is_complete)) = tuple.extract() {
+        if let Ok(("Reduce", step_id, reducer, is_complete)) = tuple.extract() {
             return Ok(Self::Reduce {
+                step_id,
                 reducer,
                 is_complete,
             });
@@ -529,8 +544,12 @@ impl<'source> FromPyObject<'source> for Step {
         if let Ok(("ReduceEpochLocal", reducer)) = tuple.extract() {
             return Ok(Self::ReduceEpochLocal { reducer });
         }
-        if let Ok(("StatefulMap", builder, mapper)) = tuple.extract() {
-            return Ok(Self::StatefulMap { builder, mapper });
+        if let Ok(("StatefulMap", step_id, builder, mapper)) = tuple.extract() {
+            return Ok(Self::StatefulMap {
+                step_id,
+                builder,
+                mapper,
+            });
         }
         if let Ok(("Capture",)) = tuple.extract() {
             return Ok(Self::Capture {});
@@ -554,12 +573,17 @@ impl ToPyObject for Step {
             Self::Inspect { inspector } => ("Inspect", inspector).to_object(py),
             Self::InspectEpoch { inspector } => ("InspectEpoch", inspector).to_object(py),
             Self::Reduce {
+                step_id,
                 reducer,
                 is_complete,
-            } => ("Reduce", reducer, is_complete).to_object(py),
+            } => ("Reduce", step_id, reducer, is_complete).to_object(py),
             Self::ReduceEpoch { reducer } => ("ReduceEpoch", reducer).to_object(py),
             Self::ReduceEpochLocal { reducer } => ("ReduceEpochLocal", reducer).to_object(py),
-            Self::StatefulMap { builder, mapper } => ("StatefulMap", builder, mapper).to_object(py),
+            Self::StatefulMap {
+                step_id,
+                builder,
+                mapper,
+            } => ("StatefulMap", step_id, builder, mapper).to_object(py),
             Self::Capture {} => ("Capture",).to_object(py),
         }
         .into()
@@ -572,12 +596,14 @@ pub(crate) fn build_dataflow<A>(
     flow: &Dataflow,
     input_builder: TdPyCallable,
     output_builder: TdPyCallable,
+    recovery_config: Option<Py<RecoveryConfig>>,
 ) -> Result<(Pump, ProbeHandle<u64>), String>
 where
     A: timely::communication::Allocate,
 {
     let worker_index = timely_worker.index();
     let worker_count = timely_worker.peers();
+
     timely_worker.dataflow(|scope| {
         let mut timely_input = InputHandle::new();
         let mut end_of_steps_probe = ProbeHandle::new();
@@ -594,6 +620,22 @@ where
             .unwrap()
             .extract(py)
             .unwrap();
+
+        let recovery_store: Box<dyn RecoveryStore> = match recovery_config {
+            None => Box::new(NoOpRecoveryStore::new()),
+            Some(recovery_config) => {
+                let recovery_config = recovery_config.as_ref(py);
+                if let Ok(sqlite_recovery_config) =
+                    recovery_config.downcast::<PyCell<SqliteRecoveryConfig>>()
+                {
+                    let sqlite_recovery_config = sqlite_recovery_config.borrow();
+                    Box::new(SqliteRecoveryStore::new(sqlite_recovery_config))
+                } else {
+                    let pytype = recovery_config.get_type();
+                    return Err(format!("Unknown recovery_config type: {pytype}"));
+                }
+            }
+        };
 
         let steps = &flow.steps;
         for step in steps {
@@ -624,17 +666,21 @@ where
                         .inspect_time(move |epoch, item| inspect_epoch(&inspector, epoch, item));
                 }
                 Step::Reduce {
+                    step_id,
                     reducer,
                     is_complete,
                 } => {
                     let reducer = reducer.clone_ref(py);
                     let is_complete = is_complete.clone_ref(py);
-                    stream = stream.map(lift_2tuple).state_machine(
-                        move |key, value, aggregator: &mut Option<TdPyAny>| {
-                            reduce(&reducer, &is_complete, aggregator, key, value)
-                        },
-                        hash,
-                    );
+                    stream = stream
+                        .map(lift_2tuple)
+                        .reduce(
+                            recovery_store.for_step(step_id),
+                            move |key, aggregator, value| reduce(&reducer, key, aggregator, value),
+                            move |key, aggregator| check_complete(&is_complete, key, aggregator),
+                            hash,
+                        )
+                        .map(wrap_2tuple);
                 }
                 Step::ReduceEpoch { reducer } => {
                     let reducer = reducer.clone_ref(py);
@@ -663,17 +709,22 @@ where
                         )
                         .flat_map(|aggregators| aggregators.into_iter().map(wrap_2tuple));
                 }
-                Step::StatefulMap { builder, mapper } => {
+                Step::StatefulMap {
+                    step_id,
+                    builder,
+                    mapper,
+                } => {
                     let builder = builder.clone_ref(py);
                     let mapper = mapper.clone_ref(py);
-                    stream = stream.map(lift_2tuple).state_machine(
-                        move |key, value, maybe_uninit_state: &mut Option<TdPyAny>| {
-                            let state =
-                                maybe_uninit_state.get_or_insert_with(|| build(&builder, key));
-                            stateful_map(&mapper, state, key, value)
-                        },
-                        hash,
-                    );
+                    stream = stream
+                        .map(lift_2tuple)
+                        .stateful_map(
+                            recovery_store.for_step(step_id),
+                            move |key| build(&builder, key),
+                            move |key, state, value| stateful_map(&mapper, key, state, value),
+                            hash,
+                        )
+                        .map(wrap_2tuple);
                 }
                 Step::Capture {} => {
                     let worker_output = worker_output.clone_ref(py);

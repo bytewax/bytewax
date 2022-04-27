@@ -49,7 +49,7 @@ if __name__ == "__main__":
     # Run these commands in your terminal to run a cluster of two containers:
 
     # $ tar -C ./ -cvf cluster.tar examples
-    # $ waxctl dataflow deploy ./cluster.tar --name k8s-cluster --python-file-name examples/k8s_cluster.py -p2 
+    # $ waxctl dataflow deploy ./cluster.tar --name k8s-cluster --python-file-name examples/k8s_cluster.py -p2
 
     # Each worker will read the files in
     # ./examples/sample_data/cluster/*.txt which have lines like
@@ -68,6 +68,6 @@ if __name__ == "__main__":
 
     # When using `cluster_main()` you have to coordinate ensuring each
     # process knows the address of all other processes in the cluster
-    # and their unique process ID. You can address that easily by deploying your 
+    # and their unique process ID. You can address that easily by deploying your
     # dataflow program using Waxctl or installing the Bytewax Helm Chart
     cluster_main(flow, input_builder, output_builder, **parse.proc_env())

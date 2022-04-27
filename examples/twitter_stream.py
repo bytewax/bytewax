@@ -1,7 +1,7 @@
 import json
 import operator
-from datetime import timedelta
 from collections import defaultdict
+from datetime import timedelta
 
 from bytewax import Dataflow, inputs, parse, run_cluster
 

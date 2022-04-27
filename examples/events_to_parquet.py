@@ -1,6 +1,6 @@
+import datetime
 import json
 import time
-import datetime
 
 import pandas
 
@@ -16,7 +16,9 @@ from utils import fake_events
 # days around today. Each worker will generate independent fake
 # events.
 def input_builder(worker_index, worker_count):
-    return inputs.tumbling_epoch(fake_events.generate_web_events(), datetime.timedelta(seconds=5))
+    return inputs.tumbling_epoch(
+        fake_events.generate_web_events(), datetime.timedelta(seconds=5)
+    )
 
 
 # Arrow assigns a UUID to each worker / window's file so they won't

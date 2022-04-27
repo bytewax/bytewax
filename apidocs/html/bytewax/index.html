@@ -19,7 +19,7 @@ scalable dataflows in a streaming or batch context.
 documentation.](https://github.com/bytewax/bytewax)
 
 &#34;&#34;&#34;
-from .bytewax import cluster_main, Dataflow, run_main, AdvanceTo, Emit
+from .bytewax import AdvanceTo, cluster_main, Dataflow, Emit, run_main
 from .execution import run, run_cluster, spawn_cluster
 
 __all__ = [
@@ -66,6 +66,12 @@ line.</p></div>
 </p>
 </div>
 <div class="api__article-submodules-item">
+<h4><a class="api-submodule" href="bytewax.recovery">bytewax.recovery</a></h4>
+<p>
+<div class="desc"><p>Bytewax's state recovery machinery …</p></div>
+</p>
+</div>
+<div class="api__article-submodules-item">
 <h4><a class="api-submodule" href="bytewax.testing">bytewax.testing</a></h4>
 <p>
 <div class="desc"><p>Helper tools for testing dataflows.</p></div>
@@ -79,7 +85,7 @@ line.</p></div>
 <h2 class="api__article-subtitle" id="header-functions">Functions</h2>
 <dl>
 <dt id="bytewax.cluster_main"><code class="language-python name flex">
-<span>def <span class="ident">cluster_main</span></span>(<span>flow, input_builder, output_builder, addresses, proc_id, worker_count_per_proc)</span>
+<span>def <span class="ident">cluster_main</span></span>(<span>flow, input_builder, output_builder, addresses, proc_id, *, recovery_config, worker_count_per_proc)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Execute a dataflow in the current process as part of a cluster.</p>
@@ -109,7 +115,9 @@ locally on one machine.</p>
 <dt><strong><code>input_builder</code></strong></dt>
 <dd>Returns input that each worker thread should
 process. Should yield either <code><a title="bytewax.AdvanceTo" href="#bytewax.AdvanceTo">AdvanceTo</a></code> or <code>Send</code> to
-advance the epoch, or input new data into the dataflow.</dd>
+advance the epoch, or input new data into the dataflow.
+If you are recovering a stateful dataflow, you must ensure
+your input resumes from the last finalized epoch.</dd>
 <dt><strong><code>output_builder</code></strong></dt>
 <dd>Returns a callback function for each worker
 thread, called with <code>(epoch, item)</code> whenever and item
@@ -119,21 +127,24 @@ passes by a capture operator on this process.</dd>
 this cluster (including this one).</dd>
 <dt><strong><code>proc_id</code></strong></dt>
 <dd>Index of this process in cluster; starts from 0.</dd>
+<dt><strong><code>recovery_config</code></strong></dt>
+<dd>State recovery config. See
+<code><a title="bytewax.recovery" href="recovery.html">bytewax.recovery</a></code>. If <code>None</code>, state will not be persisted.</dd>
 <dt><strong><code>worker_count_per_proc</code></strong></dt>
 <dd>Number of worker threads to start on
 each process.</dd>
 </dl></div>
 </dd>
 <dt id="bytewax.run"><code class="language-python name flex">
-<span>def <span class="ident">run</span></span>(<span>flow: <a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>, inp: Iterable[Tuple[int, Any]]) ‑> List[Tuple[int, Any]]</span>
+<span>def <span class="ident">run</span></span>(<span>flow: <a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>, inp: Iterable[Tuple[int, Any]], *, recovery_config: Optional[<a title="bytewax.recovery.RecoveryConfig" href="recovery.html#bytewax.recovery.RecoveryConfig">RecoveryConfig</a>] = None) ‑> List[Tuple[int, Any]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Pass data through a dataflow running in the current thread.</p>
 <p>Blocks until execution is complete.</p>
+<p>Output is collected into a list before returning, thus output must
+be finite.</p>
 <p>Handles distributing input and collecting output. You'd commonly
 use this for tests or prototyping in notebooks.</p>
-<p>Input must be finite, otherwise collected output will grow
-unbounded.</p>
 <pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.map(str.upper)
 &gt;&gt;&gt; flow.capture()
@@ -146,7 +157,12 @@ unbounded.</p>
 <dt><strong><code>flow</code></strong></dt>
 <dd>Dataflow to run.</dd>
 <dt><strong><code>inp</code></strong></dt>
-<dd>Input data.</dd>
+<dd>Input data. If you are recovering a stateful dataflow,
+your input should resume from the last finalized epoch.</dd>
+<dt><strong><code>recovery_config</code></strong></dt>
+<dd>State recovery config. See
+<code><a title="bytewax.recovery" href="recovery.html">bytewax.recovery</a></code>. If <code>None</code>, state will not be
+persisted.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>List of <code>(epoch, item)</code> tuples seen by capture operators.</p></div>
@@ -154,16 +170,21 @@ unbounded.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def run(flow: Dataflow, inp: Iterable[Tuple[int, Any]]) -&gt; List[Tuple[int, Any]]:
+<pre class="language-python line-numbers"><code class="language-python">def run(
+    flow: Dataflow,
+    inp: Iterable[Tuple[int, Any]],
+    *,
+    recovery_config: Optional[RecoveryConfig] = None,
+) -&gt; List[Tuple[int, Any]]:
     &#34;&#34;&#34;Pass data through a dataflow running in the current thread.
 
     Blocks until execution is complete.
 
+    Output is collected into a list before returning, thus output must
+    be finite.
+
     Handles distributing input and collecting output. You&#39;d commonly
     use this for tests or prototyping in notebooks.
-
-    Input must be finite, otherwise collected output will grow
-    unbounded.
 
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.map(str.upper)
@@ -176,7 +197,12 @@ unbounded.</p>
 
         flow: Dataflow to run.
 
-        inp: Input data.
+        inp: Input data. If you are recovering a stateful dataflow,
+            your input should resume from the last finalized epoch.
+
+        recovery_config: State recovery config. See
+            `bytewax.recovery`. If `None`, state will not be
+            persisted.
 
     Returns:
 
@@ -186,9 +212,9 @@ unbounded.</p>
 
     def input_builder(worker_index, worker_count):
         assert worker_index == 0
-        for epoch, input in inp:
+        for epoch, item in inp:
             yield AdvanceTo(epoch)
-            yield Emit(input)
+            yield Emit(item)
 
     out = []
 
@@ -196,25 +222,29 @@ unbounded.</p>
         assert worker_index == 0
         return out.append
 
-    run_main(flow, input_builder, output_builder)
+    run_main(
+        flow,
+        input_builder,
+        output_builder,
+        recovery_config=recovery_config,
+    )
 
     return out</code></pre>
 </details>
 </dd>
 <dt id="bytewax.run_cluster"><code class="language-python name flex">
-<span>def <span class="ident">run_cluster</span></span>(<span>flow: <a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>, inp: Iterable[Tuple[int, Any]], proc_count: int = 1, worker_count_per_proc: int = 1, mp_ctx=&lt;multiprocess.context.SpawnContext object&gt;) ‑> List[Tuple[int, Any]]</span>
+<span>def <span class="ident">run_cluster</span></span>(<span>flow: <a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>, inp: Iterable[Tuple[int, Any]], *, recovery_config: Optional[<a title="bytewax.recovery.RecoveryConfig" href="recovery.html#bytewax.recovery.RecoveryConfig">RecoveryConfig</a>] = None, proc_count: int = 1, worker_count_per_proc: int = 1, mp_ctx=&lt;multiprocess.context.SpawnContext object&gt;) ‑> List[Tuple[int, Any]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Pass data through a dataflow running as a cluster of processes on
 this machine.
-Blocks until execution is complete.
-Starts up cluster processes for you, handles connecting them
+Blocks until execution is complete.</p>
+<p>Both input and output are collected into lists, thus both must be
+finite.</p>
+<p>Starts up cluster processes for you, handles connecting them
 together, distributing input, and collecting output. You'd
 commonly use this for notebook analysis that needs parallelism and
-higher throughput, or simple stand-alone demo programs.
-Input must be finite because it is reified into a list before
-distribution to cluster and otherwise collected output will grow
-unbounded.</p>
+higher throughput, or simple stand-alone demo programs.</p>
 <pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import doctest_ctx
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.map(str.upper)
@@ -227,18 +257,24 @@ unbounded.</p>
 ... )
 &gt;&gt;&gt; sorted(out)
 [(0, 'A'), (1, 'B'), (2, 'C')]
-See &lt;code&gt;&lt;a title=&quot;bytewax.spawn_cluster&quot; href=&quot;#bytewax.spawn_cluster&quot;&gt;spawn\_cluster()&lt;/a&gt;&lt;/code&gt; for starting a cluster on this
-machine with full control over inputs and outputs.
-See &lt;code&gt;&lt;a title=&quot;bytewax.cluster_main&quot; href=&quot;#bytewax.cluster_main&quot;&gt;cluster\_main()&lt;/a&gt;&lt;/code&gt; for starting one process in a cluster
-in a distributed situation.
 </code></pre>
+<p>See <code><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster()</a></code> for starting a cluster on this
+machine with full control over inputs and outputs.</p>
+<p>See <code><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main()</a></code> for starting one process in a cluster
+in a distributed situation.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>flow</code></strong></dt>
 <dd>Dataflow to run.</dd>
 <dt><strong><code>inp</code></strong></dt>
-<dd>Input data. Will be reifyied to a list before sending to
-processes. Will be partitioned between workers for you.</dd>
+<dd>Input data. Will be reified to a list before sending to
+processes. Will be partitioned between workers for you. If
+you are recovering a stateful dataflow, you must ensure
+your input resumes from the last finalized epoch.</dd>
+<dt><strong><code>recovery_config</code></strong></dt>
+<dd>State recovery config. See
+<code><a title="bytewax.recovery" href="recovery.html">bytewax.recovery</a></code>. If <code>None</code>, state will not be
+persisted.</dd>
 <dt><strong><code>proc_count</code></strong></dt>
 <dd>Number of processes to start.</dd>
 <dt><strong><code>worker_count_per_proc</code></strong></dt>
@@ -258,6 +294,8 @@ fork. Defaults to spawn.</dd>
 <pre class="language-python line-numbers"><code class="language-python">def run_cluster(
     flow: Dataflow,
     inp: Iterable[Tuple[int, Any]],
+    *,
+    recovery_config: Optional[RecoveryConfig] = None,
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
     mp_ctx=get_context(&#34;spawn&#34;),
@@ -265,13 +303,15 @@ fork. Defaults to spawn.</dd>
     &#34;&#34;&#34;Pass data through a dataflow running as a cluster of processes on
     this machine.
     Blocks until execution is complete.
+
+    Both input and output are collected into lists, thus both must be
+    finite.
+
     Starts up cluster processes for you, handles connecting them
     together, distributing input, and collecting output. You&#39;d
     commonly use this for notebook analysis that needs parallelism and
     higher throughput, or simple stand-alone demo programs.
-    Input must be finite because it is reified into a list before
-    distribution to cluster and otherwise collected output will grow
-    unbounded.
+
     &gt;&gt;&gt; from bytewax.testing import doctest_ctx
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.map(str.upper)
@@ -284,21 +324,37 @@ fork. Defaults to spawn.</dd>
     ... )
     &gt;&gt;&gt; sorted(out)
     [(0, &#39;A&#39;), (1, &#39;B&#39;), (2, &#39;C&#39;)]
+
     See `bytewax.spawn_cluster()` for starting a cluster on this
     machine with full control over inputs and outputs.
+
     See `bytewax.cluster_main()` for starting one process in a cluster
     in a distributed situation.
+
     Args:
+
         flow: Dataflow to run.
-        inp: Input data. Will be reifyied to a list before sending to
-            processes. Will be partitioned between workers for you.
+
+        inp: Input data. Will be reified to a list before sending to
+            processes. Will be partitioned between workers for you. If
+            you are recovering a stateful dataflow, you must ensure
+            your input resumes from the last finalized epoch.
+
+        recovery_config: State recovery config. See
+            `bytewax.recovery`. If `None`, state will not be
+            persisted.
+
         proc_count: Number of processes to start.
+
         worker_count_per_proc: Number of worker threads to start on
             each process.
+
         mp_ctx: `multiprocessing` context to use. Use this to
             configure starting up subprocesses via spawn or
             fork. Defaults to spawn.
+
     Returns:
+
         List of `(epoch, item)` tuples seen by capture operators.
     &#34;&#34;&#34;
     # A Manager starts up a background process to manage shared state.
@@ -321,9 +377,10 @@ fork. Defaults to spawn.</dd>
             flow,
             input_builder,
             output_builder,
-            proc_count,
-            worker_count_per_proc,
-            mp_ctx,
+            recovery_config=recovery_config,
+            proc_count=proc_count,
+            worker_count_per_proc=worker_count_per_proc,
+            mp_ctx=mp_ctx,
         )
 
         # We have to copy out the shared state before process
@@ -332,7 +389,7 @@ fork. Defaults to spawn.</dd>
 </details>
 </dd>
 <dt id="bytewax.run_main"><code class="language-python name flex">
-<span>def <span class="ident">run_main</span></span>(<span>flow, input_builder, output_builder)</span>
+<span>def <span class="ident">run_main</span></span>(<span>flow, input_builder, output_builder, *, recovery_config)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Execute a dataflow in the current thread.</p>
@@ -359,15 +416,20 @@ machine with full control over inputs and outputs.</p>
 <dd>Dataflow to run.</dd>
 <dt><strong><code>input_builder</code></strong></dt>
 <dd>Returns input that each worker thread should
-process.</dd>
+process. If you are recovering a stateful dataflow, you
+must ensure your input resumes from the last finalized
+epoch.</dd>
 <dt><strong><code>output_builder</code></strong></dt>
 <dd>Returns a callback function for each worker
 thread, called with <code>(epoch, item)</code> whenever and item
 passes by a capture operator on this process.</dd>
+<dt><strong><code>recovery_config</code></strong></dt>
+<dd>State recovery config. See
+<code><a title="bytewax.recovery" href="recovery.html">bytewax.recovery</a></code>. If <code>None</code>, state will not be persisted.</dd>
 </dl></div>
 </dd>
 <dt id="bytewax.spawn_cluster"><code class="language-python name flex">
-<span>def <span class="ident">spawn_cluster</span></span>(<span>flow: <a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>, input_builder: Callable[[int, int], Iterable[Union[<a title="bytewax.AdvanceTo" href="#bytewax.AdvanceTo">AdvanceTo</a>, <a title="bytewax.Emit" href="#bytewax.Emit">Emit</a>]]], output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]], proc_count: int = 1, worker_count_per_proc: int = 1, mp_ctx=&lt;multiprocess.context.SpawnContext object&gt;) ‑> List[Tuple[int, Any]]</span>
+<span>def <span class="ident">spawn_cluster</span></span>(<span>flow: <a title="bytewax.Dataflow" href="#bytewax.Dataflow">Dataflow</a>, input_builder: Callable[[int, int], Iterable[Union[<a title="bytewax.AdvanceTo" href="#bytewax.AdvanceTo">AdvanceTo</a>, <a title="bytewax.Emit" href="#bytewax.Emit">Emit</a>]]], output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]], *, recovery_config: Optional[<a title="bytewax.recovery.RecoveryConfig" href="recovery.html#bytewax.recovery.RecoveryConfig">RecoveryConfig</a>] = None, proc_count: int = 1, worker_count_per_proc: int = 1, mp_ctx=&lt;multiprocess.context.SpawnContext object&gt;) ‑> List[Tuple[int, Any]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Execute a dataflow as a cluster of processes on this machine.</p>
@@ -406,11 +468,17 @@ in a distributed situation.</p>
 <dd>Dataflow to run.</dd>
 <dt><strong><code>input_builder</code></strong></dt>
 <dd>Returns input that each worker thread should
-process.</dd>
+process. If you are recovering a stateful dataflow, you
+must ensure your input resumes from the last finalized
+epoch.</dd>
 <dt><strong><code>output_builder</code></strong></dt>
 <dd>Returns a callback function for each worker
 thread, called with <code>(epoch, item)</code> whenever and item
 passes by a capture operator on this process.</dd>
+<dt><strong><code>recovery_config</code></strong></dt>
+<dd>State recovery config. See
+<code><a title="bytewax.recovery" href="recovery.html">bytewax.recovery</a></code>. If <code>None</code>, state will not be
+persisted.</dd>
 <dt><strong><code>proc_count</code></strong></dt>
 <dd>Number of processes to start.</dd>
 <dt><strong><code>worker_count_per_proc</code></strong></dt>
@@ -429,6 +497,8 @@ fork. Defaults to spawn.</dd>
     flow: Dataflow,
     input_builder: Callable[[int, int], Iterable[Union[AdvanceTo, Emit]]],
     output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]],
+    *,
+    recovery_config: Optional[RecoveryConfig] = None,
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
     mp_ctx=get_context(&#34;spawn&#34;),
@@ -474,11 +544,17 @@ fork. Defaults to spawn.</dd>
         flow: Dataflow to run.
 
         input_builder: Returns input that each worker thread should
-            process.
+            process. If you are recovering a stateful dataflow, you
+            must ensure your input resumes from the last finalized
+            epoch.
 
         output_builder: Returns a callback function for each worker
             thread, called with `(epoch, item)` whenever and item
             passes by a capture operator on this process.
+
+        recovery_config: State recovery config. See
+            `bytewax.recovery`. If `None`, state will not be
+            persisted.
 
         proc_count: Number of processes to start.
 
@@ -499,10 +575,13 @@ fork. Defaults to spawn.</dd>
                     flow,
                     input_builder,
                     output_builder,
-                    addresses,
-                    proc_id,
-                    worker_count_per_proc,
                 ),
+                {
+                    &#34;recovery_config&#34;: recovery_config,
+                    &#34;addresses&#34;: addresses,
+                    &#34;proc_id&#34;: proc_id,
+                    &#34;worker_count_per_proc&#34;: worker_count_per_proc,
+                },
             )
             for proc_id in range(proc_count)
         ]
@@ -541,7 +620,7 @@ fork. Defaults to spawn.</dd>
 <div class="desc"><p>A definition of a Bytewax dataflow graph.</p>
 <p>Use the methods defined on this class to add steps with operators
 of the same name.</p>
-<p>See the execution functions in the <code><a title="bytewax" href="#bytewax">bytewax</a></code> to run.</p>
+<p>See the execution functions in <code><a title="bytewax" href="#bytewax">bytewax</a></code> to run.</p>
 <p>TODO: Right now this is just a linear dataflow only.</p></div>
 <h3>Methods</h3>
 <dl>
@@ -549,152 +628,359 @@ of the same name.</p>
 <span>def <span class="ident">capture</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Capture causes all <code>(epoch, item)</code> tuples that pass by this
-point in the Dataflow to be passed to the Dataflow's output
-handler.</p>
-<p>Every dataflow must contain at least one capture.</p>
-<p>If you use this operator multiple times, the results will be
-combined.</p>
+<div class="desc"><p>Capture is how you specify output of a dataflow.</p>
+<p>At least one capture is required on every dataflow.</p>
+<p>It emits items downstream unmodified; you can capture midway
+through a dataflow.</p>
+<p>Whenever an item flows into a capture operator, the <a href="./execution#builders">output
+handler</a> of the worker is called with
+that item and epoch. For <code><a title="bytewax.run" href="#bytewax.run">run()</a></code> and
+<code><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster()</a></code> output handlers are setup for you that
+return the output as the return value.</p>
 <p>There are no guarantees on the order that output is passed to
-the handler. Read the attached epoch to discern order.</p></div>
+the output handler. Read the attached epoch to discern order.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; inp = enumerate(range(3))
+&gt;&gt;&gt; sorted(run(flow, inp))
+[(0, 0), (1, 1), (2, 2)]
+</code></pre></div>
 </dd>
 <dt id="bytewax.Dataflow.filter"><code class="language-python name flex">
 <span>def <span class="ident">filter</span></span>(<span>self, predicate)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Filter selectively keeps only some items.</p>
-<p>It calls a function <code>predicate(item: Any) =&gt; should_emit:
-bool</code> on each item.</p>
+<p>It calls a <strong>predicate</strong> function on each item.</p>
 <p>It emits the item downstream unmodified if the predicate
-returns <code>True</code>.</p></div>
+returns <code>True</code>.</p>
+<p>It is commonly used for:</p>
+<ul>
+<li>Selecting relevant events</li>
+<li>Removing empty events</li>
+<li>Removing sentinels</li>
+<li>Removing stop words</li>
+</ul>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def is_odd(item):
+...     return item % 2 != 0
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.filter(is_odd)
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; inp = enumerate(range(3))
+&gt;&gt;&gt; for epoch, item in run(flow, inp):
+...    print(item)
+1
+3
+</code></pre>
+<h2 id="args">Args</h2>
+<p>predicate - <code>predicate(item: Any) =&gt; should_emit: bool</code></p></div>
 </dd>
 <dt id="bytewax.Dataflow.flat_map"><code class="language-python name flex">
 <span>def <span class="ident">flat_map</span></span>(<span>self, mapper)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Flat Map is a one-to-many transformation of items.</p>
-<p>It calls a function <code>mapper(item: Any) =&gt; emit: Iterable[Any]</code>
-on each item.</p>
-<p>It emits each element in the downstream iterator individually.</p></div>
+<div class="desc"><p>Flat map is a one-to-many transformation of items.</p>
+<p>It calls a <strong>mapper</strong> function on each item.</p>
+<p>It emits each element in the returned iterator individually
+downstream in the epoch of the input item.</p>
+<p>It is commonly used for:</p>
+<ul>
+<li>Tokenizing</li>
+<li>Flattening hierarchical objects</li>
+<li>Breaking up aggregations for further processing</li>
+</ul>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def split_into_words(sentence):
+...     return sentence.split()
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.flat_map(split_into_words)
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; inp = enumerate([&quot;hello world&quot;])
+&gt;&gt;&gt; for epoch, item in run(flow, inp):
+...     print(epoch, item)
+0 hello
+0 world
+</code></pre>
+<h2 id="args">Args</h2>
+<p>mapper - <code>mapper(item: Any) =&gt; emit: Iterable[Any]</code></p></div>
 </dd>
 <dt id="bytewax.Dataflow.inspect"><code class="language-python name flex">
 <span>def <span class="ident">inspect</span></span>(<span>self, inspector)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Inspect allows you to observe, but not modify, items.</p>
-<p>It calls a function <code>inspector(item: Any) =&gt; None</code> on each
-item.</p>
-<p>The return value is ignored; it emits items downstream
-unmodified.</p></div>
+<p>It calls an <strong>inspector</strong> callback on each item.</p>
+<p>It emits items downstream unmodified.</p>
+<p>It is commonly used for debugging.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def log(item):
+...     print(&quot;Saw&quot;, item)
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.inspect(log)
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; inp = enumerate(range(3))
+&gt;&gt;&gt; for epoch, item in run(flow, inp):
+...     pass  # Don't print captured output.
+Saw 1
+Saw 2
+Saw 3
+</code></pre>
+<h2 id="args">Args</h2>
+<p>inspector - <code>inspector(item: Any) =&gt; None</code></p></div>
 </dd>
 <dt id="bytewax.Dataflow.inspect_epoch"><code class="language-python name flex">
 <span>def <span class="ident">inspect_epoch</span></span>(<span>self, inspector)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Inspect Epoch allows you to observe, but not modify, items and
+<div class="desc"><p>Inspect epoch allows you to observe, but not modify, items and
 their epochs.</p>
-<p>It calls a function <code>inspector(epoch: int, item: Any) =&gt; None</code>
-on each item with its epoch.</p>
-<p>The return value is ignored; it emits items downstream
-unmodified.</p></div>
+<p>It calls an <strong>inspector</strong> function on each item with its
+epoch.</p>
+<p>It emits items downstream unmodified.</p>
+<p>It is commonly used for debugging.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def log(epoch, item):
+...    print(f&quot;Saw {item} @ {epoch}&quot;)
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.inspect_epoch(log)
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; inp = enumerate(range(3))
+&gt;&gt;&gt; for epoch, item in run(flow, inp):
+...    pass  # Don't print captured output.
+</code></pre>
+<h2 id="args">Args</h2>
+<p>inspector - <code>inspector(epoch: int, item: Any) =&gt; None</code></p></div>
 </dd>
 <dt id="bytewax.Dataflow.map"><code class="language-python name flex">
 <span>def <span class="ident">map</span></span>(<span>self, mapper)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Map is a one-to-one transformation of items.</p>
-<p>It calls a function <code>mapper(item: Any) =&gt; updated_item: Any</code>
-on each item.</p>
-<p>It emits each updated item downstream.</p></div>
+<p>It calls a <strong>mapper</strong> function on each item.</p>
+<p>It emits each updated item downstream.</p>
+<p>It is commonly used for:</p>
+<ul>
+<li>Extracting keys</li>
+<li>Turning JSON into objects</li>
+<li>So many things</li>
+</ul>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def add_one(item):
+...     return item + 10
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.map(add_one)
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; inp = enumerate(range(3))
+&gt;&gt;&gt; for epoch, item in run(flow, inp):
+...     print(item)
+10
+11
+12
+</code></pre>
+<h2 id="args">Args</h2>
+<p>mapper - <code>mapper(item: Any) =&gt; updated_item: Any</code></p></div>
 </dd>
 <dt id="bytewax.Dataflow.reduce"><code class="language-python name flex">
-<span>def <span class="ident">reduce</span></span>(<span>self, reducer, is_complete)</span>
+<span>def <span class="ident">reduce</span></span>(<span>self, step_id, reducer, is_complete)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Reduce lets you combine items for a key into an aggregator in
 epoch order.</p>
-<p>Since this is a stateful operator, it requires the the input
-stream has items that are <code>(key, value)</code> tuples so we can
-ensure that all relevant values are routed to the relevant
-aggregator.</p>
+<p>It is a stateful operator. It requires the the input stream
+has items that are <code>(key, value)</code> tuples so we can ensure that
+all relevant values are routed to the relevant aggregator.</p>
+<p>It is a recoverable operator. It requires a step ID to recover
+the correct state.</p>
 <p>It calls two functions:</p>
 <ul>
 <li>
-<p>A <code>reducer(aggregator: Any, value: Any) =&gt;
-updated_aggregator: Any</code> which combines two values. The
-aggregator is initially the first value seen for a key. Values
-will be passed in epoch order, but no order is defined within
-an epoch.</p>
+<p>A <strong>reducer</strong> which combines a new value with an
+aggregator. The aggregator is initially the first value seen
+for a key. Values will be passed in epoch order, but no order
+is defined within an epoch. If there is only a single value
+for a key since the last completion, this function will not be
+called.</p>
 </li>
 <li>
-<p>An <code>is_complete(updated_aggregator: Any) =&gt; should_emit: bool</code> which
-returns true if the most recent <code>(key, aggregator)</code> should be
-emitted downstream and the aggregator for that key
-forgotten. If there was only a single value for a key, it is
-passed in as the aggregator here.</p>
+<p>An <strong>is complete</strong> function which returns <code>True</code> if the most
+recent <code>(key, aggregator)</code> should be emitted downstream and
+the aggregator for that key forgotten. If there was only a
+single value for a key, it is passed in as the aggregator
+here.</p>
 </li>
 </ul>
-<p>It emits <code>(key, aggregator)</code> tuples downstream when you tell
-it to.</p></div>
+<p>It emits <code>(key, aggregator)</code> tuples downstream when the is
+complete function returns <code>True</code> in the epoch of the most
+recent value for that key.</p>
+<p>It is commonly used for:</p>
+<ul>
+<li>Sessionization</li>
+<li>Emitting a summary of data that spans epochs</li>
+</ul>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def user_as_key(event):
+...     return event[&quot;user&quot;], [event]
+&gt;&gt;&gt; def extend_session(session, events):
+...     session.extend(events)
+...     return session
+&gt;&gt;&gt; def session_complete(session):
+...     return any(event[&quot;type&quot;] == &quot;logout&quot; for event in session)
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.map(user_as_key)
+&gt;&gt;&gt; flow.inspect_epoch(lambda epoch, item: print(&quot;Saw&quot;, item, &quot;@&quot;, epoch))
+&gt;&gt;&gt; flow.reduce(extend_session, session_complete)
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; inp = [
+...     (0, {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;login&quot;}),
+...     (1, {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;}),
+...     (1, {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;login&quot;}),
+...     (2, {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;logout&quot;}),
+...     (3, {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;logout&quot;}),
+... ]
+&gt;&gt;&gt; for epoch, item in run(flow, inp):
+...     print(epoch, item)
+</code></pre>
+<h2 id="args">Args</h2>
+<p>step_id - Uniquely identifies this step for recovery.</p>
+<p>reducer - <code>reducer(aggregator: Any, value: Any) =&gt;
+updated_aggregator: Any</code></p>
+<p>is_complete - <code>is_complete(updated_aggregator: Any) =&gt;
+should_emit: bool</code></p></div>
 </dd>
 <dt id="bytewax.Dataflow.reduce_epoch"><code class="language-python name flex">
 <span>def <span class="ident">reduce_epoch</span></span>(<span>self, reducer)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Reduce Epoch lets you combine all items for a key within an
+<div class="desc"><p>Reduce epoch lets you combine all items for a key within an
 epoch into an aggregator.</p>
-<p>This is like <code>reduce</code> but marks the aggregator as complete
-automatically at the end of each epoch.</p>
-<p>Since this is a stateful operator, it requires the the input
-stream has items that are <code>(key, value)</code> tuples so we can
-ensure that all relevant values are routed to the relevant
-aggregator.</p>
-<p>It calls a function <code>reducer(aggregator: Any, value: Any) =&gt;
-updated_aggregator: Any</code> which combines two values. The
+<p>It is like <code><a title="bytewax.Dataflow.reduce" href="#bytewax.Dataflow.reduce">Dataflow.reduce()</a></code> but marks the
+aggregator as complete automatically at the end of each epoch.</p>
+<p>It is a stateful operator. it requires the the input stream
+has items that are <code>(key, value)</code> tuples so we can ensure that
+all relevant values are routed to the relevant aggregator.</p>
+<p>It calls a <strong>reducer</strong> function which combines two values. The
 aggregator is initially the first value seen for a key. Values
-will be passed in arbitrary order.</p>
+will be passed in arbitrary order. If there is only a single
+value for a key in this epoch, this function will not be
+called.</p>
 <p>It emits <code>(key, aggregator)</code> tuples downstream at the end of
-each epoch.</p></div>
+each epoch.</p>
+<p>It is commonly used for:</p>
+<ul>
+<li>Counting within epochs</li>
+<li>Aggregation within epochs</li>
+</ul>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def add_initial_count(event):
+...     return event[&quot;user&quot;], 1
+&gt;&gt;&gt; def count(count, event_count):
+...     return count + event_count
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.map(add_initial_count)
+&gt;&gt;&gt; flow.inspect_epoch(lambda epoch, item: print(&quot;Saw&quot;, item, &quot;@&quot;, epoch))
+&gt;&gt;&gt; flow.reduce_epoch(count)
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; inp = [
+...     (0, {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;login&quot;}),
+...     (0, {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;}),
+...     (0, {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;login&quot;}),
+...     (1, {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;post&quot;}),
+... ]
+&gt;&gt;&gt; for epoch, item in run(flow, inp):
+...     print(epoch, item)
+Saw ('a', 1) @ 0
+Saw ('b', 1) @ 0
+Saw ('a', 1) @ 0
+Saw ('b', 1) @ 1
+0 ('b', 1)
+0 ('a', 2)
+1 ('b', 1)
+</code></pre>
+<h2 id="args">Args</h2>
+<p>reducer - <code>reducer(aggregator: Any, value: Any) =&gt;
+updated_aggregator: Any</code></p></div>
 </dd>
 <dt id="bytewax.Dataflow.reduce_epoch_local"><code class="language-python name flex">
 <span>def <span class="ident">reduce_epoch_local</span></span>(<span>self, reducer)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Reduce Epoch Local lets you combine all items for a key within
+<div class="desc"><p>Reduce epoch local lets you combine all items for a key within
 an epoch <em>on a single worker.</em></p>
-<p>It is exactly like <code>reduce_epoch</code> but does no internal
-exchange between workers. You'll probably should use that
-instead unless you are using this as a network-overhead
-optimization.</p></div>
+<p>It is exactly like <code><a title="bytewax.Dataflow.reduce_epoch" href="#bytewax.Dataflow.reduce_epoch">Dataflow.reduce_epoch()</a></code> but does
+<em>not</em> ensure all values for a key are routed to the same
+worker and thus there is only one output aggregator per key.</p>
+<p>You should use <code><a title="bytewax.Dataflow.reduce_epoch" href="#bytewax.Dataflow.reduce_epoch">Dataflow.reduce_epoch()</a></code> unless you
+need a network-overhead optimization and some later step does
+full aggregation.</p>
+<p>It is only used for performance optimziation.</p>
+<h2 id="args">Args</h2>
+<p>reducer - <code>reducer(aggregator: Any, value: Any) =&gt;
+updated_aggregator: Any</code></p></div>
 </dd>
 <dt id="bytewax.Dataflow.stateful_map"><code class="language-python name flex">
-<span>def <span class="ident">stateful_map</span></span>(<span>self, builder, mapper)</span>
+<span>def <span class="ident">stateful_map</span></span>(<span>self, step_id, builder, mapper)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Stateful Map is a one-to-one transformation of values in
+<div class="desc"><p>Stateful map is a one-to-one transformation of values in
 <code>(key, value)</code> pairs, but allows you to reference a persistent
 state for each key when doing the transformation.</p>
-<p>Since this is a stateful operator, it requires the the input
-stream has items that are <code>(key, value)</code> tuples so we can
-ensure that all relevant values are routed to the relevant
-state.</p>
+<p>It is a stateful operator. It requires the the input stream
+has items that are <code>(key, value)</code> tuples so we can ensure that
+all relevant values are routed to the relevant state.</p>
+<p>It is a recoverable operator. It requires a step ID to recover
+the correct state.</p>
 <p>It calls two functions:</p>
 <ul>
 <li>
-<p>A <code>builder(key: Any) =&gt; new_state: Any</code> which returns a
-new state and will be called whenever a new key is encountered
-with the key as a parameter.</p>
+<p>A <strong>builder</strong> which returns a new state and will be called
+whenever a new key is encountered with the key as a parameter.</p>
 </li>
 <li>
-<p>A <code>mapper(state: Any, value: Any) =&gt; (updated_state: Any,
-updated_value: Any)</code> which transforms values. Values will be
-passed in epoch order, but no order is defined within an
-epoch. If the updated state is <code>None</code>, the state will be
-forgotten.</p>
+<p>A <strong>mapper</strong> which transforms values. Values will be passed
+in epoch order, but no order is defined within an epoch. If
+the updated state is <code>None</code>, the state will be forgotten.</p>
 </li>
 </ul>
 <p>It emits a <code>(key, updated_value)</code> tuple downstream for each
-input item.</p></div>
+input item.</p>
+<p>It is commonly used for:</p>
+<ul>
+<li>Anomaly detection</li>
+<li>State machines</li>
+</ul>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def self_as_key(item):
+...     return item, item
+&gt;&gt;&gt; def build_count(key):
+...     return 0
+&gt;&gt;&gt; def check(running_count, item):
+...     running_count += 1
+...     if running_count == 1:
+...         return running_count, item
+...     else:
+...         return running_count, None
+&gt;&gt;&gt; def remove_none_and_key(key_item):
+...     key, item = key_item
+...     if item is None:
+...         return []
+...     else:
+...         return [item]
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.map(self_as_key)
+&gt;&gt;&gt; flow.stateful_map(build_count, check)
+&gt;&gt;&gt; flow.flat_map(remove_none_and_key)
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; inp = [
+...     (0, &quot;a&quot;),
+...     (0, &quot;a&quot;),
+...     (0, &quot;a&quot;),
+...     (1, &quot;a&quot;),
+...     (1, &quot;b&quot;),
+... ]
+&gt;&gt;&gt; for epoch, item in run(flow, inp):
+...     print(epoch, item)
+0 a
+1 b
+</code></pre>
+<h2 id="args">Args</h2>
+<p>step_id -
+Uniquely identifies this step for recovery.</p>
+<p>builder - <code>builder(key: Any) =&gt; new_state: Any</code></p>
+<p>mapper - <code>mapper(state: Any, value: Any) =&gt;
+(updated_state: Any, updated_value: Any)</code></p></div>
 </dd>
 </dl>
 </dd>
@@ -737,6 +1023,11 @@ bytewax.inputs
 <li class="api__sidebar-nav-menu-item">
 <a class="api__sidebar-nav-menu-link api-submodule" href="bytewax.parse">
 bytewax.parse
+</a>
+</li>
+<li class="api__sidebar-nav-menu-item">
+<a class="api__sidebar-nav-menu-link api-submodule" href="bytewax.recovery">
+bytewax.recovery
 </a>
 </li>
 <li class="api__sidebar-nav-menu-item">

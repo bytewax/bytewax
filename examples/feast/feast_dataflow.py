@@ -1,12 +1,13 @@
-import json
 import datetime as dt
+import json
+
 import pandas as pd
 
-from kafka import KafkaConsumer
-
-from bytewax import Dataflow, cluster_main, inputs
+from bytewax import cluster_main, Dataflow, inputs
 
 from feast import FeatureStore
+
+from kafka import KafkaConsumer
 
 # Configure the feature store for each worker to access
 store = FeatureStore(repo_path=".")

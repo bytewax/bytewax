@@ -7,10 +7,10 @@ Use these to wrap an existing iterator which yields items.
 import datetime
 import heapq
 
-from .bytewax import AdvanceTo, Emit
-
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Tuple
+
+from .bytewax import AdvanceTo, Emit
 
 
 def yield_epochs(fn: Callable):
