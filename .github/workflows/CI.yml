@@ -99,7 +99,7 @@ jobs:
     name: Store wheels in S3
     runs-on: ubuntu-latest
     if: "github.ref == 'refs/heads/main'"
-    needs: [ linux ]
+    needs: [ linux, macos, windows ]
     steps:
       - uses: actions/download-artifact@v2
         with:
