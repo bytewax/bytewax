@@ -30,9 +30,9 @@ def yield_epochs(fn: Callable):
     into successive `AdvanceTo` and `Emit` classes with the
     contents of the iterator.
 
-    Use this when you have an input_builder function that returns
-    a generator of (epoch, item) to be used with `cluster_main` or
-    `spawn_cluster`:
+    Use this when you have an input_builder function that returns a
+    generator of (epoch, item) to be used with
+    `bytewax.cluster_main()` or `bytewax.spawn_cluster()`:
 
     &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
     &gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered
@@ -45,6 +45,7 @@ def yield_epochs(fn: Callable):
     (0, &#39;a&#39;)
     (1, &#39;b&#39;)
     (2, &#39;c&#39;)
+
     &#34;&#34;&#34;
 
     def inner_fn(worker_index, worker_count):
@@ -788,9 +789,9 @@ This can be used for continuity during processing.</dd>
 <div class="desc"><p>A decorator function to unwrap an iterator of [epoch, item]
 into successive <code>AdvanceTo</code> and <code>Emit</code> classes with the
 contents of the iterator.</p>
-<p>Use this when you have an input_builder function that returns
-a generator of (epoch, item) to be used with <code>cluster_main</code> or
-<code>spawn_cluster</code>:</p>
+<p>Use this when you have an input_builder function that returns a
+generator of (epoch, item) to be used with
+<code><a title="bytewax.cluster_main" href="index.html#bytewax.cluster_main">cluster_main()</a></code> or <code><a title="bytewax.spawn_cluster" href="index.html#bytewax.spawn_cluster">spawn_cluster()</a></code>:</p>
 <pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
 &gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered
 &gt;&gt;&gt; flow = Dataflow()
@@ -812,9 +813,9 @@ a generator of (epoch, item) to be used with <code>cluster_main</code> or
     into successive `AdvanceTo` and `Emit` classes with the
     contents of the iterator.
 
-    Use this when you have an input_builder function that returns
-    a generator of (epoch, item) to be used with `cluster_main` or
-    `spawn_cluster`:
+    Use this when you have an input_builder function that returns a
+    generator of (epoch, item) to be used with
+    `bytewax.cluster_main()` or `bytewax.spawn_cluster()`:
 
     &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
     &gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered
@@ -827,6 +828,7 @@ a generator of (epoch, item) to be used with <code>cluster_main</code> or
     (0, &#39;a&#39;)
     (1, &#39;b&#39;)
     (2, &#39;c&#39;)
+
     &#34;&#34;&#34;
 
     def inner_fn(worker_index, worker_count):
