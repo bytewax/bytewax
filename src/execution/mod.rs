@@ -279,7 +279,7 @@ pub(crate) fn run_main(
 ///     flow: Dataflow to run.
 ///
 ///     input_builder: Returns input that each worker thread should
-///         process. Should yield either `AdvanceTo` or `Send` to
+///         process. Should yield either `AdvanceTo` or `Emit` to
 ///         advance the epoch, or input new data into the dataflow.
 ///         If you are recovering a stateful dataflow, you must ensure
 ///         your input resumes from the last finalized epoch.
