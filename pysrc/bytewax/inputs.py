@@ -18,9 +18,9 @@ def yield_epochs(fn: Callable):
     into successive `AdvanceTo` and `Emit` classes with the
     contents of the iterator.
 
-    Use this when you have an input_builder function that returns
-    a generator of (epoch, item) to be used with `cluster_main` or
-    `spawn_cluster`:
+    Use this when you have an input_builder function that returns a
+    generator of (epoch, item) to be used with
+    `bytewax.cluster_main()` or `bytewax.spawn_cluster()`:
 
     >>> from bytewax import Dataflow, cluster_main
     >>> from bytewax.inputs import yield_epochs, fully_ordered
@@ -33,6 +33,7 @@ def yield_epochs(fn: Callable):
     (0, 'a')
     (1, 'b')
     (2, 'c')
+
     """
 
     def inner_fn(worker_index, worker_count):
