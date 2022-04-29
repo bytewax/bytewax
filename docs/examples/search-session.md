@@ -87,7 +87,7 @@ the concept of time in your execution via attaching a kind of
 timestamp called an **epoch** to each **item** of input data.
 
 [You can read more about the details of epochs in our
-documentation](epochs), but the most important facet of them for this
+documentation](/getting-started/epochs/), but the most important facet of them for this
 example is that they are the _only_ way you can set up a sense of
 order in your data.
 
@@ -95,7 +95,7 @@ Since we are going to use the order in which events happen to divvy
 them up into user sessions, we need to take advantage of epochs at
 some level. In this basic example, we're going to label each input
 event with a monotonically increasing epoch. [There are some some
-scaling downsides to this approach](epochs/scaling), but we will be
+scaling downsides to this approach](/getting-started/epochs/), but we will be
 using it here anyway to demonstrate the basics of epochs.
 
 You tell Bytewax what epoch each input item has by having your input
@@ -135,7 +135,7 @@ You can then add a series of **steps** to the dataflow. Steps are made
 up of **operators**, that provide a "shape" of transformation, and
 **logic functions**, that you supply to do your specific
 transformation. [You can read more about all the operators in our
-documentation.](operators)
+documentation.](/getting-started/operators)
 
 Our first task is to make sure to group incoming events by user since
 no session deals with multiple users.
@@ -145,7 +145,7 @@ be in the form of a `(key, value)` tuple, where `key` is the value the
 dataflow will group by before passing to the operator logic.
 
 The operator which modifies all data flowing through it is
-[map](operators/map). Let's use that and pull each event's user into
+[map](/apidocs#bytewax.Dataflow.map). Let's use that and pull each event's user into
 that key position.
 
 ```python
@@ -157,7 +157,7 @@ flow.map(initial_session)
 
 For the value, we're planning ahead a little bit to our next task:
 sessionization. The operator best shaped for this is the [reduce
-operator](operators/reduce) which groups items by key, then combines
+operator](/apidocs#bytewax.Dataflow.reduce) which groups items by key, then combines
 them together into an **aggregator** in order. We can think about our
 reduce step as "combine together sessions if they should be
 joined". We'll be modeling a session as a list of events, so have the
@@ -204,7 +204,7 @@ flow.map(remove_key)
 ```
 
 Our next task is to split user sessions into search sessions. To do
-that, we'll use the [flat map operator](operators/flat-map), that
+that, we'll use the [flat map operator](/apidocs#bytewax.Dataflow.flat_map), that
 allows you to emit multiple items downstream (search sessions) for
 each input item (user session).
 
@@ -230,7 +230,7 @@ def split_into_searches(user_session):
 flow.flat_map(split_into_searches)
 ```
 
-We can use the [filter operator](operators/filter) to get rid of all
+We can use the [filter operator](/apidocs#bytewax.Dataflow.filter) to get rid of all
 search sessions that don't contain searches and shouldn't contribute
 to metrics.
 
@@ -275,7 +275,7 @@ Execution
 ---------
 
 [Bytewax provides a few different entry points for executing your
-dataflow](execution), but because we're focusing on the dataflow in
+dataflow](/getting-started/execution/), but because we're focusing on the dataflow in
 this example, we're going to use `bytewax.run` which is the most basic
 execution mode that pushes input items in an iterator through the
 dataflow.
@@ -298,7 +298,7 @@ Let's inspect the output and see if it makes sense.
 11 0.0
 ```
 
-Since the [capture](operators/capture) step is immediately after
+Since the [capture](/apidocs#bytewax.Dataflow.capture) step is immediately after
 calculating CTR, we should see one output item for each search
 session. That checks out! There were three searches in the input:
 "dogs", "cats", and "fruit". Only the first two resulted in a click,
@@ -308,7 +308,7 @@ contributed `0.0`.
 The first number on each output line is the epoch of that data
 item. Most operators do not modify the epoch attached to each item as
 they transform it. The only operator that modifies the epoch in this
-example is [reduce](operators/reduce) which emits output at the epoch
+example is [reduce](/apidocs#bytewax.Dataflow.reduce) which emits output at the epoch
 of the input that is marked as "complete". Since we are marking user
 sessions as complete when reduce has an `AppClose` event as input
 (originally assigned epochs `10` and `11`), those epochs are applied
