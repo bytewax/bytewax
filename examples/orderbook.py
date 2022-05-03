@@ -1,9 +1,6 @@
 import json, time
-from collections import OrderedDict
 
 from websocket import create_connection
-
-import pandas as pd
 from bytewax import Dataflow, inputs, spawn_cluster
 
 
@@ -24,7 +21,6 @@ def input_builder(worker_index, worker_count):
     return inputs.fully_ordered(ws_input())
 
 def ws_input():
-    
     while True:
         yield (ws.recv())
 
@@ -87,7 +83,7 @@ flow = Dataflow()
 flow.map(json.loads)
 flow.map(key_on_product)
 flow.stateful_map(lambda key: OrderBook(), OrderBook.update)
-# flow.filter(lambda x: x[-1][-1] > 5.0)
+flow.filter(lambda x: x[-1][-1] > 5.0)
 flow.capture()
 
 if __name__ == "__main__":

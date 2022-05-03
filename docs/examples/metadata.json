@@ -3,5 +3,10 @@
     "title": "Building Sessions from Search Logs",
     "description": "A basic example of using Bytewax to turn an incoming stream of event logs from a hypothetical search engine into metrics over search sessions.",
     "filename": "search-session"
+  },
+  {
+    "title": "Analyzing the Coinbase Order Book in Real-Time",
+    "description": "Connect to webhooks, and aggregate incoming events to maintain an order book in real-time.",
+    "filename": "crypto-sockets"
   }
 ]
