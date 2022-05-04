@@ -34,8 +34,8 @@ use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 ///
 /// >>> def input_builder(worker_index, worker_count):
 /// ...     for i in range(10):
-/// ...     yield AdvanceTo(i) # Advances the epoch to i
-/// ...     yield Emit(i) # Adds the input i at epoch i
+/// ...         yield AdvanceTo(i) # Advances the epoch to i
+/// ...         yield Emit(i) # Adds the input i at epoch i
 #[pyclass(module = "bytewax")]
 #[pyo3(text_signature = "(epoch)")]
 pub(crate) struct AdvanceTo {
@@ -68,8 +68,8 @@ impl AdvanceTo {
 ///
 /// >>> def input_builder(worker_index, worker_count):
 /// ...     for i in range(10):
-/// ...     yield AdvanceTo(i) # Advances the epoch to i
-/// ...     yield Emit(i) # Adds the input i at epoch i
+/// ...         yield AdvanceTo(i) # Advances the epoch to i
+/// ...         yield Emit(i) # Adds the input i at epoch i
 #[pyclass(module = "bytewax")]
 #[pyo3(text_signature = "(item)")]
 pub(crate) struct Emit {
