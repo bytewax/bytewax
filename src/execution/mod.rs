@@ -19,7 +19,7 @@ use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 
 /// Advance to the supplied epoch.
 ///
-/// When providing input to a Dataflow, work can not complete until
+/// When providing input to a Dataflow, work cannot complete until
 /// there is no more data for a given epoch.
 ///
 /// AdvanceTo is the signal to a Dataflow that the frontier has moved
