@@ -616,8 +616,8 @@ and Emit for you.</p>
 <p>See also: <code><a title="bytewax.inputs.yield_epochs" href="inputs.html#bytewax.inputs.yield_epochs">yield_epochs()</a></code></p>
 <pre><code class="language-python-repl">&gt;&gt;&gt; def input_builder(worker_index, worker_count):
 ...     for i in range(10):
-...     yield AdvanceTo(i) # Advances the epoch to i
-...     yield Emit(i) # Adds the input i at epoch i
+...         yield AdvanceTo(i) # Advances the epoch to i
+...         yield Emit(i) # Adds the input i at epoch i
 </code></pre></div>
 <h3>Instance variables</h3>
 <dl>
@@ -1007,8 +1007,8 @@ Uniquely identifies this step for recovery.</p>
 <p>Emit is how we introduce input into a dataflow:</p>
 <pre><code class="language-python-repl">&gt;&gt;&gt; def input_builder(worker_index, worker_count):
 ...     for i in range(10):
-...     yield AdvanceTo(i) # Advances the epoch to i
-...     yield Emit(i) # Adds the input i at epoch i
+...         yield AdvanceTo(i) # Advances the epoch to i
+...         yield Emit(i) # Adds the input i at epoch i
 </code></pre></div>
 <h3>Instance variables</h3>
 <dl>
