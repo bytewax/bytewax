@@ -115,7 +115,9 @@ locally on one machine.</p>
 <dt><strong><code>input_builder</code></strong></dt>
 <dd>Returns input that each worker thread should
 process. Should yield either <code><a title="bytewax.AdvanceTo" href="#bytewax.AdvanceTo">AdvanceTo</a></code> or <code><a title="bytewax.Emit" href="#bytewax.Emit">Emit</a></code> to
-advance the epoch, or input new data into the dataflow.</dd>
+advance the epoch, or input new data into the dataflow.
+If you are recovering a stateful dataflow, you must ensure
+your input resumes from the last finalized epoch.</dd>
 <dt><strong><code>output_builder</code></strong></dt>
 <dd>Returns a callback function for each worker
 thread, called with <code>(epoch, item)</code> whenever and item
@@ -602,7 +604,21 @@ fork. Defaults to spawn.</dd>
 <span>(</span><span>epoch)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Advance to the supplied epoch.</p>
+<p>When providing input to a Dataflow, work cannot complete until
+there is no more data for a given epoch.</p>
+<p>AdvanceTo is the signal to a Dataflow that the frontier has moved
+beyond the current epoch, and that items with an epoch less than
+the epoch in AdvanceTo can be worked to completion.</p>
+<p>Using AdvanceTo and Emit is only necessary when using <code><a title="bytewax.spawn_cluster" href="#bytewax.spawn_cluster">spawn_cluster()</a></code>
+and <code><a title="bytewax.cluster_main" href="#bytewax.cluster_main">cluster_main()</a></code> as <code><a title="bytewax.run" href="#bytewax.run">run()</a></code> and <code><a title="bytewax.run_cluster" href="#bytewax.run_cluster">run_cluster()</a></code> will yield AdvanceTo
+and Emit for you.</p>
+<p>See also: <code><a title="bytewax.inputs.yield_epochs" href="inputs.html#bytewax.inputs.yield_epochs">yield_epochs()</a></code></p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def input_builder(worker_index, worker_count):
+...     for i in range(10):
+...         yield AdvanceTo(i) # Advances the epoch to i
+...         yield Emit(i) # Adds the input i at epoch i
+</code></pre></div>
 <h3>Instance variables</h3>
 <dl>
 <dt id="bytewax.AdvanceTo.epoch"><code class="language-python name">var <span class="ident">epoch</span></code></dt>
@@ -987,7 +1003,13 @@ Uniquely identifies this step for recovery.</p>
 <span>(</span><span>item)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Emit the supplied item into the dataflow at the current epoch</p>
+<p>Emit is how we introduce input into a dataflow:</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def input_builder(worker_index, worker_count):
+...     for i in range(10):
+...         yield AdvanceTo(i) # Advances the epoch to i
+...         yield Emit(i) # Adds the input i at epoch i
+</code></pre></div>
 <h3>Instance variables</h3>
 <dl>
 <dt id="bytewax.Emit.item"><code class="language-python name">var <span class="ident">item</span></code></dt>

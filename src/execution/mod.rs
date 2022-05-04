@@ -16,6 +16,26 @@ use timely::dataflow::ProbeHandle;
 use crate::dataflow::{build_dataflow, Dataflow};
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 
+
+/// Advance to the supplied epoch.
+///
+/// When providing input to a Dataflow, work cannot complete until
+/// there is no more data for a given epoch.
+///
+/// AdvanceTo is the signal to a Dataflow that the frontier has moved
+/// beyond the current epoch, and that items with an epoch less than
+/// the epoch in AdvanceTo can be worked to completion.
+///
+/// Using AdvanceTo and Emit is only necessary when using `spawn_cluster`
+/// and `cluster_main()` as `run()` and `run_cluster()` will yield AdvanceTo
+/// and Emit for you.
+///
+/// See also: `inputs.yield_epochs()`
+///
+/// >>> def input_builder(worker_index, worker_count):
+/// ...     for i in range(10):
+/// ...         yield AdvanceTo(i) # Advances the epoch to i
+/// ...         yield Emit(i) # Adds the input i at epoch i
 #[pyclass(module = "bytewax")]
 #[pyo3(text_signature = "(epoch)")]
 pub(crate) struct AdvanceTo {
@@ -42,6 +62,14 @@ impl AdvanceTo {
     }
 }
 
+/// Emit the supplied item into the dataflow at the current epoch
+///
+/// Emit is how we introduce input into a dataflow:
+///
+/// >>> def input_builder(worker_index, worker_count):
+/// ...     for i in range(10):
+/// ...         yield AdvanceTo(i) # Advances the epoch to i
+/// ...         yield Emit(i) # Adds the input i at epoch i
 #[pyclass(module = "bytewax")]
 #[pyo3(text_signature = "(item)")]
 pub(crate) struct Emit {
@@ -92,7 +120,7 @@ impl Pump {
                         } else if let Ok(advance_to) = item.downcast::<PyCell<AdvanceTo>>() {
                             self.push_to_timely.advance_to(advance_to.borrow().epoch);
                         } else {
-                            panic!("Unknown input action")
+                            panic!("{}", format!("Input must be an instance of either `AdvanceTo` or `Emit`. Got: {item:?}. See https://docs.bytewax.io/apidocs#bytewax.AdvanceTo for more information."))
                         }
                     }
                     Err(err) => {
