@@ -120,7 +120,7 @@ impl Pump {
                         } else if let Ok(advance_to) = item.downcast::<PyCell<AdvanceTo>>() {
                             self.push_to_timely.advance_to(advance_to.borrow().epoch);
                         } else {
-                            panic!("{}", format!("Input must be an instance of either `AdvanceTo`, or `Emit`, got: {item:?}. See https://docs.bytewax.io/apidocs#bytewax.AdvanceTo for more information."))
+                            panic!("{}", format!("Input must be an instance of either `AdvanceTo` or `Emit`. Got: {item:?}. See https://docs.bytewax.io/apidocs#bytewax.AdvanceTo for more information."))
                         }
                     }
                     Err(err) => {
