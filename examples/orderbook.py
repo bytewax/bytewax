@@ -3,24 +3,26 @@ import json, time
 from websocket import create_connection
 from bytewax import Dataflow, inputs, spawn_cluster
 
-
-ws = create_connection("wss://ws-feed.pro.coinbase.com")
-ws.send(
-    json.dumps(
-        {
-            "type": "subscribe",
-            "product_ids": ['BTC-USD'],
-            "channels": ["level2"],
-        }
-    )
-)
-print(ws.recv())
+PRODUCT_IDS = ['BTC-USD','ETH-USD']
 
 @inputs.yield_epochs
 def input_builder(worker_index, worker_count):
-    return inputs.fully_ordered(ws_input())
+    prods_per_worker = int(len(PRODUCT_IDS)/worker_count)
+    product_ids = PRODUCT_IDS[int(worker_index*prods_per_worker):int(worker_index*prods_per_worker+prods_per_worker)]
+    return inputs.fully_ordered(ws_input(product_ids))
 
-def ws_input():
+def ws_input(product_ids):
+    ws = create_connection("wss://ws-feed.pro.coinbase.com")
+    ws.send(
+        json.dumps(
+            {
+                "type": "subscribe",
+                "product_ids": product_ids,
+                "channels": ["level2"],
+            }
+        )
+    )
+    print(ws.recv())
     while True:
         yield (ws.recv())
 
@@ -81,9 +83,12 @@ class OrderBook:
 
 flow = Dataflow()
 flow.map(json.loads)
+# {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'}
 flow.map(key_on_product)
+# ('BTC-USD', {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'})
 flow.stateful_map(lambda key: OrderBook(), OrderBook.update)
-flow.filter(lambda x: x[-1][-1] > 5.0)
+# ('BTC-USD', (36905.39, 0.00334873, 36905.4, 1.6e-05, 0.010000000002037268))
+# flow.filter(lambda x: x[-1][-1] > 5.0)
 flow.capture()
 
 if __name__ == "__main__":
