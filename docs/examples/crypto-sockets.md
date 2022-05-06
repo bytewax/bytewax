@@ -5,10 +5,10 @@ Analyzing Cryptocurrency Order Book in Real-Time
 In this example we are going to walk through how you can maintain a limit order book in real-time with very little extra infrastructure with Bytewax.
 
 We are going to:
-- Use websockets to connect to an exchange (coinbase)
-- Setup an order book using a snapshot
-- Update the order book in real-time
-- Use algorithms to trade crypto and profit. Just kidding, this is left to an exercise for the reader.
+* Use websockets to connect to an exchange (coinbase)
+* Setup an order book using a snapshot
+* Update the order book in real-time
+* Use algorithms to trade crypto and profit. Just kidding, this is left to an exercise for the reader.
 
 To start off, we are going to diverge into some concepts around markets, exchanges and orders.
 
