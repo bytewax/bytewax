@@ -20,48 +20,54 @@ Alright, let's get started!
 
 ### Inputs & Outputs
 
-We are going to use the `spawn_cluster` approach in this dataflow, this allows us to scale our dataflow in the future if we add additional products that we would like to track. To begin, we will need to build an input builder for our dataflow. In  the input builder we will receive each new message. To start, we use the coinbase pro websocket url (`wss://ws-feed.pro.coinbase.com`) and the Python websocket library to create a connection. Once connected we can send a message to the websocket subscribing to product_ids (pairs of currencies - USD/BTC for this example) and channels (level2 order book data). Finally since we know there will be some sort of acknowledgement message we can grab that with `ws.recv()` and print it out.
+We are going to eventually create a cluster of dataflows where we could have multiple currency pairs running in parallel on different workers. In order to follow this approach, we will use the [`spawn_cluster`](https://docs.bytewax.io/apidocs#bytewax.spawn_cluster) method of kicking off our dataflow. To start, we will build a websocket input function that will we use the coinbase pro websocket url (`wss://ws-feed.pro.coinbase.com`) and the Python websocket library to create a connection. Once connected we can send a message to the websocket subscribing to product_ids (pairs of currencies - USD-BTC for this example) and channels (level2 order book data). Finally since we know there will be some sort of acknowledgement message we can grab that with `ws.recv()` and print it out.
 
-```Python
+```python
 from websocket import create_connection
-from bytewax import Dataflow, inputs, spawn_cluster
 
-ws = create_connection("wss://ws-feed.pro.coinbase.com")
-ws.send(
-    json.dumps(
-        {
-            "type": "subscribe",
-            "product_ids": ['BTC-USD'],
-            "channels": ["level2"],
-        }
+
+PRODUCT_IDS = ['BTC-USD','ETH-USD']
+
+def ws_input(product_ids):
+    ws = create_connection("wss://ws-feed.pro.coinbase.com")
+    ws.send(
+        json.dumps(
+            {
+                "type": "subscribe",
+                "product_ids": product_ids,
+                "channels": ["level2"],
+            }
+        )
     )
-)
-print(ws.recv())
-```
-
-At this point we are ready to create our input builder. The input builder is used to provide some control over how inputs are managed in the case that we have multiple workers. In this case we are only going to use one worker, but if we were going to have multiple workers here and multiple product_ids we would potentially want to control which were sent where so that they did not get exchanged later. Importantly, we decorate the input builder with `yield_epochs`. This decorator will handle the advancing of the epoch for us, this will prevent the dataflow from hanging on the last epoch when there is a pause or slow down in data throughput.
-
-```Python
-def ws_input():
+    print(ws.recv())
     while True:
         yield (ws.recv())
+```
 
+Now we will need to build an input builder for our dataflow with some logic to run a separate websocket connection for each currency pair. The input builder will return a function (our ws_input function) that is a generator yielding data in the format (epoch, data). For more information on epochs and inputs, checkout [the documentation](https://docs.bytewax.io/getting-started/epochs). The input builder is used to provide some control over how inputs are managed in the case that we have multiple workers. In this case we are designing our input builder to handle multiple workers and multiple currency pairs, it should be noted that if you run more than 1 worker with only one currency pair, the others will not be used. Importantly, we decorate the input builder with `yield_epochs`. This decorator will handle the advancing of the epoch for us, this will prevent the dataflow from hanging on the last epoch when there is a pause or slow down in data throughput.
+
+```python
+from bytewax import Dataflow, inputs, spawn_cluster
 
 @inputs.yield_epochs
 def input_builder(worker_index, worker_count):
+    prods_per_worker = int(len(PRODUCT_IDS)/worker_count)
+    product_ids = PRODUCT_IDS[int(worker_index*prods_per_worker):int(worker_index*prods_per_worker+prods_per_worker)]
+    return inputs.fully_ordered(ws_input(product_ids))
+    
     return inputs.fully_ordered(ws_input())
 ```
 
-Now that we have our input builder finished, we can create our output builder. The output builder is used in the `spawn_cluster` call that will kick-off our dataflow. The output builder is what will be called in the `capture` operator. For this example, we keep it simple, we are just going to print out the result of our dataflow to the council. 
+Now that we have our input builder finished, we can create our output builder. The output builder is used in the `spawn_cluster` call that will kick-off our dataflow. The output builder is what will be called in the `capture` operator. For this example, we keep it simple, we are just going to print out the result of our dataflow to the terminal.
 
-```Python
+```python
 def output_builder(worker_index, worker_count):
     return print
 ```
 
 ### Building Our Dataflow
 
-Before we get to the exciting part of our order book dataflow we need to prep the data. To do this, we first load the json we are receiving from the websocket. Once loaded we can reformat the data to be a tuple of (product_id, data), which will permit us to aggregate by the product+id as our key in the next stop.
+Before we get to the exciting part of our order book dataflow we need to prep the data. We initially receive some JSON formatted text, so we will first load the json we are receiving from the websocket. Once loaded we can reformat the data to be a tuple of the shape (product_id, data). This will permit us to aggregate by the product_id as our key in the next stop.
 
 ```Python
 def key_on_product(data):
@@ -69,7 +75,9 @@ def key_on_product(data):
 
 flow = Dataflow()
 flow.map(json.loads)
+# {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'}
 flow.map(key_on_product)
+# ('BTC-USD', {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'})
 ```
 
 Now for the exciting part. The code below is what we are using to: 
@@ -78,8 +86,37 @@ Now for the exciting part. The code below is what we are using to:
 3. For each new order, update the order book and then update the bid and ask prices where required.
 4. Return bid and ask price, the respective volumes of the ask and the difference between the prices.
 
-So how does maintaining this `OrderBook` object work in a Dataflow. Below you will notice that we are using `stateful_map` as the operator for this aggregation step. `Stateful_map` will aggregate data based on a function (mapper), into an object that you define. The object must be defined via a builder, because it will create a new object via this builder for each new key received. The mapper must return the object so that it can be updated.
+The data from the coinbase pro websocket is first a snapshot of the current order book in the format:
 
+```json
+{
+  "type": "snapshot",
+  "product_id": "BTC-USD",
+  "bids": [["10101.10", "0.45054140"]],
+  "asks": [["10102.55", "0.57753524"]]
+}
+```
+
+  and then each additional message is an update with a new limit order of the format:
+
+```json
+{
+  "type": "l2update",
+  "product_id": "BTC-USD",
+  "time": "2019-08-14T20:42:27.265Z",
+  "changes": [
+    [
+      "buy",
+      "10101.80000000",
+      "0.162567"
+    ]
+  ]
+}
+```
+
+To maintain an order book in real time, we will first need to construct an object to hold the orders from the snapshot and then update that object with each additional object. This is a good use case for the [`stateful_map`](https://docs.bytewax.io/apidocs#bytewax.Dataflow.stateful_map) operator, which can keep state by key, over many epochs. `Stateful_map` will aggregate data based on a function (mapper), into an object that you define. The object must be defined via a builder, because it will create a new object via this builder for each new key received. The mapper must return the object so that it can be updated.
+
+Below we have the code for the OrderBook object that has a bids and asks dictionary. These will be used to first create the order book from the snapshot and once created we can attain the first bid price and ask price. The bid price is the highest buy order placed and the ask price is the lowest sell order places. Once we have determined the bid and ask prices, we will be able to calculate the spread and track that as well.
 
 ```Python
 class OrderBook:
@@ -90,22 +127,37 @@ class OrderBook:
 
     def update(self, data):
         if self.bids == {}:
-            self.bids = {float(v[0]):float(v[1]) for v in data['bids']}
+            self.bids = {float(price):float(size) for price, size in data['bids']}
+            # The bid_price is the highest priced buy limit order.
+            # since the bids are in order, the first item of our newly constructed bids
+            # will have our bid price, so we can track the best bid
             self.bid_price = next(iter(self.bids))
         if self.asks == {}:
-            self.asks = {float(v[0]):float(v[1]) for v in data['asks']}
+            self.asks = {float(price):float(size) for price, size in data['asks']}
+            # The ask price is the lowest priced sell limit order.
+            # since the asks are in order, the first item of our newly constructed 
+            # asks will be our ask price, so we can track the best ask
             self.ask_price = next(iter(self.asks))
+```
+
+Now for each new message we receive, which will be an update, we can now update the order book and we can update the bid and ask price and re-calculate the spread. Sometimes an order was filled or it was cancelled and in this case what we receive from the update is something like `'changes': [['buy', '36905.39', '0.00000000']]` so we can remove that item from our book. The code below will check if the order should be removed and if not it will update the order. If the order was removed, it will check to make sure the bid and ask prices are modified if the order that was removed was in fact the bid or ask price.
+
+```python
         else:
+            # We receive a list of lists here, normally it is only one change, 
+            # but could be more than one.
             for update in data['changes']:
                 price = float(update[1])
                 size = float(update[2])
             if update[0] == 'sell':
-                # modify asks
+                # first check if the size is zero and needs to be removed
                 if size == 0.0:
                     try:
                         del self.asks[price]
+                        # if it was the ask price removed, 
+                        # update with new ask price
                         if price <= self.ask_price:
-                            self.ask_price = sorted(self.asks.keys())[0]
+                            self.ask_price = min(self.asks.keys())
                     except KeyError:
                         # don't need to add price with size zero
                         pass
@@ -114,12 +166,14 @@ class OrderBook:
                     if price < self.ask_price:
                         self.ask_price = price
             if update[0] == 'buy':
-                # modify bids
+                # first check if the size is zero and needs to be removed
                 if size == 0.0:
                     try:
                         del self.bids[price]
+                        # if it was the bid price removed, 
+                        # update with new bid price
                         if price >= self.bid_price:
-                            self.bid_price = sorted(self.bids.keys())[-1]
+                            self.bid_price = max(self.bids.keys())
                     except KeyError:
                         # don't need to add price with size zero
                         pass
@@ -127,9 +181,10 @@ class OrderBook:
                     self.bids[price] = size
                     if price > self.bid_price:
                         self.bid_price = price
-        return self, (self.bid_price, self.bids[self.bid_price], self.ask_price, self.asks[self.ask_price], self.ask_price-self.bid_price)
+        return self, {'bid': self.bid_price, 'bid_size': self.bids[self.bid_price], 'ask': self.ask_price, 'ask_price': self.asks[self.ask_price], 'spread': self.ask_price-self.bid_price}
 
 flow.stateful_map(lambda key: OrderBook(), OrderBook.update)
+# if using bytewax>0.9.0 --> flow.stateful_map("order_book", lambda key: OrderBook(), OrderBook.update)
 ```
 
 Finishing it up, for fun we can filter for a spread bigger than 5USD and then capture the output. Maybe we can profit off of this spread... or maybe not.
@@ -137,7 +192,7 @@ Finishing it up, for fun we can filter for a spread bigger than 5USD and then ca
 The `capture` operator is designed to use the output builder function that we defined earlier. In this case it will print out to our terminal.
 
 ```Python
-flow.filter(lambda x: x[-1][-1] > 5.0)
+flow.filter(lambda x: x[-1]['spread] > 5.0)
 flow.capture()
 ```
 
