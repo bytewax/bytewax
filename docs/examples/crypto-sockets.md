@@ -15,7 +15,9 @@ To start off, we are going to diverge into some concepts around markets, exchang
 Concepts
 --------
 
-**Order Book**
+Order Book
+__________
+
 A Limit Order Book, or just Order Book is a record of all limit orders that are made. A limit order is an order to buy (bid) or sell (ask) an asset for a given price. This could facilitate the exchange of dollars for shares or, as in our case, they could be orders to exchange crypto currencies. On exchanges, the limit order book is constantly changing as orders are placed every fraction of a second. The order book can give a trader insight into the market, whether they are looking to determine liquidity, to create liquidity, design a trading algorithm or maybe determine when bad actors are trying to manipulate the market. 
 
 **Bid and Ask**
