@@ -1,6 +1,6 @@
 
-### Using Webhooks to Analyze Cryptocurrency Order Book in Real-Time and Profit
-================================================
+Analyzing Cryptocurrency Order Book in Real-Time
+=======================================
 
 In this example we are going to walk through how you can maintain a limit order book in real-time with very little extra infrastructure with Bytewax.
 
@@ -18,7 +18,8 @@ An exchange will generally offer a few different tiers of information that trade
 
 Alright, let's get started!
 
-### Inputs & Outputs
+Inputs & Outputs
+----------------
 
 We are going to eventually create a cluster of dataflows where we could have multiple currency pairs running in parallel on different workers. In order to follow this approach, we will use the [`spawn_cluster`](https://docs.bytewax.io/apidocs#bytewax.spawn_cluster) method of kicking off our dataflow. To start, we will build a websocket input function that will use the coinbase pro websocket url (`wss://ws-feed.pro.coinbase.com`) and the Python websocket library to create a connection. Once connected we can send a message to the websocket subscribing to product_ids (pairs of currencies - USD-BTC for this example) and channels (level2 order book data). Finally since we know there will be some sort of acknowledgement message we can grab that with `ws.recv()` and print it out. In this example we are assuming we receive our data in order and we are going to assign a monotonically increasing epoch to each new message we receive. In Bytewax, an epoch is assigned to data and then Bytewax is instructed move that data through the dataflow as far as possible with the `Emit` method. At some point, we would consider that epoch complete if there was not any additional data to be received. At that point we would instruct Bytewax to advance to the next epoch with `AdvanceTo` and would lead to completion of the dataflow process for that epoch. This allows for flexibility so you could span an epoch over a time window and complete the processing at the end of the window. For more details on how this works, check the [epoch documentation](https://docs.bytewax.io/getting-started/epochs).
 
@@ -65,7 +66,8 @@ def output_builder(worker_index, worker_count):
     return print
 ```
 
-### Building Our Dataflow
+Building Our Dataflow
+---------------------
 
 Before we get to the exciting part of our order book dataflow we need to prep the data. We initially receive some JSON formatted text, so we will first deserialize the JSON we are receiving from the websocket into a dictionary. Once deserialized, we can reformat the data to be a tuple of the shape (product_id, data). This will permit us to aggregate by the product_id as our key in the next step.
 
