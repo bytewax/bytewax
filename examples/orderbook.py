@@ -3,7 +3,7 @@ import json, time
 from websocket import create_connection
 from bytewax import Dataflow, inputs, spawn_cluster
 
-PRODUCT_IDS = ['BTC-USD','ETH-USD']
+PRODUCT_IDS = ['BTC-USD', 'ETH-USD', 'SOL-USD']
 
 def ws_input(product_ids):
     ws = create_connection("wss://ws-feed.pro.coinbase.com")
@@ -23,6 +23,7 @@ def ws_input(product_ids):
 
 @inputs.yield_epochs
 def input_builder(worker_index, worker_count):
+    print(worker_index, worker_count)
     prods_per_worker = int(len(PRODUCT_IDS)/worker_count)
     product_ids = PRODUCT_IDS[int(worker_index*prods_per_worker):int(worker_index*prods_per_worker+prods_per_worker)]
     return inputs.fully_ordered(ws_input(product_ids))

@@ -22,7 +22,7 @@ Alright, let's get started!
 
 We are going to eventually create a cluster of dataflows where we could have multiple currency pairs running in parallel on different workers. In order to follow this approach, we will use the [`spawn_cluster`](https://docs.bytewax.io/apidocs#bytewax.spawn_cluster) method of kicking off our dataflow. To start, we will build a websocket input function that will we use the coinbase pro websocket url (`wss://ws-feed.pro.coinbase.com`) and the Python websocket library to create a connection. Once connected we can send a message to the websocket subscribing to product_ids (pairs of currencies - USD-BTC for this example) and channels (level2 order book data). Finally since we know there will be some sort of acknowledgement message we can grab that with `ws.recv()` and print it out.
 
-```python
+```Python
 from websocket import create_connection
 
 
@@ -46,7 +46,7 @@ def ws_input(product_ids):
 
 Now we will need to build an input builder for our dataflow with some logic to run a separate websocket connection for each currency pair. The input builder will return a function (our ws_input function) that is a generator yielding data in the format (epoch, data). For more information on epochs and inputs, checkout [the documentation](https://docs.bytewax.io/getting-started/epochs). The input builder is used to provide some control over how inputs are managed in the case that we have multiple workers. In this case we are designing our input builder to handle multiple workers and multiple currency pairs, it should be noted that if you run more than 1 worker with only one currency pair, the others will not be used. Importantly, we decorate the input builder with `yield_epochs`. This decorator will handle the advancing of the epoch for us, this will prevent the dataflow from hanging on the last epoch when there is a pause or slow down in data throughput.
 
-```python
+```Python
 from bytewax import Dataflow, inputs, spawn_cluster
 
 @inputs.yield_epochs
@@ -60,7 +60,7 @@ def input_builder(worker_index, worker_count):
 
 Now that we have our input builder finished, we can create our output builder. The output builder is used in the `spawn_cluster` call that will kick-off our dataflow. The output builder is what will be called in the `capture` operator. For this example, we keep it simple, we are just going to print out the result of our dataflow to the terminal.
 
-```python
+```Python
 def output_builder(worker_index, worker_count):
     return print
 ```
@@ -142,7 +142,7 @@ class OrderBook:
 
 Now for each new message we receive, which will be an update, we can now update the order book and we can update the bid and ask price and re-calculate the spread. Sometimes an order was filled or it was cancelled and in this case what we receive from the update is something like `'changes': [['buy', '36905.39', '0.00000000']]` so we can remove that item from our book. The code below will check if the order should be removed and if not it will update the order. If the order was removed, it will check to make sure the bid and ask prices are modified if the order that was removed was in fact the bid or ask price.
 
-```python
+```Python
         else:
             # We receive a list of lists here, normally it is only one change, 
             # but could be more than one.
@@ -213,4 +213,3 @@ That's it, let's verify our output:
 ```
 
 That's it!
-
