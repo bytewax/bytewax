@@ -200,6 +200,7 @@ flow.capture()
 
 ```Python
 spawn_cluster(flow, input_builder, output_builder)
+# for multiple workers --> spawn_cluster(flow, input_builder, output_builder) -w 2
 ```
 
 That's it, let's verify our output:
