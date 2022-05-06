@@ -20,7 +20,7 @@ Alright, let's get started!
 
 ### Inputs & Outputs
 
-We are going to eventually create a cluster of dataflows where we could have multiple currency pairs running in parallel on different workers. In order to follow this approach, we will use the [`spawn_cluster`](https://docs.bytewax.io/apidocs#bytewax.spawn_cluster) method of kicking off our dataflow. To start, we will build a websocket input function that will we use the coinbase pro websocket url (`wss://ws-feed.pro.coinbase.com`) and the Python websocket library to create a connection. Once connected we can send a message to the websocket subscribing to product_ids (pairs of currencies - USD-BTC for this example) and channels (level2 order book data). Finally since we know there will be some sort of acknowledgement message we can grab that with `ws.recv()` and print it out.
+We are going to eventually create a cluster of dataflows where we could have multiple currency pairs running in parallel on different workers. In order to follow this approach, we will use the [`spawn_cluster`](https://docs.bytewax.io/apidocs#bytewax.spawn_cluster) method of kicking off our dataflow. To start, we will build a websocket input function that will use the coinbase pro websocket url (`wss://ws-feed.pro.coinbase.com`) and the Python websocket library to create a connection. Once connected we can send a message to the websocket subscribing to product_ids (pairs of currencies - USD-BTC for this example) and channels (level2 order book data). Finally since we know there will be some sort of acknowledgement message we can grab that with `ws.recv()` and print it out. In this example we are assuming we receive our data in order and we are going to assign a monotonically increasing epoch to each new message we receive. In Bytewax, an epoch is assigned to data and then Bytewax is instructed move that data through the dataflow as far as possible with the `Emit` method. At some point, we would consider that epoch complete if there was not any additional data to be received. At that point we would instruct Bytewax to advance to the next epoch with `AdvanceTo` and would lead to completion of the dataflow process for that epoch. This allows for flexibility so you could span an epoch over a time window and complete the processing at the end of the window. For more details on how this works, check the [epoch documentation](https://docs.bytewax.io/getting-started/epochs).
 
 ```python doctest:SKIP
 from websocket import create_connection
@@ -40,25 +40,25 @@ def ws_input(product_ids):
         )
     )
     print(ws.recv())
+    epoch = 0
     while True:
-        yield (ws.recv())
+        yield Emit(ws.recv())
+        epoch += 1
+        yield AdvanceTo(epoch)
 ```
 
-Now we will need to build an input builder for our dataflow with some logic to run a separate websocket connection for each currency pair. The input builder will return a function (our ws_input function) that is a generator yielding data in the format (epoch, data). For more information on epochs and inputs, checkout [the documentation](https://docs.bytewax.io/getting-started/epochs). The input builder is used to provide some control over how inputs are managed in the case that we have multiple workers. In this case we are designing our input builder to handle multiple workers and multiple currency pairs, it should be noted that if you run more than 1 worker with only one currency pair, the others will not be used. Importantly, we decorate the input builder with `yield_epochs`. This decorator will handle the advancing of the epoch for us, this will prevent the dataflow from hanging on the last epoch when there is a pause or slow down in data throughput.
+Now that we have our web socket based data generator built, we will write an input builder for our dataflow. The input builder is called on each worker and the function will have information about the `worker_index` and the total number of workers, `worker_count`. In this case we are designing our input builder to handle multiple workers and multiple currency pairs, so that we can parallelize the input. So we will distribute the currency pairs with the logic in the code below. It should be noted that if you run more than 1 worker with only one currency pair, the other workers will not be used.
 
 ```python doctest:SKIP
 from bytewax import Dataflow, inputs, spawn_cluster
 
-@inputs.yield_epochs
 def input_builder(worker_index, worker_count):
     prods_per_worker = int(len(PRODUCT_IDS)/worker_count)
     product_ids = PRODUCT_IDS[int(worker_index*prods_per_worker):int(worker_index*prods_per_worker+prods_per_worker)]
-    return inputs.fully_ordered(ws_input(product_ids))
-    
-    return inputs.fully_ordered(ws_input())
+    return ws_input(product_ids)
 ```
 
-Now that we have our input builder finished, we can create our output builder. The output builder is used in the `spawn_cluster` call that will kick-off our dataflow. The output builder is what will be called in the `capture` operator. For this example, we keep it simple, we are just going to print out the result of our dataflow to the terminal.
+Now that we have our input builder finished, we can create our output builder. The output builder is used in conjunction with `spawn_cluster`. In a dataflow, when you use the `capture` operator, the output_builder is called and will receive information about the worker as well as the epoch and the data (in the format `(epoch, data)`). For this example, we keep it simple, we are just going to print out the result of our dataflow to the terminal.
 
 ```python doctest:SKIP
 def output_builder(worker_index, worker_count):
@@ -67,7 +67,7 @@ def output_builder(worker_index, worker_count):
 
 ### Building Our Dataflow
 
-Before we get to the exciting part of our order book dataflow we need to prep the data. We initially receive some JSON formatted text, so we will first load the json we are receiving from the websocket. Once loaded we can reformat the data to be a tuple of the shape (product_id, data). This will permit us to aggregate by the product_id as our key in the next stop.
+Before we get to the exciting part of our order book dataflow we need to prep the data. We initially receive some JSON formatted text, so we will first deserialize the JSON we are receiving from the websocket into a dictionary. Once deserialized, we can reformat the data to be a tuple of the shape (product_id, data). This will permit us to aggregate by the product_id as our key in the next step.
 
 ```python doctest:SKIP
 def key_on_product(data):
@@ -80,7 +80,7 @@ flow.map(key_on_product)
 # ('BTC-USD', {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'})
 ```
 
-Now for the exciting part. The code below is what we are using to: 
+Now for the exciting part. The code below is what we are using to:
 1. Construct the orderbook as two dictionaries, one for asks, one for bids
 2. Assign a value to the ask and bid price.
 3. For each new order, update the order book and then update the bid and ask prices where required.
@@ -92,8 +92,8 @@ The data from the coinbase pro websocket is first a snapshot of the current orde
 {
   "type": "snapshot",
   "product_id": "BTC-USD",
-  "bids": [["10101.10", "0.45054140"]],
-  "asks": [["10102.55", "0.57753524"]]
+  "bids": [["10101.10", "0.45054140"]...],
+  "asks": [["10102.55", "0.57753524"]...]
 }
 ```
 
@@ -114,7 +114,7 @@ The data from the coinbase pro websocket is first a snapshot of the current orde
 }
 ```
 
-To maintain an order book in real time, we will first need to construct an object to hold the orders from the snapshot and then update that object with each additional object. This is a good use case for the [`stateful_map`](https://docs.bytewax.io/apidocs#bytewax.Dataflow.stateful_map) operator, which can keep state by key, over many epochs. `Stateful_map` will aggregate data based on a function (mapper), into an object that you define. The object must be defined via a builder, because it will create a new object via this builder for each new key received. The mapper must return the object so that it can be updated.
+To maintain an order book in real time, we will first need to construct an object to hold the orders from the snapshot and then update that object with each additional update. This is a good use case for the [`stateful_map`](https://docs.bytewax.io/apidocs#bytewax.Dataflow.stateful_map) operator, which can aggregate by key, over many epochs. `Stateful_map` will aggregate data based on a function (mapper), into an object that you define. The object must be defined via a builder, because it will create a new object via this builder for each new key received. The mapper must return the object so that it can be updated.
 
 Below we have the code for the OrderBook object that has a bids and asks dictionary. These will be used to first create the order book from the snapshot and once created we can attain the first bid price and ask price. The bid price is the highest buy order placed and the ask price is the lowest sell order places. Once we have determined the bid and ask prices, we will be able to calculate the spread and track that as well.
 
@@ -140,7 +140,7 @@ class OrderBook:
             self.ask_price = next(iter(self.asks))
 ```
 
-Now for each new message we receive, which will be an update, we can now update the order book and we can update the bid and ask price and re-calculate the spread. Sometimes an order was filled or it was cancelled and in this case what we receive from the update is something like `'changes': [['buy', '36905.39', '0.00000000']]` so we can remove that item from our book. The code below will check if the order should be removed and if not it will update the order. If the order was removed, it will check to make sure the bid and ask prices are modified if the order that was removed was in fact the bid or ask price.
+With our snapshot processed, for each new message we receive from the websocket, we can update the order book, the bid and ask price and the spread. Sometimes an order was filled or it was cancelled and in this case what we receive from the update is something similar to `'changes': [['buy', '36905.39', '0.00000000']]`. When we receive these updates of size `'0.00000000'`, we can remove that item from our book and potentially update our bid and ask price. The code below will check if the order should be removed and if not it will update the order. If the order was removed, it will check to make sure the bid and ask prices are modified if required.
 
 ```python doctest:SKIP
         else:
@@ -187,16 +187,16 @@ flow.stateful_map(lambda key: OrderBook(), OrderBook.update)
 # if using bytewax>0.9.0 --> flow.stateful_map("order_book", lambda key: OrderBook(), OrderBook.update)
 ```
 
-Finishing it up, for fun we can filter for a spread bigger than 5USD and then capture the output. Maybe we can profit off of this spread... or maybe not.
+Finishing it up, for fun we can filter for a spread as a percentage of the ask price greater than 01% and then capture the output. Maybe we can profit off of this spread... or maybe not.
 
 The `capture` operator is designed to use the output builder function that we defined earlier. In this case it will print out to our terminal.
 
 ```python doctest:SKIP
-flow.filter(lambda x: x[-1]['spread] > 5.0)
+flow.filter(lambda x: x[-1]['spread'] / x[-1]['ask'] > 0.0001)
 flow.capture()
 ```
 
-[Bytewax provides a few different entry points for executing your dataflow](/getting-started/execution/), in this example we are using `bytewax.spawn_cluster` which allows you to run dataflows in parallel on threads and processes.
+[Bytewax provides a few different entry points for executing a dataflow](/getting-started/execution/), in this example we are using `bytewax.spawn_cluster` which allows us to run dataflows in parallel on threads and processes.
 
 ```python doctest:SKIP
 if __name__ == "__main__":
@@ -210,6 +210,8 @@ python orderbook.py
 # for multiple workers --> python orderbook.py -w 2
 ```
 
+And eventually, if the spread is greater than $5, we will see some output similar to what is below.
+
 ```bash
 {"type":"subscriptions","channels":[{"name":"level2","product_ids":["BTC-USD"]}]}
 (1046, ('BTC-USD', (38590.1, 0.00945844, 38596.73, 0.01347429, 6.630000000004657)))
@@ -218,3 +220,5 @@ python orderbook.py
 ```
 
 That's it!
+
+We would love to see if you can build on this example. Feel free to share what you've built in our [community slack channel](https://join.slack.com/t/bytewaxcommunity/shared_invite/zt-vkos2f6r-_SeT9pF2~n9ArOaeI3ND2w).

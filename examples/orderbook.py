@@ -1,7 +1,7 @@
 import json, time
 
 from websocket import create_connection
-from bytewax import Dataflow, inputs, parse, spawn_cluster
+from bytewax import Dataflow, parse, spawn_cluster, AdvanceTo, Emit
 
 PRODUCT_IDS = ['BTC-USD', 'ETH-USD', 'SOL-USD']
 
@@ -17,15 +17,17 @@ def ws_input(product_ids):
         )
     )
     print(ws.recv())
+    epoch = 0
     while True:
-        yield (ws.recv())
+        yield Emit(ws.recv())
+        epoch += 1
+        yield AdvanceTo(epoch)
 
 
-@inputs.yield_epochs
 def input_builder(worker_index, worker_count):
     prods_per_worker = int(len(PRODUCT_IDS)/worker_count)
     product_ids = PRODUCT_IDS[int(worker_index*prods_per_worker):int(worker_index*prods_per_worker+prods_per_worker)]
-    return inputs.fully_ordered(ws_input(product_ids))
+    return ws_input(product_ids)
 
 
 def output_builder(worker_index, worker_count):
@@ -104,7 +106,7 @@ flow.map(key_on_product)
 flow.stateful_map(lambda key: OrderBook(), OrderBook.update)
 # if using bytewax>0.9.0 --> flow.stateful_map("order_book", lambda key: OrderBook(), OrderBook.update)
 # ('BTC-USD', (36905.39, 0.00334873, 36905.4, 1.6e-05, 0.010000000002037268))
-flow.filter(lambda x: x[-1]['spread'] > 5.0)
+flow.filter(lambda x: x[-1]['spread'] / x[-1]['ask'] > 0.0001) # filter on 0.1% spread as a per
 flow.capture()
 
 if __name__ == "__main__":
