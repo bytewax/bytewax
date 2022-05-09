@@ -483,6 +483,10 @@ impl RecoveryStore<u64, TdPyAny, TdPyAny> for SqliteRecoveryStore {
         debug!("sqlite load dataflow_frontier={dataflow_frontier:?}");
 
         let resume_epoch = dataflow_frontier;
+        // Notice we only select < dataflow frontier. Not <=. Any
+        // state written during the previous execution's dataflow
+        // frontier itself was still "in progress" and so shouldn't be
+        // re-introduced in this run.
         let future = query("SELECT step_id, key, epoch, state FROM states WHERE epoch < ?1 ORDER BY step_id, key, epoch ASC")
             .bind(Self::epoch_to_i64(&resume_epoch))
             .map(|row: SqliteRow| {
