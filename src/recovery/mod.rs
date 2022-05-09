@@ -38,13 +38,12 @@
 //! S2 -. Updated State .-> B2{{Backup 2}}
 //! S2 -- Logic Output --> X3([... More Dataflow ...]) --> C2(Capture)
 //! B1 -. Updated Keys .-> GC
-//! B1 -. Frontier .-> FF{{Final Frontier Calc}}
-//! B2 -. Frontier .-> FF
-//! C1 -. Frontier .-> FF
-//! C2 -. Frontier .-> FF
-//! FF -.-> GC{{Garbage Collection}}
-//! B2 -. Updated Kyes .-> GC
-//! FF -.-> FFL{{Final Frontier Logger}}
+//! B1 -. Frontier .-> DF{{Dataflow Frontier Calc}}
+//! B2 -. Frontier .-> DF
+//! C1 -. Frontier .-> DF
+//! C2 -. Frontier .-> DF
+//! DF -.-> GC{{Garbage Collection}}
+//! B2 -. Updated Keys .-> GC
 //! ```
 //!
 //! Backup
