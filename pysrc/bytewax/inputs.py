@@ -42,7 +42,7 @@ def distribute(elements: Iterable[Any], index: int, count: int) -> Iterable[Any]
     >>> def input_builder(i, n):
     ...    all_topics = ["red", "green", "blue"]
     ...    this_workers_topics = distribute(listening_topics, i, n)
-    ...    for item in read_topics(this_workers):
+    ...    for item in read_topics(this_workers_topics):
     ...        yield Emit(f"worker_index:{worker_index}" + item)
     >>> flow = Dataflow()
     >>> flow.capture()
