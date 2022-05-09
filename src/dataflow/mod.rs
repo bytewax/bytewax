@@ -3,6 +3,21 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct StepId(String);
+
+impl From<String> for StepId {
+    fn from(s: String) -> Self {
+        StepId(s)
+    }
+}
+
+impl From<StepId> for String {
+    fn from(step_id: StepId) -> Self {
+        step_id.0
+    }
+}
+
 /// A definition of a Bytewax dataflow graph.
 ///
 /// Use the methods defined on this class to add steps with operators
@@ -255,7 +270,7 @@ impl Dataflow {
     #[pyo3(text_signature = "(self, step_id, reducer, is_complete)")]
     fn reduce(&mut self, step_id: String, reducer: TdPyCallable, is_complete: TdPyCallable) {
         self.steps.push(Step::Reduce {
-            step_id,
+            step_id: StepId(step_id),
             reducer,
             is_complete,
         });
@@ -413,7 +428,7 @@ impl Dataflow {
     #[pyo3(text_signature = "(self, step_id, builder, mapper)")]
     fn stateful_map(&mut self, step_id: String, builder: TdPyCallable, mapper: TdPyCallable) {
         self.steps.push(Step::StatefulMap {
-            step_id,
+            step_id: StepId(step_id),
             builder,
             mapper,
         });
@@ -470,7 +485,7 @@ pub(crate) enum Step {
         inspector: TdPyCallable,
     },
     Reduce {
-        step_id: String,
+        step_id: StepId,
         reducer: TdPyCallable,
         is_complete: TdPyCallable,
     },
@@ -481,7 +496,7 @@ pub(crate) enum Step {
         reducer: TdPyCallable,
     },
     StatefulMap {
-        step_id: String,
+        step_id: StepId,
         builder: TdPyCallable,
         mapper: TdPyCallable,
     },
@@ -512,7 +527,7 @@ impl<'source> FromPyObject<'source> for Step {
         }
         if let Ok(("Reduce", step_id, reducer, is_complete)) = tuple.extract() {
             return Ok(Self::Reduce {
-                step_id,
+                step_id: StepId(step_id),
                 reducer,
                 is_complete,
             });
@@ -525,7 +540,7 @@ impl<'source> FromPyObject<'source> for Step {
         }
         if let Ok(("StatefulMap", step_id, builder, mapper)) = tuple.extract() {
             return Ok(Self::StatefulMap {
-                step_id,
+                step_id: StepId(step_id),
                 builder,
                 mapper,
             });
@@ -555,14 +570,14 @@ impl ToPyObject for Step {
                 step_id,
                 reducer,
                 is_complete,
-            } => ("Reduce", step_id, reducer, is_complete).to_object(py),
+            } => ("Reduce", step_id.0.clone(), reducer, is_complete).to_object(py),
             Self::ReduceEpoch { reducer } => ("ReduceEpoch", reducer).to_object(py),
             Self::ReduceEpochLocal { reducer } => ("ReduceEpochLocal", reducer).to_object(py),
             Self::StatefulMap {
                 step_id,
                 builder,
                 mapper,
-            } => ("StatefulMap", step_id, builder, mapper).to_object(py),
+            } => ("StatefulMap", step_id.0.clone(), builder, mapper).to_object(py),
             Self::Capture {} => ("Capture",).to_object(py),
         }
         .into()

@@ -70,6 +70,13 @@ impl From<&PyAny> for TdPyAny {
 }
 
 /// Conveniently re-wrap Python objects for use in Timely.
+impl From<&PyString> for TdPyAny {
+    fn from(x: &PyString) -> Self {
+        Self(x.into())
+    }
+}
+
+/// Conveniently re-wrap Python objects for use in Timely.
 impl From<Py<PyAny>> for TdPyAny {
     fn from(x: Py<PyAny>) -> Self {
         Self(x)

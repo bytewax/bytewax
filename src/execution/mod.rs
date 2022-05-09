@@ -1,4 +1,17 @@
+//! Internal code for dataflow execution.
+//!
+//! For a user-centric version of how to execute dataflows, read the
+//! the `bytewax.execution` Python module docstring. Read that first.
+//!
+//! See [`build_dataflow()`] and [`worker_main()`] for the main parts
+//! of this.
+
+use crate::recovery::build_state_caches;
+use crate::operators::Backup;
+use crate::operators::DataflowFrontier;
+use crate::operators::GarbageCollector;
 use crate::recovery::RecoveryConfig;
+use send_wrapper::SendWrapper;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -27,9 +40,37 @@ use crate::operators::{
 use crate::pyo3_extensions::{hash, lift_2tuple, wrap_2tuple};
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 use crate::recovery::build_recovery_store;
-use crate::with_traceback;
 use std::collections::HashMap;
 
+/// Turn the abstract blueprint for a dataflow into a Timely dataflow
+/// so it can be executed.
+///
+/// This is more complicated than a 1:1 translation of Bytewax
+/// concepts to Timely, as we are using Timely as a basis to implement
+/// more-complicated Bytewax features like input builders and
+/// recovery.
+///
+/// The main steps here are:
+///
+/// 1. Load up relevant state from the recovery store and transform
+/// that into what the stateful operators and garbage collector need.
+///
+/// 2. Call the input and output builders to get our callbacks for the
+/// [`Pump`] and capture operator.
+///
+/// 3. "Compile" the Bytewax [`crate::dataflow::Dataflow`] into a
+/// Timely dataflow. This involves re-using some Timely operators
+/// (e.g. [`timely::dataflow::operators::map::Map`]), abusing some
+/// Timely operators with different names but the correct
+/// functionality
+/// (e.g. [`timely::dataflow::operators::inspect::Inspect`]), using
+/// our own custom operators (e.g. [`crate::operators::Reduce`]), and
+/// putting in "utility operators" to help implement things like
+/// recovery (e.g. [`crate::operators::Backup`]).
+///
+/// 4. Put in utility garbage collection machinery.
+///
+/// 5. Return the [`Pump`] and probe for execution.
 pub(crate) fn build_dataflow<A>(
     timely_worker: &mut timely::worker::Worker<A>,
     py: Python,
@@ -46,12 +87,35 @@ where
 
     timely_worker.dataflow(|scope| {
         let mut timely_input = InputHandle::new();
-        let mut end_of_steps_probe = ProbeHandle::new();
-        let mut has_capture = false;
+        let mut capture_probe = ProbeHandle::new();
         let mut stream = timely_input.to_stream(scope);
+        let mut captures = Vec::new();
+        let mut backups = Vec::new();
+
+        let recovery_store = build_recovery_store(py, recovery_config)?;
+
+        // SAFETY: Avoid PyO3 Send overloading.
+        let wrapped_recovery_store = SendWrapper::new(recovery_store.clone());
+        // All RecoveryStore methods require not holding the GIL. They
+        // might spawn background threads.
+        let (recovery_data, resume_epoch) = py.allow_threads(|| wrapped_recovery_store.load());
+
+        // Lock in that we're at the recovery epoch. Timely will error
+        // if the input handler does not start here.
+        timely_input.advance_to(resume_epoch);
+        // Yes this is a clone of a giant Vec, but I think this'll be
+        // fine (at least from a memory perspective) because we're
+        // dropping all the actual state data and just noting if it's
+        // an upsert or delete.
+        let recovery_store_log = recovery_data
+            .clone()
+            .into_iter()
+            .map(|(step_id, key, epoch, state)| (step_id, key, epoch, state.into()))
+            .collect();
+        let mut state_caches = build_state_caches(recovery_data);
 
         let worker_input: TdPyIterator = input_builder
-            .call1(py, (worker_index, worker_count))
+            .call1(py, (worker_index, worker_count, resume_epoch))
             .unwrap()
             .extract(py)
             .unwrap();
@@ -60,8 +124,6 @@ where
             .unwrap()
             .extract(py)
             .unwrap();
-
-        let recovery_store = build_recovery_store(py, recovery_config)?;
 
         let steps = &flow.steps;
         for step in steps {
@@ -98,15 +160,18 @@ where
                 } => {
                     let reducer = reducer.clone_ref(py);
                     let is_complete = is_complete.clone_ref(py);
-                    stream = stream
-                        .map(lift_2tuple)
-                        .reduce(
-                            recovery_store.for_step(step_id),
-                            move |key, aggregator, value| reduce(&reducer, key, aggregator, value),
-                            move |key, aggregator| check_complete(&is_complete, key, aggregator),
-                            hash,
-                        )
-                        .map(wrap_2tuple);
+
+                    let state_cache = state_caches.remove(step_id).unwrap_or_default();
+
+                    let (downstream, state_updates) = stream.map(lift_2tuple).reduce(
+                        state_cache,
+                        move |key, aggregator, value| reduce(&reducer, key, aggregator, value),
+                        move |key, aggregator| check_complete(&is_complete, key, aggregator),
+                        hash,
+                    );
+                    let backup = state_updates.backup(step_id.clone(), recovery_store.clone());
+                    backups.push(backup);
+                    stream = downstream.map(wrap_2tuple);
                 }
                 Step::ReduceEpoch { reducer } => {
                     let reducer = reducer.clone_ref(py);
@@ -142,29 +207,40 @@ where
                 } => {
                     let builder = builder.clone_ref(py);
                     let mapper = mapper.clone_ref(py);
-                    stream = stream
-                        .map(lift_2tuple)
-                        .stateful_map(
-                            recovery_store.for_step(step_id),
-                            move |key| build(&builder, key),
-                            move |key, state, value| stateful_map(&mapper, key, state, value),
-                            hash,
-                        )
-                        .map(wrap_2tuple);
+
+                    let state_cache = state_caches.remove(step_id).unwrap_or_default();
+
+                    let (downstream, state_updates) = stream.map(lift_2tuple).stateful_map(
+                        state_cache,
+                        move |key| build(&builder, key),
+                        move |key, state, value| stateful_map(&mapper, key, state, value),
+                        hash,
+                    );
+                    let backup = state_updates.backup(step_id.clone(), recovery_store.clone());
+                    stream = downstream.map(wrap_2tuple);
+                    backups.push(backup);
                 }
                 Step::Capture {} => {
                     let worker_output = worker_output.clone_ref(py);
-                    stream
+                    let capture = stream
                         .inspect_time(move |epoch, item| capture(&worker_output, epoch, item))
-                        .probe_with(&mut end_of_steps_probe);
-                    has_capture = true;
+                        .probe_with(&mut capture_probe);
+                    stream = capture.clone();
+                    captures.push(capture);
                 }
             }
         }
 
-        if has_capture {
+        let dataflow_frontier = scope
+            .dataflow_frontier(backups.clone(), captures.clone())
+            // We need broadcast otherwise each worker will have its
+            // own opinion on the dataflow frontier.
+            .broadcast();
+        dataflow_frontier.garbage_collector(recovery_store_log, backups, recovery_store);
+
+        if !captures.is_empty() {
             let pump = Pump::new(worker_input, timely_input);
-            Ok((pump, end_of_steps_probe))
+            Ok((pump, capture_probe))
         } else {
             Err("Dataflow needs to contain at least one capture".into())
         }

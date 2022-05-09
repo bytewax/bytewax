@@ -32,12 +32,13 @@ import json
 from bytewax import AdvanceTo, Emit
 
 
-def input_builder(worker_index, worker_count):
+def input_builder(worker_index, worker_count, resume_epoch):
+    assert resume_epoch == 0  # We're not going to worry about state recovery just yet.
     assert worker_index == 0  # We're not going to worry about multiple workers yet.
     with open("cart-join.json") as f:
         for epoch, line in enumerate(f):
-            obj = json.loads(line)
             yield AdvanceTo(epoch)
+            obj = json.loads(line)
             yield Emit(obj)
 ```
 
@@ -148,6 +149,7 @@ Cool, we're chugging along and then OH NO!
 1 {"user_id": "a", "paid_order_ids": [], "unpaid_order_ids": [1, 2]}
 2 {"user_id": "b", "paid_order_ids": [], "unpaid_order_ids": [3]}
 3 {"user_id": "a", "paid_order_ids": [2], "unpaid_order_ids": [1]}
+4 {"user_id": "b", "paid_order_ids": [], "unpaid_order_ids": [3, 4]}
 Traceback (most recent call last):
 ...
 json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
@@ -174,17 +176,14 @@ we're using the line in the file as the epoch, we can skip ahead to
 that line.
 
 ```python
-RESUME_FROM_EPOCH = 0
-
-
-def input_builder(worker_index, worker_count):
+def input_builder(worker_index, worker_count, resume_epoch):
     assert worker_index == 0  # We're not going to worry about multiple workers yet.
     with open("cart-join.json") as f:
         for epoch, line in enumerate(f):
-            if epoch < RESUME_FROM_EPOCH:
+            if epoch < resume_epoch:
                 continue
-            obj = json.loads(line)
             yield AdvanceTo(epoch)
+            obj = json.loads(line)
             yield Emit(obj)
 ```
 
@@ -218,44 +217,41 @@ As expected, we have the same error.
 1 {"user_id": "a", "paid_order_ids": [], "unpaid_order_ids": [1, 2]}
 2 {"user_id": "b", "paid_order_ids": [], "unpaid_order_ids": [3]}
 3 {"user_id": "a", "paid_order_ids": [2], "unpaid_order_ids": [1]}
+4 {"user_id": "b", "paid_order_ids": [], "unpaid_order_ids": [3, 4]}
 Traceback (most recent call last):
 ...
 json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
 ```
 
-But this time, we've persisted state into the recovery store! If we
-fix whatever is causing the exception, we can resume the dataflow and
-still get the correct output. Let's fix up the input handler one more
-time.
+But this time, we've persisted state and the epoch of failure into the
+recovery store! If we fix whatever is causing the exception, we can
+resume the dataflow and still get the correct output. Let's fix up the
+input handler one more time.
 
 ```python
-def input_builder(worker_index, worker_count):
+def input_builder(worker_index, worker_count, resume_epoch):
     assert worker_index == 0  # We're not going to worry about multiple workers yet.
     with open("cart-join.json") as f:
         for epoch, line in enumerate(f):
-            if epoch < RESUME_FROM_EPOCH:
+            if epoch < resume_epoch:
                 continue
+            yield AdvanceTo(epoch)
             if line.startswith("FAIL"):  # Fix the bug.
                 continue
             obj = json.loads(line)
-            yield AdvanceTo(epoch)
             yield Emit(obj)
 ```
 
-How do we know which epoch to resume from? Use the epoch _before_ the
-last epoch seen in the output. In this case, that would be epoch `1`.
+Running the dataflow again will pickup very close to where we
+started. In this case, even though the failure happend with an input
+on epoch `4`, the system detected that we were not done processing
+input from epoch `1` yet, so it resumes from there.
 
 ```python
-RESUME_FROM_EPOCH = 1
-
-
 run_main(flow, input_builder, output_builder, recovery_config=recovery_config)
 ```
 
 ```{testoutput}
-1 {"user_id": "a", "paid_order_ids": [], "unpaid_order_ids": [1, 2]}
-2 {"user_id": "b", "paid_order_ids": [], "unpaid_order_ids": [3]}
-3 {"user_id": "a", "paid_order_ids": [2], "unpaid_order_ids": [1]}
 4 {"user_id": "b", "paid_order_ids": [], "unpaid_order_ids": [3, 4]}
 6 {"user_id": "a", "paid_order_ids": [2, 1], "unpaid_order_ids": []}
 7 {"user_id": "b", "paid_order_ids": [4], "unpaid_order_ids": [3]}
