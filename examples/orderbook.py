@@ -16,6 +16,7 @@ def ws_input(product_ids):
             }
         )
     )
+    # The first msg is just a confirmation that we have subscribed.
     print(ws.recv())
     epoch = 0
     while True:
