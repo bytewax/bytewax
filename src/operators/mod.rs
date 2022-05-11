@@ -723,11 +723,17 @@ where
                 // in-progress epoch. Thus -1 is the epoch who's state
                 // we need to fully recreate during recovery and we
                 // shouldn't GC it. Thus -2 is the first GC-able
-                // epoch. And then since there's no
-                // [`Anitchain::greater_than()`], we use !less_than().
+                // epoch. We'd like to be able to write
+                // `dataflow_frontier - 2 >= epoch` but since there's
+                // no [`Anitchain::greater_than()`], we use
+                // `!less_than()` and since you can't do math on the
+                // frontier set, we move the `-2` to the other side
+                // and it becomes `+2`.
+
                 // TODO: Is there a way to do this without a fixed
                 // offset? It feels kinda hacky and would be cool to
                 // support arbitrary timestamp types.
+
                     |epoch: &u64| -> bool { !dataflow_frontier.less_than(&(epoch + 2)) };
                 // We save the dataflow frontier here in the garbage
                 // collector and not in the dataflow frontier operator
