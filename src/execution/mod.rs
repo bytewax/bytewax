@@ -1,4 +1,17 @@
+//! Internal code for dataflow execution.
+//!
+//! For a user-centric version of how to execute dataflows, read the
+//! the `bytewax.execution` Python module docstring. Read that first.
+//!
+//! See [`build_dataflow()`] and [`worker_main()`] for the main parts
+//! of this.
+
+use crate::recovery::build_state_caches;
+use crate::operators::Backup;
+use crate::operators::DataflowFrontier;
+use crate::operators::GarbageCollector;
 use crate::recovery::RecoveryConfig;
+use send_wrapper::SendWrapper;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -10,11 +23,229 @@ use std::time::Duration;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use timely::dataflow::operators::aggregation::*;
+use timely::dataflow::operators::*;
 use timely::dataflow::InputHandle;
 use timely::dataflow::ProbeHandle;
 
-use crate::dataflow::{build_dataflow, Dataflow};
+use crate::dataflow::{Dataflow, Step};
+use crate::operators::build;
+use crate::operators::check_complete;
+use crate::operators::stateful_map;
+use crate::operators::Reduce;
+use crate::operators::{
+    capture, filter, flat_map, inspect, inspect_epoch, map, reduce, reduce_epoch,
+    reduce_epoch_local, StatefulMap,
+};
+use crate::pyo3_extensions::{hash, lift_2tuple, wrap_2tuple};
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
+use crate::recovery::build_recovery_store;
+use std::collections::HashMap;
+
+/// Turn the abstract blueprint for a dataflow into a Timely dataflow
+/// so it can be executed.
+///
+/// This is more complicated than a 1:1 translation of Bytewax
+/// concepts to Timely, as we are using Timely as a basis to implement
+/// more-complicated Bytewax features like input builders and
+/// recovery.
+///
+/// The main steps here are:
+///
+/// 1. Load up relevant state from the recovery store and transform
+/// that into what the stateful operators and garbage collector need.
+///
+/// 2. Call the input and output builders to get our callbacks for the
+/// [`Pump`] and capture operator.
+///
+/// 3. "Compile" the Bytewax [`crate::dataflow::Dataflow`] into a
+/// Timely dataflow. This involves re-using some Timely operators
+/// (e.g. [`timely::dataflow::operators::map::Map`]), abusing some
+/// Timely operators with different names but the correct
+/// functionality
+/// (e.g. [`timely::dataflow::operators::inspect::Inspect`]), using
+/// our own custom operators (e.g. [`crate::operators::Reduce`]), and
+/// putting in "utility operators" to help implement things like
+/// recovery (e.g. [`crate::operators::Backup`]).
+///
+/// 4. Put in utility garbage collection machinery.
+///
+/// 5. Return the [`Pump`] and probe for execution.
+pub(crate) fn build_dataflow<A>(
+    timely_worker: &mut timely::worker::Worker<A>,
+    py: Python,
+    flow: &Dataflow,
+    input_builder: TdPyCallable,
+    output_builder: TdPyCallable,
+    recovery_config: Option<Py<RecoveryConfig>>,
+) -> Result<(Pump, ProbeHandle<u64>), String>
+where
+    A: timely::communication::Allocate,
+{
+    let worker_index = timely_worker.index();
+    let worker_count = timely_worker.peers();
+
+    timely_worker.dataflow(|scope| {
+        let mut timely_input = InputHandle::new();
+        let mut capture_probe = ProbeHandle::new();
+        let mut stream = timely_input.to_stream(scope);
+        let mut captures = Vec::new();
+        let mut backups = Vec::new();
+
+        let recovery_store = build_recovery_store(py, recovery_config)?;
+
+        // SAFETY: Avoid PyO3 Send overloading.
+        let wrapped_recovery_store = SendWrapper::new(recovery_store.clone());
+        // All RecoveryStore methods require not holding the GIL. They
+        // might spawn background threads.
+        let (recovery_data, resume_epoch) = py.allow_threads(|| wrapped_recovery_store.load());
+
+        // Lock in that we're at the recovery epoch. Timely will error
+        // if the input handler does not start here.
+        timely_input.advance_to(resume_epoch);
+        // Yes this is a clone of a giant Vec, but I think this'll be
+        // fine (at least from a memory perspective) because we're
+        // dropping all the actual state data and just noting if it's
+        // an upsert or delete.
+        let recovery_store_log = recovery_data
+            .clone()
+            .into_iter()
+            .map(|(step_id, key, epoch, state)| (step_id, key, epoch, state.into()))
+            .collect();
+        let mut state_caches = build_state_caches(recovery_data);
+
+        let worker_input: TdPyIterator = input_builder
+            .call1(py, (worker_index, worker_count, resume_epoch))
+            .unwrap()
+            .extract(py)
+            .unwrap();
+        let worker_output: TdPyCallable = output_builder
+            .call1(py, (worker_index, worker_count))
+            .unwrap()
+            .extract(py)
+            .unwrap();
+
+        let steps = &flow.steps;
+        for step in steps {
+            match step {
+                Step::Map { mapper } => {
+                    // All these closure lifetimes are static, so tell
+                    // Python's GC that there's another pointer to the
+                    // mapping function that's going to hang around
+                    // for a while when it's moved into the closure.
+                    let mapper = mapper.clone_ref(py);
+                    stream = stream.map(move |item| map(&mapper, item));
+                }
+                Step::FlatMap { mapper } => {
+                    let mapper = mapper.clone_ref(py);
+                    stream = stream.flat_map(move |item| flat_map(&mapper, item));
+                }
+                Step::Filter { predicate } => {
+                    let predicate = predicate.clone_ref(py);
+                    stream = stream.filter(move |item| filter(&predicate, item));
+                }
+                Step::Inspect { inspector } => {
+                    let inspector = inspector.clone_ref(py);
+                    stream = stream.inspect(move |item| inspect(&inspector, item));
+                }
+                Step::InspectEpoch { inspector } => {
+                    let inspector = inspector.clone_ref(py);
+                    stream = stream
+                        .inspect_time(move |epoch, item| inspect_epoch(&inspector, epoch, item));
+                }
+                Step::Reduce {
+                    step_id,
+                    reducer,
+                    is_complete,
+                } => {
+                    let reducer = reducer.clone_ref(py);
+                    let is_complete = is_complete.clone_ref(py);
+
+                    let state_cache = state_caches.remove(step_id).unwrap_or_default();
+
+                    let (downstream, state_updates) = stream.map(lift_2tuple).reduce(
+                        state_cache,
+                        move |key, aggregator, value| reduce(&reducer, key, aggregator, value),
+                        move |key, aggregator| check_complete(&is_complete, key, aggregator),
+                        hash,
+                    );
+                    let backup = state_updates.backup(step_id.clone(), recovery_store.clone());
+                    backups.push(backup);
+                    stream = downstream.map(wrap_2tuple);
+                }
+                Step::ReduceEpoch { reducer } => {
+                    let reducer = reducer.clone_ref(py);
+                    stream = stream.map(lift_2tuple).aggregate(
+                        move |key, value, aggregator: &mut Option<TdPyAny>| {
+                            reduce_epoch(&reducer, aggregator, key, value);
+                        },
+                        move |key, aggregator: Option<TdPyAny>| {
+                            // Aggregator will only exist for keys
+                            // that exist, so it will have been filled
+                            // into Some(value) above.
+                            wrap_2tuple((key, aggregator.unwrap()))
+                        },
+                        hash,
+                    );
+                }
+                Step::ReduceEpochLocal { reducer } => {
+                    let reducer = reducer.clone_ref(py);
+                    stream = stream
+                        .map(lift_2tuple)
+                        .accumulate(
+                            HashMap::new(),
+                            move |aggregators, all_key_value_in_epoch| {
+                                reduce_epoch_local(&reducer, aggregators, &all_key_value_in_epoch);
+                            },
+                        )
+                        .flat_map(|aggregators| aggregators.into_iter().map(wrap_2tuple));
+                }
+                Step::StatefulMap {
+                    step_id,
+                    builder,
+                    mapper,
+                } => {
+                    let builder = builder.clone_ref(py);
+                    let mapper = mapper.clone_ref(py);
+
+                    let state_cache = state_caches.remove(step_id).unwrap_or_default();
+
+                    let (downstream, state_updates) = stream.map(lift_2tuple).stateful_map(
+                        state_cache,
+                        move |key| build(&builder, key),
+                        move |key, state, value| stateful_map(&mapper, key, state, value),
+                        hash,
+                    );
+                    let backup = state_updates.backup(step_id.clone(), recovery_store.clone());
+                    stream = downstream.map(wrap_2tuple);
+                    backups.push(backup);
+                }
+                Step::Capture {} => {
+                    let worker_output = worker_output.clone_ref(py);
+                    let capture = stream
+                        .inspect_time(move |epoch, item| capture(&worker_output, epoch, item))
+                        .probe_with(&mut capture_probe);
+                    stream = capture.clone();
+                    captures.push(capture);
+                }
+            }
+        }
+
+        let dataflow_frontier = scope
+            .dataflow_frontier(backups.clone(), captures.clone())
+            // We need broadcast otherwise each worker will have its
+            // own opinion on the dataflow frontier.
+            .broadcast();
+        dataflow_frontier.garbage_collector(recovery_store_log, backups, recovery_store);
+
+        if !captures.is_empty() {
+            let pump = Pump::new(worker_input, timely_input);
+            Ok((pump, capture_probe))
+        } else {
+            Err("Dataflow needs to contain at least one capture".into())
+        }
+    })
+}
 
 
 /// Advance to the supplied epoch.
@@ -195,8 +426,10 @@ where
 ///
 /// >>> flow = Dataflow()
 /// >>> flow.capture()
-/// >>> def input_builder(worker_index, worker_count):
-/// ...     return enumerate(range(3))
+/// >>> def input_builder(worker_index, worker_count, resume_epoch):
+/// ...     for epoch, item in enumerate(range(resume_epoch, 3)):
+/// ...         yield AdvanceTo(epoch)
+/// ...         yield Emit(item)
 /// >>> def output_builder(worker_index, worker_count):
 /// ...     return print
 /// >>> run_main(flow, input_builder, output_builder)  # doctest: +ELLIPSIS
@@ -212,10 +445,8 @@ where
 ///
 ///     flow: Dataflow to run.
 ///
-///     input_builder: Returns input that each worker thread should
-///         process. If you are recovering a stateful dataflow, you
-///         must ensure your input resumes from the last finalized
-///         epoch.
+///     input_builder: Yields `AdvanceTo()` or `Emit()` with this
+///         worker's input. Must resume from the epoch specified.
 ///
 ///     output_builder: Returns a callback function for each worker
 ///         thread, called with `(epoch, item)` whenever and item
@@ -286,8 +517,10 @@ pub(crate) fn run_main(
 /// Blocks until execution is complete.
 ///
 /// >>> flow = Dataflow()
-/// >>> def input_builder(worker_index, worker_count):
-/// ...     return enumerate(range(3))
+/// >>> def input_builder(worker_index, worker_count, resume_epoch):
+/// ...     for epoch, item in enumerate(range(resume_epoch, 3)):
+/// ...         yield AdvanceTo(epoch)
+/// ...         yield Emit(item)
 /// >>> def output_builder(worker_index, worker_count):
 /// ...     return print
 /// >>> cluster_main(flow, input_builder, output_builder)  # doctest: +ELLIPSIS
@@ -306,11 +539,8 @@ pub(crate) fn run_main(
 ///
 ///     flow: Dataflow to run.
 ///
-///     input_builder: Returns input that each worker thread should
-///         process. Should yield either `AdvanceTo` or `Emit` to
-///         advance the epoch, or input new data into the dataflow.
-///         If you are recovering a stateful dataflow, you must ensure
-///         your input resumes from the last finalized epoch.
+///     input_builder: Yields `AdvanceTo()` or `Emit()` with this
+///         worker's input. Must resume from the epoch specified.
 ///
 ///     output_builder: Returns a callback function for each worker
 ///         thread, called with `(epoch, item)` whenever and item

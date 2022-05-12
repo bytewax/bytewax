@@ -91,19 +91,21 @@ Our next entry point introduces a more complex API to allow for more performance
 
 ### Builders
 
-You provide a input and output **builders**, functions that are called on each worker and will produce the input and handle the output for that worker. The input builder function should return an iterable that yields `(epoch, item)` tuples. The output builder function should return a callback **output handler** function that can be called with each epoch and item of output produced.
+You provide input and output **builders**, functions that are called on each worker and will produce the input and handle the output for that worker. The input builder function should return an iterable that yields `Emit(item)` or `AdvanceTo(epoch)`. The output builder function should return a callback **output handler** function that can be called with each epoch and item of output produced.
+
+The input builder also recieves the epoch to resume processing on in the case of restarting the dataflow. The input builder must somehow skip ahead in its input data to start at that epoch.
 
 The per-worker input of `spawn_cluster()` has the extra requirement that the input data is not duplicated between workers. All data from each worker is introduced into the same dataflow. For example, if each worker reads the content of the same file, the input will be duplicated by the number of workers. Data sources like Apache Kafka or Redpanda can provide a partitioned stream of input which can be consumed by multiple workers in parallel without duplication, as each worker sees a unique partition.
 
-`run_cluster()` blocks until all output has been collected.
+`spawn_cluster()` blocks until all output has been collected.
 
 ```python doctest:SORT_OUTPUT
 from bytewax import spawn_cluster, AdvanceTo, Emit
 from bytewax.testing import test_print
 
 
-def input_builder(worker_index, worker_count):
-    for epoch, x in enumerate(range(3)):
+def input_builder(worker_index, worker_count, resume_epoch):
+    for epoch, x in enumerate(range(resume_epoch, 3)):
         yield AdvanceTo(epoch)
         yield Emit({"input_from": worker_index, "x": x})
 
@@ -169,8 +171,8 @@ The input builder function should return an iterable that yields `(epoch, item)`
 from bytewax import cluster_main
 
 
-def input_builder(worker_index, worker_count):
-    for epoch, x in enumerate(range(3)):
+def input_builder(worker_index, worker_count, resume_epoch):
+    for epoch, x in enumerate(range(resume_epoch, 3)):
         yield AdvanceTo(epoch)
         yield Emit({"input_from": worker_index, "x": x})
 

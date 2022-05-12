@@ -164,8 +164,8 @@ def test_cluster_main_can_be_ctrl_c(mp_ctx):
         out = man.list()
 
         def proc_main():
-            def input_builder(worker_index, worker_count):
-                for epoch, item in inputs.fully_ordered(range(1000)):
+            def input_builder(worker_index, worker_count, resume_epoch):
+                for epoch, item in inputs.fully_ordered(range(resume_epoch, 1000)):
                     yield AdvanceTo(epoch)
                     yield Emit(item)
 
