@@ -35,9 +35,8 @@ Recovery
 --------
 
 If the dataflow fails, first you must fix whatever underlying fault
-caused the issue. That might mean deploying new code which fixes a
-bug, removing bad data from a Kafka stream, or resolving an issue with
-a connected system.
+caused the issue. That might mean deploying new code which fixes a bug
+or resolving an issue with a connected system.
 
 Once that is done, re-run the dataflow using the _same recovery
 config_. Bytewax will automatically recover state from the recovery

@@ -91,7 +91,7 @@ Our next entry point introduces a more complex API to allow for more performance
 
 ### Builders
 
-You provide a input and output **builders**, functions that are called on each worker and will produce the input and handle the output for that worker. The input builder function should return an iterable that yields `Emit(item)` or `AdvanceTo(epoch)`. The output builder function should return a callback **output handler** function that can be called with each epoch and item of output produced.
+You provide input and output **builders**, functions that are called on each worker and will produce the input and handle the output for that worker. The input builder function should return an iterable that yields `Emit(item)` or `AdvanceTo(epoch)`. The output builder function should return a callback **output handler** function that can be called with each epoch and item of output produced.
 
 The input builder also recieves the epoch to resume processing on in the case of restarting the dataflow. The input builder must somehow skip ahead in its input data to start at that epoch.
 

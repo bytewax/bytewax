@@ -173,11 +173,12 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> Reduce<S, K, V> for
                                         value
                                     };
 
-                                // Save the aggregator so we can use it if
-                                // multiple values within this epoch. We
-                                // do not save to the recovery store here
-                                // because we don't have finalized state
-                                // for the epoch.
+                                // Save the aggregator so we can use
+                                // it if there are multiple values
+                                // within this epoch. We do not save
+                                // to the recovery store here because
+                                // we don't have finalized state for
+                                // the epoch.
                                 if is_complete(&key, &updated_aggregator_for_key) {
                                     let mut downstream_output_session =
                                         downstream_output_handle.session(&downstream_cap);
@@ -450,10 +451,11 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> StatefulMap<S, K, V
                                 );
 
                                 // Save the state so we can use it if
-                                // multiple values within this epoch. We
-                                // do not save to the recovery store here
-                                // because we don't have finalized state
-                                // for the epoch.
+                                // there are multiple values within
+                                // this epoch. We do not save to the
+                                // recovery store here because we
+                                // don't have finalized state for the
+                                // epoch.
                                 if let Some(updated_state) = updated_state_for_key {
                                     state_cache.insert(key.clone(), updated_state);
                                 } else {
