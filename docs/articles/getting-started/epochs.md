@@ -200,9 +200,9 @@ Since each line in the file corresponds to an epoch, we get counts grouped by li
 
 ## Epoch-aware operators and ordering
 
-This different grouping happened "automatically" because of the behavior of the [reduce epoch](/operators/operators#reduce-epoch) operator. It "ends" its window of aggregation for each key at the end of each epoch.
+This different grouping happened "automatically" because of the behavior of the [reduce epoch](/apidocs#bytewax.Dataflow.reduce_epoch) operator. It "ends" its window of aggregation for each key at the end of each epoch.
 
-There are a few other operators that use the epoch as part of their semantcs: [reduce](/operators/operators#reduce), [stateful_map](/operators/operators#stateful-map), and others. You'll have to read the specifications of each to know how it interacts with epochs and what kind of ordering guarantees it gives you.
+There are a few other operators that use the epoch as part of their semantcs: [reduce](/apidocs#bytewax.Dataflow.reduce), [stateful_map](/apidocs#bytewax.Dataflow.stateful_map), and others. You'll have to read the specifications of each to know how it interacts with epochs and what kind of ordering guarantees it gives you.
 
 On that note, remember unless explicitly declared by a given operator _there are no ordering guarantees_. Bytewax might run your operator functions with data in any epoch order, and there's usually no order within an epoch!
 
@@ -239,7 +239,7 @@ These allow you to conveniently assign epochs, but you can also assign them by h
 
 ## A closer look at epochs
 
-As mentioned previously, bytewax will "automatically" produce results from operators like [reduce epoch](/operators/operators#reduce-epoch) by "ending" its window of aggregation for each key at the end of each epoch. Let's look more closely at how this is accomplished, and how we can use this to control when work is done with bytewax.
+As mentioned previously, bytewax will "automatically" produce results from operators like [reduce epoch](/apidocs#bytewax.Dataflow.reduce_epoch) by "ending" its window of aggregation for each key at the end of each epoch. Let's look more closely at how this is accomplished, and how we can use this to control when work is done with bytewax.
 
 To do that, let's examine how `run()` works under the hood.
 
@@ -255,7 +255,7 @@ def input_builder(worker_index, worker_count, resume_epoch):
         yield Emit(input)
 ```
 
-Here we introduce two new primitives in Bytewax: `AdvanceTo` and `Emit`.
+Here we introduce two new primitives in Bytewax: [`AdvanceTo`](/apidocs#bytewax.AdvanceTo) and [`Emit`](/apidocs#bytewax.Emit).
 
 These two dataclasses are how we inform Bytewax of new input and of the progress of epochs. `Emit` will introduce input into the dataflow at the current epoch, and `AdvanceTo` advances the current epoch to the value supplied.
 

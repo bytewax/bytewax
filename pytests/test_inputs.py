@@ -4,12 +4,25 @@ from unittest.mock import ANY
 
 from bytewax import AdvanceTo, Dataflow, Emit, run
 from bytewax.inputs import (
+    distribute,
     fully_ordered,
     single_batch,
     sorted_window,
     tumbling_epoch,
     yield_epochs,
 )
+
+
+def test_distribute():
+    inp = ["a", "b", "c"]
+
+    out1 = distribute(inp, 0, 2)
+
+    assert list(out1) == ["a", "c"]
+
+    out2 = distribute(inp, 1, 2)
+
+    assert list(out2) == ["b"]
 
 
 def test_single_batch():

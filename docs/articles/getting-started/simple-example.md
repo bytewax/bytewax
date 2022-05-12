@@ -97,7 +97,7 @@ Let's define the steps that we want to execute for each line of input that we re
 
 ### Lowercase all characters in the line
 
-If you look closely at our input, we have instances of both `To` and `to`. Let's add a step to our dataflow that transforms each line into lowercase letters. At the same time, we'll introduce our first operator, [map](/operators/operators/#map).
+If you look closely at our input, we have instances of both `To` and `to`. Let's add a step to our dataflow that transforms each line into lowercase letters. At the same time, we'll introduce our first operator, [map](/apidocs#bytewax.Dataflow.map).
 
 ```python
 def lower(line):
@@ -134,7 +134,7 @@ results in:
 ['To', 'be', 'or', 'not', 'to', 'be', 'that', 'is', 'the', 'question']
 ```
 
-To make use of `tokenize` function, we'll use the [flat map operator](/operators/operators/#flat-map):
+To make use of `tokenize` function, we'll use the [flat map operator](/apidocs#bytewax.Dataflow.flat_map):
 
 ```python
 flow.flat_map(tokenize)
@@ -146,7 +146,7 @@ The flat map operator defines a step which calls a function on each input item. 
 
 At this point in the dataflow, the items of data are the individual words.
 
-Let's skip ahead to the second operator here, [reduce epoch](/operators/operators#reduce-epoch).
+Let's skip ahead to the second operator here, [reduce epoch](/apidocs#bytewax.Dataflow.reduce_epoch).
 
 ```python
 def initial_count(word):
@@ -175,7 +175,7 @@ The "epoch" part of reduce epoch means that we repeat the reduction in each epoc
 
 ### Print out the counts
 
-The last part of our dataflow program will use the [capture operator](/operators/operators#capture) to mark the output of our reduction as the dataflow's final output.
+The last part of our dataflow program will use the [capture operator](/apidocs#bytewax.Dataflow.capture) to mark the output of our reduction as the dataflow's final output.
 
 ```python
 flow.capture()
@@ -230,4 +230,4 @@ Here is the complete output when running the example:
 ('fortune', 1)
 ```
 
-To learn more about possible modes of execution, [read our page on execution](/getting-started/execution).
+To learn more about possible modes of execution, [read our page on execution](/getting-started/execution/).
