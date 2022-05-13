@@ -1,7 +1,6 @@
 from collections import defaultdict
 
 from bytewax import Dataflow, run, run_cluster
-from bytewax.recovery import SqliteRecoveryConfig
 
 
 def test_map():
@@ -164,50 +163,6 @@ def test_reduce():
     )
 
 
-def test_reduce_recovery(tmp_path):
-    recovery_config = SqliteRecoveryConfig(str(tmp_path / "state.sqlite3"), create=True)
-
-    inp1 = [
-        (0, ("blake", 5)),
-        (1, ("dan", 3)),
-        (2, ("blake", 5)),
-    ]
-
-    def is_10(total_points):
-        return total_points >= 10
-
-    def sum_total(total_points, points):
-        return total_points + points
-
-    flow = Dataflow()
-    flow.reduce("sum", sum_total, is_10)
-    flow.capture()
-
-    out1 = run(flow, inp1, recovery_config=recovery_config)
-
-    assert sorted(out1) == sorted(
-        [
-            (2, ("blake", 10)),
-        ]
-    )
-
-    # Simulate restart a little back at epoch 2.
-
-    inp2 = [
-        (2, ("blake", 10)),
-        (3, ("dan", 8)),
-    ]
-
-    out2 = run(flow, inp2, recovery_config=recovery_config)
-
-    assert sorted(out2) == sorted(
-        [
-            (2, ("blake", 15)),
-            (3, ("dan", 11)),
-        ]
-    )
-
-
 def test_reduce_epoch():
     def add_initial_count(event):
         return event["user"], 1
@@ -312,51 +267,6 @@ def test_stateful_map():
         [
             (0, "a"),
             (1, "b"),
-        ]
-    )
-
-
-def test_stateful_map_recovery(tmp_path):
-    recovery_config = SqliteRecoveryConfig(str(tmp_path / "state.sqlite3"), create=True)
-
-    inp1 = [
-        (0, ("a", 8)),
-        (1, ("b", 2)),
-        (2, ("a", 5)),
-    ]
-
-    def keep_max(previous_max, new_item):
-        if previous_max is None:
-            new_max = new_item
-        else:
-            new_max = max(previous_max, new_item)
-        return new_max, new_max
-
-    flow = Dataflow()
-    flow.stateful_map("max", lambda key: None, keep_max)
-    flow.capture()
-
-    out1 = run(flow, inp1, recovery_config=recovery_config)
-
-    assert sorted(out1) == sorted(
-        [
-            (0, ("a", 8)),
-            (1, ("b", 2)),
-            (2, ("a", 8)),
-        ]
-    )
-
-    inp2 = [
-        (2, ("a", 15)),
-        (3, ("b", 1)),
-    ]
-
-    out2 = run(flow, inp2, recovery_config=recovery_config)
-
-    assert sorted(out2) == sorted(
-        [
-            (2, ("a", 15)),
-            (3, ("b", 2)),
         ]
     )
 

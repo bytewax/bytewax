@@ -50,7 +50,8 @@ def run(
 
     """
 
-    def input_builder(worker_index, worker_count):
+    def input_builder(worker_index, worker_count, resume_epoch):
+        assert resume_epoch == 0, "Recovery doesn't work with iterator based input"
         assert worker_index == 0
         for epoch, item in inp:
             yield AdvanceTo(epoch)
@@ -78,8 +79,8 @@ def _gen_addresses(proc_count: int) -> Iterable[str]:
 
 def spawn_cluster(
     flow: Dataflow,
-    input_builder: Callable[[int, int], Iterable[Union[AdvanceTo, Emit]]],
-    output_builder: Callable[[int, int], Callable[[Tuple[int, Any]], None]],
+    input_builder: Callable[[int, int, int], Iterable[Union[AdvanceTo, Emit]]],
+    output_builder: Callable[[int, int, int], Callable[[Tuple[int, Any]], None]],
     *,
     recovery_config: Optional[RecoveryConfig] = None,
     proc_count: int = 1,
@@ -98,8 +99,8 @@ def spawn_cluster(
     >>> from bytewax.testing import doctest_ctx
     >>> flow = Dataflow()
     >>> flow.capture()
-    >>> def input_builder(i, n):
-    ...   for epoch, item in enumerate(range(3)):
+    >>> def input_builder(worker_index, worker_count, resume_epoch):
+    ...   for epoch, item in enumerate(range(resume_epoch, 3)):
     ...     yield AdvanceTo(epoch)
     ...     yield Emit(item)
     >>> def output_builder(worker_index, worker_count):
@@ -126,10 +127,8 @@ def spawn_cluster(
 
         flow: Dataflow to run.
 
-        input_builder: Returns input that each worker thread should
-            process. If you are recovering a stateful dataflow, you
-            must ensure your input resumes from the last finalized
-            epoch.
+        input_builder: Yields `AdvanceTo()` or `Emit()` with this
+            worker's input. Must resume from the epoch specified.
 
         output_builder: Returns a callback function for each worker
             thread, called with `(epoch, item)` whenever and item
@@ -247,7 +246,8 @@ def run_cluster(
     with mp_ctx.Manager() as man:
         inp = man.list(list(inp))
 
-        def input_builder(worker_index, worker_count):
+        def input_builder(worker_index, worker_count, resume_epoch):
+            assert resume_epoch == 0, "Recovery doesn't work with iterator based input"
             for i, epoch_item in enumerate(inp):
                 if i % worker_count == worker_index:
                     (epoch, item) = epoch_item

@@ -243,12 +243,14 @@ As mentioned previously, bytewax will "automatically" produce results from opera
 
 To do that, let's examine how `run()` works under the hood.
 
-Inside of the run function, the generator of input (named `inp` here) yields tuples of (epoch, input). That input generator is wrapped in an input_builder function:
+Inside of the run function, the generator of input (named `inp` here) yields tuples of (epoch, input). That input generator is wrapped in an `input_builder()` function:
 
-``` python
-def input_builder(worker_index, worker_count):
+```python
+def input_builder(worker_index, worker_count, resume_epoch):
     assert worker_index == 0
     for epoch, input in inp:
+        if epoch < resume_epoch:
+            continue
         yield AdvanceTo(epoch)
         yield Emit(input)
 ```
@@ -258,4 +260,3 @@ Here we introduce two new primitives in Bytewax: [`AdvanceTo`](/apidocs#bytewax.
 These two dataclasses are how we inform Bytewax of new input and of the progress of epochs. `Emit` will introduce input into the dataflow at the current epoch, and `AdvanceTo` advances the current epoch to the value supplied.
 
 Importantly, when you advance the epoch, you are informing bytewax that it will no longer see any input at any of the previous epoch values. At that point, bytewax will continue to do work until output is produced for the previous epoch.
-

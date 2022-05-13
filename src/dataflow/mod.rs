@@ -1,28 +1,22 @@
-use crate::operators::build;
-use crate::operators::check_complete;
-use crate::operators::stateful_map;
-use crate::operators::Reduce;
-use crate::recovery::NoOpRecoveryStore;
-use crate::recovery::RecoveryConfig;
-use crate::recovery::RecoveryStore;
-use crate::recovery::SqliteRecoveryConfig;
-use crate::recovery::SqliteRecoveryStore;
+use crate::pyo3_extensions::TdPyCallable;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 
-use std::collections::HashMap;
-use timely::dataflow::*;
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct StepId(String);
 
-use timely::dataflow::operators::aggregation::*;
-use timely::dataflow::operators::*;
+impl From<String> for StepId {
+    fn from(s: String) -> Self {
+        StepId(s)
+    }
+}
 
-use crate::execution::Pump;
-use crate::operators::{
-    capture, filter, flat_map, inspect, inspect_epoch, map, reduce, reduce_epoch,
-    reduce_epoch_local, StatefulMap,
-};
-use crate::pyo3_extensions::{hash, lift_2tuple, wrap_2tuple, TdPyAny, TdPyCallable, TdPyIterator};
+impl From<StepId> for String {
+    fn from(step_id: StepId) -> Self {
+        step_id.0
+    }
+}
 
 /// A definition of a Bytewax dataflow graph.
 ///
@@ -35,7 +29,7 @@ use crate::pyo3_extensions::{hash, lift_2tuple, wrap_2tuple, TdPyAny, TdPyCallab
 #[pyclass(module = "bytewax")] // Required to support pickling.
 #[pyo3(text_signature = "()")]
 pub(crate) struct Dataflow {
-    steps: Vec<Step>,
+    pub steps: Vec<Step>,
 }
 
 #[pymethods]
@@ -276,7 +270,7 @@ impl Dataflow {
     #[pyo3(text_signature = "(self, step_id, reducer, is_complete)")]
     fn reduce(&mut self, step_id: String, reducer: TdPyCallable, is_complete: TdPyCallable) {
         self.steps.push(Step::Reduce {
-            step_id,
+            step_id: StepId(step_id),
             reducer,
             is_complete,
         });
@@ -434,7 +428,7 @@ impl Dataflow {
     #[pyo3(text_signature = "(self, step_id, builder, mapper)")]
     fn stateful_map(&mut self, step_id: String, builder: TdPyCallable, mapper: TdPyCallable) {
         self.steps.push(Step::StatefulMap {
-            step_id,
+            step_id: StepId(step_id),
             builder,
             mapper,
         });
@@ -491,7 +485,7 @@ pub(crate) enum Step {
         inspector: TdPyCallable,
     },
     Reduce {
-        step_id: String,
+        step_id: StepId,
         reducer: TdPyCallable,
         is_complete: TdPyCallable,
     },
@@ -502,7 +496,7 @@ pub(crate) enum Step {
         reducer: TdPyCallable,
     },
     StatefulMap {
-        step_id: String,
+        step_id: StepId,
         builder: TdPyCallable,
         mapper: TdPyCallable,
     },
@@ -533,7 +527,7 @@ impl<'source> FromPyObject<'source> for Step {
         }
         if let Ok(("Reduce", step_id, reducer, is_complete)) = tuple.extract() {
             return Ok(Self::Reduce {
-                step_id,
+                step_id: StepId(step_id),
                 reducer,
                 is_complete,
             });
@@ -546,7 +540,7 @@ impl<'source> FromPyObject<'source> for Step {
         }
         if let Ok(("StatefulMap", step_id, builder, mapper)) = tuple.extract() {
             return Ok(Self::StatefulMap {
-                step_id,
+                step_id: StepId(step_id),
                 builder,
                 mapper,
             });
@@ -576,173 +570,18 @@ impl ToPyObject for Step {
                 step_id,
                 reducer,
                 is_complete,
-            } => ("Reduce", step_id, reducer, is_complete).to_object(py),
+            } => ("Reduce", step_id.0.clone(), reducer, is_complete).to_object(py),
             Self::ReduceEpoch { reducer } => ("ReduceEpoch", reducer).to_object(py),
             Self::ReduceEpochLocal { reducer } => ("ReduceEpochLocal", reducer).to_object(py),
             Self::StatefulMap {
                 step_id,
                 builder,
                 mapper,
-            } => ("StatefulMap", step_id, builder, mapper).to_object(py),
+            } => ("StatefulMap", step_id.0.clone(), builder, mapper).to_object(py),
             Self::Capture {} => ("Capture",).to_object(py),
         }
         .into()
     }
-}
-
-pub(crate) fn build_dataflow<A>(
-    timely_worker: &mut timely::worker::Worker<A>,
-    py: Python,
-    flow: &Dataflow,
-    input_builder: TdPyCallable,
-    output_builder: TdPyCallable,
-    recovery_config: Option<Py<RecoveryConfig>>,
-) -> Result<(Pump, ProbeHandle<u64>), String>
-where
-    A: timely::communication::Allocate,
-{
-    let worker_index = timely_worker.index();
-    let worker_count = timely_worker.peers();
-
-    timely_worker.dataflow(|scope| {
-        let mut timely_input = InputHandle::new();
-        let mut end_of_steps_probe = ProbeHandle::new();
-        let mut has_capture = false;
-        let mut stream = timely_input.to_stream(scope);
-
-        let worker_input: TdPyIterator = input_builder
-            .call1(py, (worker_index, worker_count))
-            .unwrap()
-            .extract(py)
-            .unwrap();
-        let worker_output: TdPyCallable = output_builder
-            .call1(py, (worker_index, worker_count))
-            .unwrap()
-            .extract(py)
-            .unwrap();
-
-        let recovery_store: Box<dyn RecoveryStore> = match recovery_config {
-            None => Box::new(NoOpRecoveryStore::new()),
-            Some(recovery_config) => {
-                let recovery_config = recovery_config.as_ref(py);
-                if let Ok(sqlite_recovery_config) =
-                    recovery_config.downcast::<PyCell<SqliteRecoveryConfig>>()
-                {
-                    let sqlite_recovery_config = sqlite_recovery_config.borrow();
-                    Box::new(SqliteRecoveryStore::new(sqlite_recovery_config))
-                } else {
-                    let pytype = recovery_config.get_type();
-                    return Err(format!("Unknown recovery_config type: {pytype}"));
-                }
-            }
-        };
-
-        let steps = &flow.steps;
-        for step in steps {
-            match step {
-                Step::Map { mapper } => {
-                    // All these closure lifetimes are static, so tell
-                    // Python's GC that there's another pointer to the
-                    // mapping function that's going to hang around
-                    // for a while when it's moved into the closure.
-                    let mapper = mapper.clone_ref(py);
-                    stream = stream.map(move |item| map(&mapper, item));
-                }
-                Step::FlatMap { mapper } => {
-                    let mapper = mapper.clone_ref(py);
-                    stream = stream.flat_map(move |item| flat_map(&mapper, item));
-                }
-                Step::Filter { predicate } => {
-                    let predicate = predicate.clone_ref(py);
-                    stream = stream.filter(move |item| filter(&predicate, item));
-                }
-                Step::Inspect { inspector } => {
-                    let inspector = inspector.clone_ref(py);
-                    stream = stream.inspect(move |item| inspect(&inspector, item));
-                }
-                Step::InspectEpoch { inspector } => {
-                    let inspector = inspector.clone_ref(py);
-                    stream = stream
-                        .inspect_time(move |epoch, item| inspect_epoch(&inspector, epoch, item));
-                }
-                Step::Reduce {
-                    step_id,
-                    reducer,
-                    is_complete,
-                } => {
-                    let reducer = reducer.clone_ref(py);
-                    let is_complete = is_complete.clone_ref(py);
-                    stream = stream
-                        .map(lift_2tuple)
-                        .reduce(
-                            recovery_store.for_step(step_id),
-                            move |key, aggregator, value| reduce(&reducer, key, aggregator, value),
-                            move |key, aggregator| check_complete(&is_complete, key, aggregator),
-                            hash,
-                        )
-                        .map(wrap_2tuple);
-                }
-                Step::ReduceEpoch { reducer } => {
-                    let reducer = reducer.clone_ref(py);
-                    stream = stream.map(lift_2tuple).aggregate(
-                        move |key, value, aggregator: &mut Option<TdPyAny>| {
-                            reduce_epoch(&reducer, aggregator, key, value);
-                        },
-                        move |key, aggregator: Option<TdPyAny>| {
-                            // Aggregator will only exist for keys
-                            // that exist, so it will have been filled
-                            // into Some(value) above.
-                            wrap_2tuple((key, aggregator.unwrap()))
-                        },
-                        hash,
-                    );
-                }
-                Step::ReduceEpochLocal { reducer } => {
-                    let reducer = reducer.clone_ref(py);
-                    stream = stream
-                        .map(lift_2tuple)
-                        .accumulate(
-                            HashMap::new(),
-                            move |aggregators, all_key_value_in_epoch| {
-                                reduce_epoch_local(&reducer, aggregators, &all_key_value_in_epoch);
-                            },
-                        )
-                        .flat_map(|aggregators| aggregators.into_iter().map(wrap_2tuple));
-                }
-                Step::StatefulMap {
-                    step_id,
-                    builder,
-                    mapper,
-                } => {
-                    let builder = builder.clone_ref(py);
-                    let mapper = mapper.clone_ref(py);
-                    stream = stream
-                        .map(lift_2tuple)
-                        .stateful_map(
-                            recovery_store.for_step(step_id),
-                            move |key| build(&builder, key),
-                            move |key, state, value| stateful_map(&mapper, key, state, value),
-                            hash,
-                        )
-                        .map(wrap_2tuple);
-                }
-                Step::Capture {} => {
-                    let worker_output = worker_output.clone_ref(py);
-                    stream
-                        .inspect_time(move |epoch, item| capture(&worker_output, epoch, item))
-                        .probe_with(&mut end_of_steps_probe);
-                    has_capture = true;
-                }
-            }
-        }
-
-        if has_capture {
-            let pump = Pump::new(worker_input, timely_input);
-            Ok((pump, end_of_steps_probe))
-        } else {
-            Err("Dataflow needs to contain at least one capture".into())
-        }
-    })
 }
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
