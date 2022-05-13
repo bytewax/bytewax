@@ -2,7 +2,6 @@ import json
 from time import sleep
 
 import fake_events
-
 import pandas as pd
 from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
 from kafka.admin import NewTopic

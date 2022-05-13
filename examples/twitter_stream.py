@@ -3,9 +3,9 @@ import operator
 from collections import defaultdict
 from datetime import timedelta
 
-from bytewax import Dataflow, inputs, parse, run_cluster
-
 from utils import twitter
+
+from bytewax import Dataflow, inputs, parse, run_cluster
 
 
 def decode(x):

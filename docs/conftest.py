@@ -47,7 +47,6 @@ from _pytest._io import TerminalWriter
 from _pytest.capture import FDCapture
 from pytest import File, Item
 
-
 SORT_OUTPUT = register_optionflag("SORT_OUTPUT")
 SORT_EXPECTED = register_optionflag("SORT_EXPECTED")
 IGNORE_OUTPUT = register_optionflag("IGNORE_OUTPUT")

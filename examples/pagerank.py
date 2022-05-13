@@ -3,7 +3,6 @@ import operator
 
 from bytewax import Dataflow, parse, run_cluster
 
-
 FIRST_ITERATION = 0
 
 

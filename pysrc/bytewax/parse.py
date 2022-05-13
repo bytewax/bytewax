@@ -4,7 +4,7 @@ line.
 """
 import os
 from argparse import ArgumentParser
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable
 
 
 def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
@@ -188,7 +188,9 @@ def proc_args(args: Iterable[str] = None) -> Dict[str, Any]:
         dest="addresses",
         action="append",
         required=True,
-        help="Add the hostname:port address of every (including this) process in cluster",
+        help=(
+            "Add the hostname:port address of every (including this) process in cluster"
+        ),
     )
     out = p.parse_args(args)
 

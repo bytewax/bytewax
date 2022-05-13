@@ -2,12 +2,10 @@ import datetime as dt
 import json
 
 import pandas as pd
+from feast import FeatureStore
+from kafka import KafkaConsumer
 
 from bytewax import cluster_main, Dataflow, inputs
-
-from feast import FeatureStore
-
-from kafka import KafkaConsumer
 
 # Configure the feature store for each worker to access
 store = FeatureStore(repo_path=".")

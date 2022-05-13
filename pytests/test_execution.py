@@ -1,11 +1,10 @@
 import os
 import signal
-import threading
 from sys import exit
 
-from bytewax import AdvanceTo, cluster_main, Dataflow, Emit, inputs, run, run_cluster
-
 from pytest import mark, raises
+
+from bytewax import AdvanceTo, cluster_main, Dataflow, Emit, inputs, run, run_cluster
 
 
 def test_run():
@@ -59,7 +58,10 @@ def test_run_reraises_exception():
 
 
 @mark.skip(
-    reason="Timely is currently double panicking in cluster mode and that causes pool.join() to hang; it can be ctrl-c'd though"
+    reason=(
+        "Timely is currently double panicking in cluster mode and that causes"
+        " pool.join() to hang; it can be ctrl-c'd though"
+    )
 )
 def test_run_cluster_reraises_exception(mp_ctx):
     def boom(item):
@@ -79,7 +81,10 @@ def test_run_cluster_reraises_exception(mp_ctx):
 @mark.skip(reason="Flakey in CI for some unknown reason")
 @mark.skipif(
     os.name == "nt",
-    reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
+    reason=(
+        "Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all"
+        " processes on this console so interrupts pytest itself"
+    ),
 )
 def test_run_can_be_ctrl_c(mp_ctx):
     with mp_ctx.Manager() as man:
@@ -115,7 +120,10 @@ def test_run_can_be_ctrl_c(mp_ctx):
 @mark.skip(reason="Flakey in CI for some unknown reason")
 @mark.skipif(
     os.name == "nt",
-    reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
+    reason=(
+        "Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all"
+        " processes on this console so interrupts pytest itself"
+    ),
 )
 def test_run_cluster_can_be_ctrl_c(mp_ctx):
     with mp_ctx.Manager() as man:
@@ -156,7 +164,10 @@ def test_run_cluster_can_be_ctrl_c(mp_ctx):
 @mark.skip(reason="Flakey in CI for some unknown reason")
 @mark.skipif(
     os.name == "nt",
-    reason="Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all processes on this console so interrupts pytest itself",
+    reason=(
+        "Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all"
+        " processes on this console so interrupts pytest itself"
+    ),
 )
 def test_cluster_main_can_be_ctrl_c(mp_ctx):
     with mp_ctx.Manager() as man:

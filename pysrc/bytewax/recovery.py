@@ -29,4 +29,4 @@ store during the execution of stateful operators. You know an operator
 is stateful when it takes a `step_id` argument.
 
 """
-from .bytewax import RecoveryConfig, SqliteRecoveryConfig
+from .bytewax import RecoveryConfig, SqliteRecoveryConfig  # noqa

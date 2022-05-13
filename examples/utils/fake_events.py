@@ -2,6 +2,7 @@ import json
 
 from fake_web_events import Simulation
 
+
 # use the user pool size, sessions per day and the duration to
 # create a simulation size that makes sense
 def generate_web_events():

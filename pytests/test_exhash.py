@@ -1,5 +1,6 @@
-from bytewax.exhash import exhash
 from pytest import raises
+
+from bytewax.exhash import exhash
 
 
 def test_exhash_int():
