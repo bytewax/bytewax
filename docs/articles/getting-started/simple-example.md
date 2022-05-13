@@ -181,8 +181,7 @@ The last part of our dataflow program will use the [capture operator](/apidocs#b
 flow.capture()
 ```
 
-This means that whatever items are flowing through this point in the dataflow will be passed on as outp
-ut. Output is routed in different ways depending on how the dataflow is run.
+This means that whatever items are flowing through this point in the dataflow will be passed on as output. Output is routed in different ways depending on how the dataflow is run.
 
 ### Running
 
