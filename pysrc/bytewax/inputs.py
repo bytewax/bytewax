@@ -89,7 +89,7 @@ def yield_epochs(fn: Callable):
     >>> flow = Dataflow()
     >>> flow.capture()
     >>> @yield_epochs
-    ... def input_builder(i, n):
+    ... def input_builder(i, n, re):
     ...   return fully_ordered(["a", "b", "c"])
     >>> cluster_main(flow, input_builder, lambda i, n: print, [], 0, 1)
     (0, 'a')
@@ -98,8 +98,8 @@ def yield_epochs(fn: Callable):
 
     """
 
-    def inner_fn(worker_index, worker_count):
-        gen = fn(worker_index, worker_count)
+    def inner_fn(worker_index, worker_count, resume_epoch):
+        gen = fn(worker_index, worker_count, resume_epoch)
         for (epoch, item) in gen:
             yield AdvanceTo(epoch)
             yield Emit(item)

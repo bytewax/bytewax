@@ -61,7 +61,7 @@ def test_yield_epoch():
         return item["timestamp"]
 
     @yield_epochs
-    def input_builder(i, n):
+    def input_builder(i, n, re):
         items = [
             {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 3), "value": "a"},
             {"timestamp": datetime.datetime(2022, 2, 22, 1, 2, 4), "value": "b"},
@@ -73,7 +73,7 @@ def test_yield_epoch():
             time_getter,
         )
 
-    assert list(input_builder(0, 1)) == [
+    assert list(input_builder(0, 1, 0)) == [
         AdvanceTo(0),
         ANY,
         AdvanceTo(0),
