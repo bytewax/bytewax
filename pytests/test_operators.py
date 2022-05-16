@@ -1,9 +1,6 @@
-import os
-
 from collections import defaultdict
 
 from bytewax import Dataflow, run, run_cluster
-from pytest import mark
 
 
 def test_map():

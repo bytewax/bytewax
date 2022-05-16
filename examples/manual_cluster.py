@@ -3,7 +3,6 @@ from pathlib import Path
 
 from bytewax import cluster_main, Dataflow, parse
 
-
 read_dir = Path("./examples/sample_data/cluster/")
 write_dir = Path("./cluster_out/")
 

@@ -3,7 +3,6 @@
 import datetime as dt
 
 from feast import Entity, Feature, FeatureView, FileSource, ValueType
-
 from google.protobuf.duration_pb2 import Duration
 
 # Read data from parquet files. Parquet is convenient for local development mode. For

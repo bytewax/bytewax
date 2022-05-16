@@ -3,13 +3,13 @@ import json
 import time
 
 import pandas
-
 import pyarrow.parquet as parquet
-from bytewax import Dataflow, inputs, parse, spawn_cluster
 from pandas import DataFrame
 from pyarrow import Table
-
 from utils import fake_events
+
+from bytewax import Dataflow, inputs, parse, spawn_cluster
+
 
 # Collect 5 second tumbling windows of data and write them out as
 # Parquet datasets. `fake_events` will generate events for multiple

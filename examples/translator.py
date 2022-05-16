@@ -1,6 +1,7 @@
+from transformers import pipeline
+
 import bytewax
 from bytewax import Dataflow, inputs, parse, run_cluster
-from transformers import pipeline
 
 
 def predict(en):

@@ -48,4 +48,4 @@ you either have to create a recovery config that points at a new
 datastore or delete the recovery data in the datastore.
 
 """
-from .bytewax import RecoveryConfig, SqliteRecoveryConfig
+from .bytewax import RecoveryConfig, SqliteRecoveryConfig  # noqa
