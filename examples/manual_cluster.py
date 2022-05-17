@@ -7,7 +7,7 @@ read_dir = Path("./examples/sample_data/cluster/")
 write_dir = Path("./cluster_out/")
 
 
-def input_builder(worker_index, worker_count):
+def input_builder(worker_index, worker_count, resume_epoch):
     # List all the input partitions in the reading directory.
     all_partitions = read_dir.glob("*.txt")
     # Then have this worker only read every `n` files so each worker

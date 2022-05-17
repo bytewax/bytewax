@@ -12,7 +12,7 @@ store = FeatureStore(repo_path=".")
 
 
 @inputs.yield_epochs
-def input_builder(worker_index, worker_count):
+def input_builder(worker_index, worker_count, resume_epoch):
     def consume_from_kafka():
         consumer = KafkaConsumer(
             bootstrap_servers="localhost:9092", auto_offset_reset="earliest"
@@ -112,5 +112,4 @@ if __name__ == "__main__":
         output_builder,
         [],  # addresses
         0,  # process id
-        1,  # number of workers
     )
