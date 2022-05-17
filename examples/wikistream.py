@@ -23,8 +23,8 @@ def open_stream():
     for event in client.events():
         yield event.data
 
-
-def input_builder(worker_index, worker_count):
+@inputs.yield_epochs
+def input_builder(worker_index, worker_count, resume_epoch):
     try:
         epoch_start = int(r.get("epoch_index")) + 1
     except IndexError:
