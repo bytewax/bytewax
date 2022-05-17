@@ -215,3 +215,46 @@ def test_cluster_main_can_be_ctrl_c(mp_ctx):
 
         assert test_proc.exitcode == 99
         assert len(out) < 1000
+
+
+def test_yield_epochs_with_cluster_main(mp_ctx):
+    with mp_ctx.Manager() as man:
+        is_running = man.Event()
+        out = man.list()
+
+        def proc_main():
+            @inputs.yield_epochs
+            def input_builder(worker_index, worker_count, resume_epoch):
+                return inputs.fully_ordered(range(resume_epoch, 100))
+
+            def output_builder(worker_index, worker_count):
+                def out_handler(epoch_item):
+                    out.append(epoch_item)
+                    print(worker_index, epoch_item)
+
+                return out_handler
+
+            def mapper(item):
+                is_running.set()
+                return item
+
+            flow = Dataflow()
+            flow.map(mapper)
+            flow.capture()
+
+            cluster_main(
+                flow,
+                input_builder,
+                output_builder,
+                addresses=[],
+                proc_id=0,
+                worker_count_per_proc=1,
+            )
+
+        test_proc = mp_ctx.Process(target=proc_main)
+        test_proc.start()
+
+        assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
+        test_proc.join(timeout=10.0)
+
+        assert len(out) == 100
