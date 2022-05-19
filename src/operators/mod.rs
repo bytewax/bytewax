@@ -9,6 +9,8 @@
 //!     2. Shim functions that totally encapsulate PyO3 and Python
 //!     calling boilerplate to easily pass into Timely operators.
 
+pub mod window;
+
 use crate::dataflow::StepId;
 use crate::pyo3_extensions::StateKey;
 use crate::recovery::RecoveryStore;

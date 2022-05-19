@@ -211,6 +211,19 @@ impl Dataflow {
         self.steps.push(Step::InspectEpoch { inspector });
     }
 
+    /// Tumbling window produces a tumbling window of events
+    #[pyo3(text_signature = "(self, step_id, datetime_getter_fn)")]
+    fn tumbling_window(
+        &mut self,
+        step_id: String,
+        datetime_getter_fn: TdPyCallable,
+    ) {
+        self.steps.push(Step::TumblingWindow {
+            step_id: StepId(step_id),
+            datetime_getter_fn,
+        });
+    }
+
     /// Reduce lets you combine items for a key into an aggregator in
     /// epoch order.
     ///
@@ -511,6 +524,10 @@ pub(crate) enum Step {
         builder: TdPyCallable,
         mapper: TdPyCallable,
     },
+    TumblingWindow {
+        step_id: StepId,
+        datetime_getter_fn: TdPyCallable,
+    },
     Capture {},
 }
 
@@ -556,6 +573,12 @@ impl<'source> FromPyObject<'source> for Step {
                 mapper,
             });
         }
+        if let Ok(("TumblingWindow", step_id, datetime_getter_fn)) = tuple.extract() {
+            return Ok(Self::TumblingWindow {
+                step_id: StepId(step_id),
+                datetime_getter_fn,
+            });
+        }
         if let Ok(("Capture",)) = tuple.extract() {
             return Ok(Self::Capture {});
         }
@@ -589,6 +612,10 @@ impl ToPyObject for Step {
                 builder,
                 mapper,
             } => ("StatefulMap", step_id.0.clone(), builder, mapper).to_object(py),
+            Self::TumblingWindow {
+                step_id,
+                datetime_getter_fn,
+            } => ("TumblingWindow", step_id.0.clone(), datetime_getter_fn).to_object(py),
             Self::Capture {} => ("Capture",).to_object(py),
         }
         .into()

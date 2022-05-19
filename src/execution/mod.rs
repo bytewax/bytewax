@@ -6,6 +6,8 @@
 //! See [`build_dataflow()`] and [`worker_main()`] for the main parts
 //! of this.
 
+use crate::operators::window::aggregate_window;
+use crate::operators::window::TumblingWindow;
 use crate::operators::DataflowFrontier;
 use crate::operators::Recovery;
 use crate::recovery::build_state_caches;
@@ -14,14 +16,18 @@ use send_wrapper::SendWrapper;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use timely::scheduling::Scheduler;
 
 use std::thread;
 use std::time::Duration;
+use std::time::Instant;
 
+use log::debug;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use timely::dataflow::operators::aggregation::*;
+use timely::dataflow::operators::generic::operator::source;
 use timely::dataflow::operators::*;
 use timely::dataflow::InputHandle;
 use timely::dataflow::ProbeHandle;
@@ -223,6 +229,53 @@ where
                     let state_update_stream =
                         state_update_stream.map(move |(key, state)| (step_id.clone(), key, state));
                     state_updates.push(state_update_stream);
+
+                    stream = downstream.map(wrap_state_pair);
+                }
+                Step::TumblingWindow {
+                    step_id,
+                    datetime_getter_fn,
+                } => {
+                    let time_getter_fn = datetime_getter_fn.clone_ref(py);
+                    let state_cache = state_caches.remove(step_id).unwrap_or_default();
+                    let window_source_stream = source(scope, "Source", |capability, info| {
+                        let activator = scope.activator_for(&info.address[..]);
+
+                        let mut cap = Some(capability);
+                        let mut start = Instant::now();
+                        move |output| {
+                            if let Some(cap) = cap.as_mut() {
+                                let elapsed = start.elapsed().as_secs();
+                                debug!("checking tumbling window: {elapsed:?}, {cap:?}");
+                                let time = cap.time().clone();
+
+                                if start.elapsed().as_secs() > 5 {
+                                    debug!("Sending () to output session {cap:?}");
+                                    output.session(&cap).give(());
+
+                                    cap.downgrade(&(time + 1));
+                                    start = Instant::now();
+                                }
+                                // cap.downgrade(&(time + 1));
+                            }
+                            activator.activate();
+                        }
+                    });
+
+                    // TODO: Handle state update stream
+                    let (downstream, _state_update_stream) =
+                        stream.map(extract_state_pair).tumbling_window(
+                            window_source_stream,
+                            state_cache,
+                            move |key, current_window, value| {
+                                aggregate_window(key, current_window.as_ref(), &value)
+                            },
+                            StateKey::route,
+                        );
+
+                    // let state_update_stream =
+                    //     state_update_stream.map(move |(key, state)| (step_id.clone(), key, state));
+                    // state_updates.push(state_update_stream);
 
                     stream = downstream.map(wrap_state_pair);
                 }
