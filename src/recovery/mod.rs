@@ -103,7 +103,6 @@
 //! If the underlying data or bug has been fixed, then things should
 //! start right up again!
 
-use std::collections::HashMap;
 use crate::dataflow::StepId;
 use pyo3::exceptions::PyValueError;
 use pyo3::types::PyString;
@@ -118,6 +117,7 @@ use sqlx::sqlite::SqliteRow;
 use sqlx::Pool;
 use sqlx::Row;
 use sqlx::Sqlite;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::time::Duration;
