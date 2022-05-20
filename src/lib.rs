@@ -10,6 +10,7 @@ pub(crate) mod execution;
 pub(crate) mod operators;
 pub(crate) mod pyo3_extensions;
 pub(crate) mod recovery;
+pub(crate) mod source;
 pub(crate) mod webserver;
 
 #[macro_use]
@@ -37,6 +38,7 @@ fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
     execution::register(py, m)?;
     dataflow::register(py, m)?;
     recovery::register(py, m)?;
+    source::register(py, m)?;
 
     m.add_function(wrap_pyfunction!(sleep_keep_gil, m)?)?;
     m.add_function(wrap_pyfunction!(sleep_release_gil, m)?)?;
