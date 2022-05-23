@@ -6,10 +6,10 @@
 //! See [`build_dataflow()`] and [`worker_main()`] for the main parts
 //! of this.
 
-use crate::recovery::build_state_caches;
 use crate::operators::Backup;
 use crate::operators::DataflowFrontier;
 use crate::operators::GarbageCollector;
+use crate::recovery::build_state_caches;
 use crate::recovery::RecoveryConfig;
 use send_wrapper::SendWrapper;
 use std::sync::atomic::AtomicBool;
@@ -246,7 +246,6 @@ where
         }
     })
 }
-
 
 /// Advance to the supplied epoch.
 ///
