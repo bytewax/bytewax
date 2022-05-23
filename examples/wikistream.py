@@ -3,7 +3,6 @@ import json
 import operator
 from datetime import timedelta
 
-import redis
 import sseclient
 import urllib3
 
@@ -23,27 +22,21 @@ def open_stream():
     for event in client.events():
         yield event.data
 
+
 @inputs.yield_epochs
 def input_builder(worker_index, worker_count, resume_epoch):
-    try:
-        epoch_start = int(r.get("epoch_index")) + 1
-    except IndexError:
-        epoch_start = 0
     if worker_index == 0:
         return inputs.tumbling_epoch(
-            open_stream(), timedelta(seconds=2), epoch_start=epoch_start
+            open_stream(),
+            timedelta(seconds=2),
+            epoch_start=resume_epoch,
         )
     else:
         return []
 
 
 def output_builder(worker_index, worker_count):
-    def write_to_redis(data):
-        epoch, (server_name, counts) = data
-        r.zadd(str(epoch), {server_name: counts})
-        r.set("epoch_index", epoch)
-
-    return write_to_redis
+    return print
 
 
 def initial_count(data_dict):
@@ -58,8 +51,6 @@ flow.map(initial_count)
 # ("server.name", 1)
 flow.reduce_epoch(operator.add)
 # ("server.name", count)
-pool = redis.ConnectionPool(host="localhost", port=6379, db=0)
-r = redis.Redis(connection_pool=pool)
 flow.capture()
 
 

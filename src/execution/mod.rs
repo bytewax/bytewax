@@ -13,7 +13,6 @@ use crate::recovery::build_state_caches;
 use crate::recovery::RecoveryConfig;
 use send_wrapper::SendWrapper;
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -597,11 +596,6 @@ pub(crate) fn cluster_main(
         let should_shutdown = Arc::new(AtomicBool::new(false));
         let should_shutdown_w = should_shutdown.clone();
         let should_shutdown_p = should_shutdown.clone();
-        // We can drop these if we want to use nightly
-        // Thread::is_running
-        // https://github.com/rust-lang/rust/issues/90470
-        let shutdown_worker_count = Arc::new(AtomicUsize::new(0));
-        let shutdown_worker_count_w = shutdown_worker_count.clone();
 
         // Panic hook is per-process, so this won't work if you call
         // `cluster_main()` twice concurrently.
@@ -629,10 +623,6 @@ pub(crate) fn cluster_main(
             other,
             timely::WorkerConfig::default(),
             move |worker| {
-                defer! {
-                    shutdown_worker_count_w.fetch_add(1, Ordering::Relaxed);
-                }
-
                 let (pump, probe) = Python::with_gil(|py| {
                     let flow = &flow.as_ref(py).borrow();
                     let input_builder = input_builder.clone_ref(py);
@@ -661,8 +651,11 @@ pub(crate) fn cluster_main(
         // Recreating what Python does in Thread.join() to "block"
         // but also check interrupt handlers.
         // https://github.com/python/cpython/blob/204946986feee7bc80b233350377d24d20fcb1b8/Modules/_threadmodule.c#L81
-        let workers_in_proc_count = guards.guards().len();
-        while shutdown_worker_count.load(Ordering::Relaxed) < workers_in_proc_count {
+        while guards
+            .guards()
+            .iter()
+            .any(|worker_thread| !worker_thread.is_finished())
+        {
             thread::sleep(Duration::from_millis(1));
             Python::with_gil(|py| Python::check_signals(py)).map_err(|err| {
                 should_shutdown.store(true, Ordering::Relaxed);

@@ -20,6 +20,7 @@ jobs:
         architecture: x64
     - uses: messense/maturin-action@v1
       with:
+        rust-toolchain: 1.61
         manylinux: auto
         command: build
         args: --release -o dist --interpreter python${{ matrix.python-version }}
@@ -53,6 +54,7 @@ jobs:
         echo "PYTHON_PATH=$python_path" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf-8 -Append
     - uses: messense/maturin-action@v1
       with:
+        rust-toolchain: 1.61
         command: build
         args: --release --no-sdist -o dist --interpreter ${{ env.PYTHON_PATH }}
     - name: Run tests
@@ -80,6 +82,7 @@ jobs:
         architecture: x64
     - uses: messense/maturin-action@v1
       with:
+        rust-toolchain: 1.61
         command: build
         args: --release --no-sdist -o dist --universal2 --interpreter python${{ matrix.python-version }}
     - name: Run tests

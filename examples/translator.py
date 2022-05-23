@@ -4,9 +4,12 @@ import bytewax
 from bytewax import Dataflow, inputs, parse, run_cluster
 
 
-def predict(en):
-    de = translator(en)[0]["translation_text"]
-    return (en, de)
+def build_predict(translator):
+    def predict(en):
+        de = translator(en)[0]["translation_text"]
+        return (en, de)
+
+    return predict
 
 
 def inspector(en_de):
@@ -14,14 +17,13 @@ def inspector(en_de):
     print(f"{en} -> {de}")
 
 
-flow = Dataflow()
-flow.map(str.strip)
-flow.map(predict)
-flow.capture()
-
-
 if __name__ == "__main__":
     translator = pipeline("translation_en_to_de")
+
+    flow = Dataflow()
+    flow.map(str.strip)
+    flow.map(build_predict(translator))
+    flow.capture()
 
     for epoch, item in run_cluster(
         flow,
