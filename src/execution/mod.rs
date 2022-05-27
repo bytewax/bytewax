@@ -6,9 +6,8 @@
 //! See [`build_dataflow()`] and [`worker_main()`] for the main parts
 //! of this.
 
-use crate::operators::Backup;
 use crate::operators::DataflowFrontier;
-use crate::operators::GarbageCollector;
+use crate::operators::Recovery;
 use crate::recovery::build_state_caches;
 use crate::recovery::RecoveryConfig;
 use send_wrapper::SendWrapper;
@@ -63,13 +62,13 @@ use std::collections::HashMap;
 /// Timely operators with different names but the correct
 /// functionality
 /// (e.g. [`timely::dataflow::operators::inspect::Inspect`]), using
-/// our own custom operators (e.g. [`crate::operators::Reduce`]), and
-/// putting in "utility operators" to help implement things like
-/// recovery (e.g. [`crate::operators::Backup`]).
+/// our own custom operators (e.g. [`crate::operators::Reduce`]).
 ///
-/// 4. Put in utility garbage collection machinery.
+/// 4. Put in utility recovery
+/// machinery. (C.f. [`crate::operators::Recovery`] and
+/// [`crate::recovery`]).
 ///
-/// 5. Return the [`Pump`] and probe for execution.
+/// 5. Return the [`Pump`] and execution frontier probe for execution.
 pub(crate) fn build_dataflow<A>(
     timely_worker: &mut timely::worker::Worker<A>,
     py: Python,
@@ -86,15 +85,15 @@ where
 
     timely_worker.dataflow(|scope| {
         let mut timely_input = InputHandle::new();
-        let mut capture_probe = ProbeHandle::new();
+        let mut execution_frontier = ProbeHandle::new();
         let mut stream = timely_input.to_stream(scope);
+        let mut state_updates = Vec::new();
         let mut captures = Vec::new();
-        let mut backups = Vec::new();
 
         let recovery_store = build_recovery_store(py, recovery_config)?;
 
         // SAFETY: Avoid PyO3 Send overloading.
-        let wrapped_recovery_store = SendWrapper::new(recovery_store.clone());
+        let wrapped_recovery_store = SendWrapper::new(recovery_store);
         // All RecoveryStore methods require not holding the GIL. They
         // might spawn background threads.
         let (recovery_data, resume_epoch) = py.allow_threads(|| wrapped_recovery_store.load());
@@ -124,8 +123,7 @@ where
             .extract(py)
             .unwrap();
 
-        let steps = &flow.steps;
-        for step in steps {
+        for step in &flow.steps {
             match step {
                 Step::Map { mapper } => {
                     // All these closure lifetimes are static, so tell
@@ -157,19 +155,23 @@ where
                     reducer,
                     is_complete,
                 } => {
+                    let step_id = step_id.clone();
                     let reducer = reducer.clone_ref(py);
                     let is_complete = is_complete.clone_ref(py);
 
-                    let state_cache = state_caches.remove(step_id).unwrap_or_default();
+                    let state_cache = state_caches.remove(&step_id).unwrap_or_default();
 
-                    let (downstream, state_updates) = stream.map(lift_2tuple).reduce(
+                    let (downstream, state_update_stream) = stream.map(lift_2tuple).reduce(
                         state_cache,
                         move |key, aggregator, value| reduce(&reducer, key, aggregator, value),
                         move |key, aggregator| check_complete(&is_complete, key, aggregator),
                         hash,
                     );
-                    let backup = state_updates.backup(step_id.clone(), recovery_store.clone());
-                    backups.push(backup);
+
+                    let state_update_stream =
+                        state_update_stream.map(move |(key, state)| (step_id.clone(), key, state));
+                    state_updates.push(state_update_stream);
+
                     stream = downstream.map(wrap_2tuple);
                 }
                 Step::ReduceEpoch { reducer } => {
@@ -204,45 +206,62 @@ where
                     builder,
                     mapper,
                 } => {
+                    let step_id = step_id.clone();
                     let builder = builder.clone_ref(py);
                     let mapper = mapper.clone_ref(py);
 
-                    let state_cache = state_caches.remove(step_id).unwrap_or_default();
+                    let state_cache = state_caches.remove(&step_id).unwrap_or_default();
 
-                    let (downstream, state_updates) = stream.map(lift_2tuple).stateful_map(
+                    let (downstream, state_update_stream) = stream.map(lift_2tuple).stateful_map(
                         state_cache,
                         move |key| build(&builder, key),
                         move |key, state, value| stateful_map(&mapper, key, state, value),
                         hash,
                     );
-                    let backup = state_updates.backup(step_id.clone(), recovery_store.clone());
+
+                    let state_update_stream =
+                        state_update_stream.map(move |(key, state)| (step_id.clone(), key, state));
+                    state_updates.push(state_update_stream);
+
                     stream = downstream.map(wrap_2tuple);
-                    backups.push(backup);
                 }
                 Step::Capture {} => {
                     let worker_output = worker_output.clone_ref(py);
                     let capture = stream
                         .inspect_time(move |epoch, item| capture(&worker_output, epoch, item))
-                        .probe_with(&mut capture_probe);
-                    stream = capture.clone();
-                    captures.push(capture);
+                        .probe_with(&mut execution_frontier);
+
+                    captures.push(capture.clone());
+
+                    stream = capture;
                 }
             }
         }
 
-        let dataflow_frontier = scope
-            .dataflow_frontier(backups.clone(), captures.clone())
-            // We need broadcast otherwise each worker will have its
-            // own opinion on the dataflow frontier.
-            .broadcast();
-        dataflow_frontier.garbage_collector(recovery_store_log, backups, recovery_store);
-
-        if !captures.is_empty() {
-            let pump = Pump::new(worker_input, timely_input);
-            Ok((pump, capture_probe))
-        } else {
-            Err("Dataflow needs to contain at least one capture".into())
+        if captures.len() < 1 {
+            return Err("Dataflow needs to contain at least one capture".into());
         }
+
+        let (dataflow_frontier_handle, dataflow_frontier_stream) =
+            scope.feedback(Default::default());
+        let (backup, gc) = scope.recovery(
+            state_updates,
+            dataflow_frontier_stream,
+            wrapped_recovery_store.take(),
+            recovery_store_log,
+        );
+        scope
+            .dataflow_frontier(backup, captures)
+            // No worker can GC until all workers have backed up and
+            // output an epoch.
+            .broadcast()
+            .connect_loop(dataflow_frontier_handle);
+        // Execution should not complete until GC is complete since we
+        // record the dataflow frontier there.
+        gc.probe_with(&mut execution_frontier);
+
+        let pump = Pump::new(worker_input, timely_input);
+        Ok((pump, execution_frontier))
     })
 }
 
@@ -543,7 +562,7 @@ pub(crate) fn run_main(
 ///     output_builder: Returns a callback function for each worker
 ///         thread, called with `(epoch, item)` whenever and item
 ///         passes by a capture operator on this process.
-///         
+///
 ///     addresses: List of host/port addresses for all processes in
 ///         this cluster (including this one).
 ///
