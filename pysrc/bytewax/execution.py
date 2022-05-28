@@ -7,7 +7,7 @@ from multiprocess import get_context
 
 from bytewax.recovery import RecoveryConfig
 
-from .bytewax import AdvanceTo, cluster_main, Dataflow, Emit, run_main
+from .bytewax import AdvanceTo, cluster_main, Dataflow, Emit, ManualConfig, run_main
 
 
 def run(
@@ -63,9 +63,10 @@ def run(
         assert worker_index == 0
         return out.append
 
+    input_config = ManualConfig(input_builder)
     run_main(
         flow,
-        input_builder,
+        input_config,
         output_builder,
         recovery_config=recovery_config,
     )
@@ -256,12 +257,13 @@ def run_cluster(
 
         out = man.list()
 
+        input_config = ManualConfig(input_builder)
         def output_builder(worker_index, worker_count):
             return out.append
 
         spawn_cluster(
             flow,
-            input_builder,
+            input_config,
             output_builder,
             recovery_config=recovery_config,
             proc_count=proc_count,

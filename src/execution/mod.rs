@@ -6,6 +6,9 @@
 //! See [`build_dataflow()`] and [`worker_main()`] for the main parts
 //! of this.
 
+use crate::input::pump_from_config;
+use crate::input::InputConfig;
+use crate::input::Pump;
 use crate::operators::DataflowFrontier;
 use crate::operators::Recovery;
 use crate::recovery::build_state_caches;
@@ -18,13 +21,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use timely::dataflow::operators::aggregation::*;
-use timely::dataflow::operators::*;
-use timely::dataflow::InputHandle;
-use timely::dataflow::ProbeHandle;
 
 use crate::dataflow::{Dataflow, Step};
 use crate::operators::build;
@@ -36,9 +34,13 @@ use crate::operators::{
     reduce_epoch_local, StatefulMap,
 };
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, StateKey};
-use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
+use crate::pyo3_extensions::{TdPyAny, TdPyCallable};
 use crate::recovery::build_recovery_store;
 use std::collections::HashMap;
+use timely::dataflow::operators::aggregation::*;
+use timely::dataflow::operators::*;
+use timely::dataflow::InputHandle;
+use timely::dataflow::ProbeHandle;
 
 /// Turn the abstract blueprint for a dataflow into a Timely dataflow
 /// so it can be executed.
@@ -73,10 +75,10 @@ pub(crate) fn build_dataflow<A>(
     timely_worker: &mut timely::worker::Worker<A>,
     py: Python,
     flow: &Dataflow,
-    input_builder: TdPyCallable,
+    input_config: Py<InputConfig>,
     output_builder: TdPyCallable,
     recovery_config: Option<Py<RecoveryConfig>>,
-) -> Result<(Pump, ProbeHandle<u64>), String>
+) -> Result<(Box<dyn Pump>, ProbeHandle<u64>), String>
 where
     A: timely::communication::Allocate,
 {
@@ -112,11 +114,6 @@ where
             .collect();
         let mut state_caches = build_state_caches(recovery_data);
 
-        let worker_input: TdPyIterator = input_builder
-            .call1(py, (worker_index, worker_count, resume_epoch))
-            .unwrap()
-            .extract(py)
-            .unwrap();
         let worker_output: TdPyCallable = output_builder
             .call1(py, (worker_index, worker_count))
             .unwrap()
@@ -261,130 +258,16 @@ where
         // record the dataflow frontier there.
         gc.probe_with(&mut execution_frontier);
 
-        let pump = Pump::new(worker_input, timely_input);
+        let pump = pump_from_config(
+            py,
+            input_config,
+            timely_input,
+            worker_index,
+            worker_count,
+            resume_epoch,
+        );
         Ok((pump, execution_frontier))
     })
-}
-
-/// Advance to the supplied epoch.
-///
-/// When providing input to a Dataflow, work cannot complete until
-/// there is no more data for a given epoch.
-///
-/// AdvanceTo is the signal to a Dataflow that the frontier has moved
-/// beyond the current epoch, and that items with an epoch less than
-/// the epoch in AdvanceTo can be worked to completion.
-///
-/// Using AdvanceTo and Emit is only necessary when using `spawn_cluster`
-/// and `cluster_main()` as `run()` and `run_cluster()` will yield AdvanceTo
-/// and Emit for you.
-///
-/// See also: `inputs.yield_epochs()`
-///
-/// >>> def input_builder(worker_index, worker_count):
-/// ...     for i in range(10):
-/// ...         yield AdvanceTo(i) # Advances the epoch to i
-/// ...         yield Emit(i) # Adds the input i at epoch i
-#[pyclass(module = "bytewax")]
-#[pyo3(text_signature = "(epoch)")]
-pub(crate) struct AdvanceTo {
-    #[pyo3(get)]
-    epoch: u64,
-}
-
-#[pymethods]
-impl AdvanceTo {
-    #[new]
-    fn new(epoch: u64) -> Self {
-        Self { epoch }
-    }
-
-    fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
-        match op {
-            CompareOp::Lt => Ok(self.epoch < other.epoch),
-            CompareOp::Le => Ok(self.epoch <= other.epoch),
-            CompareOp::Eq => Ok(self.epoch == other.epoch),
-            CompareOp::Ne => Ok(self.epoch != other.epoch),
-            CompareOp::Gt => Ok(self.epoch > other.epoch),
-            CompareOp::Ge => Ok(self.epoch >= other.epoch),
-        }
-    }
-}
-
-/// Emit the supplied item into the dataflow at the current epoch
-///
-/// Emit is how we introduce input into a dataflow:
-///
-/// >>> def input_builder(worker_index, worker_count):
-/// ...     for i in range(10):
-/// ...         yield AdvanceTo(i) # Advances the epoch to i
-/// ...         yield Emit(i) # Adds the input i at epoch i
-#[pyclass(module = "bytewax")]
-#[pyo3(text_signature = "(item)")]
-pub(crate) struct Emit {
-    #[pyo3(get)]
-    item: TdPyAny,
-}
-
-#[pymethods]
-impl Emit {
-    #[new]
-    fn new(item: Py<PyAny>) -> Self {
-        Self { item: item.into() }
-    }
-}
-
-/// Encapsulates the process of pulling data out of the input Python
-/// iterator and feeding it into Timely.
-///
-/// This will be called in the worker's "main" loop to feed data in.
-pub(crate) struct Pump {
-    pull_from_pyiter: TdPyIterator,
-    pyiter_is_empty: bool,
-    push_to_timely: InputHandle<u64, TdPyAny>,
-}
-
-impl Pump {
-    pub(crate) fn new(
-        pull_from_pyiter: TdPyIterator,
-        push_to_timely: InputHandle<u64, TdPyAny>,
-    ) -> Self {
-        Self {
-            pull_from_pyiter,
-            pyiter_is_empty: false,
-            push_to_timely,
-        }
-    }
-
-    /// Take a single data element and timestamp and feed it into the
-    /// dataflow.
-    fn pump(&mut self) {
-        Python::with_gil(|py| {
-            let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
-            if let Some(input_or_action) = pull_from_pyiter.next() {
-                match input_or_action {
-                    Ok(item) => {
-                        if let Ok(send) = item.downcast::<PyCell<Emit>>() {
-                            self.push_to_timely.send(send.borrow().item.clone());
-                        } else if let Ok(advance_to) = item.downcast::<PyCell<AdvanceTo>>() {
-                            self.push_to_timely.advance_to(advance_to.borrow().epoch);
-                        } else {
-                            panic!("{}", format!("Input must be an instance of either `AdvanceTo` or `Emit`. Got: {item:?}. See https://docs.bytewax.io/apidocs#bytewax.AdvanceTo for more information."))
-                        }
-                    }
-                    Err(err) => {
-                        std::panic::panic_any(err);
-                    }
-                }
-            } else {
-                self.pyiter_is_empty = true;
-            }
-        });
-    }
-
-    fn input_remains(&self) -> bool {
-        !self.pyiter_is_empty
-    }
 }
 
 /// "Main loop" of a Timely worker thread.
@@ -397,7 +280,7 @@ impl Pump {
 /// 3. Call [timely::worker::Worker::step] to tell Timely to do
 /// whatever work it can.
 pub(crate) fn worker_main<A>(
-    mut pumps_with_input_remaining: Vec<Pump>,
+    mut pumps_with_input_remaining: Vec<Box<dyn Pump>>,
     probe: ProbeHandle<u64>,
     interrupt_flag: &AtomicBool,
     worker: &mut timely::worker::Worker<A>,
@@ -411,7 +294,7 @@ pub(crate) fn worker_main<A>(
             let mut updated_pumps = Vec::new();
             for mut pump in pumps_with_input_remaining.into_iter() {
                 pump.pump();
-                worker.step_while(|| probe.less_than(&pump.push_to_timely.time()));
+                worker.step_while(|| probe.less_than(&pump.input_time()));
                 if pump.input_remains() {
                     updated_pumps.push(pump);
                 }
@@ -478,7 +361,7 @@ where
 pub(crate) fn run_main(
     py: Python,
     flow: Py<Dataflow>,
-    input_builder: TdPyCallable,
+    input_config: Py<InputConfig>,
     output_builder: TdPyCallable,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
@@ -496,7 +379,7 @@ pub(crate) fn run_main(
                         worker,
                         py,
                         flow,
-                        input_builder,
+                        input_config,
                         output_builder,
                         recovery_config,
                     )
@@ -590,7 +473,7 @@ pub(crate) fn run_main(
 pub(crate) fn cluster_main(
     py: Python,
     flow: Py<Dataflow>,
-    input_builder: TdPyCallable,
+    input_config: Py<InputConfig>,
     output_builder: TdPyCallable,
     addresses: Option<Vec<String>>,
     proc_id: usize,
@@ -645,7 +528,7 @@ pub(crate) fn cluster_main(
             move |worker| {
                 let (pump, probe) = Python::with_gil(|py| {
                     let flow = &flow.as_ref(py).borrow();
-                    let input_builder = input_builder.clone_ref(py);
+                    let input_config = input_config.clone_ref(py);
                     let output_builder = output_builder.clone_ref(py);
                     let recovery_config = recovery_config.clone();
 
@@ -653,7 +536,7 @@ pub(crate) fn cluster_main(
                         worker,
                         py,
                         flow,
-                        input_builder,
+                        input_config,
                         output_builder,
                         recovery_config,
                     )
@@ -704,7 +587,5 @@ pub(crate) fn cluster_main(
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_main, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
-    m.add_class::<Emit>()?;
-    m.add_class::<AdvanceTo>()?;
     Ok(())
 }

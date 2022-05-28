@@ -4,7 +4,16 @@ from sys import exit
 
 from pytest import mark, raises
 
-from bytewax import AdvanceTo, cluster_main, Dataflow, Emit, inputs, run, run_cluster
+from bytewax import (
+    AdvanceTo,
+    cluster_main,
+    Dataflow,
+    Emit,
+    inputs,
+    ManualConfig,
+    run,
+    run_cluster,
+)
 
 
 def test_run():
@@ -193,11 +202,12 @@ def test_cluster_main_can_be_ctrl_c(mp_ctx):
             flow = Dataflow()
             flow.map(mapper)
             flow.capture()
+            input_config = ManualConfig(input_builder)
 
             try:
                 cluster_main(
                     flow,
-                    input_builder,
+                    input_config,
                     output_builder,
                     addresses=[],
                     proc_id=0,
@@ -242,9 +252,10 @@ def test_yield_epochs_with_cluster_main(mp_ctx):
             flow.map(mapper)
             flow.capture()
 
+            input_config = ManualConfig(input_builder)
             cluster_main(
                 flow,
-                input_builder,
+                input_config,
                 output_builder,
                 addresses=[],
                 proc_id=0,
