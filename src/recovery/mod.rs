@@ -820,9 +820,10 @@ impl RecoveryStore<u64, TdPyAny, TdPyAny> for KafkaRecoveryStore {
                     let msg_payload = msg.payload().map(KafkaPayload::from_bytes);
                     match msg_key {
                         KafkaKey::DataflowFrontier => match msg_payload {
-                            Some(KafkaPayload::DataflowFrontier(dataflow_frontier)) => {
-                                resume_epoch = dataflow_frontier;
-                            },
+                            Some(KafkaPayload::DataflowFrontier(dataflow_frontier)) => resume_epoch = dataflow_frontier,
+                            // TODO: Figure out better semantics when
+                            // resuming a completed dataflow.
+                            None => resume_epoch = 0,
                             unexpected_payload => panic!("Unexpected dataflow frontier Kafka message payload: {unexpected_payload:?}"),
                         },
                         KafkaKey::State { step_id, key, epoch } => {
