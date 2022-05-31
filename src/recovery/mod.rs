@@ -751,9 +751,8 @@ impl RecoveryStore<u64, TdPyAny, TdPyAny> for KafkaRecoveryStore {
 
         let consumer: StreamConsumer = self.rt.block_on(async {
             ClientConfig::new()
-                // TODO: Should we be generating a new consumer group
-                // per cluster execution? Or will the group offset
-                // reset?
+                // TODO: Do away with a consumer group here and
+                // instead do per-worker recovery loading.
                 .set("group.id", "bytewax-loader")
                 .set("bootstrap.servers", self.hosts.join(","))
                 .set("auto.offset.reset", "earliest")
