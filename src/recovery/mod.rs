@@ -116,6 +116,10 @@
 use crate::dataflow::StepId;
 use pyo3::exceptions::PyValueError;
 use pyo3::types::PyString;
+use rdkafka::admin::AdminClient;
+use rdkafka::admin::AdminOptions;
+use rdkafka::admin::NewTopic;
+use rdkafka::admin::TopicReplication;
 use rdkafka::consumer::Consumer;
 use rdkafka::consumer::StreamConsumer;
 use rdkafka::error::KafkaError;
@@ -720,6 +724,8 @@ impl KafkaPayload {
 
 impl KafkaRecoveryStore {
     fn new(config: PyRef<KafkaRecoveryConfig>) -> Self {
+        use rdkafka::types::RDKafkaErrorCode;
+
         let rt = SendWrapper::new(
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -728,6 +734,41 @@ impl KafkaRecoveryStore {
         );
 
         let hosts = config.hosts.clone();
+        let topic = config.topic.clone();
+
+        debug!("Creating Kafka topic with hosts={hosts:?}");
+        let admin: AdminClient<_> = rt.block_on(async {
+            ClientConfig::new()
+                .set("bootstrap.servers", hosts.join(","))
+                .create()
+                .expect("Error building Kafka admin")
+        });
+        let admin_options = AdminOptions::new();
+
+        // TODO: Really we want num_partitions: worker_count, but
+        // we'll figure that out once we do multi-worker recovery
+        // loading.
+        let new_topic = NewTopic {
+            name: topic.as_str(),
+            num_partitions: 1,
+            replication: TopicReplication::Fixed(1),
+            config: vec![],
+        };
+        let future = admin.create_topics(vec![&new_topic], &admin_options);
+        let result = rt
+            .block_on(future)
+            .expect("Error calling create Kafka topic on admin")
+            .pop()
+            .unwrap();
+        match result {
+            Ok(topic) => debug!("Created recovery Kafka topic={topic:?}"),
+            Err((topic, RDKafkaErrorCode::TopicAlreadyExists)) => {
+                debug!("Kafka topic={topic:?} already exists; continuing")
+            }
+            Err((topic, err_code)) => panic!("Error creating Kafka topic={topic:?}: {err_code:?}"),
+        }
+
+        debug!("Creating Kafka producer with hosts={hosts:?}");
         let producer: FutureProducer = ClientConfig::new()
             .set("bootstrap.servers", hosts.join(","))
             .create()
@@ -737,7 +778,7 @@ impl KafkaRecoveryStore {
             rt,
             hosts,
             producer,
-            topic: config.topic.clone(),
+            topic,
         }
     }
 }
@@ -745,10 +786,9 @@ impl KafkaRecoveryStore {
 impl RecoveryStore<u64, TdPyAny, TdPyAny> for KafkaRecoveryStore {
     fn load(&self) -> (Vec<(StepId, TdPyAny, u64, Option<TdPyAny>)>, u64) {
         debug!(
-            "Loading recovery data from {:?} topic={}",
+            "Loading recovery data from hosts={:?} topic={}",
             self.hosts, self.topic
         );
-
         let consumer: StreamConsumer = self.rt.block_on(async {
             ClientConfig::new()
                 // TODO: Do away with a consumer group here and
