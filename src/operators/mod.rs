@@ -635,12 +635,10 @@ impl<K: ExchangeData + Hash + Eq, T: Timestamp> RecoveryStoreSummary<K, T> {
             let (step_id, key) = map_key;
 
             // TODO: The following becomes way cleaner once
-            // [`std::collections::BTreeMap::drain_filter`] hits
+            // [`std::collections::BTreeMap::drain_filter`] and
+            // [`std::collections::BTreeMap::first_entry`] hits
             // stable.
 
-            // [`std::collections::BTreeMap::split_off`] looks at all
-            // the keys (epochs) in order, keeps every epoch <
-            // finalized_epoch, returns epoch >= finalized_epoch.
             let (mut map_key_garbage, mut map_key_non_garbage): (Vec<_>, Vec<_>) = epoch_updates
                 .drain()
                 .partition(|(epoch, _update_type)| epoch <= finalized_epoch);
