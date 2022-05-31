@@ -1,10 +1,9 @@
 from threading import Event
 
-from bytewax import AdvanceTo, Dataflow, Emit, run_main
-from bytewax.recovery import SqliteRecoveryConfig
-
 from pytest import fixture, raises
 
+from bytewax import AdvanceTo, Dataflow, Emit, run_main
+from bytewax.recovery import SqliteRecoveryConfig
 
 RECOVERY_CONFIG_TYPES = [
     "SqliteRecoveryConfig",
@@ -28,6 +27,7 @@ def recovery_config(tmp_path, request):
 
 def test_recover_with_latest_state(recovery_config):
     armed = Event()
+    # Will explode on first run.
     armed.set()
 
     def trigger(item):
@@ -49,10 +49,16 @@ def test_recover_with_latest_state(recovery_config):
     flow.stateful_map("keep_max", lambda key: None, keep_max)
     flow.capture()
 
+    # Epoch is incremented after each item.
     inp = [
+        # Epoch 0
         ("a", 4),
+        # Epoch 1
         ("b", 4),
-        ("a", 1),  # Will fail here on first pass cuz odd.
+        # Epoch 2
+        # Will fail here on first pass cuz odd.
+        ("a", 1),
+        # Epoch 3
         ("b", 1),
     ]
 
@@ -86,9 +92,9 @@ def test_recover_with_latest_state(recovery_config):
     # Recover.
     run_main(flow, ib, ob, recovery_config=recovery_config)
 
+    # Restarts from failed epoch.
     assert sorted(out) == sorted(
         [
-            (1, ("b", 4)),
             (2, ("a", 4)),
             (3, ("b", 4)),
         ]
@@ -97,6 +103,7 @@ def test_recover_with_latest_state(recovery_config):
 
 def test_recover_doesnt_gc_last_write(recovery_config):
     armed = Event()
+    # Will explode on first run.
     armed.set()
 
     def trigger(item):
@@ -118,16 +125,24 @@ def test_recover_doesnt_gc_last_write(recovery_config):
     flow.stateful_map("keep_max", lambda key: None, keep_max)
     flow.capture()
 
+    # Epoch is incremented after each item.
     inp = [
-        (
-            "a",
-            4,
-        ),  # "a" is old enough to be GCd by time failure happens, but shouldn't be because the key hasn't been seen again.
+        # Epoch 0
+        # "a" is old enough to be GCd by time failure happens, but
+        # shouldn't be because the key hasn't been seen again.
+        ("a", 4),
+        # Epoch 1
         ("b", 4),
+        # Epoch 2
         ("b", 4),
+        # Epoch 3
         ("b", 4),
+        # Epoch 4
         ("b", 4),
-        ("b", 5),  # Will fail here on first pass cuz odd.
+        # Epoch 5
+        # Will fail here on first pass cuz odd.
+        ("b", 5),
+        # Epoch 6
         ("a", 1),
     ]
 
@@ -164,17 +179,19 @@ def test_recover_doesnt_gc_last_write(recovery_config):
     # Recover.
     run_main(flow, ib, ob, recovery_config=recovery_config)
 
+    # Restarts from failed epoch.
     assert sorted(out) == sorted(
         [
-            (4, ("b", 4)),
             (5, ("b", 5)),
-            (6, ("a", 4)),  # Remembered "a" => 4
+            # Remembered "a": 4
+            (6, ("a", 4)),
         ]
     )
 
 
 def test_recover_respects_delete(recovery_config):
     armed = Event()
+    # Will explode on first run.
     armed.set()
 
     def trigger(item):
@@ -199,13 +216,22 @@ def test_recover_respects_delete(recovery_config):
     flow.stateful_map("keep_max", lambda key: None, keep_max)
     flow.capture()
 
+    # Epoch is incremented after each item.
     inp = [
+        # Epoch 0
         ("a", 4),
+        # Epoch 1
         ("b", 4),
+        # Epoch 2
         ("a", None),
+        # Epoch 3
         ("b", 2),
-        ("b", 5),  # Will fail here on first pass cuz odd.
-        ("a", 2),  # Should be max for "a" on resume.
+        # Epoch 4
+        # Will fail here on first pass cuz odd.
+        ("b", 5),
+        # Epoch 5
+        # Should be max for "a" on resume.
+        ("a", 2),
     ]
 
     def ib(i, n, r):
@@ -240,10 +266,11 @@ def test_recover_respects_delete(recovery_config):
     # Recover.
     run_main(flow, ib, ob, recovery_config=recovery_config)
 
+    # Restarts from failed epoch.
     assert sorted(out) == sorted(
         [
-            (3, ("b", 4)),
             (4, ("b", 5)),
-            (5, ("a", 2)),  # Notice not 4.
+            # Notice not 4.
+            (5, ("a", 2)),
         ]
     )
