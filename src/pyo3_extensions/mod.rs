@@ -140,6 +140,7 @@ impl serde::Serialize for TdPyAny {
 }
 
 pub(crate) struct PickleVisitor;
+
 impl<'de> serde::de::Visitor<'de> for PickleVisitor {
     type Value = TdPyAny;
 
@@ -166,6 +167,23 @@ impl<'de> serde::Deserialize<'de> for TdPyAny {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         deserializer.deserialize_bytes(PickleVisitor)
     }
+}
+
+#[test]
+fn test_serde() {
+    use serde_test::assert_tokens;
+    use serde_test::Token;
+
+    pyo3::prepare_freethreaded_python();
+
+    let pyobj: TdPyAny = Python::with_gil(|py| PyString::new(py, "hello").into());
+    // This does a round-trip.
+    assert_tokens(
+        &pyobj,
+        &[Token::Bytes(&[
+            128, 4, 149, 9, 0, 0, 0, 0, 0, 0, 0, 140, 5, 104, 101, 108, 108, 111, 148, 46,
+        ])],
+    );
 }
 
 /// Re-use Python's value semantics in Rust code.

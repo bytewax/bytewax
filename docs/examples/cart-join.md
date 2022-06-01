@@ -61,8 +61,8 @@ present in every event.
 ```python
 def key_off_user_id(event):
     return event["user_id"], event
-    
-    
+
+
 flow.map(key_off_user_id)
 ```
 
@@ -243,16 +243,15 @@ def input_builder(worker_index, worker_count, resume_epoch):
 ```
 
 Running the dataflow again will pickup very close to where we
-started. In this case, even though the failure happend with an input
-on epoch `4`, the system detected that we were not done processing
-input from epoch `1` yet, so it resumes from there.
+failed. In this case, the failure happened with an input on epoch `5`,
+so it resumes from there. As the `FAIL HERE` string is ignored,
+there's no output during epoch `5`.
 
 ```python
 run_main(flow, input_builder, output_builder, recovery_config=recovery_config)
 ```
 
 ```{testoutput}
-4 {"user_id": "b", "paid_order_ids": [], "unpaid_order_ids": [3, 4]}
 6 {"user_id": "a", "paid_order_ids": [2, 1], "unpaid_order_ids": []}
 7 {"user_id": "b", "paid_order_ids": [4], "unpaid_order_ids": [3]}
 ```

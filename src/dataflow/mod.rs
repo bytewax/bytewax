@@ -2,9 +2,18 @@ use crate::pyo3_extensions::TdPyCallable;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
+use serde::Deserialize;
+use serde::Serialize;
+use std::fmt::Display;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub(crate) struct StepId(String);
+
+impl Display for StepId {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        fmt.write_str(&self.0)
+    }
+}
 
 impl From<String> for StepId {
     fn from(s: String) -> Self {

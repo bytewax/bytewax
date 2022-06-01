@@ -12,19 +12,18 @@
 use crate::dataflow::StepId;
 use crate::recovery::RecoveryStore;
 use crate::recovery::UpdateType;
-use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::rc::Rc;
 use timely::dataflow::channels::pact;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::generic::FrontieredInputHandle;
 use timely::dataflow::operators::FrontierNotificator;
-use timely::dataflow::operators::Operator;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
+use timely::progress::Antichain;
+use timely::progress::Timestamp;
 use timely::Data;
 use timely::ExchangeData;
 
@@ -175,10 +174,9 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> Reduce<S, K, V> for
 
                                 // Save the aggregator so we can use
                                 // it if there are multiple values
-                                // within this epoch. We do not save
-                                // to the recovery store here because
-                                // we don't have finalized state for
-                                // the epoch.
+                                // within this epoch. We do not emit
+                                // updated state here because we don't
+                                // have finalized state for the epoch.
                                 if is_complete(&key, &updated_aggregator_for_key) {
                                     let mut downstream_output_session =
                                         downstream_output_handle.session(&downstream_cap);
@@ -452,10 +450,9 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> StatefulMap<S, K, V
 
                                 // Save the state so we can use it if
                                 // there are multiple values within
-                                // this epoch. We do not save to the
-                                // recovery store here because we
-                                // don't have finalized state for the
-                                // epoch.
+                                // this epoch. We do not emit updated
+                                // state here because we don't have
+                                // finalized state for the epoch.
                                 if let Some(updated_state) = updated_state_for_key {
                                     state_cache.insert(key.clone(), updated_state);
                                 } else {
@@ -537,72 +534,35 @@ pub(crate) fn capture(captor: &TdPyCallable, epoch: &u64, item: &TdPyAny) {
     Python::with_gil(|py| with_traceback!(py, captor.call1(py, ((*epoch, item.clone_ref(py)),))));
 }
 
-/// Utility operator which persists state changes coming out of the
-/// stateful operators to the recovery store.
-///
-/// Emits a stream of update summaries for use in garbage collection.
-pub(crate) trait Backup<S: Scope, K: ExchangeData + Hash + Eq, D: ExchangeData> {
-    fn backup(
-        &self,
-        step_id: StepId,
-        recovery_writer: Rc<Box<dyn RecoveryStore<S::Timestamp, K, D>>>,
-    ) -> Stream<S, (StepId, K, UpdateType)>
-    where
-        S::Timestamp: Hash + Eq;
-}
-
-impl<S: Scope, K: ExchangeData + Hash + Eq, D: ExchangeData> Backup<S, K, D>
-    for Stream<S, (K, Option<D>)>
-{
-    fn backup(
-        &self,
-        step_id: StepId,
-        recovery_writer: Rc<Box<dyn RecoveryStore<S::Timestamp, K, D>>>,
-    ) -> Stream<S, (StepId, K, UpdateType)> {
-        self.unary(pact::Pipeline, "Backup", |_init_capability, _info| {
-            let mut items_buffer = Vec::new();
-            move |input, output| {
-                input.for_each(|cap, data| {
-                    data.swap(&mut items_buffer);
-                    let epoch = cap.time();
-
-                    let mut output_session = output.session(&cap);
-                    for (key, updated_state) in items_buffer.drain(..) {
-                        recovery_writer.save_state(&step_id, &key, epoch, &updated_state);
-                        output_session.give((step_id.clone(), key, updated_state.into()));
-                    }
-                });
-            }
-        })
-    }
-}
-
 /// Utility operator which calculates the dataflow frontier.
 ///
-/// Connect to all backups and captures in the dataflow during
-/// building.
+/// Connect to the backup output of the [`Recovery`] operator and all
+/// captures in the dataflow during building.
 ///
 /// It outputs a kind of "heartbeat" `()` but the epochs attached to
 /// that will be the dataflow frontiers.
 pub(crate) trait DataflowFrontier<S: Scope, K: ExchangeData + Hash + Eq> {
-    fn dataflow_frontier<IB, IC>(&self, backups: IB, captures: IC) -> Stream<S, ()>
+    fn dataflow_frontier<IC>(
+        &self,
+        backup: Stream<S, (StepId, K, UpdateType)>,
+        captures: IC,
+    ) -> Stream<S, ()>
     where
-        IB: IntoIterator<Item = Stream<S, (StepId, K, UpdateType)>>,
         IC: IntoIterator<Item = Stream<S, TdPyAny>>;
 }
 
 impl<S: Scope, K: ExchangeData + Hash + Eq> DataflowFrontier<S, K> for S {
-    fn dataflow_frontier<IB, IC>(&self, backups: IB, captures: IC) -> Stream<S, ()>
+    fn dataflow_frontier<IC>(
+        &self,
+        backup: Stream<S, (StepId, K, UpdateType)>,
+        captures: IC,
+    ) -> Stream<S, ()>
     where
-        IB: IntoIterator<Item = Stream<S, (StepId, K, UpdateType)>>,
         IC: IntoIterator<Item = Stream<S, TdPyAny>>,
     {
         let mut op_builder = OperatorBuilder::new("DataflowFrontier".to_string(), self.clone());
 
-        let mut backup_inputs = backups
-            .into_iter()
-            .map(|s| op_builder.new_input(&s, pact::Pipeline))
-            .collect::<Vec<_>>();
+        let mut backup_input = op_builder.new_input(&backup, pact::Pipeline);
         let mut capture_inputs = captures
             .into_iter()
             .map(|s| op_builder.new_input(&s, pact::Pipeline))
@@ -615,11 +575,9 @@ impl<S: Scope, K: ExchangeData + Hash + Eq> DataflowFrontier<S, K> for S {
             move |input_frontiers| {
                 let mut output_handle = output_wrapper.activate();
 
-                for input in backup_inputs.iter_mut() {
-                    input.for_each(|cap, _data| {
-                        fncater.notify_at(cap.retain());
-                    });
-                }
+                backup_input.for_each(|cap, _data| {
+                    fncater.notify_at(cap.retain());
+                });
                 for input in capture_inputs.iter_mut() {
                     input.for_each(|cap, _data| {
                         fncater.notify_at(cap.retain());
@@ -639,152 +597,253 @@ impl<S: Scope, K: ExchangeData + Hash + Eq> DataflowFrontier<S, K> for S {
     }
 }
 
-/// Utility operator which listens to the dataflow frontier and
-/// streams of backup summaries and will coordinate with the recovery
-/// store to garbage collect old state.
+/// In-memory summary of all keys this worker's recovery store knows
+/// about.
 ///
-/// It also records the dataflow frontier.
-///
-/// This should be called on the dataflow frontier stream itself.
-pub(crate) trait GarbageCollector<S: Scope, K: ExchangeData + Hash + Eq> {
-    fn garbage_collector<IB, D: 'static>(
-        &self,
-        recovery_store_summary: Vec<(StepId, K, S::Timestamp, UpdateType)>,
-        backups: IB,
-        recovery_collector: Rc<Box<dyn RecoveryStore<S::Timestamp, K, D>>>,
-    ) where
-        IB: IntoIterator<Item = Stream<S, (StepId, K, UpdateType)>>;
+/// This is used to quickly find garbage state without needing to
+/// query the recovery store itself.
+struct RecoveryStoreSummary<K, T> {
+    db: HashMap<(StepId, K), HashMap<T, UpdateType>>,
 }
 
-impl<S, K: ExchangeData + Hash + Eq + Debug> GarbageCollector<S, K> for Stream<S, ()>
+impl<K: ExchangeData + Hash + Eq, T: Timestamp> RecoveryStoreSummary<K, T> {
+    fn new() -> Self {
+        Self { db: HashMap::new() }
+    }
+
+    /// Mark that state for this step ID, key, and epoch was saved.
+    ///
+    /// We don't store the state itself in-memory, just the update
+    /// type (for GC reasons).
+    fn insert_saved(&mut self, step_id: StepId, key: K, epoch: T, state: UpdateType) {
+        self.db
+            .entry((step_id, key))
+            .or_default()
+            .insert(epoch, state);
+    }
+
+    /// Find and remove all garbage given a finalized epoch.
+    ///
+    /// Garbage is any state data before or during a finalized epoch,
+    /// other than the last upsert for a key (since that's still
+    /// relevant since it hasn't been overwritten yet).
+    fn drain_garbage(&mut self, finalized_epoch: &T) -> Vec<(StepId, K, T)> {
+        let mut garbage = Vec::new();
+
+        let mut empty_map_keys = Vec::new();
+        for (map_key, epoch_updates) in self.db.iter_mut() {
+            let (step_id, key) = map_key;
+
+            // TODO: The following becomes way cleaner once
+            // [`std::collections::BTreeMap::drain_filter`] and
+            // [`std::collections::BTreeMap::first_entry`] hits
+            // stable.
+
+            let (mut map_key_garbage, mut map_key_non_garbage): (Vec<_>, Vec<_>) = epoch_updates
+                .drain()
+                .partition(|(epoch, _update_type)| epoch <= finalized_epoch);
+            map_key_garbage.sort();
+
+            // If the final bit of "garbage" is an upsert, keep it,
+            // since it's the state we'd use to recover.
+            if let Some(epoch_update) = map_key_garbage.pop() {
+                let (_epoch, update_type) = &epoch_update;
+                if update_type == &UpdateType::Upsert {
+                    map_key_non_garbage.push(epoch_update);
+                } else {
+                    map_key_garbage.push(epoch_update);
+                }
+            }
+
+            for (epoch, _update_type) in map_key_garbage {
+                garbage.push((step_id.clone(), key.clone(), epoch.clone()));
+            }
+
+            // Non-garbage should remain in the in-mem DB.
+            *epoch_updates = map_key_non_garbage.into_iter().collect::<HashMap<_, _>>();
+
+            if epoch_updates.is_empty() {
+                empty_map_keys.push(map_key.clone());
+            }
+        }
+
+        // Clean up any keys that aren't seen again.
+        for map_key in empty_map_keys {
+            self.db.remove(&map_key);
+        }
+
+        garbage
+    }
+}
+
+/// Utility operator which deals with all recovery store coordination.
+///
+/// Does three things:
+///
+/// 1. Listens to the streams of all state updates from stateful
+/// operators and backs them up to the recovery store. It then outputs
+/// a summary of backed up state.
+///
+/// 2. Listens to the dataflow frontier, determines if any previously
+/// backed-up state is garbage and GCs it.
+///
+/// 3. Writes out the current dataflow frontier as the recovery epoch.
+pub(crate) trait Recovery<S: Scope, K: ExchangeData + Hash + Eq, D: Data> {
+    fn recovery<IB>(
+        &self,
+        state_updates: IB,
+        dataflow_frontier_loop: Stream<S, ()>,
+        recovery_store: Box<dyn RecoveryStore<S::Timestamp, K, D>>,
+        recovery_store_summary: Vec<(StepId, K, S::Timestamp, UpdateType)>,
+    ) -> (
+        Stream<S, (StepId, K, UpdateType)>,
+        Stream<S, (StepId, K, S::Timestamp)>,
+    )
+    where
+        IB: IntoIterator<Item = Stream<S, (StepId, K, Option<D>)>>;
+}
+
+impl<S: Scope, K: ExchangeData + Hash + Eq + Debug, D: Data> Recovery<S, K, D> for S
+// TODO: Drop the Timestamp = u64 requirement. The only thing
+// preventing that is some way of specifying a generic path summary
+// that means "timestamp not incremented" like
+// `Antichain::from_elem(0)`.
 where
     S: Scope<Timestamp = u64>,
 {
-    fn garbage_collector<IB, D: 'static>(
+    fn recovery<IB>(
         &self,
+        state_updates: IB,
+        dataflow_frontier_loop: Stream<S, ()>,
+        mut recovery_store: Box<dyn RecoveryStore<S::Timestamp, K, D>>,
         recovery_store_log: Vec<(StepId, K, S::Timestamp, UpdateType)>,
-        backups: IB,
-        recovery_collector: Rc<Box<dyn RecoveryStore<S::Timestamp, K, D>>>,
-    ) where
-        IB: IntoIterator<Item = Stream<S, (StepId, K, UpdateType)>>,
+    ) -> (
+        Stream<S, (StepId, K, UpdateType)>,
+        Stream<S, (StepId, K, S::Timestamp)>,
+    )
+    where
+        IB: IntoIterator<Item = Stream<S, (StepId, K, Option<D>)>>,
     {
-        let mut op_builder = OperatorBuilder::new("GarbageCollector".to_string(), self.scope());
+        let mut op_builder = OperatorBuilder::new("Recovery".to_string(), self.clone());
 
-        let mut dataflow_frontier_input = op_builder.new_input(self, pact::Pipeline);
-        let mut backup_inputs = backups
+        let (mut backup_output_wrapper, backup_output_stream) = op_builder.new_output();
+        let (mut gc_output_wrapper, gc_output_stream) = op_builder.new_output();
+
+        // We have to use these complicated sigatures to ensure the
+        // path summaries are correct because not every input results
+        // in output on every output.
+        let mut dataflow_frontier_input = op_builder.new_input_connection(
+            &dataflow_frontier_loop,
+            pact::Pipeline,
+            // This is saying this input only produces output on the
+            // second / GC output.
+            vec![Antichain::new(), Antichain::from_elem(0)],
+        );
+        let mut state_inputs = state_updates
             .into_iter()
-            .map(|s| op_builder.new_input(&s, pact::Pipeline))
+            .map(|s| {
+                op_builder.new_input_connection(
+                    &s,
+                    pact::Pipeline,
+                    // This is saying this input only produces output
+                    // on the first / backup output.
+                    vec![Antichain::from_elem(0), Antichain::new()],
+                )
+            })
             .collect::<Vec<_>>();
 
+        let mut gc_fncater = FrontierNotificator::new();
         op_builder.build(move |_init_capabilities| {
-            let mut tmp_recovery_keys = Vec::new();
-            let mut garbage_key_buffer = Vec::new();
-            let mut recovery_store_summary: HashMap<
-                (StepId, K),
-                BTreeSet<(S::Timestamp, UpdateType)>,
-            > = HashMap::new();
+            let mut tmp_state_updates = Vec::new();
+            let mut tmp_dataflow_frontier_pings = Vec::new();
+            let mut recovery_store_summary = RecoveryStoreSummary::new();
 
             // Load the initial summary of the recovery store into
             // this special query structure in memory.
             for (step_id, key, epoch, update_type) in recovery_store_log {
-                recovery_store_summary
-                    .entry((step_id, key))
-                    .or_default()
-                    .insert((epoch, update_type));
+                recovery_store_summary.insert_saved(step_id, key, epoch, update_type);
             }
 
             move |input_frontiers| {
-                let mut dataflow_frontier_input_handle =
-                    FrontieredInputHandle::new(&mut dataflow_frontier_input, &input_frontiers[0]);
-
-                // Gotta drain the data on this input to advance its
-                // frontier, even if we do nothing with it.
-                dataflow_frontier_input_handle.for_each(|_cap, _data| {});
-
-                for input in backup_inputs.iter_mut() {
+                // Backup section: continuously backup state updates
+                // to the recovery store and then emit downstream a
+                // summary of what happened.
+                let mut backup_output_handler = backup_output_wrapper.activate();
+                for input in state_inputs.iter_mut() {
                     input.for_each(|cap, data| {
-                        data.swap(&mut tmp_recovery_keys);
+                        data.swap(&mut tmp_state_updates);
+                        let cap = cap.retain_for_output(0);
+                        let mut backup_output_session = backup_output_handler.session(&cap);
                         let epoch = cap.time();
 
                         // Drain items so we don't have to re-allocate.
-                        for (step_id, key, update_type) in tmp_recovery_keys.drain(..) {
-                            recovery_store_summary
-                                .entry((step_id, key))
-                                .or_default()
-                                .insert((epoch.clone(), update_type));
+                        for (step_id, key, state) in tmp_state_updates.drain(..) {
+                            recovery_store.save_state(&step_id, &key, epoch, &state);
+                            let update_type: UpdateType = state.into();
+                            recovery_store_summary.insert_saved(
+                                step_id.clone(),
+                                key.clone(),
+                                *epoch,
+                                update_type.clone(),
+                            );
+                            backup_output_session.give((step_id, key, update_type));
                         }
                     });
                 }
 
-                // TODO: This runs on every operator activation. We
-                // only need to run when the dataflow frontier has
-                // actually updated, though.
-                let dataflow_frontier = dataflow_frontier_input_handle.frontier().frontier();
-                let is_collectable =
-                // Why +2? The dataflow frontier is the oldest
-                // in-progress epoch. Thus -1 is the epoch who's state
-                // we need to fully recreate during recovery and we
-                // shouldn't GC it. Thus -2 is the first GC-able
-                // epoch. We'd like to be able to write
-                // `dataflow_frontier - 2 >= epoch` but since there's
-                // no [`Anitchain::greater_than()`], we use
-                // `!less_than()` and since you can't do math on the
-                // frontier set, we move the `-2` to the other side
-                // and it becomes `+2`.
+                // Store in the notificator what epochs have resulted
+                // in backup data.
+                dataflow_frontier_input.for_each(|cap, data| {
+                    // Drain the input so the frontier advances.
+                    data.swap(&mut tmp_dataflow_frontier_pings);
+                    tmp_dataflow_frontier_pings.drain(..);
+                    gc_fncater.notify_at(cap.retain_for_output(1));
+                });
 
-                // TODO: Is there a way to do this without a fixed
-                // offset? It feels kinda hacky and would be cool to
-                // support arbitrary timestamp types.
+                // Find epochs that are now older than the dataflow
+                // frontier. These are now finalized and might be able
+                // to result in garbage.
+                let mut gc_output_handler = gc_output_wrapper.activate();
+                // 0th is the first defined input.
+                let dataflow_frontier = &input_frontiers[0];
+                gc_fncater.for_each(&[dataflow_frontier], |cap, _ncater| {
+                    let mut gc_output_session = gc_output_handler.session(&cap);
+                    // If the dataflow frontier has passed a
+                    // notificator-retained epoch, it means it is
+                    // fully output and backed up.
+                    let finalized_epoch = cap.time();
 
-                    |epoch: &u64| -> bool { !dataflow_frontier.less_than(&(epoch + 2)) };
-                // We save the dataflow frontier here in the garbage
-                // collector and not in the dataflow frontier operator
-                // because we are downstream of broadcast() which
-                // ensures we'll be getting the true cluster dataflow
-                // frontier, not local to any worker.
-                recovery_collector.save_frontier(dataflow_frontier);
+                    // Resume from the beginning of the dataflow
+                    // frontier; it's the oldest in-progress epoch.
+                    // We save the resume epoch here in the garbage
+                    // collector and not in the dataflow frontier
+                    // operator because we are downstream of
+                    // broadcast() which ensures we'll be getting the
+                    // true cluster dataflow frontier, not local to
+                    // any worker.
+                    recovery_store.save_frontier(dataflow_frontier.frontier());
 
-                for ((step_id, key), epoch_updates) in recovery_store_summary.iter() {
-                    // [`BTreeSet::iter()`] is in asc order.
-                    let mut collectable_updates = epoch_updates
-                        .range(..)
-                        .filter(|(epoch, _update_type)| is_collectable(epoch))
-                        .map(|(epoch, update_type)| {
-                            (step_id.clone(), key.clone(), *epoch, update_type.clone())
-                        })
-                        .collect::<Vec<_>>();
-
-                    // Never collect the last upsert; that's the most
-                    // recent recovery data! If the final update is a
-                    // delete, though then collect that so abandoned
-                    // keys are GCd.
-                    if let Some((_step_id, _key, _epoch, UpdateType::Upsert)) =
-                        collectable_updates.last()
+                    // Now remove all GCd items from the recovery
+                    // store and the local copy of the keyspace.
+                    for (step_id, key, epoch) in
+                        recovery_store_summary.drain_garbage(finalized_epoch)
                     {
-                        collectable_updates.pop();
+                        recovery_store.delete_state(&step_id, &key, &epoch);
+                        // Output that we deleted this previous state
+                        // in the finalized epoch.
+                        gc_output_session.give((step_id, key, epoch));
                     }
+                });
 
-                    garbage_key_buffer.append(&mut collectable_updates);
-                }
-
-                // Now remove all GCd items from the recovery store
-                // and the local copy of the keyspace.
-                for (step_id, key, epoch, update_type) in garbage_key_buffer.drain(..) {
-                    recovery_collector.delete_state(&step_id, &key, &epoch);
-
-                    // Do this multi-step process so we don't have
-                    // empty BTreeSets in the summary.
-                    let recovery_key = (step_id, key);
-                    let mut epochs_remaining = recovery_store_summary
-                        .remove(&recovery_key)
-                        .unwrap_or_default();
-                    let recovery_value = (epoch, update_type);
-                    epochs_remaining.remove(&recovery_value);
-                    if !epochs_remaining.is_empty() {
-                        recovery_store_summary.insert(recovery_key, epochs_remaining);
-                    }
-                }
+                // NOTE: We won't call this GC code when the dataflow
+                // frontier closes / input is complete. This makes
+                // sense to me: It's not correct to say last_epoch+1
+                // has been "finalized" as it never happened. And it
+                // supports the use case of "continuing" a completed
+                // dataflow by starting back up at that epoch.
             }
         });
+
+        (backup_output_stream, gc_output_stream)
     }
 }
