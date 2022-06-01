@@ -190,17 +190,17 @@ def input_builder(worker_index, worker_count, resume_epoch):
 ```
 
 
-We need a **recovery store**. For this example we'll use a local
+We need a **recovery config** that describes where to store the state
+and progress data for this worker. For this example we'll use a local
 [SQLite](https://sqlite.org/index.html) database because we're running
 on a single machine.
-
 
 ```python
 from tempfile import TemporaryDirectory
 from bytewax.recovery import SqliteRecoveryConfig
 
 recovery_dir = TemporaryDirectory()  # We'll store this somewhere temporary for this test.
-recovery_config = SqliteRecoveryConfig(recovery_dir.name + "/state-recovery.sqlite3", create=True)
+recovery_config = SqliteRecoveryConfig(recovery_dir.name)
 ```
 
 Now if we run the dataflow, the internal state will be persisted at
@@ -209,7 +209,12 @@ run with any of the recovery systems activated last time, let's run
 the dataflow again with them enabled.
 
 ```python doctest:IGNORE_EXCEPTION_DETAIL doctest:ELLIPSIS
-run_main(flow, ManualInputConfig(input_builder), output_builder, recovery_config=recovery_config)
+run_main(
+    flow,
+    ManualInputConfig(input_builder),
+    output_builder,
+    recovery_config=recovery_config,
+)
 ```
 
 As expected, we have the same error.
@@ -250,7 +255,12 @@ so it resumes from there. As the `FAIL HERE` string is ignored,
 there's no output during epoch `5`.
 
 ```python
-run_main(flow, ManualInputConfig(input_builder), output_builder, recovery_config=recovery_config)
+run_main(
+    flow,
+    ManualInputConfig(input_builder),
+    output_builder,
+    recovery_config=recovery_config,
+)
 ```
 
 ```{testoutput}

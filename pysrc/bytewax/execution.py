@@ -1,25 +1,19 @@
 """Entry point functions to execute `bytewax.Dataflow`s.
 
 """
-from typing import Any, Callable, Iterable, List, Optional, Tuple, Union
+from typing import Any, Callable, Iterable, List, Optional, Tuple
 
 from multiprocess import get_context
 
+from bytewax.inputs import AdvanceTo, Emit, InputConfig, ManualInputConfig
 from bytewax.recovery import RecoveryConfig
-from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig, InputConfig
 
-from .bytewax import (
-    cluster_main,
-    Dataflow,
-    run_main,
-)
+from .bytewax import cluster_main, Dataflow, run_main
 
 
 def run(
     flow: Dataflow,
     inp: Iterable[Tuple[int, Any]],
-    *,
-    recovery_config: Optional[RecoveryConfig] = None,
 ) -> List[Tuple[int, Any]]:
     """Pass data through a dataflow running in the current thread.
 
@@ -45,10 +39,6 @@ def run(
         inp: Input data. If you are recovering a stateful dataflow,
             your input should resume from the last finalized epoch.
 
-        recovery_config: State recovery config. See
-            `bytewax.recovery`. If `None`, state will not be
-            persisted.
-
     Returns:
 
         List of `(epoch, item)` tuples seen by capture operators.
@@ -73,7 +63,6 @@ def run(
         flow,
         ManualInputConfig(input_builder),
         output_builder,
-        recovery_config=recovery_config,
     )
 
     return out
@@ -185,7 +174,6 @@ def run_cluster(
     flow: Dataflow,
     inp: Iterable[Tuple[int, Any]],
     *,
-    recovery_config: Optional[RecoveryConfig] = None,
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
     mp_ctx=get_context("spawn"),
@@ -230,10 +218,6 @@ def run_cluster(
             you are recovering a stateful dataflow, you must ensure
             your input resumes from the last finalized epoch.
 
-        recovery_config: State recovery config. See
-            `bytewax.recovery`. If `None`, state will not be
-            persisted.
-
         proc_count: Number of processes to start.
 
         worker_count_per_proc: Number of worker threads to start on
@@ -268,7 +252,6 @@ def run_cluster(
             flow,
             ManualInputConfig(input_builder),
             output_builder,
-            recovery_config=recovery_config,
             proc_count=proc_count,
             worker_count_per_proc=worker_count_per_proc,
             mp_ctx=mp_ctx,

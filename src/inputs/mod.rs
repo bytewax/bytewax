@@ -1,5 +1,4 @@
 use crate::pyo3_extensions::{TdPyAny, TdPyIterator};
-
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -98,6 +97,7 @@ pub(crate) struct InputConfig;
 /// does not support recovery. Kafka messages will be passed through the dataflow
 /// as byte two-tuples of Kafka key and payload.
 ///
+/// Currently Kafka input does not support recovery.
 ///
 /// Args:
 ///
@@ -219,6 +219,11 @@ impl KafkaInputConfig {
 
 /// Use a user-defined function that returns an iterable as the input source.
 ///
+/// It is your responsibility to design your input handlers in such a
+/// way that it jumps to the point in the input that corresponds to
+/// the `resume_epoch` argument; if it can't (because the input is
+/// ephemeral) you can still recover the dataflow, but the lost input
+/// is unable to be replayed so the output will be different.
 ///
 /// Args:
 ///
@@ -287,6 +292,8 @@ struct KafkaPump {
 }
 
 impl KafkaPump {
+    // TODO: Support recovery epoch on Kafka input. That'll require
+    // figuring out windowing.
     fn new(config: PyRef<KafkaInputConfig>, push_to_timely: InputHandle<u64, TdPyAny>) -> Self {
         let context = CustomContext;
 

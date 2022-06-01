@@ -5,6 +5,16 @@ use pyo3::types::*;
 use serde::ser::Error;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::sqlite::SqliteArgumentValue;
+use sqlx::sqlite::SqliteTypeInfo;
+use sqlx::sqlite::SqliteValueRef;
+use sqlx::Decode;
+use sqlx::Encode;
+use sqlx::Sqlite;
+use sqlx::Type;
+use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -219,10 +229,6 @@ impl PartialEq for TdPyAny {
 pub(crate) struct StateKey(String);
 
 impl StateKey {
-    pub(crate) fn new(s: String) -> Self {
-        Self(s)
-    }
-
     /// Hash this key for Timely exchange routing.
     pub(crate) fn route(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
@@ -246,6 +252,31 @@ impl IntoPy<PyObject> for StateKey {
 impl ToPyObject for StateKey {
     fn to_object(&self, py: Python) -> Py<PyAny> {
         self.0.to_object(py)
+    }
+}
+
+impl Type<Sqlite> for StateKey {
+    fn type_info() -> SqliteTypeInfo {
+        <String as Type<Sqlite>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Sqlite> for StateKey {
+    fn encode(self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
+        args.push(SqliteArgumentValue::Text(Cow::Owned(self.0)));
+        IsNull::No
+    }
+
+    fn encode_by_ref(&self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
+        args.push(SqliteArgumentValue::Text(Cow::Owned(self.0.clone())));
+        IsNull::No
+    }
+}
+
+impl<'r> Decode<'r, Sqlite> for StateKey {
+    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
+        let value = <String as Decode<Sqlite>>::decode(value)?;
+        Ok(Self(value))
     }
 }
 
@@ -307,6 +338,7 @@ impl Iterator for TdPyIterator {
 }
 
 /// A Python object that is callable.
+#[derive(Clone)]
 pub(crate) struct TdPyCallable(Py<PyAny>);
 
 /// Have PyO3 do type checking to ensure we only make from callable
@@ -337,10 +369,6 @@ impl ToPyObject for TdPyCallable {
 ///
 /// Just pass through to [`Py`].
 impl TdPyCallable {
-    pub(crate) fn clone_ref(&self, py: Python) -> Self {
-        Self(self.0.clone_ref(py))
-    }
-
     pub(crate) fn call1(&self, py: Python, args: impl IntoPy<Py<PyTuple>>) -> PyResult<Py<PyAny>> {
         self.0.call1(py, args)
     }

@@ -1,8 +1,8 @@
 import re
 
-from bytewax import Dataflow, parse, spawn_cluster
+from bytewax import Dataflow, parse, run_main, spawn_cluster
 from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig
-from bytewax.recovery import KafkaRecoveryConfig
+from bytewax.recovery import KafkaRecoveryConfig, SqliteRecoveryConfig
 
 
 def input_builder(worker_index, worker_count, resume_epoch):
@@ -12,9 +12,9 @@ def input_builder(worker_index, worker_count, resume_epoch):
                 continue
             if epoch % worker_count != worker_index:
                 continue
-            # if epoch == 12:
-            #     raise RuntimeError("boom")
             yield AdvanceTo(epoch)
+            # if epoch == 3:
+            #     raise RuntimeError("boom")
             yield Emit(line)
 
 
@@ -56,14 +56,19 @@ flow.stateful_map("running_count", count_builder, add)
 flow.capture()
 
 
+# recovery_config = KafkaRecoveryConfig(
+#     ["localhost:9092"],
+#     "wordcount",
+# )
+recovery_config = SqliteRecoveryConfig(
+    ".",
+)
+
 if __name__ == "__main__":
-    recovery_config = KafkaRecoveryConfig(
-        ["localhost:9092"], "bytewax-state", create=True
-    )
     spawn_cluster(
         flow,
         ManualInputConfig(input_builder),
         output_builder,
         recovery_config=recovery_config,
-        **parse.cluster_args()
+        **parse.cluster_args(),
     )

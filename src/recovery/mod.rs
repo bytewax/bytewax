@@ -9,152 +9,239 @@
 //! building code which all help implement the recovery logic. An
 //! overview of it is given here, though.
 //!
-//! The recovery system uses a few custom **utility operators**
-//! ([`crate::operators::Recovery`],
-//! [`crate::operators::DataflowFrontier`]) to implement
+//! Architecture
+//! ------------
+//!
+//! Recovery is based around storing each worker's state updates and
+//! progress information. Each worker's recovery data is stored
+//! separately so that we can discern the exact state of each worker
+//! at the point of failure.
+//!
+//! The **worker frontier** represents the oldest epoch for which
+//! items are still in the process of being output or state updates
+//! are being backed up.
+//!
+//! We model the recovery store for each worker as a key-value
+//! database with two "tables" for each worker: a **state table** and
+//! a **progress table**. The state table backs up state changes,
+//! while the progress table backs up changes to the worker frontier.
+//!
+//! Note that backing up the fact that state was deleted
+//! (`StateUpdate::Reset`) is not the same as GCing the state. We need
+//! to explicitly save the history of all deletions in case we need to
+//! recover right after a deletion; that state value should not be
+//! recovered. Separately, once we know some backup state is no longer
+//! needed and we'll never need to recover there do we actually delete
+//! the state from the recovery store.
+//!
+//! The data model for state table is represented in the structs
+//! [`RecoveryKey`] and [`StateBackup`] for the key and value
+//! respectively. For the progress table, there is only a single key
+//! representing "worker frontier" and the value is
+//! [`FrontierUpdate`].
+//!
+//! There are 5 traits which provides an interface to the abstract
+//! idea of a KVDB that the dataflow operators use to save data to the
+//! recovery store: [`ProgressReader`], [`ProgressWriter`],
+//! [`StateReader`], [`StateWriter`], and [`StateCollector`]. To
+//! implement a new backing recovery store, create a new impl of
+//! that. Because each worker's data needs to be kept separate, they
+//! are parameterized on creation by worker index and count to ensure
+//! data is routed appropriately for each worker.
+//!
+//! The recovery system uses a few custom utility operators
+//! ([`crate::operators::WriteState`],
+//! [`crate::operators::WriteProgress`],
+//! [`crate::operators::CollectGarbage`],
+//! [`crate::operators::state_source`],
+//! [`crate::operators::progress_source`]) to implement
 //! behavior. These operators do not represent user-facing dataflow
-//! logic, but instead implement our recovery guarantees.
+//! logic, but instead implement our recovery behavior.
 //!
-//! [`crate::execution::build_dataflow()`] is where all the
-//! coordination for recovery is strung together and you can see the
-//! implementation of the things described here.
-//!
-//! The [`RecoveryStore`] trait provides an interface that the rest of
-//! the components use to save data to the recovery store. To
-//! implement a new backing type, create a new impl of that.
+//! A technique we use to broadcast progress information without
+//! needing to serialize the associated items is to map a stream into
+//! **heartbeats** `()` since they'll have minimal overhead of
+//! transport.
 //!
 //! ```mermaid
 //! graph TD
-//! DB{{Dataflow Builder}} -. Recovered State .-> S1
-//! DB -. Recovered State .-> S2
-//! DB -. Resume Epoch .-> I
-//! I(Input) --> X1([... More Dataflow ...])
-//! X1 --> S1(Stateful Operator)
-//! S1 -. Updated State .-> R{{Recovery}}
-//! S1 -- Logic Output --> X2([... More Dataflow ...]) --> C1(Capture)
-//! X1 --> S2(Stateful Operator)
-//! S2 -. Updated State .-> R
-//! S2 -- Logic Output --> X3([... More Dataflow ...]) --> C2(Capture)
-//! R -. Backup Frontier .-> DF{{Dataflow Frontier}}
-//! C1 -. Frontier .-> DF
-//! C2 -. Frontier .-> DF
-//! DF -. Dataflow Frontier .-> R
+//!
+//! subgraph "Resume Calc Dataflow"
+//! LI{{Progress Input}} -- worker: frontier --> LWM{{Accumulate}} -- worker: latest frontier --> LB{{Broadcast}} -- worker: latest frontier --> LCM{{Accumulate}} -- cluster earlierst frontier --> LS{{Channel}}
+//! LI -. probe .-> LS
+//! end
+//!
+//! LS == recovery epoch ==> I & SI
+//!
+//! subgraph "Production Dataflow"
+//! SI -. probe .-> GC
+//! SI{{State Input}} -- "(step, key, epoch): state backups" --> SF{{Filter}} -- "(step, key, epoch): state backups" --> SO
+//! I(Input) -- items --> SO(Stateful Operator)
+//! SO -- items --> O(Output)
+//! O -- items --> OM{{Map}}
+//! SO -- "(step, key, epoch): state backups" --> SB{{State Backup}}
+//! SB -- "(step, key, epoch): state backups" --> BM{{Map}}
+//! OM & BM --> DFC{{Concat}} --> FB{{Progress Backup}} --> DFB{{Broadcast}} --> GC
+//! SB -- "(step, key, epoch): state backups" --> GC{{Garbage Collector}}
+//! I -. probe .-> GC
+//! end
 //! ```
 //!
-//! Backup
-//! ------
+//! On Backup
+//! ---------
 //!
-//! Each stateful operator ([`crate::operators::Reduce`],
-//! [`crate::operators::StatefulMap`]) only contains execution logic;
-//! they do not load recovery data or backup themselves. Instead, they
-//! emit a second **state update stream** of `(key, state)` updates to
-//! feed into the rest of the recovery machinery. A
-//! [`timely::operators::Map`] operator which adds the ID of that
-//! step.
+//! [`crate::execution::build_production_dataflow`] builds the parts
+//! of the dataflow for backup. Look there for what is described
+//! below.
 //!
-//! All state updates flow into the [`crate::operators::Recovery`]
-//! operator, which writes out these state updates to the recovery
-//! store for backup. It keeps an in-memory summary of the keys and
-//! epochs that are currently in the recovery store. The recovery
-//! operators writes out a log of backups to the **backup
-//! stream**. This contains which keys' state has been updated.
+//! We currently have two user-facing stateful operators
+//! [`crate::operators::Reduce`],
+//! [`crate::operators::StatefulMap`]). But they are both implemented
+//! on top of the more general one: just
+//! [`crate::operators::StatefulMap`]. This means all in-operator
+//! recovery-related code is only written once.
 //!
-//! The [`crate::operator::DataflowFrontier`] operator then looks at
-//! the backup stream and all captures and calculates the **dataflow
-//! frontier**: the oldest in-progress epoch (meaning all data has not
-//! been backed up or output yet). It emits "heartbeat" `()` items
-//! which can be used to listen to the dataflow frontier.
+//! Stateful map does not load recovery data or backup
+//! itself. Instead, it interfaces with a second **state loading
+//! stream** input and generates a second **state backup stream**
+//! output. These are then connected to the rest of the recovery
+//! componenets.
 //!
-//! The dataflow fronter is looped back into the
-//! [`crate::operators::Recovery`] operator via a second input. It
-//! uses the latest dataflow frontier to detect when some state is no
-//! longer necessary for recovery at the dataflow frontier and garbage
-//! collect it. It writes out epochs that have been GCd via a **GC
-//! stream**.
+//! All state backups from all stateful operators are concatenated
+//! into the [`crate::operators::WriteState`] operator, which actually
+//! performs the writes via the [`StateWriter`]. It emits the backups
+//! after writing downstream so progress can be monitored.
 //!
-//! As one extra quirk, the dataflow frontier must be passed through
-//! [`timely::dataflow::operators::broadcast::Broadcast`] so that
-//! every worker has the true whole dataflow frontier, not just what
-//! work happens to be complete on the local worker.
+//! The [`crate::operator::WriteProgress`] operator then looks at the
+//! **worker frontier**, the combined stream of written backups and
+//! all captures. This will be writen via the [`ProgressWriter`]. It
+//! emits heartbeats.
 //!
-//! Recovery
-//! --------
+//! These worker frontier heartbeats are then broadcast so operators
+//! listening to this stream will see progress of the entire dataflow
+//! cluster, the **dataflow frontier**.
 //!
-//! Recovery happens whenever a dataflow is built with a recovery
-//! store that has data in it. Most of this logic is implemented in
-//! [`crate::execution::build_dataflow()`].
+//! The dataflow frontier heartbeat stream and completed state backups
+//! are then fed into the [`crate::operators::GarbageCollector`]
+//! operator. It uses the dataflow frontier to detect when some state
+//! is no longer necessary for recovery and issues deletes via the
+//! [`StateCollector`]. GC keeps an in-memory summary of the keys and
+//! epochs that are currently in the recovery store so reads are not
+//! necessary. It writes out heartbeats of progress as well.
 //!
-//! First the last dataflow frontier and is read from the recovery
-//! store. This will be passed to the input builder to ensure that the
-//! user's code starts from the correct location.
+//! The progress of GC is what is probed to rate-limit execution, not
+//! just captures, so we don't queue up too much recovery work.
 //!
-//! Next, all of the state data is dumped out of the recovery store
-//! into memory. It is divvied up into state for each stateful
-//! operator using [`build_state_caches()`] and passed as the initial
-//! `state_cache` argument to each operator. (See
-//! e.g. [`crate::operators::StatefulMap`]).
+//! On Resume
+//! ---------
 //!
-//! Finally, that state dump is summarized into "which keys and epochs
-//! does the recovery store know about" and passed into the
-//! [`crate::operators::Recovery`] so it can provide correct and
-//! up-to-date GC requests to the state store.
+//! [`crate::execution::worker_main`] is where loading starts. It's
+//! broken into two dataflows, built in
+//! [`crate::execution::build_and_run_resume_epoch_calc_dataflow`] and
+//! [`crate::execution::build_and_run_production_dataflow`].
+//!
+//! First, the resume epoch must be calculated from the progress data
+//! actually written to the recovery store. This can't be
+//! pre-calculated during backup because that write might fail.
+//!
+//! This is done in a separate dataflow first because it needs a
+//! unique epoch definition from the production dataflow: we need to
+//! know when we're done reading all recovery data, which would be
+//! impossible if we re-used the epoch definition from the backed up
+//! dataflow (because that would mean it completed).
+//!
+//! Each resume cluster worker is assigned to read the entire progress
+//! data from some failed cluster worker.
+//!
+//! 1. Find the oldest frontier for the worker since we want to know
+//! how far it got. (That's the first accumulate).
+//!
+//! 2. Broadcast all our oldest per-worker frontiers.
+//!
+//! 3. Find the earliest worker frontier since we want to resume from
+//! the last epoch fully completed by all workers in the
+//! cluster. (That's the second accumulate).
+//!
+//! 4. Cough and turn the frontier back into a singular resume epoch.
+//!
+//! 5. Send the resume epoch out of the dataflow via a channel.
+//!
+//! Once we have the resume epoch, we can start the production
+//! dataflow.
+//!
+//! The main input handle of the production dataflow is advanced to
+//! that epoch (so the input system does not accidentally send old
+//! data).
+//!
+//! The production dataflow also has a second **state loading input**
+//! [`crate::operators::state_source`] in which each resume worker is
+//! assigned to read all state _before_ the recovery epoch. This state
+//! is routed to the correct stateful operators (filtering on step ID)
+//! so that state is loaded and ready for when normal execution
+//! resumes. This state data is also sent to the
+//! [`crate::operators::GarbageCollector`] operator so that it has a
+//! correct cache of all state keys.
+//!
+//! Once the state loading input has caught up to the resume epoch and
+//! completed, the probe of the production dataflow will show a
+//! frontier of the resume epoch and so the input machinery will start
+//! introducing new data again.
 //!
 //! If the underlying data or bug has been fixed, then things should
 //! start right up again!
-//!
-//! Hints
-//! -----
-//!
-//! Note that backing up the fact that state was deleted
-//! (`state_update: Option<D>` is `None`) is not the same as GCing the
-//! state. We need to explicitly save the history of all deletions in
-//! case we need to recover right after a deletion; that state value
-//! should not be loaded. Separately, once we know some backup state
-//! is no longer needed and we'll never need to recover there do we
-//! actually delete the state from the data store.
 
 use crate::dataflow::StepId;
 use crate::pyo3_extensions::StateKey;
+use crate::pyo3_extensions::TdPyAny;
+use futures::stream::StreamExt;
+use log::debug;
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 use rdkafka::admin::AdminClient;
 use rdkafka::admin::AdminOptions;
 use rdkafka::admin::NewTopic;
 use rdkafka::admin::TopicReplication;
+use rdkafka::consumer::BaseConsumer;
 use rdkafka::consumer::Consumer;
-use rdkafka::consumer::StreamConsumer;
 use rdkafka::error::KafkaError;
-use rdkafka::producer::FutureProducer;
-use rdkafka::producer::FutureRecord;
+use rdkafka::producer::BaseProducer;
+use rdkafka::producer::BaseRecord;
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use rdkafka::Message;
-use retry::delay::Fixed;
-use retry::retry;
-use retry::OperationResult;
-use send_wrapper::SendWrapper;
+use rdkafka::Offset;
+use rdkafka::TopicPartitionList;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
 use sqlx::query;
+use sqlx::sqlite::SqliteArgumentValue;
 use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::sqlite::SqliteRow;
-use sqlx::Pool;
+use sqlx::sqlite::SqliteTypeInfo;
+use sqlx::sqlite::SqliteValueRef;
+use sqlx::Connection;
+use sqlx::Decode;
+use sqlx::Encode;
 use sqlx::Row;
 use sqlx::Sqlite;
-use std::collections::HashMap;
+use sqlx::SqliteConnection;
+use sqlx::Type;
+use std::any::type_name;
+use std::borrow::Cow;
 use std::fmt::Debug;
-use std::time::Duration;
-use timely::progress::frontier::AntichainRef;
-use timely::progress::Timestamp;
+use std::marker::PhantomData;
+use std::path::Path;
+use std::path::PathBuf;
+use timely::progress::Antichain;
 use tokio::runtime::Runtime;
-
-use crate::pyo3_extensions::TdPyAny;
-use log::debug;
-use pyo3::prelude::*;
 
 /// Base class for a recovery config.
 ///
-/// This describes how to connect to a recovery store.
+/// This describes how each worker in a dataflow cluster should store
+/// its recovery data.
 ///
 /// Use a specific subclass of this that matches the kind of storage
 /// system you are going to use. See the subclasses in this module.
@@ -162,57 +249,102 @@ use pyo3::prelude::*;
 #[pyo3(text_signature = "()")]
 pub(crate) struct RecoveryConfig;
 
-/// Use [SQLite](https://sqlite.org/index.html) as recovery storage.
+/// Do not store any recovery data.
 ///
-/// Because it's not designed for high-concurrency, SQLite should only
-/// be used for machine-local testing of dataflows. Multiple workers
-/// will _not_ result in corrupted data, but there will be reduced
-/// performance due to contention for the DB lock.
+/// This is the default if no `recovery_config` is passed to your
+/// execution entry point, so you shouldn't need to build this
+/// explicitly.
+#[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
+struct NoopRecoveryConfig;
+
+#[pymethods]
+impl NoopRecoveryConfig {
+    #[new]
+    fn new() -> (Self, RecoveryConfig) {
+        (Self {}, RecoveryConfig {})
+    }
+
+    /// Pickle as a tuple.
+    fn __getstate__(&self) -> (&str,) {
+        ("NoopRecoveryConfig",)
+    }
+
+    /// Unpickle from tuple of arguments.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok(("NoopRecoveryConfig",)) = state.extract() {
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for NoopRecoveryConfig: {state:?}"
+            )))
+        }
+    }
+}
+
+pub(crate) fn default_recovery_config() -> Py<RecoveryConfig> {
+    Python::with_gil(|py| {
+        PyCell::new(py, NoopRecoveryConfig::new())
+            .unwrap()
+            .extract()
+            .unwrap()
+    })
+}
+
+/// Use [SQLite](https://sqlite.org/index.html) to store recovery
+/// data.
 ///
-/// A `state` table in this DB will automatically be created and
-/// queried.
+/// Creates a SQLite DB per-worker in a given directory. Multiple DBs
+/// are used to allow workers to write without contention.
 ///
-/// Only one dataflow can be persisted per SQLite DB. Use a new file
-/// for a new dataflow.
+/// >>> flow = Dataflow()
+/// >>> flow.capture()
+/// >>> def input_builder(worker_index, worker_count, resume_epoch):
+/// ...     for epoch, item in enumerate(range(resume_epoch, 3)):
+/// ...         yield AdvanceTo(epoch)
+/// ...         yield Emit(item)
+/// >>> def output_builder(worker_index, worker_count):
+/// ...     return print
+/// >>> tmp_dir = TemporaryDirectory()  # We'll store this somewhere temporary for this test.
+/// >>> recovery_config = SqliteRecoveryConfig(tmp_dir)
+/// >>> run_main(
+/// ...     flow,
+/// ...     ManualConfig(input_builder),
+/// ...     output_builder,
+/// ...     recovery_config=recovery_config,
+/// ... )  # doctest: +ELLIPSIS
+/// (...)
+///
+/// DB files and tables will automatically be created if there's no
+/// previous recovery data.
 ///
 /// Args:
 ///
-///     db_file_path: Local path to the DB file in Sqlite3
-///         format. E.g. `./state.sqlite3`
-///
-///     create: If the DB file is missing, create it. Defaults to
-///         `False`.
+///     db_dir: Existing directory to store per-worker DBs in. DB
+///     files will have names like `"worker0.sqlite3"`. You can use
+///     `"."` for the current directory.
 ///
 /// Returns:
 ///
 ///     Config object. Pass this as the `recovery_config` argument to
 ///     your execution entry point.
 #[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
-#[pyo3(text_signature = "(db_file_path, create)")]
+#[pyo3(text_signature = "(db_dir)")]
 struct SqliteRecoveryConfig {
     #[pyo3(get)]
-    db_file_path: String,
-    #[pyo3(get)]
-    create: bool,
+    db_dir: PathBuf,
 }
 
 #[pymethods]
 impl SqliteRecoveryConfig {
     #[new]
-    #[args(db_file_path, create = "false")]
-    fn new(db_file_path: String, create: bool) -> (Self, RecoveryConfig) {
-        (
-            Self {
-                db_file_path,
-                create,
-            },
-            RecoveryConfig {},
-        )
+    #[args(db_dir)]
+    fn new(db_dir: PathBuf) -> (Self, RecoveryConfig) {
+        (Self { db_dir }, RecoveryConfig {})
     }
 
     /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, &str, bool) {
-        ("SqliteRecoveryConfig", &self.db_file_path, self.create)
+    fn __getstate__(&self) -> (&str, &Path) {
+        ("SqliteRecoveryConfig", &self.db_dir)
     }
 
     /// Egregious hack because pickling assumes the type has "empty"
@@ -222,15 +354,14 @@ impl SqliteRecoveryConfig {
     /// don't have access to the pickled `db_file_path` yet, so we
     /// have to pass in some dummy string value that will be
     /// overwritten by `__setstate__()` shortly.
-    fn __getnewargs__(&self) -> (&str, bool) {
-        ("UNINIT_PICKLED_STRING", false)
+    fn __getnewargs__(&self) -> (&str,) {
+        ("UNINIT_PICKLED_STRING",)
     }
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("SqliteRecoveryConfig", db_file_path, create)) = state.extract() {
-            self.db_file_path = db_file_path;
-            self.create = create;
+        if let Ok(("SqliteRecoveryConfig", db_dir)) = state.extract() {
+            self.db_dir = db_dir;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -240,53 +371,95 @@ impl SqliteRecoveryConfig {
     }
 }
 
+impl SqliteRecoveryConfig {
+    fn db_file(&self, worker_index: usize) -> PathBuf {
+        self.db_dir.join(format!("worker{worker_index}.sqlite3"))
+    }
+}
+
+/// Use [Kafka](https://kafka.apache.org/) to store recovery data.
+///
+/// Uses a "progress" topic and a "state" topic with a number of
+/// partitions equal to the number of workers.
+///
+/// >>> flow = Dataflow()
+/// >>> flow.capture()
+/// >>> def input_builder(worker_index, worker_count, resume_epoch):
+/// ...     for epoch, item in enumerate(range(resume_epoch, 3)):
+/// ...         yield AdvanceTo(epoch)
+/// ...         yield Emit(item)
+/// >>> def output_builder(worker_index, worker_count):
+/// ...     return print
+/// >>> recovery_config = KafkaRecoveryConfig(
+/// ...     ["localhost:9092"],
+/// ...     "sample-dataflow",
+/// ... )
+/// >>> run_main(
+/// ...     flow,
+/// ...     ManualConfig(input_builder),
+/// ...     output_builder,
+/// ...     recovery_config=recovery_config,
+/// ... )  # doctest: +ELLIPSIS
+/// (...)
+///
+/// Topics will automatically be created if there's no previous
+/// recovery data.
+///
+/// Args:
+///
+///     hosts: List of `host:port` strings of Kafka brokers.
+///
+///     topic_prefix: Prefix used for naming topics. Two topics will
+///         be created using this prefix:
+///         e.g. `"sample-dataflow-progress"` and
+///         `"sample-dataflow-state"`.
+///
+/// Returns:
+///
+///     Config object. Pass this as the `recovery_config` argument to
+///     your execution entry point.
 #[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
-#[pyo3(text_signature = "(hosts, recovery_topic, create)")]
+#[pyo3(text_signature = "(hosts, topic_prefix, create)")]
 struct KafkaRecoveryConfig {
     #[pyo3(get)]
     hosts: Vec<String>,
     #[pyo3(get)]
-    topic: String,
-    #[pyo3(get)]
-    create: bool,
+    topic_prefix: String,
 }
 
 #[pymethods]
 impl KafkaRecoveryConfig {
     #[new]
-    #[args(hosts, recovery_topic, create = "false")]
-    fn new(hosts: Vec<String>, topic: String, create: bool) -> (Self, RecoveryConfig) {
+    #[args(hosts, topic_prefix)]
+    fn new(hosts: Vec<String>, topic_prefix: String) -> (Self, RecoveryConfig) {
         (
             Self {
                 hosts,
-                topic,
-                create,
+                topic_prefix,
             },
             RecoveryConfig {},
         )
     }
 
     /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, Vec<String>, String, bool) {
+    fn __getstate__(&self) -> (&str, Vec<String>, &str) {
         (
             "KafkaRecoveryConfig",
             self.hosts.clone(),
-            self.topic.clone(),
-            self.create,
+            &self.topic_prefix,
         )
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (Vec<String>, &str, bool) {
-        (vec![], "UNINIT_PICKLED_STRING", false)
+    fn __getnewargs__(&self) -> (Vec<String>, &str) {
+        (vec![], "UNINIT_PICKLED_STRING")
     }
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("KafkaRecoveryConfig", hosts, topic, create)) = state.extract() {
+        if let Ok(("KafkaRecoveryConfig", hosts, topic_prefix)) = state.extract() {
             self.hosts = hosts;
-            self.topic = topic;
-            self.create = create;
+            self.topic_prefix = topic_prefix;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -296,640 +469,741 @@ impl KafkaRecoveryConfig {
     }
 }
 
-/// During dataflow building in
-/// [`crate::execution::build_dataflow()`], this creates the
-/// [`RecoveryStore`] instance for this worker.
+impl KafkaRecoveryConfig {
+    fn progress_topic(&self) -> String {
+        format!("{}-progress", self.topic_prefix)
+    }
+
+    fn state_topic(&self) -> String {
+        format!("{}-state", self.topic_prefix)
+    }
+}
+
+fn to_bytes<T: Serialize>(obj: &T) -> Vec<u8> {
+    // TODO: Figure out if there's a more robust-to-evolution way
+    // to serialize this key. If the serialization changes between
+    // versions, then recovery doesn't work. Or if we use an
+    // encoding that isn't deterministic.
+    bincode::serialize(obj).expect("Error serializing recovery data")
+}
+
+fn from_bytes<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> T {
+    let t_name = type_name::<T>();
+    bincode::deserialize(bytes).expect(&format!("Error deserializing recovery {t_name})"))
+}
+
+// Here's our recovery data model.
+
+/// A message noting that the frontier at an input changed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct FrontierUpdate<T>(pub(crate) Antichain<T>);
+
+/// A message noting the state for a key in a stateful operator
+/// changed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct StateBackup<T, D>(pub(crate) RecoveryKey<T>, pub(crate) StateUpdate<D>);
+
+/// Key used to address data within a recovery store.
 ///
-/// This is the Python -- Rust barrier; everything after this is pure
-/// Rust and should obtain the GIL to function on Bytewax objects.
-pub(crate) fn build_recovery_store(
+/// Remember, this isn't the same as [`StateKey`], as the "address
+/// space" of that key is just within a single operator. This type
+/// includes the operator name and epoch too, so we can address state
+/// in an entire dataflow and across time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct RecoveryKey<T>(pub(crate) StepId, pub(crate) StateKey, pub(crate) T);
+
+/// The two kinds of actions that logic in a stateful operator can do
+/// to each [`StateKey`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) enum StateUpdate<D> {
+    /// Save an updated state.
+    Upsert(D),
+    /// Note that the state for this key was reset to empty.
+    Reset,
+}
+
+// Here's our core traits for recovery that allow us to swap out
+// underlying storage.
+
+pub(crate) trait ProgressWriter<T> {
+    fn write(&mut self, frontier_update: &FrontierUpdate<T>);
+}
+
+pub(crate) trait ProgressReader<T> {
+    /// Has the same semantics as [`std::iter::Iterator::next`]:
+    /// return [`None`] to signal EOF.
+    fn read(&mut self) -> Option<FrontierUpdate<T>>;
+}
+
+pub(crate) trait StateWriter<T, D> {
+    fn write(&mut self, state_backup: &StateBackup<T, D>);
+}
+
+pub(crate) trait StateCollector<T> {
+    fn delete(&mut self, recovery_key: &RecoveryKey<T>);
+}
+
+pub(crate) trait StateReader<T, D> {
+    /// Has the same semantics as [`std::iter::Iterator::next`]:
+    /// return [`None`] to signal EOF.
+    fn read(&mut self) -> Option<StateBackup<T, D>>;
+}
+
+/// Use a recovery config and the current worker's identity to build
+/// out the specific recovery writer instances that this worker will
+/// need to backup recovery data.
+///
+/// This function is also the Python-Rust barrier for recovery; we
+/// don't have any Python types in the recovery machinery after this.
+pub(crate) fn build_recovery_writers(
     py: Python,
-    recovery_config: Option<Py<RecoveryConfig>>,
-) -> Result<Box<dyn RecoveryStore<u64, StateKey, TdPyAny>>, String> {
-    match recovery_config {
-        None => Ok(Box::new(NoOpRecoveryStore::new())),
-        Some(recovery_config) => {
-            let recovery_config = recovery_config.as_ref(py);
-            if let Ok(sqlite_recovery_config) =
-                recovery_config.downcast::<PyCell<SqliteRecoveryConfig>>()
-            {
-                Ok(Box::new(SqliteRecoveryStore::new(
-                    sqlite_recovery_config.borrow(),
-                )))
-            } else if let Ok(kafka_recovery_config) =
-                recovery_config.downcast::<PyCell<KafkaRecoveryConfig>>()
-            {
-                Ok(Box::new(KafkaRecoveryStore::new(
-                    kafka_recovery_config.borrow(),
-                )))
-            } else {
-                let pytype = recovery_config.get_type();
-                Err(format!("Unknown recovery_config type: {pytype}"))
-            }
-        }
-    }
-}
+    worker_index: usize,
+    worker_count: usize,
+    recovery_config: Py<RecoveryConfig>,
+) -> Result<
+    (
+        Box<dyn ProgressWriter<u64>>,
+        Box<dyn StateWriter<u64, TdPyAny>>,
+        Box<dyn StateCollector<u64>>,
+    ),
+    String,
+> {
+    // Horrible news: we have to be very studious and release the GIL
+    // any time we know we have it and we call into complex Rust
+    // libraries because internally it might call log!() on a
+    // background thread, which because of `pyo3-log` might try to
+    // re-acquire the GIL and then you have deadlock. E.g. `sqlx` and
+    // `rdkafka` always spawn background threads.
+    let recovery_config = recovery_config.as_ref(py);
 
-/// Convert the unstructured log format of recovery data into a
-/// structured HashMap that the stateful operators can use during
-/// execution.
-pub(crate) fn build_state_caches(
-    recovery_data: Vec<(StepId, StateKey, u64, Option<TdPyAny>)>,
-) -> HashMap<StepId, HashMap<StateKey, TdPyAny>> {
-    let mut last_epochs: HashMap<(StepId, StateKey), u64> = HashMap::new();
-    let mut state_caches: HashMap<StepId, HashMap<StateKey, TdPyAny>> = HashMap::new();
-    for (step_id, key, epoch, state) in recovery_data {
-        debug!("state_cache step_id={step_id:?} key={key:?} epoch={epoch:?} state={state:?}");
-        // Let's double check that RecoveryStore.load() is loading
-        // things in order and panic otherwise because the code below
-        // is only correct if state is in epoch order.
-        last_epochs
-            .entry((step_id.clone(), key.clone()))
-            .and_modify(|last_epoch| {
-                assert!(
-                    epoch > *last_epoch,
-                    "Recovery store must return data in epoch order"
-                );
-                *last_epoch = epoch;
-            })
-            .or_insert(epoch);
-
-        let state_cache = state_caches.entry(step_id).or_default();
-        match state {
-            Some(state) => state_cache.insert(key, state),
-            None => state_cache.remove(&key),
-        };
-    }
-    state_caches
-}
-
-/// Use this instead of [`Option`] so we don't have to actually retain
-/// the value of the state in memory to track what the recovery store
-/// knows. We only care about keys and if the value was a delete to
-/// allow GCing now-unused keys.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum UpdateType {
-    Upsert,
-    Delete,
-}
-
-impl<T> From<Option<T>> for UpdateType {
-    fn from(option: Option<T>) -> Self {
-        match option {
-            Some(_) => Self::Upsert,
-            None => Self::Delete,
-        }
-    }
-}
-
-/// Rust-side trait which represents actions the dataflow execution
-/// will need to delegate to a recovery store.
-///
-/// We'll implement this for each kind of recovery store we need to
-/// talk to. This is not exposed Python-side.
-pub(crate) trait RecoveryStore<T: Timestamp, K, D> {
-    /// Load all state to recover the dataflow from the most recent
-    /// dataflow frontier.
-    ///
-    /// This returns a vector of known state snapshots and the resume
-    /// epoch.
-    ///
-    /// You must not hold the GIL when calling this function.
-    // TODO: Somehow only load data relevant to this worker. Hash the
-    // key?
-    // TODO: What does it mean to recover to a non-fully ordered
-    // timestamp?
-    fn load(&self) -> (Vec<(StepId, K, T, Option<D>)>, T);
-
-    /// Save some updated state for a key in a stateful operator in an
-    /// epoch.
-    ///
-    /// If the state was deleted, pass in `None`.
-    ///
-    /// You should only call this once per epoch per key, when the
-    /// epoch is complete to avoid saving unnecessary between-epoch
-    /// state.
-    ///
-    /// You must not hold the GIL when calling this function.
-    fn save_state(&mut self, step_id: &StepId, key: &K, epoch: &T, state: &Option<D>);
-
-    /// Save the current dataflow frontier, as this is the resume
-    /// epoch.
-    ///
-    /// This is what is returned as the resume epoch from [`load()`].
-    ///
-    /// You must not hold the GIL when calling this function.
-    fn save_frontier(&mut self, dataflow_frontier: AntichainRef<T>);
-
-    /// Called when recovery state is no longer needed and should be
-    /// deleted.
-    ///
-    /// You must not hold the GIL when calling this function.
-    fn delete_state(&mut self, step_id: &StepId, key: &K, epoch: &T);
-}
-
-/// A recovery store which does nothing.
-///
-/// Saves are logged but dropped and all recoveries result in no data.
-pub(crate) struct NoOpRecoveryStore;
-
-impl NoOpRecoveryStore {
-    pub(crate) fn new() -> Self {
-        NoOpRecoveryStore {}
-    }
-}
-
-impl<T: Timestamp, K: Debug, D: Debug> RecoveryStore<T, K, D> for NoOpRecoveryStore {
-    fn load(&self) -> (Vec<(StepId, K, T, Option<D>)>, T) {
-        debug!("noop load");
-        (Vec::new(), T::minimum())
-    }
-
-    fn save_state(&mut self, step_id: &StepId, key: &K, epoch: &T, state: &Option<D>) {
-        debug!("noop save_state step_id={step_id:?} key={key:?} epoch={epoch:?} state={state:?}");
-    }
-
-    fn save_frontier(&mut self, dataflow_frontier: AntichainRef<T>) {
-        debug!("noop save_frontier dataflow_frontier={dataflow_frontier:?}");
-    }
-
-    fn delete_state(&mut self, step_id: &StepId, key: &K, epoch: &T) {
-        debug!("noop delete_state step_id={step_id:?} key={key:?} epoch={epoch:?}");
-    }
-}
-
-/// A recovery store which save state to an SQLite DB.
-///
-/// State is stored in a `states` table with the epoch it was
-/// generated at. Backup involves saving `(step_id, key, epoch,
-/// state)` tuples and GC involves deleting them. We really just use
-/// this as a key-value store.
-///
-/// The dataflow frontier is stored in a `frontiers` table.
-struct SqliteRecoveryStore {
-    // SAFETY: Avoid PyO3 Send overloading.
-    rt: SendWrapper<Runtime>,
-    pool: Pool<Sqlite>,
-}
-
-impl SqliteRecoveryStore {
-    fn new(config: PyRef<SqliteRecoveryConfig>) -> Self {
-        // Horrible news: we have to be very studious and release the
-        // GIL any time we know we have it and we call into sqlx
-        // because internally it might call log!() which because of
-        // pyo3-log might re-acuqire the GIL and sqlx always has a
-        // background thread. We don't need to do this in the
-        // RecoveryStore methods below because we know they won't be
-        // called from a GIL-holding point.
-
-        // SAFETY: Avoid PyO3 Send overloading.
-        let config = SendWrapper::new(config);
-        config.py().allow_threads(|| {
-            let rt = SendWrapper::new(
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap(),
-            );
-
-            // For some reason the busy_timeout setting doesn't affect the
-            // initial connection. So manually retry here.
-            let pool = retry(Fixed::from_millis(100), || {
-                let mut options = SqliteConnectOptions::new()
-                    .filename(&config.db_file_path)
-                    .busy_timeout(Duration::from_secs(5))
-                    .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-                    .locking_mode(sqlx::sqlite::SqliteLockingMode::Normal)
-                    .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
-                    .thread_name(|i| format!("sqlx-sqlite-{i}"));
-                if config.create {
-                    options = options.create_if_missing(true);
-                }
-                let future = SqlitePoolOptions::new().connect_with(options);
-                match rt.block_on(future) {
-                    Ok(pool) => OperationResult::Ok(pool),
-                    Err(err) => OperationResult::Err(err),
-                }
-            })
-                .unwrap();
-            debug!("Opened Sqlite connection pool to {}", config.db_file_path);
-
-            if config.create {
-                let future = query(
-                    "CREATE TABLE IF NOT EXISTS states(step_id, key, epoch INTEGER, state, PRIMARY KEY (step_id, key, epoch));"
-                ).execute(&pool);
-                rt.block_on(future).unwrap();
-                let future = query("CREATE TABLE IF NOT EXISTS frontiers(name PRIMARY KEY, epoch INTEGER);")
-                    .execute(&pool);
-                rt.block_on(future).unwrap();
-                let future = query("INSERT INTO frontiers (name, epoch) VALUES (\"dataflow_frontier\", 0) ON CONFLICT (name) DO NOTHING")
-                    .execute(&pool);
-                rt.block_on(future).unwrap();
-            }
-
-            SqliteRecoveryStore { rt, pool }
-        })
-    }
-
-    fn step_id_to_string(step_id: &StepId) -> String {
-        step_id.clone().into()
-    }
-
-    fn key_to_string(key: &StateKey) -> String {
-        key.clone().into()
-    }
-
-    fn epoch_to_i64(epoch: &u64) -> i64 {
-        i64::try_from(*epoch).expect("Epoch too big to fit into SQLite int")
-    }
-
-    fn state_to_bytes(state: &Option<TdPyAny>) -> Option<Vec<u8>> {
-        state.as_ref().map(|state| {
-            Python::with_gil(|py| -> Result<Vec<u8>, PyErr> {
-                let pickle = py.import("dill")?;
-                Ok(pickle.call_method1("dumps", (state,))?.extract()?)
-            })
-            .expect("Error pickling state")
-        })
-    }
-}
-
-impl RecoveryStore<u64, StateKey, TdPyAny> for SqliteRecoveryStore {
-    fn load(&self) -> (Vec<(StepId, StateKey, u64, Option<TdPyAny>)>, u64) {
-        let future = query("SELECT epoch FROM frontiers WHERE name = \"dataflow_frontier\"")
-            .map(|row: SqliteRow| {
-                row.get::<i64, _>(0)
-                    .try_into()
-                    .expect("SQLite int can't fit into epoch; might be negative")
-            })
-            .fetch_one(&self.pool);
-        let dataflow_frontier: u64 = self.rt.block_on(future).unwrap();
-
-        let resume_epoch = dataflow_frontier;
-        // Notice we only select < dataflow frontier. Not <=. Any
-        // state written during the previous execution's dataflow
-        // frontier itself was still "in progress" and so shouldn't be
-        // re-introduced in this run.
-        let future = query("SELECT step_id, key, epoch, state FROM states WHERE epoch < ?1 ORDER BY step_id, key, epoch ASC")
-            .bind(Self::epoch_to_i64(&resume_epoch))
-            .map(|row: SqliteRow| {
-                // Because of the whole "PyO3 uses Sync to mark
-                // GIL-bound lifetimes" thing, we can't move this GIL
-                // block outside without jumping through hoops.
-                Python::with_gil(|py| {
-                    let pickle = py.import("dill").expect("Error importing dill");
-
-                    let step_id: StepId = row.get::<String, _>(0).into();
-                    let key: StateKey = StateKey::new(row.get(1));
-                    let epoch: u64 = row.get::<i64, _>(2).try_into().expect("SQLite int can't fit into epoch; might be negative");
-                    let state_pickled: Option<&[u8]> = row.get(3);
-                    let state = state_pickled.map(|bytes| pickle.call_method1("loads", (bytes, )).expect("Error unpickling state").into());
-                    (step_id, key, epoch, state)
-                })
-            })
-            .fetch_all(&self.pool);
-        let recovery_store_log = self.rt.block_on(future).unwrap();
-
-        debug!(
-            "sqlite load resume_epoch={resume_epoch:?} recovery_store_log.len()={}",
-            recovery_store_log.len()
-        );
-        (recovery_store_log, resume_epoch)
-    }
-
-    fn save_state(
-        &mut self,
-        step_id: &StepId,
-        key: &StateKey,
-        epoch: &u64,
-        state: &Option<TdPyAny>,
-    ) {
-        let future = query("INSERT INTO states (step_id, key, epoch, state) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (step_id, key, epoch) DO UPDATE SET state = EXCLUDED.state")
-            .bind(Self::step_id_to_string(step_id))
-            .bind(Self::key_to_string(key))
-            .bind(Self::epoch_to_i64(epoch))
-            // Remember, deleted state is stored as NULL in the DB.
-            .bind(Self::state_to_bytes(state))
-            .execute(&self.pool);
-        self.rt.block_on(future).unwrap();
-
-        debug!("sqlite save_state step_id={step_id:?} key={key:?} epoch={epoch:?} state={state:?}");
-        // TODO: Warn on state overwriting?
-    }
-
-    fn save_frontier(&mut self, dataflow_frontier: AntichainRef<u64>) {
-        if dataflow_frontier.len() > 0 {
-            let future = query("INSERT INTO frontiers (name, epoch) VALUES (?1, ?2) ON CONFLICT (name) DO UPDATE SET epoch = EXCLUDED.epoch")
-                .bind("dataflow_frontier")
-                // TODO: Will we ever want to save the whole final
-                // frontier? We're using fully ordered epochs in
-                // Bytewax so there should never be more than one
-                // element.
-                .bind(Self::epoch_to_i64(dataflow_frontier.first().unwrap()))
-                .execute(&self.pool);
-            self.rt.block_on(future).unwrap();
-
-            // TODO: Warn on final frontier going backwards? Might stay
-            // the same if recovering.
-        } else {
-            // TODO: More gracefully handle if the dataflow completes
-            // sucessfully. Currently if it does, the recovery store
-            // ends up empty. So if you attempt to recover from it,
-            // the whole dataflow starts again. Delete the state DB?
-            let future = query("DELETE FROM frontiers WHERE name = \"dataflow_frontier\"")
-                .execute(&self.pool);
-            self.rt.block_on(future).unwrap();
-        }
-
-        debug!("sqlite save_frontier dataflow_frontier={dataflow_frontier:?}");
-    }
-
-    fn delete_state(&mut self, step_id: &StepId, key: &StateKey, epoch: &u64) {
-        let future = query("DELETE FROM states WHERE step_id = ?1 AND key = ?2 AND epoch = ?3")
-            .bind(Self::step_id_to_string(step_id))
-            .bind(Self::key_to_string(key))
-            .bind(Self::epoch_to_i64(epoch))
-            .execute(&self.pool);
-        self.rt.block_on(future).unwrap();
-
-        debug!("sqlite delete_state step_id={step_id:?} key={key:?} epoch={epoch:?}");
-    }
-}
-
-/// A recovery store which save state to a Kafka topic.
-///
-/// We use the topic as a log of changes to a key-value store. We read
-/// back in the change log to re-build that state.
-///
-/// See [`KafkaKey`] for the kinds of things we want to store.
-struct KafkaRecoveryStore {
-    rt: SendWrapper<Runtime>,
-    hosts: Vec<String>,
-    producer: FutureProducer,
-    topic: String,
-}
-
-/// Keys in our Kafka-based key-value store.
-///
-/// Again use an enum to get easy serialization to / from bytes (which
-/// is all Kafka can actually read / write).
-#[derive(Debug, Serialize, Deserialize)]
-enum KafkaKey {
-    /// Store a state update for a stateful operator.
-    State {
-        step_id: StepId,
-        key: StateKey,
-        epoch: u64,
-    },
-    /// Save that the dataflow frontier has progressed.
-    DataflowFrontier,
-}
-
-impl KafkaKey {
-    fn to_bytes(&self) -> Vec<u8> {
-        // TODO: Figure out if there's a more robust-to-evolution way
-        // to serialize this key. If the serialization changes between
-        // versions, then recovery doesn't work. Or if we use an
-        // encoding that isn't deterministic.
-        bincode::serialize(self).expect("Error serializing state key")
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Self {
-        bincode::deserialize(bytes).expect("Error deserializing state key")
-    }
-}
-
-/// Values our or Kafka-based key-value store.
-///
-/// Again use an enum to get easy serialization to / from bytes (which
-/// is all Kafka can actually read / write).
-#[derive(Debug, Serialize, Deserialize)]
-enum KafkaPayload {
-    /// The actual state update. If inside is `None` then the state
-    /// was deleted at this epoch.
-    State(Option<TdPyAny>),
-    /// A dataflow frontier value update.
-    DataflowFrontier(u64),
-}
-
-impl KafkaPayload {
-    fn to_bytes(&self) -> Vec<u8> {
-        bincode::serialize(self).expect("Error serializing state payload")
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Self {
-        bincode::deserialize(bytes).expect("Error deserializing state payload")
-    }
-}
-
-impl KafkaRecoveryStore {
-    fn new(config: PyRef<KafkaRecoveryConfig>) -> Self {
-        use rdkafka::types::RDKafkaErrorCode;
-
-        let rt = SendWrapper::new(
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
-        );
-
-        let hosts = config.hosts.clone();
-        let topic = config.topic.clone();
-
-        debug!("Creating Kafka topic with hosts={hosts:?}");
-        let admin: AdminClient<_> = rt.block_on(async {
-            ClientConfig::new()
-                .set("bootstrap.servers", hosts.join(","))
-                .create()
-                .expect("Error building Kafka admin")
+    if let Ok(_noop_recovery_config) = recovery_config.downcast::<PyCell<NoopRecoveryConfig>>() {
+        let (state_writer, progress_writer, state_collector) = py.allow_threads(|| {
+            (
+                NoopRecovery::new(),
+                NoopRecovery::new(),
+                NoopRecovery::new(),
+            )
         });
-        let admin_options = AdminOptions::new();
+        Ok((
+            Box::new(state_writer),
+            Box::new(progress_writer),
+            Box::new(state_collector),
+        ))
+    } else if let Ok(sqlite_recovery_config) =
+        recovery_config.downcast::<PyCell<SqliteRecoveryConfig>>()
+    {
+        let sqlite_recovery_config = sqlite_recovery_config.borrow();
 
-        // TODO: Really we want num_partitions: worker_count, but
-        // we'll figure that out once we do multi-worker recovery
-        // loading.
-        let new_topic = NewTopic {
-            name: topic.as_str(),
-            num_partitions: 1,
-            replication: TopicReplication::Fixed(1),
-            config: vec![],
-        };
-        let future = admin.create_topics(vec![&new_topic], &admin_options);
-        let result = rt
-            .block_on(future)
-            .expect("Error calling create Kafka topic on admin")
-            .pop()
+        let db_file = sqlite_recovery_config.db_file(worker_index);
+
+        let (progress_writer, state_writer, state_collector) = py.allow_threads(|| {
+            (
+                SqliteProgressWriter::new(&db_file),
+                SqliteStateWriter::new(&db_file),
+                SqliteStateWriter::new(&db_file),
+            )
+        });
+
+        Ok((
+            Box::new(progress_writer),
+            Box::new(state_writer),
+            Box::new(state_collector),
+        ))
+    } else if let Ok(kafka_recovery_config) =
+        recovery_config.downcast::<PyCell<KafkaRecoveryConfig>>()
+    {
+        let kafka_recovery_config = kafka_recovery_config.borrow();
+
+        let hosts = &kafka_recovery_config.hosts;
+        let state_topic = kafka_recovery_config.state_topic();
+        let progress_topic = kafka_recovery_config.progress_topic();
+        let partition = worker_index.try_into().unwrap();
+        let create_partitions = worker_count.try_into().unwrap();
+
+        let (progress_writer, state_writer, state_collector) = py.allow_threads(|| {
+            create_kafka_topic(hosts, &progress_topic, create_partitions);
+            create_kafka_topic(hosts, &state_topic, create_partitions);
+
+            (
+                KafkaWriter::new(hosts, progress_topic, partition),
+                KafkaWriter::new(hosts, state_topic.clone(), partition),
+                KafkaWriter::new(hosts, state_topic, partition),
+            )
+        });
+
+        Ok((
+            Box::new(progress_writer),
+            Box::new(state_writer),
+            Box::new(state_collector),
+        ))
+    } else {
+        Err(format!(
+            "Unknown recovery_config type: {}",
+            recovery_config.get_type(),
+        ))
+    }
+}
+
+/// Use a recovery config and the current worker's identity to build
+/// out the specific recovery reader instances that this worker will
+/// need to load recovery data.
+///
+/// This function is also the Python-Rust barrier for recovery; we
+/// don't have any Python types in the recovery machinery after this.
+///
+/// We need to know worker count and index here because each worker
+/// needs to read distinct loading data from a worker in the previous
+/// dataflow execution.
+///
+/// Note that as of now, this code assumes that the number of workers
+/// _has not changed between executions_. Things will silently not
+/// fully load if worker count is changed.
+pub(crate) fn build_recovery_readers(
+    py: Python,
+    worker_index: usize,
+    worker_count: usize,
+    recovery_config: Py<RecoveryConfig>,
+) -> Result<
+    (
+        Box<dyn ProgressReader<u64>>,
+        Box<dyn StateReader<u64, TdPyAny>>,
+    ),
+    String,
+> {
+    // See comment about the GIL in
+    // [`build_recovery_writer_components`].
+    let recovery_config = recovery_config.as_ref(py);
+
+    if let Ok(_noop_recovery_config) = recovery_config.downcast::<PyCell<NoopRecoveryConfig>>() {
+        let (state_reader, progress_reader) =
+            py.allow_threads(|| (NoopRecovery::new(), NoopRecovery::new()));
+        Ok((Box::new(state_reader), Box::new(progress_reader)))
+    } else if let Ok(sqlite_recovery_config) =
+        recovery_config.downcast::<PyCell<SqliteRecoveryConfig>>()
+    {
+        let sqlite_recovery_config = sqlite_recovery_config.borrow();
+
+        let db_file = sqlite_recovery_config.db_file(worker_index);
+
+        let (progress_reader, state_reader) = py.allow_threads(|| {
+            (
+                SqliteProgressReader::new(&db_file),
+                SqliteStateReader::new(&db_file),
+            )
+        });
+
+        Ok((Box::new(progress_reader), Box::new(state_reader)))
+    } else if let Ok(kafka_recovery_config) =
+        recovery_config.downcast::<PyCell<KafkaRecoveryConfig>>()
+    {
+        let kafka_recovery_config = kafka_recovery_config.borrow();
+
+        let hosts = &kafka_recovery_config.hosts;
+        let state_topic = kafka_recovery_config.state_topic();
+        let progress_topic = kafka_recovery_config.progress_topic();
+        let partition = worker_index.try_into().unwrap();
+        let create_partitions = worker_count.try_into().unwrap();
+
+        let (progress_reader, state_reader) = py.allow_threads(|| {
+            create_kafka_topic(hosts, &progress_topic, create_partitions);
+            create_kafka_topic(hosts, &state_topic, create_partitions);
+
+            (
+                KafkaReader::new(hosts, &progress_topic, partition),
+                KafkaReader::new(hosts, &state_topic, partition),
+            )
+        });
+
+        Ok((Box::new(progress_reader), Box::new(state_reader)))
+    } else {
+        Err(format!(
+            "Unknown recovery_config type: {}",
+            recovery_config.get_type(),
+        ))
+    }
+}
+
+/// Implements all the recovery traits Bytewax needs, but does not
+/// load or backup any data.
+pub struct NoopRecovery;
+
+impl NoopRecovery {
+    pub fn new() -> Self {
+        NoopRecovery {}
+    }
+}
+
+impl<T: Debug, D: Debug> StateWriter<T, D> for NoopRecovery {
+    fn write(&mut self, backup: &StateBackup<T, D>) {
+        debug!("noop state write backup={backup:?}");
+    }
+}
+
+impl<T: Debug> StateCollector<T> for NoopRecovery {
+    fn delete(&mut self, recovery_key: &RecoveryKey<T>) {
+        debug!("noop state delete recovery_key={recovery_key:?}");
+    }
+}
+
+impl<T, D> StateReader<T, D> for NoopRecovery {
+    fn read(&mut self) -> Option<StateBackup<T, D>> {
+        debug!("noop state read");
+        None
+    }
+}
+
+impl<T: Debug> ProgressWriter<T> for NoopRecovery {
+    fn write(&mut self, frontier_update: &FrontierUpdate<T>) {
+        debug!("noop frontier write frontier_update={frontier_update:?}");
+    }
+}
+
+impl<T> ProgressReader<T> for NoopRecovery {
+    fn read(&mut self) -> Option<FrontierUpdate<T>> {
+        debug!("noop frontier read");
+        None
+    }
+}
+
+struct SqliteStateWriter {
+    rt: Runtime,
+    conn: SqliteConnection,
+    table_name: String,
+}
+
+impl SqliteStateWriter {
+    fn new(db_file: &Path) -> Self {
+        let table_name = "state".to_string();
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
             .unwrap();
-        match result {
-            Ok(topic) => debug!("Created recovery Kafka topic={topic:?}"),
-            Err((topic, RDKafkaErrorCode::TopicAlreadyExists)) => {
-                debug!("Kafka topic={topic:?} already exists; continuing")
-            }
-            Err((topic, err_code)) => panic!("Error creating Kafka topic={topic:?}: {err_code:?}"),
-        }
 
-        debug!("Creating Kafka producer with hosts={hosts:?}");
-        let producer: FutureProducer = ClientConfig::new()
+        let mut options = SqliteConnectOptions::new().filename(db_file);
+        options = options.create_if_missing(true);
+        let future = SqliteConnection::connect_with(&options);
+        let mut conn = rt.block_on(future).unwrap();
+        debug!("Opened Sqlite connection to {db_file:?}");
+
+        // TODO: SQLite doesn't let you bind to table names. Can
+        // we do this in a slightly safer way? I'm not as worried
+        // because this value is not from items in the dataflow
+        // stream, but from the config which should be under
+        // developer control.
+        let sql = format!("CREATE TABLE IF NOT EXISTS {table_name} (step_id, key, epoch INTEGER, state, PRIMARY KEY (step_id, key, epoch));");
+        let future = query(&sql).execute(&mut conn);
+        rt.block_on(future).unwrap();
+
+        Self {
+            rt,
+            conn,
+            table_name,
+        }
+    }
+}
+
+impl<D> Type<Sqlite> for StateUpdate<D> {
+    fn type_info() -> SqliteTypeInfo {
+        <&[u8] as Type<Sqlite>>::type_info()
+    }
+}
+
+impl<'q, D: Serialize> Encode<'q, Sqlite> for StateUpdate<D> {
+    fn encode_by_ref(&self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
+        let bytes = to_bytes(self);
+        args.push(SqliteArgumentValue::Blob(Cow::Owned(bytes)));
+        IsNull::No
+    }
+}
+
+impl<'r, D: Deserialize<'r>> Decode<'r, Sqlite> for StateUpdate<D> {
+    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
+        let value = <&[u8] as Decode<Sqlite>>::decode(value)?;
+        Ok(from_bytes(value))
+    }
+}
+
+impl<D> Type<Sqlite> for FrontierUpdate<D> {
+    fn type_info() -> SqliteTypeInfo {
+        <&[u8] as Type<Sqlite>>::type_info()
+    }
+}
+
+impl<'q, T: Serialize> Encode<'q, Sqlite> for FrontierUpdate<T> {
+    fn encode_by_ref(&self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
+        let bytes = to_bytes(self);
+        args.push(SqliteArgumentValue::Blob(Cow::Owned(bytes)));
+        IsNull::No
+    }
+}
+
+impl<'r, T: Deserialize<'r>> Decode<'r, Sqlite> for FrontierUpdate<T> {
+    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
+        let value = <&[u8] as Decode<Sqlite>>::decode(value)?;
+        Ok(from_bytes(value))
+    }
+}
+
+impl StateWriter<u64, TdPyAny> for SqliteStateWriter {
+    fn write(&mut self, backup: &StateBackup<u64, TdPyAny>) {
+        let StateBackup(recovery_key, state_update) = backup;
+        let RecoveryKey(step_id, key, epoch) = recovery_key;
+        let sql = format!("INSERT INTO {} (step_id, key, epoch, state) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (step_id, key, epoch) DO UPDATE SET state = EXCLUDED.state", self.table_name);
+        let future = query(&sql)
+            .bind(step_id)
+            .bind(key)
+            .bind(<u64 as TryInto<i64>>::try_into(*epoch).expect("epoch can't fit into SQLite int"))
+            // Remember, reset state is stored as an explicit NULL in the
+            // DB.
+            .bind(state_update)
+            .execute(&mut self.conn);
+        self.rt.block_on(future).unwrap();
+
+        debug!("sqlite state write backup={backup:?}");
+    }
+}
+
+impl StateCollector<u64> for SqliteStateWriter {
+    fn delete(&mut self, recovery_key: &RecoveryKey<u64>) {
+        let RecoveryKey(step_id, key, epoch) = recovery_key;
+        let sql = format!(
+            "DELETE FROM {} WHERE step_id = ?1 AND key = ?2 AND epoch = ?3",
+            self.table_name
+        );
+        let future = query(&sql)
+            .bind(step_id)
+            .bind(key)
+            .bind(<u64 as TryInto<i64>>::try_into(*epoch).expect("epoch can't fit into SQLite int"))
+            .execute(&mut self.conn);
+        self.rt.block_on(future).unwrap();
+
+        debug!("sqlite state delete recovery_key={recovery_key:?}");
+    }
+}
+
+struct SqliteStateReader {
+    rt: Runtime,
+    rx: tokio::sync::mpsc::Receiver<StateBackup<u64, TdPyAny>>,
+}
+
+impl SqliteStateReader {
+    fn new(db_file: &Path) -> Self {
+        let table_name = "state";
+
+        // Bootstrap off writer to get table creation.
+        let writer = SqliteStateWriter::new(db_file);
+        let rt = writer.rt;
+        let mut conn = writer.conn;
+
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+
+        rt.spawn(async move {
+            let sql =
+                format!("SELECT step_id, key, epoch, state FROM {table_name} ORDER BY epoch ASC");
+            let mut stream = query(&sql)
+                .map(|row: SqliteRow| {
+                    let recovery_key = RecoveryKey(
+                        row.get(0),
+                        row.get(1),
+                        row.get::<i64, _>(2)
+                            .try_into()
+                            .expect("SQLite int can't fit into epoch; might be negative"),
+                    );
+                    StateBackup(recovery_key, row.get(3))
+                })
+                .fetch(&mut conn)
+                .map(|result| result.expect("Error selecting from SQLite"));
+
+            while let Some(backup) = stream.next().await {
+                tx.send(backup).await.unwrap();
+            }
+        });
+
+        Self { rt, rx }
+    }
+}
+
+impl StateReader<u64, TdPyAny> for SqliteStateReader {
+    fn read(&mut self) -> Option<StateBackup<u64, TdPyAny>> {
+        self.rt.block_on(self.rx.recv())
+    }
+}
+
+struct SqliteProgressWriter {
+    rt: Runtime,
+    conn: SqliteConnection,
+    table_name: String,
+}
+
+impl SqliteProgressWriter {
+    fn new(db_file: &Path) -> Self {
+        let table_name = "progress".to_string();
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let mut options = SqliteConnectOptions::new().filename(db_file);
+        options = options.create_if_missing(true);
+        let future = SqliteConnection::connect_with(&options);
+        let mut conn = rt.block_on(future).unwrap();
+        debug!("Opened Sqlite connection to {db_file:?}");
+
+        let sql = format!("CREATE TABLE IF NOT EXISTS {table_name} (name PRIMARY KEY, antichain);");
+        let future = query(&sql).execute(&mut conn);
+        rt.block_on(future).unwrap();
+
+        Self {
+            rt,
+            conn,
+            table_name,
+        }
+    }
+}
+
+impl ProgressWriter<u64> for SqliteProgressWriter {
+    fn write(&mut self, frontier_update: &FrontierUpdate<u64>) {
+        let sql = format!("INSERT INTO {} (name, antichain) VALUES (?1, ?2) ON CONFLICT (name) DO UPDATE SET antichain = EXCLUDED.antichain", self.table_name);
+        let future = query(&sql)
+            .bind("worker_frontier")
+            .bind(frontier_update)
+            .execute(&mut self.conn);
+        self.rt.block_on(future).unwrap();
+
+        debug!("sqlite frontier write frontier_update={frontier_update:?}");
+    }
+}
+
+struct SqliteProgressReader {
+    rt: Runtime,
+    rx: tokio::sync::mpsc::Receiver<FrontierUpdate<u64>>,
+}
+
+impl SqliteProgressReader {
+    fn new(db_file: &Path) -> Self {
+        let table_name = "progress";
+
+        let writer = SqliteProgressWriter::new(db_file);
+        let rt = writer.rt;
+        let mut conn = writer.conn;
+
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+
+        rt.spawn(async move {
+            let sql =
+                format!("SELECT antichain FROM {table_name} WHERE name = \"worker_frontier\"");
+            let mut stream = query(&sql)
+                .map(|row: SqliteRow| row.get::<FrontierUpdate<u64>, _>(0))
+                .fetch(&mut conn)
+                .map(|result| result.expect("Error selecting from SQLite"));
+
+            while let Some(backup) = stream.next().await {
+                tx.send(backup).await.unwrap();
+            }
+        });
+
+        Self { rt, rx }
+    }
+}
+
+impl ProgressReader<u64> for SqliteProgressReader {
+    fn read(&mut self) -> Option<FrontierUpdate<u64>> {
+        self.rt.block_on(self.rx.recv())
+    }
+}
+
+fn create_kafka_topic(hosts: &[String], topic: &str, partitions: i32) {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let admin: AdminClient<_> = rt.block_on(async {
+        ClientConfig::new()
+            .set("bootstrap.servers", hosts.join(","))
+            .create()
+            .expect("Error building Kafka admin")
+    });
+    let admin_options = AdminOptions::new();
+
+    let new_topic = NewTopic {
+        name: topic,
+        num_partitions: partitions,
+        // I believe this chooses the default replication factor.
+        replication: TopicReplication::Fixed(-1),
+        config: vec![],
+    };
+    let future = admin.create_topics(vec![&new_topic], &admin_options);
+    let result = rt
+        .block_on(future)
+        .expect("Error calling create Kafka topic on admin")
+        .pop()
+        .unwrap();
+    match result {
+        Ok(topic) => {
+            debug!("Created Kafka topic={topic:?}");
+        }
+        Err((topic, rdkafka::types::RDKafkaErrorCode::TopicAlreadyExists)) => {
+            debug!("Kafka topic={topic:?} already exists; continuing");
+        }
+        Err((topic, err_code)) => {
+            panic!("Error creating Kafka topic={topic:?}: {err_code:?}")
+        }
+    }
+}
+
+/// This is a generic wrapper around [`BaseProducer`] which adds
+/// serde and only writes to a single topic and partition.
+struct KafkaWriter<K, P> {
+    producer: BaseProducer,
+    topic: String,
+    partition: i32,
+    key_type: PhantomData<K>,
+    payload_type: PhantomData<P>,
+}
+
+impl<K: Serialize, P: Serialize> KafkaWriter<K, P> {
+    fn new(hosts: &[String], topic: String, partition: i32) -> Self {
+        debug!("Creating Kafka producer with hosts={hosts:?} topic={topic:?}");
+        let producer: BaseProducer = ClientConfig::new()
             .set("bootstrap.servers", hosts.join(","))
             .create()
             .expect("Error building Kafka producer");
 
         Self {
-            rt,
-            hosts,
             producer,
             topic,
+            partition,
+            key_type: PhantomData,
+            payload_type: PhantomData,
+        }
+    }
+
+    fn write(&self, key: &K, payload: &P) {
+        let key_bytes = to_bytes(key);
+        let payload_bytes = to_bytes(payload);
+        let record = BaseRecord::to(&self.topic)
+            .key(&key_bytes)
+            .payload(&payload_bytes)
+            .partition(self.partition);
+
+        self.producer.send(record).expect("Error writing state");
+        self.producer.poll(Timeout::Never);
+    }
+
+    fn delete(&self, key: &K) {
+        let key_bytes = to_bytes(key);
+        let record = BaseRecord::<Vec<u8>, Vec<u8>>::to(&self.topic)
+            .key(&key_bytes)
+            .partition(self.partition);
+        // Explicitly no payload to mark as delete for key.
+
+        self.producer.send(record).expect("Error deleting state");
+        self.producer.poll(Timeout::Never);
+    }
+}
+
+impl StateWriter<u64, TdPyAny> for KafkaWriter<RecoveryKey<u64>, StateUpdate<TdPyAny>> {
+    fn write(&mut self, backup: &StateBackup<u64, TdPyAny>) {
+        let StateBackup(recovery_key, state_update) = backup;
+        KafkaWriter::write(self, recovery_key, state_update);
+        debug!("kafka state write backup={backup:?}");
+    }
+}
+
+impl StateCollector<u64> for KafkaWriter<RecoveryKey<u64>, StateUpdate<TdPyAny>> {
+    fn delete(&mut self, recovery_key: &RecoveryKey<u64>) {
+        KafkaWriter::delete(self, recovery_key);
+        debug!("kafka state delete recovery_key={recovery_key:?}");
+    }
+}
+
+/// This is a generic wrapper around [`BaseConsumer`] which adds
+/// serde and reads from only a single topic and partition.
+struct KafkaReader<K, P> {
+    consumer: BaseConsumer,
+    key_type: PhantomData<K>,
+    payload_type: PhantomData<P>,
+}
+
+impl<K: DeserializeOwned, P: DeserializeOwned> KafkaReader<K, P> {
+    fn new(hosts: &[String], topic: &str, partition: i32) -> Self {
+        debug!("Loading recovery data from hosts={hosts:?} topic={topic:?}");
+        let consumer: BaseConsumer = ClientConfig::new()
+            .set("bootstrap.servers", hosts.join(","))
+            // We don't want to use consumer groups because
+            // re-balancing makes no sense in the recovery
+            // context. librdkafka requires you to set a consumer
+            // group, though, but they say it is never used if you
+            // don't call
+            // `subscribe`. https://github.com/edenhill/librdkafka/issues/593#issuecomment-278954990
+            .set("group.id", "BYTEWAX_IGNORED")
+            .set("enable.auto.commit", "false")
+            .set("enable.partition.eof", "true")
+            .create()
+            .expect("Error building Kafka consumer");
+
+        let mut partitions = TopicPartitionList::new();
+        partitions
+            .add_partition_offset(topic, partition, Offset::Beginning)
+            .unwrap();
+        consumer
+            .assign(&partitions)
+            .expect("Error assigning Kafka recovery topic");
+
+        Self {
+            consumer,
+            key_type: PhantomData,
+            payload_type: PhantomData,
+        }
+    }
+
+    fn read(&mut self) -> Option<(Option<K>, Option<P>)> {
+        let msg_result = self.consumer.poll(Timeout::Never);
+        match msg_result {
+            Some(Ok(msg)) => Some((msg.key().map(from_bytes), msg.payload().map(from_bytes))),
+            Some(Err(KafkaError::PartitionEOF(_))) => None,
+            Some(Err(err)) => panic!("Error reading from Kafka topic: {err:?}"),
+            None => None,
         }
     }
 }
 
-impl RecoveryStore<u64, StateKey, TdPyAny> for KafkaRecoveryStore {
-    fn load(&self) -> (Vec<(StepId, StateKey, u64, Option<TdPyAny>)>, u64) {
-        debug!(
-            "Loading recovery data from hosts={:?} topic={}",
-            self.hosts, self.topic
-        );
-        let consumer: StreamConsumer = self.rt.block_on(async {
-            ClientConfig::new()
-                // TODO: Do away with a consumer group here and
-                // instead do per-worker recovery loading.
-                .set("group.id", "bytewax-loader")
-                .set("bootstrap.servers", self.hosts.join(","))
-                .set("auto.offset.reset", "earliest")
-                .set("enable.partition.eof", "true")
-                .create()
-                .expect("Error building Kafka consumer")
-        });
-
-        consumer
-            .subscribe(&vec![self.topic.as_str()])
-            .expect("Error subscribing to Kafka recovery topic");
-
-        let mut resume_epoch = 0;
-        // Build up an in-memory representation of the key-value store
-        // the Kafka topic is representing.
-        let mut db = HashMap::new();
-
+impl StateReader<u64, TdPyAny> for KafkaReader<RecoveryKey<u64>, StateUpdate<TdPyAny>> {
+    fn read(&mut self) -> Option<StateBackup<u64, TdPyAny>> {
         loop {
-            let future = consumer.recv();
-            let msg_result = self.rt.block_on(future);
-            match msg_result {
-                Ok(msg) => {
-                    let msg_key =
-                        KafkaKey::from_bytes(msg.key().expect("Kafka message with no key"));
-                    let msg_payload = msg.payload().map(KafkaPayload::from_bytes);
-                    match msg_key {
-                        KafkaKey::DataflowFrontier => match msg_payload {
-                            Some(KafkaPayload::DataflowFrontier(dataflow_frontier)) => resume_epoch = dataflow_frontier,
-                            // TODO: Figure out better semantics when
-                            // resuming a completed dataflow.
-                            None => resume_epoch = 0,
-                            unexpected_payload => panic!("Unexpected dataflow frontier Kafka message payload: {unexpected_payload:?}"),
-                        },
-                        KafkaKey::State { step_id, key, epoch } => {
-                            let db_key = (step_id, key, epoch);
-                            match msg_payload {
-                                Some(KafkaPayload::State(state)) => {
-                                    db.insert(db_key, state);
-                                },
-                                None => {
-                                    db.remove(&db_key);
-                                },
-                                unexpected_payload => panic!("Unexpected state update Kafka message payload: {unexpected_payload:?}"),
-                            }
-                        },
-                    }
+            match KafkaReader::read(self) {
+                // Skip deletions if they haven't been compacted.
+                Some((_, None)) => continue,
+                Some((Some(recovery_key), Some(state_update))) => {
+                    return Some(StateBackup(recovery_key, state_update));
                 }
-                Err(KafkaError::PartitionEOF(_)) => {
-                    break;
-                }
-                Err(err) => panic!("Error reading from Kafka topic: {err:?}"),
+                Some((None, _)) => panic!("Missing key in reading state Kafka topic"),
+                None => return None,
             }
         }
-
-        let mut recovery_store_log = db
-            .into_iter()
-            .map(|((step_id, key, epoch), state)| (step_id, key, epoch, state))
-            .filter(|(_step_id, _key, epoch, _state)| epoch <= &resume_epoch)
-            .collect::<Vec<_>>();
-        recovery_store_log.sort_by_key(|(_step_id, _key, epoch, _state)| *epoch);
-
-        debug!(
-            "kafka load resume_epoch={resume_epoch:?} recovery_store_log.len()={}",
-            recovery_store_log.len()
-        );
-        (recovery_store_log, resume_epoch)
     }
+}
 
-    fn save_state(
-        &mut self,
-        step_id: &StepId,
-        key: &StateKey,
-        epoch: &u64,
-        state: &Option<TdPyAny>,
-    ) {
-        let msg_key = KafkaKey::State {
-            step_id: step_id.clone(),
-            key: key.clone(),
-            epoch: *epoch,
-        }
-        .to_bytes();
-        // Remember, deleted state is stored as `None` in the
-        // encoding.
-        let msg_payload = KafkaPayload::State(state.clone()).to_bytes();
-        let record = FutureRecord::to(&self.topic)
-            .key(&msg_key)
-            .payload(&msg_payload);
-
-        let future = self.producer.send(record, Timeout::Never);
-        self.rt
-            .block_on(future)
-            .expect("Error saving recovery state");
-
-        debug!("kafka save_state step_id={step_id:?} key={key:?} epoch={epoch:?} state={state:?}");
+impl ProgressWriter<u64> for KafkaWriter<String, FrontierUpdate<u64>> {
+    fn write(&mut self, frontier_update: &FrontierUpdate<u64>) {
+        KafkaWriter::write(self, &String::from("worker_frontier"), &frontier_update);
+        debug!("kafka frontier write frontier_backup={frontier_update:?}");
     }
+}
 
-    fn save_frontier(&mut self, dataflow_frontier: AntichainRef<u64>) {
-        if dataflow_frontier.len() > 0 {
-            let msg_key = KafkaKey::DataflowFrontier.to_bytes();
-            let msg_payload =
-                KafkaPayload::DataflowFrontier(*dataflow_frontier.first().unwrap()).to_bytes();
-            let record = FutureRecord::to(&self.topic)
-                .key(&msg_key)
-                .payload(&msg_payload);
-
-            let future = self.producer.send(record, Timeout::Never);
-            self.rt
-                .block_on(future)
-                .expect("Error saving recovery state");
-        } else {
-            let msg_key = KafkaKey::DataflowFrontier.to_bytes();
-            let record: FutureRecord<_, Vec<u8>> = FutureRecord::to(&self.topic).key(&msg_key);
-
-            let future = self.producer.send(record, Timeout::Never);
-            self.rt
-                .block_on(future)
-                .expect("Error saving recovery state");
+impl ProgressReader<u64> for KafkaReader<String, FrontierUpdate<u64>> {
+    fn read(&mut self) -> Option<FrontierUpdate<u64>> {
+        match KafkaReader::read(self) {
+            Some((Some(_), Some(frontier_update))) => {
+                debug!("kafka frontier read frontier_update={frontier_update:?}");
+                Some(frontier_update)
+            }
+            None => None,
+            _ => panic!("Missing payload in reading frontier Kafka topic"),
         }
-
-        debug!("kafka save_frontier dataflow_frontier={dataflow_frontier:?}");
-    }
-
-    fn delete_state(&mut self, step_id: &StepId, key: &StateKey, epoch: &u64) {
-        let msg_key = KafkaKey::State {
-            step_id: step_id.clone(),
-            key: key.clone(),
-            epoch: *epoch,
-        }
-        .to_bytes();
-        let record: FutureRecord<_, Vec<u8>> = FutureRecord::to(&self.topic).key(&msg_key);
-
-        let future = self.producer.send(record, Timeout::Never);
-        self.rt
-            .block_on(future)
-            .expect("Error saving recovery state");
-
-        debug!("kafka delete_state step_id={step_id:?} key={key:?} epoch={epoch:?}");
     }
 }
 
