@@ -141,16 +141,16 @@ Our first task is to make sure to group incoming events by user since
 no session deals with multiple users.
 
 All Bytewax operators that perform grouping require that their input
-be in the form of a `(key, value)` tuple, where `key` is the value the
-dataflow will group by before passing to the operator logic.
+be in the form of a `(key, value)` tuple, where `key` is the string
+the dataflow will group by before passing to the operator logic.
 
 The operator which modifies all data flowing through it is
-[map](/apidocs#bytewax.Dataflow.map). Let's use that and pull each event's user into
-that key position.
+[map](/apidocs#bytewax.Dataflow.map). Let's use that and pull each
+event's user ID as a string into that key position.
 
 ```python
 def initial_session(event):
-    return event.user, [event]
+    return str(event.user), [event]
 
 flow.map(initial_session)
 ```
@@ -173,7 +173,7 @@ Reduce requires two bits of logic:
 - When is a session complete? In this case, a session is complete when
   the last item in the session is the app closing. We'll write a
   `session_has_closed` function to answer that.
-  
+
 Reduce also takes a unique **step ID** to help organize the state
 saved internally.
 

@@ -215,8 +215,9 @@ impl Dataflow {
     /// epoch order.
     ///
     /// It is a stateful operator. It requires the the input stream
-    /// has items that are `(key, value)` tuples so we can ensure that
-    /// all relevant values are routed to the relevant aggregator.
+    /// has items that are `(key: str, value)` tuples so we can ensure
+    /// that all relevant values are routed to the relevant
+    /// aggregator.
     ///
     /// It is a recoverable operator. It requires a step ID to recover
     /// the correct state.
@@ -292,8 +293,9 @@ impl Dataflow {
     /// aggregator as complete automatically at the end of each epoch.
     ///
     /// It is a stateful operator. it requires the the input stream
-    /// has items that are `(key, value)` tuples so we can ensure that
-    /// all relevant values are routed to the relevant aggregator.
+    /// has items that are `(key: str, value)` tuples so we can ensure
+    /// that all relevant values are routed to the relevant
+    /// aggregator.
     ///
     /// It calls a **reducer** function which combines two values. The
     /// aggregator is initially the first value seen for a key. Values
@@ -370,8 +372,8 @@ impl Dataflow {
     /// state for each key when doing the transformation.
     ///
     /// It is a stateful operator. It requires the the input stream
-    /// has items that are `(key, value)` tuples so we can ensure that
-    /// all relevant values are routed to the relevant state.
+    /// has items that are `(key: str, value)` tuples so we can ensure
+    /// that all relevant values are routed to the relevant state.
     ///
     /// It is a recoverable operator. It requires a step ID to recover
     /// the correct state.

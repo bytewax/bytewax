@@ -35,7 +35,7 @@ use crate::operators::{
     capture, filter, flat_map, inspect, inspect_epoch, map, reduce, reduce_epoch,
     reduce_epoch_local, StatefulMap,
 };
-use crate::pyo3_extensions::{hash, lift_2tuple, wrap_2tuple};
+use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, StateKey};
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 use crate::recovery::build_recovery_store;
 use std::collections::HashMap;
@@ -161,22 +161,22 @@ where
 
                     let state_cache = state_caches.remove(&step_id).unwrap_or_default();
 
-                    let (downstream, state_update_stream) = stream.map(lift_2tuple).reduce(
+                    let (downstream, state_update_stream) = stream.map(extract_state_pair).reduce(
                         state_cache,
                         move |key, aggregator, value| reduce(&reducer, key, aggregator, value),
                         move |key, aggregator| check_complete(&is_complete, key, aggregator),
-                        hash,
+                        StateKey::route,
                     );
 
                     let state_update_stream =
                         state_update_stream.map(move |(key, state)| (step_id.clone(), key, state));
                     state_updates.push(state_update_stream);
 
-                    stream = downstream.map(wrap_2tuple);
+                    stream = downstream.map(wrap_state_pair);
                 }
                 Step::ReduceEpoch { reducer } => {
                     let reducer = reducer.clone_ref(py);
-                    stream = stream.map(lift_2tuple).aggregate(
+                    stream = stream.map(extract_state_pair).aggregate(
                         move |key, value, aggregator: &mut Option<TdPyAny>| {
                             reduce_epoch(&reducer, aggregator, key, value);
                         },
@@ -184,22 +184,22 @@ where
                             // Aggregator will only exist for keys
                             // that exist, so it will have been filled
                             // into Some(value) above.
-                            wrap_2tuple((key, aggregator.unwrap()))
+                            wrap_state_pair((key, aggregator.unwrap()))
                         },
-                        hash,
+                        StateKey::route,
                     );
                 }
                 Step::ReduceEpochLocal { reducer } => {
                     let reducer = reducer.clone_ref(py);
                     stream = stream
-                        .map(lift_2tuple)
+                        .map(extract_state_pair)
                         .accumulate(
                             HashMap::new(),
                             move |aggregators, all_key_value_in_epoch| {
                                 reduce_epoch_local(&reducer, aggregators, &all_key_value_in_epoch);
                             },
                         )
-                        .flat_map(|aggregators| aggregators.into_iter().map(wrap_2tuple));
+                        .flat_map(|aggregators| aggregators.into_iter().map(wrap_state_pair));
                 }
                 Step::StatefulMap {
                     step_id,
@@ -212,18 +212,19 @@ where
 
                     let state_cache = state_caches.remove(&step_id).unwrap_or_default();
 
-                    let (downstream, state_update_stream) = stream.map(lift_2tuple).stateful_map(
-                        state_cache,
-                        move |key| build(&builder, key),
-                        move |key, state, value| stateful_map(&mapper, key, state, value),
-                        hash,
-                    );
+                    let (downstream, state_update_stream) =
+                        stream.map(extract_state_pair).stateful_map(
+                            state_cache,
+                            move |key| build(&builder, key),
+                            move |key, state, value| stateful_map(&mapper, key, state, value),
+                            StateKey::route,
+                        );
 
                     let state_update_stream =
                         state_update_stream.map(move |(key, state)| (step_id.clone(), key, state));
                     state_updates.push(state_update_stream);
 
-                    stream = downstream.map(wrap_2tuple);
+                    stream = downstream.map(wrap_state_pair);
                 }
                 Step::Capture {} => {
                     let worker_output = worker_output.clone_ref(py);

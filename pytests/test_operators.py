@@ -1,4 +1,7 @@
+import re
 from collections import defaultdict
+
+from pytest import raises
 
 from bytewax import Dataflow, run, run_cluster
 
@@ -191,6 +194,59 @@ def test_reduce_epoch():
             (1, ("b", 1)),
         ]
     )
+
+
+def test_reduce_epoch_error_on_non_kv_tuple():
+    def count(count, event_count):
+        return count + event_count
+
+    inp = [
+        (0, {"user": "a", "type": "login"}),
+        (0, {"user": "a", "type": "post"}),
+        (0, {"user": "b", "type": "login"}),
+        (1, {"user": "b", "type": "post"}),
+    ]
+
+    flow = Dataflow()
+    flow.reduce_epoch(count)
+    flow.capture()
+
+    expect = (
+        "Dataflow requires a `(key, value)` 2-tuple as input to every stateful "
+        "operator; got `{'user': 'a', 'type': 'login'}` instead"
+    )
+
+    with raises(TypeError, match=re.escape(expect)):
+        run(flow, inp)
+
+
+def test_reduce_epoch_error_on_non_string_key():
+    def add_initial_count(event):
+        return event["user"], 1
+
+    def count(count, event_count):
+        return count + event_count
+
+    # Note that the resulting key will be an int.
+    inp = [
+        (0, {"user": 1, "type": "login"}),
+        (0, {"user": 1, "type": "post"}),
+        (0, {"user": 2, "type": "login"}),
+        (1, {"user": 2, "type": "post"}),
+    ]
+
+    flow = Dataflow()
+    flow.map(add_initial_count)
+    flow.reduce_epoch(count)
+    flow.capture()
+
+    with raises(
+        TypeError,
+        match=re.escape(
+            "Stateful operators require string keys in `(key, value)`; got `1` instead"
+        ),
+    ):
+        run(flow, inp)
 
 
 def test_reduce_epoch_local():

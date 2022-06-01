@@ -1,14 +1,14 @@
-use std::collections::hash_map::DefaultHasher;
-use std::fmt;
-use std::hash::Hash;
-use std::hash::Hasher;
-use std::ops::Deref;
-
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use serde::ser::Error;
+use serde::Deserialize;
+use serde::Serialize;
+use std::collections::hash_map::DefaultHasher;
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 
 use crate::with_traceback;
 
@@ -187,8 +187,6 @@ fn test_serde() {
 }
 
 /// Re-use Python's value semantics in Rust code.
-///
-/// Timely requires this whenever it internally "groups by".
 impl PartialEq for TdPyAny {
     fn eq(&self, other: &Self) -> bool {
         Python::with_gil(|py| {
@@ -201,40 +199,78 @@ impl PartialEq for TdPyAny {
     }
 }
 
-/// Possibly a footgun.
+/// Newtype over a string representing the "routing key" for stateful
+/// operators.
 ///
-/// Timely internally stores values in [`HashMap`] which require keys
-/// to be [`Eq`] so we have to implement this (or somehow write our
-/// own hash maps that could ignore this), but we can't actually
-/// guarantee that any Python type will actually have a correct sense
-/// of total equality. It's possible broken `__eq__` implementations
-/// will cause mysterious behavior.
-impl Eq for TdPyAny {}
+/// We use a string here rather than wrapping any Python type because
+/// the routing key interfaces with a lot of Bytewax and Timely code
+/// which puts requirements on it: it has to be hashable, have
+/// equality, debug printable, and is serde-able and we can't
+/// guarantee those things are correct on any arbitrary Python type.
+///
+/// Yes, we lose a little bit of flexibility, but it makes usage more
+/// convenient.
+///
+/// You'll mostly interface with this via [`extract_state_pair`] and
+/// [`wrap_state_pair`].
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, FromPyObject,
+)]
+pub(crate) struct StateKey(String);
 
-/// Custom hashing semantics.
-///
-/// We can't use Python's `hash` because it is not consistent across
-/// processes. Instead we have our own "exchange hash". See module
-/// `bytewax.exhash` for definitions and how to implement for your own
-/// types.
-///
-/// Timely requires this whenever it exchanges or accumulates data in
-/// hash maps.
-impl Hash for TdPyAny {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        Python::with_gil(|py| {
-            with_traceback!(py, {
-                let exhash = PyModule::import(py, "bytewax.exhash")?;
-                let digest = exhash
-                    .getattr("exhash")?
-                    .call1((self,))?
-                    .call_method0("digest")?
-                    .extract()?;
-                state.write(digest);
-                PyResult::Ok(())
-            });
-        });
+impl StateKey {
+    pub(crate) fn new(s: String) -> Self {
+        Self(s)
     }
+
+    /// Hash this key for Timely exchange routing.
+    pub(crate) fn route(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+impl From<StateKey> for String {
+    fn from(key: StateKey) -> Self {
+        key.0
+    }
+}
+
+impl IntoPy<PyObject> for StateKey {
+    fn into_py(self, py: Python) -> Py<PyAny> {
+        PyString::new(py, &self.0).into()
+    }
+}
+
+impl ToPyObject for StateKey {
+    fn to_object(&self, py: Python) -> Py<PyAny> {
+        self.0.to_object(py)
+    }
+}
+
+/// Turn a Python 2-tuple of `(key, value)` into a Rust 2-tuple for
+/// routing into Timely's stateful operators.
+pub(crate) fn extract_state_pair(key_value_pytuple: TdPyAny) -> (StateKey, TdPyAny) {
+    Python::with_gil(|py| {
+        let (key, value): (TdPyAny, TdPyAny) = with_traceback!(py, key_value_pytuple.extract(py)
+            .map_err(|_err| PyTypeError::new_err(format!("Dataflow requires a `(key, value)` 2-tuple as input to every stateful operator; got `{key_value_pytuple:?}` instead"))));
+        let key: StateKey = with_traceback!(
+            py,
+            key.extract(py).map_err(|_err| PyTypeError::new_err(format!(
+                "Stateful operators require string keys in `(key, value)`; got `{key:?}` instead"
+            )))
+        );
+        (key, value)
+    })
+}
+
+/// Turn a Rust 2-tuple of `(key, value)` into a Python 2-tuple.
+pub(crate) fn wrap_state_pair(key_value: (StateKey, TdPyAny)) -> TdPyAny {
+    Python::with_gil(|py| {
+        let key_value_pytuple: Py<PyAny> = key_value.into_py(py);
+        key_value_pytuple.into()
+    })
 }
 
 /// A Python iterator that only gets the GIL when calling .next() and
@@ -308,20 +344,4 @@ impl TdPyCallable {
     pub(crate) fn call1(&self, py: Python, args: impl IntoPy<Py<PyTuple>>) -> PyResult<Py<PyAny>> {
         self.0.call1(py, args)
     }
-}
-
-/// Turn a Python 2-tuple into a Rust 2-tuple.
-pub(crate) fn lift_2tuple(key_value_pytuple: TdPyAny) -> (TdPyAny, TdPyAny) {
-    Python::with_gil(|py| with_traceback!(py, key_value_pytuple.as_ref(py).extract()))
-}
-
-/// Turn a Rust 2-tuple into a Python 2-tuple.
-pub(crate) fn wrap_2tuple(key_value: (TdPyAny, TdPyAny)) -> TdPyAny {
-    Python::with_gil(|py| key_value.to_object(py).into())
-}
-
-pub(crate) fn hash(key: &TdPyAny) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    key.hash(&mut hasher);
-    hasher.finish()
 }
