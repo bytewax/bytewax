@@ -114,8 +114,8 @@
 //! actually delete the state from the data store.
 
 use crate::dataflow::StepId;
+use crate::pyo3_extensions::StateKey;
 use pyo3::exceptions::PyValueError;
-use pyo3::types::PyString;
 use rdkafka::admin::AdminClient;
 use rdkafka::admin::AdminOptions;
 use rdkafka::admin::NewTopic;
@@ -305,7 +305,7 @@ impl KafkaRecoveryConfig {
 pub(crate) fn build_recovery_store(
     py: Python,
     recovery_config: Option<Py<RecoveryConfig>>,
-) -> Result<Box<dyn RecoveryStore<u64, TdPyAny, TdPyAny>>, String> {
+) -> Result<Box<dyn RecoveryStore<u64, StateKey, TdPyAny>>, String> {
     match recovery_config {
         None => Ok(Box::new(NoOpRecoveryStore::new())),
         Some(recovery_config) => {
@@ -334,10 +334,10 @@ pub(crate) fn build_recovery_store(
 /// structured HashMap that the stateful operators can use during
 /// execution.
 pub(crate) fn build_state_caches(
-    recovery_data: Vec<(StepId, TdPyAny, u64, Option<TdPyAny>)>,
-) -> HashMap<StepId, HashMap<TdPyAny, TdPyAny>> {
-    let mut last_epochs: HashMap<(StepId, TdPyAny), u64> = HashMap::new();
-    let mut state_caches: HashMap<StepId, HashMap<TdPyAny, TdPyAny>> = HashMap::new();
+    recovery_data: Vec<(StepId, StateKey, u64, Option<TdPyAny>)>,
+) -> HashMap<StepId, HashMap<StateKey, TdPyAny>> {
+    let mut last_epochs: HashMap<(StepId, StateKey), u64> = HashMap::new();
+    let mut state_caches: HashMap<StepId, HashMap<StateKey, TdPyAny>> = HashMap::new();
     for (step_id, key, epoch, state) in recovery_data {
         debug!("state_cache step_id={step_id:?} key={key:?} epoch={epoch:?} state={state:?}");
         // Let's double check that RecoveryStore.load() is loading
@@ -535,8 +535,8 @@ impl SqliteRecoveryStore {
         step_id.clone().into()
     }
 
-    fn key_to_string(key: &TdPyAny) -> String {
-        Python::with_gil(|py| key.extract(py)).expect("Key cannot be cast to string")
+    fn key_to_string(key: &StateKey) -> String {
+        key.clone().into()
     }
 
     fn epoch_to_i64(epoch: &u64) -> i64 {
@@ -554,8 +554,8 @@ impl SqliteRecoveryStore {
     }
 }
 
-impl RecoveryStore<u64, TdPyAny, TdPyAny> for SqliteRecoveryStore {
-    fn load(&self) -> (Vec<(StepId, TdPyAny, u64, Option<TdPyAny>)>, u64) {
+impl RecoveryStore<u64, StateKey, TdPyAny> for SqliteRecoveryStore {
+    fn load(&self) -> (Vec<(StepId, StateKey, u64, Option<TdPyAny>)>, u64) {
         let future = query("SELECT epoch FROM frontiers WHERE name = \"dataflow_frontier\"")
             .map(|row: SqliteRow| {
                 row.get::<i64, _>(0)
@@ -580,7 +580,7 @@ impl RecoveryStore<u64, TdPyAny, TdPyAny> for SqliteRecoveryStore {
                     let pickle = py.import("dill").expect("Error importing dill");
 
                     let step_id: StepId = row.get::<String, _>(0).into();
-                    let key: TdPyAny = PyString::new(py, row.get(1)).into();
+                    let key: StateKey = StateKey::new(row.get(1));
                     let epoch: u64 = row.get::<i64, _>(2).try_into().expect("SQLite int can't fit into epoch; might be negative");
                     let state_pickled: Option<&[u8]> = row.get(3);
                     let state = state_pickled.map(|bytes| pickle.call_method1("loads", (bytes, )).expect("Error unpickling state").into());
@@ -600,7 +600,7 @@ impl RecoveryStore<u64, TdPyAny, TdPyAny> for SqliteRecoveryStore {
     fn save_state(
         &mut self,
         step_id: &StepId,
-        key: &TdPyAny,
+        key: &StateKey,
         epoch: &u64,
         state: &Option<TdPyAny>,
     ) {
@@ -644,7 +644,7 @@ impl RecoveryStore<u64, TdPyAny, TdPyAny> for SqliteRecoveryStore {
         debug!("sqlite save_frontier dataflow_frontier={dataflow_frontier:?}");
     }
 
-    fn delete_state(&mut self, step_id: &StepId, key: &TdPyAny, epoch: &u64) {
+    fn delete_state(&mut self, step_id: &StepId, key: &StateKey, epoch: &u64) {
         let future = query("DELETE FROM states WHERE step_id = ?1 AND key = ?2 AND epoch = ?3")
             .bind(Self::step_id_to_string(step_id))
             .bind(Self::key_to_string(key))
@@ -678,7 +678,7 @@ enum KafkaKey {
     /// Store a state update for a stateful operator.
     State {
         step_id: StepId,
-        key: TdPyAny,
+        key: StateKey,
         epoch: u64,
     },
     /// Save that the dataflow frontier has progressed.
@@ -783,8 +783,8 @@ impl KafkaRecoveryStore {
     }
 }
 
-impl RecoveryStore<u64, TdPyAny, TdPyAny> for KafkaRecoveryStore {
-    fn load(&self) -> (Vec<(StepId, TdPyAny, u64, Option<TdPyAny>)>, u64) {
+impl RecoveryStore<u64, StateKey, TdPyAny> for KafkaRecoveryStore {
+    fn load(&self) -> (Vec<(StepId, StateKey, u64, Option<TdPyAny>)>, u64) {
         debug!(
             "Loading recovery data from hosts={:?} topic={}",
             self.hosts, self.topic
@@ -864,7 +864,7 @@ impl RecoveryStore<u64, TdPyAny, TdPyAny> for KafkaRecoveryStore {
     fn save_state(
         &mut self,
         step_id: &StepId,
-        key: &TdPyAny,
+        key: &StateKey,
         epoch: &u64,
         state: &Option<TdPyAny>,
     ) {
@@ -915,7 +915,7 @@ impl RecoveryStore<u64, TdPyAny, TdPyAny> for KafkaRecoveryStore {
         debug!("kafka save_frontier dataflow_frontier={dataflow_frontier:?}");
     }
 
-    fn delete_state(&mut self, step_id: &StepId, key: &TdPyAny, epoch: &u64) {
+    fn delete_state(&mut self, step_id: &StepId, key: &StateKey, epoch: &u64) {
         let msg_key = KafkaKey::State {
             step_id: step_id.clone(),
             key: key.clone(),

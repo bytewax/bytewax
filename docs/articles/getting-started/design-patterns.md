@@ -230,12 +230,12 @@ flow.capture()
 
 
 inp = [
-    (0, {"user_id": 1, "type": "login"}),
-    (0, {"user_id": 1, "type": "logout"}),
+    (0, {"user_id": "1", "type": "login"}),
+    (0, {"user_id": "1", "type": "logout"}),
 ]
 print(run(flow, inp))
 ```
 
 ```{testoutput}
-[(0, [{'user_id': 1, 'type': 'login'}, {'user_id': 1, 'type': 'logout'}])]
+[(0, [{'user_id': '1', 'type': 'login'}, {'user_id': '1', 'type': 'logout'}])]
 ```

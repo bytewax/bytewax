@@ -10,6 +10,7 @@
 //!     calling boilerplate to easily pass into Timely operators.
 
 use crate::dataflow::StepId;
+use crate::pyo3_extensions::StateKey;
 use crate::recovery::RecoveryStore;
 use crate::recovery::UpdateType;
 use std::collections::HashMap;
@@ -235,7 +236,7 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> Reduce<S, K, V> for
 
 pub(crate) fn reduce(
     reducer: &TdPyCallable,
-    key: &TdPyAny,
+    key: &StateKey,
     aggregator: TdPyAny,
     value: TdPyAny,
 ) -> TdPyAny {
@@ -252,7 +253,7 @@ pub(crate) fn reduce(
 
 pub(crate) fn check_complete(
     is_complete: &TdPyCallable,
-    key: &TdPyAny,
+    key: &StateKey,
     aggregator: &TdPyAny,
 ) -> bool {
     Python::with_gil(|py| {
@@ -270,7 +271,7 @@ pub(crate) fn check_complete(
 pub(crate) fn reduce_epoch(
     reducer: &TdPyCallable,
     aggregator: &mut Option<TdPyAny>,
-    _key: &TdPyAny,
+    _key: &StateKey,
     value: TdPyAny,
 ) {
     debug!(
@@ -301,14 +302,14 @@ pub(crate) fn reduce_epoch(
 
 pub(crate) fn reduce_epoch_local(
     reducer: &TdPyCallable,
-    aggregators: &mut HashMap<TdPyAny, TdPyAny>,
-    all_key_value_in_epoch: &Vec<(TdPyAny, TdPyAny)>,
+    aggregators: &mut HashMap<StateKey, TdPyAny>,
+    all_key_value_in_epoch: &Vec<(StateKey, TdPyAny)>,
 ) {
     Python::with_gil(|py| {
         let _current = thread::current();
         let id = _current.id();
         for (key, value) in all_key_value_in_epoch {
-            let aggregator = aggregators.entry(key.clone_ref(py));
+            let aggregator = aggregators.entry(key.clone());
             debug!(
                 "thread:{:?}, {}, reducer:{:?}, key:{:?}, value:{:?}, aggregator:{:?}",
                 id,
@@ -503,9 +504,9 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> StatefulMap<S, K, V
     }
 }
 
-pub(crate) fn build(builder: &TdPyCallable, key: &TdPyAny) -> TdPyAny {
+pub(crate) fn build(builder: &TdPyCallable, key: &StateKey) -> TdPyAny {
     Python::with_gil(|py| {
-        let initial_state = with_traceback!(py, builder.call1(py, (key.clone_ref(py),))).into();
+        let initial_state = with_traceback!(py, builder.call1(py, (key.clone(),))).into();
         debug!("build for key={key:?}: builder={builder:?}(key={key:?}) -> initial_state{initial_state:?}");
         initial_state
     })
@@ -513,7 +514,7 @@ pub(crate) fn build(builder: &TdPyCallable, key: &TdPyAny) -> TdPyAny {
 
 pub(crate) fn stateful_map(
     mapper: &TdPyCallable,
-    key: &TdPyAny,
+    key: &StateKey,
     state: TdPyAny,
     value: TdPyAny,
 ) -> (Option<TdPyAny>, impl IntoIterator<Item = TdPyAny>) {

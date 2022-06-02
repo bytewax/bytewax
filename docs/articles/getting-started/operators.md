@@ -18,9 +18,15 @@ Operators generally do not modify the epoch of the data that is passing through 
 
 ## Stateful Operators
 
-Any operator which carries state between processing items is a **stateful operator**.
+Any operator which carries state between processing items is a
+**stateful operator**.
 
-In order to coordinate this state in a multiple-worker execution, all stateful operators require that their input are make up of **keys** and **values** in a `(key, value)` two-tuple. Bytewax can then route the value to the worker that has the relevant state. Any output from these operators will also be `(key, output_item)` two-tuples as well.
+In order to coordinate this state in a multiple-worker execution, all
+stateful operators require that their input are make up of **keys**
+and **values** in a `(key, value)` two-tuple. Keys must be
+strings. Bytewax can then route the value to the worker that has the
+relevant state. Any output from these operators will also be `(key,
+output_item)` two-tuples as well.
 
 ## Recoverable Operators
 
