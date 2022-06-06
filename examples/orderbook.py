@@ -1,7 +1,7 @@
 import json, time
 
 from websocket import create_connection
-from bytewax import Dataflow, parse, spawn_cluster, AdvanceTo, Emit
+from bytewax import Dataflow, ManualInputConfig, parse, spawn_cluster, AdvanceTo, Emit
 
 PRODUCT_IDS = ['BTC-USD', 'ETH-USD', 'SOL-USD']
 
@@ -111,4 +111,5 @@ flow.filter(lambda x: x[-1]['spread'] / x[-1]['ask'] > 0.0001) # filter on 0.1% 
 flow.capture()
 
 if __name__ == "__main__":
-    spawn_cluster(flow, input_builder, output_builder, **parse.cluster_args())
+    input_config = ManualInputConfig(input_builder)
+    spawn_cluster(flow, input_config, output_builder, **parse.cluster_args())

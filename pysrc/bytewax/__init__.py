@@ -5,13 +5,13 @@ scalable dataflows in a streaming or batch context.
 documentation.](https://github.com/bytewax/bytewax)
 
 """
-from .bytewax import AdvanceTo, cluster_main, Dataflow, Emit, KafkaConfig, ManualConfig, run_main
+from .bytewax import AdvanceTo, cluster_main, Dataflow, Emit, KafkaInputConfig, ManualInputConfig, run_main
 from .execution import run, run_cluster, spawn_cluster
 
 __all__ = [
     "Dataflow",
-    "KafkaConfig",
-    "ManualConfig",
+    "KafkaInputConfig",
+    "ManualInputConfig",
     "run_main",
     "run",
     "run_cluster",

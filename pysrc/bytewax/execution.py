@@ -6,8 +6,9 @@ from typing import Any, Callable, Iterable, List, Optional, Tuple, Union
 from multiprocess import get_context
 
 from bytewax.recovery import RecoveryConfig
+from bytewax.inputs import InputConfig
 
-from .bytewax import AdvanceTo, cluster_main, Dataflow, Emit, ManualConfig, run_main
+from .bytewax import AdvanceTo, cluster_main, Dataflow, Emit, ManualInputConfig, run_main
 
 
 def run(
@@ -63,7 +64,7 @@ def run(
         assert worker_index == 0
         return out.append
 
-    input_config = ManualConfig(input_builder)
+    input_config = ManualInputConfig(input_builder)
     run_main(
         flow,
         input_config,
@@ -80,7 +81,7 @@ def _gen_addresses(proc_count: int) -> Iterable[str]:
 
 def spawn_cluster(
     flow: Dataflow,
-    input_builder: Callable[[int, int, int], Iterable[Union[AdvanceTo, Emit]]],
+    input_config: InputConfig,
     output_builder: Callable[[int, int, int], Callable[[Tuple[int, Any]], None]],
     *,
     recovery_config: Optional[RecoveryConfig] = None,
@@ -156,7 +157,7 @@ def spawn_cluster(
                 cluster_main,
                 (
                     flow,
-                    input_builder,
+                    input_config,
                     output_builder,
                 ),
                 {
@@ -257,7 +258,7 @@ def run_cluster(
 
         out = man.list()
 
-        input_config = ManualConfig(input_builder)
+        input_config = ManualInputConfig(input_builder)
         def output_builder(worker_index, worker_count):
             return out.append
 

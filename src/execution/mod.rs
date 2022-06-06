@@ -356,8 +356,8 @@ where
 ///     recovery_config: State recovery config. See
 ///         `bytewax.recovery`. If `None`, state will not be persisted.
 ///
-#[pyfunction(flow, input_builder, output_builder, "*", recovery_config = "None")]
-#[pyo3(text_signature = "(flow, input_builder, output_builder, *, recovery_config)")]
+#[pyfunction(flow, input_config, output_builder, "*", recovery_config = "None")]
+#[pyo3(text_signature = "(flow, input_config, output_builder, *, recovery_config)")]
 pub(crate) fn run_main(
     py: Python,
     flow: Py<Dataflow>,
@@ -459,7 +459,7 @@ pub(crate) fn run_main(
 ///         each process.
 #[pyfunction(
     flow,
-    input_builder,
+    input_config,
     output_builder,
     addresses,
     proc_id,
@@ -468,7 +468,7 @@ pub(crate) fn run_main(
     worker_count_per_proc = "1"
 )]
 #[pyo3(
-    text_signature = "(flow, input_builder, output_builder, addresses, proc_id, *, recovery_config, worker_count_per_proc)"
+    text_signature = "(flow, input_config, output_builder, addresses, proc_id, *, recovery_config, worker_count_per_proc)"
 )]
 pub(crate) fn cluster_main(
     py: Python,

@@ -1,4 +1,4 @@
-use log::{info, warn};
+use log::{info};
 
 use rdkafka::client::ClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
@@ -10,14 +10,21 @@ use rdkafka::topic_partition_list::TopicPartitionList;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
+pub enum TimelyAction {
+    AdvanceTo(u64),
+    Emit(String),
+}
 pub(crate) struct KafkaConsumer {
     rt: Runtime,
     consumer: BaseConsumer<CustomContext>,
-    pub empty: bool,
+    // eventually resume_epoch...
+    current_epoch: u64,
+    desired_batch_size: u64,
+    current_batch_size: u64,
 }
 
 impl KafkaConsumer {
-    pub(crate) fn new(brokers: &str, group_id: &str, topics: &str) -> Self {
+    pub(crate) fn new(brokers: &str, group_id: &str, topics: &str, batch_size: u64) -> Self {
         let context = CustomContext;
 
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -48,31 +55,51 @@ impl KafkaConsumer {
         Self {
             rt,
             consumer,
-            empty: false,
+            current_epoch: 0,
+            desired_batch_size: batch_size,
+            current_batch_size: 0,
         }
     }
 
-    pub fn next(&mut self) -> Option<String> {
-        self.rt.block_on(async {
-            match self.consumer.poll(Duration::from_millis(5)) {
-                None => None,
-                Some(r) => match r {
-                    Err(e) => panic!("Kafka error! {}", e),
-                    Ok(s) => match s.payload_view::<str>() {
-                        Some(Ok(r)) => Some(r.to_owned()),
-                        Some(Err(e)) => panic!("Could not deserialize Kafka msg with error {}", e),
-                        None => {
-                            warn!("Payload was empty");
-                            None
-                        }
+    pub fn next(&mut self) -> TimelyAction {
+        if self.current_batch_size == self.desired_batch_size {
+            dbg!("Batch complete, incrementing epoch");
+            self.current_batch_size = 0;
+            self.current_epoch += 1;
+            return TimelyAction::AdvanceTo(self.current_epoch);
+        } else {
+            // TODO async loop to populate batch buffer
+            self.rt.block_on(async {
+                // I have no sense of an appropriate timeout. I suppose users provide?
+                match self.consumer.poll(Duration::from_millis(1000)) {
+                    None => {
+                        dbg!("No messages available, incrementing epoch");
+                        self.current_batch_size = 0;
+                        self.current_epoch += 1;
+                        TimelyAction::AdvanceTo(self.current_epoch)
+                    }
+                    Some(r) => match r {
+                        Err(e) => panic!("Kafka error! {}", e),
+                        Ok(s) => match s.payload_view::<str>() {
+                            Some(Ok(r)) => {
+                                self.current_batch_size += 1;
+                                TimelyAction::Emit(r.to_owned())
+                            }
+                            Some(Err(e)) => {
+                                panic!("Could not deserialize Kafka msg with error {}", e)
+                            }
+                            None => {
+                                panic!("Payload was empty");
+                            }
+                        },
                     },
-                },
-            }
-        })
+                }
+            })
+        }
     }
 }
 
-// A context can be used to change the behavior of producers and consumers by adding callbacks
+//  // A context can be used to change the behavior of producers and consumers by adding callbacks
 // that will be executed by librdkafka.
 // This particular context sets up custom callbacks to log rebalancing events.
 struct CustomContext;

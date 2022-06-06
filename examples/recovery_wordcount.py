@@ -1,6 +1,6 @@
 import re
 
-from bytewax import AdvanceTo, Dataflow, Emit, parse, spawn_cluster
+from bytewax import AdvanceTo, Dataflow, Emit, parse, ManualInputConfig, spawn_cluster
 from bytewax.recovery import KafkaRecoveryConfig
 
 
@@ -56,12 +56,13 @@ flow.capture()
 
 
 if __name__ == "__main__":
+    input_config = ManualInputConfig(input_builder)
     recovery_config = KafkaRecoveryConfig(
         ["localhost:9092"], "bytewax-state", create=True
     )
     spawn_cluster(
         flow,
-        input_builder,
+        input_config,
         output_builder,
         recovery_config=recovery_config,
         **parse.cluster_args()

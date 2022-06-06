@@ -6,7 +6,7 @@ from datetime import timedelta
 import sseclient
 import urllib3
 
-from bytewax import Dataflow, inputs, parse, spawn_cluster
+from bytewax import Dataflow, inputs, ManualInputConfig, parse, spawn_cluster
 
 
 def open_stream():
@@ -55,4 +55,5 @@ flow.capture()
 
 
 if __name__ == "__main__":
-    spawn_cluster(flow, input_builder, output_builder, **parse.cluster_args())
+    input_config = ManualInputConfig(input_builder)
+    spawn_cluster(flow, input_config, output_builder, **parse.cluster_args())

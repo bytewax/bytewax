@@ -10,7 +10,7 @@ from bytewax import (
     Dataflow,
     Emit,
     inputs,
-    ManualConfig,
+    ManualInputConfig,
     run,
     run_cluster,
 )
@@ -202,7 +202,7 @@ def test_cluster_main_can_be_ctrl_c(mp_ctx):
             flow = Dataflow()
             flow.map(mapper)
             flow.capture()
-            input_config = ManualConfig(input_builder)
+            input_config = ManualInputConfig(input_builder)
 
             try:
                 cluster_main(
@@ -252,7 +252,7 @@ def test_yield_epochs_with_cluster_main(mp_ctx):
             flow.map(mapper)
             flow.capture()
 
-            input_config = ManualConfig(input_builder)
+            input_config = ManualInputConfig(input_builder)
             cluster_main(
                 flow,
                 input_config,

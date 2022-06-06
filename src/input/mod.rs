@@ -1,5 +1,5 @@
 use crate::pyo3_extensions::{TdPyAny, TdPyIterator};
-use crate::source::KafkaConsumer;
+use crate::source::{KafkaConsumer, TimelyAction};
 
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
@@ -82,24 +82,27 @@ pub(crate) struct InputConfig;
 
 #[pyclass(extends = InputConfig)]
 #[pyo3(text_signature = "(brokers, group_id, topics)")]
-pub(crate) struct KafkaConfig {
+pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
     brokers: String,
     #[pyo3(get)]
     group_id: String,
     #[pyo3(get)]
     topics: String,
+    #[pyo3(get)]
+    batch_size: u64
 }
 
 #[pymethods]
-impl KafkaConfig {
+impl KafkaInputConfig {
     #[new]
-    fn new(brokers: String, group_id: String, topics: String) -> (Self, InputConfig) {
+    fn new(brokers: String, group_id: String, topics: String, batch_size: u64) -> (Self, InputConfig) {
         (
             Self {
                 brokers,
                 group_id,
                 topics,
+                batch_size
             },
             InputConfig {},
         )
@@ -108,12 +111,12 @@ impl KafkaConfig {
 
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
 #[pyo3(text_signature = "(gen_func)")]
-pub(crate) struct ManualConfig {
+pub(crate) struct ManualInputConfig {
     gen_func: Py<PyAny>,
 }
 
 #[pymethods]
-impl ManualConfig {
+impl ManualInputConfig {
     #[new]
     #[args(gen_func)]
     fn new(gen_func: Py<PyAny>) -> (Self, InputConfig) {
@@ -122,7 +125,7 @@ impl ManualConfig {
 
     /// Pickle as a tuple.
     fn __getstate__(&self, py: Python) -> (&str, Py<PyAny>) {
-        ("ManualConfig", self.gen_func.clone_ref(py))
+        ("ManualInputConfig", self.gen_func.clone_ref(py))
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -132,12 +135,12 @@ impl ManualConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("ManualConfig", gen_func)) = state.extract() {
+        if let Ok(("ManualInputConfig", gen_func)) = state.extract() {
             self.gen_func = gen_func;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
-                "bad pickle contents for ManualConfig: {state:?}"
+                "bad pickle contents for ManualInputConfig: {state:?}"
             )))
         }
     }
@@ -157,26 +160,19 @@ pub(crate) struct KafkaPump {
     kafka_consumer: KafkaConsumer,
     push_to_timely: InputHandle<u64, TdPyAny>,
     empty: bool,
-    epoch: u64,
 }
 
 impl KafkaPump {
     pub(crate) fn new(
-        config: PyRef<KafkaConfig>,
+        config: PyRef<KafkaInputConfig>,
         push_to_timely: InputHandle<u64, TdPyAny>,
     ) -> Self {
-        let kafka_consumer = KafkaConsumer::new(&config.brokers, &config.group_id, &config.topics);
+        let kafka_consumer = KafkaConsumer::new(&config.brokers, &config.group_id, &config.topics, config.batch_size);
         Self {
             kafka_consumer,
             push_to_timely,
             empty: false,
-            epoch: 0,
         }
-    }
-
-    // might not need, might make a pump trait thing
-    fn input_remains(&self) -> bool {
-        !self.empty
     }
 }
 
@@ -184,17 +180,13 @@ impl Pump for KafkaPump {
     fn pump(&mut self) {
         // TODO don't need it all in the gil
         Python::with_gil(|py| {
-            let m = self.kafka_consumer.next();
-            match m {
-                Some(s) => {
-                    println!("pushing to timely");
-                    let py_any_string = TdPyAny::from(PyString::new(py, &s));
+            match self.kafka_consumer.next() {
+                TimelyAction::AdvanceTo(epoch) => self.push_to_timely.advance_to(epoch),
+                TimelyAction::Emit(item) => {
+                    let py_any_string = TdPyAny::from(PyString::new(py, &item));
                     self.push_to_timely.send(py_any_string);
                 }
-                None => (),
             }
-            self.epoch += 1;
-            self.push_to_timely.advance_to(self.epoch);
         });
     }
 
@@ -221,7 +213,7 @@ impl PyPump {
         worker_index: usize,
         worker_count: usize,
         resume_epoch: u64,
-        config: PyRef<ManualConfig>,
+        config: PyRef<ManualInputConfig>,
         push_to_timely: InputHandle<u64, TdPyAny>,
     ) -> Self {
         let worker_input: TdPyIterator = config
@@ -281,10 +273,10 @@ pub(crate) fn pump_from_config(
     resume_epoch: u64,
 ) -> Box<dyn Pump> {
     let input_config = config.as_ref(py);
-    if let Ok(kafka_config) = input_config.downcast::<PyCell<KafkaConfig>>() {
+    if let Ok(kafka_config) = input_config.downcast::<PyCell<KafkaInputConfig>>() {
         let kafka_config = kafka_config.borrow();
         Box::new(KafkaPump::new(kafka_config, input_handle))
-    } else if let Ok(manual_config) = input_config.downcast::<PyCell<ManualConfig>>() {
+    } else if let Ok(manual_config) = input_config.downcast::<PyCell<ManualInputConfig>>() {
         let manual_config = manual_config.borrow();
         Box::new(PyPump::new(
             py,
@@ -303,7 +295,8 @@ pub(crate) fn pump_from_config(
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Emit>()?;
     m.add_class::<AdvanceTo>()?;
-    m.add_class::<KafkaConfig>()?;
-    m.add_class::<ManualConfig>()?;
+    m.add_class::<InputConfig>()?;
+    m.add_class::<KafkaInputConfig>()?;
+    m.add_class::<ManualInputConfig>()?;
     Ok(())
 }
