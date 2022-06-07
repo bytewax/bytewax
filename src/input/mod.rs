@@ -215,16 +215,13 @@ impl KafkaPump {
 
 impl Pump for KafkaPump {
     fn pump(&mut self) {
-        // TODO don't need it all in the gil
-        Python::with_gil(|py| {
-            match self.kafka_consumer.next() {
-                TimelyAction::AdvanceTo(epoch) => self.push_to_timely.advance_to(epoch),
-                TimelyAction::Emit(item) => {
-                    let py_any_string = TdPyAny::from(PyString::new(py, &item));
-                    self.push_to_timely.send(py_any_string);
-                }
-            }
-        });
+        match self.kafka_consumer.next() {
+            TimelyAction::AdvanceTo(epoch) => self.push_to_timely.advance_to(epoch),
+            TimelyAction::Emit(item) => Python::with_gil(|py| {
+                let py_any_string = TdPyAny::from(PyString::new(py, &item));
+                self.push_to_timely.send(py_any_string);
+            }),
+        }
     }
 
     fn input_time(&mut self) -> &u64 {
