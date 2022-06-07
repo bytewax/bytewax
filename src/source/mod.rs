@@ -7,8 +7,11 @@ use rdkafka::consumer::{Consumer, ConsumerContext, Rebalance};
 use rdkafka::error::KafkaResult;
 use rdkafka::message::Message;
 use rdkafka::topic_partition_list::TopicPartitionList;
+use pyo3::prelude::*;
 use std::time::Duration;
 use tokio::runtime::Runtime;
+
+use crate::input::KafkaInputConfig;
 
 pub enum TimelyAction {
     AdvanceTo(u64),
@@ -24,7 +27,7 @@ pub(crate) struct KafkaConsumer {
 }
 
 impl KafkaConsumer {
-    pub(crate) fn new(brokers: &str, group_id: &str, topics: &str, batch_size: u64) -> Self {
+    pub(crate) fn new(config: PyRef<KafkaInputConfig>) -> Self {
         let context = CustomContext;
 
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -34,8 +37,8 @@ impl KafkaConsumer {
 
         let consumer: BaseConsumer<CustomContext> = rt.block_on(async {
             ClientConfig::new()
-                .set("group.id", group_id)
-                .set("bootstrap.servers", brokers)
+                .set("group.id", config.group_id.clone())
+                .set("bootstrap.servers", config.brokers.clone())
                 .set("enable.partition.eof", "false")
                 .set("session.timeout.ms", "6000")
                 // TODO: we don't really want false here, it's for demo purposes
@@ -47,16 +50,15 @@ impl KafkaConsumer {
                 .expect("Consumer creation failed")
         });
 
-        let t = vec![topics];
         consumer
-            .subscribe(&t)
+            .subscribe(&[&config.topics])
             .expect("Can't subscribe to specified topics");
 
         Self {
             rt,
             consumer,
             current_epoch: 0,
-            desired_batch_size: batch_size,
+            desired_batch_size: config.batch_size,
             current_batch_size: 0,
         }
     }

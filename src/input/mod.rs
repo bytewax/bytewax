@@ -84,19 +84,19 @@ pub(crate) struct InputConfig;
 #[pyo3(text_signature = "(brokers, group_id, topics)")]
 pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
-    brokers: String,
+    pub brokers: String,
     #[pyo3(get)]
-    group_id: String,
+    pub group_id: String,
     #[pyo3(get)]
-    topics: String,
+    pub topics: String,
     #[pyo3(get)]
-    batch_size: u64,
+    pub batch_size: u64,
 }
 
 #[pymethods]
 impl KafkaInputConfig {
     #[new]
-    #[args(brokers, group_id, topics, batch_size)]
+    #[args(brokers, group_id, topics, batch_size = 1)]
     fn new(
         brokers: String,
         group_id: String,
@@ -204,12 +204,7 @@ impl KafkaPump {
         config: PyRef<KafkaInputConfig>,
         push_to_timely: InputHandle<u64, TdPyAny>,
     ) -> Self {
-        let kafka_consumer = KafkaConsumer::new(
-            &config.brokers,
-            &config.group_id,
-            &config.topics,
-            config.batch_size,
-        );
+        let kafka_consumer = KafkaConsumer::new(config);
         Self {
             kafka_consumer,
             push_to_timely,
