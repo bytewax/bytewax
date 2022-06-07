@@ -80,7 +80,7 @@ impl Emit {
 #[pyo3(text_signature = "()")]
 pub(crate) struct InputConfig;
 
-#[pyclass(extends = InputConfig)]
+#[pyclass(module = "bytewax.inputs", extends = InputConfig)]
 #[pyo3(text_signature = "(brokers, group_id, topics)")]
 pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
@@ -90,22 +90,59 @@ pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
     topics: String,
     #[pyo3(get)]
-    batch_size: u64
+    batch_size: u64,
 }
 
 #[pymethods]
 impl KafkaInputConfig {
     #[new]
-    fn new(brokers: String, group_id: String, topics: String, batch_size: u64) -> (Self, InputConfig) {
+    #[args(brokers, group_id, topics, batch_size)]
+    fn new(
+        brokers: String,
+        group_id: String,
+        topics: String,
+        batch_size: u64,
+    ) -> (Self, InputConfig) {
         (
             Self {
                 brokers,
                 group_id,
                 topics,
-                batch_size
+                batch_size,
             },
             InputConfig {},
         )
+    }
+
+    fn __getstate__(&self) -> (&str, String, String, String, u64) {
+        (
+            "KafkaInputConfig",
+            self.brokers.clone(),
+            self.group_id.clone(),
+            self.topics.clone(),
+            self.batch_size,
+        )
+    }
+
+    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
+    fn __getnewargs__(&self) -> (&str, &str, &str, u64) {
+        let s = "UNINIT_PICKLED_STRING";
+        (s, s, s, 0)
+    }
+
+    /// Unpickle from tuple of arguments.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok(("KafkaInputConfig", brokers, group_id, topics, batch_size)) = state.extract() {
+            self.brokers = brokers;
+            self.group_id = group_id;
+            self.topics = topics;
+            self.batch_size = batch_size;
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for KafkaInputConfig: {state:?}"
+            )))
+        }
     }
 }
 
@@ -167,7 +204,12 @@ impl KafkaPump {
         config: PyRef<KafkaInputConfig>,
         push_to_timely: InputHandle<u64, TdPyAny>,
     ) -> Self {
-        let kafka_consumer = KafkaConsumer::new(&config.brokers, &config.group_id, &config.topics, config.batch_size);
+        let kafka_consumer = KafkaConsumer::new(
+            &config.brokers,
+            &config.group_id,
+            &config.topics,
+            config.batch_size,
+        );
         Self {
             kafka_consumer,
             push_to_timely,

@@ -15,7 +15,8 @@ from bytewax import Dataflow, inputs, ManualInputConfig, parse, spawn_cluster
 # Parquet datasets. `fake_events` will generate events for multiple
 # days around today. Each worker will generate independent fake
 # events.
-def input_builder(worker_index, worker_count):
+@inputs.yield_epochs
+def input_builder(worker_index, worker_count, resume_epoch):
     return inputs.tumbling_epoch(
         fake_events.generate_web_events(), datetime.timedelta(seconds=5)
     )
