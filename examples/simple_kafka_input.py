@@ -1,11 +1,13 @@
 from bytewax import cluster_main, Dataflow
 from bytewax.inputs import KafkaInputConfig
 
+
 def output_builder(worker_index, worker_count):
     def output_fn(epoch_dataframe):
         print(epoch_dataframe)
 
     return output_fn
+
 
 if __name__ == "__main__":
     input_config = KafkaInputConfig("localhost:9092", "foobar", "drivers", batch_size=5)

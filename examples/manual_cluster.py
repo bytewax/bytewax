@@ -63,5 +63,6 @@ if __name__ == "__main__":
     # When using `cluster_main()` you have to coordinate ensuring each
     # process knows the address of all other processes in the cluster
     # and their unique process ID.
-    input_config = ManualInputConfig(input_builder)
-    cluster_main(flow, input_config, output_builder, **parse.proc_args())
+    cluster_main(
+        flow, ManualInputConfig(input_builder), output_builder, **parse.proc_args()
+    )

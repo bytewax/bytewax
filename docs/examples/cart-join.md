@@ -22,14 +22,14 @@ FAIL HERE
 
 ## Input Builders
 
-Let's start with the most basic version of our input builder which
-doesn't support recovery yet. It will read each line of JSON, use the
+Let's start with a manual input configuration with an input builder that
+doesn't support recovery yet. The builder will read each line of JSON, use the
 line index as the epoch, and emit the parsed JSON.
 
 ```python
 import json
 
-from bytewax import AdvanceTo, Emit
+from bytewax import AdvanceTo, Emit, ManualInputConfig
 
 
 def input_builder(worker_index, worker_count, resume_epoch):
@@ -40,6 +40,7 @@ def input_builder(worker_index, worker_count, resume_epoch):
             yield AdvanceTo(epoch)
             obj = json.loads(line)
             yield Emit(obj)
+
 ```
 
 ## Dataflow
@@ -139,7 +140,7 @@ Now let's run our dataflow without state recovery:
 ```python doctest:IGNORE_EXCEPTION_DETAIL doctest:ELLIPSIS
 from bytewax import run_main
 
-run_main(flow, input_builder, output_builder)
+run_main(flow, ManualInputConfig(input_builder), output_builder)
 ```
 
 Cool, we're chugging along and then OH NO!
@@ -185,6 +186,7 @@ def input_builder(worker_index, worker_count, resume_epoch):
             yield AdvanceTo(epoch)
             obj = json.loads(line)
             yield Emit(obj)
+
 ```
 
 
@@ -207,7 +209,7 @@ run with any of the recovery systems activated last time, let's run
 the dataflow again with them enabled.
 
 ```python doctest:IGNORE_EXCEPTION_DETAIL doctest:ELLIPSIS
-run_main(flow, input_builder, output_builder, recovery_config=recovery_config)
+run_main(flow, ManualInputConfig(input_builder), output_builder, recovery_config=recovery_config)
 ```
 
 As expected, we have the same error.
@@ -248,7 +250,7 @@ so it resumes from there. As the `FAIL HERE` string is ignored,
 there's no output during epoch `5`.
 
 ```python
-run_main(flow, input_builder, output_builder, recovery_config=recovery_config)
+run_main(flow, ManualInputConfig(input_builder), output_builder, recovery_config=recovery_config)
 ```
 
 ```{testoutput}

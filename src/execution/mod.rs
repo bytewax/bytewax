@@ -6,9 +6,9 @@
 //! See [`build_dataflow()`] and [`worker_main()`] for the main parts
 //! of this.
 
-use crate::input::pump_from_config;
-use crate::input::InputConfig;
-use crate::input::Pump;
+use crate::inputs::pump_from_config;
+use crate::inputs::InputConfig;
+use crate::inputs::Pump;
 use crate::operators::DataflowFrontier;
 use crate::operators::Recovery;
 use crate::recovery::build_state_caches;

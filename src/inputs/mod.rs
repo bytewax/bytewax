@@ -1,12 +1,20 @@
 use crate::pyo3_extensions::{TdPyAny, TdPyIterator};
-use crate::source::{KafkaConsumer, TimelyAction};
 
+use log::info;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
-
+use rdkafka::client::ClientContext;
+use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
+use rdkafka::consumer::base_consumer::BaseConsumer;
+use rdkafka::consumer::{Consumer, ConsumerContext, Rebalance};
+use rdkafka::error::KafkaResult;
+use rdkafka::message::Message;
+use rdkafka::topic_partition_list::TopicPartitionList;
+use std::time::Duration;
 use timely::dataflow::InputHandle;
+use tokio::runtime::Runtime;
 
 /// Advance to the supplied epoch.
 ///
@@ -19,11 +27,13 @@ use timely::dataflow::InputHandle;
 ///
 /// Using AdvanceTo and Emit is only necessary when using `spawn_cluster`
 /// and `cluster_main()` as `run()` and `run_cluster()` will yield AdvanceTo
-/// and Emit for you.
+/// and Emit for you. Likewise, they are only required when using a
+/// manual input configuration.
+///
 ///
 /// See also: `inputs.yield_epochs()`
 ///
-/// >>> def input_builder(worker_index, worker_count):
+/// >>> def input_builder(worker_index, worker_count, resume_epoch):
 /// ...     for i in range(10):
 /// ...         yield AdvanceTo(i) # Advances the epoch to i
 /// ...         yield Emit(i) # Adds the input i at epoch i
@@ -55,9 +65,10 @@ impl AdvanceTo {
 
 /// Emit the supplied item into the dataflow at the current epoch
 ///
-/// Emit is how we introduce input into a dataflow:
+/// Emit is how we introduce input into a dataflow using a manual
+/// input configuration:
 ///
-/// >>> def input_builder(worker_index, worker_count):
+/// >>> def input_builder(worker_index, worker_count, resume_epoch):
 /// ...     for i in range(10):
 /// ...         yield AdvanceTo(i) # Advances the epoch to i
 /// ...         yield Emit(i) # Adds the input i at epoch i
@@ -76,10 +87,33 @@ impl Emit {
     }
 }
 
-#[pyclass(module = "bytewax.input", subclass)]
+/// Base class for an input config.
+///
+/// InputConfig defines how you will input data to your dataflow.
+///
+/// Use a specific subclass of InputConfig for the kind of input
+/// source you are plan to use. See the subclasses in this module.
+#[pyclass(module = "bytewax.inputs", subclass)]
 #[pyo3(text_signature = "()")]
 pub(crate) struct InputConfig;
 
+/// Use [Kafka](https://kafka.apache.org) as the input source.
+///
+///
+/// Args:
+///
+///     brokers: List of broker addresses.
+///
+///     group_id: Group id
+///
+///     topic: Topic to which consumer will subscribe
+///
+///     batch_size: Integer defining how messages will be grouped by epoch.
+///
+/// Returns:
+///
+///     Config object. Pass this as the `input_config` argument to
+///     your execution entry point.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
 #[pyo3(text_signature = "(brokers, group_id, topics)")]
 pub(crate) struct KafkaInputConfig {
@@ -146,23 +180,35 @@ impl KafkaInputConfig {
     }
 }
 
+/// Use a user-defined function that returns an iterable as the input source.
+///
+///
+/// Args:
+///
+///     input_builder: An input_builder function that yields `AdvanceTo()` or `Emit()`
+///         with this worker's input. Must resume from the epoch specified.
+///
+/// Returns:
+///
+///     Config object. Pass this as the `input_config` argument to
+///     your execution entry point.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
-#[pyo3(text_signature = "(gen_func)")]
+#[pyo3(text_signature = "(input_builder)")]
 pub(crate) struct ManualInputConfig {
-    gen_func: Py<PyAny>,
+    input_builder: Py<PyAny>,
 }
 
 #[pymethods]
 impl ManualInputConfig {
     #[new]
-    #[args(gen_func)]
-    fn new(gen_func: Py<PyAny>) -> (Self, InputConfig) {
-        (Self { gen_func }, InputConfig {})
+    #[args(input_builder)]
+    fn new(input_builder: Py<PyAny>) -> (Self, InputConfig) {
+        (Self { input_builder }, InputConfig {})
     }
 
     /// Pickle as a tuple.
     fn __getstate__(&self, py: Python) -> (&str, Py<PyAny>) {
-        ("ManualInputConfig", self.gen_func.clone_ref(py))
+        ("ManualInputConfig", self.input_builder.clone_ref(py))
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -172,8 +218,8 @@ impl ManualInputConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("ManualInputConfig", gen_func)) = state.extract() {
-            self.gen_func = gen_func;
+        if let Ok(("ManualInputConfig", input_builder)) = state.extract() {
+            self.input_builder = input_builder;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -183,8 +229,8 @@ impl ManualInputConfig {
     }
 }
 
-// Take a single data element or timestamp and feed it into dataflow
-/// This will be called in the worker's "main" loop to feed data in.
+/// Take a single data element or timestamp and feed it into dataflow
+/// Pump will be called in the worker's "main" loop to feed data in.
 pub trait Pump {
     fn pump(&mut self);
     fn input_time(&mut self) -> &u64;
@@ -193,17 +239,14 @@ pub trait Pump {
 
 /// Encapsulates the process of pulling data out of a Kafka
 /// stream and feeding it into Timely.
-pub(crate) struct KafkaPump {
+struct KafkaPump {
     kafka_consumer: KafkaConsumer,
     push_to_timely: InputHandle<u64, TdPyAny>,
     empty: bool,
 }
 
 impl KafkaPump {
-    pub(crate) fn new(
-        config: PyRef<KafkaInputConfig>,
-        push_to_timely: InputHandle<u64, TdPyAny>,
-    ) -> Self {
+    fn new(config: PyRef<KafkaInputConfig>, push_to_timely: InputHandle<u64, TdPyAny>) -> Self {
         let kafka_consumer = KafkaConsumer::new(config);
         Self {
             kafka_consumer,
@@ -235,14 +278,14 @@ impl Pump for KafkaPump {
 
 /// Encapsulates the process of pulling data out of the input Python
 /// iterator and feeding it into Timely.
-pub(crate) struct PyPump {
+struct ManualPump {
     pull_from_pyiter: TdPyIterator,
     pyiter_is_empty: bool,
     push_to_timely: InputHandle<u64, TdPyAny>,
 }
 
-impl PyPump {
-    pub(crate) fn new(
+impl ManualPump {
+    fn new(
         py: Python,
         worker_index: usize,
         worker_count: usize,
@@ -251,7 +294,7 @@ impl PyPump {
         push_to_timely: InputHandle<u64, TdPyAny>,
     ) -> Self {
         let worker_input: TdPyIterator = config
-            .gen_func
+            .input_builder
             .call1(py, (worker_index, worker_count, resume_epoch))
             .unwrap()
             .extract(py)
@@ -264,7 +307,7 @@ impl PyPump {
     }
 }
 
-impl Pump for PyPump {
+impl Pump for ManualPump {
     fn pump(&mut self) {
         Python::with_gil(|py| {
             let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
@@ -312,7 +355,7 @@ pub(crate) fn pump_from_config(
         Box::new(KafkaPump::new(kafka_config, input_handle))
     } else if let Ok(manual_config) = input_config.downcast::<PyCell<ManualInputConfig>>() {
         let manual_config = manual_config.borrow();
-        Box::new(PyPump::new(
+        Box::new(ManualPump::new(
             py,
             worker_index,
             worker_count,
@@ -323,6 +366,116 @@ pub(crate) fn pump_from_config(
     } else {
         let pytype = input_config.get_type();
         panic!("Unknown input_config type: {pytype}")
+    }
+}
+/// Used internally in lieu of the Python
+/// classes
+enum TimelyAction {
+    AdvanceTo(u64),
+    Emit(String),
+}
+struct KafkaConsumer {
+    rt: Runtime,
+    consumer: BaseConsumer<CustomContext>,
+    // eventually resume_epoch...
+    current_epoch: u64,
+    desired_batch_size: u64,
+    current_batch_size: u64,
+}
+
+impl KafkaConsumer {
+    pub(crate) fn new(config: PyRef<KafkaInputConfig>) -> Self {
+        let context = CustomContext;
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let consumer: BaseConsumer<CustomContext> = rt.block_on(async {
+            ClientConfig::new()
+                .set("group.id", config.group_id.clone())
+                .set("bootstrap.servers", config.brokers.clone())
+                .set("enable.partition.eof", "false")
+                .set("session.timeout.ms", "6000")
+                // TODO: we don't really want false here, it's for demo purposes
+                .set("enable.auto.commit", "false")
+                //.set("statistics.interval.ms", "30000")
+                .set("auto.offset.reset", "earliest")
+                .set_log_level(RDKafkaLogLevel::Debug)
+                .create_with_context(context)
+                .expect("Consumer creation failed")
+        });
+
+        consumer
+            .subscribe(&[&config.topics])
+            .expect("Can't subscribe to specified topics");
+
+        Self {
+            rt,
+            consumer,
+            current_epoch: 0,
+            desired_batch_size: config.batch_size,
+            current_batch_size: 0,
+        }
+    }
+
+    pub fn next(&mut self) -> TimelyAction {
+        if self.current_batch_size == self.desired_batch_size {
+            dbg!("Batch complete, incrementing epoch");
+            self.current_batch_size = 0;
+            self.current_epoch += 1;
+            return TimelyAction::AdvanceTo(self.current_epoch);
+        } else {
+            // TODO async loop to populate batch buffer
+            self.rt.block_on(async {
+                // I have no sense of an appropriate timeout. I suppose users provide?
+                match self.consumer.poll(Duration::from_millis(1000)) {
+                    None => {
+                        dbg!("No messages available, incrementing epoch");
+                        self.current_batch_size = 0;
+                        self.current_epoch += 1;
+                        TimelyAction::AdvanceTo(self.current_epoch)
+                    }
+                    Some(r) => match r {
+                        Err(e) => panic!("Kafka error! {}", e),
+                        Ok(s) => match s.payload_view::<str>() {
+                            Some(Ok(r)) => {
+                                self.current_batch_size += 1;
+                                TimelyAction::Emit(r.to_owned())
+                            }
+                            Some(Err(e)) => {
+                                panic!("Could not deserialize Kafka msg with error {}", e)
+                            }
+                            None => {
+                                panic!("Payload was empty");
+                            }
+                        },
+                    },
+                }
+            })
+        }
+    }
+}
+
+//  // A context can be used to change the behavior of producers and consumers by adding callbacks
+// that will be executed by librdkafka.
+// We're not using this yet, but seems like it will be helpful with recovery callbacks
+struct CustomContext;
+
+impl ClientContext for CustomContext {}
+
+impl ConsumerContext for CustomContext {
+    fn pre_rebalance(&self, rebalance: &Rebalance) {
+        info!("Pre rebalance {:?}", rebalance);
+    }
+
+    fn post_rebalance(&self, rebalance: &Rebalance) {
+        info!("Post rebalance {:?}", rebalance);
+    }
+
+    fn commit_callback(&self, result: KafkaResult<()>, _offsets: &TopicPartitionList) {
+        info!("Committing offsets: {:?}", result);
     }
 }
 

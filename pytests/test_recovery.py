@@ -16,8 +16,6 @@ def pytest_generate_tests(metafunc):
     if "recovery_config" in metafunc.fixturenames:
         metafunc.parametrize("recovery_config", RECOVERY_CONFIG_TYPES, indirect=True)
 
-def input_config(inp_func):
-    return ManualInputConfig(inp_func)
 
 @fixture
 def recovery_config(tmp_path, request):
@@ -78,7 +76,7 @@ def test_recover_with_latest_state(recovery_config):
 
     # First pass.
     with raises(RuntimeError):
-        run_main(flow, input_config(ib), ob, recovery_config=recovery_config)
+        run_main(flow, ManualInputConfig(ib), ob, recovery_config=recovery_config)
 
     assert sorted(out) == sorted(
         [
@@ -92,7 +90,7 @@ def test_recover_with_latest_state(recovery_config):
     out.clear()
 
     # Recover.
-    run_main(flow, input_config(ib), ob, recovery_config=recovery_config)
+    run_main(flow, ManualInputConfig(ib), ob, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
     assert sorted(out) == sorted(
@@ -154,7 +152,7 @@ def test_recover_doesnt_gc_last_write(recovery_config):
                 continue
             yield Emit(item)
             yield AdvanceTo(epoch + 1)
-    
+
     out = []
 
     def ob(i, n):
@@ -162,7 +160,7 @@ def test_recover_doesnt_gc_last_write(recovery_config):
 
     # First pass.
     with raises(RuntimeError):
-        run_main(flow, input_config(ib), ob, recovery_config=recovery_config)
+        run_main(flow, ManualInputConfig(ib), ob, recovery_config=recovery_config)
 
     assert sorted(out) == sorted(
         [
@@ -179,7 +177,7 @@ def test_recover_doesnt_gc_last_write(recovery_config):
     out.clear()
 
     # Recover.
-    run_main(flow, input_config(ib), ob, recovery_config=recovery_config)
+    run_main(flow, ManualInputConfig(ib), ob, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
     assert sorted(out) == sorted(
@@ -250,7 +248,7 @@ def test_recover_respects_delete(recovery_config):
 
     # First pass.
     with raises(RuntimeError):
-        run_main(flow, input_config(ib), ob, recovery_config=recovery_config)
+        run_main(flow, ManualInputConfig(ib), ob, recovery_config=recovery_config)
 
     assert sorted(out) == sorted(
         [
@@ -266,7 +264,7 @@ def test_recover_respects_delete(recovery_config):
     out.clear()
 
     # Recover.
-    run_main(flow, input_config(ib), ob, recovery_config=recovery_config)
+    run_main(flow, ManualInputConfig(ib), ob, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
     assert sorted(out) == sorted(

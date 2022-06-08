@@ -100,7 +100,7 @@ The per-worker input of `spawn_cluster()` has the extra requirement that the inp
 `spawn_cluster()` blocks until all output has been collected.
 
 ```python doctest:SORT_OUTPUT
-from bytewax import spawn_cluster, AdvanceTo, Emit
+from bytewax import spawn_cluster, AdvanceTo, Emit, ManualInputConfig
 from bytewax.testing import test_print
 
 
@@ -108,7 +108,6 @@ def input_builder(worker_index, worker_count, resume_epoch):
     for epoch, x in enumerate(range(resume_epoch, 3)):
         yield AdvanceTo(epoch)
         yield Emit({"input_from": worker_index, "x": x})
-
 
 def output_builder(worker_index, worker_count):
     def output_handler(epoch_item):
@@ -130,7 +129,7 @@ flow.capture()
 
 spawn_cluster(
     flow,
-    input_builder,
+    ManualInputConfig(input_builder),
     output_builder,
     proc_count=2,
     worker_count_per_proc=2,
@@ -203,7 +202,14 @@ addresses = [
     # "localhost:2102",
     # ...
 ]
-cluster_main(flow, input_builder, output_builder, addresses=addresses, proc_id=0, worker_count_per_proc=2)
+cluster_main(
+    flow,
+    ManualInputConfig(input_builder),
+    output_builder,
+    addresses=addresses,
+    proc_id=0,
+    worker_count_per_proc=2
+)
 ```
 
 In this toy example here, the cluster is only of a single process with an ID of `0`, so there are only two workers in the sample output:

@@ -55,5 +55,6 @@ flow.capture()
 
 
 if __name__ == "__main__":
-    input_config = ManualInputConfig(input_builder)
-    spawn_cluster(flow, input_config, output_builder, **parse.cluster_args())
+    spawn_cluster(
+        flow, ManualInputConfig(input_builder), output_builder, **parse.cluster_args()
+    )

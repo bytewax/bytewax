@@ -202,12 +202,11 @@ def test_cluster_main_can_be_ctrl_c(mp_ctx):
             flow = Dataflow()
             flow.map(mapper)
             flow.capture()
-            input_config = ManualInputConfig(input_builder)
 
             try:
                 cluster_main(
                     flow,
-                    input_config,
+                    ManualInputConfig(input_builder),
                     output_builder,
                     addresses=[],
                     proc_id=0,
@@ -252,10 +251,9 @@ def test_yield_epochs_with_cluster_main(mp_ctx):
             flow.map(mapper)
             flow.capture()
 
-            input_config = ManualInputConfig(input_builder)
             cluster_main(
                 flow,
-                input_config,
+                ManualInputConfig(input_builder),
                 output_builder,
                 addresses=[],
                 proc_id=0,
