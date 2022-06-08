@@ -1,4 +1,4 @@
-**Operators** are the processing primitives of bytewax.
+**Operators** are the processing primitives of Bytewax.
 Each of them gives you a "shape" of data transformation, and you give them functions to customize them to a specific task you need.
 The combination of each operator and their custom logic functions we call a dataflow **step**.
 You chain together steps in a dataflow to solve your high-level data processing problem.
@@ -10,7 +10,7 @@ If not, no worries, we'll give a quick overview of each and links to our annotat
 
 You can add steps to your dataflow by calling the method with the name of the operator you'd like to use on a [`bytewax.Dataflow`](/apidocs#bytewax.Dataflow) instance.
 
-There is a detailed description of every operator, it's behavior, and a simple example in the API docs for [`bytewax.Dataflow`](/apidocs#bytewax.Dataflow).
+There is a detailed description of every operator, its behavior, and a simple example in the API docs for [`bytewax.Dataflow`](/apidocs#bytewax.Dataflow).
 
 ## Epoch Modification
 

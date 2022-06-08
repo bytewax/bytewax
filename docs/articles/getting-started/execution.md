@@ -83,7 +83,7 @@ for epoch, item in run_cluster(
 
 This is best used for notebook analysis where you need higher throughput or parallelism, or simple stand-alone demo programs.
 
-`run_cluster()` has some constraints, though. Because of the Python iterator-based API, all input and output must be routed through the calling Python process, thus only the internal steps of the dataflow are executed in parallel. `run_cluster()` is best suited for speeding up CPU-bound single-threaded Python processing limited, not IO-bound processing. Operator logic that calls into already parallel code in NumPy or Pandas will probably not see throughput speedup as the internal parallelism will already fill available CPU time without Bytewax's parallelism.
+`run_cluster()` has some constraints, though. Because of the Python iterator-based API, all input and output must be routed through the calling Python process, thus only the internal steps of the dataflow are executed in parallel. `run_cluster()` is best suited for speeding up CPU-bound single-threaded Python processing limited, not IO-bound processing. Operator logic that calls into already parallel code in NumPy or Pandas will probably not see throughput speed up as the internal parallelism will already fill available CPU time without Bytewax's parallelism.
 
 ## Multiple Worker Spawn Cluster
 

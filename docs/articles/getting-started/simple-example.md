@@ -89,7 +89,7 @@ def file_input():
         yield 1, line
 ```
 
-To provide our program needs an **input iterator**. We've defined a [Python generator](https://docs.python.org/3/glossary.html#term-generator) that will read our input file. There are also more advanced ways to provide input, which you can read about later when we talk about [execution modes](/getting-started/execution/).
+To receive input, our program needs an **input iterator**. We've defined a [Python generator](https://docs.python.org/3/glossary.html#term-generator) that will read our input file. There are also more advanced ways to provide input, which you can read about later when we talk about [execution modes](/getting-started/execution/).
 
 This generator yields two-tuples of `1` and a line from our file. The `1` in this example is significant, but we'll talk more about it when we discuss [epochs](/getting-started/epochs/).
 
@@ -161,11 +161,11 @@ flow.map(initial_count)
 flow.reduce_epoch(add)
 ```
 
-Its super power is that it can repeatedly combine together items into a single, aggregate value via a reducing function. Think about it like reducing a sauce while cooking; you are boiling all of the values down to something more concentrated.
+Its super power is that it can repeatedly combine together items into a single, aggregate value via a reducing function. Think about it like reducing a sauce while cooking: you are boiling all of the values down to something more concentrated.
 
 In this case, we pass it the reducing function `add()` which will sum together the counts of words so that the final aggregator value is the total.
 
-How does reduce epoch know which items to combine? Part of its requirements are that the input items from the previous step in the dataflow are `(key, value)` two-tuples, and it will make sure that all values for a given key are passed to the reducing function, but two separate keys will never have their values mixed. Thus, if we make the word the key, we'll be able to get separate counts!
+How does reduce epoch know which items to combine? Part of its requirements are that the input items from the previous step in the dataflow are `(key, value)` two-tuples, and it will make sure that all values for a given key are passed to the reducing function. Thus, if we make the word the key, we'll be able to get separate counts!
 
 That explains the previous map step in the dataflow with `initial_count()`.
 
@@ -192,7 +192,7 @@ for epoch, item in run(flow, file_input()):
     print(item)
 ```
 
-When we call `run()`, our dataflow program will begin running, Bytewax will read the input items and epoch from your input generator, push the data through each step in the dataflow, and return the captured output. We then print the output of the final step.
+When we call `run()`, our dataflow program will begin running, Bytewax will read the input items and epoch from our input generator, push the data through each step in the dataflow, and return the captured output. We then print the output of the final step.
 
 Here is the complete output when running the example:
 
