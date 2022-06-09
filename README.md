@@ -18,7 +18,7 @@ Bytewax lets you build Python based dataflows to process your data for augmentat
 At a high level, Bytewax provides a few major benefits:
 
 * The operators in Bytewax are largely “data-parallel”, meaning they can operate on independent parts of the data concurrently.
-* The ability to express higher-level control constructs, like iteration.
+* Bytewax offers the ability to express higher-level control constructs, like iteration.
 * Bytewax allows you to develop and run your code locally, and then easily scale that code to multiple workers or processes without changes.
 * Bytewax can be used in both a streaming and batch context
 * Ability to leverage the Python ecosystem directly
