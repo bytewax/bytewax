@@ -20,7 +20,6 @@ use timely::scheduling::Scheduler;
 
 use std::thread;
 use std::time::Duration;
-use std::time::Instant;
 
 use log::debug;
 use pyo3::basic::CompareOp;
@@ -242,23 +241,12 @@ where
                         let activator = scope.activator_for(&info.address[..]);
 
                         let mut cap = Some(capability);
-                        let mut start = Instant::now();
                         move |output| {
                             if let Some(cap) = cap.as_mut() {
-                                let elapsed = start.elapsed().as_secs();
-                                debug!("checking tumbling window: {elapsed:?}, {cap:?}");
-                                let time = cap.time().clone();
-
-                                if start.elapsed().as_secs() > 5 {
-                                    debug!("Sending () to output session {cap:?}");
-                                    output.session(&cap).give(());
-
-                                    cap.downgrade(&(time + 1));
-                                    start = Instant::now();
-                                }
-                                // cap.downgrade(&(time + 1));
-                            }
-                            activator.activate();
+                                output.session(&cap).give(());
+                                cap.downgrade(&(cap.time() + 10));
+                                debug!("Setting activation after 10s");
+                                activator.activate_after(Duration::new(10, 0));                                                  }
                         }
                     });
 
@@ -268,7 +256,7 @@ where
                             window_source_stream,
                             state_cache,
                             move |key, current_window, value| {
-                                aggregate_window(key, current_window.as_ref(), &value)
+                                aggregate_window(key, current_window, value)
                             },
                             StateKey::route,
                         );

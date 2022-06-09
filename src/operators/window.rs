@@ -27,8 +27,8 @@ pub(crate) trait TumblingWindow<S: Scope, K: ExchangeData + Hash + Eq, V: Exchan
     /// updates for recovery you'll probably pass into a [`Backup`]
     /// operator.
     fn tumbling_window<
-        W: Fn(&K, Option<V>, &V) -> V + 'static, // Windowing function
-        H: Fn(&K) -> u64 + 'static,              // Hash function of key to worker
+        W: Fn(&K, Option<V>, Vec<V>) -> V + 'static, // Windowing function
+        H: Fn(&K) -> u64 + 'static,                   // Hash function of key to worker
     >(
         &self,
         windowing_stream: Stream<S, ()>,
@@ -44,8 +44,8 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
     for Stream<S, (K, V)>
 {
     fn tumbling_window<
-        W: Fn(&K, Option<V>, &V) -> V + 'static, // Windowing function
-        H: Fn(&K) -> u64 + 'static,              // Hash function of key to worker
+        W: Fn(&K, Option<V>, Vec<V>) -> V + 'static, // Windowing function
+        H: Fn(&K) -> u64 + 'static,                   // Hash function of key to worker
     >(
         &self,
         windowing_stream: Stream<S, ()>,
@@ -71,7 +71,7 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
 
         op_builder.build(move |_init_capabilities| {
             let mut tmp_key_values = Vec::new();
-            let mut incoming_epoch_to_key_values_buffer = HashMap::new();
+            let mut window_buffer = HashMap::new();
 
             let mut tmp_updated_keys = HashSet::new();
             let mut outgoing_epoch_to_state_updates_buffer = HashMap::new();
@@ -80,23 +80,27 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
             let mut state_update_fncater = FrontierNotificator::new();
             move |input_frontiers| {
                 let mut input_handle = FrontieredInputHandle::new(&mut input, &input_frontiers[0]);
+                let mut window_handle = FrontieredInputHandle::new(&mut windowing_input, &input_frontiers[1]);
                 let mut downstream_output_handle = downstream_output_wrapper.activate();
                 let mut state_update_output_handle = state_update_output_wrapper.activate();
 
-                windowing_input.for_each(|cap, _value| {
+                window_handle.for_each(|cap, _value| {
                     debug!("Window input received: {cap:?}");
                     let epoch = cap.time();
                     downstream_fncater.notify_at(cap.delayed_for_output(epoch, 0));
                 });
 
                 input_handle.for_each(|cap, key_values| {
+                    let epoch = cap.time();
+                    debug!("Normal input received, epoch: {epoch:?}");
                     key_values.swap(&mut tmp_key_values);
 
-                    let epoch = cap.time();
-                    incoming_epoch_to_key_values_buffer
-                        .entry(epoch.clone())
-                        .or_insert_with(Vec::new)
-                        .extend(tmp_key_values.drain(..));
+                    for (key, value) in tmp_key_values.drain(..) {
+                        window_buffer
+                            .entry(key.clone())
+                            .or_insert_with(Vec::new)
+                            .push(value);
+                    }
 
                     state_update_fncater.notify_at(cap.delayed_for_output(epoch, 1));
                 });
@@ -105,42 +109,34 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
                 // seen in the input of this operator (not the whole
                 // dataflow, though).
                 downstream_fncater.for_each(
-                    &[input_handle.frontier()],
+                    &[window_handle.frontier()],
                     |downstream_cap, _ncater| {
                         let epoch = downstream_cap.time();
-                        if let Some(key_values) = incoming_epoch_to_key_values_buffer.remove(epoch)
-                        {
-                            for (key, value) in key_values {
-                                let current_window = state_cache.remove(&key);
-                                let updated_window_for_key =
-                                    window_fn(&key, current_window, &value);
-                                // Save the window so we can use
-                                // it if there are multiple values
-                                // within this epoch. We do not save
-                                // to the recovery store here because
-                                // we don't have finalized state for
-                                // the epoch.
-                                debug!("Window complete");
-                                let mut downstream_output_session =
-                                    downstream_output_handle.session(&downstream_cap);
-                                downstream_output_session
-                                    .give((key.clone(), updated_window_for_key));
-                                state_cache.remove(&key);
-                            }
+                        for (key, value) in window_buffer.drain() {
+                            let current_window = state_cache.remove(&key);
+                            let updated_window_for_key = window_fn(&key, current_window, value);
+                            // Save the window so we can use
+                            // it if there are multiple values
+                            // within this epoch. We do not save
+                            // to the recovery store here because
+                            // we don't have finalized state for
+                            // the epoch.
+                            let mut downstream_output_session =
+                                downstream_output_handle.session(&downstream_cap);
+                            downstream_output_session.give((key.clone(), updated_window_for_key));
+                            state_cache.remove(&key);
+                        }
 
-                            // Now that this epoch is over, find the final
-                            // updated state for all keys that were
-                            // touched and save that to be emitted
-                            // downstream for the second output.
-                            for key in tmp_updated_keys.drain() {
-                                let updated_state = state_cache.get(&key).cloned();
-                                outgoing_epoch_to_state_updates_buffer
-                                    .entry(epoch.clone())
-                                    .or_insert_with(Vec::new)
-                                    .push((key, updated_state));
-                            }
-                        } else {
-                            todo!()
+                        // Now that this epoch is over, find the final
+                        // updated state for all keys that were
+                        // touched and save that to be emitted
+                        // downstream for the second output.
+                        for key in tmp_updated_keys.drain() {
+                            let updated_state = state_cache.get(&key).cloned();
+                            outgoing_epoch_to_state_updates_buffer
+                                .entry(epoch.clone())
+                                .or_insert_with(Vec::new)
+                                .push((key, updated_state));
                         }
                     },
                 );
@@ -172,19 +168,19 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
 
 pub(crate) fn aggregate_window(
     key: &StateKey,
-    current_window: Option<&TdPyAny>,
-    value: &TdPyAny,
+    current_window: Option<TdPyAny>,
+    values: Vec<TdPyAny>,
 ) -> TdPyAny {
     Python::with_gil(|py| {
         let updated_window = if let Some(current_window) = current_window {
             let mut current_window: Vec<TdPyAny> = current_window.extract(py).unwrap();
-            current_window.push(value.clone_ref(py));
+            current_window.extend(values);
             current_window
         } else {
-            vec![value.clone_ref(py)]
+            values.to_vec()
         };
 
-        debug!("aggregate_window for key={key:?}: current_window={current_window:?} {value:?}) -> updated_window={updated_window:?}");
+        debug!("aggregate_window for key={key:?}) -> updated_window={updated_window:?}");
         updated_window.into_py(py).clone_ref(py).into()
     })
 }
