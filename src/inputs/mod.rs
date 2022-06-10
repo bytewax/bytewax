@@ -4,7 +4,6 @@ use log::info;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyString;
 use rdkafka::client::ClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::consumer::base_consumer::BaseConsumer;
@@ -261,8 +260,8 @@ impl Pump for KafkaPump {
         match self.kafka_consumer.next() {
             TimelyAction::AdvanceTo(epoch) => self.push_to_timely.advance_to(epoch),
             TimelyAction::Emit(item) => Python::with_gil(|py| {
-                let py_any_string = TdPyAny::from(PyString::new(py, &item));
-                self.push_to_timely.send(py_any_string);
+                let key_payload = vec![item.0, item.1].into_py(py);
+                self.push_to_timely.send(key_payload.into());
             }),
         }
     }
@@ -372,7 +371,7 @@ pub(crate) fn pump_from_config(
 /// classes
 enum TimelyAction {
     AdvanceTo(u64),
-    Emit(String),
+    Emit((Option<Vec<u8>>, Option<Vec<u8>>)),
 }
 struct KafkaConsumer {
     rt: Runtime,
@@ -439,17 +438,11 @@ impl KafkaConsumer {
                     }
                     Some(r) => match r {
                         Err(e) => panic!("Kafka error! {}", e),
-                        Ok(s) => match s.payload_view::<str>() {
-                            Some(Ok(r)) => {
-                                self.current_batch_size += 1;
-                                TimelyAction::Emit(r.to_owned())
-                            }
-                            Some(Err(e)) => {
-                                panic!("Could not deserialize Kafka msg with error {}", e)
-                            }
-                            None => {
-                                panic!("Payload was empty");
-                            }
+                        Ok(s) => {
+                            self.current_batch_size += 1;
+                            let key = s.key().map(|k| k.to_vec());
+                            let payload = s.payload().map(|k| k.to_vec());
+                            TimelyAction::Emit((key, payload))
                         },
                     },
                 }
