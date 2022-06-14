@@ -4,6 +4,7 @@ use log::info;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 use rdkafka::client::ClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::consumer::base_consumer::BaseConsumer;
@@ -239,17 +240,50 @@ pub trait Pump {
 /// Encapsulates the process of pulling data out of a Kafka
 /// stream and feeding it into Timely.
 struct KafkaPump {
-    kafka_consumer: KafkaConsumer,
+    consumer: BaseConsumer<CustomContext>,
+    rt: Runtime,
     push_to_timely: InputHandle<u64, TdPyAny>,
+    desired_batch_size: u64,
+    current_batch_size: u64,
+    // eventually resume_epoch...
+    current_epoch: u64,
     empty: bool,
 }
 
 impl KafkaPump {
     fn new(config: PyRef<KafkaInputConfig>, push_to_timely: InputHandle<u64, TdPyAny>) -> Self {
-        let kafka_consumer = KafkaConsumer::new(config);
+        let context = CustomContext;
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let consumer: BaseConsumer<CustomContext> = rt.block_on(async {
+            ClientConfig::new()
+                .set("group.id", config.group_id.clone())
+                .set("bootstrap.servers", config.brokers.clone())
+                .set("enable.partition.eof", "false")
+                .set("session.timeout.ms", "6000")
+                // TODO: we don't really want false here, it's for demo purposes
+                .set("enable.auto.commit", "false")
+                .set("auto.offset.reset", "earliest")
+                .set_log_level(RDKafkaLogLevel::Debug)
+                .create_with_context(context)
+                .expect("Consumer creation failed")
+        });
+
+        consumer
+            .subscribe(&[&config.topics])
+            .expect("Can't subscribe to specified topics");
+
         Self {
-            kafka_consumer,
+            consumer,
+            rt,
             push_to_timely,
+            current_epoch: 0,
+            desired_batch_size: config.batch_size,
+            current_batch_size: 0,
             empty: false,
         }
     }
@@ -257,12 +291,37 @@ impl KafkaPump {
 
 impl Pump for KafkaPump {
     fn pump(&mut self) {
-        match self.kafka_consumer.next() {
-            TimelyAction::AdvanceTo(epoch) => self.push_to_timely.advance_to(epoch),
-            TimelyAction::Emit(item) => Python::with_gil(|py| {
-                let key_payload = vec![item.0, item.1].into_py(py);
-                self.push_to_timely.send(key_payload.into());
-            }),
+        if self.current_batch_size == self.desired_batch_size {
+            self.current_batch_size = 0;
+            self.current_epoch += 1;
+            self.push_to_timely.advance_to(self.current_epoch);
+        } else {
+            self.rt.block_on(async {
+                match self.consumer.poll(Duration::from_millis(1000)) {
+                    None => {
+                        dbg!("No messages available, incrementing epoch");
+                        self.current_batch_size = 0;
+                        self.current_epoch += 1;
+                        self.push_to_timely.advance_to(self.current_epoch);
+                    }
+                    Some(r) => match r {
+                        Err(e) => panic!("Kafka error! {}", e),
+                        Ok(s) => {
+                            self.current_batch_size += 1;
+                            Python::with_gil(|py| {
+                                let key: Py<PyAny> =
+                                    s.key().map_or(py.None(), |k| PyBytes::new(py, k).into());
+                                let payload: Py<PyAny> = s
+                                    .payload()
+                                    .map_or(py.None(), |k| PyBytes::new(py, k).into());
+                                let key_payload: Py<PyAny> = (key, payload).into_py(py);
+
+                                self.push_to_timely.send(key_payload.into())
+                            })
+                        }
+                    },
+                }
+            })
         }
     }
 
@@ -365,89 +424,6 @@ pub(crate) fn pump_from_config(
     } else {
         let pytype = input_config.get_type();
         panic!("Unknown input_config type: {pytype}")
-    }
-}
-/// Used internally in lieu of the Python
-/// classes
-enum TimelyAction {
-    AdvanceTo(u64),
-    Emit((Option<Vec<u8>>, Option<Vec<u8>>)),
-}
-struct KafkaConsumer {
-    rt: Runtime,
-    consumer: BaseConsumer<CustomContext>,
-    // eventually resume_epoch...
-    current_epoch: u64,
-    desired_batch_size: u64,
-    current_batch_size: u64,
-}
-
-impl KafkaConsumer {
-    pub(crate) fn new(config: PyRef<KafkaInputConfig>) -> Self {
-        let context = CustomContext;
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-
-        let consumer: BaseConsumer<CustomContext> = rt.block_on(async {
-            ClientConfig::new()
-                .set("group.id", config.group_id.clone())
-                .set("bootstrap.servers", config.brokers.clone())
-                .set("enable.partition.eof", "false")
-                .set("session.timeout.ms", "6000")
-                // TODO: we don't really want false here, it's for demo purposes
-                .set("enable.auto.commit", "false")
-                //.set("statistics.interval.ms", "30000")
-                .set("auto.offset.reset", "earliest")
-                .set_log_level(RDKafkaLogLevel::Debug)
-                .create_with_context(context)
-                .expect("Consumer creation failed")
-        });
-
-        consumer
-            .subscribe(&[&config.topics])
-            .expect("Can't subscribe to specified topics");
-
-        Self {
-            rt,
-            consumer,
-            current_epoch: 0,
-            desired_batch_size: config.batch_size,
-            current_batch_size: 0,
-        }
-    }
-
-    pub fn next(&mut self) -> TimelyAction {
-        if self.current_batch_size == self.desired_batch_size {
-            dbg!("Batch complete, incrementing epoch");
-            self.current_batch_size = 0;
-            self.current_epoch += 1;
-            return TimelyAction::AdvanceTo(self.current_epoch);
-        } else {
-            // TODO async loop to populate batch buffer
-            self.rt.block_on(async {
-                // I have no sense of an appropriate timeout. I suppose users provide?
-                match self.consumer.poll(Duration::from_millis(1000)) {
-                    None => {
-                        dbg!("No messages available, incrementing epoch");
-                        self.current_batch_size = 0;
-                        self.current_epoch += 1;
-                        TimelyAction::AdvanceTo(self.current_epoch)
-                    }
-                    Some(r) => match r {
-                        Err(e) => panic!("Kafka error! {}", e),
-                        Ok(s) => {
-                            self.current_batch_size += 1;
-                            let key = s.key().map(|k| k.to_vec());
-                            let payload = s.payload().map(|k| k.to_vec());
-                            TimelyAction::Emit((key, payload))
-                        },
-                    },
-                }
-            })
-        }
     }
 }
 

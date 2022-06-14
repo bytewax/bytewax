@@ -7,7 +7,7 @@ def output_builder(worker_index, worker_count):
     def output_fn(epoch_keypayload):
         e, data = epoch_keypayload
         # Alert! Data items can be None
-        payload = bytearray(data[1]) if data[1] else ""
+        payload = data[1] if data[1] else ""
         msg = json.loads(payload)
         print(e, msg)
 
@@ -15,7 +15,7 @@ def output_builder(worker_index, worker_count):
 
 
 if __name__ == "__main__":
-    input_config = KafkaInputConfig("localhost:9092", "foobar", "drivers", batch_size=5)
+    input_config = KafkaInputConfig("localhost:9092", "example_group_id", "drivers", batch_size=5)
     flow = Dataflow()
     flow.capture()
     cluster_main(
