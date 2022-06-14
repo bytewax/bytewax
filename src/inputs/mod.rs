@@ -1,6 +1,5 @@
 use crate::pyo3_extensions::{TdPyAny, TdPyIterator};
 
-use log::info;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -8,10 +7,8 @@ use pyo3::types::PyBytes;
 use rdkafka::client::ClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::consumer::base_consumer::BaseConsumer;
-use rdkafka::consumer::{Consumer, ConsumerContext, Rebalance};
-use rdkafka::error::KafkaResult;
+use rdkafka::consumer::{Consumer, ConsumerContext};
 use rdkafka::message::Message;
-use rdkafka::topic_partition_list::TopicPartitionList;
 use std::time::Duration;
 use timely::dataflow::InputHandle;
 use tokio::runtime::Runtime;
@@ -97,16 +94,18 @@ impl Emit {
 #[pyo3(text_signature = "()")]
 pub(crate) struct InputConfig;
 
-/// Use [Kafka](https://kafka.apache.org) as the input source.
+/// Use [Kafka](https://kafka.apache.org) as the input source. Currently
+/// does not support recovery. Kafka messages will be passed through the dataflow
+/// as byte two-tuples of Kafka key and payload.
 ///
 ///
 /// Args:
 ///
 ///     brokers: List of broker addresses.
 ///
-///     group_id: Group id
+///     group_id: Group id.
 ///
-///     topic: Topic to which consumer will subscribe
+///     topic: Topic to which consumer will subscribe.
 ///
 ///     batch_size: Integer defining how messages will be grouped by epoch.
 ///
@@ -245,7 +244,6 @@ struct KafkaPump {
     push_to_timely: InputHandle<u64, TdPyAny>,
     desired_batch_size: u64,
     current_batch_size: u64,
-    // eventually resume_epoch...
     current_epoch: u64,
     empty: bool,
 }
@@ -329,6 +327,7 @@ impl Pump for KafkaPump {
         self.push_to_timely.time()
     }
 
+    // Always true right now
     fn input_remains(&mut self) -> bool {
         !self.empty
     }
@@ -434,19 +433,7 @@ struct CustomContext;
 
 impl ClientContext for CustomContext {}
 
-impl ConsumerContext for CustomContext {
-    fn pre_rebalance(&self, rebalance: &Rebalance) {
-        info!("Pre rebalance {:?}", rebalance);
-    }
-
-    fn post_rebalance(&self, rebalance: &Rebalance) {
-        info!("Post rebalance {:?}", rebalance);
-    }
-
-    fn commit_callback(&self, result: KafkaResult<()>, _offsets: &TopicPartitionList) {
-        info!("Committing offsets: {:?}", result);
-    }
-}
+impl ConsumerContext for CustomContext {}
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Emit>()?;

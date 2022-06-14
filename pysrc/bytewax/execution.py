@@ -71,6 +71,7 @@ def run(
         assert worker_index == 0
         return out.append
 
+    "Only manual configuration works with iterator based input"
     run_main(
         flow,
         ManualInputConfig(input_builder),
@@ -115,7 +116,7 @@ def spawn_cluster(
     ...     return print
     >>> spawn_cluster(
     ...     flow,
-    ...     input_builder,
+    ...     ManualInputConfig(input_builder),
     ...     output_builder,
     ...     proc_count=2,
     ...     mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
@@ -135,8 +136,7 @@ def spawn_cluster(
 
         flow: Dataflow to run.
 
-        input_builder: Yields `AdvanceTo()` or `Emit()` with this
-            worker's input. Must resume from the epoch specified.
+        input_config: Input config of type Manual or Kafka. See `bytewax.inputs`.
 
         output_builder: Returns a callback function for each worker
             thread, called with `(epoch, item)` whenever and item

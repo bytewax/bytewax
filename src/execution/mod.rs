@@ -333,7 +333,7 @@ where
 /// ...         yield Emit(item)
 /// >>> def output_builder(worker_index, worker_count):
 /// ...     return print
-/// >>> run_main(flow, input_builder, output_builder)  # doctest: +ELLIPSIS
+/// >>> run_main(flow, ManualConfig(input_builder), output_builder)  # doctest: +ELLIPSIS
 /// (...)
 ///
 /// See `bytewax.run()` for a convenience method to not need to worry
@@ -346,8 +346,7 @@ where
 ///
 ///     flow: Dataflow to run.
 ///
-///     input_builder: Yields `AdvanceTo()` or `Emit()` with this
-///         worker's input. Must resume from the epoch specified.
+///     input_config: Input config of type Manual or Kafka. See `bytewax.inputs`.
 ///
 ///     output_builder: Returns a callback function for each worker
 ///         thread, called with `(epoch, item)` whenever and item
@@ -424,7 +423,7 @@ pub(crate) fn run_main(
 /// ...         yield Emit(item)
 /// >>> def output_builder(worker_index, worker_count):
 /// ...     return print
-/// >>> cluster_main(flow, input_builder, output_builder)  # doctest: +ELLIPSIS
+/// >>> cluster_main(flow, ManualInput(input_builder), output_builder)  # doctest: +ELLIPSIS
 /// (...)
 ///
 /// See `bytewax.run_main()` for a way to test input and output
@@ -440,8 +439,7 @@ pub(crate) fn run_main(
 ///
 ///     flow: Dataflow to run.
 ///
-///     input_builder: Yields `AdvanceTo()` or `Emit()` with this
-///         worker's input. Must resume from the epoch specified.
+///     input_config: Input config of type Manual or Kafka. See `bytewax.inputs`.
 ///
 ///     output_builder: Returns a callback function for each worker
 ///         thread, called with `(epoch, item)` whenever and item

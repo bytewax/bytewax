@@ -54,10 +54,9 @@ flow = Dataflow()
 ```
 
 Now, our plan is to use the stateful map operator to actually do the
-join. All stateful operators require their input data to be a `(key,
-value)` tuple so that the system can route all keys so they access the
-same state.  Let's add that key field using the `user_id` field
-present in every event.
+join. All stateful operators require their input data to be a `(key, value)`
+tuple so that the system can route all keys so they access the same state.
+Let's add that key field using the `user_id` field present in every event.
 
 ```python
 def key_off_user_id(event):
@@ -139,6 +138,7 @@ Now let's run our dataflow without state recovery:
 
 ```python doctest:IGNORE_EXCEPTION_DETAIL doctest:ELLIPSIS
 from bytewax import run_main
+from bytewax.inputs import ManualInputConfig
 
 run_main(flow, ManualInputConfig(input_builder), output_builder)
 ```

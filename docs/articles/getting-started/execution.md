@@ -91,9 +91,11 @@ Our next entry point introduces a more complex API to allow for more performance
 
 ### Builders
 
-You provide input and output **builders**, functions that are called on each worker and will produce the input and handle the output for that worker. The input builder function should return an iterable that yields `Emit(item)` or `AdvanceTo(epoch)`. The output builder function should return a callback **output handler** function that can be called with each epoch and item of output produced.
+You provide input and output **builders**, functions that are called on each worker and will produce the input and handle the output for that worker.
 
-The input builder also recieves the epoch to resume processing on in the case of restarting the dataflow. The input builder must somehow skip ahead in its input data to start at that epoch.
+For a manual input source (not Kafka), the input builder function should return an iterable that yields `Emit(item)` or `AdvanceTo(epoch)` and will be the `input_builder` parameter on the `ManualInputConfiguration` passed to the dataflow. The input builder also receives the epoch to resume processing on in the case of restarting the dataflow. The input builder must somehow skip ahead in its input data to start at that epoch. If you are using a `KafkaInputConfig`, epochs will be managed based on the `batch_size` parameter.
+
+The output builder function should return a callback **output handler** function that can be called with each epoch and item of output produced.
 
 The per-worker input of `spawn_cluster()` has the extra requirement that the input data is not duplicated between workers. All data from each worker is introduced into the same dataflow. For example, if each worker reads the content of the same file, the input will be duplicated by the number of workers. Data sources like Apache Kafka or Redpanda can provide a partitioned stream of input which can be consumed by multiple workers in parallel without duplication, as each worker sees a unique partition.
 
@@ -162,12 +164,15 @@ The final entry point, `bytewax.cluster_main()` is the most flexible. It allows 
 
 `cluster_main()` takes in a list of hostname and port of all workers (including itself). Each worker must be given a unique process ID.
 
-The input builder function should return an iterable that yields `(epoch, item)` tuples. The output builder function should return a callback function that can be called with each epoch and item of output produced.
+As in `spawn_cluster()`, the input builder function passed to a manual input configuration should return an iterable that yields `(epoch, item)` tuples. Likewise, if you are using a `KafkaInputConfig`, epochs will be managed based on the `batch_size` parameter.
+
+The output builder function should return a callback function that can be called with each epoch and item of output produced.
 
 `cluster_main()` blocks until the dataflow is complete.
 
 ```python doctest:SORT_OUTPUT
 from bytewax import cluster_main
+from bytewax.inputs import ManualInputConfig
 
 
 def input_builder(worker_index, worker_count, resume_epoch):
