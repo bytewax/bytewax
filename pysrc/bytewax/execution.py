@@ -6,13 +6,11 @@ from typing import Any, Callable, Iterable, List, Optional, Tuple, Union
 from multiprocess import get_context
 
 from bytewax.recovery import RecoveryConfig
-from bytewax.inputs import ManualInputConfig, InputConfig
+from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig, InputConfig
 
 from .bytewax import (
-    AdvanceTo,
     cluster_main,
     Dataflow,
-    Emit,
     run_main,
 )
 

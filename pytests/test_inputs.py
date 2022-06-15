@@ -1,8 +1,8 @@
 import datetime
 from unittest.mock import ANY
 
-from bytewax import AdvanceTo
 from bytewax.inputs import (
+    AdvanceTo,
     distribute,
     fully_ordered,
     single_batch,

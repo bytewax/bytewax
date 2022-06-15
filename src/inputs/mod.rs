@@ -34,7 +34,7 @@ use tokio::runtime::Runtime;
 /// ...     for i in range(10):
 /// ...         yield AdvanceTo(i) # Advances the epoch to i
 /// ...         yield Emit(i) # Adds the input i at epoch i
-#[pyclass(module = "bytewax")]
+#[pyclass(module = "bytewax.inputs")]
 #[pyo3(text_signature = "(epoch)")]
 pub(crate) struct AdvanceTo {
     #[pyo3(get)]
@@ -69,7 +69,7 @@ impl AdvanceTo {
 /// ...     for i in range(10):
 /// ...         yield AdvanceTo(i) # Advances the epoch to i
 /// ...         yield Emit(i) # Adds the input i at epoch i
-#[pyclass(module = "bytewax")]
+#[pyclass(module = "bytewax.inputs")]
 #[pyo3(text_signature = "(item)")]
 pub(crate) struct Emit {
     #[pyo3(get)]

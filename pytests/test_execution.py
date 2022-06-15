@@ -5,15 +5,13 @@ from sys import exit
 from pytest import mark, raises
 
 from bytewax import (
-    AdvanceTo,
     cluster_main,
     Dataflow,
-    Emit,
     inputs,
     run,
     run_cluster,
 )
-from bytewax.inputs import ManualInputConfig
+from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig
 
 
 def test_run():

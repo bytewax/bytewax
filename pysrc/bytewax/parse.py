@@ -91,7 +91,8 @@ def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
       E.g. `cluster_name-0` and `cluster_name` and we will calculate
       the process ID from that.
 
-    >>> from bytewax import Dataflow, cluster_main, AdvanceTo, Emit
+    >>> from bytewax import Dataflow, cluster_main
+    >>> from bytewax.inputs import AdvanceTo, Emit
     >>> flow = Dataflow()
     >>> flow.capture()
     >>> def ib(i, n):
@@ -147,7 +148,8 @@ def proc_args(args: Iterable[str] = None) -> Dict[str, Any]:
     See documentation for `bytewax.cluster_main()` for semantics of
     these variables.
 
-    >>> from bytewax import Dataflow, cluster_main, AdvanceTo, Emit
+    >>> from bytewax import Dataflow, cluster_main
+    >>> from bytewax.inputs import AdvanceTo, Emit
     >>> flow = Dataflow()
     >>> flow.capture()
     >>> def ib(i, n):

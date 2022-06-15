@@ -106,8 +106,8 @@ Regardless of your input type, you will provide an output **builder** function t
 `spawn_cluster()` blocks until all output has been collected.
 
 ```python doctest:SORT_OUTPUT
-from bytewax import spawn_cluster, AdvanceTo, Emit
-from bytewax.inputs import ManualInputConfig
+from bytewax import spawn_cluster
+from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig
 from bytewax.testing import test_print
 
 
@@ -177,7 +177,7 @@ The output builder function should return a callback function that can be called
 
 ```python doctest:SORT_OUTPUT
 from bytewax import cluster_main
-from bytewax.inputs import ManualInputConfig
+from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig
 
 
 def input_builder(worker_index, worker_count, resume_epoch):
