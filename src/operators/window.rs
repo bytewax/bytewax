@@ -4,6 +4,8 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::Hash;
+use std::time::Duration;
+use std::time::Instant;
 
 use log::debug;
 use timely::dataflow::channels::pact;
@@ -28,7 +30,7 @@ pub(crate) trait TumblingWindow<S: Scope, K: ExchangeData + Hash + Eq, V: Exchan
     /// operator.
     fn tumbling_window<
         W: Fn(&K, Option<V>, Vec<V>) -> V + 'static, // Windowing function
-        H: Fn(&K) -> u64 + 'static,                   // Hash function of key to worker
+        H: Fn(&K) -> u64 + 'static,                  // Hash function of key to worker
     >(
         &self,
         windowing_stream: Stream<S, ()>,
@@ -45,7 +47,7 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
 {
     fn tumbling_window<
         W: Fn(&K, Option<V>, Vec<V>) -> V + 'static, // Windowing function
-        H: Fn(&K) -> u64 + 'static,                   // Hash function of key to worker
+        H: Fn(&K) -> u64 + 'static,                  // Hash function of key to worker
     >(
         &self,
         windowing_stream: Stream<S, ()>,
@@ -78,16 +80,24 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
 
             let mut downstream_fncater = FrontierNotificator::new();
             let mut state_update_fncater = FrontierNotificator::new();
+            let mut now = Instant::now();
+
             move |input_frontiers| {
                 let mut input_handle = FrontieredInputHandle::new(&mut input, &input_frontiers[0]);
-                let mut window_handle = FrontieredInputHandle::new(&mut windowing_input, &input_frontiers[1]);
+                let mut window_handle =
+                    FrontieredInputHandle::new(&mut windowing_input, &input_frontiers[1]);
                 let mut downstream_output_handle = downstream_output_wrapper.activate();
                 let mut state_update_output_handle = state_update_output_wrapper.activate();
 
                 window_handle.for_each(|cap, _value| {
                     debug!("Window input received: {cap:?}");
-                    let epoch = cap.time();
-                    downstream_fncater.notify_at(cap.delayed_for_output(epoch, 0));
+                    let new_now = Instant::now();
+                    dbg!(new_now.duration_since(now));
+                    if new_now.duration_since(now) > Duration::new(10, 0) {
+                        let epoch = cap.time();
+                        downstream_fncater.notify_at(cap.delayed_for_output(epoch, 0));
+                        now = new_now;
+                    }
                 });
 
                 input_handle.for_each(|cap, key_values| {

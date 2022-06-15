@@ -244,14 +244,15 @@ where
                         move |output| {
                             if let Some(cap) = cap.as_mut() {
                                 output.session(&cap).give(());
-                                cap.downgrade(&(cap.time() + 10));
-                                debug!("Setting activation after 10s");
-                                activator.activate_after(Duration::new(10, 0));                                                  }
+                                cap.downgrade(&(cap.time() + 1));
+                                debug!("Setting activation");
+                                activator.activate_after(Duration::new(1, 0));
+                            }
                         }
                     });
 
                     // TODO: Handle state update stream
-                    let (downstream, _state_update_stream) =
+                    let (downstream, state_update_stream) =
                         stream.map(extract_state_pair).tumbling_window(
                             window_source_stream,
                             state_cache,
