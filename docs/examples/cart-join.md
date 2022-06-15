@@ -29,7 +29,7 @@ line index as the epoch, and emit the parsed JSON.
 ```python
 import json
 
-from bytewax import AdvanceTo, Emit, ManualInputConfig
+from bytewax import AdvanceTo, Emit
 
 
 def input_builder(worker_index, worker_count, resume_epoch):

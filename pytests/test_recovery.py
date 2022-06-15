@@ -2,8 +2,9 @@ from threading import Event
 
 from pytest import fixture, raises
 
-from bytewax import AdvanceTo, Dataflow, Emit, ManualInputConfig, run_main
+from bytewax import AdvanceTo, Dataflow, Emit, run_main
 from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.inputs import ManualInputConfig
 
 RECOVERY_CONFIG_TYPES = [
     "SqliteRecoveryConfig",

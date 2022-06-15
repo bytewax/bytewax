@@ -6,7 +6,8 @@ from datetime import timedelta
 import sseclient
 import urllib3
 
-from bytewax import Dataflow, inputs, ManualInputConfig, parse, spawn_cluster
+from bytewax import Dataflow, inputs, parse, spawn_cluster
+from bytewax.inputs import ManualInputConfig
 
 
 def open_stream():

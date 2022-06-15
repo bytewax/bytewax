@@ -8,7 +8,8 @@ from pandas import DataFrame
 from pyarrow import Table
 from utils import fake_events
 
-from bytewax import Dataflow, inputs, ManualInputConfig, parse, spawn_cluster
+from bytewax import Dataflow, inputs, parse, spawn_cluster
+from bytewax.inputs import ManualInputConfig
 
 
 # Collect 5 second tumbling windows of data and write them out as

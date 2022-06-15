@@ -1,7 +1,8 @@
 import json, time
 
 from websocket import create_connection
-from bytewax import Dataflow, ManualInputConfig, parse, spawn_cluster, AdvanceTo, Emit
+from bytewax import Dataflow, parse, spawn_cluster, AdvanceTo, Emit
+from bytewax.inputs import ManualInputConfig
 
 PRODUCT_IDS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 

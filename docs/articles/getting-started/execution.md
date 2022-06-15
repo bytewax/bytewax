@@ -102,7 +102,8 @@ The per-worker input of `spawn_cluster()` has the extra requirement that the inp
 `spawn_cluster()` blocks until all output has been collected.
 
 ```python doctest:SORT_OUTPUT
-from bytewax import spawn_cluster, AdvanceTo, Emit, ManualInputConfig
+from bytewax import spawn_cluster, AdvanceTo, Emit
+from bytewax.inputs import ManualInputConfig
 from bytewax.testing import test_print
 
 

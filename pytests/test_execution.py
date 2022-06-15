@@ -10,10 +10,10 @@ from bytewax import (
     Dataflow,
     Emit,
     inputs,
-    ManualInputConfig,
     run,
     run_cluster,
 )
+from bytewax.inputs import ManualInputConfig
 
 
 def test_run():

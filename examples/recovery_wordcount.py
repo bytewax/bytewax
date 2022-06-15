@@ -1,6 +1,7 @@
 import re
 
-from bytewax import AdvanceTo, Dataflow, Emit, parse, ManualInputConfig, spawn_cluster
+from bytewax import AdvanceTo, Dataflow, Emit, parse, spawn_cluster
+from bytewax.inputs import ManualInputConfig
 from bytewax.recovery import KafkaRecoveryConfig
 
 

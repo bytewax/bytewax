@@ -12,6 +12,7 @@ In our wordcount example in the previous section, we defined a `file_input()` ge
 import re
 
 from bytewax import Dataflow, run
+from bytewax.inputs import ManualInputConfig
 
 
 def file_input():
@@ -254,7 +255,7 @@ def input_builder(worker_index, worker_count, resume_epoch):
         yield AdvanceTo(epoch)
         yield Emit(input)
 
-input_config = ManualInputConfiguration(input_builder)
+input_config = ManualInputConfig(input_builder)
 ```
 
 Here we introduce two new primitives in Bytewax: [`AdvanceTo`](/apidocs#bytewax.AdvanceTo) and [`Emit`](/apidocs#bytewax.Emit).
