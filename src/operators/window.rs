@@ -36,6 +36,7 @@ pub(crate) trait TumblingWindow<S: Scope, K: ExchangeData + Hash + Eq, V: Exchan
         windowing_stream: Stream<S, ()>,
         state_cache: HashMap<K, V>,
         window_fn: W,
+        window_time: &TdPyAny,
         hasher: H,
     ) -> (Stream<S, (K, V)>, Stream<S, (K, Option<V>)>)
     where
@@ -53,6 +54,7 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
         windowing_stream: Stream<S, ()>,
         mut state_cache: HashMap<K, V>,
         window_fn: W,
+        window_time: &TdPyAny,
         hasher: H,
     ) -> (Stream<S, (K, V)>, Stream<S, (K, Option<V>)>) {
         let mut op_builder = OperatorBuilder::new("TumblingWindow".to_owned(), self.scope());
@@ -82,6 +84,13 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
             let mut state_update_fncater = FrontierNotificator::new();
             let mut now = Instant::now();
 
+            let window_time: u64 = Python::with_gil(|py| {
+                window_time
+                    .extract(py)
+                    .expect("Could not convert window_time into i32")
+            });
+            let window_duration = Duration::new(window_time, 0);
+
             move |input_frontiers| {
                 let mut input_handle = FrontieredInputHandle::new(&mut input, &input_frontiers[0]);
                 let mut window_handle =
@@ -93,7 +102,7 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
                     debug!("Window input received: {cap:?}");
                     let new_now = Instant::now();
                     dbg!(new_now.duration_since(now));
-                    if new_now.duration_since(now) > Duration::new(10, 0) {
+                    if new_now.duration_since(now) > window_duration {
                         let epoch = cap.time();
                         downstream_fncater.notify_at(cap.delayed_for_output(epoch, 0));
                         now = new_now;

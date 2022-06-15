@@ -1,3 +1,4 @@
+use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -217,10 +218,12 @@ impl Dataflow {
         &mut self,
         step_id: String,
         datetime_getter_fn: TdPyCallable,
+        window_time: TdPyAny,
     ) {
         self.steps.push(Step::TumblingWindow {
             step_id: StepId(step_id),
             datetime_getter_fn,
+            window_time,
         });
     }
 
@@ -527,6 +530,7 @@ pub(crate) enum Step {
     TumblingWindow {
         step_id: StepId,
         datetime_getter_fn: TdPyCallable,
+        window_time: TdPyAny,
     },
     Capture {},
 }
@@ -573,10 +577,11 @@ impl<'source> FromPyObject<'source> for Step {
                 mapper,
             });
         }
-        if let Ok(("TumblingWindow", step_id, datetime_getter_fn)) = tuple.extract() {
+        if let Ok(("TumblingWindow", step_id, datetime_getter_fn, window_time)) = tuple.extract() {
             return Ok(Self::TumblingWindow {
                 step_id: StepId(step_id),
                 datetime_getter_fn,
+                window_time,
             });
         }
         if let Ok(("Capture",)) = tuple.extract() {
@@ -615,7 +620,14 @@ impl ToPyObject for Step {
             Self::TumblingWindow {
                 step_id,
                 datetime_getter_fn,
-            } => ("TumblingWindow", step_id.0.clone(), datetime_getter_fn).to_object(py),
+                window_time,
+            } => (
+                "TumblingWindow",
+                step_id.0.clone(),
+                datetime_getter_fn,
+                window_time,
+            )
+                .to_object(py),
             Self::Capture {} => ("Capture",).to_object(py),
         }
         .into()

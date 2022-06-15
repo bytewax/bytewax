@@ -234,6 +234,7 @@ where
                 Step::TumblingWindow {
                     step_id,
                     datetime_getter_fn,
+                    window_time
                 } => {
                     let time_getter_fn = datetime_getter_fn.clone_ref(py);
                     let state_cache = state_caches.remove(step_id).unwrap_or_default();
@@ -259,6 +260,7 @@ where
                             move |key, current_window, value| {
                                 aggregate_window(key, current_window, value)
                             },
+                            window_time,
                             StateKey::route,
                         );
 
