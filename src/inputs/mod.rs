@@ -101,13 +101,17 @@ pub(crate) struct InputConfig;
 ///
 /// Args:
 ///
-///     brokers: List of broker addresses.
+///     brokers: (string) Comma-separated of broker addresses.
+///         E.g. "localhost:9092,localhost:9093"
 ///
-///     group_id: Group id.
+///     group_id: (string) Group id as a string.
 ///
-///     topic: Topic to which consumer will subscribe.
+///     topic: (string) Topic to which consumer will subscribe.
 ///
-///     batch_size: Integer defining how messages will be grouped by epoch.
+///     messages_per_epoch: (integer) Defines maximum number of messages per epoch.
+///         Defaults to `1`. If the consumer times out waiting, the system will
+///         increment to the next epoch, and fewer (or no) messages may be assigned
+///         to the preceding epoch.
 ///
 /// Returns:
 ///
@@ -123,25 +127,25 @@ pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
     pub topics: String,
     #[pyo3(get)]
-    pub batch_size: u64,
+    pub messages_per_epoch: u64,
 }
 
 #[pymethods]
 impl KafkaInputConfig {
     #[new]
-    #[args(brokers, group_id, topics, batch_size = 1)]
+    #[args(brokers, group_id, topics, messages_per_epoch = 1)]
     fn new(
         brokers: String,
         group_id: String,
         topics: String,
-        batch_size: u64,
+        messages_per_epoch: u64,
     ) -> (Self, InputConfig) {
         (
             Self {
                 brokers,
                 group_id,
                 topics,
-                batch_size,
+                messages_per_epoch,
             },
             InputConfig {},
         )
@@ -153,7 +157,7 @@ impl KafkaInputConfig {
             self.brokers.clone(),
             self.group_id.clone(),
             self.topics.clone(),
-            self.batch_size,
+            self.messages_per_epoch,
         )
     }
 
@@ -165,11 +169,13 @@ impl KafkaInputConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("KafkaInputConfig", brokers, group_id, topics, batch_size)) = state.extract() {
+        if let Ok(("KafkaInputConfig", brokers, group_id, topics, messages_per_epoch)) =
+            state.extract()
+        {
             self.brokers = brokers;
             self.group_id = group_id;
             self.topics = topics;
-            self.batch_size = batch_size;
+            self.messages_per_epoch = messages_per_epoch;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -242,8 +248,8 @@ struct KafkaPump {
     consumer: BaseConsumer<CustomContext>,
     rt: Runtime,
     push_to_timely: InputHandle<u64, TdPyAny>,
-    desired_batch_size: u64,
-    current_batch_size: u64,
+    desired_messages_per_epoch: u64,
+    current_messages_per_epoch: u64,
     current_epoch: u64,
     empty: bool,
 }
@@ -263,9 +269,8 @@ impl KafkaPump {
                 .set("bootstrap.servers", config.brokers.clone())
                 .set("enable.partition.eof", "false")
                 .set("session.timeout.ms", "6000")
-                // TODO: we don't really want false here, it's for demo purposes
-                .set("enable.auto.commit", "false")
-                .set("auto.offset.reset", "earliest")
+                .set("enable.auto.commit", "true")
+                .set("auto.offset.reset", "smallest")
                 .set_log_level(RDKafkaLogLevel::Debug)
                 .create_with_context(context)
                 .expect("Consumer creation failed")
@@ -280,8 +285,8 @@ impl KafkaPump {
             rt,
             push_to_timely,
             current_epoch: 0,
-            desired_batch_size: config.batch_size,
-            current_batch_size: 0,
+            desired_messages_per_epoch: config.messages_per_epoch,
+            current_messages_per_epoch: 0,
             empty: false,
         }
     }
@@ -289,8 +294,8 @@ impl KafkaPump {
 
 impl Pump for KafkaPump {
     fn pump(&mut self) {
-        if self.current_batch_size == self.desired_batch_size {
-            self.current_batch_size = 0;
+        if self.current_messages_per_epoch == self.desired_messages_per_epoch {
+            self.current_messages_per_epoch = 0;
             self.current_epoch += 1;
             self.push_to_timely.advance_to(self.current_epoch);
         } else {
@@ -298,14 +303,14 @@ impl Pump for KafkaPump {
                 match self.consumer.poll(Duration::from_millis(1000)) {
                     None => {
                         dbg!("No messages available, incrementing epoch");
-                        self.current_batch_size = 0;
+                        self.current_messages_per_epoch = 0;
                         self.current_epoch += 1;
                         self.push_to_timely.advance_to(self.current_epoch);
                     }
                     Some(r) => match r {
                         Err(e) => panic!("Kafka error! {}", e),
                         Ok(s) => {
-                            self.current_batch_size += 1;
+                            self.current_messages_per_epoch += 1;
                             Python::with_gil(|py| {
                                 let key: Py<PyAny> =
                                     s.key().map_or(py.None(), |k| PyBytes::new(py, k).into());

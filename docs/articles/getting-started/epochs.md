@@ -244,7 +244,7 @@ As mentioned previously, bytewax will "automatically" produce results from opera
 
 To do that, let's examine how `run()` works under the hood.
 
-Inside of the run function, the generator of input (named `inp` here) yields tuples of (epoch, input). That input generator is wrapped in an `input_builder()` function and passed as a parameter to a new `ManualInputConfiguration`:
+Inside of the run function, the generator of input (named `inp` here) yields tuples of (epoch, input). That input generator is wrapped in an `input_builder()` function and passed as a parameter to a new `ManualInputConfig`:
 
 ```python
 def input_builder(worker_index, worker_count, resume_epoch):
@@ -266,7 +266,7 @@ Importantly, when you advance the epoch, you are informing bytewax that it will 
 
 ## Kafka input and epochs
 
-If your input is coming from a Kafka stream-- and therefore you're using a `KafkaInputConfiguration`-- your epochs will be assigned in batches of up to
-_n_ messages, where _n_ is an integer passed to your configuration. If nothing is provided, your epoch will increment with at least every new message coming into the dataflow.
+If your input is coming from a Kafka stream-- and therefore you're using a `KafkaInputConfig`-- your epochs will be assigned to groups of up to
+_n_ messages, where _n_ is an integer passed to your configuration. If nothing is provided, your epoch will increment with at most every new message coming into the dataflow.
 
-Note that if bytewax times out waiting for new messages to come in, the epoch will be auto-incremented even if the batch is not full in order to communicate that the dataflow needs to continue doing work.
+Note that if bytewax times out waiting for new messages to come in, the epoch will be auto-incremented even if fewer than _n_ messages have been assigned to an epoch in order to communicate that the dataflow needs to continue doing work.

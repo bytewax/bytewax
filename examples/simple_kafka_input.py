@@ -21,7 +21,7 @@ def output_builder(worker_index, worker_count):
 
 if __name__ == "__main__":
     input_config = KafkaInputConfig(
-        "localhost:9092", "example_group_id", "drivers", batch_size=5
+        "localhost:9092", "example_group_id", "drivers", messages_per_epoch=5
     )
     flow = Dataflow()
     flow.map(deserialize)

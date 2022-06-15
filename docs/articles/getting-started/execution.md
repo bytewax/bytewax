@@ -89,15 +89,19 @@ This is best used for notebook analysis where you need higher throughput or para
 
 Our next entry point introduces a more complex API to allow for more performance. `bytewax.spawn_cluster()` will spawn a number of background processes and threads on the local machine to run your dataflow. Input and output are individual to each worker, so there is no need to pass all input and output through the calling process. `spawn_cluster()` will block until the dataflow is complete.
 
-### Builders
+### Input Configuration
 
-You provide input and output **builders**, functions that are called on each worker and will produce the input and handle the output for that worker.
+You can manually configure your dataflow's input with an input builder and a `ManualInputConfig` or use a Kafka stream with `KafkaInputConfig`.
 
-For a manual input source (not Kafka), the input builder function should return an iterable that yields `Emit(item)` or `AdvanceTo(epoch)` and will be the `input_builder` parameter on the `ManualInputConfiguration` passed to the dataflow. The input builder also receives the epoch to resume processing on in the case of restarting the dataflow. The input builder must somehow skip ahead in its input data to start at that epoch. If you are using a `KafkaInputConfig`, epochs will be managed based on the `batch_size` parameter.
+For a manual input source, you'll define an input **builder**, a function that is called on each worker and will produce the input for that worker. The input builder function should return an iterable that yields `Emit(item)` or `AdvanceTo(epoch)` and will be the `input_builder` parameter on the `ManualInputConfig` passed to the dataflow. The input builder also receives the epoch to resume processing on in the case of restarting the dataflow. The input builder must somehow skip ahead in its input data to start at that epoch.
 
-The output builder function should return a callback **output handler** function that can be called with each epoch and item of output produced.
+A `KafkaInputConfig` accepts four parameters: a list of brokers, a group id, a list of topics and a messages_per_epoch, which defaults to 1. Epochs will be managed based on the `messages_per_epoch` parameter. See our API docs for `bytewax.inputs` for more on a Kafka configuration.
 
 The per-worker input of `spawn_cluster()` has the extra requirement that the input data is not duplicated between workers. All data from each worker is introduced into the same dataflow. For example, if each worker reads the content of the same file, the input will be duplicated by the number of workers. Data sources like Apache Kafka or Redpanda can provide a partitioned stream of input which can be consumed by multiple workers in parallel without duplication, as each worker sees a unique partition.
+
+### Output
+
+Regardless of your input type, you will provide an output **builder** function that is called on each worker and will handle the output for that worker. The output builder function should return a callback **output handler** function that can be called with each epoch and item of output produced.
 
 `spawn_cluster()` blocks until all output has been collected.
 
@@ -165,7 +169,7 @@ The final entry point, `bytewax.cluster_main()` is the most flexible. It allows 
 
 `cluster_main()` takes in a list of hostname and port of all workers (including itself). Each worker must be given a unique process ID.
 
-As in `spawn_cluster()`, the input builder function passed to a manual input configuration should return an iterable that yields `(epoch, item)` tuples. Likewise, if you are using a `KafkaInputConfig`, epochs will be managed based on the `batch_size` parameter.
+As in `spawn_cluster()`, the input builder function passed to a manual input configuration should return an iterable that yields `(epoch, item)` tuples. Likewise, if you are using a `KafkaInputConfig`, epochs will be managed based on the `messages_per_epoch` parameter.
 
 The output builder function should return a callback function that can be called with each epoch and item of output produced.
 
