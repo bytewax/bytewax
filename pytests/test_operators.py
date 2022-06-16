@@ -1,9 +1,11 @@
 import re
+import time
+
 from collections import defaultdict
 
 from pytest import raises
 
-from bytewax import Dataflow, run, run_cluster
+from bytewax import Dataflow, run, run_cluster, run_main, AdvanceTo, Emit
 
 
 def test_map():
@@ -112,6 +114,35 @@ def test_inspect_epoch():
     )
     # Check side-effects after execution is complete.
     assert seen == [(1, "a")]
+
+
+def test_tumbling_window():
+    out = []
+
+    def timed_input(worker_index, worker_count, r):
+        for i in range(3):
+            yield AdvanceTo(i)
+            yield Emit(i)
+            time.sleep(0.33)
+
+    def capture_output(worker_index, worker_count):
+        def output(item):
+            print(out)
+            out.append(item)
+
+        return output
+
+    def add_key(item):
+        return "key", item
+
+    flow = Dataflow()
+    flow.map(add_key)
+    flow.tumbling_window("test-window", 1)
+    flow.capture()
+
+    run_main(flow, timed_input, capture_output)
+
+    assert out == [(2, ("key", [0, 1, 2]))]
 
 
 def test_reduce():

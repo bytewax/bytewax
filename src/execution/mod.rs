@@ -16,7 +16,6 @@ use send_wrapper::SendWrapper;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use timely::scheduling::Scheduler;
 
 use std::thread;
 use std::time::Duration;
@@ -25,7 +24,6 @@ use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use timely::dataflow::operators::aggregation::*;
-use timely::dataflow::operators::generic::operator::source;
 use timely::dataflow::operators::*;
 use timely::dataflow::InputHandle;
 use timely::dataflow::ProbeHandle;
@@ -236,23 +234,9 @@ where
                 } => {
                     let step_id = step_id.clone();
                     let state_cache = state_caches.remove(&step_id).unwrap_or_default();
-                    let window_source_stream = source(scope, "Source", |capability, info| {
-                        // Create an activator to provide a heartbeat for this window function
-                        let activator = scope.activator_for(&info.address[..]);
-
-                        let mut cap = Some(capability);
-                        move |output| {
-                            if let Some(cap) = cap.as_mut() {
-                                output.session(&cap).give(());
-                                cap.downgrade(&(cap.time() + 1));
-                                activator.activate_after(Duration::new(1, 0));
-                            }
-                        }
-                    });
 
                     let (downstream, state_update_stream) =
                         stream.map(extract_state_pair).tumbling_window(
-                            window_source_stream,
                             state_cache,
                             move |key, current_window, value| {
                                 aggregate_window(key, current_window, value)

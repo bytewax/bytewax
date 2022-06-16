@@ -31,7 +31,6 @@ pub(crate) trait TumblingWindow<S: Scope, K: ExchangeData + Hash + Eq, V: Exchan
         H: Fn(&K) -> u64 + 'static,                  // Hash function of key to worker
     >(
         &self,
-        windowing_stream: Stream<S, ()>,
         state_cache: HashMap<K, V>,
         window_fn: W,
         window_time: &TdPyAny,
@@ -49,7 +48,6 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
         H: Fn(&K) -> u64 + 'static,                  // Hash function of key to worker
     >(
         &self,
-        windowing_stream: Stream<S, ()>,
         mut state_cache: HashMap<K, V>,
         window_fn: W,
         window_time: &TdPyAny,
@@ -65,10 +63,7 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
         let (mut downstream_output_wrapper, downstream_stream) = op_builder.new_output();
         let (mut state_update_output_wrapper, state_update_stream) = op_builder.new_output();
 
-        let mut windowing_input = op_builder.new_input(
-            &windowing_stream,
-            pact::Pipeline,
-        );
+        let activator = self.scope().activator_for(&op_builder.operator_info().address[..]);
 
         op_builder.build(move |_init_capabilities| {
             let mut tmp_key_values = Vec::new();
@@ -87,17 +82,15 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
                     .expect("window_time argument must be a number")
             });
             let window_duration = Duration::new(window_time, 0);
+            // Re-activate this operator every 500ms to trigger window completion and
+            // emit items downstream.
+            // TODO: Find a more efficient way to schedule this operator activation.
+            activator.activate_after(Duration::from_millis(500));
 
             move |input_frontiers| {
                 let mut input_handle = FrontieredInputHandle::new(&mut input, &input_frontiers[0]);
-                let mut window_handle =
-                    FrontieredInputHandle::new(&mut windowing_input, &input_frontiers[1]);
                 let mut downstream_output_handle = downstream_output_wrapper.activate();
                 let mut state_update_output_handle = state_update_output_wrapper.activate();
-
-                window_handle.for_each(|cap, _value| {
-                    downstream_fncater.notify_at(cap.delayed_for_output(cap.time(), 0));
-                });
 
                 input_handle.for_each(|cap, key_values| {
                     let epoch = cap.time();
@@ -110,6 +103,7 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
                             .push(value);
                     }
 
+                    downstream_fncater.notify_at(cap.delayed_for_output(epoch, 0));
                     state_update_fncater.notify_at(cap.delayed_for_output(epoch, 1));
                 });
 
@@ -117,21 +111,21 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
                 // seen in the input of this operator (not the whole
                 // dataflow, though).
                 downstream_fncater.for_each(
-                    &[window_handle.frontier()],
+                    &[input_handle.frontier()],
                     |downstream_cap, _ncater| {
                         let epoch = downstream_cap.time();
                         for (key, value) in window_buffer.drain() {
                             let current_window = state_cache.remove(&key);
                             let updated_window_for_key = window_fn(&key, current_window, value);
 
-                            // We have a notification from the clock stream
-                            // check to see if we are past our window_duration time,
+                            // Check to see if we are past our window_duration time,
                             // and if so, emit the updated_window downstream
                             let new_now = Instant::now();
                             if new_now.duration_since(now) > window_duration {
                                 let mut downstream_output_session =
                                     downstream_output_handle.session(&downstream_cap);
-                                downstream_output_session.give((key.clone(), updated_window_for_key));
+                                downstream_output_session
+                                    .give((key.clone(), updated_window_for_key));
                                 state_cache.remove(&key);
                                 now = new_now;
                             } else {
@@ -182,6 +176,7 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
         (downstream_stream, state_update_stream)
     }
 }
+
 
 pub(crate) fn aggregate_window(
     key: &StateKey,

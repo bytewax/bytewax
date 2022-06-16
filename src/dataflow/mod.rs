@@ -212,13 +212,42 @@ impl Dataflow {
         self.steps.push(Step::InspectEpoch { inspector });
     }
 
-    /// Tumbling window produces a tumbling window of events
-    #[pyo3(text_signature = "(self, step_id, datetime_getter_fn)")]
-    fn tumbling_window(
-        &mut self,
-        step_id: String,
-        window_time: TdPyAny,
-    ) {
+    /// Tumbling window produces a window of events for each key over
+    /// a period of `window_time` seconds.
+    ///
+    /// tumbling_window is a stateful operator. It requires
+    /// that items in the input stream are of the format
+    /// `(key: str, value)` tuples, so that all relevant
+    /// values are aggregated on the same worker.
+    ///
+    /// >>> def user_as_key(event):
+    /// ...     return event["user"], [event]
+    /// >>> def extend_session(session, events):
+    /// ...     session.extend(events)
+    /// ...     return session
+    /// >>> def session_complete(session):
+    /// ...     return any(event["type"] == "logout" for event in session)
+    /// >>> flow = Dataflow()
+    /// >>> flow.map(user_as_key)
+    /// >>> flow.tumbling_window("user_windows", 1)
+    /// >>> flow.capture()
+    /// >>> inp = [
+    /// ...     (0, {"user": "a", "type": "login"}),
+    /// ...     (1, {"user": "a", "type": "post"}),
+    /// ...     (2, {"user": "b", "type": "login"}),
+    /// ...     (3, {"user": "a", "type": "logout"}),
+    /// ...     (4, {"user": "b", "type": "logout"}),
+    /// ... ]
+    /// >>> for epoch, item in run(flow, inp):
+    /// ...     print(epoch, item)
+    ///
+    /// Args:
+    ///
+    ///     step_id - Uniquely identifies this step for recovery.
+    ///
+    ///     window_time - Integer size, in seconds of the window for each key.
+    #[pyo3(text_signature = "(self, step_id, window_time)")]
+    fn tumbling_window(&mut self, step_id: String, window_time: TdPyAny) {
         self.steps.push(Step::TumblingWindow {
             step_id: StepId(step_id),
             window_time,
@@ -616,12 +645,7 @@ impl ToPyObject for Step {
             Self::TumblingWindow {
                 step_id,
                 window_time,
-            } => (
-                "TumblingWindow",
-                step_id.0.clone(),
-                window_time,
-            )
-                .to_object(py),
+            } => ("TumblingWindow", step_id.0.clone(), window_time).to_object(py),
             Self::Capture {} => ("Capture",).to_object(py),
         }
         .into()
