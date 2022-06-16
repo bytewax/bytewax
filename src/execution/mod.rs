@@ -232,11 +232,9 @@ where
                 }
                 Step::TumblingWindow {
                     step_id,
-                    datetime_getter_fn,
                     window_time,
                 } => {
                     let step_id = step_id.clone();
-                    let time_getter_fn = datetime_getter_fn.clone_ref(py);
                     let state_cache = state_caches.remove(&step_id).unwrap_or_default();
                     let window_source_stream = source(scope, "Source", |capability, info| {
                         // Create an activator to provide a heartbeat for this window function

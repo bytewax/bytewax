@@ -217,12 +217,10 @@ impl Dataflow {
     fn tumbling_window(
         &mut self,
         step_id: String,
-        datetime_getter_fn: TdPyCallable,
         window_time: TdPyAny,
     ) {
         self.steps.push(Step::TumblingWindow {
             step_id: StepId(step_id),
-            datetime_getter_fn,
             window_time,
         });
     }
@@ -529,7 +527,6 @@ pub(crate) enum Step {
     },
     TumblingWindow {
         step_id: StepId,
-        datetime_getter_fn: TdPyCallable,
         window_time: TdPyAny,
     },
     Capture {},
@@ -577,10 +574,9 @@ impl<'source> FromPyObject<'source> for Step {
                 mapper,
             });
         }
-        if let Ok(("TumblingWindow", step_id, datetime_getter_fn, window_time)) = tuple.extract() {
+        if let Ok(("TumblingWindow", step_id, window_time)) = tuple.extract() {
             return Ok(Self::TumblingWindow {
                 step_id: StepId(step_id),
-                datetime_getter_fn,
                 window_time,
             });
         }
@@ -619,12 +615,10 @@ impl ToPyObject for Step {
             } => ("StatefulMap", step_id.0.clone(), builder, mapper).to_object(py),
             Self::TumblingWindow {
                 step_id,
-                datetime_getter_fn,
                 window_time,
             } => (
                 "TumblingWindow",
                 step_id.0.clone(),
-                datetime_getter_fn,
                 window_time,
             )
                 .to_object(py),
