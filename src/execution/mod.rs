@@ -21,7 +21,6 @@ use timely::scheduling::Scheduler;
 use std::thread;
 use std::time::Duration;
 
-use log::debug;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -234,11 +233,13 @@ where
                 Step::TumblingWindow {
                     step_id,
                     datetime_getter_fn,
-                    window_time
+                    window_time,
                 } => {
+                    let step_id = step_id.clone();
                     let time_getter_fn = datetime_getter_fn.clone_ref(py);
-                    let state_cache = state_caches.remove(step_id).unwrap_or_default();
+                    let state_cache = state_caches.remove(&step_id).unwrap_or_default();
                     let window_source_stream = source(scope, "Source", |capability, info| {
+                        // Create an activator to provide a heartbeat for this window function
                         let activator = scope.activator_for(&info.address[..]);
 
                         let mut cap = Some(capability);
@@ -246,13 +247,11 @@ where
                             if let Some(cap) = cap.as_mut() {
                                 output.session(&cap).give(());
                                 cap.downgrade(&(cap.time() + 1));
-                                debug!("Setting activation");
                                 activator.activate_after(Duration::new(1, 0));
                             }
                         }
                     });
 
-                    // TODO: Handle state update stream
                     let (downstream, state_update_stream) =
                         stream.map(extract_state_pair).tumbling_window(
                             window_source_stream,
@@ -264,9 +263,9 @@ where
                             StateKey::route,
                         );
 
-                    // let state_update_stream =
-                    //     state_update_stream.map(move |(key, state)| (step_id.clone(), key, state));
-                    // state_updates.push(state_update_stream);
+                    let state_update_stream =
+                        state_update_stream.map(move |(key, state)| (step_id.clone(), key, state));
+                    state_updates.push(state_update_stream);
 
                     stream = downstream.map(wrap_state_pair);
                 }

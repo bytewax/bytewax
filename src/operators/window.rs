@@ -17,15 +17,13 @@ use timely::dataflow::Stream;
 use timely::ExchangeData;
 
 use pyo3::prelude::*;
-use timely::progress::Antichain;
 
 use crate::pyo3_extensions::StateKey;
 use crate::pyo3_extensions::TdPyAny;
 
-// Based on the good work in
-// https://github.com/TimelyDataflow/timely-dataflow/blob/0d0d84885672d6369a78cd9aff7beb2048390d3b/timely/src/dataflow/operators/aggregation/state_machine.rs#L57
+// Create tumbling windows of data based on a supplied duration time
 pub(crate) trait TumblingWindow<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> {
-    /// First return stream is window output, second is
+    /// First return stream is the windowed output, the second are
     /// updates for recovery you'll probably pass into a [`Backup`]
     /// operator.
     fn tumbling_window<
@@ -67,10 +65,9 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
         let (mut downstream_output_wrapper, downstream_stream) = op_builder.new_output();
         let (mut state_update_output_wrapper, state_update_stream) = op_builder.new_output();
 
-        let mut windowing_input = op_builder.new_input_connection(
+        let mut windowing_input = op_builder.new_input(
             &windowing_stream,
             pact::Pipeline,
-            vec![Antichain::new(), Antichain::new()],
         );
 
         op_builder.build(move |_init_capabilities| {
@@ -82,12 +79,12 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
 
             let mut downstream_fncater = FrontierNotificator::new();
             let mut state_update_fncater = FrontierNotificator::new();
-            let mut now = Instant::now();
 
+            let mut now = Instant::now();
             let window_time: u64 = Python::with_gil(|py| {
                 window_time
                     .extract(py)
-                    .expect("Could not convert window_time into i32")
+                    .expect("window_time argument must be a number")
             });
             let window_duration = Duration::new(window_time, 0);
 
@@ -99,19 +96,11 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
                 let mut state_update_output_handle = state_update_output_wrapper.activate();
 
                 window_handle.for_each(|cap, _value| {
-                    debug!("Window input received: {cap:?}");
-                    let new_now = Instant::now();
-                    dbg!(new_now.duration_since(now));
-                    if new_now.duration_since(now) > window_duration {
-                        let epoch = cap.time();
-                        downstream_fncater.notify_at(cap.delayed_for_output(epoch, 0));
-                        now = new_now;
-                    }
+                    downstream_fncater.notify_at(cap.delayed_for_output(cap.time(), 0));
                 });
 
                 input_handle.for_each(|cap, key_values| {
                     let epoch = cap.time();
-                    debug!("Normal input received, epoch: {epoch:?}");
                     key_values.swap(&mut tmp_key_values);
 
                     for (key, value) in tmp_key_values.drain(..) {
@@ -134,16 +123,25 @@ impl<S: Scope, K: ExchangeData + Hash + Eq, V: ExchangeData> TumblingWindow<S, K
                         for (key, value) in window_buffer.drain() {
                             let current_window = state_cache.remove(&key);
                             let updated_window_for_key = window_fn(&key, current_window, value);
-                            // Save the window so we can use
-                            // it if there are multiple values
-                            // within this epoch. We do not save
-                            // to the recovery store here because
-                            // we don't have finalized state for
-                            // the epoch.
-                            let mut downstream_output_session =
-                                downstream_output_handle.session(&downstream_cap);
-                            downstream_output_session.give((key.clone(), updated_window_for_key));
-                            state_cache.remove(&key);
+
+                            // We have a notification from the clock stream
+                            // check to see if we are past our window_duration time,
+                            // and if so, emit the updated_window downstream
+                            let new_now = Instant::now();
+                            if new_now.duration_since(now) > window_duration {
+                                let mut downstream_output_session =
+                                    downstream_output_handle.session(&downstream_cap);
+                                downstream_output_session.give((key.clone(), updated_window_for_key));
+                                state_cache.remove(&key);
+                                now = new_now;
+                            } else {
+                                state_cache.insert(key.clone(), updated_window_for_key);
+                            }
+                            // Note which keys have had their state
+                            // modified. Write that updated state to
+                            // the recovery store once the epoch is
+                            // complete.
+                            tmp_updated_keys.insert(key);
                         }
 
                         // Now that this epoch is over, find the final
@@ -196,10 +194,10 @@ pub(crate) fn aggregate_window(
             current_window.extend(values);
             current_window
         } else {
-            values.to_vec()
+            values
         };
 
         debug!("aggregate_window for key={key:?}) -> updated_window={updated_window:?}");
-        updated_window.into_py(py).clone_ref(py).into()
+        updated_window.into_py(py).into()
     })
 }
