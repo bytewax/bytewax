@@ -2,14 +2,18 @@ import json
 from bytewax import cluster_main, Dataflow
 from bytewax.inputs import KafkaInputConfig
 
-
 def deserialize(key_bytes__payload_bytes):
     key_bytes, payload_bytes = key_bytes__payload_bytes
+    try:
+        key = json.loads(key_bytes) if key_bytes else None
+        payload = json.loads(payload_bytes) if payload_bytes else None
+        return [(key, payload)]
+    except json.JSONDecodeError as e:
+        print("Invalid json", e)
+        return []
 
-    key = json.loads(key_bytes) if key_bytes else None
-    payload = json.loads(payload_bytes) if payload_bytes else None
-    return (key, payload)
-
+def filter_invalid_json_err(item):
+    return item
 
 def output_builder(worker_index, worker_count):
     def output_handler(epoch_item):
@@ -25,6 +29,7 @@ if __name__ == "__main__":
     )
     flow = Dataflow()
     flow.map(deserialize)
+    flow.flat_map(filter_invalid_json_err)
     flow.capture()
     cluster_main(
         flow,
