@@ -101,12 +101,19 @@ pub(crate) struct InputConfig;
 ///
 /// Args:
 ///
-///     brokers: (string) Comma-separated of broker addresses.
+///     brokers: Comma-separated of broker addresses.
 ///         E.g. "localhost:9092,localhost:9093"
 ///
-///     group_id: (string) Group id as a string.
+///     group_id: Group id as a string.
 ///
-///     topic: (string) Topic to which consumer will subscribe.
+///     topic: Topic to which consumer will subscribe.
+///
+///    offset_reset: Can be "earliest" or "latest". Delegates where to resume if
+///         auto_commit is not enabled. Defaults to "earliest".
+///
+///     auto_commit: If true, commit offset of the last message handed to the
+///         application. This committed offset will be used when the process
+///         restarts to pick up where it left off. Defaults to false.
 ///
 ///     messages_per_epoch: (integer) Defines maximum number of messages per epoch.
 ///         Defaults to `1`. If the consumer times out waiting, the system will
@@ -118,7 +125,9 @@ pub(crate) struct InputConfig;
 ///     Config object. Pass this as the `input_config` argument to
 ///     your execution entry point.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
-#[pyo3(text_signature = "(brokers, group_id, topics)")]
+#[pyo3(
+    text_signature = "(brokers, group_id, topics, offset_reset, auto_commit, messages_per_epoch)"
+)]
 pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
     pub brokers: String,
@@ -127,17 +136,30 @@ pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
     pub topics: String,
     #[pyo3(get)]
+    pub offset_reset: String,
+    #[pyo3(get)]
+    pub auto_commit: bool,
+    #[pyo3(get)]
     pub messages_per_epoch: u64,
 }
 
 #[pymethods]
 impl KafkaInputConfig {
     #[new]
-    #[args(brokers, group_id, topics, messages_per_epoch = 1)]
+    #[args(
+        brokers,
+        group_id,
+        topics,
+        offset_reset = "\"earliest\".to_string()",
+        auto_commit = false,
+        messages_per_epoch = 1
+    )]
     fn new(
         brokers: String,
         group_id: String,
         topics: String,
+        offset_reset: String,
+        auto_commit: bool,
         messages_per_epoch: u64,
     ) -> (Self, InputConfig) {
         (
@@ -145,36 +167,46 @@ impl KafkaInputConfig {
                 brokers,
                 group_id,
                 topics,
+                offset_reset,
+                auto_commit,
                 messages_per_epoch,
             },
             InputConfig {},
         )
     }
 
-    fn __getstate__(&self) -> (&str, String, String, String, u64) {
+    fn __getstate__(&self) -> (&str, String, String, String, String, u64) {
         (
             "KafkaInputConfig",
             self.brokers.clone(),
             self.group_id.clone(),
             self.topics.clone(),
+            self.offset_reset.clone(),
             self.messages_per_epoch,
         )
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (&str, &str, &str, u64) {
+    fn __getnewargs__(&self) -> (&str, &str, &str, &str, u64) {
         let s = "UNINIT_PICKLED_STRING";
-        (s, s, s, 0)
+        (s, s, s, s, 0)
     }
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("KafkaInputConfig", brokers, group_id, topics, messages_per_epoch)) =
-            state.extract()
+        if let Ok((
+            "KafkaInputConfig",
+            brokers,
+            group_id,
+            topics,
+            offset_reset,
+            messages_per_epoch,
+        )) = state.extract()
         {
             self.brokers = brokers;
             self.group_id = group_id;
             self.topics = topics;
+            self.offset_reset = offset_reset;
             self.messages_per_epoch = messages_per_epoch;
             Ok(())
         } else {
@@ -269,8 +301,8 @@ impl KafkaPump {
                 .set("bootstrap.servers", config.brokers.clone())
                 .set("enable.partition.eof", "false")
                 .set("session.timeout.ms", "6000")
-                .set("enable.auto.commit", "true")
-                .set("auto.offset.reset", "smallest")
+                .set("enable.auto.commit", config.auto_commit.to_string())
+                .set("auto.offset.reset", config.offset_reset.clone())
                 .set_log_level(RDKafkaLogLevel::Debug)
                 .create_with_context(context)
                 .expect("Consumer creation failed")
