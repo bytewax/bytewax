@@ -1,6 +1,7 @@
 import re
 
-from bytewax import AdvanceTo, Dataflow, Emit, parse, spawn_cluster
+from bytewax import Dataflow, parse, spawn_cluster
+from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig
 from bytewax.recovery import KafkaRecoveryConfig
 
 
@@ -61,7 +62,7 @@ if __name__ == "__main__":
     )
     spawn_cluster(
         flow,
-        input_builder,
+        ManualInputConfig(input_builder),
         output_builder,
         recovery_config=recovery_config,
         **parse.cluster_args()

@@ -7,6 +7,7 @@ import sseclient
 import urllib3
 
 from bytewax import Dataflow, inputs, parse, spawn_cluster
+from bytewax.inputs import ManualInputConfig
 
 
 def open_stream():
@@ -55,4 +56,6 @@ flow.capture()
 
 
 if __name__ == "__main__":
-    spawn_cluster(flow, input_builder, output_builder, **parse.cluster_args())
+    spawn_cluster(
+        flow, ManualInputConfig(input_builder), output_builder, **parse.cluster_args()
+    )

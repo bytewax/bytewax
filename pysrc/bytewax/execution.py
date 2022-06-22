@@ -6,8 +6,13 @@ from typing import Any, Callable, Iterable, List, Optional, Tuple, Union
 from multiprocess import get_context
 
 from bytewax.recovery import RecoveryConfig
+from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig, InputConfig
 
-from .bytewax import AdvanceTo, cluster_main, Dataflow, Emit, run_main
+from .bytewax import (
+    cluster_main,
+    Dataflow,
+    run_main,
+)
 
 
 def run(
@@ -63,9 +68,10 @@ def run(
         assert worker_index == 0
         return out.append
 
+    "Only manual configuration works with iterator based input"
     run_main(
         flow,
-        input_builder,
+        ManualInputConfig(input_builder),
         output_builder,
         recovery_config=recovery_config,
     )
@@ -79,7 +85,7 @@ def _gen_addresses(proc_count: int) -> Iterable[str]:
 
 def spawn_cluster(
     flow: Dataflow,
-    input_builder: Callable[[int, int, int], Iterable[Union[AdvanceTo, Emit]]],
+    input_config: InputConfig,
     output_builder: Callable[[int, int, int], Callable[[Tuple[int, Any]], None]],
     *,
     recovery_config: Optional[RecoveryConfig] = None,
@@ -107,7 +113,7 @@ def spawn_cluster(
     ...     return print
     >>> spawn_cluster(
     ...     flow,
-    ...     input_builder,
+    ...     ManualInputConfig(input_builder),
     ...     output_builder,
     ...     proc_count=2,
     ...     mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
@@ -127,8 +133,7 @@ def spawn_cluster(
 
         flow: Dataflow to run.
 
-        input_builder: Yields `AdvanceTo()` or `Emit()` with this
-            worker's input. Must resume from the epoch specified.
+        input_config: Input config of type Manual or Kafka. See `bytewax.inputs`.
 
         output_builder: Returns a callback function for each worker
             thread, called with `(epoch, item)` whenever and item
@@ -155,7 +160,7 @@ def spawn_cluster(
                 cluster_main,
                 (
                     flow,
-                    input_builder,
+                    input_config,
                     output_builder,
                 ),
                 {
@@ -261,7 +266,7 @@ def run_cluster(
 
         spawn_cluster(
             flow,
-            input_builder,
+            ManualInputConfig(input_builder),
             output_builder,
             recovery_config=recovery_config,
             proc_count=proc_count,

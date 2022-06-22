@@ -2,8 +2,9 @@ from threading import Event
 
 from pytest import fixture, raises
 
-from bytewax import AdvanceTo, Dataflow, Emit, run_main
+from bytewax import Dataflow, run_main
 from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig
 
 RECOVERY_CONFIG_TYPES = [
     "SqliteRecoveryConfig",
@@ -76,7 +77,7 @@ def test_recover_with_latest_state(recovery_config):
 
     # First pass.
     with raises(RuntimeError):
-        run_main(flow, ib, ob, recovery_config=recovery_config)
+        run_main(flow, ManualInputConfig(ib), ob, recovery_config=recovery_config)
 
     assert sorted(out) == sorted(
         [
@@ -90,7 +91,7 @@ def test_recover_with_latest_state(recovery_config):
     out.clear()
 
     # Recover.
-    run_main(flow, ib, ob, recovery_config=recovery_config)
+    run_main(flow, ManualInputConfig(ib), ob, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
     assert sorted(out) == sorted(
@@ -160,7 +161,7 @@ def test_recover_doesnt_gc_last_write(recovery_config):
 
     # First pass.
     with raises(RuntimeError):
-        run_main(flow, ib, ob, recovery_config=recovery_config)
+        run_main(flow, ManualInputConfig(ib), ob, recovery_config=recovery_config)
 
     assert sorted(out) == sorted(
         [
@@ -177,7 +178,7 @@ def test_recover_doesnt_gc_last_write(recovery_config):
     out.clear()
 
     # Recover.
-    run_main(flow, ib, ob, recovery_config=recovery_config)
+    run_main(flow, ManualInputConfig(ib), ob, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
     assert sorted(out) == sorted(
@@ -248,7 +249,7 @@ def test_recover_respects_delete(recovery_config):
 
     # First pass.
     with raises(RuntimeError):
-        run_main(flow, ib, ob, recovery_config=recovery_config)
+        run_main(flow, ManualInputConfig(ib), ob, recovery_config=recovery_config)
 
     assert sorted(out) == sorted(
         [
@@ -264,7 +265,7 @@ def test_recover_respects_delete(recovery_config):
     out.clear()
 
     # Recover.
-    run_main(flow, ib, ob, recovery_config=recovery_config)
+    run_main(flow, ManualInputConfig(ib), ob, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
     assert sorted(out) == sorted(

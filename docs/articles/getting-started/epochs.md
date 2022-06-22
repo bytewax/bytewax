@@ -12,6 +12,7 @@ In our wordcount example in the previous section, we defined a `file_input()` ge
 import re
 
 from bytewax import Dataflow, run
+from bytewax.inputs import ManualInputConfig
 
 
 def file_input():
@@ -243,7 +244,7 @@ As mentioned previously, bytewax will "automatically" produce results from opera
 
 To do that, let's examine how `run()` works under the hood.
 
-Inside of the run function, the generator of input (named `inp` here) yields tuples of (epoch, input). That input generator is wrapped in an `input_builder()` function:
+Inside of the run function, the generator of input (named `inp` here) yields tuples of (epoch, input). That input generator is wrapped in an `input_builder()` function and passed as a parameter to a new `ManualInputConfig`:
 
 ```python
 def input_builder(worker_index, worker_count, resume_epoch):
@@ -253,6 +254,8 @@ def input_builder(worker_index, worker_count, resume_epoch):
             continue
         yield AdvanceTo(epoch)
         yield Emit(input)
+
+input_config = ManualInputConfig(input_builder)
 ```
 
 Here we introduce two new primitives in Bytewax: [`AdvanceTo`](/apidocs#bytewax.AdvanceTo) and [`Emit`](/apidocs#bytewax.Emit).
@@ -260,3 +263,10 @@ Here we introduce two new primitives in Bytewax: [`AdvanceTo`](/apidocs#bytewax.
 These two dataclasses are how we inform Bytewax of new input and of the progress of epochs. `Emit` will introduce input into the dataflow at the current epoch, and `AdvanceTo` advances the current epoch to the value supplied.
 
 Importantly, when you advance the epoch, you are informing bytewax that it will no longer see any input at any of the previous epoch values. At that point, bytewax will continue to do work until output is produced for the previous epoch.
+
+## Kafka input and epochs
+
+If your input is coming from a Kafka stream-- and therefore you're using a `KafkaInputConfig`-- your epochs will be assigned to groups of up to
+_n_ messages, where _n_ is an integer passed to your configuration. If nothing is provided, your epoch will increment with at most every new message coming into the dataflow.
+
+Note that if bytewax times out waiting for new messages to come in, the epoch will be auto-incremented even if fewer than _n_ messages have been assigned to an epoch in order to communicate that the dataflow needs to continue doing work.

@@ -9,13 +9,15 @@ from pyarrow import Table
 from utils import fake_events
 
 from bytewax import Dataflow, inputs, parse, spawn_cluster
+from bytewax.inputs import ManualInputConfig
 
 
 # Collect 5 second tumbling windows of data and write them out as
 # Parquet datasets. `fake_events` will generate events for multiple
 # days around today. Each worker will generate independent fake
 # events.
-def input_builder(worker_index, worker_count):
+@inputs.yield_epochs
+def input_builder(worker_index, worker_count, resume_epoch):
     return inputs.tumbling_epoch(
         fake_events.generate_web_events(), datetime.timedelta(seconds=5)
     )
@@ -77,4 +79,6 @@ flow.capture()
 
 
 if __name__ == "__main__":
-    spawn_cluster(flow, input_builder, output_builder, **parse.cluster_args())
+    spawn_cluster(
+        flow, ManualInputConfig(input_builder), output_builder, **parse.cluster_args()
+    )

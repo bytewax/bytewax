@@ -7,6 +7,7 @@ use std::time::Duration;
 
 pub(crate) mod dataflow;
 pub(crate) mod execution;
+pub(crate) mod inputs;
 pub(crate) mod operators;
 pub(crate) mod pyo3_extensions;
 pub(crate) mod recovery;
@@ -36,6 +37,7 @@ fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
 
     execution::register(py, m)?;
     dataflow::register(py, m)?;
+    inputs::register(py, m)?;
     recovery::register(py, m)?;
 
     m.add_function(wrap_pyfunction!(sleep_keep_gil, m)?)?;

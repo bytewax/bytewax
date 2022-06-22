@@ -60,15 +60,18 @@ def ws_input(product_ids):
         yield AdvanceTo(epoch)
 ```
 
-Now that we have our web socket based data generator built, we will write an input builder for our dataflow. The input builder is called on each worker and the function will have information about the `worker_index` and the total number of workers (`worker_count`). In this case we are designing our input builder to handle multiple workers and multiple currency pairs, so that we can parallelize the input. So we will distribute the currency pairs with the logic in the code below. It should be noted that if you run more than one worker with only one currency pair, the other workers will not be used.
+Now that we have our web socket based data generator built, we will write an input builder for our dataflow. Since we're using a manual input builder, we'll pass a `ManualInputConfig` as our `input_config` with the builder as a parameter. The input builder is called on each worker and the function will have information about the `worker_index` and the total number of workers (`worker_count`). In this case we are designing our input builder to handle multiple workers and multiple currency pairs, so that we can parallelize the input. So we will distribute the currency pairs with the logic in the code below. It should be noted that if you run more than one worker with only one currency pair, the other workers will not be used.
 
 ```python doctest:SKIP
 from bytewax import Dataflow, inputs, spawn_cluster
+from bytewax.inputs import ManualInputConfig
 
 def input_builder(worker_index, worker_count):
     prods_per_worker = int(len(PRODUCT_IDS)/worker_count)
     product_ids = PRODUCT_IDS[int(worker_index*prods_per_worker):int(worker_index*prods_per_worker+prods_per_worker)]
     return ws_input(product_ids)
+
+input_config = ManualInputConfig(input_builder)
 ```
 
 Now that we have our input builder finished, we can create our output builder. The output builder is used in conjunction with `spawn_cluster`. In a dataflow, when you use the `capture` operator, the output_builder is called and will receive information about the worker as well as the epoch and the data (in the format `(epoch, data)`). For this example, we keep it simple, we are just going to print out the result of our dataflow to the terminal.
@@ -149,7 +152,7 @@ class OrderBook:
         if self.asks == {}:
             self.asks = {float(price):float(size) for price, size in data['asks']}
             # The ask price is the lowest priced sell limit order.
-            # since the asks are in order, the first item of our newly constructed 
+            # since the asks are in order, the first item of our newly constructed
             # asks will be our ask price, so we can track the best ask
             self.ask_price = next(iter(self.asks))
 ```
@@ -158,7 +161,7 @@ With our snapshot processed, for each new message we receive from the websocket,
 
 ```python doctest:SKIP
         else:
-            # We receive a list of lists here, normally it is only one change, 
+            # We receive a list of lists here, normally it is only one change,
             # but could be more than one.
             for update in data['changes']:
                 price = float(update[1])
@@ -168,7 +171,7 @@ With our snapshot processed, for each new message we receive from the websocket,
                 if size == 0.0:
                     try:
                         del self.asks[price]
-                        # if it was the ask price removed, 
+                        # if it was the ask price removed,
                         # update with new ask price
                         if price <= self.ask_price:
                             self.ask_price = min(self.asks.keys())
@@ -184,7 +187,7 @@ With our snapshot processed, for each new message we receive from the websocket,
                 if size == 0.0:
                     try:
                         del self.bids[price]
-                        # if it was the bid price removed, 
+                        # if it was the bid price removed,
                         # update with new bid price
                         if price >= self.bid_price:
                             self.bid_price = max(self.bids.keys())
@@ -214,7 +217,7 @@ flow.capture()
 
 ```python doctest:SKIP
 if __name__ == "__main__":
-    spawn_cluster(flow, input_builder, output_builder, **parse.cluster_args())
+    spawn_cluster(flow, input_config, output_builder, **parse.cluster_args())
 ```
 
 That's it, let's run it and verify our output:

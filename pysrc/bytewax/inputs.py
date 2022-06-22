@@ -8,8 +8,7 @@ import datetime
 import heapq
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Tuple
-
-from .bytewax import AdvanceTo, Emit
+from .bytewax import AdvanceTo, Emit, KafkaInputConfig, ManualInputConfig, InputConfig
 
 
 def distribute(elements: Iterable[Any], index: int, count: int) -> Iterable[Any]:
@@ -34,6 +33,7 @@ def distribute(elements: Iterable[Any], index: int, count: int) -> Iterable[Any]
     input.
 
     >>> from bytewax import Dataflow, spawn_cluster
+    >>> from bytewax.inputs import ManualInputConfig
     >>> def read_topics(topics):
     ...     for topic in topics:
     ...         for i in enumerate(3):
@@ -45,7 +45,7 @@ def distribute(elements: Iterable[Any], index: int, count: int) -> Iterable[Any]
     ...        yield Emit(f"worker_index:{worker_index}" + item)
     >>> flow = Dataflow()
     >>> flow.capture()
-    >>> spawn_cluster(flow, input_builder, lambda i, n: print)
+    >>> spawn_cluster(flow, ManualInputConfig(input_builder), lambda i, n: print)
     (0, 'worker_index:1 topic:red item:0')
     (0, 'worker_index:1 topic:red item:1')
     (0, 'worker_index:1 topic:red item:2')
@@ -85,13 +85,13 @@ def yield_epochs(fn: Callable):
     `bytewax.cluster_main()` or `bytewax.spawn_cluster()`:
 
     >>> from bytewax import Dataflow, cluster_main
-    >>> from bytewax.inputs import yield_epochs, fully_ordered
+    >>> from bytewax.inputs import yield_epochs, fully_ordered, ManualInputConfig
     >>> flow = Dataflow()
     >>> flow.capture()
     >>> @yield_epochs
     ... def input_builder(i, n, re):
     ...   return fully_ordered(["a", "b", "c"])
-    >>> cluster_main(flow, input_builder, lambda i, n: print, [], 0, 1)
+    >>> cluster_main(flow, ManualInputConfig(input_builder), lambda i, n: print, [], 0, 1)
     (0, 'a')
     (1, 'b')
     (2, 'c')

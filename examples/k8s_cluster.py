@@ -2,6 +2,7 @@ from itertools import chain
 from pathlib import Path
 
 from bytewax import cluster_main, Dataflow, parse
+from bytewax.inputs import ManualInputConfig
 
 read_dir = Path("./examples/sample_data/cluster/")
 write_dir = Path("./cluster_out/")
@@ -69,4 +70,6 @@ if __name__ == "__main__":
     # process knows the address of all other processes in the cluster
     # and their unique process ID. You can address that easily by deploying your
     # dataflow program using Waxctl or installing the Bytewax Helm Chart
-    cluster_main(flow, input_builder, output_builder, **parse.proc_env())
+    cluster_main(
+        flow, ManualInputConfig(input_builder), output_builder, **parse.proc_env()
+    )

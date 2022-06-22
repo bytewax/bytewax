@@ -2,6 +2,7 @@ from itertools import chain
 from pathlib import Path
 
 from bytewax import cluster_main, Dataflow, parse
+from bytewax.inputs import ManualInputConfig
 
 read_dir = Path("./examples/sample_data/cluster/")
 write_dir = Path("./cluster_out/")
@@ -63,4 +64,6 @@ if __name__ == "__main__":
     # When using `cluster_main()` you have to coordinate ensuring each
     # process knows the address of all other processes in the cluster
     # and their unique process ID.
-    cluster_main(flow, input_builder, output_builder, **parse.proc_args())
+    cluster_main(
+        flow, ManualInputConfig(input_builder), output_builder, **parse.proc_args()
+    )

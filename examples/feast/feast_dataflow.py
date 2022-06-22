@@ -6,6 +6,7 @@ from feast import FeatureStore
 from kafka import KafkaConsumer
 
 from bytewax import cluster_main, Dataflow, inputs
+from bytewax.inputs import ManualInputConfig
 
 # Configure the feature store for each worker to access
 store = FeatureStore(repo_path=".")
@@ -106,9 +107,10 @@ if __name__ == "__main__":
     flow.reduce_epoch(collect_events)
     flow.map(calculate_avg)
     flow.capture()
+    # In order to finely tune epochs in this example, we are handrolling a Kafka consumer
     cluster_main(
         flow,
-        input_builder,
+        ManualInputConfig(input_builder),
         output_builder,
         [],  # addresses
         0,  # process id

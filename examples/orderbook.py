@@ -2,8 +2,10 @@ import json, time
 
 from websocket import create_connection
 from bytewax import Dataflow, parse, spawn_cluster, AdvanceTo, Emit
+from bytewax.inputs import ManualInputConfig
 
-PRODUCT_IDS = ['BTC-USD', 'ETH-USD', 'SOL-USD']
+PRODUCT_IDS = ["BTC-USD", "ETH-USD", "SOL-USD"]
+
 
 def ws_input(product_ids):
     ws = create_connection("wss://ws-feed.pro.coinbase.com")
@@ -26,8 +28,12 @@ def ws_input(product_ids):
 
 
 def input_builder(worker_index, worker_count):
-    prods_per_worker = int(len(PRODUCT_IDS)/worker_count)
-    product_ids = PRODUCT_IDS[int(worker_index*prods_per_worker):int(worker_index*prods_per_worker+prods_per_worker)]
+    prods_per_worker = int(len(PRODUCT_IDS) / worker_count)
+    product_ids = PRODUCT_IDS[
+        int(worker_index * prods_per_worker) : int(
+            worker_index * prods_per_worker + prods_per_worker
+        )
+    ]
     return ws_input(product_ids)
 
 
@@ -36,7 +42,7 @@ def output_builder(worker_index, worker_count):
 
 
 def key_on_product(data):
-    return(data['product_id'],data)
+    return (data["product_id"], data)
 
 
 class OrderBook:
@@ -47,29 +53,29 @@ class OrderBook:
 
     def update(self, data):
         if self.bids == {}:
-            self.bids = {float(price):float(size) for price, size in data['bids']}
+            self.bids = {float(price): float(size) for price, size in data["bids"]}
             # The bid_price is the highest priced buy limit order.
             # since the bids are in order, the first item of our newly constructed bids
             # will have our bid price, so we can track the best bid
             self.bid_price = next(iter(self.bids))
         if self.asks == {}:
-            self.asks = {float(price):float(size) for price, size in data['asks']}
+            self.asks = {float(price): float(size) for price, size in data["asks"]}
             # The ask price is the lowest priced sell limit order.
-            # since the asks are in order, the first item of our newly constructed 
+            # since the asks are in order, the first item of our newly constructed
             # asks will be our ask price, so we can track the best ask
             self.ask_price = next(iter(self.asks))
         else:
-            # We receive a list of lists here, normally it is only one change, 
+            # We receive a list of lists here, normally it is only one change,
             # but could be more than one.
-            for update in data['changes']:
+            for update in data["changes"]:
                 price = float(update[1])
                 size = float(update[2])
-            if update[0] == 'sell':
+            if update[0] == "sell":
                 # first check if the size is zero and needs to be removed
                 if size == 0.0:
                     try:
                         del self.asks[price]
-                        # if it was the ask price removed, 
+                        # if it was the ask price removed,
                         # update with new ask price
                         if price <= self.ask_price:
                             self.ask_price = min(self.asks.keys())
@@ -80,12 +86,12 @@ class OrderBook:
                     self.asks[price] = size
                     if price < self.ask_price:
                         self.ask_price = price
-            if update[0] == 'buy':
+            if update[0] == "buy":
                 # first check if the size is zero and needs to be removed
                 if size == 0.0:
                     try:
                         del self.bids[price]
-                        # if it was the bid price removed, 
+                        # if it was the bid price removed,
                         # update with new bid price
                         if price >= self.bid_price:
                             self.bid_price = max(self.bids.keys())
@@ -96,7 +102,13 @@ class OrderBook:
                     self.bids[price] = size
                     if price > self.bid_price:
                         self.bid_price = price
-        return self, {'bid': self.bid_price, 'bid_size': self.bids[self.bid_price], 'ask': self.ask_price, 'ask_price': self.asks[self.ask_price], 'spread': self.ask_price-self.bid_price}
+        return self, {
+            "bid": self.bid_price,
+            "bid_size": self.bids[self.bid_price],
+            "ask": self.ask_price,
+            "ask_price": self.asks[self.ask_price],
+            "spread": self.ask_price - self.bid_price,
+        }
 
 
 flow = Dataflow()
@@ -107,8 +119,12 @@ flow.map(key_on_product)
 flow.stateful_map(lambda key: OrderBook(), OrderBook.update)
 # if using bytewax>0.9.0 --> flow.stateful_map("order_book", lambda key: OrderBook(), OrderBook.update)
 # ('BTC-USD', (36905.39, 0.00334873, 36905.4, 1.6e-05, 0.010000000002037268))
-flow.filter(lambda x: x[-1]['spread'] / x[-1]['ask'] > 0.0001) # filter on 0.1% spread as a per
+flow.filter(
+    lambda x: x[-1]["spread"] / x[-1]["ask"] > 0.0001
+)  # filter on 0.1% spread as a per
 flow.capture()
 
 if __name__ == "__main__":
-    spawn_cluster(flow, input_builder, output_builder, **parse.cluster_args())
+    spawn_cluster(
+        flow, ManualInputConfig(input_builder), output_builder, **parse.cluster_args()
+    )
