@@ -141,7 +141,7 @@
     <div class="api__article-submodules">
     % for m in submodules:
       <div class="api__article-submodules-item">
-        <h4><a class="api-submodule" href="${(m.name)}">${(m.name)}</a></h4>
+        <h4><a class="api-submodule" href="/apidocs/${(m.name)}">${(m.name)}</a></h4>
         <p>${show_desc(m, short=True)}</p>
       </div>
     % endfor
@@ -294,7 +294,7 @@
       <h3 class="api__sidebar-nav-title">Super-module</h3>
       <ul class="api__sidebar-nav-menu">
         <li class="api__sidebar-nav-menu-item">
-          <a class="api__sidebar-nav-menu-link api-supermodule">
+          <a class="api__sidebar-nav-menu-link api-supermodule" href="/apidocs">
             ${supermodule.name}
           </a>
         </li>
@@ -307,7 +307,7 @@
       <ul class="api__sidebar-nav-menu">
       % for m in submodules:
         <li class="api__sidebar-nav-menu-item">
-          <a class="api__sidebar-nav-menu-link api-submodule" href="${(m.name)}">
+          <a class="api__sidebar-nav-menu-link api-submodule" href="/apidocs/${(m.name)}">
             ${(m.name)}
           </a>
         </li>
