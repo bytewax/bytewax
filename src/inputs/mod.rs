@@ -277,8 +277,7 @@ pub trait Pump {
 /// Encapsulates the process of pulling data out of a Kafka
 /// stream and feeding it into Timely.
 struct KafkaPump {
-    consumer: BaseConsumer<CustomContext>,
-    rt: Runtime,
+    consumer: KafkaConsumer,
     push_to_timely: InputHandle<u64, TdPyAny>,
     desired_messages_per_epoch: u64,
     current_messages_per_epoch: u64,
@@ -288,36 +287,13 @@ struct KafkaPump {
 
 impl KafkaPump {
     fn new(config: PyRef<KafkaInputConfig>, push_to_timely: InputHandle<u64, TdPyAny>) -> Self {
-        let context = CustomContext;
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-
-        let consumer: BaseConsumer<CustomContext> = rt.block_on(async {
-            ClientConfig::new()
-                .set("group.id", config.group_id.clone())
-                .set("bootstrap.servers", config.brokers.clone())
-                .set("enable.partition.eof", "false")
-                .set("session.timeout.ms", "6000")
-                .set("enable.auto.commit", config.auto_commit.to_string())
-                .set("auto.offset.reset", config.offset_reset.clone())
-                .set_log_level(RDKafkaLogLevel::Debug)
-                .create_with_context(context)
-                .expect("Consumer creation failed")
-        });
-
-        consumer
-            .subscribe(&[&config.topics])
-            .expect("Can't subscribe to specified topics");
-
+        let consumer = KafkaConsumer::new(config);
         Self {
             consumer,
-            rt,
             push_to_timely,
             current_epoch: 0,
-            desired_messages_per_epoch: config.messages_per_epoch,
+            // TODO get the right config here
+            desired_messages_per_epoch: 5,
             current_messages_per_epoch: 0,
             empty: false,
         }
@@ -331,32 +307,18 @@ impl Pump for KafkaPump {
             self.current_epoch += 1;
             self.push_to_timely.advance_to(self.current_epoch);
         } else {
-            self.rt.block_on(async {
-                match self.consumer.poll(Duration::from_millis(1000)) {
-                    None => {
-                        dbg!("No messages available, incrementing epoch");
-                        self.current_messages_per_epoch = 0;
-                        self.current_epoch += 1;
-                        self.push_to_timely.advance_to(self.current_epoch);
-                    }
-                    Some(r) => match r {
-                        Err(e) => panic!("Kafka error! {}", e),
-                        Ok(s) => {
-                            self.current_messages_per_epoch += 1;
-                            Python::with_gil(|py| {
-                                let key: Py<PyAny> =
-                                    s.key().map_or(py.None(), |k| PyBytes::new(py, k).into());
-                                let payload: Py<PyAny> = s
-                                    .payload()
-                                    .map_or(py.None(), |k| PyBytes::new(py, k).into());
-                                let key_payload: Py<PyAny> = (key, payload).into_py(py);
-
-                                self.push_to_timely.send(key_payload.into())
-                            })
-                        }
-                    },
+            match self.consumer.next() {
+                None => {
+                    dbg!("No messages available, incrementing epoch");
+                    self.current_messages_per_epoch = 0;
+                    self.current_epoch += 1;
+                    self.push_to_timely.advance_to(self.current_epoch);
                 }
-            })
+                Some(r) =>  {
+                    self.current_messages_per_epoch += 1;
+                    self.push_to_timely.send(r.into())
+                },
+            }
         }
     }
 
@@ -462,6 +424,68 @@ pub(crate) fn pump_from_config(
     } else {
         let pytype = input_config.get_type();
         panic!("Unknown input_config type: {pytype}")
+    }
+}
+
+struct KafkaConsumer {
+    rt: Runtime,
+    consumer: BaseConsumer<CustomContext>,
+}
+
+impl KafkaConsumer {
+    pub(crate) fn new(config: PyRef<KafkaInputConfig>) -> Self {
+        let context = CustomContext;
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let consumer: BaseConsumer<CustomContext> = rt.block_on(async {
+            ClientConfig::new()
+                .set("group.id", config.group_id.clone())
+                .set("bootstrap.servers", config.brokers.clone())
+                .set("enable.partition.eof", "false")
+                .set("session.timeout.ms", "6000")
+                .set("enable.auto.commit", config.auto_commit.to_string())
+                .set("auto.offset.reset", config.offset_reset.clone())
+                .set_log_level(RDKafkaLogLevel::Debug)
+                .create_with_context(context)
+                .expect("Consumer creation failed")
+        });
+
+        consumer
+            .subscribe(&[&config.topics])
+            .expect("Can't subscribe to specified topics");
+
+        Self {
+            rt,
+            consumer,
+        }
+    }
+
+    pub fn next(&mut self) -> Option<Py<PyAny>> {
+        self.rt.block_on(async {
+            match self.consumer.poll(Duration::from_millis(5000)) {
+                None => {
+                    None
+                }
+                Some(r) => match r {
+                    Err(e) => panic!("Kafka error! {}", e),
+                    Ok(s) => {
+                        Python::with_gil(|py| {
+                            let key: Py<PyAny> =
+                                s.key().map_or(py.None(), |k| PyBytes::new(py, k).into());
+                            let payload: Py<PyAny> = s
+                                .payload()
+                                .map_or(py.None(), |k| PyBytes::new(py, k).into());
+                            let key_payload: Py<PyAny> = (key, payload).into_py(py);
+                            Some(key_payload)
+                        })
+                    },
+                },
+            }
+        })
     }
 }
 
