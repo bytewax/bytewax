@@ -377,7 +377,11 @@ struct ManualPump {
     pull_from_pyiter: TdPyIterator,
     pyiter_is_empty: bool,
     push_to_timely: InputHandle<u64, TdPyAny>,
-    current_epoch: u64
+    current_epoch: u64,
+    desired_messages_per_epoch: u64,
+    current_messages_per_epoch: u64,
+    window_length: chrono::Duration,
+    current_window_end: chrono::DateTime<Utc>,
 }
 
 impl ManualPump {
@@ -389,6 +393,7 @@ impl ManualPump {
         config: PyRef<ManualInputConfig>,
         push_to_timely: InputHandle<u64, TdPyAny>,
     ) -> Self {
+        let now = Utc::now();
         let worker_input: TdPyIterator = config
             .input_builder
             .call1(py, (worker_index, worker_count, resume_epoch))
@@ -400,28 +405,17 @@ impl ManualPump {
             pyiter_is_empty: false,
             push_to_timely,
             current_epoch: 0,
+            desired_messages_per_epoch: 5,
+            current_messages_per_epoch: 0,
+            window_length: chrono::Duration::seconds(2),
+            current_window_end: now + chrono::Duration::seconds(2),
         }
     }
 }
 
 impl Pump for ManualPump {
     fn pump(&mut self) {
-        Python::with_gil(|py| {
-            let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
-            if let Some(result) = pull_from_pyiter.next() {
-                match result {
-                    Ok(item) => {
-                        self.push_to_timely.send(item.into());
-                        self.increment_and_emit_epoch();
-                    },
-                    Err(err) => {
-                        std::panic::panic_any(err);
-                    }
-                }
-            } else {
-                self.pyiter_is_empty = true;
-            }
-        });
+        self.tumble();
     }
 
     fn increment_and_emit_epoch(&mut self) {
@@ -437,8 +431,59 @@ impl Pump for ManualPump {
         !self.pyiter_is_empty
     }
 
-    fn batch(&mut self) {}
-    fn tumble(&mut self) {}
+    fn batch(&mut self) {
+        if self.current_messages_per_epoch == self.desired_messages_per_epoch {
+            self.current_messages_per_epoch = 0;
+            self.increment_and_emit_epoch();
+        } else {
+            Python::with_gil(|py| {
+                let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
+                if let Some(result) = pull_from_pyiter.next() {
+                    match result {
+                        Ok(item) => {
+                            self.push_to_timely.send(item.into());
+                            self.increment_and_emit_epoch();
+                        }
+                        Err(err) => {
+                            std::panic::panic_any(err);
+                        }
+                    }
+                } else {
+                    self.pyiter_is_empty = true;
+                }
+            });
+        }
+    }
+
+    fn tumble(&mut self) {
+        //can the time of the window start just *be* the epoch?
+        if Utc::now() >= self.current_window_end {
+            //reset window
+            self.increment_and_emit_epoch();
+            self.current_window_end = self.current_window_end + self.window_length;
+        } else {
+            loop {
+                if self.pyiter_is_empty {
+                    break;
+                }
+                Python::with_gil(|py| {
+                    let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
+                    if let Some(result) = pull_from_pyiter.next() {
+                        match result {
+                            Ok(item) => {
+                                self.push_to_timely.send(item.into());
+                            }
+                            Err(err) => {
+                                std::panic::panic_any(err);
+                            }
+                        }
+                    } else {
+                        self.pyiter_is_empty = true;
+                    }
+                });
+            }
+        }
+    }
 }
 
 pub(crate) fn pump_from_config(
