@@ -1,5 +1,6 @@
 use crate::pyo3_extensions::{TdPyAny, TdPyIterator};
 
+use chrono::{DateTime, Utc};
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -9,7 +10,7 @@ use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::consumer::base_consumer::BaseConsumer;
 use rdkafka::consumer::{Consumer, ConsumerContext};
 use rdkafka::message::Message;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use timely::dataflow::InputHandle;
 use tokio::runtime::Runtime;
 
@@ -272,6 +273,9 @@ pub trait Pump {
     fn pump(&mut self);
     fn input_time(&mut self) -> &u64;
     fn input_remains(&mut self) -> bool;
+    fn increment_and_emit_epoch(&mut self);
+    fn batch(&mut self);
+    fn tumble(&mut self);
 }
 
 /// Encapsulates the process of pulling data out of a Kafka
@@ -282,12 +286,15 @@ struct KafkaPump {
     desired_messages_per_epoch: u64,
     current_messages_per_epoch: u64,
     current_epoch: u64,
+    window_length: chrono::Duration,
+    current_window_end: chrono::DateTime<Utc>,
     empty: bool,
 }
 
 impl KafkaPump {
     fn new(config: PyRef<KafkaInputConfig>, push_to_timely: InputHandle<u64, TdPyAny>) -> Self {
         let consumer = KafkaConsumer::new(config);
+        let now = Utc::now();
         Self {
             consumer,
             push_to_timely,
@@ -295,6 +302,8 @@ impl KafkaPump {
             // TODO get the right config here
             desired_messages_per_epoch: 5,
             current_messages_per_epoch: 0,
+            window_length: chrono::Duration::seconds(2),
+            current_window_end: now + chrono::Duration::seconds(2),
             empty: false,
         }
     }
@@ -302,24 +311,54 @@ impl KafkaPump {
 
 impl Pump for KafkaPump {
     fn pump(&mut self) {
+        // self.batch()
+        self.tumble()
+    }
+
+    fn batch(&mut self) {
         if self.current_messages_per_epoch == self.desired_messages_per_epoch {
             self.current_messages_per_epoch = 0;
-            self.current_epoch += 1;
-            self.push_to_timely.advance_to(self.current_epoch);
+            self.increment_and_emit_epoch();
         } else {
             match self.consumer.next() {
                 None => {
                     dbg!("No messages available, incrementing epoch");
                     self.current_messages_per_epoch = 0;
-                    self.current_epoch += 1;
-                    self.push_to_timely.advance_to(self.current_epoch);
+                    self.increment_and_emit_epoch();
                 }
-                Some(r) =>  {
+                Some(r) => {
                     self.current_messages_per_epoch += 1;
                     self.push_to_timely.send(r.into())
-                },
+                }
             }
         }
+    }
+
+    fn tumble(&mut self) {
+        //can the time of the window start just *be* the epoch?
+        if Utc::now() >= self.current_window_end {
+            //reset window
+            self.increment_and_emit_epoch();
+            self.current_window_end = self.current_window_end + self.window_length;
+        } else {
+            loop {
+                match self.consumer.next() {
+                    None => {
+                        //TODO this message
+                        dbg!("No messages available, trying again");
+                    }
+                    Some(r) => {
+                        self.push_to_timely.send(r.into());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    fn increment_and_emit_epoch(&mut self) {
+        self.current_epoch += 1;
+        self.push_to_timely.advance_to(self.current_epoch);
     }
 
     fn input_time(&mut self) -> &u64 {
@@ -397,6 +436,9 @@ impl Pump for ManualPump {
     fn input_remains(&mut self) -> bool {
         !self.pyiter_is_empty
     }
+
+    fn batch(&mut self) {}
+    fn tumble(&mut self) {}
 }
 
 pub(crate) fn pump_from_config(
@@ -458,31 +500,24 @@ impl KafkaConsumer {
             .subscribe(&[&config.topics])
             .expect("Can't subscribe to specified topics");
 
-        Self {
-            rt,
-            consumer,
-        }
+        Self { rt, consumer }
     }
 
     pub fn next(&mut self) -> Option<Py<PyAny>> {
         self.rt.block_on(async {
             match self.consumer.poll(Duration::from_millis(5000)) {
-                None => {
-                    None
-                }
+                None => None,
                 Some(r) => match r {
                     Err(e) => panic!("Kafka error! {}", e),
-                    Ok(s) => {
-                        Python::with_gil(|py| {
-                            let key: Py<PyAny> =
-                                s.key().map_or(py.None(), |k| PyBytes::new(py, k).into());
-                            let payload: Py<PyAny> = s
-                                .payload()
-                                .map_or(py.None(), |k| PyBytes::new(py, k).into());
-                            let key_payload: Py<PyAny> = (key, payload).into_py(py);
-                            Some(key_payload)
-                        })
-                    },
+                    Ok(s) => Python::with_gil(|py| {
+                        let key: Py<PyAny> =
+                            s.key().map_or(py.None(), |k| PyBytes::new(py, k).into());
+                        let payload: Py<PyAny> = s
+                            .payload()
+                            .map_or(py.None(), |k| PyBytes::new(py, k).into());
+                        let key_payload: Py<PyAny> = (key, payload).into_py(py);
+                        Some(key_payload)
+                    }),
                 },
             }
         })
