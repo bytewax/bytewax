@@ -74,31 +74,6 @@ def distribute(elements: Iterable[Any], index: int, count: int) -> Iterable[Any]
         if i % count == index:
             yield x
 
-def single_batch(wrap_iter: Iterable) -> Iterable[Tuple[int, Any]]:
-    """All input items are part of the same epoch.
-
-    Use this for non-streaming-style batch processing.
-
-    >>> from bytewax import Dataflow, run
-    >>> flow = Dataflow()
-    >>> flow.capture()
-    >>> out = run(flow, single_batch(["a", "b", "c"]))
-    >>> sorted(out)
-    [(0, 'a'), (0, 'b'), (0, 'c')]
-
-    Args:
-
-        wrap_iter: Existing input iterable of just items.
-
-    Yields:
-
-        Tuples of `(epoch, item)`.
-
-    """
-    for item in wrap_iter:
-        yield (0, item)
-
-
 def tumbling_epoch(
     wrap_iter: Iterable,
     epoch_length: Any,

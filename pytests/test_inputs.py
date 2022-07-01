@@ -3,7 +3,6 @@ from unittest.mock import ANY
 
 from bytewax.inputs import (
     distribute,
-    single_batch,
     sorted_window,
     tumbling_epoch,
 )
@@ -19,16 +18,6 @@ def test_distribute():
     out2 = distribute(inp, 1, 2)
 
     assert list(out2) == ["b"]
-
-
-def test_single_batch():
-    out = single_batch(["a", "b", "c"])
-
-    assert list(out) == [
-        (0, "a"),
-        (0, "b"),
-        (0, "c"),
-    ]
 
 
 def test_tumbling_epoch():
