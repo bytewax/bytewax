@@ -376,6 +376,7 @@ struct ManualPump {
     pull_from_pyiter: TdPyIterator,
     pyiter_is_empty: bool,
     push_to_timely: InputHandle<u64, TdPyAny>,
+    current_epoch: u64
 }
 
 impl ManualPump {
@@ -397,6 +398,7 @@ impl ManualPump {
             pull_from_pyiter: worker_input,
             pyiter_is_empty: false,
             push_to_timely,
+            current_epoch: 0,
         }
     }
 }
@@ -405,17 +407,12 @@ impl Pump for ManualPump {
     fn pump(&mut self) {
         Python::with_gil(|py| {
             let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
-            if let Some(input_or_action) = pull_from_pyiter.next() {
-                match input_or_action {
+            if let Some(result) = pull_from_pyiter.next() {
+                match result {
                     Ok(item) => {
-                        if let Ok(send) = item.downcast::<PyCell<Emit>>() {
-                            self.push_to_timely.send(send.borrow().item.clone());
-                        } else if let Ok(advance_to) = item.downcast::<PyCell<AdvanceTo>>() {
-                            self.push_to_timely.advance_to(advance_to.borrow().epoch);
-                        } else {
-                            panic!("{}", format!("Input must be an instance of either `AdvanceTo` or `Emit`. Got: {item:?}. See https://docs.bytewax.io/apidocs#bytewax.AdvanceTo for more information."))
-                        }
-                    }
+                        self.push_to_timely.send(item.into());
+                        self.increment_and_emit_epoch();
+                    },
                     Err(err) => {
                         std::panic::panic_any(err);
                     }
@@ -424,6 +421,11 @@ impl Pump for ManualPump {
                 self.pyiter_is_empty = true;
             }
         });
+    }
+
+    fn increment_and_emit_epoch(&mut self) {
+        self.current_epoch += 1;
+        self.push_to_timely.advance_to(self.current_epoch);
     }
 
     fn input_time(&mut self) -> &u64 {

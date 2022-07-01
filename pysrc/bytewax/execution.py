@@ -17,7 +17,7 @@ from .bytewax import (
 
 def run(
     flow: Dataflow,
-    inp: Iterable[Tuple[int, Any]],
+    inp: Iterable[Any],
     *,
     recovery_config: Optional[RecoveryConfig] = None,
 ) -> List[Tuple[int, Any]]:
@@ -58,9 +58,8 @@ def run(
     def input_builder(worker_index, worker_count, resume_epoch):
         assert resume_epoch == 0, "Recovery doesn't work with iterator based input"
         assert worker_index == 0
-        for epoch, item in inp:
-            yield AdvanceTo(epoch)
-            yield Emit(item)
+        for item in inp:
+            yield item
 
     out = []
 
@@ -183,7 +182,7 @@ def spawn_cluster(
 
 def run_cluster(
     flow: Dataflow,
-    inp: Iterable[Tuple[int, Any]],
+    inp: Iterable[Any],
     *,
     recovery_config: Optional[RecoveryConfig] = None,
     proc_count: int = 1,
@@ -253,11 +252,9 @@ def run_cluster(
 
         def input_builder(worker_index, worker_count, resume_epoch):
             assert resume_epoch == 0, "Recovery doesn't work with iterator based input"
-            for i, epoch_item in enumerate(inp):
+            for i, item in enumerate(inp):
                 if i % worker_count == worker_index:
-                    (epoch, item) = epoch_item
-                    yield AdvanceTo(epoch)
-                    yield Emit(item)
+                    yield item
 
         out = man.list()
 

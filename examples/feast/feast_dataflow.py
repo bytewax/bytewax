@@ -11,8 +11,6 @@ from bytewax.inputs import ManualInputConfig
 # Configure the feature store for each worker to access
 store = FeatureStore(repo_path=".")
 
-
-@inputs.yield_epochs
 def input_builder(worker_index, worker_count, resume_epoch):
     def consume_from_kafka():
         consumer = KafkaConsumer(

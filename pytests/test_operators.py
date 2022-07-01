@@ -10,11 +10,7 @@ def test_map():
     def add_one(item):
         return item + 1
 
-    inp = [
-        (0, 0),
-        (0, 1),
-        (0, 2),
-    ]
+    inp = [0, 1, 3]
 
     flow = Dataflow()
     flow.map(add_one)

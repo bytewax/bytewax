@@ -7,11 +7,10 @@ from pytest import mark, raises
 from bytewax import (
     cluster_main,
     Dataflow,
-    inputs,
     run,
     run_cluster,
 )
-from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig
+from bytewax.inputs import ManualInputConfig
 
 
 def test_run():
@@ -19,7 +18,7 @@ def test_run():
     flow.map(lambda x: x + 1)
     flow.capture()
 
-    out = run(flow, inputs.fully_ordered(range(3)))
+    out = run(flow, list(range(3)))
     assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
 
 
@@ -30,26 +29,42 @@ def test_run_cluster(mp_ctx):
 
     out = run_cluster(
         flow,
-        inputs.fully_ordered(range(3)),
-        proc_count=2,
+        range(5),
+        proc_count=1,
+        worker_count_per_proc=1,
+        mp_ctx=mp_ctx,
+    )
+    assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)])
+
+def test_run_cluster_multiple_workers(mp_ctx):
+    flow = Dataflow()
+    flow.map(lambda x: x + 1)
+    flow.capture()
+
+    out = run_cluster(
+        flow,
+        range(5),
+        proc_count=1,
         worker_count_per_proc=2,
         mp_ctx=mp_ctx,
     )
-    assert sorted(out) == sorted([(0, 1), (1, 2), (2, 3)])
-
+    # We can't *really* guarantee this kind of epoch assignment consistency with multiple
+    # workers, but with a small range this should pass. Perhaps a better test would be that
+    # all the input has been modified, regardless of epoch?
+    assert sorted(out) == sorted([(0, 1), (0, 2), (1, 3), (1, 4), (2, 5)])
 
 def test_run_requires_capture():
     flow = Dataflow()
 
     with raises(ValueError):
-        run(flow, enumerate(range(3)))
+        run(flow, range(3))
 
 
 def test_run_cluster_requires_capture(mp_ctx):
     flow = Dataflow()
 
     with raises(ValueError):
-        run_cluster(flow, enumerate(range(3)), mp_ctx=mp_ctx)
+        run_cluster(flow, range(3), mp_ctx=mp_ctx)
 
 
 def test_run_reraises_exception():
@@ -61,7 +76,7 @@ def test_run_reraises_exception():
     flow.capture()
 
     with raises(RuntimeError):
-        run(flow, enumerate(range(3)))
+        run(flow, range(3))
 
 
 @mark.skip(
@@ -82,7 +97,7 @@ def test_run_cluster_reraises_exception(mp_ctx):
     flow.capture()
 
     with raises(RuntimeError):
-        run_cluster(flow, enumerate(range(3)), proc_count=2, mp_ctx=mp_ctx)
+        run_cluster(flow, range(3), proc_count=2, mp_ctx=mp_ctx)
 
 
 @mark.skip(reason="Flakey in CI for some unknown reason")
@@ -108,7 +123,7 @@ def test_run_can_be_ctrl_c(mp_ctx):
             flow.capture()
 
             try:
-                for epoch_item in run(flow, inputs.fully_ordered(range(1000))):
+                for epoch_item in run(flow, range(1000)):
                     out.append(epoch_item)
             except KeyboardInterrupt:
                 exit(99)
@@ -149,7 +164,7 @@ def test_run_cluster_can_be_ctrl_c(mp_ctx):
             try:
                 for epoch_item in run_cluster(
                     flow,
-                    inputs.fully_ordered(range(1000)),
+                    range(1000),
                     proc_count=2,
                     worker_count_per_proc=2,
                 ):
@@ -183,9 +198,8 @@ def test_cluster_main_can_be_ctrl_c(mp_ctx):
 
         def proc_main():
             def input_builder(worker_index, worker_count, resume_epoch):
-                for epoch, item in inputs.fully_ordered(range(resume_epoch, 1000)):
-                    yield AdvanceTo(epoch)
-                    yield Emit(item)
+                for item in list(range(1000)):
+                    yield item
 
             def output_builder(worker_index, worker_count):
                 def out_handler(epoch_item):
@@ -222,46 +236,3 @@ def test_cluster_main_can_be_ctrl_c(mp_ctx):
 
         assert test_proc.exitcode == 99
         assert len(out) < 1000
-
-
-def test_yield_epochs_with_cluster_main(mp_ctx):
-    with mp_ctx.Manager() as man:
-        is_running = man.Event()
-        out = man.list()
-
-        def proc_main():
-            @inputs.yield_epochs
-            def input_builder(worker_index, worker_count, resume_epoch):
-                return inputs.fully_ordered(range(resume_epoch, 100))
-
-            def output_builder(worker_index, worker_count):
-                def out_handler(epoch_item):
-                    out.append(epoch_item)
-                    print(worker_index, epoch_item)
-
-                return out_handler
-
-            def mapper(item):
-                is_running.set()
-                return item
-
-            flow = Dataflow()
-            flow.map(mapper)
-            flow.capture()
-
-            cluster_main(
-                flow,
-                ManualInputConfig(input_builder),
-                output_builder,
-                addresses=[],
-                proc_id=0,
-                worker_count_per_proc=1,
-            )
-
-        test_proc = mp_ctx.Process(target=proc_main)
-        test_proc.start()
-
-        assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
-        test_proc.join(timeout=10.0)
-
-        assert len(out) == 100

@@ -16,12 +16,9 @@ from bytewax.inputs import ManualInputConfig
 # Parquet datasets. `fake_events` will generate events for multiple
 # days around today. Each worker will generate independent fake
 # events.
-@inputs.yield_epochs
+# TODO: configure for 5 second tumbles (default is 2 rn)
 def input_builder(worker_index, worker_count, resume_epoch):
-    return inputs.tumbling_epoch(
-        fake_events.generate_web_events(), datetime.timedelta(seconds=5)
-    )
-
+    return fake_events.generate_web_events()
 
 # Arrow assigns a UUID to each worker / window's file so they won't
 # clobber each other. They are further automatically placed in the
