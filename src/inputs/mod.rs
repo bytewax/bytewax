@@ -415,7 +415,8 @@ impl ManualPump {
 
 impl Pump for ManualPump {
     fn pump(&mut self) {
-        self.tumble();
+        // self.tumble();
+        self.batch()
     }
 
     fn increment_and_emit_epoch(&mut self) {
@@ -441,8 +442,8 @@ impl Pump for ManualPump {
                 if let Some(result) = pull_from_pyiter.next() {
                     match result {
                         Ok(item) => {
+                            self.current_messages_per_epoch += 1;
                             self.push_to_timely.send(item.into());
-                            self.increment_and_emit_epoch();
                         }
                         Err(err) => {
                             std::panic::panic_any(err);
