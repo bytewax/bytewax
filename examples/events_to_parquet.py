@@ -17,9 +17,10 @@ from bytewax.inputs import ManualInputConfig
 # days around today. Each worker will generate independent fake
 # events.
 def input_builder(worker_index, worker_count, resume_epoch):
-    return inputs.tumbling_epoch(
-        fake_events.generate_web_events(), datetime.timedelta(seconds=5)
-    )
+    return fake_events.generate_web_events()
+    # return inputs.tumbling_epoch(
+    #     fake_events.generate_web_events(), datetime.timedelta(seconds=5)
+    # )
 
 
 # Arrow assigns a UUID to each worker / window's file so they won't

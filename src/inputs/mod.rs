@@ -276,6 +276,7 @@ pub trait Pump {
     fn increment_and_emit_epoch(&mut self);
     fn batch(&mut self);
     fn tumble(&mut self);
+    fn next(&mut self) -> Option<Py<PyAny>>;
 }
 
 /// Encapsulates the process of pulling data out of a Kafka
@@ -283,12 +284,14 @@ pub trait Pump {
 struct KafkaPump {
     consumer: KafkaConsumer,
     push_to_timely: InputHandle<u64, TdPyAny>,
+    current_epoch: u64,
+    empty: bool,
+    //batching
     desired_messages_per_epoch: u64,
     current_messages_per_epoch: u64,
-    current_epoch: u64,
+    //tumbling
     window_length: chrono::Duration,
     current_window_end: chrono::DateTime<Utc>,
-    empty: bool,
 }
 
 impl KafkaPump {
@@ -315,20 +318,24 @@ impl Pump for KafkaPump {
         self.tumble()
     }
 
+    fn next(&mut self) -> Option<Py<PyAny>> {
+        return self.consumer.next();
+    }
+
     fn batch(&mut self) {
         if self.current_messages_per_epoch == self.desired_messages_per_epoch {
             self.current_messages_per_epoch = 0;
             self.increment_and_emit_epoch();
         } else {
             match self.consumer.next() {
+                Some(r) => {
+                    self.current_messages_per_epoch += 1;
+                    self.push_to_timely.send(r.into())
+                }
                 None => {
                     dbg!("No messages available, incrementing epoch");
                     self.current_messages_per_epoch = 0;
                     self.increment_and_emit_epoch();
-                }
-                Some(r) => {
-                    self.current_messages_per_epoch += 1;
-                    self.push_to_timely.send(r.into())
                 }
             }
         }
@@ -342,14 +349,17 @@ impl Pump for KafkaPump {
             self.current_window_end = self.current_window_end + self.window_length;
         } else {
             loop {
+                if self.empty {
+                    break;
+                }
                 match self.consumer.next() {
-                    None => {
-                        //TODO this message
-                        dbg!("No messages available, trying again");
-                    }
                     Some(r) => {
                         self.push_to_timely.send(r.into());
                         break;
+                    }
+                    None => {
+                        //TODO this message
+                        dbg!("No messages available, trying again");
                     }
                 }
             }
@@ -375,11 +385,13 @@ impl Pump for KafkaPump {
 /// iterator and feeding it into Timely.
 struct ManualPump {
     pull_from_pyiter: TdPyIterator,
-    pyiter_is_empty: bool,
     push_to_timely: InputHandle<u64, TdPyAny>,
     current_epoch: u64,
+    empty: bool,
+    //batching
     desired_messages_per_epoch: u64,
     current_messages_per_epoch: u64,
+    //tumbling
     window_length: chrono::Duration,
     current_window_end: chrono::DateTime<Utc>,
 }
@@ -402,7 +414,7 @@ impl ManualPump {
             .unwrap();
         Self {
             pull_from_pyiter: worker_input,
-            pyiter_is_empty: false,
+            empty: false,
             push_to_timely,
             current_epoch: 0,
             desired_messages_per_epoch: 5,
@@ -419,6 +431,27 @@ impl Pump for ManualPump {
         self.batch()
     }
 
+    fn next(&mut self) -> Option<Py<PyAny>> {
+        Python::with_gil(|py| {
+            let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
+            match pull_from_pyiter.next() {
+                Some(result) => match result {
+                    Ok(item) => {
+                        let for_timely: Py<PyAny> = item.into_py(py);
+                        Some(for_timely)
+                    }
+                    Err(err) => {
+                        std::panic::panic_any(err);
+                    }
+                },
+                None => {
+                    self.empty = true;
+                    None
+                }
+            }
+        })
+    }
+
     fn increment_and_emit_epoch(&mut self) {
         self.current_epoch += 1;
         self.push_to_timely.advance_to(self.current_epoch);
@@ -429,7 +462,7 @@ impl Pump for ManualPump {
     }
 
     fn input_remains(&mut self) -> bool {
-        !self.pyiter_is_empty
+        !self.empty
     }
 
     fn batch(&mut self) {
@@ -437,22 +470,16 @@ impl Pump for ManualPump {
             self.current_messages_per_epoch = 0;
             self.increment_and_emit_epoch();
         } else {
-            Python::with_gil(|py| {
-                let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
-                if let Some(result) = pull_from_pyiter.next() {
-                    match result {
-                        Ok(item) => {
-                            self.current_messages_per_epoch += 1;
-                            self.push_to_timely.send(item.into());
-                        }
-                        Err(err) => {
-                            std::panic::panic_any(err);
-                        }
-                    }
-                } else {
-                    self.pyiter_is_empty = true;
+            match self.next() {
+                Some(item) => {
+                    self.current_messages_per_epoch += 1;
+                    self.push_to_timely.send(item.into());
                 }
-            });
+                None => {
+                    self.current_messages_per_epoch = 0;
+                    self.increment_and_emit_epoch();
+                }
+            }
         }
     }
 
@@ -464,27 +491,24 @@ impl Pump for ManualPump {
             self.current_window_end = self.current_window_end + self.window_length;
         } else {
             loop {
-                if self.pyiter_is_empty {
+                if self.empty {
                     break;
                 }
-                Python::with_gil(|py| {
-                    let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
-                    if let Some(result) = pull_from_pyiter.next() {
-                        match result {
-                            Ok(item) => {
-                                self.push_to_timely.send(item.into());
-                            }
-                            Err(err) => {
-                                std::panic::panic_any(err);
-                            }
-                        }
-                    } else {
-                        self.pyiter_is_empty = true;
+                match self.next() {
+                    Some(r) => {
+                        self.push_to_timely.send(r.into());
+                        break;
                     }
-                });
+                    None => {
+                        //TODO this message AND off by one?
+                        dbg!("No messages available, trying again");
+                    }
+
+                }
             }
         }
     }
+
 }
 
 pub(crate) fn pump_from_config(
