@@ -1,6 +1,6 @@
 use crate::pyo3_extensions::{TdPyAny, TdPyIterator};
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -10,7 +10,7 @@ use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::consumer::base_consumer::BaseConsumer;
 use rdkafka::consumer::{Consumer, ConsumerContext};
 use rdkafka::message::Message;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use timely::dataflow::InputHandle;
 use tokio::runtime::Runtime;
 
@@ -267,92 +267,165 @@ impl ManualInputConfig {
     }
 }
 
+#[pyclass(module = "bytewax.inputs", subclass)]
+#[pyo3(text_signature = "()")]
+pub(crate) struct InputPartitionerConfig;
+
+#[pyclass(module = "bytewax.inputs", extends = InputPartitionerConfig)]
+#[pyo3(text_signature = "(messages_per_epoch)")]
+pub(crate) struct BatchInputPartitionerConfig {
+    pub messages_per_epoch: u64,
+}
+
+#[pymethods]
+impl BatchInputPartitionerConfig {
+    #[new]
+    #[args(messages_per_epoch)]
+    fn new(messages_per_epoch: u64) -> (Self, InputPartitionerConfig) {
+        (Self { messages_per_epoch }, InputPartitionerConfig {})
+    }
+}
+
+#[pyclass(module = "bytewax.inputs", extends = InputPartitionerConfig)]
+#[pyo3(text_signature = "(messages_per_epoch)")]
+pub(crate) struct TumblingWindowInputPartitionerConfig {
+    window_start_time: String,
+    window_length: i64,
+    time_getter: Py<PyAny>,
+    epoch_start: u64,
+}
+
+#[pymethods]
+impl TumblingWindowInputPartitionerConfig {
+    #[new]
+    #[args(window_start_time, window_length, time_getter, epoch_start = 0)]
+    fn new(
+        window_start_time: String,
+        window_length: i64,
+        time_getter: Py<PyAny>,
+        epoch_start: u64,
+    ) -> (Self, InputPartitionerConfig) {
+        (
+            Self {
+                window_start_time,
+                window_length,
+                time_getter,
+                epoch_start,
+            },
+            InputPartitionerConfig {},
+        )
+    }
+}
+
 /// Take a single data element or timestamp and feed it into dataflow
 /// Pump will be called in the worker's "main" loop to feed data in.
-pub trait Pump {
+pub trait InputIter {
+    fn next(&mut self) -> Option<Py<PyAny>>;
+    fn empty(&mut self) -> bool;
+}
+
+pub trait InputManager {
     fn pump(&mut self);
     fn input_time(&mut self) -> &u64;
     fn input_remains(&mut self) -> bool;
-    fn increment_and_emit_epoch(&mut self);
-    fn batch(&mut self);
-    fn tumble(&mut self);
-    fn next(&mut self) -> Option<Py<PyAny>>;
 }
 
 /// Encapsulates the process of pulling data out of a Kafka
 /// stream and feeding it into Timely.
-struct KafkaPump {
+struct KafkaIter {
     consumer: KafkaConsumer,
-    push_to_timely: InputHandle<u64, TdPyAny>,
-    current_epoch: u64,
-    empty: bool,
-    //batching
-    desired_messages_per_epoch: u64,
-    current_messages_per_epoch: u64,
-    //tumbling
-    window_length: chrono::Duration,
-    current_window_end: chrono::DateTime<Utc>,
 }
 
-impl KafkaPump {
-    fn new(config: PyRef<KafkaInputConfig>, push_to_timely: InputHandle<u64, TdPyAny>) -> Self {
+impl KafkaIter {
+    fn new(config: PyRef<KafkaInputConfig>) -> Self {
         let consumer = KafkaConsumer::new(config);
-        let now = Utc::now();
-        Self {
-            consumer,
-            push_to_timely,
-            current_epoch: 0,
-            // TODO get the right config here
-            desired_messages_per_epoch: 5,
-            current_messages_per_epoch: 0,
-            window_length: chrono::Duration::seconds(2),
-            current_window_end: now + chrono::Duration::seconds(2),
-            empty: false,
-        }
+        Self { consumer }
     }
 }
 
-impl Pump for KafkaPump {
-    fn pump(&mut self) {
-        // self.batch()
-        self.tumble()
-    }
-
+impl InputIter for KafkaIter {
     fn next(&mut self) -> Option<Py<PyAny>> {
         return self.consumer.next();
     }
+    fn empty(&mut self) -> bool {
+        return false;
+    }
+}
 
-    fn batch(&mut self) {
-        if self.current_messages_per_epoch == self.desired_messages_per_epoch {
-            self.current_messages_per_epoch = 0;
-            self.increment_and_emit_epoch();
-        } else {
-            match self.consumer.next() {
-                Some(r) => {
-                    self.current_messages_per_epoch += 1;
-                    self.push_to_timely.send(r.into())
-                }
-                None => {
-                    dbg!("No messages available, incrementing epoch");
-                    self.current_messages_per_epoch = 0;
-                    self.increment_and_emit_epoch();
-                }
-            }
+/// Encapsulates the process of pulling data out of the input Python
+/// iterator and feeding it into Timely.
+struct ManualIter {
+    pull_from_pyiter: TdPyIterator,
+    empty: bool,
+}
+
+struct Batcher {
+    input_iter: Box<dyn InputIter>,
+    push_to_timely: InputHandle<u64, TdPyAny>,
+    current_epoch: u64,
+    desired_messages_per_epoch: u64,
+    current_messages_per_epoch: u64,
+}
+
+impl Batcher {
+    fn new(
+        input_iter: Box<dyn InputIter>,
+        config: PyRef<BatchInputPartitionerConfig>,
+        push_to_timely: InputHandle<u64, TdPyAny>,
+    ) -> Self {
+        Self {
+            input_iter,
+            push_to_timely,
+            current_epoch: 0,
+            desired_messages_per_epoch: config.messages_per_epoch,
+            current_messages_per_epoch: 0,
         }
     }
+}
 
-    fn tumble(&mut self) {
+struct Tumbler {
+    input_iter: Box<dyn InputIter>,
+    push_to_timely: InputHandle<u64, TdPyAny>,
+    current_epoch: u64,
+    window_length: chrono::Duration,
+    current_window_end: chrono::DateTime<Utc>,
+    // time_getter: Py<PyAny>
+}
+
+impl Tumbler {
+    fn new(
+        input_iter: Box<dyn InputIter>,
+        config: PyRef<TumblingWindowInputPartitionerConfig>,
+        push_to_timely: InputHandle<u64, TdPyAny>,
+    ) -> Self {
+        let now = Utc::now();
+        let window_length = chrono::Duration::seconds(config.window_length);
+        // let window_start = DateTime::parse_from_str(&config.window_length, <Utc>)
+        Self {
+            input_iter: input_iter,
+            push_to_timely,
+            current_epoch: 0,
+            window_length: window_length,
+            current_window_end: now + window_length,
+            // time_getter: config.time_getter
+        }
+    }
+}
+
+impl InputManager for Tumbler {
+    fn pump(&mut self) {
         //can the time of the window start just *be* the epoch?
         if Utc::now() >= self.current_window_end {
             //reset window
-            self.increment_and_emit_epoch();
+            self.current_epoch += 1;
+            self.push_to_timely.advance_to(self.current_epoch);
             self.current_window_end = self.current_window_end + self.window_length;
         } else {
             loop {
-                if self.empty {
+                if self.input_iter.empty() {
                     break;
                 }
-                match self.consumer.next() {
+                match self.input_iter.next() {
                     Some(r) => {
                         self.push_to_timely.send(r.into());
                         break;
@@ -366,46 +439,54 @@ impl Pump for KafkaPump {
         }
     }
 
-    fn increment_and_emit_epoch(&mut self) {
-        self.current_epoch += 1;
-        self.push_to_timely.advance_to(self.current_epoch);
+    fn input_time(&mut self) -> &u64 {
+        self.push_to_timely.time()
+    }
+
+    fn input_remains(&mut self) -> bool {
+        !self.input_iter.empty()
+    }
+}
+
+impl InputManager for Batcher {
+    fn pump(&mut self) {
+        if self.current_messages_per_epoch == self.desired_messages_per_epoch {
+            self.current_messages_per_epoch = 0;
+            self.current_epoch += 1;
+            self.push_to_timely.advance_to(self.current_epoch);
+        } else {
+            match self.input_iter.next() {
+                Some(r) => {
+                    self.current_messages_per_epoch += 1;
+                    self.push_to_timely.send(r.into())
+                }
+                None => {
+                    dbg!("No messages available, incrementing epoch");
+                    self.current_messages_per_epoch = 0;
+                    self.current_epoch += 1;
+                    self.push_to_timely.advance_to(self.current_epoch);
+                }
+            }
+        }
     }
 
     fn input_time(&mut self) -> &u64 {
         self.push_to_timely.time()
     }
 
-    // Always true right now
     fn input_remains(&mut self) -> bool {
-        !self.empty
+        !self.input_iter.empty()
     }
 }
 
-/// Encapsulates the process of pulling data out of the input Python
-/// iterator and feeding it into Timely.
-struct ManualPump {
-    pull_from_pyiter: TdPyIterator,
-    push_to_timely: InputHandle<u64, TdPyAny>,
-    current_epoch: u64,
-    empty: bool,
-    //batching
-    desired_messages_per_epoch: u64,
-    current_messages_per_epoch: u64,
-    //tumbling
-    window_length: chrono::Duration,
-    current_window_end: chrono::DateTime<Utc>,
-}
-
-impl ManualPump {
+impl ManualIter {
     fn new(
         py: Python,
         worker_index: usize,
         worker_count: usize,
         resume_epoch: u64,
         config: PyRef<ManualInputConfig>,
-        push_to_timely: InputHandle<u64, TdPyAny>,
     ) -> Self {
-        let now = Utc::now();
         let worker_input: TdPyIterator = config
             .input_builder
             .call1(py, (worker_index, worker_count, resume_epoch))
@@ -415,22 +496,11 @@ impl ManualPump {
         Self {
             pull_from_pyiter: worker_input,
             empty: false,
-            push_to_timely,
-            current_epoch: 0,
-            desired_messages_per_epoch: 5,
-            current_messages_per_epoch: 0,
-            window_length: chrono::Duration::seconds(2),
-            current_window_end: now + chrono::Duration::seconds(2),
         }
     }
 }
 
-impl Pump for ManualPump {
-    fn pump(&mut self) {
-        // self.tumble();
-        self.batch()
-    }
-
+impl InputIter for ManualIter {
     fn next(&mut self) -> Option<Py<PyAny>> {
         Python::with_gil(|py| {
             let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
@@ -451,87 +521,56 @@ impl Pump for ManualPump {
             }
         })
     }
-
-    fn increment_and_emit_epoch(&mut self) {
-        self.current_epoch += 1;
-        self.push_to_timely.advance_to(self.current_epoch);
+    fn empty(&mut self) -> bool {
+        return self.empty;
     }
-
-    fn input_time(&mut self) -> &u64 {
-        self.push_to_timely.time()
-    }
-
-    fn input_remains(&mut self) -> bool {
-        !self.empty
-    }
-
-    fn batch(&mut self) {
-        if self.current_messages_per_epoch == self.desired_messages_per_epoch {
-            self.current_messages_per_epoch = 0;
-            self.increment_and_emit_epoch();
-        } else {
-            match self.next() {
-                Some(item) => {
-                    self.current_messages_per_epoch += 1;
-                    self.push_to_timely.send(item.into());
-                }
-                None => {
-                    self.current_messages_per_epoch = 0;
-                    self.increment_and_emit_epoch();
-                }
-            }
-        }
-    }
-
-    fn tumble(&mut self) {
-        //can the time of the window start just *be* the epoch?
-        if Utc::now() >= self.current_window_end {
-            //reset window
-            self.increment_and_emit_epoch();
-            self.current_window_end = self.current_window_end + self.window_length;
-        } else {
-            loop {
-                if self.empty {
-                    break;
-                }
-                match self.next() {
-                    Some(r) => {
-                        self.push_to_timely.send(r.into());
-                        break;
-                    }
-                    None => {
-                        //TODO this message AND off by one?
-                        dbg!("No messages available, trying again");
-                    }
-
-                }
-            }
-        }
-    }
-
 }
 
-pub(crate) fn pump_from_config(
+pub(crate) fn input_partitioner_from_config(
     py: Python,
-    config: Py<InputConfig>,
+    partition_config: Py<InputPartitionerConfig>,
+    input_config: Py<InputConfig>,
     input_handle: InputHandle<u64, TdPyAny>,
     worker_index: usize,
     worker_count: usize,
     resume_epoch: u64,
-) -> Box<dyn Pump> {
-    let input_config = config.as_ref(py);
+) -> Box<dyn InputManager> {
+    let input_iter =
+        input_iter_from_config(py, input_config, worker_index, worker_count, resume_epoch);
+    let partition_config = partition_config.as_ref(py);
+    if let Ok(batch_config) = partition_config.downcast::<PyCell<BatchInputPartitionerConfig>>() {
+        let batch_config = batch_config.borrow();
+        Box::new(Batcher::new(input_iter, batch_config, input_handle))
+    } else if let Ok(tumbler_config) =
+        partition_config.downcast::<PyCell<TumblingWindowInputPartitionerConfig>>()
+    {
+        let tumbler_config = tumbler_config.borrow();
+        Box::new(Tumbler::new(input_iter, tumbler_config, input_handle))
+    } else {
+        let pytype = partition_config.get_type();
+        panic!("Unknown partition_config type: {pytype}")
+    }
+}
+
+pub(crate) fn input_iter_from_config(
+    py: Python,
+    input_config: Py<InputConfig>,
+    worker_index: usize,
+    worker_count: usize,
+    resume_epoch: u64,
+) -> Box<dyn InputIter> {
+    let input_config = input_config.as_ref(py);
     if let Ok(kafka_config) = input_config.downcast::<PyCell<KafkaInputConfig>>() {
         let kafka_config = kafka_config.borrow();
-        Box::new(KafkaPump::new(kafka_config, input_handle))
+        Box::new(KafkaIter::new(kafka_config))
     } else if let Ok(manual_config) = input_config.downcast::<PyCell<ManualInputConfig>>() {
         let manual_config = manual_config.borrow();
-        Box::new(ManualPump::new(
+        Box::new(ManualIter::new(
             py,
             worker_index,
             worker_count,
             resume_epoch,
             manual_config,
-            input_handle,
         ))
     } else {
         let pytype = input_config.get_type();
@@ -609,5 +648,8 @@ pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<InputConfig>()?;
     m.add_class::<KafkaInputConfig>()?;
     m.add_class::<ManualInputConfig>()?;
+    m.add_class::<InputPartitionerConfig>()?;
+    m.add_class::<TumblingWindowInputPartitionerConfig>()?;
+    m.add_class::<BatchInputPartitionerConfig>()?;
     Ok(())
 }

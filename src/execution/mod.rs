@@ -6,9 +6,10 @@
 //! See [`build_dataflow()`] and [`worker_main()`] for the main parts
 //! of this.
 
-use crate::inputs::pump_from_config;
+use crate::inputs::InputManager;
+use crate::inputs::InputPartitionerConfig;
+use crate::inputs::input_partitioner_from_config;
 use crate::inputs::InputConfig;
-use crate::inputs::Pump;
 use crate::operators::DataflowFrontier;
 use crate::operators::Recovery;
 use crate::recovery::build_state_caches;
@@ -75,10 +76,11 @@ pub(crate) fn build_dataflow<A>(
     timely_worker: &mut timely::worker::Worker<A>,
     py: Python,
     flow: &Dataflow,
+    input_partitioner_config: Py<InputPartitionerConfig>,
     input_config: Py<InputConfig>,
     output_builder: TdPyCallable,
     recovery_config: Option<Py<RecoveryConfig>>,
-) -> Result<(Box<dyn Pump>, ProbeHandle<u64>), String>
+) -> Result<(Box<dyn InputManager>, ProbeHandle<u64>), String>
 where
     A: timely::communication::Allocate,
 {
@@ -258,15 +260,16 @@ where
         // record the dataflow frontier there.
         gc.probe_with(&mut execution_frontier);
 
-        let pump = pump_from_config(
+        let input_partitioner = input_partitioner_from_config(
             py,
+            input_partitioner_config,
             input_config,
             timely_input,
             worker_index,
             worker_count,
             resume_epoch,
         );
-        Ok((pump, execution_frontier))
+        Ok((input_partitioner, execution_frontier))
     })
 }
 
@@ -280,7 +283,7 @@ where
 /// 3. Call [timely::worker::Worker::step] to tell Timely to do
 /// whatever work it can.
 pub(crate) fn worker_main<A>(
-    mut pumps_with_input_remaining: Vec<Box<dyn Pump>>,
+    mut input_managers: Vec<Box<dyn InputManager>>,
     probe: ProbeHandle<u64>,
     interrupt_flag: &AtomicBool,
     worker: &mut timely::worker::Worker<A>,
@@ -288,18 +291,18 @@ pub(crate) fn worker_main<A>(
     A: timely::communication::Allocate,
 {
     while !interrupt_flag.load(Ordering::Relaxed) && !probe.done() {
-        if !pumps_with_input_remaining.is_empty() {
+        if !input_managers.is_empty() {
             // We have input remaining, pump the pumps, and step the workers while
             // there is work less than the current epoch to do.
-            let mut updated_pumps = Vec::new();
-            for mut pump in pumps_with_input_remaining.into_iter() {
-                pump.pump();
-                worker.step_while(|| probe.less_than(&pump.input_time()));
-                if pump.input_remains() {
-                    updated_pumps.push(pump);
+            let mut updated_input_managers = Vec::new();
+            for mut input_man in input_managers.into_iter() {
+                input_man.pump();
+                worker.step_while(|| probe.less_than(&input_man.input_time()));
+                if input_man.input_remains() {
+                    updated_input_managers.push(input_man);
                 }
             }
-            pumps_with_input_remaining = updated_pumps;
+            input_managers = updated_input_managers;
         } else {
             // Inputs are empty, step the workers until probe is done.
             worker.step();
@@ -355,11 +358,12 @@ where
 ///     recovery_config: State recovery config. See
 ///         `bytewax.recovery`. If `None`, state will not be persisted.
 ///
-#[pyfunction(flow, input_config, output_builder, "*", recovery_config = "None")]
-#[pyo3(text_signature = "(flow, input_config, output_builder, *, recovery_config)")]
+#[pyfunction(flow, input_partitioner_config, input_config, output_builder, "*", recovery_config = "None")]
+#[pyo3(text_signature = "(flow, input_partitioner_config, input_config, output_builder, *, recovery_config)")]
 pub(crate) fn run_main(
     py: Python,
     flow: Py<Dataflow>,
+    input_partitioner_config: Py<InputPartitionerConfig>,
     input_config: Py<InputConfig>,
     output_builder: TdPyCallable,
     recovery_config: Option<Py<RecoveryConfig>>,
@@ -378,6 +382,7 @@ pub(crate) fn run_main(
                         worker,
                         py,
                         flow,
+                        input_partitioner_config,
                         input_config,
                         output_builder,
                         recovery_config,
@@ -471,6 +476,7 @@ pub(crate) fn run_main(
 pub(crate) fn cluster_main(
     py: Python,
     flow: Py<Dataflow>,
+    input_partitioner_config: Py<InputPartitionerConfig>,
     input_config: Py<InputConfig>,
     output_builder: TdPyCallable,
     addresses: Option<Vec<String>>,
@@ -526,6 +532,7 @@ pub(crate) fn cluster_main(
             move |worker| {
                 let (pump, probe) = Python::with_gil(|py| {
                     let flow = &flow.as_ref(py).borrow();
+                    let input_partitioner_config = input_partitioner_config.clone_ref(py);
                     let input_config = input_config.clone_ref(py);
                     let output_builder = output_builder.clone_ref(py);
                     let recovery_config = recovery_config.clone();
@@ -534,6 +541,7 @@ pub(crate) fn cluster_main(
                         worker,
                         py,
                         flow,
+                        input_partitioner_config,
                         input_config,
                         output_builder,
                         recovery_config,
