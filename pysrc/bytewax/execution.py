@@ -6,7 +6,7 @@ from typing import Any, Callable, Iterable, List, Optional, Tuple, Union
 from multiprocess import get_context
 
 from bytewax.recovery import RecoveryConfig
-from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig, InputConfig
+from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig, InputConfig, BatchInputPartitionerConfig, InputPartitionerConfig
 
 from .bytewax import (
     cluster_main,
@@ -70,6 +70,7 @@ def run(
     "Only manual configuration works with iterator based input"
     run_main(
         flow,
+        BatchInputPartitionerConfig(),
         ManualInputConfig(input_builder),
         output_builder,
         recovery_config=recovery_config,
@@ -87,6 +88,7 @@ def spawn_cluster(
     input_config: InputConfig,
     output_builder: Callable[[int, int, int], Callable[[Tuple[int, Any]], None]],
     *,
+    input_partitioner_config: Optional[InputPartitionerConfig] = BatchInputPartitionerConfig(),
     recovery_config: Optional[RecoveryConfig] = None,
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
@@ -159,6 +161,7 @@ def spawn_cluster(
                 cluster_main,
                 (
                     flow,
+                    input_partitioner_config,
                     input_config,
                     output_builder,
                 ),
@@ -184,6 +187,7 @@ def run_cluster(
     flow: Dataflow,
     inp: Iterable[Any],
     *,
+    input_partitioner_config: Optional[InputPartitionerConfig] = BatchInputPartitionerConfig(1),
     recovery_config: Optional[RecoveryConfig] = None,
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
@@ -265,6 +269,7 @@ def run_cluster(
             flow,
             ManualInputConfig(input_builder),
             output_builder,
+            input_partitioner_config=input_partitioner_config,
             recovery_config=recovery_config,
             proc_count=proc_count,
             worker_count_per_proc=worker_count_per_proc,

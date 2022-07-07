@@ -8,7 +8,7 @@ import datetime
 import heapq
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Tuple
-from .bytewax import AdvanceTo, Emit, KafkaInputConfig, ManualInputConfig, InputConfig
+from .bytewax import AdvanceTo, Emit, KafkaInputConfig, ManualInputConfig, InputPartitionerConfig, BatchInputPartitionerConfig, TumblingWindowInputPartitionerConfig, InputConfig
 
 
 def distribute(elements: Iterable[Any], index: int, count: int) -> Iterable[Any]:

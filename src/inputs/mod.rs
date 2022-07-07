@@ -1,16 +1,17 @@
 use crate::pyo3_extensions::{TdPyAny, TdPyIterator};
 
-use chrono::Utc;
+use chrono::{NaiveDateTime, NaiveTime, Utc};
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, PyDateTime, PyDelta};
+use pyo3_chrono::Duration;
 use rdkafka::client::ClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::consumer::base_consumer::BaseConsumer;
 use rdkafka::consumer::{Consumer, ConsumerContext};
 use rdkafka::message::Message;
-use std::time::Duration;
+use std::time::Duration as StdDuration;
 use timely::dataflow::InputHandle;
 use tokio::runtime::Runtime;
 
@@ -140,8 +141,6 @@ pub(crate) struct KafkaInputConfig {
     pub offset_reset: String,
     #[pyo3(get)]
     pub auto_commit: bool,
-    #[pyo3(get)]
-    pub messages_per_epoch: u64,
 }
 
 #[pymethods]
@@ -152,8 +151,7 @@ impl KafkaInputConfig {
         group_id,
         topics,
         offset_reset = "\"earliest\".to_string()",
-        auto_commit = false,
-        messages_per_epoch = 1
+        auto_commit = false
     )]
     fn new(
         brokers: String,
@@ -161,7 +159,6 @@ impl KafkaInputConfig {
         topics: String,
         offset_reset: String,
         auto_commit: bool,
-        messages_per_epoch: u64,
     ) -> (Self, InputConfig) {
         (
             Self {
@@ -170,45 +167,34 @@ impl KafkaInputConfig {
                 topics,
                 offset_reset,
                 auto_commit,
-                messages_per_epoch,
             },
             InputConfig {},
         )
     }
 
-    fn __getstate__(&self) -> (&str, String, String, String, String, u64) {
+    fn __getstate__(&self) -> (&str, String, String, String, String) {
         (
             "KafkaInputConfig",
             self.brokers.clone(),
             self.group_id.clone(),
             self.topics.clone(),
             self.offset_reset.clone(),
-            self.messages_per_epoch,
         )
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (&str, &str, &str, &str, u64) {
+    fn __getnewargs__(&self) -> (&str, &str, &str, &str) {
         let s = "UNINIT_PICKLED_STRING";
-        (s, s, s, s, 0)
+        (s, s, s, s)
     }
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok((
-            "KafkaInputConfig",
-            brokers,
-            group_id,
-            topics,
-            offset_reset,
-            messages_per_epoch,
-        )) = state.extract()
-        {
+        if let Ok(("KafkaInputConfig", brokers, group_id, topics, offset_reset)) = state.extract() {
             self.brokers = brokers;
             self.group_id = group_id;
             self.topics = topics;
             self.offset_reset = offset_reset;
-            self.messages_per_epoch = messages_per_epoch;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -280,40 +266,103 @@ pub(crate) struct BatchInputPartitionerConfig {
 #[pymethods]
 impl BatchInputPartitionerConfig {
     #[new]
-    #[args(messages_per_epoch)]
+    #[args(messages_per_epoch = 1)]
     fn new(messages_per_epoch: u64) -> (Self, InputPartitionerConfig) {
         (Self { messages_per_epoch }, InputPartitionerConfig {})
+    }
+
+    fn __getstate__(&self) -> (&str, u64) {
+        ("BatchInputPartitionerConfig", self.messages_per_epoch)
+    }
+
+    fn __getnewargs__(&self) -> (u64,) {
+        (1,)
+    }
+
+    /// Unpickle from tuple of arguments.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok(("BatchInputPartitionerConfig", messages_per_epoch)) = state.extract() {
+            self.messages_per_epoch = messages_per_epoch;
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for BatchInputPartitionerConfig: {state:?}"
+            )))
+        }
     }
 }
 
 #[pyclass(module = "bytewax.inputs", extends = InputPartitionerConfig)]
-#[pyo3(text_signature = "(messages_per_epoch)")]
+#[pyo3(text_signature = "(window_start_time, window_length, epoch_start = 0)")]
 pub(crate) struct TumblingWindowInputPartitionerConfig {
-    window_start_time: String,
-    window_length: i64,
-    time_getter: Py<PyAny>,
+    window_start_time: pyo3_chrono::NaiveDateTime,
+    window_length: pyo3_chrono::Duration,
+    // window_start_time: chrono::DateTime<Utc>,
+    // window_length: chrono::Duration,
+    // time_getter: Py<PyAny>,
     epoch_start: u64,
 }
 
 #[pymethods]
 impl TumblingWindowInputPartitionerConfig {
     #[new]
-    #[args(window_start_time, window_length, time_getter, epoch_start = 0)]
+    // #[args(window_start_time, window_length, time_getter, epoch_start = 0)]
+    #[args(window_start_time, window_length, epoch_start = 0)]
     fn new(
-        window_start_time: String,
-        window_length: i64,
-        time_getter: Py<PyAny>,
+        window_start_time: pyo3_chrono::NaiveDateTime,
+        window_length: pyo3_chrono::Duration,
+        // time_getter: Py<PyAny>,
         epoch_start: u64,
     ) -> (Self, InputPartitionerConfig) {
+        // let ws: chrono::NaiveDateTime = window_start_time.into();
+        // let wse = chrono::DateTime::<Utc>::from_utc(ws, Utc);
+        // let wl: chrono::Duration = window_length.into();
         (
             Self {
                 window_start_time,
                 window_length,
-                time_getter,
+                // time_getter,
                 epoch_start,
             },
             InputPartitionerConfig {},
         )
+    }
+
+    fn __getstate__(&self) -> (&str, pyo3_chrono::NaiveDateTime, pyo3_chrono::Duration, u64) {
+        (
+            "TumblingWindowInputPartitionerConfig",
+            self.window_start_time.clone(),
+            self.window_length.clone(),
+            self.epoch_start
+        )
+    }
+
+    fn __getnewargs__(&self) -> (pyo3_chrono::NaiveDateTime, pyo3_chrono::Duration, u64) {
+        let d = chrono::NaiveDate::from_ymd(2015, 6, 3);
+        let t = NaiveTime::from_hms_milli(12, 34, 56, 789);
+        let dt: pyo3_chrono::NaiveDateTime = NaiveDateTime::new(d, t).into();
+
+        let dur: pyo3_chrono::Duration = chrono::Duration::minutes(5).into();
+        (dt, dur, 1)
+    }
+
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok((
+            "TumblingWindowInputPartitionerConfig",
+            window_start_time,
+            window_length,
+            epoch_start,
+        )) = state.extract()
+        {
+            self.window_start_time = window_start_time;
+            self.window_length = window_length;
+            self.epoch_start = epoch_start;
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for TumblingWindowInputPartitionerConfig: {state:?}"
+            )))
+        }
     }
 }
 
@@ -398,15 +447,18 @@ impl Tumbler {
         config: PyRef<TumblingWindowInputPartitionerConfig>,
         push_to_timely: InputHandle<u64, TdPyAny>,
     ) -> Self {
-        let now = Utc::now();
-        let window_length = chrono::Duration::seconds(config.window_length);
+        let ws: chrono::NaiveDateTime = config.window_start_time.into();
+        let wse = chrono::DateTime::<Utc>::from_utc(ws, Utc);
+        let wl: chrono::Duration = config.window_length.into();
+        // let now = Utc::now();
+        let window_length = config.window_length;
         // let window_start = DateTime::parse_from_str(&config.window_length, <Utc>)
         Self {
             input_iter: input_iter,
             push_to_timely,
             current_epoch: 0,
-            window_length: window_length,
-            current_window_end: now + window_length,
+            window_length: wl,
+            current_window_end: wse + wl,
             // time_getter: config.time_getter
         }
     }
@@ -415,7 +467,8 @@ impl Tumbler {
 impl InputManager for Tumbler {
     fn pump(&mut self) {
         //can the time of the window start just *be* the epoch?
-        if Utc::now() >= self.current_window_end {
+        let now = Utc::now();
+        if now >= self.current_window_end {
             //reset window
             self.current_epoch += 1;
             self.push_to_timely.advance_to(self.current_epoch);
@@ -461,7 +514,6 @@ impl InputManager for Batcher {
                     self.push_to_timely.send(r.into())
                 }
                 None => {
-                    dbg!("No messages available, incrementing epoch");
                     self.current_messages_per_epoch = 0;
                     self.current_epoch += 1;
                     self.push_to_timely.advance_to(self.current_epoch);
@@ -614,7 +666,7 @@ impl KafkaConsumer {
 
     pub fn next(&mut self) -> Option<Py<PyAny>> {
         self.rt.block_on(async {
-            match self.consumer.poll(Duration::from_millis(5000)) {
+            match self.consumer.poll(StdDuration::from_millis(5000)) {
                 None => None,
                 Some(r) => match r {
                     Err(e) => panic!("Kafka error! {}", e),
