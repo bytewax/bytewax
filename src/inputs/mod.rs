@@ -1,11 +1,11 @@
 use crate::pyo3_extensions::{TdPyAny, TdPyIterator};
 
 use chrono::{NaiveDateTime, NaiveTime, Utc};
-use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDateTime, PyDelta};
-use pyo3_chrono::Duration;
+use pyo3::types::{PyBytes};
+use pyo3_chrono::Duration as PyDuration;
+use pyo3_chrono::NaiveDateTime as PyNaiveDateTime;
 use rdkafka::client::ClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::consumer::base_consumer::BaseConsumer;
@@ -14,77 +14,6 @@ use rdkafka::message::Message;
 use std::time::Duration as StdDuration;
 use timely::dataflow::InputHandle;
 use tokio::runtime::Runtime;
-
-/// Advance to the supplied epoch.
-///
-/// When providing input to a Dataflow, work cannot complete until
-/// there is no more data for a given epoch.
-///
-/// AdvanceTo is the signal to a Dataflow that the frontier has moved
-/// beyond the current epoch, and that items with an epoch less than
-/// the epoch in AdvanceTo can be worked to completion.
-///
-/// Using AdvanceTo and Emit is only necessary when using `spawn_cluster`
-/// and `cluster_main()` as `run()` and `run_cluster()` will yield AdvanceTo
-/// and Emit for you. Likewise, they are only required when using a
-/// manual input configuration.
-///
-///
-/// See also: `inputs.yield_epochs()`
-///
-/// >>> def input_builder(worker_index, worker_count, resume_epoch):
-/// ...     for i in range(10):
-/// ...         yield AdvanceTo(i) # Advances the epoch to i
-/// ...         yield Emit(i) # Adds the input i at epoch i
-#[pyclass(module = "bytewax.inputs")]
-#[pyo3(text_signature = "(epoch)")]
-pub(crate) struct AdvanceTo {
-    #[pyo3(get)]
-    epoch: u64,
-}
-
-#[pymethods]
-impl AdvanceTo {
-    #[new]
-    fn new(epoch: u64) -> Self {
-        Self { epoch }
-    }
-
-    fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
-        match op {
-            CompareOp::Lt => Ok(self.epoch < other.epoch),
-            CompareOp::Le => Ok(self.epoch <= other.epoch),
-            CompareOp::Eq => Ok(self.epoch == other.epoch),
-            CompareOp::Ne => Ok(self.epoch != other.epoch),
-            CompareOp::Gt => Ok(self.epoch > other.epoch),
-            CompareOp::Ge => Ok(self.epoch >= other.epoch),
-        }
-    }
-}
-
-/// Emit the supplied item into the dataflow at the current epoch
-///
-/// Emit is how we introduce input into a dataflow using a manual
-/// input configuration:
-///
-/// >>> def input_builder(worker_index, worker_count, resume_epoch):
-/// ...     for i in range(10):
-/// ...         yield AdvanceTo(i) # Advances the epoch to i
-/// ...         yield Emit(i) # Adds the input i at epoch i
-#[pyclass(module = "bytewax.inputs")]
-#[pyo3(text_signature = "(item)")]
-pub(crate) struct Emit {
-    #[pyo3(get)]
-    item: TdPyAny,
-}
-
-#[pymethods]
-impl Emit {
-    #[new]
-    fn new(item: Py<PyAny>) -> Self {
-        Self { item: item.into() }
-    }
-}
 
 /// Base class for an input config.
 ///
@@ -128,7 +57,7 @@ pub(crate) struct InputConfig;
 ///     your execution entry point.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
 #[pyo3(
-    text_signature = "(brokers, group_id, topics, offset_reset, auto_commit, messages_per_epoch)"
+    text_signature = "(brokers, group_id, topics, offset_reset, auto_commit)"
 )]
 pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
@@ -295,10 +224,8 @@ impl BatchInputPartitionerConfig {
 #[pyclass(module = "bytewax.inputs", extends = InputPartitionerConfig)]
 #[pyo3(text_signature = "(window_start_time, window_length, epoch_start = 0)")]
 pub(crate) struct TumblingWindowInputPartitionerConfig {
-    window_start_time: pyo3_chrono::NaiveDateTime,
-    window_length: pyo3_chrono::Duration,
-    // window_start_time: chrono::DateTime<Utc>,
-    // window_length: chrono::Duration,
+    window_start_time: PyNaiveDateTime,
+    window_length: PyDuration,
     // time_getter: Py<PyAny>,
     epoch_start: u64,
 }
@@ -309,14 +236,11 @@ impl TumblingWindowInputPartitionerConfig {
     // #[args(window_start_time, window_length, time_getter, epoch_start = 0)]
     #[args(window_start_time, window_length, epoch_start = 0)]
     fn new(
-        window_start_time: pyo3_chrono::NaiveDateTime,
-        window_length: pyo3_chrono::Duration,
+        window_start_time: PyNaiveDateTime,
+        window_length: PyDuration,
         // time_getter: Py<PyAny>,
         epoch_start: u64,
     ) -> (Self, InputPartitionerConfig) {
-        // let ws: chrono::NaiveDateTime = window_start_time.into();
-        // let wse = chrono::DateTime::<Utc>::from_utc(ws, Utc);
-        // let wl: chrono::Duration = window_length.into();
         (
             Self {
                 window_start_time,
@@ -438,6 +362,7 @@ struct Tumbler {
     current_epoch: u64,
     window_length: chrono::Duration,
     current_window_end: chrono::DateTime<Utc>,
+    window_start_time: chrono::DateTime<Utc>,
     // time_getter: Py<PyAny>
 }
 
@@ -450,15 +375,13 @@ impl Tumbler {
         let ws: chrono::NaiveDateTime = config.window_start_time.into();
         let wse = chrono::DateTime::<Utc>::from_utc(ws, Utc);
         let wl: chrono::Duration = config.window_length.into();
-        // let now = Utc::now();
-        let window_length = config.window_length;
-        // let window_start = DateTime::parse_from_str(&config.window_length, <Utc>)
         Self {
             input_iter: input_iter,
             push_to_timely,
-            current_epoch: 0,
+            current_epoch: config.epoch_start,
             window_length: wl,
             current_window_end: wse + wl,
+            window_start_time: wse
             // time_getter: config.time_getter
         }
     }
@@ -695,8 +618,6 @@ impl ClientContext for CustomContext {}
 impl ConsumerContext for CustomContext {}
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<Emit>()?;
-    m.add_class::<AdvanceTo>()?;
     m.add_class::<InputConfig>()?;
     m.add_class::<KafkaInputConfig>()?;
     m.add_class::<ManualInputConfig>()?;
