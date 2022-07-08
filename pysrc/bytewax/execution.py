@@ -6,7 +6,7 @@ from typing import Any, Callable, Iterable, List, Optional, Tuple, Union
 from multiprocess import get_context
 
 from bytewax.recovery import RecoveryConfig
-from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig, InputConfig, BatchInputPartitionerConfig, InputPartitionerConfig
+from bytewax.inputs import ManualInputConfig, InputConfig, BatchInputPartitionerConfig, InputPartitionerConfig
 
 from .bytewax import (
     cluster_main,

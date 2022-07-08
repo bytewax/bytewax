@@ -1,6 +1,6 @@
 import json
 from bytewax import cluster_main, Dataflow
-from bytewax.inputs import KafkaInputConfig
+from bytewax.inputs import KafkaInputConfig, BatchInputPartitionerConfig
 
 def deserialize(key_bytes__payload_bytes):
     key_bytes, payload_bytes = key_bytes__payload_bytes
@@ -25,14 +25,14 @@ def output_builder(worker_index, worker_count):
 
 if __name__ == "__main__":
     input_config = KafkaInputConfig(
-        "localhost:9092", "example_group_id", "drivers", messages_per_epoch=5
+        "localhost:9092", "example_group_id", "drivers", deserializer=deserialize
     )
     flow = Dataflow()
-    flow.map(deserialize)
     flow.flat_map(filter_invalid_json_err)
     flow.capture()
     cluster_main(
         flow,
+        BatchInputPartitionerConfig(),
         input_config,
         output_builder,
         [],  # addresses
