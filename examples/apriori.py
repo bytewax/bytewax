@@ -7,7 +7,7 @@ from bytewax import Dataflow, parse, run_cluster
 
 def file_input():
     for line in open("examples/sample_data/apriori.txt"):
-        yield 1, line
+        yield line
 
 
 def lower(line):

@@ -8,7 +8,7 @@ import datetime
 import heapq
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Tuple
-from .bytewax import AdvanceTo, Emit, KafkaInputConfig, ManualInputConfig, InputConfig
+from .bytewax import KafkaInputConfig, ManualInputConfig, InputPartitionerConfig, BatchInputPartitionerConfig, TumblingWindowInputPartitionerConfig, InputConfig
 
 
 def distribute(elements: Iterable[Any], index: int, count: int) -> Iterable[Any]:
@@ -73,64 +73,6 @@ def distribute(elements: Iterable[Any], index: int, count: int) -> Iterable[Any]
     for i, x in enumerate(elements):
         if i % count == index:
             yield x
-
-
-def yield_epochs(fn: Callable):
-    """A decorator function to unwrap an iterator of [epoch, item]
-    into successive `AdvanceTo` and `Emit` classes with the
-    contents of the iterator.
-
-    Use this when you have an input_builder function that returns a
-    generator of (epoch, item) to be used with
-    `bytewax.cluster_main()` or `bytewax.spawn_cluster()`:
-
-    >>> from bytewax import Dataflow, cluster_main
-    >>> from bytewax.inputs import yield_epochs, fully_ordered, ManualInputConfig
-    >>> flow = Dataflow()
-    >>> flow.capture()
-    >>> @yield_epochs
-    ... def input_builder(i, n, re):
-    ...   return fully_ordered(["a", "b", "c"])
-    >>> cluster_main(flow, ManualInputConfig(input_builder), lambda i, n: print, [], 0, 1)
-    (0, 'a')
-    (1, 'b')
-    (2, 'c')
-
-    """
-
-    def inner_fn(worker_index, worker_count, resume_epoch):
-        gen = fn(worker_index, worker_count, resume_epoch)
-        for (epoch, item) in gen:
-            yield AdvanceTo(epoch)
-            yield Emit(item)
-
-    return inner_fn
-
-
-def single_batch(wrap_iter: Iterable) -> Iterable[Tuple[int, Any]]:
-    """All input items are part of the same epoch.
-
-    Use this for non-streaming-style batch processing.
-
-    >>> from bytewax import Dataflow, run
-    >>> flow = Dataflow()
-    >>> flow.capture()
-    >>> out = run(flow, single_batch(["a", "b", "c"]))
-    >>> sorted(out)
-    [(0, 'a'), (0, 'b'), (0, 'c')]
-
-    Args:
-
-        wrap_iter: Existing input iterable of just items.
-
-    Yields:
-
-        Tuples of `(epoch, item)`.
-
-    """
-    for item in wrap_iter:
-        yield (0, item)
-
 
 def tumbling_epoch(
     wrap_iter: Iterable,
@@ -215,34 +157,6 @@ def tumbling_epoch(
             epoch = int((time - epoch_start_time) / epoch_length) + epoch_start
 
         yield (epoch, item)
-
-
-def fully_ordered(wrap_iter: Iterable) -> Iterable[Tuple[int, Any]]:
-    """Each input item increments the epoch.
-
-    Be careful using this in high-volume streams with many workers, as
-    the worker overhead goes up with finely granulated epochs.
-
-    >>> from bytewax import Dataflow, run
-    >>> flow = Dataflow()
-    >>> flow.capture()
-    >>> out = run(flow, fully_ordered(["a", "b", "c"]))
-    >>> sorted(out)
-    [(0, 'a'), (1, 'b'), (2, 'c')]
-
-    Args:
-
-        wrap_iter: Existing input iterable of just items.
-
-    Yields:
-
-        Tuples of `(epoch, item)`.
-
-    """
-    epoch = 0
-    for item in wrap_iter:
-        yield (epoch, item)
-        epoch += 1
 
 
 @dataclass

@@ -3,7 +3,7 @@ from bytewax import Dataflow, parse, run_cluster
 
 def inp():
     for i in range(10):
-        yield (0, i)
+        yield i
 
 
 def double(x):

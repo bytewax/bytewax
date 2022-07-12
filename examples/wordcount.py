@@ -1,12 +1,11 @@
 import re
 
 from bytewax import Dataflow, parse, run_cluster
+from bytewax.inputs import BatchInputPartitionerConfig
 
 
 def file_input():
-    for line in open("examples/sample_data/wordcount.txt"):
-        yield 1, line
-
+    return open("examples/sample_data/wordcount.txt")
 
 def lower(line):
     return line.lower()

@@ -24,7 +24,6 @@ def open_stream():
         yield event.data
 
 
-@inputs.yield_epochs
 def input_builder(worker_index, worker_count, resume_epoch):
     if worker_index == 0:
         return inputs.tumbling_epoch(

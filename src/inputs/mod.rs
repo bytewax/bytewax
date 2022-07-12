@@ -1,88 +1,20 @@
+use crate::pyo3_extensions::TdPyCallable;
 use crate::pyo3_extensions::{TdPyAny, TdPyIterator};
 
-use pyo3::basic::CompareOp;
+use chrono::Utc;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
+use pyo3_chrono::Duration as PyDuration;
+use pyo3_chrono::NaiveDateTime as PyNaiveDateTime;
 use rdkafka::client::ClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::consumer::base_consumer::BaseConsumer;
 use rdkafka::consumer::{Consumer, ConsumerContext};
-use rdkafka::message::Message;
-use std::time::Duration;
+use rdkafka::message::{BorrowedMessage, Message};
+use std::time::Duration as StdDuration;
 use timely::dataflow::InputHandle;
 use tokio::runtime::Runtime;
-
-/// Advance to the supplied epoch.
-///
-/// When providing input to a Dataflow, work cannot complete until
-/// there is no more data for a given epoch.
-///
-/// AdvanceTo is the signal to a Dataflow that the frontier has moved
-/// beyond the current epoch, and that items with an epoch less than
-/// the epoch in AdvanceTo can be worked to completion.
-///
-/// Using AdvanceTo and Emit is only necessary when using `spawn_cluster`
-/// and `cluster_main()` as `run()` and `run_cluster()` will yield AdvanceTo
-/// and Emit for you. Likewise, they are only required when using a
-/// manual input configuration.
-///
-///
-/// See also: `inputs.yield_epochs()`
-///
-/// >>> def input_builder(worker_index, worker_count, resume_epoch):
-/// ...     for i in range(10):
-/// ...         yield AdvanceTo(i) # Advances the epoch to i
-/// ...         yield Emit(i) # Adds the input i at epoch i
-#[pyclass(module = "bytewax.inputs")]
-#[pyo3(text_signature = "(epoch)")]
-pub(crate) struct AdvanceTo {
-    #[pyo3(get)]
-    epoch: u64,
-}
-
-#[pymethods]
-impl AdvanceTo {
-    #[new]
-    fn new(epoch: u64) -> Self {
-        Self { epoch }
-    }
-
-    fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
-        match op {
-            CompareOp::Lt => Ok(self.epoch < other.epoch),
-            CompareOp::Le => Ok(self.epoch <= other.epoch),
-            CompareOp::Eq => Ok(self.epoch == other.epoch),
-            CompareOp::Ne => Ok(self.epoch != other.epoch),
-            CompareOp::Gt => Ok(self.epoch > other.epoch),
-            CompareOp::Ge => Ok(self.epoch >= other.epoch),
-        }
-    }
-}
-
-/// Emit the supplied item into the dataflow at the current epoch
-///
-/// Emit is how we introduce input into a dataflow using a manual
-/// input configuration:
-///
-/// >>> def input_builder(worker_index, worker_count, resume_epoch):
-/// ...     for i in range(10):
-/// ...         yield AdvanceTo(i) # Advances the epoch to i
-/// ...         yield Emit(i) # Adds the input i at epoch i
-#[pyclass(module = "bytewax.inputs")]
-#[pyo3(text_signature = "(item)")]
-pub(crate) struct Emit {
-    #[pyo3(get)]
-    item: TdPyAny,
-}
-
-#[pymethods]
-impl Emit {
-    #[new]
-    fn new(item: Py<PyAny>) -> Self {
-        Self { item: item.into() }
-    }
-}
 
 /// Base class for an input config.
 ///
@@ -125,9 +57,7 @@ pub(crate) struct InputConfig;
 ///     Config object. Pass this as the `input_config` argument to
 ///     your execution entry point.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
-#[pyo3(
-    text_signature = "(brokers, group_id, topics, offset_reset, auto_commit, messages_per_epoch)"
-)]
+#[pyo3(text_signature = "(brokers, group_id, topics, offset_reset, auto_commit)")]
 pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
     pub brokers: String,
@@ -136,11 +66,11 @@ pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
     pub topics: String,
     #[pyo3(get)]
+    pub deserializer: Option<TdPyCallable>,
+    #[pyo3(get)]
     pub offset_reset: String,
     #[pyo3(get)]
     pub auto_commit: bool,
-    #[pyo3(get)]
-    pub messages_per_epoch: u64,
 }
 
 #[pymethods]
@@ -152,7 +82,7 @@ impl KafkaInputConfig {
         topics,
         offset_reset = "\"earliest\".to_string()",
         auto_commit = false,
-        messages_per_epoch = 1
+        deserializer = "None"
     )]
     fn new(
         brokers: String,
@@ -160,7 +90,7 @@ impl KafkaInputConfig {
         topics: String,
         offset_reset: String,
         auto_commit: bool,
-        messages_per_epoch: u64,
+        deserializer: Option<TdPyCallable>,
     ) -> (Self, InputConfig) {
         (
             Self {
@@ -169,45 +99,39 @@ impl KafkaInputConfig {
                 topics,
                 offset_reset,
                 auto_commit,
-                messages_per_epoch,
+                deserializer,
             },
             InputConfig {},
         )
     }
 
-    fn __getstate__(&self) -> (&str, String, String, String, String, u64) {
+    fn __getstate__(&self) -> (&str, String, String, String, String, Option<TdPyCallable>) {
         (
             "KafkaInputConfig",
             self.brokers.clone(),
             self.group_id.clone(),
             self.topics.clone(),
             self.offset_reset.clone(),
-            self.messages_per_epoch,
+            self.deserializer.clone(),
         )
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (&str, &str, &str, &str, u64) {
+    fn __getnewargs__(&self) -> (&str, &str, &str, &str, Option<TdPyCallable>) {
         let s = "UNINIT_PICKLED_STRING";
-        (s, s, s, s, 0)
+        (s, s, s, s, None)
     }
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok((
-            "KafkaInputConfig",
-            brokers,
-            group_id,
-            topics,
-            offset_reset,
-            messages_per_epoch,
-        )) = state.extract()
+        if let Ok(("KafkaInputConfig", brokers, group_id, topics, offset_reset, deserializer)) =
+            state.extract()
         {
             self.brokers = brokers;
             self.group_id = group_id;
             self.topics = topics;
             self.offset_reset = offset_reset;
-            self.messages_per_epoch = messages_per_epoch;
+            self.deserializer = deserializer;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -230,33 +154,45 @@ impl KafkaInputConfig {
 ///     Config object. Pass this as the `input_config` argument to
 ///     your execution entry point.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
-#[pyo3(text_signature = "(input_builder)")]
+#[pyo3(text_signature = "(input_builder, deserializer)")]
 pub(crate) struct ManualInputConfig {
     input_builder: Py<PyAny>,
+    deserializer: Option<TdPyCallable>,
 }
 
 #[pymethods]
 impl ManualInputConfig {
     #[new]
-    #[args(input_builder)]
-    fn new(input_builder: Py<PyAny>) -> (Self, InputConfig) {
-        (Self { input_builder }, InputConfig {})
+    #[args(input_builder, deserializer)]
+    fn new(input_builder: Py<PyAny>, deserializer: Option<TdPyCallable>) -> (Self, InputConfig) {
+        (
+            Self {
+                input_builder,
+                deserializer,
+            },
+            InputConfig {},
+        )
     }
 
     /// Pickle as a tuple.
-    fn __getstate__(&self, py: Python) -> (&str, Py<PyAny>) {
-        ("ManualInputConfig", self.input_builder.clone_ref(py))
+    fn __getstate__(&self, py: Python) -> (&str, Py<PyAny>, Option<TdPyCallable>) {
+        (
+            "ManualInputConfig",
+            self.input_builder.clone_ref(py),
+            self.deserializer.clone(),
+        )
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (&str,) {
-        (&"",)
+    fn __getnewargs__(&self) -> (&str, Option<TdPyCallable>) {
+        (&"", None)
     }
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("ManualInputConfig", input_builder)) = state.extract() {
+        if let Ok(("ManualInputConfig", input_builder, deserializer)) = state.extract() {
             self.input_builder = input_builder;
+            self.deserializer = deserializer;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -266,9 +202,143 @@ impl ManualInputConfig {
     }
 }
 
+#[pyclass(module = "bytewax.inputs", subclass)]
+#[pyo3(text_signature = "()")]
+pub(crate) struct InputPartitionerConfig;
+
+#[pyclass(module = "bytewax.inputs", extends = InputPartitionerConfig)]
+#[pyo3(text_signature = "(messages_per_epoch)")]
+pub(crate) struct BatchInputPartitionerConfig {
+    pub messages_per_epoch: u64,
+}
+
+#[pymethods]
+impl BatchInputPartitionerConfig {
+    #[new]
+    #[args(messages_per_epoch = 1)]
+    fn new(messages_per_epoch: u64) -> (Self, InputPartitionerConfig) {
+        (Self { messages_per_epoch }, InputPartitionerConfig {})
+    }
+
+    fn __getstate__(&self) -> (&str, u64) {
+        ("BatchInputPartitionerConfig", self.messages_per_epoch)
+    }
+
+    fn __getnewargs__(&self) -> (u64,) {
+        (1,)
+    }
+
+    /// Unpickle from tuple of arguments.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok(("BatchInputPartitionerConfig", messages_per_epoch)) = state.extract() {
+            self.messages_per_epoch = messages_per_epoch;
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for BatchInputPartitionerConfig: {state:?}"
+            )))
+        }
+    }
+}
+
+#[pyclass(module = "bytewax.inputs", extends = InputPartitionerConfig)]
+//TODO is this the right text signature?
+#[pyo3(
+    text_signature = "(window_length, window_start_time = None, time_gettter = None, epoch_start = 0)"
+)]
+pub(crate) struct TumblingWindowInputPartitionerConfig {
+    window_length: PyDuration,
+    window_start_time: Option<PyNaiveDateTime>,
+    time_getter: Option<TdPyCallable>,
+    epoch_start: u64,
+}
+
+#[pymethods]
+impl TumblingWindowInputPartitionerConfig {
+    #[new]
+    #[args(
+        window_length,
+        window_start_time = "None",
+        time_getter = "None",
+        epoch_start = 0
+    )]
+    fn new(
+        window_length: PyDuration,
+        window_start_time: Option<PyNaiveDateTime>,
+        time_getter: Option<TdPyCallable>,
+        epoch_start: u64,
+    ) -> (Self, InputPartitionerConfig) {
+        (
+            Self {
+                window_length,
+                window_start_time,
+                time_getter,
+                epoch_start,
+            },
+            InputPartitionerConfig {},
+        )
+    }
+
+    fn __getstate__(
+        &self,
+    ) -> (
+        &str,
+        Option<pyo3_chrono::NaiveDateTime>,
+        pyo3_chrono::Duration,
+        Option<TdPyCallable>,
+        u64,
+    ) {
+        (
+            "TumblingWindowInputPartitionerConfig",
+            self.window_start_time.clone(),
+            self.window_length.clone(),
+            self.time_getter.clone(),
+            self.epoch_start,
+        )
+    }
+
+    fn __getnewargs__(
+        &self,
+    ) -> (
+        pyo3_chrono::Duration,
+        Option<pyo3_chrono::NaiveDateTime>,
+        Option<TdPyCallable>,
+        u64,
+    ) {
+        let dur: pyo3_chrono::Duration = chrono::Duration::minutes(5).into();
+        (dur, None, None, 1)
+    }
+
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok((
+            "TumblingWindowInputPartitionerConfig",
+            window_length,
+            window_start_time,
+            time_getter,
+            epoch_start,
+        )) = state.extract()
+        {
+            self.window_length = window_length;
+            self.window_start_time = window_start_time;
+            self.time_getter = time_getter;
+            self.epoch_start = epoch_start;
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for TumblingWindowInputPartitionerConfig: {state:?}"
+            )))
+        }
+    }
+}
+
 /// Take a single data element or timestamp and feed it into dataflow
 /// Pump will be called in the worker's "main" loop to feed data in.
-pub trait Pump {
+pub trait InputIter {
+    fn next(&mut self) -> Option<Py<PyAny>>;
+    fn empty(&mut self) -> bool;
+}
+
+pub trait InputManager {
     fn pump(&mut self);
     fn input_time(&mut self) -> &u64;
     fn input_remains(&mut self) -> bool;
@@ -276,18 +346,363 @@ pub trait Pump {
 
 /// Encapsulates the process of pulling data out of a Kafka
 /// stream and feeding it into Timely.
-struct KafkaPump {
-    consumer: BaseConsumer<CustomContext>,
-    rt: Runtime,
-    push_to_timely: InputHandle<u64, TdPyAny>,
-    desired_messages_per_epoch: u64,
-    current_messages_per_epoch: u64,
-    current_epoch: u64,
-    empty: bool,
+struct KafkaIter {
+    consumer: KafkaConsumer,
+    deserializer: Option<TdPyCallable>,
 }
 
-impl KafkaPump {
-    fn new(config: PyRef<KafkaInputConfig>, push_to_timely: InputHandle<u64, TdPyAny>) -> Self {
+impl KafkaIter {
+    fn new(config: PyRef<KafkaInputConfig>) -> Self {
+        let deserializer = config.deserializer.clone();
+        let consumer = KafkaConsumer::new(config);
+        Self {
+            consumer,
+            deserializer,
+        }
+    }
+}
+
+impl InputIter for KafkaIter {
+    fn next(&mut self) -> Option<Py<PyAny>> {
+        match self.consumer.next() {
+            None => None,
+            Some(msg) => {
+                //TODO ultimately we want the entire message, prob. But for now v. expensive
+                Python::with_gil(|py| {
+                    let payload: Py<PyAny> = msg
+                        .payload()
+                        .map_or(py.None(), |k| PyBytes::new(py, k).into());
+                    let payload: Py<PyAny> = (payload).into_py(py);
+
+                    if let Some(deserializer) = &self.deserializer {
+                        let deserialized_res = deserializer.call1(py, (payload,));
+                        match deserialized_res {
+                            Ok(deserialized) => {
+                                if deserialized.is_none(py) {
+                                    Some(deserialized)
+                                } else {
+                                    Some((deserialized,).into_py(py))
+                                }
+                            }
+                            Err(err) => {
+                                panic!("Could not deserialize {:?}", err);
+                            }
+                        }
+                    } else {
+                        Some(payload)
+                    }
+                })
+            }
+        }
+    }
+    fn empty(&mut self) -> bool {
+        return false;
+    }
+}
+
+/// Encapsulates the process of pulling data out of the input Python
+/// iterator and feeding it into Timely.
+struct ManualIter {
+    pull_from_pyiter: TdPyIterator,
+    empty: bool,
+    deserializer: Option<TdPyCallable>,
+}
+impl ManualIter {
+    fn new(
+        py: Python,
+        worker_index: usize,
+        worker_count: usize,
+        resume_epoch: u64,
+        config: PyRef<ManualInputConfig>,
+    ) -> Self {
+        let worker_input: TdPyIterator = config
+            .input_builder
+            .call1(py, (worker_index, worker_count, resume_epoch))
+            .unwrap()
+            .extract(py)
+            .unwrap();
+        Self {
+            pull_from_pyiter: worker_input,
+            empty: false,
+            deserializer: config.deserializer.clone(),
+        }
+    }
+}
+
+impl InputIter for ManualIter {
+    fn next(&mut self) -> Option<Py<PyAny>> {
+        Python::with_gil(|py| {
+            let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
+            match pull_from_pyiter.next() {
+                Some(result) => match result {
+                    Ok(item) => {
+                        if let Some(deserializer) = &self.deserializer {
+                            let deserialized_res = deserializer.call1(py, (item,));
+                            match deserialized_res {
+                                Ok(deserialized) => {
+                                    let for_timely: Py<PyAny> = deserialized.into_py(py);
+                                    Some(for_timely)
+                                }
+                                Err(err) => {
+                                    panic!("Could not deserialize {:?}", err);
+                                }
+                            }
+                        } else {
+                            let for_timely: Py<PyAny> = item.into_py(py);
+                            Some(for_timely)
+                        }
+                    }
+                    Err(err) => {
+                        std::panic::panic_any(err);
+                    }
+                },
+                None => {
+                    self.empty = true;
+                    None
+                }
+            }
+        })
+    }
+    fn empty(&mut self) -> bool {
+        return self.empty;
+    }
+}
+
+struct Batcher {
+    input_iter: Box<dyn InputIter>,
+    push_to_timely: InputHandle<u64, TdPyAny>,
+    current_epoch: u64,
+    desired_messages_per_epoch: u64,
+    current_messages_per_epoch: u64,
+}
+
+impl Batcher {
+    fn new(
+        input_iter: Box<dyn InputIter>,
+        config: Option<PyRef<BatchInputPartitionerConfig>>,
+        push_to_timely: InputHandle<u64, TdPyAny>,
+    ) -> Self {
+        match config {
+            Some(config) => Self {
+                input_iter,
+                push_to_timely,
+                current_epoch: 0,
+                desired_messages_per_epoch: config.messages_per_epoch,
+                current_messages_per_epoch: 0,
+            },
+            None => Self {
+                input_iter,
+                push_to_timely,
+                current_epoch: 0,
+                desired_messages_per_epoch: 1,
+                current_messages_per_epoch: 0,
+            },
+        }
+    }
+}
+
+impl InputManager for Batcher {
+    fn pump(&mut self) {
+        if self.current_messages_per_epoch == self.desired_messages_per_epoch {
+            self.current_messages_per_epoch = 0;
+            self.current_epoch += 1;
+            self.push_to_timely.advance_to(self.current_epoch);
+        } else {
+            match self.input_iter.next() {
+                Some(r) => {
+                    self.current_messages_per_epoch += 1;
+                    self.push_to_timely.send(r.into())
+                }
+                None => {
+                    self.current_messages_per_epoch = 0;
+                    self.current_epoch += 1;
+                    self.push_to_timely.advance_to(self.current_epoch);
+                }
+            }
+        }
+    }
+
+    fn input_time(&mut self) -> &u64 {
+        self.push_to_timely.time()
+    }
+
+    fn input_remains(&mut self) -> bool {
+        !self.input_iter.empty()
+    }
+}
+
+struct Tumbler {
+    input_iter: Box<dyn InputIter>,
+    push_to_timely: InputHandle<u64, TdPyAny>,
+    current_epoch: u64,
+    window_length: chrono::Duration,
+    time_getter: Option<TdPyCallable>,
+    current_window_end: Option<chrono::DateTime<Utc>>,
+    window_start_time: Option<chrono::DateTime<Utc>>,
+}
+
+impl Tumbler {
+    fn new(
+        input_iter: Box<dyn InputIter>,
+        config: PyRef<TumblingWindowInputPartitionerConfig>,
+        push_to_timely: InputHandle<u64, TdPyAny>,
+    ) -> Self {
+        let time_getter = config.time_getter.clone();
+        let ws: chrono::NaiveDateTime = config.window_start_time.clone().unwrap().into();
+        let wse = chrono::DateTime::<Utc>::from_utc(ws, Utc);
+        let wl: chrono::Duration = config.window_length.into();
+        Self {
+            input_iter: input_iter,
+            push_to_timely,
+            current_epoch: config.epoch_start,
+            time_getter: time_getter,
+            window_length: wl,
+            current_window_end: Some(wse + wl),
+            window_start_time: Some(wse),
+        }
+    }
+}
+
+fn get_time(time_getter: TdPyCallable, item: Py<PyAny>) -> chrono::DateTime<Utc> {
+    Python::with_gil(|py| {
+        //TODO handle unwrap errors with msg
+        let f = time_getter.call1(py, (item,)).unwrap();
+        let t: PyNaiveDateTime = f.extract(py).unwrap();
+        let chrono_t: chrono::NaiveDateTime = t.into();
+        let item_time: chrono::DateTime<Utc> = chrono::DateTime::<Utc>::from_utc(chrono_t, Utc);
+        return item_time;
+    })
+}
+
+impl InputManager for Tumbler {
+    fn pump(&mut self) {
+        //Event time
+        if let Some(time_getter) = &self.time_getter {
+            loop {
+                if self.input_iter.empty() {
+                    break;
+                }
+                if let Some(item) = self.input_iter.next() {
+                    let getter = time_getter.clone();
+                    let item_for_time = item.clone();
+                    let item_time = get_time(getter, item_for_time);
+                    if self.window_start_time.is_none() {
+                        dbg!("Setting window start");
+                        self.window_start_time = Some(item_time);
+                        self.current_window_end = Some(item_time + self.window_length);
+                    }
+                    let window_end: chrono::DateTime<Utc> = self.current_window_end.unwrap();
+                    if item_time >= window_end {
+                        dbg!("Window closing");
+                        self.current_epoch += 1;
+                        self.push_to_timely.advance_to(self.current_epoch);
+                        self.current_window_end = Some(window_end + self.window_length);
+                    } else {
+                        self.push_to_timely.send(item.into());
+                        break;
+                    }
+                }
+            }
+        } else {
+            //Process time
+            let now = Utc::now();
+            let window_end: chrono::DateTime<Utc> = self.current_window_end.unwrap();
+            if now >= window_end {
+                //reset window
+                self.current_epoch += 1;
+                self.push_to_timely.advance_to(self.current_epoch);
+                self.current_window_end = Some(window_end + self.window_length);
+            } else {
+                loop {
+                    if self.input_iter.empty() {
+                        break;
+                    }
+                    if let Some(item) = self.input_iter.next() {
+                        self.push_to_timely.send(item.into());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    fn input_time(&mut self) -> &u64 {
+        self.push_to_timely.time()
+    }
+
+    fn input_remains(&mut self) -> bool {
+        !self.input_iter.empty()
+    }
+
+    // fn update_windows(&mut self){}
+}
+
+pub(crate) fn input_partitioner_from_config(
+    py: Python,
+    partition_config: Option<Py<InputPartitionerConfig>>,
+    input_config: Py<InputConfig>,
+    input_handle: InputHandle<u64, TdPyAny>,
+    worker_index: usize,
+    worker_count: usize,
+    resume_epoch: u64,
+) -> Box<dyn InputManager> {
+    let input_iter =
+        input_iter_from_config(py, input_config, worker_index, worker_count, resume_epoch);
+    match partition_config {
+        Some(partition_config) => {
+            let partition_config = partition_config.as_ref(py);
+            if let Ok(batch_config) =
+                partition_config.downcast::<PyCell<BatchInputPartitionerConfig>>()
+            {
+                let batch_config = batch_config.borrow();
+                Box::new(Batcher::new(input_iter, Some(batch_config), input_handle))
+            } else if let Ok(tumbler_config) =
+                partition_config.downcast::<PyCell<TumblingWindowInputPartitionerConfig>>()
+            {
+                let tumbler_config = tumbler_config.borrow();
+                Box::new(Tumbler::new(input_iter, tumbler_config, input_handle))
+            } else {
+                let pytype = partition_config.get_type();
+                panic!("Unknown partition_config type: {pytype}")
+            }
+        }
+        None => Box::new(Batcher::new(input_iter, None, input_handle)),
+    }
+}
+
+pub(crate) fn input_iter_from_config(
+    py: Python,
+    input_config: Py<InputConfig>,
+    worker_index: usize,
+    worker_count: usize,
+    resume_epoch: u64,
+) -> Box<dyn InputIter> {
+    let input_config = input_config.as_ref(py);
+    if let Ok(kafka_config) = input_config.downcast::<PyCell<KafkaInputConfig>>() {
+        let kafka_config = kafka_config.borrow();
+        Box::new(KafkaIter::new(kafka_config))
+    } else if let Ok(manual_config) = input_config.downcast::<PyCell<ManualInputConfig>>() {
+        let manual_config = manual_config.borrow();
+        Box::new(ManualIter::new(
+            py,
+            worker_index,
+            worker_count,
+            resume_epoch,
+            manual_config,
+        ))
+    } else {
+        let pytype = input_config.get_type();
+        panic!("Unknown input_config type: {pytype}")
+    }
+}
+
+struct KafkaConsumer {
+    rt: Runtime,
+    consumer: BaseConsumer<CustomContext>,
+}
+
+impl KafkaConsumer {
+    pub(crate) fn new(config: PyRef<KafkaInputConfig>) -> Self {
         let context = CustomContext;
 
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -312,154 +727,19 @@ impl KafkaPump {
             .subscribe(&[&config.topics])
             .expect("Can't subscribe to specified topics");
 
-        Self {
-            consumer,
-            rt,
-            push_to_timely,
-            current_epoch: 0,
-            desired_messages_per_epoch: config.messages_per_epoch,
-            current_messages_per_epoch: 0,
-            empty: false,
-        }
-    }
-}
-
-impl Pump for KafkaPump {
-    fn pump(&mut self) {
-        if self.current_messages_per_epoch == self.desired_messages_per_epoch {
-            self.current_messages_per_epoch = 0;
-            self.current_epoch += 1;
-            self.push_to_timely.advance_to(self.current_epoch);
-        } else {
-            self.rt.block_on(async {
-                match self.consumer.poll(Duration::from_millis(1000)) {
-                    None => {
-                        dbg!("No messages available, incrementing epoch");
-                        self.current_messages_per_epoch = 0;
-                        self.current_epoch += 1;
-                        self.push_to_timely.advance_to(self.current_epoch);
-                    }
-                    Some(r) => match r {
-                        Err(e) => panic!("Kafka error! {}", e),
-                        Ok(s) => {
-                            self.current_messages_per_epoch += 1;
-                            Python::with_gil(|py| {
-                                let key: Py<PyAny> =
-                                    s.key().map_or(py.None(), |k| PyBytes::new(py, k).into());
-                                let payload: Py<PyAny> = s
-                                    .payload()
-                                    .map_or(py.None(), |k| PyBytes::new(py, k).into());
-                                let key_payload: Py<PyAny> = (key, payload).into_py(py);
-
-                                self.push_to_timely.send(key_payload.into())
-                            })
-                        }
-                    },
-                }
-            })
-        }
+        Self { rt, consumer }
     }
 
-    fn input_time(&mut self) -> &u64 {
-        self.push_to_timely.time()
-    }
-
-    // Always true right now
-    fn input_remains(&mut self) -> bool {
-        !self.empty
-    }
-}
-
-/// Encapsulates the process of pulling data out of the input Python
-/// iterator and feeding it into Timely.
-struct ManualPump {
-    pull_from_pyiter: TdPyIterator,
-    pyiter_is_empty: bool,
-    push_to_timely: InputHandle<u64, TdPyAny>,
-}
-
-impl ManualPump {
-    fn new(
-        py: Python,
-        worker_index: usize,
-        worker_count: usize,
-        resume_epoch: u64,
-        config: PyRef<ManualInputConfig>,
-        push_to_timely: InputHandle<u64, TdPyAny>,
-    ) -> Self {
-        let worker_input: TdPyIterator = config
-            .input_builder
-            .call1(py, (worker_index, worker_count, resume_epoch))
-            .unwrap()
-            .extract(py)
-            .unwrap();
-        Self {
-            pull_from_pyiter: worker_input,
-            pyiter_is_empty: false,
-            push_to_timely,
-        }
-    }
-}
-
-impl Pump for ManualPump {
-    fn pump(&mut self) {
-        Python::with_gil(|py| {
-            let mut pull_from_pyiter = self.pull_from_pyiter.0.as_ref(py);
-            if let Some(input_or_action) = pull_from_pyiter.next() {
-                match input_or_action {
-                    Ok(item) => {
-                        if let Ok(send) = item.downcast::<PyCell<Emit>>() {
-                            self.push_to_timely.send(send.borrow().item.clone());
-                        } else if let Ok(advance_to) = item.downcast::<PyCell<AdvanceTo>>() {
-                            self.push_to_timely.advance_to(advance_to.borrow().epoch);
-                        } else {
-                            panic!("{}", format!("Input must be an instance of either `AdvanceTo` or `Emit`. Got: {item:?}. See https://docs.bytewax.io/apidocs#bytewax.AdvanceTo for more information."))
-                        }
-                    }
-                    Err(err) => {
-                        std::panic::panic_any(err);
-                    }
-                }
-            } else {
-                self.pyiter_is_empty = true;
+    pub fn next(&mut self) -> Option<BorrowedMessage> {
+        self.rt.block_on(async {
+            match self.consumer.poll(StdDuration::from_millis(5000)) {
+                None => None,
+                Some(r) => match r {
+                    Err(e) => panic!("Kafka error! {}", e),
+                    Ok(s) => Some(s),
+                },
             }
-        });
-    }
-
-    fn input_time(&mut self) -> &u64 {
-        self.push_to_timely.time()
-    }
-
-    fn input_remains(&mut self) -> bool {
-        !self.pyiter_is_empty
-    }
-}
-
-pub(crate) fn pump_from_config(
-    py: Python,
-    config: Py<InputConfig>,
-    input_handle: InputHandle<u64, TdPyAny>,
-    worker_index: usize,
-    worker_count: usize,
-    resume_epoch: u64,
-) -> Box<dyn Pump> {
-    let input_config = config.as_ref(py);
-    if let Ok(kafka_config) = input_config.downcast::<PyCell<KafkaInputConfig>>() {
-        let kafka_config = kafka_config.borrow();
-        Box::new(KafkaPump::new(kafka_config, input_handle))
-    } else if let Ok(manual_config) = input_config.downcast::<PyCell<ManualInputConfig>>() {
-        let manual_config = manual_config.borrow();
-        Box::new(ManualPump::new(
-            py,
-            worker_index,
-            worker_count,
-            resume_epoch,
-            manual_config,
-            input_handle,
-        ))
-    } else {
-        let pytype = input_config.get_type();
-        panic!("Unknown input_config type: {pytype}")
+        })
     }
 }
 
@@ -473,10 +753,11 @@ impl ClientContext for CustomContext {}
 impl ConsumerContext for CustomContext {}
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<Emit>()?;
-    m.add_class::<AdvanceTo>()?;
     m.add_class::<InputConfig>()?;
     m.add_class::<KafkaInputConfig>()?;
     m.add_class::<ManualInputConfig>()?;
+    m.add_class::<InputPartitionerConfig>()?;
+    m.add_class::<TumblingWindowInputPartitionerConfig>()?;
+    m.add_class::<BatchInputPartitionerConfig>()?;
     Ok(())
 }

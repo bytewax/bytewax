@@ -307,6 +307,7 @@ impl Iterator for TdPyIterator {
 }
 
 /// A Python object that is callable.
+#[derive(Clone)]
 pub(crate) struct TdPyCallable(Py<PyAny>);
 
 /// Have PyO3 do type checking to ensure we only make from callable
@@ -343,5 +344,11 @@ impl TdPyCallable {
 
     pub(crate) fn call1(&self, py: Python, args: impl IntoPy<Py<PyTuple>>) -> PyResult<Py<PyAny>> {
         self.0.call1(py, args)
+    }
+}
+
+impl IntoPy<PyObject> for TdPyCallable {
+    fn into_py(self, _py: Python) -> Py<PyAny> {
+        self.0
     }
 }

@@ -9,18 +9,15 @@ from pyarrow import Table
 from utils import fake_events
 
 from bytewax import Dataflow, inputs, parse, spawn_cluster
-from bytewax.inputs import ManualInputConfig
+from bytewax.inputs import ManualInputConfig, TumblingWindowInputPartitionerConfig
 
 
 # Collect 5 second tumbling windows of data and write them out as
 # Parquet datasets. `fake_events` will generate events for multiple
 # days around today. Each worker will generate independent fake
 # events.
-@inputs.yield_epochs
 def input_builder(worker_index, worker_count, resume_epoch):
-    return inputs.tumbling_epoch(
-        fake_events.generate_web_events(), datetime.timedelta(seconds=5)
-    )
+    return fake_events.generate_web_events()
 
 
 # Arrow assigns a UUID to each worker / window's file so they won't
@@ -65,7 +62,6 @@ def drop_page(page__events_df):
 
 
 flow = Dataflow()
-flow.map(json.loads)
 # {"page_url_path": "/path", "event_timestamp": "2022-01-02 03:04:05", ...}
 flow.map(add_date_columns)
 # {"page_url_path": "/path", "year": 2022, "month": 1, "day": 5, ... }
@@ -79,6 +75,17 @@ flow.capture()
 
 
 if __name__ == "__main__":
+    # Collect 5 second tumbling windows of data and write them out as
+    # Parquet datasets. `fake_events` will generate events for multiple
+    # days around today. Each worker will generate independent fake
+    # events.
+    partition_config = TumblingWindowInputPartitionerConfig(
+        datetime.datetime.now(), datetime.timedelta(seconds=5)
+    )
     spawn_cluster(
-        flow, ManualInputConfig(input_builder), output_builder, **parse.cluster_args()
+        flow,
+        ManualInputConfig(input_builder, json.loads),
+        output_builder,
+        **parse.cluster_args(),
+        input_partitioner_config=partition_config,
     )

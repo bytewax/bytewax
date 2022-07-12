@@ -6,7 +6,7 @@ from typing import Any, Callable, Iterable, List, Optional, Tuple, Union
 from multiprocess import get_context
 
 from bytewax.recovery import RecoveryConfig
-from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig, InputConfig
+from bytewax.inputs import ManualInputConfig, InputConfig, BatchInputPartitionerConfig, InputPartitionerConfig
 
 from .bytewax import (
     cluster_main,
@@ -17,9 +17,10 @@ from .bytewax import (
 
 def run(
     flow: Dataflow,
-    inp: Iterable[Tuple[int, Any]],
+    inp: Iterable[Any],
     *,
     recovery_config: Optional[RecoveryConfig] = None,
+    input_partitioner_config: Optional[InputPartitionerConfig] = None,
 ) -> List[Tuple[int, Any]]:
     """Pass data through a dataflow running in the current thread.
 
@@ -58,9 +59,8 @@ def run(
     def input_builder(worker_index, worker_count, resume_epoch):
         assert resume_epoch == 0, "Recovery doesn't work with iterator based input"
         assert worker_index == 0
-        for epoch, item in inp:
-            yield AdvanceTo(epoch)
-            yield Emit(item)
+        for item in inp:
+            yield item
 
     out = []
 
@@ -74,6 +74,7 @@ def run(
         ManualInputConfig(input_builder),
         output_builder,
         recovery_config=recovery_config,
+        input_partitioner_config=input_partitioner_config,
     )
 
     return out
@@ -88,6 +89,7 @@ def spawn_cluster(
     input_config: InputConfig,
     output_builder: Callable[[int, int, int], Callable[[Tuple[int, Any]], None]],
     *,
+    input_partitioner_config: Optional[InputPartitionerConfig] = BatchInputPartitionerConfig(),
     recovery_config: Optional[RecoveryConfig] = None,
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
@@ -165,6 +167,7 @@ def spawn_cluster(
                 ),
                 {
                     "recovery_config": recovery_config,
+                    "input_partitioner_config": input_partitioner_config,
                     "addresses": addresses,
                     "proc_id": proc_id,
                     "worker_count_per_proc": worker_count_per_proc,
@@ -183,8 +186,9 @@ def spawn_cluster(
 
 def run_cluster(
     flow: Dataflow,
-    inp: Iterable[Tuple[int, Any]],
+    inp: Iterable[Any],
     *,
+    input_partitioner_config: Optional[InputPartitionerConfig] = None,
     recovery_config: Optional[RecoveryConfig] = None,
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
@@ -253,11 +257,9 @@ def run_cluster(
 
         def input_builder(worker_index, worker_count, resume_epoch):
             assert resume_epoch == 0, "Recovery doesn't work with iterator based input"
-            for i, epoch_item in enumerate(inp):
+            for i, item in enumerate(inp):
                 if i % worker_count == worker_index:
-                    (epoch, item) = epoch_item
-                    yield AdvanceTo(epoch)
-                    yield Emit(item)
+                    yield item
 
         out = man.list()
 
@@ -268,6 +270,7 @@ def run_cluster(
             flow,
             ManualInputConfig(input_builder),
             output_builder,
+            input_partitioner_config=input_partitioner_config,
             recovery_config=recovery_config,
             proc_count=proc_count,
             worker_count_per_proc=worker_count_per_proc,
