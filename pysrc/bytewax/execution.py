@@ -161,12 +161,12 @@ def spawn_cluster(
                 cluster_main,
                 (
                     flow,
-                    input_partitioner_config,
                     input_config,
                     output_builder,
                 ),
                 {
                     "recovery_config": recovery_config,
+                    "input_partitioner_config": input_partitioner_config,
                     "addresses": addresses,
                     "proc_id": proc_id,
                     "worker_count_per_proc": worker_count_per_proc,

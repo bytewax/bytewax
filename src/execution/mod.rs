@@ -76,7 +76,7 @@ pub(crate) fn build_dataflow<A>(
     timely_worker: &mut timely::worker::Worker<A>,
     py: Python,
     flow: &Dataflow,
-    input_partitioner_config: Py<InputPartitionerConfig>,
+    input_partitioner_config: Option<Py<InputPartitionerConfig>>,
     input_config: Py<InputConfig>,
     output_builder: TdPyCallable,
     recovery_config: Option<Py<RecoveryConfig>>,
@@ -363,10 +363,10 @@ where
 pub(crate) fn run_main(
     py: Python,
     flow: Py<Dataflow>,
-    input_partitioner_config: Py<InputPartitionerConfig>,
     input_config: Py<InputConfig>,
     output_builder: TdPyCallable,
     recovery_config: Option<Py<RecoveryConfig>>,
+    input_partitioner_config: Option<Py<InputPartitionerConfig>>,
 ) -> PyResult<()> {
     let result = py.allow_threads(move || {
         std::panic::catch_unwind(|| {
@@ -467,20 +467,21 @@ pub(crate) fn run_main(
     addresses,
     proc_id,
     "*",
+    input_partitioner_config = "None",
     recovery_config = "None",
     worker_count_per_proc = "1"
 )]
 #[pyo3(
-    text_signature = "(flow, input_config, output_builder, addresses, proc_id, *, recovery_config, worker_count_per_proc)"
+    text_signature = "(flow, input_config, output_builder, addresses, proc_id, *, recovery_config, input_partitioner_config, worker_count_per_proc)"
 )]
 pub(crate) fn cluster_main(
     py: Python,
     flow: Py<Dataflow>,
-    input_partitioner_config: Py<InputPartitionerConfig>,
     input_config: Py<InputConfig>,
     output_builder: TdPyCallable,
     addresses: Option<Vec<String>>,
     proc_id: usize,
+    input_partitioner_config: Option<Py<InputPartitionerConfig>>,
     recovery_config: Option<Py<RecoveryConfig>>,
     worker_count_per_proc: usize,
 ) -> PyResult<()> {
@@ -532,7 +533,7 @@ pub(crate) fn cluster_main(
             move |worker| {
                 let (pump, probe) = Python::with_gil(|py| {
                     let flow = &flow.as_ref(py).borrow();
-                    let input_partitioner_config = input_partitioner_config.clone_ref(py);
+                    let input_partitioner_config = input_partitioner_config.clone();
                     let input_config = input_config.clone_ref(py);
                     let output_builder = output_builder.clone_ref(py);
                     let recovery_config = recovery_config.clone();

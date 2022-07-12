@@ -459,16 +459,30 @@ struct Batcher {
 impl Batcher {
     fn new(
         input_iter: Box<dyn InputIter>,
-        config: PyRef<BatchInputPartitionerConfig>,
+        config: Option<PyRef<BatchInputPartitionerConfig>>,
         push_to_timely: InputHandle<u64, TdPyAny>,
     ) -> Self {
-        Self {
-            input_iter,
-            push_to_timely,
-            current_epoch: 0,
-            desired_messages_per_epoch: config.messages_per_epoch,
-            current_messages_per_epoch: 0,
+        match config {
+            Some(config) => { 
+                Self {
+                    input_iter,
+                    push_to_timely,
+                    current_epoch: 0,
+                    desired_messages_per_epoch: config.messages_per_epoch,
+                    current_messages_per_epoch: 0,
+                }
+            },
+            None => {
+                Self {
+                    input_iter,
+                    push_to_timely,
+                    current_epoch: 0,
+                    desired_messages_per_epoch: 1,
+                    current_messages_per_epoch: 0,
+                } 
+            }
         }
+
     }
 }
 
@@ -575,11 +589,13 @@ impl InputManager for Tumbler {
     fn input_remains(&mut self) -> bool {
         !self.input_iter.empty()
     }
+
+    // fn update_windows(&mut self){}
 }
 
 pub(crate) fn input_partitioner_from_config(
     py: Python,
-    partition_config: Py<InputPartitionerConfig>,
+    partition_config: Option<Py<InputPartitionerConfig>>,
     input_config: Py<InputConfig>,
     input_handle: InputHandle<u64, TdPyAny>,
     worker_index: usize,
@@ -588,18 +604,27 @@ pub(crate) fn input_partitioner_from_config(
 ) -> Box<dyn InputManager> {
     let input_iter =
         input_iter_from_config(py, input_config, worker_index, worker_count, resume_epoch);
-    let partition_config = partition_config.as_ref(py);
-    if let Ok(batch_config) = partition_config.downcast::<PyCell<BatchInputPartitionerConfig>>() {
-        let batch_config = batch_config.borrow();
-        Box::new(Batcher::new(input_iter, batch_config, input_handle))
-    } else if let Ok(tumbler_config) =
-        partition_config.downcast::<PyCell<TumblingWindowInputPartitionerConfig>>()
-    {
-        let tumbler_config = tumbler_config.borrow();
-        Box::new(Tumbler::new(input_iter, tumbler_config, input_handle))
-    } else {
-        let pytype = partition_config.get_type();
-        panic!("Unknown partition_config type: {pytype}")
+    match partition_config {
+        Some(partition_config) => {
+            let partition_config = partition_config.as_ref(py);
+            if let Ok(batch_config) =
+                partition_config.downcast::<PyCell<BatchInputPartitionerConfig>>()
+            {
+                let batch_config = batch_config.borrow();
+                Box::new(Batcher::new(input_iter, Some(batch_config), input_handle))
+            } else if let Ok(tumbler_config) =
+                partition_config.downcast::<PyCell<TumblingWindowInputPartitionerConfig>>()
+            {
+                let tumbler_config = tumbler_config.borrow();
+                Box::new(Tumbler::new(input_iter, tumbler_config, input_handle))
+            } else {
+                let pytype = partition_config.get_type();
+                panic!("Unknown partition_config type: {pytype}")
+            }
+        }
+        None => {
+            Box::new(Batcher::new(input_iter, None, input_handle))
+        }
     }
 }
 
