@@ -243,7 +243,9 @@ impl BatchInputPartitionerConfig {
 
 #[pyclass(module = "bytewax.inputs", extends = InputPartitionerConfig)]
 //TODO is this the right text signature?
-#[pyo3(text_signature = "(window_length, window_start_time = None, time_gettter = None, epoch_start = 0)")]
+#[pyo3(
+    text_signature = "(window_length, window_start_time = None, time_gettter = None, epoch_start = 0)"
+)]
 pub(crate) struct TumblingWindowInputPartitionerConfig {
     window_length: PyDuration,
     window_start_time: Option<PyNaiveDateTime>,
@@ -481,26 +483,21 @@ impl Batcher {
         push_to_timely: InputHandle<u64, TdPyAny>,
     ) -> Self {
         match config {
-            Some(config) => { 
-                Self {
-                    input_iter,
-                    push_to_timely,
-                    current_epoch: 0,
-                    desired_messages_per_epoch: config.messages_per_epoch,
-                    current_messages_per_epoch: 0,
-                }
+            Some(config) => Self {
+                input_iter,
+                push_to_timely,
+                current_epoch: 0,
+                desired_messages_per_epoch: config.messages_per_epoch,
+                current_messages_per_epoch: 0,
             },
-            None => {
-                Self {
-                    input_iter,
-                    push_to_timely,
-                    current_epoch: 0,
-                    desired_messages_per_epoch: 1,
-                    current_messages_per_epoch: 0,
-                } 
-            }
+            None => Self {
+                input_iter,
+                push_to_timely,
+                current_epoch: 0,
+                desired_messages_per_epoch: 1,
+                current_messages_per_epoch: 0,
+            },
         }
-
     }
 }
 
@@ -568,6 +565,7 @@ impl Tumbler {
 
 fn get_time(time_getter: TdPyCallable, item: Py<PyAny>) -> chrono::DateTime<Utc> {
     Python::with_gil(|py| {
+        //TODO handle unwrap errors with msg
         let f = time_getter.call1(py, (item,)).unwrap();
         let t: PyNaiveDateTime = f.extract(py).unwrap();
         let chrono_t: chrono::NaiveDateTime = t.into();
@@ -578,8 +576,6 @@ fn get_time(time_getter: TdPyCallable, item: Py<PyAny>) -> chrono::DateTime<Utc>
 
 impl InputManager for Tumbler {
     fn pump(&mut self) {
-        // move time fetching to iter, return struct
-        // receives tuples of item, time? Or maybe a struct
         //Event time
         if let Some(time_getter) = &self.time_getter {
             loop {
@@ -590,18 +586,17 @@ impl InputManager for Tumbler {
                     let getter = time_getter.clone();
                     let item_for_time = item.clone();
                     let item_time = get_time(getter, item_for_time);
-                    // sort to buffer
                     if self.window_start_time.is_none() {
                         dbg!("Setting window start");
                         self.window_start_time = Some(item_time);
                         self.current_window_end = Some(item_time + self.window_length);
                     }
-                    if item_time >= self.current_window_end.unwrap() {
+                    let window_end: chrono::DateTime<Utc> = self.current_window_end.unwrap();
+                    if item_time >= window_end {
                         dbg!("Window closing");
                         self.current_epoch += 1;
                         self.push_to_timely.advance_to(self.current_epoch);
-                        self.current_window_end =
-                            Some(self.current_window_end.unwrap() + self.window_length);
+                        self.current_window_end = Some(window_end + self.window_length);
                     } else {
                         self.push_to_timely.send(item.into());
                         break;
@@ -611,26 +606,20 @@ impl InputManager for Tumbler {
         } else {
             //Process time
             let now = Utc::now();
-            let end: chrono::DateTime<Utc> = self.current_window_end.unwrap();
-            if now >= self.current_window_end.unwrap() {
+            let window_end: chrono::DateTime<Utc> = self.current_window_end.unwrap();
+            if now >= window_end {
                 //reset window
                 self.current_epoch += 1;
                 self.push_to_timely.advance_to(self.current_epoch);
-                self.current_window_end = Some(end + self.window_length);
+                self.current_window_end = Some(window_end + self.window_length);
             } else {
                 loop {
                     if self.input_iter.empty() {
                         break;
                     }
-                    match self.input_iter.next() {
-                        Some(r) => {
-                            self.push_to_timely.send(r.into());
-                            break;
-                        }
-                        None => {
-                            //TODO this message
-                            dbg!("No messages available, trying again");
-                        }
+                    if let Some(item) = self.input_iter.next() {
+                        self.push_to_timely.send(item.into());
+                        break;
                     }
                 }
             }
@@ -677,9 +666,7 @@ pub(crate) fn input_partitioner_from_config(
                 panic!("Unknown partition_config type: {pytype}")
             }
         }
-        None => {
-            Box::new(Batcher::new(input_iter, None, input_handle))
-        }
+        None => Box::new(Batcher::new(input_iter, None, input_handle)),
     }
 }
 
