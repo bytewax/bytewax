@@ -539,9 +539,9 @@ struct Tumbler {
     push_to_timely: InputHandle<u64, TdPyAny>,
     current_epoch: u64,
     window_length: chrono::Duration,
-    current_window_end: chrono::DateTime<Utc>,
-    window_start_time: chrono::DateTime<Utc>,
-    // time_getter: Py<PyAny>
+    time_getter: Option<TdPyCallable>,
+    current_window_end: Option<chrono::DateTime<Utc>>,
+    window_start_time: Option<chrono::DateTime<Utc>>,
 }
 
 impl Tumbler {
@@ -550,50 +550,87 @@ impl Tumbler {
         config: PyRef<TumblingWindowInputPartitionerConfig>,
         push_to_timely: InputHandle<u64, TdPyAny>,
     ) -> Self {
-        let ws: chrono::NaiveDateTime = config.window_start_time.into();
+        let time_getter = config.time_getter.clone();
+        let ws: chrono::NaiveDateTime = config.window_start_time.clone().unwrap().into();
         let wse = chrono::DateTime::<Utc>::from_utc(ws, Utc);
         let wl: chrono::Duration = config.window_length.into();
         Self {
             input_iter: input_iter,
             push_to_timely,
             current_epoch: config.epoch_start,
+            time_getter: time_getter,
             window_length: wl,
-            current_window_end: wse + wl,
-            window_start_time: wse, // time_getter: config.time_getter
+            current_window_end: Some(wse + wl),
+            window_start_time: Some(wse),
         }
     }
 }
 
+fn get_time(time_getter: TdPyCallable, item: Py<PyAny>) -> chrono::DateTime<Utc> {
+    Python::with_gil(|py| {
+        let f = time_getter.call1(py, (item,)).unwrap();
+        let t: PyNaiveDateTime = f.extract(py).unwrap();
+        let chrono_t: chrono::NaiveDateTime = t.into();
+        let item_time: chrono::DateTime<Utc> = chrono::DateTime::<Utc>::from_utc(chrono_t, Utc);
+        return item_time;
+    })
+}
+
 impl InputManager for Tumbler {
     fn pump(&mut self) {
-        // event time
-        // get item
-        // check event time
-        // if it's past the window,
-        // increase the epoch and emit it
-        // otherwise, just emit it
-
-        // TODO might need to refer to window_start
-        // wall clock
-        let now = Utc::now();
-        if now >= self.current_window_end {
-            //reset window
-            self.current_epoch += 1;
-            self.push_to_timely.advance_to(self.current_epoch);
-            self.current_window_end = self.current_window_end + self.window_length;
-        } else {
+        // move time fetching to iter, return struct
+        // receives tuples of item, time? Or maybe a struct
+        //Event time
+        if let Some(time_getter) = &self.time_getter {
             loop {
                 if self.input_iter.empty() {
                     break;
                 }
-                match self.input_iter.next() {
-                    Some(r) => {
-                        self.push_to_timely.send(r.into());
+                if let Some(item) = self.input_iter.next() {
+                    let getter = time_getter.clone();
+                    let item_for_time = item.clone();
+                    let item_time = get_time(getter, item_for_time);
+                    // sort to buffer
+                    if self.window_start_time.is_none() {
+                        dbg!("Setting window start");
+                        self.window_start_time = Some(item_time);
+                        self.current_window_end = Some(item_time + self.window_length);
+                    }
+                    if item_time >= self.current_window_end.unwrap() {
+                        dbg!("Window closing");
+                        self.current_epoch += 1;
+                        self.push_to_timely.advance_to(self.current_epoch);
+                        self.current_window_end =
+                            Some(self.current_window_end.unwrap() + self.window_length);
+                    } else {
+                        self.push_to_timely.send(item.into());
                         break;
                     }
-                    None => {
-                        //TODO this message
-                        dbg!("No messages available, trying again");
+                }
+            }
+        } else {
+            //Process time
+            let now = Utc::now();
+            let end: chrono::DateTime<Utc> = self.current_window_end.unwrap();
+            if now >= self.current_window_end.unwrap() {
+                //reset window
+                self.current_epoch += 1;
+                self.push_to_timely.advance_to(self.current_epoch);
+                self.current_window_end = Some(end + self.window_length);
+            } else {
+                loop {
+                    if self.input_iter.empty() {
+                        break;
+                    }
+                    match self.input_iter.next() {
+                        Some(r) => {
+                            self.push_to_timely.send(r.into());
+                            break;
+                        }
+                        None => {
+                            //TODO this message
+                            dbg!("No messages available, trying again");
+                        }
                     }
                 }
             }
