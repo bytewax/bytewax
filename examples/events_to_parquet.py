@@ -18,9 +18,6 @@ from bytewax.inputs import ManualInputConfig, TumblingWindowInputPartitionerConf
 # events.
 def input_builder(worker_index, worker_count, resume_epoch):
     return fake_events.generate_web_events()
-    # return inputs.tumbling_epoch(
-    #     fake_events.generate_web_events(), datetime.timedelta(seconds=5)
-    # )
 
 
 # Arrow assigns a UUID to each worker / window's file so they won't
@@ -78,9 +75,17 @@ flow.capture()
 
 
 if __name__ == "__main__":
-    partition_config = TumblingWindowInputPartitionerConfig(datetime.datetime.now(),
-        datetime.timedelta(seconds=5)
+    # Collect 5 second tumbling windows of data and write them out as
+    # Parquet datasets. `fake_events` will generate events for multiple
+    # days around today. Each worker will generate independent fake
+    # events.
+    partition_config = TumblingWindowInputPartitionerConfig(
+        datetime.datetime.now(), datetime.timedelta(seconds=5)
     )
     spawn_cluster(
-        flow, ManualInputConfig(input_builder, json.loads), output_builder, **parse.cluster_args(), input_partitioner_config=partition_config,
+        flow,
+        ManualInputConfig(input_builder, json.loads),
+        output_builder,
+        **parse.cluster_args(),
+        input_partitioner_config=partition_config,
     )

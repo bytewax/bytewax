@@ -40,24 +40,24 @@ class Timeout:
 
 IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS = [
     # epoch, event
-    (0, AppOpen(user=1)),
-    (1, Search(user=1, query="dogs")),
-    # Eliding named args...
-    (2, Results(1, ["fido", "rover", "buddy"])),
-    (3, ClickResult(1, "rover")),
-    (4, Search(1, "cats")),
-    (5, Results(1, ["fluffy", "burrito", "kathy"])),
-    (6, ClickResult(1, "fluffy")),
-    (7, AppOpen(2)),
-    (8, ClickResult(1, "kathy")),
-    (9, Search(2, "fruit")),
-    (10, AppClose(1)),
-    (11, AppClose(2)),
+    AppOpen(user=1),
+    Search(user=1, query="dogs"),
+    #Eliding named args...
+    Results(1, ["fido", "rover", "buddy"]),
+    ClickResult(1, "rover"),
+    Search(1, "cats"),
+    Results(1, ["fluffy", "burrito", "kathy"]),
+    ClickResult(1, "fluffy"),
+    AppOpen(2),
+    ClickResult(1, "kathy"),
+    Search(2, "fruit"),
+    AppClose(1),
+    AppClose(2),
 ]
 
 
 def group_by_user(event):
-    return event.user, [event]
+    return str(event.user), [event]
 
 
 def session_has_closed(session):
@@ -101,7 +101,7 @@ flow = Dataflow()
 # event
 flow.map(group_by_user)
 # (user, [event])
-flow.reduce(operator.add, session_has_closed)
+flow.reduce("collect", operator.add, session_has_closed)
 # (user, [event, ...])
 flow.map(remove_key)
 # [event, ...]

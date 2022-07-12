@@ -1,6 +1,7 @@
 import re
 
 from bytewax import Dataflow, parse, run_cluster
+from bytewax.inputs import BatchInputPartitionerConfig
 
 
 def file_input():

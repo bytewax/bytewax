@@ -20,6 +20,7 @@ def run(
     inp: Iterable[Any],
     *,
     recovery_config: Optional[RecoveryConfig] = None,
+    input_partitioner_config: Optional[InputPartitionerConfig] = None,
 ) -> List[Tuple[int, Any]]:
     """Pass data through a dataflow running in the current thread.
 
@@ -70,10 +71,10 @@ def run(
     "Only manual configuration works with iterator based input"
     run_main(
         flow,
-        BatchInputPartitionerConfig(),
         ManualInputConfig(input_builder),
         output_builder,
         recovery_config=recovery_config,
+        input_partitioner_config=input_partitioner_config,
     )
 
     return out
@@ -187,7 +188,7 @@ def run_cluster(
     flow: Dataflow,
     inp: Iterable[Any],
     *,
-    input_partitioner_config: Optional[InputPartitionerConfig] = BatchInputPartitionerConfig(1),
+    input_partitioner_config: Optional[InputPartitionerConfig] = None,
     recovery_config: Optional[RecoveryConfig] = None,
     proc_count: int = 1,
     worker_count_per_proc: int = 1,

@@ -5,5 +5,5 @@ flow.map(lambda x: x * x)
 flow.capture()
 
 if __name__ == "__main__":
-    for epoch, y in sorted(run(flow, enumerate(range(10)))):
-        print(y)
+    for epoch, y in sorted(run(flow, range(100))):
+        print(epoch, y)

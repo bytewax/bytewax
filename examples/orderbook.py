@@ -22,10 +22,7 @@ def ws_input(product_ids):
     print(ws.recv())
     epoch = 0
     while True:
-        yield Emit(ws.recv())
-        epoch += 1
-        yield AdvanceTo(epoch)
-
+        ws.recv()
 
 def input_builder(worker_index, worker_count):
     prods_per_worker = int(len(PRODUCT_IDS) / worker_count)

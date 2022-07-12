@@ -12,7 +12,7 @@ def read_edges(filename):
             line = line.strip()
             if line:
                 parent, child = tuple(x.strip() for x in line.split(","))
-                yield FIRST_ITERATION, (parent, {child})
+                yield (parent, {child})
 
 
 INITIAL_WEIGHT = 1.0

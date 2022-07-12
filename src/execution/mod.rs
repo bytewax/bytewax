@@ -358,8 +358,8 @@ where
 ///     recovery_config: State recovery config. See
 ///         `bytewax.recovery`. If `None`, state will not be persisted.
 ///
-#[pyfunction(flow, input_partitioner_config, input_config, output_builder, "*", recovery_config = "None")]
-#[pyo3(text_signature = "(flow, input_partitioner_config, input_config, output_builder, *, recovery_config)")]
+#[pyfunction(flow, input_config, output_builder, "*", recovery_config = "None", input_partitioner_config= "None")]
+#[pyo3(text_signature = "(flow, input_config, output_builder, *, recovery_config, input_partitioner_config)")]
 pub(crate) fn run_main(
     py: Python,
     flow: Py<Dataflow>,
