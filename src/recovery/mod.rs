@@ -65,24 +65,26 @@
 //!
 //! ```mermaid
 //! graph TD
-//!
 //! subgraph "Resume Calc Dataflow"
-//! LI{{Progress Input}} -- worker: frontier --> LWM{{Accumulate}} -- worker: latest frontier --> LB{{Broadcast}} -- worker: latest frontier --> LCM{{Accumulate}} -- cluster earlierst frontier --> LS{{Channel}}
+//! LI{{Progress Input}} -- frontier update --> LWM{{Accumulate}} -- worker frontier --> LB{{Broadcast}} -- worker frontier --> LCM{{Accumulate}} -- cluster frontier --> LS{{Channel}}
 //! LI -. probe .-> LS
 //! end
 //!
-//! LS == recovery epoch ==> I & SI
+//! LS == resume epoch ==> I & SI
 //!
 //! subgraph "Production Dataflow"
-//! SI -. probe .-> GC
-//! SI{{State Input}} -- "(step, key, epoch): state backups" --> SF{{Filter}} -- "(step, key, epoch): state backups" --> SO
-//! I(Input) -- items --> SO(Stateful Operator)
-//! SO -- items --> O(Output)
-//! O -- items --> OM{{Map}}
-//! SO -- "(step, key, epoch): state backups" --> SB{{State Backup}}
-//! SB -- "(step, key, epoch): state backups" --> BM{{Map}}
-//! OM & BM --> DFC{{Concat}} --> FB{{Progress Backup}} --> DFB{{Broadcast}} --> GC
-//! SB -- "(step, key, epoch): state backups" --> GC{{Garbage Collector}}
+//! SI{{State Input}} -. probe .-> GC
+//! SI -- "(step id, key, epoch): state" --> SFX{{Filter}} -- "('step x', key, epoch): state" --> SOX
+//! SI -- "(step id, key, epoch): state" --> SFY{{Filter}} -- "('step y', key, epoch): state" --> SOY
+//! I(Input) -- items --> XX1([...]) -- "(key, value)" --> SOX(Stateful Operator X) & SOY(Stateful Operator Y)
+//! SOX & SOY -- "(key, value)" --> XX2([...]) -- items --> O1(Output 1) & O2(Output 2)
+//! O1 & O2 -- items --> OM{{Map}}
+//! SOX -- "('step x', key, epoch): state" --> SOC
+//! SOY -- "('step y', key, epoch): state" --> SOC
+//! SOC{{Concat}} -- "(step id, key, epoch): state" --> SB{{State Backup}}
+//! SB -- "(step id, key, epoch): state" --> BM{{Map}}
+//! OM & BM -- heartbeats --> DFC{{Concat}} -- heartbeats / worker frontier --> FB{{Progress Backup}} -- heartbeats / worker frontier --> DFB{{Broadcast}} -- heartbeats / dataflow frontier --> GC
+//! SB & SI -- "(step id, key, epoch): state" --> GCC{{Concat}} -- "(step id, key, epoch): state" --> GC{{Garbage Collector}}
 //! I -. probe .-> GC
 //! end
 //! ```
