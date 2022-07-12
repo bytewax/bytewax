@@ -18,14 +18,15 @@ def create_stream(topic_name, servers=["localhost:9092"]):
         print(f"Topic {topic_name} is already created")
 
     # Sort values to support tumbling_epoch for input building
-    df = pd.read_parquet("data/driver_stats.parquet").sort_values(by="event_timestamp")
+    df = pd.read_parquet("examples/feast/data/driver_stats.parquet").sort_values(
+        by="event_timestamp"
+    )
     for row in df[
         ["driver_id", "event_timestamp", "conv_rate", "acc_rate", "created"]
     ].to_dict("records"):
-        row["event_timestamp"] = row["event_timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+        row["event_timestamp"] = row["event_timestamp"].strftime("%2022-%m-%d %H:%M:%S")
         row["created"] = row["created"].strftime("%Y-%m-%d %H:%M:%S")
         producer.send(topic_name, json.dumps(row).encode())
-
 
 if __name__ == "__main__":
     create_stream("drivers")
