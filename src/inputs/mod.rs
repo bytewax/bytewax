@@ -243,65 +243,82 @@ impl BatchInputPartitionerConfig {
 
 #[pyclass(module = "bytewax.inputs", extends = InputPartitionerConfig)]
 //TODO is this the right text signature?
-#[pyo3(text_signature = "(window_length, window_start_time, epoch_start)")]
+#[pyo3(text_signature = "(window_length, window_start_time = None, time_gettter = None, epoch_start = 0)")]
 pub(crate) struct TumblingWindowInputPartitionerConfig {
-    window_start_time: PyNaiveDateTime,
     window_length: PyDuration,
-    // time_getter: Py<PyAny>,
+    window_start_time: Option<PyNaiveDateTime>,
+    time_getter: Option<TdPyCallable>,
     epoch_start: u64,
 }
 
 #[pymethods]
 impl TumblingWindowInputPartitionerConfig {
     #[new]
-    //TODO this default seems . . . gnar
     #[args(
         window_length,
-        window_start_time = "Utc::now().naive_utc().into()",
+        window_start_time = "None",
+        time_getter = "None",
         epoch_start = 0
     )]
     fn new(
-        window_start_time: PyNaiveDateTime,
         window_length: PyDuration,
-        // time_getter: Py<PyAny>,
+        window_start_time: Option<PyNaiveDateTime>,
+        time_getter: Option<TdPyCallable>,
         epoch_start: u64,
     ) -> (Self, InputPartitionerConfig) {
         (
             Self {
-                window_start_time,
                 window_length,
-                // time_getter,
+                window_start_time,
+                time_getter,
                 epoch_start,
             },
             InputPartitionerConfig {},
         )
     }
 
-    fn __getstate__(&self) -> (&str, pyo3_chrono::NaiveDateTime, pyo3_chrono::Duration, u64) {
+    fn __getstate__(
+        &self,
+    ) -> (
+        &str,
+        Option<pyo3_chrono::NaiveDateTime>,
+        pyo3_chrono::Duration,
+        Option<TdPyCallable>,
+        u64,
+    ) {
         (
             "TumblingWindowInputPartitionerConfig",
             self.window_start_time.clone(),
             self.window_length.clone(),
+            self.time_getter.clone(),
             self.epoch_start,
         )
     }
 
-    fn __getnewargs__(&self) -> (pyo3_chrono::NaiveDateTime, pyo3_chrono::Duration, u64) {
-        let dt = Utc::now().naive_utc().into();
+    fn __getnewargs__(
+        &self,
+    ) -> (
+        pyo3_chrono::Duration,
+        Option<pyo3_chrono::NaiveDateTime>,
+        Option<TdPyCallable>,
+        u64,
+    ) {
         let dur: pyo3_chrono::Duration = chrono::Duration::minutes(5).into();
-        (dt, dur, 1)
+        (dur, None, None, 1)
     }
 
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         if let Ok((
             "TumblingWindowInputPartitionerConfig",
-            window_start_time,
             window_length,
+            window_start_time,
+            time_getter,
             epoch_start,
         )) = state.extract()
         {
-            self.window_start_time = window_start_time;
             self.window_length = window_length;
+            self.window_start_time = window_start_time;
+            self.time_getter = time_getter;
             self.epoch_start = epoch_start;
             Ok(())
         } else {
@@ -348,28 +365,29 @@ impl InputIter for KafkaIter {
         match self.consumer.next() {
             None => None,
             Some(msg) => {
-                //TODO ultimately we want the entire message
+                //TODO ultimately we want the entire message, prob. But for now v. expensive
                 Python::with_gil(|py| {
-                    let key: Py<PyAny> =
-                        msg.key().map_or(py.None(), |k| PyBytes::new(py, k).into());
                     let payload: Py<PyAny> = msg
                         .payload()
                         .map_or(py.None(), |k| PyBytes::new(py, k).into());
-                    let key_payload: Py<PyAny> = (key, payload).into_py(py);
+                    let payload: Py<PyAny> = (payload).into_py(py);
 
                     if let Some(deserializer) = &self.deserializer {
-                        let deserialized_res = deserializer.call1(py, (key_payload,));
+                        let deserialized_res = deserializer.call1(py, (payload,));
                         match deserialized_res {
                             Ok(deserialized) => {
-                                let for_timely: Py<PyAny> = deserialized.into_py(py);
-                                Some(for_timely)
+                                if deserialized.is_none(py) {
+                                    Some(deserialized)
+                                } else {
+                                    Some((deserialized,).into_py(py))
+                                }
                             }
                             Err(err) => {
                                 panic!("Could not deserialize {:?}", err);
                             }
                         }
                     } else {
-                        Some(key_payload)
+                        Some(payload)
                     }
                 })
             }
