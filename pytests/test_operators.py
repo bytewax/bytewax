@@ -4,13 +4,14 @@ from collections import defaultdict
 from pytest import raises
 
 from bytewax import Dataflow, run, run_cluster
+from bytewax.inputs import BatchInputPartitionerConfig
 
 
 def test_map():
     def add_one(item):
         return item + 1
 
-    inp = [0, 1, 3]
+    inp = [0, 1, 2]
 
     flow = Dataflow()
     flow.map(add_one)
@@ -21,8 +22,8 @@ def test_map():
     assert sorted(out) == sorted(
         [
             (0, 1),
-            (0, 2),
-            (0, 3),
+            (1, 2),
+            (2, 3),
         ]
     )
 
@@ -31,9 +32,7 @@ def test_flat_map():
     def split_into_words(sentence):
         return sentence.split()
 
-    inp = [
-        (1, "split this"),
-    ]
+    inp = ["split this"]
 
     flow = Dataflow()
     flow.flat_map(split_into_words)
@@ -43,8 +42,8 @@ def test_flat_map():
 
     assert sorted(out) == sorted(
         [
-            (1, "split"),
-            (1, "this"),
+            (0, "split"),
+            (0, "this"),
         ]
     )
 
@@ -53,11 +52,7 @@ def test_filter():
     def is_odd(item):
         return item % 2 != 0
 
-    inp = [
-        (0, 1),
-        (0, 2),
-        (0, 3),
-    ]
+    inp = [1,2,3]
 
     flow = Dataflow()
     flow.filter(is_odd)
@@ -65,13 +60,11 @@ def test_filter():
 
     out = run(flow, inp)
 
-    assert sorted(out) == sorted([(0, 1), (0, 3)])
+    assert sorted(out) == sorted([(0, 1), (2, 3)])
 
 
 def test_inspect():
-    inp = [
-        (1, "a"),
-    ]
+    inp = ["a"]
     seen = []
 
     flow = Dataflow()
@@ -82,7 +75,7 @@ def test_inspect():
 
     assert sorted(out) == sorted(
         [
-            (1, "a"),
+            (0, "a"),
         ]
     )
     # Check side-effects after execution is complete.
@@ -90,9 +83,7 @@ def test_inspect():
 
 
 def test_inspect_epoch():
-    inp = [
-        (1, "a"),
-    ]
+    inp = ["a"]
     seen = []
 
     flow = Dataflow()
@@ -103,11 +94,11 @@ def test_inspect_epoch():
 
     assert sorted(out) == sorted(
         [
-            (1, "a"),
+            (0, "a"),
         ]
     )
     # Check side-effects after execution is complete.
-    assert seen == [(1, "a")]
+    assert seen == [(0, "a")]
 
 
 def test_reduce():
@@ -121,11 +112,11 @@ def test_reduce():
         return any(event["type"] == "logout" for event in session)
 
     inp = [
-        (0, {"user": "a", "type": "login"}),
-        (1, {"user": "a", "type": "post"}),
-        (1, {"user": "b", "type": "login"}),
-        (2, {"user": "a", "type": "logout"}),
-        (3, {"user": "b", "type": "logout"}),
+        {"user": "a", "type": "login"},
+        {"user": "a", "type": "post"},
+        {"user": "b", "type": "login"},
+        {"user": "a", "type": "logout"},
+        {"user": "b", "type": "logout"}
     ]
 
     flow = Dataflow()
@@ -138,7 +129,7 @@ def test_reduce():
     assert sorted(out) == sorted(
         [
             (
-                2,
+                3,
                 (
                     "a",
                     [
@@ -149,7 +140,7 @@ def test_reduce():
                 ),
             ),
             (
-                3,
+                4,
                 (
                     "b",
                     [
@@ -169,11 +160,12 @@ def test_reduce_epoch():
     def count(count, event_count):
         return count + event_count
 
+
     inp = [
-        (0, {"user": "a", "type": "login"}),
-        (0, {"user": "a", "type": "post"}),
-        (0, {"user": "b", "type": "login"}),
-        (1, {"user": "b", "type": "post"}),
+        {"user": "a", "type": "login"},
+        {"user": "a", "type": "post"},
+        {"user": "b", "type": "login"},
+        {"user": "b", "type": "post"}
     ]
 
     flow = Dataflow()
@@ -181,7 +173,9 @@ def test_reduce_epoch():
     flow.reduce_epoch(count)
     flow.capture()
 
-    out = run(flow, inp)
+    # Will assign 0 epoch to first three items, 1 different to the last
+    partition_config = BatchInputPartitionerConfig(3)
+    out = run(flow, inp, input_partitioner_config=partition_config)
 
     assert sorted(out) == sorted(
         [
@@ -197,10 +191,10 @@ def test_reduce_epoch_error_on_non_kv_tuple():
         return count + event_count
 
     inp = [
-        (0, {"user": "a", "type": "login"}),
-        (0, {"user": "a", "type": "post"}),
-        (0, {"user": "b", "type": "login"}),
-        (1, {"user": "b", "type": "post"}),
+        {"user": "a", "type": "login"},
+        {"user": "a", "type": "post"},
+        {"user": "b", "type": "login"},
+        {"user": "b", "type": "post"}
     ]
 
     flow = Dataflow()
@@ -225,10 +219,10 @@ def test_reduce_epoch_error_on_non_string_key():
 
     # Note that the resulting key will be an int.
     inp = [
-        (0, {"user": 1, "type": "login"}),
-        (0, {"user": 1, "type": "post"}),
-        (0, {"user": 2, "type": "login"}),
-        (1, {"user": 2, "type": "post"}),
+        {"user": 1, "type": "login"},
+        {"user": 1, "type": "post"},
+        {"user": 2, "type": "login"},
+        {"user": 2, "type": "post"}
     ]
 
     flow = Dataflow()
@@ -253,12 +247,10 @@ def test_reduce_epoch_local():
         return count + event_count
 
     inp = [
-        (0, {"user": "a", "type": "login"}),
-        (0, {"user": "a", "type": "post"}),
-        (0, {"user": "a", "type": "post"}),
-        (0, {"user": "b", "type": "login"}),
-        (1, {"user": "b", "type": "post"}),
-        (1, {"user": "b", "type": "post"}),
+        {"user": "a", "type": "login"},
+        {"user": "a", "type": "post"},
+        {"user": "b", "type": "login"},
+        {"user": "b", "type": "post"}
     ]
 
     flow = Dataflow()
@@ -301,19 +293,17 @@ def test_stateful_map():
         else:
             return []
 
-    inp = [
-        (0, "a"),
-        (0, "a"),
-        (1, "a"),
-        (1, "b"),
-    ]
+    inp = ["a", "a", "a", "b"]
+
+    partition_config = BatchInputPartitionerConfig(2)
+
     flow = Dataflow()
     flow.map(add_key)
     flow.stateful_map("build_seen", build_seen, check)
     flow.flat_map(remove_seen)
     flow.capture()
 
-    out = run(flow, inp)
+    out = run(flow, inp, input_partitioner_config=partition_config)
 
     assert sorted(out) == sorted(
         [
@@ -324,25 +314,23 @@ def test_stateful_map():
 
 
 def test_capture():
-    inp = [
-        (0, "a"),
-        (1, "b"),
-    ]
+    inp = ["a", "b"]
     out = []
 
     flow = Dataflow()
     flow.capture()
 
     out = run(flow, inp)
-
-    assert sorted(out) == sorted(inp)
+    assert sorted(out) == sorted(
+        [
+            (0, "a"),
+            (1, "b"),
+        ]
+    )
 
 
 def test_capture_multiple():
-    inp = [
-        (0, "a"),
-        (1, "b"),
-    ]
+    inp = ["a", "b"]
     out = []
 
     flow = Dataflow()
