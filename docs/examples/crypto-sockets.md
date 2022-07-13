@@ -36,11 +36,13 @@ We are going to eventually create a cluster of dataflows where we could have mul
 
 ```python
 import json
-from websocket import create_connection
 from bytewax.inputs import AdvanceTo, Emit
 
-
 PRODUCT_IDS = ['BTC-USD','ETH-USD']
+```
+
+```python doctest:SKIP
+from websocket import create_connection
 
 def ws_input(product_ids):
     ws = create_connection("wss://ws-feed.pro.coinbase.com")
@@ -61,6 +63,8 @@ def ws_input(product_ids):
         yield AdvanceTo(epoch)
 ```
 
+For testing purposes, if you don't want to perform HTTP requests, you can read the sample websocket data from a local file with a list of JSON responses.
+
 ```python
 def ws_input(product_ids):
     print('{"type":"subscriptions","channels":[{"name":"level2","product_ids":["BTC-USD","ETH-USD"]}]}')
@@ -71,7 +75,7 @@ def ws_input(product_ids):
         yield AdvanceTo(epoch)
 ```
 
-Now that we have our web socket based data generator built, we will write an input builder for our dataflow. Since we're using a manual input builder, we'll pass a `ManualInputConfig` as our `input_config` with the builder as a parameter. The input builder is called on each worker and the function will have information about the `worker_index` and the total number of workers (`worker_count`). In this case we are designing our input builder to handle multiple workers and multiple currency pairs, so that we can parallelize the input. So we will distribute the currency pairs with the logic in the code below. It should be noted that if you run more than one worker with only one currency pair, the other workers will not be used.
+Now that we have our websocket based data generator built, we will write an input builder for our dataflow. Since we're using a manual input builder, we'll pass a `ManualInputConfig` as our `input_config` with the builder as a parameter. The input builder is called on each worker and the function will have information about the `worker_index` and the total number of workers (`worker_count`). In this case we are designing our input builder to handle multiple workers and multiple currency pairs, so that we can parallelize the input. So we will distribute the currency pairs with the logic in the code below. It should be noted that if you run more than one worker with only one currency pair, the other workers will not be used.
 
 ```python
 from bytewax.inputs import ManualInputConfig
