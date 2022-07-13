@@ -177,7 +177,7 @@
 //!
 //! The production dataflow also has a second **state loading input**
 //! [`crate::operators::state_source`] in which each resume worker is
-//! assigned to read all state _before_ the recovery epoch. This state
+//! assigned to read all state _before_ the resume epoch. This state
 //! is routed to the correct stateful operators (filtering on step ID)
 //! so that state is loaded and ready for when normal execution
 //! resumes. This state data is also sent to the
@@ -682,7 +682,7 @@ pub(crate) fn build_recovery_readers(
     String,
 > {
     // See comment about the GIL in
-    // [`build_recovery_writer_components`].
+    // [`build_recovery_writers`].
     let recovery_config = recovery_config.as_ref(py);
 
     if let Ok(_noop_recovery_config) = recovery_config.downcast::<PyCell<NoopRecoveryConfig>>() {

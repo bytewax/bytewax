@@ -40,7 +40,7 @@ use timely::progress::Timestamp;
 use timely::worker::Worker;
 
 /// Compile a dataflow which reads the progress data from the previous
-/// execution calculates the resume epoch.
+/// execution and calculates the resume epoch.
 fn build_resume_epoch_calc_dataflow<A: Allocate>(
     timely_worker: &mut Worker<A>,
     // TODO: Allow multiple (or none) FrontierReaders so you can recover a

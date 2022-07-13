@@ -4,14 +4,17 @@ Bytewax allows you to **recover** a stateful dataflow; it will let you
 resume processing and output due to a failure without re-processing
 all initial data to re-calculate all internal state.
 
+It does this by storing state and progress information for a single
+dataflow instance in a **recovery store** backed by a durable state
+storage system of your choosing, e.g. Sqlite or Kafka. See the
+subclasses of `RecoveryConfig` in this module for the supported
+datastores, the specifics of how each is utilized, and tradeoffs.
+
 Preparation
 -----------
 
-1. Create a **recovery config** for describing how to connect to a
-**recovery store** which is where Bytewax will store state and
-progress data for this dataflow. See the classes in this module for
-the supported datastores, the specifics of how each is utilized, and
-tradeoffs.
+1. Create a **recovery config** for describing how to connect to the
+recovery store of your choosing.
 
 2. Pass that recovery config as the `recovery_config` argument to the
 entry point running your dataflow (e.g. `bytewax.cluster_main()`).
@@ -34,8 +37,8 @@ boundaries.
 See comments on input configuration types in `bytewax.inputs` for any
 limitations each might have regarding recovery.
 
-It is possible that your output systems will see duplicate data right
-during the resume epoch; design your systems to support at-least-once
+It is possible that your output systems will see duplicate data during
+the resume epoch; design your systems to support at-least-once
 processing.
 
 Currently it is not possible to recover a dataflow with a different
@@ -52,7 +55,8 @@ Once that is done, re-run the dataflow using the _same recovery
 config_ and thus re-connect to the _same recovery store_. Bytewax will
 automatically read the progress of the previous dataflow execution and
 determine the most recent epoch that processing can resume at, called
-the **resume epoch**. Output should resume during the resume epoch.
+the **resume epoch**. Output should resume from the beginning of the
+resume epoch.
 
 If you want to fully restart a dataflow and ignore previous state,
 delete the data in the recovery store using whatever operational tools
