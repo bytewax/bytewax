@@ -120,7 +120,7 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     mapper - `mapper(item: Any) => updated_item: Any`
+    ///     mapper: `mapper(item: Any) => updated_item: Any`
     #[pyo3(text_signature = "(self, mapper)")]
     fn map(&mut self, mapper: TdPyCallable) {
         self.steps.push(Step::Map { mapper });
@@ -152,7 +152,7 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     mapper - `mapper(item: Any) => emit: Iterable[Any]`
+    ///     mapper: `mapper(item: Any) => emit: Iterable[Any]`
     #[pyo3(text_signature = "(self, mapper)")]
     fn flat_map(&mut self, mapper: TdPyCallable) {
         self.steps.push(Step::FlatMap { mapper });
@@ -185,7 +185,7 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     predicate - `predicate(item: Any) => should_emit: bool`
+    ///     predicate: `predicate(item: Any) => should_emit: bool`
     #[pyo3(text_signature = "(self, predicate)")]
     fn filter(&mut self, predicate: TdPyCallable) {
         self.steps.push(Step::Filter { predicate });
@@ -213,7 +213,7 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     inspector - `inspector(item: Any) => None`
+    ///     inspector: `inspector(item: Any) => None`
     #[pyo3(text_signature = "(self, inspector)")]
     fn inspect(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::Inspect { inspector });
@@ -240,7 +240,7 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     inspector - `inspector(epoch: int, item: Any) => None`
+    ///     inspector: `inspector(epoch: int, item: Any) => None`
     #[pyo3(text_signature = "(self, inspector)")]
     fn inspect_epoch(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::InspectEpoch { inspector });
@@ -305,12 +305,12 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     step_id - Uniquely identifies this step for recovery.
+    ///     step_id: Uniquely identifies this step for recovery.
     ///
-    ///     reducer - `reducer(accumulator: Any, value: Any) =>
+    ///     reducer: `reducer(accumulator: Any, value: Any) =>
     ///         updated_accumulator: Any`
     ///
-    ///     is_complete - `is_complete(updated_accumulator: Any) =>
+    ///     is_complete: `is_complete(updated_accumulator: Any) =>
     ///         should_emit: bool`
     #[pyo3(text_signature = "(self, step_id, reducer, is_complete)")]
     fn reduce(&mut self, step_id: String, reducer: TdPyCallable, is_complete: TdPyCallable) {
@@ -373,7 +373,7 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     reducer - `reducer(accumulator: Any, value: Any) =>
+    ///     reducer: `reducer(accumulator: Any, value: Any) =>
     ///         updated_accumulator: Any`
     #[pyo3(text_signature = "(self, reducer)")]
     fn reduce_epoch(&mut self, reducer: TdPyCallable) {
@@ -395,7 +395,7 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     reducer - `reducer(accumulator: Any, value: Any) =>
+    ///     reducer: `reducer(accumulator: Any, value: Any) =>
     ///         updated_accumulator: Any`
     #[pyo3(text_signature = "(self, reducer)")]
     fn reduce_epoch_local(&mut self, reducer: TdPyCallable) {
@@ -465,12 +465,12 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     step_id -  Uniquely identifies this step for recovery.
+    ///     step_id: Uniquely identifies this step for recovery.
     ///
-    ///     builder - `builder(key: Any) => new_state: Any`
+    ///     builder: `builder(key: Any) => new_state: Any`
     ///
-    ///     mapper - `mapper(state: Any, value: Any) =>
-    ///         (updated_state: Any, updated_value: Any)`
+    ///     mapper: `mapper(state: Any, value: Any) => (updated_state:
+    ///         Any, updated_value: Any)`
     #[pyo3(text_signature = "(self, step_id, builder, mapper)")]
     fn stateful_map(&mut self, step_id: String, builder: TdPyCallable, mapper: TdPyCallable) {
         self.steps.push(Step::StatefulMap {
