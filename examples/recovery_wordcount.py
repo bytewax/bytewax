@@ -13,8 +13,8 @@ def input_builder(worker_index, worker_count, resume_epoch):
             if epoch % worker_count != worker_index:
                 continue
             yield AdvanceTo(epoch)
-            # if epoch == 3:
-            #     raise RuntimeError("boom")
+            if epoch == 3:
+                raise RuntimeError("boom")
             yield Emit(line)
 
 
@@ -56,13 +56,13 @@ flow.stateful_map("running_count", count_builder, add)
 flow.capture()
 
 
-# recovery_config = KafkaRecoveryConfig(
-#     ["localhost:9092"],
-#     "wordcount",
-# )
-recovery_config = SqliteRecoveryConfig(
-    ".",
+recovery_config = KafkaRecoveryConfig(
+    ["127.0.0.1:9092"],
+    "wordcount",
 )
+# recovery_config = SqliteRecoveryConfig(
+#     ".",
+# )
 
 if __name__ == "__main__":
     spawn_cluster(
