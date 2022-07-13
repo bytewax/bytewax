@@ -382,7 +382,9 @@ impl SqliteRecoveryConfig {
 /// Use [Kafka](https://kafka.apache.org/) to store recovery data.
 ///
 /// Uses a "progress" topic and a "state" topic with a number of
-/// partitions equal to the number of workers.
+/// partitions equal to the number of workers. Will take advantage of
+/// log compaction so that topic size is proportional to state size,
+/// not epoch count.
 ///
 /// >>> flow = Dataflow()
 /// >>> flow.capture()
@@ -404,8 +406,9 @@ impl SqliteRecoveryConfig {
 /// ... )  # doctest: +ELLIPSIS
 /// (...)
 ///
-/// Topics will automatically be created if there's no previous
-/// recovery data.
+/// If there's no previous recovery data, topics will automatically be
+/// created with the correct number of partitions and log compaction
+/// enabled
 ///
 /// Args:
 ///
@@ -1035,7 +1038,7 @@ fn create_kafka_topic(hosts: &[String], topic: &str, partitions: i32) {
         num_partitions: partitions,
         // I believe this chooses the default replication factor.
         replication: TopicReplication::Fixed(-1),
-        config: vec![],
+        config: vec![("cleanup.policy", "compact")],
     };
     let future = admin.create_topics(vec![&new_topic], &admin_options);
     let result = rt
