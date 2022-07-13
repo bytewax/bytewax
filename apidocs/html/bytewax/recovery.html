@@ -177,10 +177,10 @@ enabled</p>
 <dt><strong><code>hosts</code></strong></dt>
 <dd>List of <code>host:port</code> strings of Kafka brokers.</dd>
 <dt><strong><code>topic_prefix</code></strong></dt>
-<dd>Prefix used for naming topics. Must be distinct</dd>
+<dd>Prefix used for naming topics. Must be distinct
+per-dataflow. Two topics will be created using this prefix
+<code>"topic_prefix-progress"</code> and <code>"topic_prefix-state"</code>.</dd>
 </dl>
-<p>per-dataflow. Two topics will be created using this prefix
-<code>"topic_prefix-progress"</code> and <code>"topic_prefix-state"</code>.</p>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>recovery_config</code> argument to
 your execution entry point.</p></div>
@@ -249,11 +249,11 @@ previous recovery data.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>db_dir</code></strong></dt>
-<dd>Existing directory to store per-worker DBs in. Must be</dd>
-</dl>
-<p>distinct per-dataflow. DB files will have names like
+<dd>Existing directory to store per-worker DBs in. Must be
+distinct per-dataflow. DB files will have names like
 <code>"worker0.sqlite3"</code>. You can use <code>"."</code> for the current
-directory.</p>
+directory.</dd>
+</dl>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>recovery_config</code> argument to
 your execution entry point.</p></div>

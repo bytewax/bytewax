@@ -1104,22 +1104,31 @@ does not support recovery. Kafka messages will be passed through the dataflow
 as byte two-tuples of Kafka key and payload.</p>
 <p>Currently Kafka input does not support recovery.</p>
 <h2 id="args">Args</h2>
-<p>brokers: Comma-separated of broker addresses.
-E.g. "localhost:9092,localhost:9093"</p>
-<p>group_id: Group id as a string.</p>
-<p>topic: Topic to which consumer will subscribe.</p>
 <dl>
+<dt><strong><code>brokers</code></strong></dt>
+<dd>Comma-separated of broker addresses.
+E.g. "localhost:9092,localhost:9093"</dd>
+<dt><strong><code>group_id</code></strong></dt>
+<dd>Group id as a string.</dd>
+<dt><strong><code>topic</code></strong></dt>
+<dd>Topic to which consumer will subscribe.</dd>
 <dt><strong><code>offset_reset</code></strong></dt>
-<dd>Can be "earliest" or "latest". Delegates where to resume if
-auto_commit is not enabled. Defaults to "earliest".</dd>
+<dd>Can be "earliest" or "latest". Delegates where
+to resume if auto_commit is not enabled. Defaults to
+"earliest".</dd>
+<dt><strong><code>auto_commit</code></strong></dt>
+<dd>If true, commit offset of the last message handed
+to the application. This committed offset will be used
+when the process restarts to pick up where it left
+off. Defaults to false.</dd>
+<dt><strong><code>messages_per_epoch</code></strong></dt>
+<dd>(integer) Defines maximum number of
+messages per epoch.
+Defaults to <code>1</code>. If the consumer
+times out waiting, the system will increment to the next
+epoch, and fewer (or no) messages may be assigned to the
+preceding epoch.</dd>
 </dl>
-<p>auto_commit: If true, commit offset of the last message handed to the
-application. This committed offset will be used when the process
-restarts to pick up where it left off. Defaults to false.</p>
-<p>messages_per_epoch: (integer) Defines maximum number of messages per epoch.
-Defaults to <code>1</code>. If the consumer times out waiting, the system will
-increment to the next epoch, and fewer (or no) messages may be assigned
-to the preceding epoch.</p>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>input_config</code> argument to
 your execution entry point.</p></div>
