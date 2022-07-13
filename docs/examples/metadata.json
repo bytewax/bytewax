@@ -1,5 +1,10 @@
 [
   {
+    "title": "Recoverable Streaming Joins on Shopping Cart Data",
+    "description": "Learn the basics of recovering stateful dataflows.",
+    "filename": "cart-join"
+  },
+  {
     "title": "Building Sessions from Search Logs",
     "description": "A basic example of using Bytewax to turn an incoming stream of event logs from a hypothetical search engine into metrics over search sessions.",
     "filename": "search-session"

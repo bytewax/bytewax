@@ -1,6 +1,5 @@
-
 Analyzing Cryptocurrency Order Book in Real-Time
-=======================================
+================================================
 
 In this example we are going to walk through how you can maintain a limit order book in real-time with very little extra infrastructure with Bytewax.
 
@@ -18,7 +17,7 @@ Concepts
 **Order Book**
 __________
 
-A Limit Order Book, or just Order Book is a record of all limit orders that are made. A limit order is an order to buy (bid) or sell (ask) an asset for a given price. This could facilitate the exchange of dollars for shares or, as in our case, they could be orders to exchange crypto currencies. On exchanges, the limit order book is constantly changing as orders are placed every fraction of a second. The order book can give a trader insight into the market, whether they are looking to determine liquidity, to create liquidity, design a trading algorithm or maybe determine when bad actors are trying to manipulate the market. 
+A Limit Order Book, or just Order Book is a record of all limit orders that are made. A limit order is an order to buy (bid) or sell (ask) an asset for a given price. This could facilitate the exchange of dollars for shares or, as in our case, they could be orders to exchange crypto currencies. On exchanges, the limit order book is constantly changing as orders are placed every fraction of a second. The order book can give a trader insight into the market, whether they are looking to determine liquidity, to create liquidity, design a trading algorithm or maybe determine when bad actors are trying to manipulate the market.
 
 **Bid and Ask**
 _______________
@@ -35,8 +34,10 @@ Inputs & Outputs
 
 We are going to eventually create a cluster of dataflows where we could have multiple currency pairs running in parallel on different workers. In order to follow this approach, we will use the [`spawn_cluster`](https://docs.bytewax.io/apidocs#bytewax.spawn_cluster) method of kicking off our dataflow. To start, we will build a websocket input function that will use the coinbase pro websocket url (`wss://ws-feed.pro.coinbase.com`) and the Python websocket library to create a connection. Once connected we can send a message to the websocket subscribing to product_ids (pairs of currencies - USD-BTC for this example) and channels (level2 order book data). Finally since we know there will be some sort of acknowledgement message we can grab that with `ws.recv()` and print it out. In this example we are assuming we receive our data in order and we are going to assign a monotonically increasing epoch to each new message we receive. In Bytewax, an epoch is assigned to data and then Bytewax is instructed move that data through the dataflow as far as possible with the `Emit` method. At some point, we would consider that epoch complete if there was not any additional data to be received. At that point we would instruct Bytewax to advance to the next epoch with `AdvanceTo` and would lead to completion of the dataflow process for that epoch. This allows for flexibility so you could span an epoch over a time window and complete the processing at the end of the window. For more details on how this works, check the [epoch documentation](https://docs.bytewax.io/getting-started/epochs).
 
-```python doctest:SKIP
+```python
+import json
 from websocket import create_connection
+from bytewax.inputs import AdvanceTo, Emit
 
 
 PRODUCT_IDS = ['BTC-USD','ETH-USD']
@@ -60,13 +61,23 @@ def ws_input(product_ids):
         yield AdvanceTo(epoch)
 ```
 
+```python
+def ws_input(product_ids):
+    print('{"type":"subscriptions","channels":[{"name":"level2","product_ids":["BTC-USD","ETH-USD"]}]}')
+    epoch = 0
+    for msg in open("crypto-sockets.json"):
+        yield Emit(msg)
+        epoch += 1
+        yield AdvanceTo(epoch)
+```
+
 Now that we have our web socket based data generator built, we will write an input builder for our dataflow. Since we're using a manual input builder, we'll pass a `ManualInputConfig` as our `input_config` with the builder as a parameter. The input builder is called on each worker and the function will have information about the `worker_index` and the total number of workers (`worker_count`). In this case we are designing our input builder to handle multiple workers and multiple currency pairs, so that we can parallelize the input. So we will distribute the currency pairs with the logic in the code below. It should be noted that if you run more than one worker with only one currency pair, the other workers will not be used.
 
-```python doctest:SKIP
-from bytewax import Dataflow, inputs, spawn_cluster
+```python
 from bytewax.inputs import ManualInputConfig
 
-def input_builder(worker_index, worker_count):
+def input_builder(worker_index, worker_count, resume_epoch):
+    assert resume_epoch == 0  # We're not going to worry about stateful recovery in this example.
     prods_per_worker = int(len(PRODUCT_IDS)/worker_count)
     product_ids = PRODUCT_IDS[int(worker_index*prods_per_worker):int(worker_index*prods_per_worker+prods_per_worker)]
     return ws_input(product_ids)
@@ -76,7 +87,7 @@ input_config = ManualInputConfig(input_builder)
 
 Now that we have our input builder finished, we can create our output builder. The output builder is used in conjunction with `spawn_cluster`. In a dataflow, when you use the `capture` operator, the output_builder is called and will receive information about the worker as well as the epoch and the data (in the format `(epoch, data)`). For this example, we keep it simple, we are just going to print out the result of our dataflow to the terminal.
 
-```python doctest:SKIP
+```python
 def output_builder(worker_index, worker_count):
     return print
 ```
@@ -86,7 +97,9 @@ Building Our Dataflow
 
 Before we get to the exciting part of our order book dataflow we need to prep the data. We initially receive some JSON formatted text, so we will first deserialize the JSON we are receiving from the websocket into a dictionary. Once deserialized, we can reformat the data to be a tuple of the shape (product_id, data). This will permit us to aggregate by the product_id as our key in the next step.
 
-```python doctest:SKIP
+```python
+from bytewax import Dataflow
+
 def key_on_product(data):
     return(data['product_id'],data)
 
@@ -135,7 +148,7 @@ To maintain an order book in real time, we will first need to construct an objec
 
 Below we have the code for the OrderBook object that has a bids and asks dictionary. These will be used to first create the order book from the snapshot and once created we can attain the first bid price and ask price. The bid price is the highest buy order placed and the ask price is the lowest sell order places. Once we have determined the bid and ask prices, we will be able to calculate the spread and track that as well.
 
-```python doctest:SKIP
+```python
 class OrderBook:
     def __init__(self):
         # if using Python < 3.7 need to use OrderedDict here
@@ -155,11 +168,6 @@ class OrderBook:
             # since the asks are in order, the first item of our newly constructed
             # asks will be our ask price, so we can track the best ask
             self.ask_price = next(iter(self.asks))
-```
-
-With our snapshot processed, for each new message we receive from the websocket, we can update the order book, the bid and ask price and the spread. Sometimes an order was filled or it was cancelled and in this case what we receive from the update is something similar to `'changes': [['buy', '36905.39', '0.00000000']]`. When we receive these updates of size `'0.00000000'`, we can remove that item from our book and potentially update our bid and ask price. The code below will check if the order should be removed and if not it will update the order. If the order was removed, it will check to make sure the bid and ask prices are modified if required.
-
-```python doctest:SKIP
         else:
             # We receive a list of lists here, normally it is only one change,
             # but could be more than one.
@@ -200,30 +208,54 @@ With our snapshot processed, for each new message we receive from the websocket,
                         self.bid_price = price
         return self, {'bid': self.bid_price, 'bid_size': self.bids[self.bid_price], 'ask': self.ask_price, 'ask_price': self.asks[self.ask_price], 'spread': self.ask_price-self.bid_price}
 
-flow.stateful_map(lambda key: OrderBook(), OrderBook.update)
-# if using bytewax>0.9.0 --> flow.stateful_map("order_book", lambda key: OrderBook(), OrderBook.update)
+flow.stateful_map("order_book", lambda key: OrderBook(), OrderBook.update)
 ```
+
+With our snapshot processed, for each new message we receive from the websocket, we can update the order book, the bid and ask price and the spread via the `update` method. Sometimes an order was filled or it was cancelled and in this case what we receive from the update is something similar to `'changes': [['buy', '36905.39', '0.00000000']]`. When we receive these updates of size `'0.00000000'`, we can remove that item from our book and potentially update our bid and ask price. The code below will check if the order should be removed and if not it will update the order. If the order was removed, it will check to make sure the bid and ask prices are modified if required.
 
 Finishing it up, for fun we can filter for a spread as a percentage of the ask price greater than 01% and then capture the output. Maybe we can profit off of this spread... or maybe not.
 
 The `capture` operator is designed to use the output builder function that we defined earlier. In this case it will print out to our terminal.
 
-```python doctest:SKIP
+```python
 flow.filter(lambda x: x[-1]['spread'] / x[-1]['ask'] > 0.0001)
 flow.capture()
 ```
 
-[Bytewax provides a few different entry points for executing a dataflow](/getting-started/execution/), in this example we are using `bytewax.spawn_cluster` which allows us to run dataflows in parallel on threads and processes.
-
-```python doctest:SKIP
-if __name__ == "__main__":
-    spawn_cluster(flow, input_config, output_builder, **parse.cluster_args())
-```
-
+[Bytewax provides a few different entry points for executing a dataflow](/getting-started/execution/).
 That's it, let's run it and verify our output:
 
+```python
+from bytewax import run_main
+
+run_main(flow, input_config, output_builder)
+```
+
+```{testoutput}
+{"type":"subscriptions","channels":[{"name":"level2","product_ids":["BTC-USD","ETH-USD"]}]}
+(0, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
+(2, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
+(4, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
+(6, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
+(8, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
+(10, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.04939131, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
+(12, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.04939131, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
+(14, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.04939131, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
+(15, ('ETH-USD', {'bid': 1088.41, 'bid_size': 7.6889646, 'ask': 1088.7, 'ask_price': 0.12011129, 'spread': 0.2899999999999636}))
+```
+
+Another entry point `bytewax.spawn_cluster` which allows us to run dataflows in parallel on threads and processes.
+
+```python doctest:SKIP
+from bytewax import parse, spawn_cluster
+
+spawn_cluster(flow, input_config, output_builder, **parse.cluster_args())
+```
+
+If running from the command line, you can invoke it yourself with:
+
 ```bash
-python orderbook.py
+$ python orderbook.py
 # for multiple workers --> python orderbook.py -w 2
 ```
 
