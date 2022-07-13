@@ -18,11 +18,73 @@ Use these to wrap an existing iterator which yields items.
 
 import datetime
 import heapq
-
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Tuple
+from .bytewax import AdvanceTo, Emit, KafkaInputConfig, ManualInputConfig, InputConfig
 
-from .bytewax import AdvanceTo, Emit
+
+def distribute(elements: Iterable[Any], index: int, count: int) -&gt; Iterable[Any]:
+    &#34;&#34;&#34;Distribute elements equally between a number of buckets and return
+    the items for the given bucket index.
+
+    No two buckets will get the same element.
+
+    &gt;&gt;&gt; list(distribute([&#34;blue&#34;, &#34;green&#34;, &#34;red&#34;], 0, 2))
+    [&#39;blue&#39;, &#39;red&#39;]
+    &gt;&gt;&gt; list(distribute([&#34;blue&#34;, &#34;green&#34;, &#34;red&#34;], 1, 2))
+    [&#39;green&#39;]
+
+    Note that if you have more buckets than elements, some buckets
+    will get nothing.
+
+    &gt;&gt;&gt; list(distribute([&#34;blue&#34;, &#34;green&#34;, &#34;red&#34;], 3, 5))
+    []
+
+    This is very useful when writing input builders and you want each
+    of your workers to handle reading a disjoint partition of your
+    input.
+
+    &gt;&gt;&gt; from bytewax import Dataflow, spawn_cluster
+    &gt;&gt;&gt; from bytewax.inputs import ManualInputConfig
+    &gt;&gt;&gt; def read_topics(topics):
+    ...     for topic in topics:
+    ...         for i in enumerate(3):
+    ...             yield f&#34;topic:{topic} item:{i}&#34;
+    &gt;&gt;&gt; def input_builder(i, n):
+    ...    all_topics = [&#34;red&#34;, &#34;green&#34;, &#34;blue&#34;]
+    ...    this_workers_topics = distribute(listening_topics, i, n)
+    ...    for item in read_topics(this_workers_topics):
+    ...        yield Emit(f&#34;worker_index:{worker_index}&#34; + item)
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; spawn_cluster(flow, ManualInputConfig(input_builder), lambda i, n: print)
+    (0, &#39;worker_index:1 topic:red item:0&#39;)
+    (0, &#39;worker_index:1 topic:red item:1&#39;)
+    (0, &#39;worker_index:1 topic:red item:2&#39;)
+    (0, &#39;worker_index:1 topic:blue item:0&#39;)
+    (0, &#39;worker_index:1 topic:blue item:1&#39;)
+    (0, &#39;worker_index:1 topic:blue item:2&#39;)
+    (0, &#39;worker_index:2 topic:green item:0&#39;)
+    (0, &#39;worker_index:2 topic:green item:1&#39;)
+    (0, &#39;worker_index:2 topic:green item:2&#39;)
+
+    Args:
+
+        elements: To distribute.
+
+        index: Index of this bucket / worker starting at 0.
+
+        count: Total number of buckets / workers.
+
+    Returns:
+
+        An iterator of the elements only in this bucket.
+
+    &#34;&#34;&#34;
+    assert index &lt; count, f&#34;Highest index should only be {count - 1}; got {index}&#34;
+    for i, x in enumerate(elements):
+        if i % count == index:
+            yield x
 
 
 def yield_epochs(fn: Callable):
@@ -35,21 +97,21 @@ def yield_epochs(fn: Callable):
     `bytewax.cluster_main()` or `bytewax.spawn_cluster()`:
 
     &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
-    &gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered
+    &gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered, ManualInputConfig
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
     &gt;&gt;&gt; @yield_epochs
-    ... def input_builder(i, n):
+    ... def input_builder(i, n, re):
     ...   return fully_ordered([&#34;a&#34;, &#34;b&#34;, &#34;c&#34;])
-    &gt;&gt;&gt; cluster_main(flow, input_builder, lambda i, n: print, [], 0, 1)
+    &gt;&gt;&gt; cluster_main(flow, ManualInputConfig(input_builder), lambda i, n: print, [], 0, 1)
     (0, &#39;a&#39;)
     (1, &#39;b&#39;)
     (2, &#39;c&#39;)
 
     &#34;&#34;&#34;
 
-    def inner_fn(worker_index, worker_count):
-        gen = fn(worker_index, worker_count)
+    def inner_fn(worker_index, worker_count, resume_epoch):
+        gen = fn(worker_index, worker_count, resume_epoch)
         for (epoch, item) in gen:
             yield AdvanceTo(epoch)
             yield Emit(item)
@@ -334,6 +396,129 @@ def sorted_window(
 <section>
 <h2 class="api__article-subtitle" id="header-functions">Functions</h2>
 <dl>
+<dt id="bytewax.inputs.distribute"><code class="language-python name flex">
+<span>def <span class="ident">distribute</span></span>(<span>elements: Iterable[Any], index: int, count: int) ‑> Iterable[Any]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Distribute elements equally between a number of buckets and return
+the items for the given bucket index.</p>
+<p>No two buckets will get the same element.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; list(distribute([&quot;blue&quot;, &quot;green&quot;, &quot;red&quot;], 0, 2))
+['blue', 'red']
+&gt;&gt;&gt; list(distribute([&quot;blue&quot;, &quot;green&quot;, &quot;red&quot;], 1, 2))
+['green']
+</code></pre>
+<p>Note that if you have more buckets than elements, some buckets
+will get nothing.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; list(distribute([&quot;blue&quot;, &quot;green&quot;, &quot;red&quot;], 3, 5))
+[]
+</code></pre>
+<p>This is very useful when writing input builders and you want each
+of your workers to handle reading a disjoint partition of your
+input.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, spawn_cluster
+&gt;&gt;&gt; from bytewax.inputs import ManualInputConfig
+&gt;&gt;&gt; def read_topics(topics):
+...     for topic in topics:
+...         for i in enumerate(3):
+...             yield f&quot;topic:{topic} item:{i}&quot;
+&gt;&gt;&gt; def input_builder(i, n):
+...    all_topics = [&quot;red&quot;, &quot;green&quot;, &quot;blue&quot;]
+...    this_workers_topics = distribute(listening_topics, i, n)
+...    for item in read_topics(this_workers_topics):
+...        yield Emit(f&quot;worker_index:{worker_index}&quot; + item)
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; spawn_cluster(flow, ManualInputConfig(input_builder), lambda i, n: print)
+(0, 'worker_index:1 topic:red item:0')
+(0, 'worker_index:1 topic:red item:1')
+(0, 'worker_index:1 topic:red item:2')
+(0, 'worker_index:1 topic:blue item:0')
+(0, 'worker_index:1 topic:blue item:1')
+(0, 'worker_index:1 topic:blue item:2')
+(0, 'worker_index:2 topic:green item:0')
+(0, 'worker_index:2 topic:green item:1')
+(0, 'worker_index:2 topic:green item:2')
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>elements</code></strong></dt>
+<dd>To distribute.</dd>
+<dt><strong><code>index</code></strong></dt>
+<dd>Index of this bucket / worker starting at 0.</dd>
+<dt><strong><code>count</code></strong></dt>
+<dd>Total number of buckets / workers.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>An iterator of the elements only in this bucket.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def distribute(elements: Iterable[Any], index: int, count: int) -&gt; Iterable[Any]:
+    &#34;&#34;&#34;Distribute elements equally between a number of buckets and return
+    the items for the given bucket index.
+
+    No two buckets will get the same element.
+
+    &gt;&gt;&gt; list(distribute([&#34;blue&#34;, &#34;green&#34;, &#34;red&#34;], 0, 2))
+    [&#39;blue&#39;, &#39;red&#39;]
+    &gt;&gt;&gt; list(distribute([&#34;blue&#34;, &#34;green&#34;, &#34;red&#34;], 1, 2))
+    [&#39;green&#39;]
+
+    Note that if you have more buckets than elements, some buckets
+    will get nothing.
+
+    &gt;&gt;&gt; list(distribute([&#34;blue&#34;, &#34;green&#34;, &#34;red&#34;], 3, 5))
+    []
+
+    This is very useful when writing input builders and you want each
+    of your workers to handle reading a disjoint partition of your
+    input.
+
+    &gt;&gt;&gt; from bytewax import Dataflow, spawn_cluster
+    &gt;&gt;&gt; from bytewax.inputs import ManualInputConfig
+    &gt;&gt;&gt; def read_topics(topics):
+    ...     for topic in topics:
+    ...         for i in enumerate(3):
+    ...             yield f&#34;topic:{topic} item:{i}&#34;
+    &gt;&gt;&gt; def input_builder(i, n):
+    ...    all_topics = [&#34;red&#34;, &#34;green&#34;, &#34;blue&#34;]
+    ...    this_workers_topics = distribute(listening_topics, i, n)
+    ...    for item in read_topics(this_workers_topics):
+    ...        yield Emit(f&#34;worker_index:{worker_index}&#34; + item)
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; spawn_cluster(flow, ManualInputConfig(input_builder), lambda i, n: print)
+    (0, &#39;worker_index:1 topic:red item:0&#39;)
+    (0, &#39;worker_index:1 topic:red item:1&#39;)
+    (0, &#39;worker_index:1 topic:red item:2&#39;)
+    (0, &#39;worker_index:1 topic:blue item:0&#39;)
+    (0, &#39;worker_index:1 topic:blue item:1&#39;)
+    (0, &#39;worker_index:1 topic:blue item:2&#39;)
+    (0, &#39;worker_index:2 topic:green item:0&#39;)
+    (0, &#39;worker_index:2 topic:green item:1&#39;)
+    (0, &#39;worker_index:2 topic:green item:2&#39;)
+
+    Args:
+
+        elements: To distribute.
+
+        index: Index of this bucket / worker starting at 0.
+
+        count: Total number of buckets / workers.
+
+    Returns:
+
+        An iterator of the elements only in this bucket.
+
+    &#34;&#34;&#34;
+    assert index &lt; count, f&#34;Highest index should only be {count - 1}; got {index}&#34;
+    for i, x in enumerate(elements):
+        if i % count == index:
+            yield x</code></pre>
+</details>
+</dd>
 <dt id="bytewax.inputs.fully_ordered"><code class="language-python name flex">
 <span>def <span class="ident">fully_ordered</span></span>(<span>wrap_iter: Iterable) ‑> Iterable[Tuple[int, Any]]</span>
 </code></dt>
@@ -787,19 +972,19 @@ This can be used for continuity during processing.</dd>
 </code></dt>
 <dd>
 <div class="desc"><p>A decorator function to unwrap an iterator of [epoch, item]
-into successive <code>AdvanceTo</code> and <code>Emit</code> classes with the
+into successive <code><a title="bytewax.inputs.AdvanceTo" href="#bytewax.inputs.AdvanceTo">AdvanceTo</a></code> and <code><a title="bytewax.inputs.Emit" href="#bytewax.inputs.Emit">Emit</a></code> classes with the
 contents of the iterator.</p>
 <p>Use this when you have an input_builder function that returns a
 generator of (epoch, item) to be used with
 <code><a title="bytewax.cluster_main" href="index.html#bytewax.cluster_main">cluster_main()</a></code> or <code><a title="bytewax.spawn_cluster" href="index.html#bytewax.spawn_cluster">spawn_cluster()</a></code>:</p>
 <pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
-&gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered
+&gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered, ManualInputConfig
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.capture()
 &gt;&gt;&gt; @yield_epochs
-... def input_builder(i, n):
+... def input_builder(i, n, re):
 ...   return fully_ordered([&quot;a&quot;, &quot;b&quot;, &quot;c&quot;])
-&gt;&gt;&gt; cluster_main(flow, input_builder, lambda i, n: print, [], 0, 1)
+&gt;&gt;&gt; cluster_main(flow, ManualInputConfig(input_builder), lambda i, n: print, [], 0, 1)
 (0, 'a')
 (1, 'b')
 (2, 'c')
@@ -818,21 +1003,21 @@ generator of (epoch, item) to be used with
     `bytewax.cluster_main()` or `bytewax.spawn_cluster()`:
 
     &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
-    &gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered
+    &gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered, ManualInputConfig
     &gt;&gt;&gt; flow = Dataflow()
     &gt;&gt;&gt; flow.capture()
     &gt;&gt;&gt; @yield_epochs
-    ... def input_builder(i, n):
+    ... def input_builder(i, n, re):
     ...   return fully_ordered([&#34;a&#34;, &#34;b&#34;, &#34;c&#34;])
-    &gt;&gt;&gt; cluster_main(flow, input_builder, lambda i, n: print, [], 0, 1)
+    &gt;&gt;&gt; cluster_main(flow, ManualInputConfig(input_builder), lambda i, n: print, [], 0, 1)
     (0, &#39;a&#39;)
     (1, &#39;b&#39;)
     (2, &#39;c&#39;)
 
     &#34;&#34;&#34;
 
-    def inner_fn(worker_index, worker_count):
-        gen = fn(worker_index, worker_count)
+    def inner_fn(worker_index, worker_count, resume_epoch):
+        gen = fn(worker_index, worker_count, resume_epoch)
         for (epoch, item) in gen:
             yield AdvanceTo(epoch)
             yield Emit(item)
@@ -843,6 +1028,159 @@ generator of (epoch, item) to be used with
 </dl>
 </section>
 <section>
+<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
+<dl>
+<dt id="bytewax.inputs.AdvanceTo"><code class="language-python flex name class">
+<span>class <span class="ident">AdvanceTo</span></span>
+<span>(</span><span>epoch)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Advance to the supplied epoch.</p>
+<p>When providing input to a Dataflow, work cannot complete until
+there is no more data for a given epoch.</p>
+<p>AdvanceTo is the signal to a Dataflow that the frontier has moved
+beyond the current epoch, and that items with an epoch less than
+the epoch in AdvanceTo can be worked to completion.</p>
+<p>Using AdvanceTo and Emit is only necessary when using <code>spawn_cluster</code>
+and <code>cluster_main()</code> as <code>run()</code> and <code>run_cluster()</code> will yield AdvanceTo
+and Emit for you. Likewise, they are only required when using a
+manual input configuration.</p>
+<p>See also: <code>inputs.yield_epochs()</code></p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def input_builder(worker_index, worker_count, resume_epoch):
+...     for i in range(10):
+...         yield AdvanceTo(i) # Advances the epoch to i
+...         yield Emit(i) # Adds the input i at epoch i
+</code></pre></div>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.inputs.AdvanceTo.epoch"><code class="language-python name">var <span class="ident">epoch</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.inputs.Emit"><code class="language-python flex name class">
+<span>class <span class="ident">Emit</span></span>
+<span>(</span><span>item)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Emit the supplied item into the dataflow at the current epoch</p>
+<p>Emit is how we introduce input into a dataflow using a manual
+input configuration:</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def input_builder(worker_index, worker_count, resume_epoch):
+...     for i in range(10):
+...         yield AdvanceTo(i) # Advances the epoch to i
+...         yield Emit(i) # Adds the input i at epoch i
+</code></pre></div>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.inputs.Emit.item"><code class="language-python name">var <span class="ident">item</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.inputs.InputConfig"><code class="language-python flex name class">
+<span>class <span class="ident">InputConfig</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for an input config.</p>
+<p>InputConfig defines how you will input data to your dataflow.</p>
+<p>Use a specific subclass of InputConfig for the kind of input
+source you are plan to use. See the subclasses in this module.</p></div>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="bytewax.inputs.KafkaInputConfig" href="#bytewax.inputs.KafkaInputConfig">KafkaInputConfig</a></li>
+<li><a title="bytewax.inputs.ManualInputConfig" href="#bytewax.inputs.ManualInputConfig">ManualInputConfig</a></li>
+</ul>
+</dd>
+<dt id="bytewax.inputs.KafkaInputConfig"><code class="language-python flex name class">
+<span>class <span class="ident">KafkaInputConfig</span></span>
+<span>(</span><span>brokers, group_id, topics, offset_reset, auto_commit, messages_per_epoch)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use <a href="https://kafka.apache.org">Kafka</a> as the input source. Currently
+does not support recovery. Kafka messages will be passed through the dataflow
+as byte two-tuples of Kafka key and payload.</p>
+<p>Currently Kafka input does not support recovery.</p>
+<h2 id="args">Args</h2>
+<p>brokers: Comma-separated of broker addresses.
+E.g. "localhost:9092,localhost:9093"</p>
+<p>group_id: Group id as a string.</p>
+<p>topic: Topic to which consumer will subscribe.</p>
+<dl>
+<dt><strong><code>offset_reset</code></strong></dt>
+<dd>Can be "earliest" or "latest". Delegates where to resume if
+auto_commit is not enabled. Defaults to "earliest".</dd>
+</dl>
+<p>auto_commit: If true, commit offset of the last message handed to the
+application. This committed offset will be used when the process
+restarts to pick up where it left off. Defaults to false.</p>
+<p>messages_per_epoch: (integer) Defines maximum number of messages per epoch.
+Defaults to <code>1</code>. If the consumer times out waiting, the system will
+increment to the next epoch, and fewer (or no) messages may be assigned
+to the preceding epoch.</p>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this as the <code>input_config</code> argument to
+your execution entry point.</p></div>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.inputs.InputConfig" href="#bytewax.inputs.InputConfig">InputConfig</a></li>
+</ul>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.inputs.KafkaInputConfig.auto_commit"><code class="language-python name">var <span class="ident">auto_commit</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+<dt id="bytewax.inputs.KafkaInputConfig.brokers"><code class="language-python name">var <span class="ident">brokers</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+<dt id="bytewax.inputs.KafkaInputConfig.group_id"><code class="language-python name">var <span class="ident">group_id</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+<dt id="bytewax.inputs.KafkaInputConfig.messages_per_epoch"><code class="language-python name">var <span class="ident">messages_per_epoch</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+<dt id="bytewax.inputs.KafkaInputConfig.offset_reset"><code class="language-python name">var <span class="ident">offset_reset</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+<dt id="bytewax.inputs.KafkaInputConfig.topics"><code class="language-python name">var <span class="ident">topics</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.inputs.ManualInputConfig"><code class="language-python flex name class">
+<span>class <span class="ident">ManualInputConfig</span></span>
+<span>(</span><span>input_builder)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use a user-defined function that returns an iterable as the input source.</p>
+<p>It is your responsibility to design your input handlers in such a
+way that it jumps to the point in the input that corresponds to
+the <code>resume_epoch</code> argument; if it can't (because the input is
+ephemeral) you can still recover the dataflow, but the lost input
+is unable to be replayed so the output will be different.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>input_builder</code></strong></dt>
+<dd>An input_builder function that yields <code><a title="bytewax.inputs.AdvanceTo" href="#bytewax.inputs.AdvanceTo">AdvanceTo</a></code> or <code><a title="bytewax.inputs.Emit" href="#bytewax.inputs.Emit">Emit</a></code>
+with this worker's input. Must resume from the epoch specified.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this as the <code>input_config</code> argument to
+your execution entry point.</p></div>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.inputs.InputConfig" href="#bytewax.inputs.InputConfig">InputConfig</a></li>
+</ul>
+</dd>
+</dl>
 </section>
 <footer class="api__footer" id="footer">
 <p class="api__footer-copyright">
@@ -856,7 +1194,7 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <h3 class="api__sidebar-nav-title">Super-module</h3>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item">
-<a class="api__sidebar-nav-menu-link api-supermodule">
+<a class="api__sidebar-nav-menu-link api-supermodule" href="/apidocs">
 bytewax
 </a>
 </li>
@@ -865,11 +1203,46 @@ bytewax
 <li class="api__sidebar-nav-item">
 <h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
 <ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.distribute" href="#bytewax.inputs.distribute">distribute</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.fully_ordered" href="#bytewax.inputs.fully_ordered">fully_ordered</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.single_batch" href="#bytewax.inputs.single_batch">single_batch</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.sorted_window" href="#bytewax.inputs.sorted_window">sorted_window</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.tumbling_epoch" href="#bytewax.inputs.tumbling_epoch">tumbling_epoch</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.yield_epochs" href="#bytewax.inputs.yield_epochs">yield_epochs</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
+<ul class="api__sidebar-nav-classes">
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.AdvanceTo" href="#bytewax.inputs.AdvanceTo">AdvanceTo</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.AdvanceTo.epoch" href="#bytewax.inputs.AdvanceTo.epoch">epoch</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.Emit" href="#bytewax.inputs.Emit">Emit</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.Emit.item" href="#bytewax.inputs.Emit.item">item</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.InputConfig" href="#bytewax.inputs.InputConfig">InputConfig</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.KafkaInputConfig" href="#bytewax.inputs.KafkaInputConfig">KafkaInputConfig</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.auto_commit" href="#bytewax.inputs.KafkaInputConfig.auto_commit">auto_commit</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.brokers" href="#bytewax.inputs.KafkaInputConfig.brokers">brokers</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.group_id" href="#bytewax.inputs.KafkaInputConfig.group_id">group_id</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.messages_per_epoch" href="#bytewax.inputs.KafkaInputConfig.messages_per_epoch">messages_per_epoch</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.offset_reset" href="#bytewax.inputs.KafkaInputConfig.offset_reset">offset_reset</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.topics" href="#bytewax.inputs.KafkaInputConfig.topics">topics</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.ManualInputConfig" href="#bytewax.inputs.ManualInputConfig">ManualInputConfig</a></h4>
+</li>
 </ul>
 </li>
 </ul>

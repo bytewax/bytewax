@@ -5,6 +5,20 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## 0.10.0
+
+- Input is no longer specified using an `input_builder`, but now an
+  `input_config` which allows you to use pre-built input
+  components. See `bytewax.inputs` for more info.
+
+- Preliminary support for a pre-built Kafka input component. See
+  `bytewax.inputs.KafkaInputConfig`.
+
+- Keys used in the `(key, value)` 2-tuples to route data for stateful
+  operators (like `stateful_map` and `reduce_epoch`) must now be
+  strings. Because of this `bytewax.exhash` is no longer necessary and
+  has been removed.
+
 - Recovery format has been changed for all recovery stores. You cannot
   resume from recovery data written with an older version.
 
