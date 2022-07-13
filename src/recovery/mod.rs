@@ -298,6 +298,9 @@ pub(crate) fn default_recovery_config() -> Py<RecoveryConfig> {
 /// Creates a SQLite DB per-worker in a given directory. Multiple DBs
 /// are used to allow workers to write without contention.
 ///
+/// Use a distinct directory per dataflow so recovery data is not
+/// mixed.
+///
 /// >>> flow = Dataflow()
 /// >>> flow.capture()
 /// >>> def input_builder(worker_index, worker_count, resume_epoch):
@@ -321,9 +324,10 @@ pub(crate) fn default_recovery_config() -> Py<RecoveryConfig> {
 ///
 /// Args:
 ///
-///     db_dir: Existing directory to store per-worker DBs in. DB
-///     files will have names like `"worker0.sqlite3"`. You can use
-///     `"."` for the current directory.
+///     db_dir: Existing directory to store per-worker DBs in. Must be
+///     distinct per-dataflow. DB files will have names like
+///     `"worker0.sqlite3"`. You can use `"."` for the current
+///     directory.
 ///
 /// Returns:
 ///
@@ -386,6 +390,9 @@ impl SqliteRecoveryConfig {
 /// log compaction so that topic size is proportional to state size,
 /// not epoch count.
 ///
+/// Use a distinct topic prefix per dataflow so recovery data is not
+/// mixed.
+//
 /// >>> flow = Dataflow()
 /// >>> flow.capture()
 /// >>> def input_builder(worker_index, worker_count, resume_epoch):
@@ -414,10 +421,9 @@ impl SqliteRecoveryConfig {
 ///
 ///     hosts: List of `host:port` strings of Kafka brokers.
 ///
-///     topic_prefix: Prefix used for naming topics. Two topics will
-///         be created using this prefix:
-///         e.g. `"sample-dataflow-progress"` and
-///         `"sample-dataflow-state"`.
+///     topic_prefix: Prefix used for naming topics. Must be distinct
+///     per-dataflow. Two topics will be created using this prefix
+///     `"topic_prefix-progress"` and `"topic_prefix-state"`.
 ///
 /// Returns:
 ///

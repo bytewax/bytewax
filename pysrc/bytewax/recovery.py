@@ -22,8 +22,11 @@ automatically.
 Caveats
 -------
 
-Recovery data for multiple dataflows can not be mixed together. Use a
-different recovery config for each dataflow.
+Recovery data for multiple dataflows _must not_ be mixed together. See
+the docs for each `RecoveryConfig` subclass for what this means
+depending on the recovery store. E.g. when using a
+`KafkaRecoveryConfig`, each dataflow must have a distinct topic
+prefix.
 
 The epoch is the unit of recovery: dataflows will only resume on epoch
 boundaries.
