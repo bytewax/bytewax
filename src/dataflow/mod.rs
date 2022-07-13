@@ -4,6 +4,16 @@ use pyo3::prelude::*;
 use pyo3::types::*;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::sqlite::SqliteArgumentValue;
+use sqlx::sqlite::SqliteTypeInfo;
+use sqlx::sqlite::SqliteValueRef;
+use sqlx::Decode;
+use sqlx::Encode;
+use sqlx::Sqlite;
+use sqlx::Type;
+use std::borrow::Cow;
 use std::fmt::Display;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -24,6 +34,31 @@ impl From<String> for StepId {
 impl From<StepId> for String {
     fn from(step_id: StepId) -> Self {
         step_id.0
+    }
+}
+
+impl Type<Sqlite> for StepId {
+    fn type_info() -> SqliteTypeInfo {
+        <String as Type<Sqlite>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Sqlite> for StepId {
+    fn encode(self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
+        args.push(SqliteArgumentValue::Text(Cow::Owned(self.0)));
+        IsNull::No
+    }
+
+    fn encode_by_ref(&self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
+        args.push(SqliteArgumentValue::Text(Cow::Owned(self.0.clone())));
+        IsNull::No
+    }
+}
+
+impl<'r> Decode<'r, Sqlite> for StepId {
+    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
+        let value = <String as Decode<Sqlite>>::decode(value)?;
+        Ok(Self(value))
     }
 }
 
@@ -211,13 +246,13 @@ impl Dataflow {
         self.steps.push(Step::InspectEpoch { inspector });
     }
 
-    /// Reduce lets you combine items for a key into an aggregator in
+    /// Reduce lets you combine items for a key into an accumulator in
     /// epoch order.
     ///
     /// It is a stateful operator. It requires the the input stream
     /// has items that are `(key: str, value)` tuples so we can ensure
     /// that all relevant values are routed to the relevant
-    /// aggregator.
+    /// accumulator.
     ///
     /// It is a recoverable operator. It requires a step ID to recover
     /// the correct state.
@@ -225,19 +260,19 @@ impl Dataflow {
     /// It calls two functions:
     ///
     /// - A **reducer** which combines a new value with an
-    /// aggregator. The aggregator is initially the first value seen
+    /// accumulator. The accumulator is initially the first value seen
     /// for a key. Values will be passed in epoch order, but no order
     /// is defined within an epoch. If there is only a single value
     /// for a key since the last completion, this function will not be
     /// called.
     ///
     /// - An **is complete** function which returns `True` if the most
-    /// recent `(key, aggregator)` should be emitted downstream and
-    /// the aggregator for that key forgotten. If there was only a
-    /// single value for a key, it is passed in as the aggregator
+    /// recent `(key, accumulator)` should be emitted downstream and
+    /// the accumulator for that key forgotten. If there was only a
+    /// single value for a key, it is passed in as the accumulator
     /// here.
     ///
-    /// It emits `(key, aggregator)` tuples downstream when the is
+    /// It emits `(key, accumulator)` tuples downstream when the is
     /// complete function returns `True` in the epoch of the most
     /// recent value for that key.
     ///
@@ -256,7 +291,7 @@ impl Dataflow {
     /// >>> flow = Dataflow()
     /// >>> flow.map(user_as_key)
     /// >>> flow.inspect_epoch(lambda epoch, item: print("Saw", item, "@", epoch))
-    /// >>> flow.reduce(extend_session, session_complete)
+    /// >>> flow.reduce("sessionizer", extend_session, session_complete)
     /// >>> flow.capture()
     /// >>> inp = [
     /// ...     (0, {"user": "a", "type": "login"}),
@@ -272,10 +307,10 @@ impl Dataflow {
     ///
     ///     step_id - Uniquely identifies this step for recovery.
     ///
-    ///     reducer - `reducer(aggregator: Any, value: Any) =>
-    ///         updated_aggregator: Any`
+    ///     reducer - `reducer(accumulator: Any, value: Any) =>
+    ///         updated_accumulator: Any`
     ///
-    ///     is_complete - `is_complete(updated_aggregator: Any) =>
+    ///     is_complete - `is_complete(updated_accumulator: Any) =>
     ///         should_emit: bool`
     #[pyo3(text_signature = "(self, step_id, reducer, is_complete)")]
     fn reduce(&mut self, step_id: String, reducer: TdPyCallable, is_complete: TdPyCallable) {
@@ -287,29 +322,29 @@ impl Dataflow {
     }
 
     /// Reduce epoch lets you combine all items for a key within an
-    /// epoch into an aggregator.
+    /// epoch into an accumulator.
     ///
     /// It is like `bytewax.Dataflow.reduce()` but marks the
-    /// aggregator as complete automatically at the end of each epoch.
+    /// accumulator as complete automatically at the end of each epoch.
     ///
     /// It is a stateful operator. it requires the the input stream
     /// has items that are `(key: str, value)` tuples so we can ensure
     /// that all relevant values are routed to the relevant
-    /// aggregator.
+    /// accumulator.
     ///
     /// It calls a **reducer** function which combines two values. The
-    /// aggregator is initially the first value seen for a key. Values
+    /// accumulator is initially the first value seen for a key. Values
     /// will be passed in arbitrary order. If there is only a single
     /// value for a key in this epoch, this function will not be
     /// called.
     ///
-    /// It emits `(key, aggregator)` tuples downstream at the end of
+    /// It emits `(key, accumulator)` tuples downstream at the end of
     /// each epoch.
     ///
     /// It is commonly used for:
     ///
     /// - Counting within epochs
-    /// - Aggregation within epochs
+    /// - Accumulation within epochs
     ///
     /// >>> def add_initial_count(event):
     /// ...     return event["user"], 1
@@ -338,8 +373,8 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     reducer - `reducer(aggregator: Any, value: Any) =>
-    ///         updated_aggregator: Any`
+    ///     reducer - `reducer(accumulator: Any, value: Any) =>
+    ///         updated_accumulator: Any`
     #[pyo3(text_signature = "(self, reducer)")]
     fn reduce_epoch(&mut self, reducer: TdPyCallable) {
         self.steps.push(Step::ReduceEpoch { reducer });
@@ -350,18 +385,18 @@ impl Dataflow {
     ///
     /// It is exactly like `bytewax.Dataflow.reduce_epoch()` but does
     /// _not_ ensure all values for a key are routed to the same
-    /// worker and thus there is only one output aggregator per key.
+    /// worker and thus there is only one output accumulator per key.
     ///
     /// You should use `bytewax.Dataflow.reduce_epoch()` unless you
     /// need a network-overhead optimization and some later step does
-    /// full aggregation.
+    /// full accumulation.
     ///
     /// It is only used for performance optimziation.
     ///
     /// Args:
     ///
-    ///     reducer - `reducer(aggregator: Any, value: Any) =>
-    ///         updated_aggregator: Any`
+    ///     reducer - `reducer(accumulator: Any, value: Any) =>
+    ///         updated_accumulator: Any`
     #[pyo3(text_signature = "(self, reducer)")]
     fn reduce_epoch_local(&mut self, reducer: TdPyCallable) {
         self.steps.push(Step::ReduceEpochLocal { reducer });
@@ -413,7 +448,7 @@ impl Dataflow {
     /// ...         return [item]
     /// >>> flow = Dataflow()
     /// >>> flow.map(self_as_key)
-    /// >>> flow.stateful_map(build_count, check)
+    /// >>> flow.stateful_map("remove_duplicates", build_count, check)
     /// >>> flow.flat_map(remove_none_and_key)
     /// >>> flow.capture()
     /// >>> inp = [
@@ -479,6 +514,7 @@ impl Dataflow {
 /// See
 /// <https://docs.rs/timely/latest/timely/dataflow/operators/index.html>
 /// for Timely's operators. We try to keep the same semantics here.
+#[derive(Clone)]
 pub(crate) enum Step {
     Map {
         mapper: TdPyCallable,
