@@ -402,9 +402,9 @@ impl Dataflow {
         self.steps.push(Step::ReduceEpochLocal { reducer });
     }
 
-    /// Stateful map is a one-to-one transformation of values in
-    /// `(key, value)` pairs, but allows you to reference a persistent
-    /// state for each key when doing the transformation.
+    /// Stateful map is a one-to-one transformation of values, but
+    /// allows you to reference a persistent state for each key when
+    /// doing the transformation.
     ///
     /// It is a stateful operator. It requires the the input stream
     /// has items that are `(key: str, value)` tuples so we can ensure

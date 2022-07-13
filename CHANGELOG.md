@@ -14,6 +14,11 @@ notes on GitHub when we make a new release.__
 - Preliminary support for a pre-built Kafka input component. See
   `bytewax.inputs.KafkaInputConfig`.
 
+- Keys used in the `(key, value)` 2-tuples to route data for stateful
+  operators (like `stateful_map` and `reduce_epoch`) must now be
+  strings. Because of this `bytewax.exhash` is no longer necessary and
+  has been removed.
+
 - Recovery format has been changed for all recovery stores. You cannot
   resume from recovery data written with an older version.
 
