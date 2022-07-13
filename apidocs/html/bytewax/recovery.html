@@ -5,73 +5,127 @@
 </header>
 <section class="api__article-intro" id="section-intro">
 <p>Bytewax's state recovery machinery.</p>
-<p>This allows you to <strong>recover</strong> a stateful dataflow; it will let you
-resume processing and output due to system outage or error without
-re-processing all initial data to re-calculate all internal state.</p>
+<p>Bytewax allows you to <strong>recover</strong> a stateful dataflow; it will let you
+resume processing and output due to a failure without re-processing
+all initial data to re-calculate all internal state.</p>
+<p>It does this by storing state and progress information for a single
+dataflow instance in a <strong>recovery store</strong> backed by a durable state
+storage system of your choosing, e.g. Sqlite or Kafka. See the
+subclasses of <code><a title="bytewax.recovery.RecoveryConfig" href="#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></code> in this module for the supported
+datastores, the specifics of how each is utilized, and tradeoffs.</p>
+<h2 id="preparation">Preparation</h2>
 <ol>
 <li>
-<p>Pick a <strong>recovery store</strong> in which internal state will be
-continuously backed up. Different storage systems will have
-different performance and reconfiguration trade-offs.</p>
+<p>Create a <strong>recovery config</strong> for describing how to connect to the
+recovery store of your choosing.</p>
 </li>
 <li>
-<p>Create a <strong>recovery config</strong> for connecting to your recovery store.</p>
+<p>Pass that recovery config as the <code>recovery_config</code> argument to the
+entry point running your dataflow (e.g. <code><a title="bytewax.cluster_main" href="index.html#bytewax.cluster_main">cluster_main()</a></code>).</p>
 </li>
 <li>
-<p>Pass that created config as the <code>recovery_config</code> argument to the
-entry point running your dataflow (e.g. <code><a title="bytewax.run_cluster" href="index.html#bytewax.run_cluster">run_cluster()</a></code>).</p>
-</li>
-<li>
-<p>Run your dataflow consuming input either from the beginning or
-resuming input from the last finalized epoch.</p>
+<p>Run your dataflow! It will start backing up recovery data
+automatically.</p>
 </li>
 </ol>
-<p>The epoch is the unit of recovery. It is your responsibility to design
-your input builders or iterators in such a way that it can be resumed
-from a given epoch; if it can't (because the input is ephemeral) then
-this feature won't allow complete recovery. It is possible that your
-output systems will see duplicate data right around the resumed epoch;
-design your systems to be idempotent or support at-least-once
+<h2 id="caveats">Caveats</h2>
+<p>Recovery data for multiple dataflows <em>must not</em> be mixed together. See
+the docs for each <code><a title="bytewax.recovery.RecoveryConfig" href="#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></code> subclass for what this means
+depending on the recovery store. E.g. when using a
+<code><a title="bytewax.recovery.KafkaRecoveryConfig" href="#bytewax.recovery.KafkaRecoveryConfig">KafkaRecoveryConfig</a></code>, each dataflow must have a distinct topic
+prefix.</p>
+<p>The epoch is the unit of recovery: dataflows will only resume on epoch
+boundaries.</p>
+<p>See comments on input configuration types in <code><a title="bytewax.inputs" href="inputs.html">bytewax.inputs</a></code> for any
+limitations each might have regarding recovery.</p>
+<p>It is possible that your output systems will see duplicate data during
+the resume epoch; design your systems to support at-least-once
 processing.</p>
-<p>Bytewax will automatically save and recover state from the recovery
-store during the execution of stateful operators. You know an operator
-is stateful when it takes a <code>step_id</code> argument.</p>
+<p>Currently it is not possible to recover a dataflow with a different
+number of workers than when it failed.</p>
+<h2 id="on-failure">On Failure</h2>
+<p>If the dataflow fails, first you must fix whatever underlying fault
+caused the issue. That might mean deploying new code which fixes a bug
+or resolving an issue with a connected system.</p>
+<p>Once that is done, re-run the dataflow using the <em>same recovery
+config</em> and thus re-connect to the <em>same recovery store</em>. Bytewax will
+automatically read the progress of the previous dataflow execution and
+determine the most recent epoch that processing can resume at, called
+the <strong>resume epoch</strong>. Output should resume from the beginning of the
+resume epoch.</p>
+<p>If you want to fully restart a dataflow and ignore previous state,
+delete the data in the recovery store using whatever operational tools
+you have for that storage type.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Bytewax&#39;s state recovery machinery.
 
-This allows you to **recover** a stateful dataflow; it will let you
-resume processing and output due to system outage or error without
-re-processing all initial data to re-calculate all internal state.
+Bytewax allows you to **recover** a stateful dataflow; it will let you
+resume processing and output due to a failure without re-processing
+all initial data to re-calculate all internal state.
 
-0. Pick a **recovery store** in which internal state will be
-   continuously backed up. Different storage systems will have
-   different performance and reconfiguration trade-offs.
+It does this by storing state and progress information for a single
+dataflow instance in a **recovery store** backed by a durable state
+storage system of your choosing, e.g. Sqlite or Kafka. See the
+subclasses of `RecoveryConfig` in this module for the supported
+datastores, the specifics of how each is utilized, and tradeoffs.
 
-1. Create a **recovery config** for connecting to your recovery store.
+Preparation
+-----------
 
-2. Pass that created config as the `recovery_config` argument to the
-   entry point running your dataflow (e.g. `bytewax.run_cluster()`).
+1. Create a **recovery config** for describing how to connect to the
+recovery store of your choosing.
 
-3. Run your dataflow consuming input either from the beginning or
-   resuming input from the last finalized epoch.
+2. Pass that recovery config as the `recovery_config` argument to the
+entry point running your dataflow (e.g. `bytewax.cluster_main()`).
 
-The epoch is the unit of recovery. It is your responsibility to design
-your input builders or iterators in such a way that it can be resumed
-from a given epoch; if it can&#39;t (because the input is ephemeral) then
-this feature won&#39;t allow complete recovery. It is possible that your
-output systems will see duplicate data right around the resumed epoch;
-design your systems to be idempotent or support at-least-once
+3. Run your dataflow! It will start backing up recovery data
+automatically.
+
+Caveats
+-------
+
+Recovery data for multiple dataflows _must not_ be mixed together. See
+the docs for each `RecoveryConfig` subclass for what this means
+depending on the recovery store. E.g. when using a
+`KafkaRecoveryConfig`, each dataflow must have a distinct topic
+prefix.
+
+The epoch is the unit of recovery: dataflows will only resume on epoch
+boundaries.
+
+See comments on input configuration types in `bytewax.inputs` for any
+limitations each might have regarding recovery.
+
+It is possible that your output systems will see duplicate data during
+the resume epoch; design your systems to support at-least-once
 processing.
 
-Bytewax will automatically save and recover state from the recovery
-store during the execution of stateful operators. You know an operator
-is stateful when it takes a `step_id` argument.
+Currently it is not possible to recover a dataflow with a different
+number of workers than when it failed.
+
+On Failure
+----------
+
+If the dataflow fails, first you must fix whatever underlying fault
+caused the issue. That might mean deploying new code which fixes a bug
+or resolving an issue with a connected system.
+
+Once that is done, re-run the dataflow using the _same recovery
+config_ and thus re-connect to the _same recovery store_. Bytewax will
+automatically read the progress of the previous dataflow execution and
+determine the most recent epoch that processing can resume at, called
+the **resume epoch**. Output should resume from the beginning of the
+resume epoch.
+
+If you want to fully restart a dataflow and ignore previous state,
+delete the data in the recovery store using whatever operational tools
+you have for that storage type.
 
 &#34;&#34;&#34;
-from .bytewax import RecoveryConfig, SqliteRecoveryConfig</code></pre>
+from .bytewax import KafkaRecoveryConfig, RecoveryConfig, SqliteRecoveryConfig  # noqa</code></pre>
 </details>
 </section>
 <section>
@@ -83,42 +137,50 @@ from .bytewax import RecoveryConfig, SqliteRecoveryConfig</code></pre>
 <section>
 <h2 class="api__article-subtitle" id="header-classes">Classes</h2>
 <dl>
-<dt id="bytewax.recovery.RecoveryConfig"><code class="language-python flex name class">
-<span>class <span class="ident">RecoveryConfig</span></span>
+<dt id="bytewax.recovery.KafkaRecoveryConfig"><code class="language-python flex name class">
+<span>class <span class="ident">KafkaRecoveryConfig</span></span>
+<span>(</span><span>hosts, topic_prefix, create)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Base class for a recovery config.</p>
-<p>This describes how to connect to a recovery store.</p>
-<p>Use a specific subclass of this that matches the kind of storage
-system you are going to use. See the subclasses in this module.</p></div>
-<h3>Subclasses</h3>
-<ul class="hlist">
-<li><a title="bytewax.recovery.SqliteRecoveryConfig" href="#bytewax.recovery.SqliteRecoveryConfig">SqliteRecoveryConfig</a></li>
-</ul>
-</dd>
-<dt id="bytewax.recovery.SqliteRecoveryConfig"><code class="language-python flex name class">
-<span>class <span class="ident">SqliteRecoveryConfig</span></span>
-<span>(</span><span>db_file_path, *, create)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Use <a href="https://sqlite.org/index.html">SQLite</a> as recovery storage.</p>
-<p>Because it's not designed for high-concurrency, SQLite should only
-be used for machine-local testing of dataflows. Multiple workers
-will <em>not</em> result in corrupted data, but there will be reduced
-performance due to contention for the DB lock.</p>
-<p>A <code>state</code> table in this DB will automatically be created and
-queried.</p>
-<p>Only one dataflow can be persisted per SQLite DB. Use a new file
-for a new dataflow.</p>
+<div class="desc"><p>Use <a href="https://kafka.apache.org/">Kafka</a> to store recovery data.</p>
+<p>Uses a "progress" topic and a "state" topic with a number of
+partitions equal to the number of workers. Will take advantage of
+log compaction so that topic size is proportional to state size,
+not epoch count.</p>
+<p>Use a distinct topic prefix per dataflow so recovery data is not
+mixed.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; def input_builder(worker_index, worker_count, resume_epoch):
+...     for epoch, item in enumerate(range(resume_epoch, 3)):
+...         yield AdvanceTo(epoch)
+...         yield Emit(item)
+&gt;&gt;&gt; def output_builder(worker_index, worker_count):
+...     return print
+&gt;&gt;&gt; recovery_config = KafkaRecoveryConfig(
+...     [&quot;localhost:9092&quot;],
+...     &quot;sample-dataflow&quot;,
+... )
+&gt;&gt;&gt; run_main(
+...     flow,
+...     ManualConfig(input_builder),
+...     output_builder,
+...     recovery_config=recovery_config,
+... )  # doctest: +ELLIPSIS
+(...)
+</code></pre>
+<p>If there's no previous recovery data, topics will automatically be
+created with the correct number of partitions and log compaction
+enabled</p>
 <h2 id="args">Args</h2>
 <dl>
-<dt><strong><code>db_file_path</code></strong></dt>
-<dd>Local path to the DB file in Sqlite3
-format. E.g. <code>./state.sqlite3</code></dd>
-<dt><strong><code>create</code></strong></dt>
-<dd>If the DB file is missing, create it. Defaults to
-<code>False</code>.</dd>
+<dt><strong><code>hosts</code></strong></dt>
+<dd>List of <code>host:port</code> strings of Kafka brokers.</dd>
+<dt><strong><code>topic_prefix</code></strong></dt>
+<dd>Prefix used for naming topics. Must be distinct</dd>
 </dl>
+<p>per-dataflow. Two topics will be created using this prefix
+<code>"topic_prefix-progress"</code> and <code>"topic_prefix-state"</code>.</p>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>recovery_config</code> argument to
 your execution entry point.</p></div>
@@ -128,11 +190,80 @@ your execution entry point.</p></div>
 </ul>
 <h3>Instance variables</h3>
 <dl>
-<dt id="bytewax.recovery.SqliteRecoveryConfig.create"><code class="language-python name">var <span class="ident">create</span></code></dt>
+<dt id="bytewax.recovery.KafkaRecoveryConfig.hosts"><code class="language-python name">var <span class="ident">hosts</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
-<dt id="bytewax.recovery.SqliteRecoveryConfig.db_file_path"><code class="language-python name">var <span class="ident">db_file_path</span></code></dt>
+<dt id="bytewax.recovery.KafkaRecoveryConfig.topic_prefix"><code class="language-python name">var <span class="ident">topic_prefix</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.recovery.RecoveryConfig"><code class="language-python flex name class">
+<span>class <span class="ident">RecoveryConfig</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for a recovery config.</p>
+<p>This describes how each worker in a dataflow cluster should store
+its recovery data.</p>
+<p>Use a specific subclass of this that matches the kind of storage
+system you are going to use. See the subclasses in this module.</p></div>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="bytewax.recovery.KafkaRecoveryConfig" href="#bytewax.recovery.KafkaRecoveryConfig">KafkaRecoveryConfig</a></li>
+<li><a title="bytewax.recovery.SqliteRecoveryConfig" href="#bytewax.recovery.SqliteRecoveryConfig">SqliteRecoveryConfig</a></li>
+</ul>
+</dd>
+<dt id="bytewax.recovery.SqliteRecoveryConfig"><code class="language-python flex name class">
+<span>class <span class="ident">SqliteRecoveryConfig</span></span>
+<span>(</span><span>db_dir)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use <a href="https://sqlite.org/index.html">SQLite</a> to store recovery
+data.</p>
+<p>Creates a SQLite DB per-worker in a given directory. Multiple DBs
+are used to allow workers to write without contention.</p>
+<p>Use a distinct directory per dataflow so recovery data is not
+mixed.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; def input_builder(worker_index, worker_count, resume_epoch):
+...     for epoch, item in enumerate(range(resume_epoch, 3)):
+...         yield AdvanceTo(epoch)
+...         yield Emit(item)
+&gt;&gt;&gt; def output_builder(worker_index, worker_count):
+...     return print
+&gt;&gt;&gt; tmp_dir = TemporaryDirectory()  # We'll store this somewhere temporary for this test.
+&gt;&gt;&gt; recovery_config = SqliteRecoveryConfig(tmp_dir)
+&gt;&gt;&gt; run_main(
+...     flow,
+...     ManualConfig(input_builder),
+...     output_builder,
+...     recovery_config=recovery_config,
+... )  # doctest: +ELLIPSIS
+(...)
+</code></pre>
+<p>DB files and tables will automatically be created if there's no
+previous recovery data.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>db_dir</code></strong></dt>
+<dd>Existing directory to store per-worker DBs in. Must be</dd>
+</dl>
+<p>distinct per-dataflow. DB files will have names like
+<code>"worker0.sqlite3"</code>. You can use <code>"."</code> for the current
+directory.</p>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this as the <code>recovery_config</code> argument to
+your execution entry point.</p></div>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.recovery.RecoveryConfig" href="#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></li>
+</ul>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.recovery.SqliteRecoveryConfig.db_dir"><code class="language-python name">var <span class="ident">db_dir</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
@@ -152,7 +283,7 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <h3 class="api__sidebar-nav-title">Super-module</h3>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item">
-<a class="api__sidebar-nav-menu-link api-supermodule">
+<a class="api__sidebar-nav-menu-link api-supermodule" href="/apidocs">
 bytewax
 </a>
 </li>
@@ -162,13 +293,19 @@ bytewax
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.recovery.KafkaRecoveryConfig" href="#bytewax.recovery.KafkaRecoveryConfig">KafkaRecoveryConfig</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.KafkaRecoveryConfig.hosts" href="#bytewax.recovery.KafkaRecoveryConfig.hosts">hosts</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.KafkaRecoveryConfig.topic_prefix" href="#bytewax.recovery.KafkaRecoveryConfig.topic_prefix">topic_prefix</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.recovery.RecoveryConfig" href="#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.recovery.SqliteRecoveryConfig" href="#bytewax.recovery.SqliteRecoveryConfig">SqliteRecoveryConfig</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.SqliteRecoveryConfig.create" href="#bytewax.recovery.SqliteRecoveryConfig.create">create</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.SqliteRecoveryConfig.db_file_path" href="#bytewax.recovery.SqliteRecoveryConfig.db_file_path">db_file_path</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.SqliteRecoveryConfig.db_dir" href="#bytewax.recovery.SqliteRecoveryConfig.db_dir">db_dir</a></li>
 </ul>
 </li>
 </ul>
