@@ -72,7 +72,7 @@ jobs:
             echo "You should check if the last CI Workflow ends successfully."
             echo "https://github.com/bytewax/bytewax/actions/workflows/CI.yml"
             exit 1
-          fi 
+          fi
           EOF
           chmod +x ./check_versions.sh
           ./check_versions.sh
@@ -85,7 +85,7 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
         run: |
           pip install --upgrade twine
-          twine upload --skip-existing *
+          twine upload --skip-existing *.whl
 
   check-pypi:
     name: Check PyPI
