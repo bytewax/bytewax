@@ -325,9 +325,9 @@ pub(crate) fn default_recovery_config() -> Py<RecoveryConfig> {
 /// Args:
 ///
 ///     db_dir: Existing directory to store per-worker DBs in. Must be
-///     distinct per-dataflow. DB files will have names like
-///     `"worker0.sqlite3"`. You can use `"."` for the current
-///     directory.
+///         distinct per-dataflow. DB files will have names like
+///         `"worker0.sqlite3"`. You can use `"."` for the current
+///         directory.
 ///
 /// Returns:
 ///
@@ -422,8 +422,8 @@ impl SqliteRecoveryConfig {
 ///     hosts: List of `host:port` strings of Kafka brokers.
 ///
 ///     topic_prefix: Prefix used for naming topics. Must be distinct
-///     per-dataflow. Two topics will be created using this prefix
-///     `"topic_prefix-progress"` and `"topic_prefix-state"`.
+///         per-dataflow. Two topics will be created using this prefix
+///         `"topic_prefix-progress"` and `"topic_prefix-state"`.
 ///
 /// Returns:
 ///

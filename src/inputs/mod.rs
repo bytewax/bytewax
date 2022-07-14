@@ -26,7 +26,6 @@ use tokio::runtime::Runtime;
 /// and Emit for you. Likewise, they are only required when using a
 /// manual input configuration.
 ///
-///
 /// See also: `inputs.yield_epochs()`
 ///
 /// >>> def input_builder(worker_index, worker_count, resume_epoch):
@@ -108,17 +107,20 @@ pub(crate) struct InputConfig;
 ///
 ///     topic: Topic to which consumer will subscribe.
 ///
-///    offset_reset: Can be "earliest" or "latest". Delegates where to resume if
-///         auto_commit is not enabled. Defaults to "earliest".
+///     offset_reset: Can be "earliest" or "latest". Delegates where
+///         to resume if auto_commit is not enabled. Defaults to
+///         "earliest".
 ///
-///     auto_commit: If true, commit offset of the last message handed to the
-///         application. This committed offset will be used when the process
-///         restarts to pick up where it left off. Defaults to false.
+///     auto_commit: If true, commit offset of the last message handed
+///         to the application. This committed offset will be used
+///         when the process restarts to pick up where it left
+///         off. Defaults to false.
 ///
-///     messages_per_epoch: (integer) Defines maximum number of messages per epoch.
-///         Defaults to `1`. If the consumer times out waiting, the system will
-///         increment to the next epoch, and fewer (or no) messages may be assigned
-///         to the preceding epoch.
+///     messages_per_epoch: (integer) Defines maximum number of
+///         messages per epoch.  Defaults to `1`. If the consumer
+///         times out waiting, the system will increment to the next
+///         epoch, and fewer (or no) messages may be assigned to the
+///         preceding epoch.
 ///
 /// Returns:
 ///

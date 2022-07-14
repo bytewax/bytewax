@@ -625,7 +625,10 @@ returns <code>True</code>.</p>
 3
 </code></pre>
 <h2 id="args">Args</h2>
-<p>predicate - <code>predicate(item: Any) =&gt; should_emit: bool</code></p></div>
+<dl>
+<dt><strong><code>predicate</code></strong></dt>
+<dd><code>predicate(item: Any) =&gt; should_emit: bool</code></dd>
+</dl></div>
 </dd>
 <dt id="bytewax.Dataflow.flat_map"><code class="language-python name flex">
 <span>def <span class="ident">flat_map</span></span>(<span>self, mapper)</span>
@@ -653,7 +656,10 @@ downstream in the epoch of the input item.</p>
 0 world
 </code></pre>
 <h2 id="args">Args</h2>
-<p>mapper - <code>mapper(item: Any) =&gt; emit: Iterable[Any]</code></p></div>
+<dl>
+<dt><strong><code>mapper</code></strong></dt>
+<dd><code>mapper(item: Any) =&gt; emit: Iterable[Any]</code></dd>
+</dl></div>
 </dd>
 <dt id="bytewax.Dataflow.inspect"><code class="language-python name flex">
 <span>def <span class="ident">inspect</span></span>(<span>self, inspector)</span>
@@ -676,7 +682,10 @@ Saw 2
 Saw 3
 </code></pre>
 <h2 id="args">Args</h2>
-<p>inspector - <code>inspector(item: Any) =&gt; None</code></p></div>
+<dl>
+<dt><strong><code>inspector</code></strong></dt>
+<dd><code>inspector(item: Any) =&gt; None</code></dd>
+</dl></div>
 </dd>
 <dt id="bytewax.Dataflow.inspect_epoch"><code class="language-python name flex">
 <span>def <span class="ident">inspect_epoch</span></span>(<span>self, inspector)</span>
@@ -698,7 +707,10 @@ epoch.</p>
 ...    pass  # Don't print captured output.
 </code></pre>
 <h2 id="args">Args</h2>
-<p>inspector - <code>inspector(epoch: int, item: Any) =&gt; None</code></p></div>
+<dl>
+<dt><strong><code>inspector</code></strong></dt>
+<dd><code>inspector(epoch: int, item: Any) =&gt; None</code></dd>
+</dl></div>
 </dd>
 <dt id="bytewax.Dataflow.map"><code class="language-python name flex">
 <span>def <span class="ident">map</span></span>(<span>self, mapper)</span>
@@ -726,7 +738,10 @@ epoch.</p>
 12
 </code></pre>
 <h2 id="args">Args</h2>
-<p>mapper - <code>mapper(item: Any) =&gt; updated_item: Any</code></p></div>
+<dl>
+<dt><strong><code>mapper</code></strong></dt>
+<dd><code>mapper(item: Any) =&gt; updated_item: Any</code></dd>
+</dl></div>
 </dd>
 <dt id="bytewax.Dataflow.reduce"><code class="language-python name flex">
 <span>def <span class="ident">reduce</span></span>(<span>self, step_id, reducer, is_complete)</span>
@@ -789,11 +804,16 @@ recent value for that key.</p>
 ...     print(epoch, item)
 </code></pre>
 <h2 id="args">Args</h2>
-<p>step_id - Uniquely identifies this step for recovery.</p>
-<p>reducer - <code>reducer(accumulator: Any, value: Any) =&gt;
-updated_accumulator: Any</code></p>
-<p>is_complete - <code>is_complete(updated_accumulator: Any) =&gt;
-should_emit: bool</code></p></div>
+<dl>
+<dt><strong><code>step_id</code></strong></dt>
+<dd>Uniquely identifies this step for recovery.</dd>
+<dt><strong><code>reducer</code></strong></dt>
+<dd><code>reducer(accumulator: Any, value: Any) =&gt;
+updated_accumulator: Any</code></dd>
+<dt><strong><code>is_complete</code></strong></dt>
+<dd><code>is_complete(updated_accumulator: Any) =&gt;
+should_emit: bool</code></dd>
+</dl></div>
 </dd>
 <dt id="bytewax.Dataflow.reduce_epoch"><code class="language-python name flex">
 <span>def <span class="ident">reduce_epoch</span></span>(<span>self, reducer)</span>
@@ -845,8 +865,11 @@ Saw ('b', 1) @ 1
 1 ('b', 1)
 </code></pre>
 <h2 id="args">Args</h2>
-<p>reducer - <code>reducer(accumulator: Any, value: Any) =&gt;
-updated_accumulator: Any</code></p></div>
+<dl>
+<dt><strong><code>reducer</code></strong></dt>
+<dd><code>reducer(accumulator: Any, value: Any) =&gt;
+updated_accumulator: Any</code></dd>
+</dl></div>
 </dd>
 <dt id="bytewax.Dataflow.reduce_epoch_local"><code class="language-python name flex">
 <span>def <span class="ident">reduce_epoch_local</span></span>(<span>self, reducer)</span>
@@ -862,8 +885,11 @@ need a network-overhead optimization and some later step does
 full accumulation.</p>
 <p>It is only used for performance optimziation.</p>
 <h2 id="args">Args</h2>
-<p>reducer - <code>reducer(accumulator: Any, value: Any) =&gt;
-updated_accumulator: Any</code></p></div>
+<dl>
+<dt><strong><code>reducer</code></strong></dt>
+<dd><code>reducer(accumulator: Any, value: Any) =&gt;
+updated_accumulator: Any</code></dd>
+</dl></div>
 </dd>
 <dt id="bytewax.Dataflow.stateful_map"><code class="language-python name flex">
 <span>def <span class="ident">stateful_map</span></span>(<span>self, step_id, builder, mapper)</span>
@@ -930,11 +956,15 @@ input item.</p>
 1 b
 </code></pre>
 <h2 id="args">Args</h2>
-<p>step_id -
-Uniquely identifies this step for recovery.</p>
-<p>builder - <code>builder(key: Any) =&gt; new_state: Any</code></p>
-<p>mapper - <code>mapper(state: Any, value: Any) =&gt;
-(updated_state: Any, updated_value: Any)</code></p></div>
+<dl>
+<dt><strong><code>step_id</code></strong></dt>
+<dd>Uniquely identifies this step for recovery.</dd>
+<dt><strong><code>builder</code></strong></dt>
+<dd><code>builder(key: Any) =&gt; new_state: Any</code></dd>
+<dt><strong><code>mapper</code></strong></dt>
+<dd><code>mapper(state: Any, value: Any) =&gt; (updated_state:
+Any, updated_value: Any)</code></dd>
+</dl></div>
 </dd>
 </dl>
 </dd>
