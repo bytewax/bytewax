@@ -1,3 +1,6 @@
+Recoverable Streaming Joins on Shopping Cart Data
+=================================================
+
 In this example, we're going to build a small online order fulfillment
 system. It will join two event streams: one containing customer orders
 and another containing successful payments, and then emit which orders
