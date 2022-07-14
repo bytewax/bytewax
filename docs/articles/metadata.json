@@ -28,6 +28,10 @@
         "filename": "operators"
       },
       {
+        "title": "Recovery",
+        "filename": "recovery"
+      },
+      {
         "title": "Design patterns",
         "filename": "design-patterns"
       }
