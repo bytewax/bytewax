@@ -765,6 +765,30 @@ pub(crate) fn reduce_window(
     }
 }
 
+/// Shim function for [`crate::dataflow::Dataflow::fold_window`].
+pub(crate) fn fold_window(
+    builder: &TdPyCallable,
+    folder: &TdPyCallable,
+    key: &StateKey,
+    acc: Option<TdPyAny>,
+    next_value: Option<TdPyAny>,
+) -> (Option<TdPyAny>, impl IntoIterator<Item = TdPyAny>) {
+    match next_value {
+        Some(value) => Python::with_gil(|py| {
+            let initial_acc = acc
+                .unwrap_or_else(|| with_traceback!(py, builder.call1(py, (key.clone(),))).into());
+            // I have to start building the debug message here first, because ownership
+            // of `value` will be moved to the `folder` function.
+            let msg =
+                format!("fold_window for key={key:?}: builder={builder:?}, value={value:?}) -> ");
+            let updated_acc = with_traceback!(py, folder.call1(py, (initial_acc, value))).into();
+            debug!("{msg} updated_acc={updated_acc:?}",);
+            (Some(updated_acc), None)
+        }),
+        None => (None, acc),
+    }
+}
+
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ClockConfig>()?;
     m.add_class::<TestingClockConfig>()?;

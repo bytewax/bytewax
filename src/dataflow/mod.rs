@@ -389,6 +389,25 @@ impl Dataflow {
         });
     }
 
+    /// TODO
+    #[pyo3(text_signature = "(self, step_id, clock_config, window_config, builder, folder)")]
+    fn fold_window(
+        &mut self,
+        step_id: StepId,
+        clock_config: Py<ClockConfig>,
+        window_config: Py<WindowConfig>,
+        builder: TdPyCallable,
+        folder: TdPyCallable,
+    ) {
+        self.steps.push(Step::FoldWindow {
+            step_id,
+            clock_config,
+            window_config,
+            builder,
+            folder,
+        });
+    }
+
     // TODO: Update this example once we have a better idea about
     // input.
     /// Reduce window lets you combine all items for a key within a
@@ -564,6 +583,13 @@ pub(crate) enum Step {
     Filter {
         predicate: TdPyCallable,
     },
+    FoldWindow {
+        step_id: StepId,
+        clock_config: Py<ClockConfig>,
+        window_config: Py<WindowConfig>,
+        builder: TdPyCallable,
+        folder: TdPyCallable,
+    },
     Inspect {
         inspector: TdPyCallable,
     },
@@ -606,6 +632,17 @@ impl<'source> FromPyObject<'source> for Step {
         }
         if let Ok(("Filter", predicate)) = tuple.extract() {
             return Ok(Self::Filter { predicate });
+        }
+        if let Ok(("FoldWindow", step_id, clock_config, window_config, builder, folder)) =
+            tuple.extract()
+        {
+            return Ok(Self::FoldWindow {
+                step_id,
+                clock_config,
+                window_config,
+                builder,
+                folder,
+            });
         }
         if let Ok(("Inspect", inspector)) = tuple.extract() {
             return Ok(Self::Inspect { inspector });
@@ -655,6 +692,21 @@ impl IntoPy<PyObject> for Step {
             Self::Map { mapper } => ("Map", mapper).into_py(py),
             Self::FlatMap { mapper } => ("FlatMap", mapper).into_py(py),
             Self::Filter { predicate } => ("Filter", predicate).into_py(py),
+            Self::FoldWindow {
+                step_id,
+                clock_config,
+                window_config,
+                builder,
+                folder,
+            } => (
+                "FoldWindow",
+                step_id.clone(),
+                clock_config,
+                window_config,
+                builder,
+                folder,
+            )
+                .into_py(py),
             Self::Inspect { inspector } => ("Inspect", inspector).into_py(py),
             Self::InspectEpoch { inspector } => ("InspectEpoch", inspector).into_py(py),
             Self::Reduce {
