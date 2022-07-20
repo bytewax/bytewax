@@ -197,6 +197,19 @@ def test_reduce_epoch():
 
 
 def test_fold_epoch():
+    # Not sure this is the right way, I'd probably like to be able to avoid
+    # the initial map and use the builder to instantiate the value:
+    #
+    # def builder(event):
+    #     return {event["type"]: 1}
+    #
+    # def folder(acc, event):
+    #     current = acc.get(event["type"], 0)
+    #     acc[event["type"]] = current + 1
+    #
+    # flow = Dataflow()
+    # flow.fold_epoch(builder, folder)
+
     def extract_id(event):
         return (event["user"], 1)
 
