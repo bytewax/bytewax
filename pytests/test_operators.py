@@ -209,6 +209,15 @@ def test_fold_epoch():
     #
     # flow = Dataflow()
     # flow.fold_epoch(builder, folder)
+    #
+    # This would change the assert to:
+    # assert sorted(out) == sorted(
+    #     [
+    #         (0, ("a", {"login": 1, "post": 1})),
+    #         (0, ("b", {"login": 1})),
+    #         (1, ("b", {"post": 1})),
+    #     ]
+    # )
 
     def extract_id(event):
         return (event["user"], 1)
