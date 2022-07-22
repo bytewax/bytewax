@@ -65,6 +65,39 @@ pub(crate) fn filter(predicate: &TdPyCallable, item: &TdPyAny) -> bool {
     Python::with_gil(|py| with_traceback!(py, predicate.call1(py, (item,))?.extract(py)))
 }
 
+pub(crate) fn fold_epoch(
+    builder: &TdPyCallable,
+    folder: &TdPyCallable,
+    acc: &mut Option<TdPyAny>,
+    _key: &StateKey,
+    value: TdPyAny,
+) {
+    debug!(
+        "{}, builder:{:?}, folder:{:?}, key:{:?}, value:{:?}, acc:{:?}",
+        log_func!(),
+        builder,
+        folder,
+        _key,
+        value,
+        acc
+    );
+    Python::with_gil(|py| {
+        let updated_acc = match acc {
+            Some(acc) => with_traceback!(py, folder.call1(py, (acc.clone_ref(py), value))).into(),
+            None => with_traceback!(py, builder.call1(py, (value, ))).into(),
+        };
+        *acc = Some(updated_acc);
+        debug!(
+            "{}, builder:{:?}, folder:{:?}, key:{:?}, updated_acc:{:?}",
+            log_func!(),
+            builder,
+            folder,
+            _key,
+            acc
+        );
+    });
+}
+
 pub(crate) fn inspect(inspector: &TdPyCallable, item: &TdPyAny) {
     debug!(
         "{}, inspector:{:?}, item:{:?}",

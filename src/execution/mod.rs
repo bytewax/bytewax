@@ -146,6 +146,20 @@ fn build_production_dataflow<A: Allocate>(
                 Step::Filter { predicate } => {
                     stream = stream.filter(move |item| filter(&predicate, item));
                 }
+                Step::FoldEpoch { builder, folder } => {
+                    stream = stream.map(extract_state_pair).aggregate(
+                        move |key, value, acc: &mut Option<TdPyAny>| {
+                            fold_epoch(&builder, &folder, acc, key, value);
+                        },
+                        move |key, acc: Option<TdPyAny>| {
+                            // Accumulator will only exist for keys
+                            // that exist, so it will have been filled
+                            // into Some(value) above.
+                            wrap_state_pair((key, acc.unwrap()))
+                        },
+                        StateKey::route,
+                    );
+                }
                 Step::Inspect { inspector } => {
                     stream = stream.inspect(move |item| inspect(&inspector, item));
                 }

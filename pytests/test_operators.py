@@ -196,6 +196,41 @@ def test_reduce_epoch():
     )
 
 
+def test_fold_epoch():
+    def extract_id(event):
+        return (event["user"], event)
+
+    def builder(event):
+        return {event["type"]: 1}
+
+    def count(results, event):
+        results[event["type"]] = results.get(event["type"], 0) + 1
+        return results
+
+    inp = [
+        (0, {"user": "a", "type": "login"}),
+        (0, {"user": "a", "type": "post"}),
+        (0, {"user": "a", "type": "post"}),
+        (0, {"user": "b", "type": "login"}),
+        (1, {"user": "b", "type": "post"}),
+    ]
+
+    flow = Dataflow()
+    flow.map(extract_id)
+    flow.fold_epoch(builder, count)
+    flow.capture()
+
+    out = run(flow, inp)
+
+    assert sorted(out) == sorted(
+        [
+            (0, ("a", {"login": 1, "post": 2})),
+            (0, ("b", {"login": 1})),
+            (1, ("b", {"post": 1})),
+        ]
+    )
+
+
 def test_reduce_epoch_error_on_non_kv_tuple():
     def count(count, event_count):
         return count + event_count

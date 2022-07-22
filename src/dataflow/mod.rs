@@ -380,6 +380,12 @@ impl Dataflow {
         self.steps.push(Step::ReduceEpoch { reducer });
     }
 
+    /// TODO
+    #[pyo3(text_signature = "(self, builder, folder)")]
+    fn fold_epoch(&mut self, builder: TdPyCallable, folder: TdPyCallable) {
+        self.steps.push(Step::FoldEpoch { builder, folder });
+    }
+
     /// Reduce epoch local lets you combine all items for a key within
     /// an epoch _on a single worker._
     ///
@@ -525,6 +531,10 @@ pub(crate) enum Step {
     Filter {
         predicate: TdPyCallable,
     },
+    FoldEpoch {
+        builder: TdPyCallable,
+        folder: TdPyCallable,
+    },
     Inspect {
         inspector: TdPyCallable,
     },
@@ -565,6 +575,9 @@ impl<'source> FromPyObject<'source> for Step {
         }
         if let Ok(("Filter", predicate)) = tuple.extract() {
             return Ok(Self::Filter { predicate });
+        }
+        if let Ok(("FoldEpoch", builder, folder)) = tuple.extract() {
+            return Ok(Self::FoldEpoch { builder, folder });
         }
         if let Ok(("Inspect", inspector)) = tuple.extract() {
             return Ok(Self::Inspect { inspector });
@@ -611,6 +624,7 @@ impl ToPyObject for Step {
             Self::Map { mapper } => ("Map", mapper).to_object(py),
             Self::FlatMap { mapper } => ("FlatMap", mapper).to_object(py),
             Self::Filter { predicate } => ("Filter", predicate).to_object(py),
+            Self::FoldEpoch { builder, folder } => ("FoldEpoch", builder, folder).to_object(py),
             Self::Inspect { inspector } => ("Inspect", inspector).to_object(py),
             Self::InspectEpoch { inspector } => ("InspectEpoch", inspector).to_object(py),
             Self::Reduce {
