@@ -84,7 +84,7 @@ pub(crate) fn fold_epoch(
     Python::with_gil(|py| {
         let updated_acc = match acc {
             Some(acc) => with_traceback!(py, folder.call1(py, (acc.clone_ref(py), value))).into(),
-            None => with_traceback!(py, builder.call1(py, ())).into(),
+            None => with_traceback!(py, builder.call1(py, (value, ))).into(),
         };
         *acc = Some(updated_acc);
         debug!(

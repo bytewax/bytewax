@@ -197,39 +197,19 @@ def test_reduce_epoch():
 
 
 def test_fold_epoch():
-    # Not sure this is the right way, I'd probably like to be able to avoid
-    # the initial map and use the builder to instantiate the value:
-    #
-    # def builder(event):
-    #     return {event["type"]: 1}
-    #
-    # def folder(acc, event):
-    #     current = acc.get(event["type"], 0)
-    #     acc[event["type"]] = current + 1
-    #
-    # flow = Dataflow()
-    # flow.fold_epoch(builder, folder)
-    #
-    # This would change the assert to:
-    # assert sorted(out) == sorted(
-    #     [
-    #         (0, ("a", {"login": 1, "post": 1})),
-    #         (0, ("b", {"login": 1})),
-    #         (1, ("b", {"post": 1})),
-    #     ]
-    # )
-
     def extract_id(event):
-        return (event["user"], 1)
+        return (event["user"], event)
 
-    def builder():
-        return 1
+    def builder(event):
+        return {event["type"]: 1}
 
-    def count(count, event_count):
-        return count + event_count
+    def count(results, event):
+        results[event["type"]] = results.get(event["type"], 0) + 1
+        return results
 
     inp = [
         (0, {"user": "a", "type": "login"}),
+        (0, {"user": "a", "type": "post"}),
         (0, {"user": "a", "type": "post"}),
         (0, {"user": "b", "type": "login"}),
         (1, {"user": "b", "type": "post"}),
@@ -244,9 +224,9 @@ def test_fold_epoch():
 
     assert sorted(out) == sorted(
         [
-            (0, ("a", 2)),
-            (0, ("b", 1)),
-            (1, ("b", 1)),
+            (0, ("a", {"login": 1, "post": 2})),
+            (0, ("b", {"login": 1})),
+            (1, ("b", {"post": 1})),
         ]
     )
 
