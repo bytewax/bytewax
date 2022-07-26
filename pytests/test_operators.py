@@ -3,7 +3,8 @@ from collections import defaultdict
 
 from pytest import raises
 
-from bytewax import Dataflow, run, run_cluster
+from bytewax import Dataflow
+from bytewax.execution import run
 
 
 def test_map():
@@ -166,124 +167,6 @@ def test_reduce():
     )
 
 
-def test_reduce_epoch():
-    def add_initial_count(event):
-        return event["user"], 1
-
-    def count(count, event_count):
-        return count + event_count
-
-    inp = [
-        (0, {"user": "a", "type": "login"}),
-        (0, {"user": "a", "type": "post"}),
-        (0, {"user": "b", "type": "login"}),
-        (1, {"user": "b", "type": "post"}),
-    ]
-
-    flow = Dataflow()
-    flow.map(add_initial_count)
-    flow.reduce_epoch(count)
-    flow.capture()
-
-    out = run(flow, inp)
-
-    assert sorted(out) == sorted(
-        [
-            (0, ("a", 2)),
-            (0, ("b", 1)),
-            (1, ("b", 1)),
-        ]
-    )
-
-
-def test_reduce_epoch_error_on_non_kv_tuple():
-    def count(count, event_count):
-        return count + event_count
-
-    inp = [
-        (0, {"user": "a", "type": "login"}),
-        (0, {"user": "a", "type": "post"}),
-        (0, {"user": "b", "type": "login"}),
-        (1, {"user": "b", "type": "post"}),
-    ]
-
-    flow = Dataflow()
-    flow.reduce_epoch(count)
-    flow.capture()
-
-    expect = (
-        "Dataflow requires a `(key, value)` 2-tuple as input to every stateful "
-        "operator; got `{'user': 'a', 'type': 'login'}` instead"
-    )
-
-    with raises(TypeError, match=re.escape(expect)):
-        run(flow, inp)
-
-
-def test_reduce_epoch_error_on_non_string_key():
-    def add_initial_count(event):
-        return event["user"], 1
-
-    def count(count, event_count):
-        return count + event_count
-
-    # Note that the resulting key will be an int.
-    inp = [
-        (0, {"user": 1, "type": "login"}),
-        (0, {"user": 1, "type": "post"}),
-        (0, {"user": 2, "type": "login"}),
-        (1, {"user": 2, "type": "post"}),
-    ]
-
-    flow = Dataflow()
-    flow.map(add_initial_count)
-    flow.reduce_epoch(count)
-    flow.capture()
-
-    with raises(
-        TypeError,
-        match=re.escape(
-            "Stateful operators require string keys in `(key, value)`; got `1` instead"
-        ),
-    ):
-        run(flow, inp)
-
-
-def test_reduce_epoch_local():
-    def add_initial_count(event):
-        return event["user"], 1
-
-    def count(count, event_count):
-        return count + event_count
-
-    inp = [
-        (0, {"user": "a", "type": "login"}),
-        (0, {"user": "a", "type": "post"}),
-        (0, {"user": "a", "type": "post"}),
-        (0, {"user": "b", "type": "login"}),
-        (1, {"user": "b", "type": "post"}),
-        (1, {"user": "b", "type": "post"}),
-    ]
-
-    flow = Dataflow()
-    flow.map(add_initial_count)
-    flow.reduce_epoch_local(count)
-    flow.capture()
-
-    workers = 2
-    out = run_cluster(flow, inp, proc_count=workers)
-
-    # out should look like (epoch, (user, event_count)) per worker. So
-    # if we count the number of output items that have a given (epoch,
-    # user), we should get some that the counts == number of workers.
-    epoch_user_to_count = defaultdict(int)
-    for epoch, user_count in out:
-        user, count = user_count
-        epoch_user_to_count[(epoch, user)] += 1
-
-    assert workers in set(epoch_user_to_count.values())
-
-
 def test_stateful_map():
     def build_seen(key):
         return set()
@@ -325,6 +208,66 @@ def test_stateful_map():
             (1, "b"),
         ]
     )
+
+
+def test_stateful_map_error_on_non_kv_tuple():
+    def running_count(type_to_count, event):
+        type_to_count[event["type"]] += 1
+        current_count = type_to_count[event["type"]]
+        return type_to_count, [(event["type"], current_count)]
+
+    inp = [
+        (0, {"user": "a", "type": "login"}),
+        (0, {"user": "a", "type": "post"}),
+        (0, {"user": "b", "type": "login"}),
+        (1, {"user": "b", "type": "post"}),
+    ]
+
+    flow = Dataflow()
+    flow.stateful_map("running_count", lambda key: defaultdict(int), running_count)
+    flow.capture()
+
+    expect = (
+        "Dataflow requires a `(key, value)` 2-tuple as input to every stateful "
+        "operator; got `{'user': 'a', 'type': 'login'}` instead"
+    )
+
+    with raises(TypeError, match=re.escape(expect)):
+        run(flow, inp)
+
+
+def test_stateful_map_error_on_non_string_key():
+    def add_key(event):
+        # Note that event["user"] is an entire dict, but keys must be
+        # strings.
+        return event["user"], event
+
+    def running_count(type_to_count, event):
+        type_to_count[event["type"]] += 1
+        current_count = type_to_count[event["type"]]
+        return type_to_count, [(event["type"], current_count)]
+
+    # Note that the resulting key will be an int.
+    inp = [
+        (0, {"user": {"id": 1}, "type": "login"}),
+        (0, {"user": {"id": 1}, "type": "post"}),
+        (0, {"user": {"id": 2}, "type": "login"}),
+        (1, {"user": {"id": 2}, "type": "post"}),
+    ]
+
+    flow = Dataflow()
+    flow.map(add_key)
+    flow.stateful_map("running_count", lambda key: defaultdict(int), running_count)
+    flow.capture()
+
+    with raises(
+        TypeError,
+        match=re.escape(
+            "Stateful operators require string keys in `(key, value)`; "
+            "got `{'id': 1}` instead"
+        ),
+    ):
+        run(flow, inp)
 
 
 def test_capture():

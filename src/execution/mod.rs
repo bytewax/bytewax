@@ -11,27 +11,25 @@ use crate::inputs::InputConfig;
 use crate::inputs::Pump;
 use crate::operators::CollectGarbage;
 use crate::operators::*;
+use crate::pyo3_extensions::TdPyCallable;
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, StateKey};
-use crate::pyo3_extensions::{TdPyAny, TdPyCallable};
 use crate::recovery::RecoveryConfig;
-use crate::recovery::RecoveryKey;
-use crate::recovery::StateBackup;
 use crate::recovery::StateReader;
 use crate::recovery::StateWriter;
 use crate::recovery::{build_recovery_readers, build_recovery_writers, FrontierUpdate};
 use crate::recovery::{default_recovery_config, ProgressWriter};
 use crate::recovery::{ProgressReader, StateCollector};
+use crate::window::{build_clock, build_windower, reduce_window, StatefulWindowUnary};
 use log::debug;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use timely::communication::Allocate;
-use timely::dataflow::operators::aggregation::*;
+use timely::dataflow::operators::result::*;
 use timely::dataflow::operators::*;
 use timely::dataflow::InputHandle;
 use timely::dataflow::ProbeHandle;
@@ -110,9 +108,9 @@ fn build_production_dataflow<A: Allocate>(
     flow: Py<Dataflow>,
     input_config: Py<InputConfig>,
     output_builder: TdPyCallable,
-    state_reader: Box<dyn StateReader<u64, TdPyAny>>,
+    state_reader: Box<dyn StateReader<u64, Vec<u8>>>,
     progress_writer: Box<dyn ProgressWriter<u64>>,
-    state_writer: Box<dyn StateWriter<u64, TdPyAny>>,
+    state_writer: Box<dyn StateWriter<u64, Vec<u8>>>,
     state_collector: Box<dyn StateCollector<u64>>,
 ) -> Result<(Box<dyn Pump>, ProbeHandle<u64>), String> {
     let worker_index = worker.index();
@@ -158,77 +156,66 @@ fn build_production_dataflow<A: Allocate>(
                     reducer,
                     is_complete,
                 } => {
-                    let filter_step_id = step_id.clone();
-                    let state_loading_stream = state_loading_stream.filter(
-                        move |StateBackup(
-                            RecoveryKey(loading_step_id, _key, _epoch),
-                            _state_update,
-                        )| { &filter_step_id == loading_step_id },
-                    );
-
-                    let (downstream, state_backup_stream) =
-                        // Reduce is implemented using stateful map so
-                        // we only have to implement state interacting
-                        // with recovery once.
-                        stream.map(extract_state_pair).stateful_map(
-                            step_id,
-                            state_loading_stream,
-                            move |_key| build_none(),
-                            move |key, acc, value| {
-                                reduce(&reducer, &is_complete, key, acc, value)
-                            },
-                            StateKey::route,
-                        );
-
-                    state_backup_streams.push(state_backup_stream);
-                    stream = downstream.map(wrap_state_pair);
-                }
-                Step::ReduceEpoch { reducer } => {
-                    stream = stream.map(extract_state_pair).aggregate(
-                        move |key, value, acc: &mut Option<TdPyAny>| {
-                            reduce_epoch(&reducer, acc, key, value);
-                        },
-                        move |key, acc: Option<TdPyAny>| {
-                            // Accumulator will only exist for keys
-                            // that exist, so it will have been filled
-                            // into Some(value) above.
-                            wrap_state_pair((key, acc.unwrap()))
-                        },
-                        StateKey::route,
-                    );
-                }
-                Step::ReduceEpochLocal { reducer } => {
                     stream = stream
                         .map(extract_state_pair)
-                        .accumulate(HashMap::new(), move |accs, all_key_value_in_epoch| {
-                            reduce_epoch_local(&reducer, accs, &all_key_value_in_epoch);
+                        .stateful_unary(
+                            step_id,
+                            move |key, acc, value| reduce(&reducer, &is_complete, key, acc, value),
+                            StateKey::route,
+                            &state_loading_stream,
+                            &mut state_backup_streams,
+                        )
+                        .map(wrap_state_pair);
+                }
+                Step::ReduceWindow {
+                    step_id,
+                    clock_config,
+                    window_config,
+                    reducer,
+                } => {
+                    let windower = build_windower(py, window_config)?;
+                    let clock = build_clock(py, clock_config)?;
+
+                    stream = stream
+                        .map(extract_state_pair)
+                        .stateful_window_unary(
+                            step_id,
+                            clock,
+                            windower,
+                            move |key, state, next_value| {
+                                reduce_window(&reducer, key, state, next_value)
+                            },
+                            StateKey::route,
+                            &state_loading_stream,
+                            &mut state_backup_streams,
+                        )
+                        .map(|(key, result)| {
+                            result
+                                .map(|value| (key.clone(), value))
+                                .map_err(|err| (key.clone(), err))
                         })
-                        .flat_map(|accs| accs.into_iter().map(wrap_state_pair));
+                        // For now, filter to just reductions and
+                        // ignore late values.
+                        .ok()
+                        .map(wrap_state_pair);
                 }
                 Step::StatefulMap {
                     step_id,
                     builder,
                     mapper,
                 } => {
-                    let filter_step_id = step_id.clone();
-                    let state_loading_stream = state_loading_stream.filter(
-                        move |StateBackup(
-                            RecoveryKey(loading_step_id, _key, _epoch),
-                            _state_update,
-                        )| { &filter_step_id == loading_step_id },
-                    );
-
-                    let (downstream, state_backup_stream) =
-                        stream.map(extract_state_pair).stateful_map(
+                    stream = stream
+                        .map(extract_state_pair)
+                        .stateful_unary(
                             step_id,
-                            state_loading_stream,
-                            move |key| build(&builder, key),
-                            move |key, state, value| stateful_map(&mapper, key, state, value),
+                            move |key, state, value| {
+                                stateful_map(&builder, &mapper, key, state, value)
+                            },
                             StateKey::route,
-                        );
-
-                    state_backup_streams.push(state_backup_stream);
-                    stream = downstream.map(wrap_state_pair);
+                            &state_loading_stream,
+                            &mut state_backup_streams,
+                        )
+                        .map(wrap_state_pair);
                 }
                 Step::Capture {} => {
                     let capture = stream;

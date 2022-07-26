@@ -40,6 +40,12 @@
 //! representing "worker frontier" and the value is
 //! [`FrontierUpdate`].
 //!
+//! All state data is serialized into bytes right after the stateful
+//! operator and the rest of the downstream machinery works on the
+//! state being an opaque blob of bytes. We do this so we can
+//! interleave multiple concrete state types from different stateful
+//! operators together.
+//!
 //! There are 5 traits which provides an interface to the abstract
 //! idea of a KVDB that the dataflow operators use to save data to the
 //! recovery store: [`ProgressReader`], [`ProgressWriter`],
@@ -74,17 +80,17 @@
 //!
 //! subgraph "Production Dataflow"
 //! SI{{State Input}} -. probe .-> GC
-//! SI -- "(step id, key, epoch): state" --> SFX{{Filter}} -- "('step x', key, epoch): state" --> SOX
-//! SI -- "(step id, key, epoch): state" --> SFY{{Filter}} -- "('step y', key, epoch): state" --> SOY
+//! SI -- "(step id, key, epoch): state bytes" --> SFX{{Filter}} -- "(step id, key, epoch): state bytes" --> SOXD{{Map}} -- "('step x', key, epoch): state" --> SOX
+//! SI -- "(step id, key, epoch): state bytes" --> SFY{{Filter}} -- "(step id, key, epoch): state bytes" --> SOYD{{Map}} -- "('step y', key, epoch): state" --> SOY
 //! I(Input) -- items --> XX1([...]) -- "(key, value)" --> SOX(Stateful Operator X) & SOY(Stateful Operator Y)
 //! SOX & SOY -- "(key, value)" --> XX2([...]) -- items --> O1(Output 1) & O2(Output 2)
 //! O1 & O2 -- items --> OM{{Map}}
-//! SOX -- "('step x', key, epoch): state" --> SOC
-//! SOY -- "('step y', key, epoch): state" --> SOC
+//! SOX -- "('step x', key, epoch): state" --> SOXS{{Map}} -- "('step x', key, epoch): state bytes" --> SOC
+//! SOY -- "('step y', key, epoch): state" --> SOYS{{Map}} -- "('step x', key, epoch): state bytes" --> SOC
 //! SOC{{Concat}} -- "(step id, key, epoch): state" --> SB{{State Backup}}
-//! SB -- "(step id, key, epoch): state" --> BM{{Map}}
+//! SB -- "(step id, key, epoch): state bytes" --> BM{{Map}}
 //! OM & BM -- heartbeats --> DFC{{Concat}} -- heartbeats / worker frontier --> FB{{Progress Backup}} -- heartbeats / worker frontier --> DFB{{Broadcast}} -- heartbeats / dataflow frontier --> GC
-//! SB & SI -- "(step id, key, epoch): state" --> GCC{{Concat}} -- "(step id, key, epoch): state" --> GC{{Garbage Collector}}
+//! SB & SI -- "(step id, key, epoch): state bytes" --> GCC{{Concat}} -- "(step id, key, epoch): state bytes" --> GC{{Garbage Collector}}
 //! I -. probe .-> GC
 //! end
 //! ```
@@ -99,15 +105,16 @@
 //! We currently have two user-facing stateful operators
 //! [`crate::operators::Reduce`],
 //! [`crate::operators::StatefulMap`]). But they are both implemented
-//! on top of the more general one: just
-//! [`crate::operators::StatefulMap`]. This means all in-operator
+//! on top of a general underlying one:
+//! [`crate::operators::StatefulUnary`]. This means all in-operator
 //! recovery-related code is only written once.
 //!
-//! Stateful map does not load recovery data or backup
+//! Stateful unary does not load recovery data or backup
 //! itself. Instead, it interfaces with a second **state loading
 //! stream** input and generates a second **state backup stream**
 //! output. These are then connected to the rest of the recovery
-//! componenets.
+//! componenets, after serializing / deserializing the state so that
+//! the recovery streams are all backups of bytes.
 //!
 //! All state backups from all stateful operators are concatenated
 //! into the [`crate::operators::WriteState`] operator, which actually
@@ -194,7 +201,6 @@
 
 use crate::dataflow::StepId;
 use crate::pyo3_extensions::StateKey;
-use crate::pyo3_extensions::TdPyAny;
 use futures::stream::StreamExt;
 use log::debug;
 use pyo3::exceptions::PyValueError;
@@ -237,7 +243,11 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::path::PathBuf;
+use timely::dataflow::operators::Map;
+use timely::dataflow::Scope;
+use timely::dataflow::Stream;
 use timely::progress::Antichain;
+use timely::Data;
 use tokio::runtime::Runtime;
 
 /// Base class for a recovery config.
@@ -533,6 +543,15 @@ pub(crate) enum StateUpdate<D> {
     Reset,
 }
 
+impl<D> StateUpdate<D> {
+    fn map<R>(self, f: impl Fn(D) -> R) -> StateUpdate<R> {
+        match self {
+            Self::Upsert(state) => StateUpdate::Upsert(f(state)),
+            Self::Reset => StateUpdate::Reset,
+        }
+    }
+}
+
 // Here's our core traits for recovery that allow us to swap out
 // underlying storage.
 
@@ -560,6 +579,42 @@ pub(crate) trait StateReader<T, D> {
     fn read(&mut self) -> Option<StateBackup<T, D>>;
 }
 
+/// Extension trait for [`Stream`].
+pub(crate) trait SerializeBackup<S: Scope> {
+    /// Serialize the state data in a backup stream.
+    ///
+    /// We do this after each stateful operator so the types
+    /// downstream are all compatible.
+    fn serialize_backup(&self) -> Stream<S, StateBackup<S::Timestamp, Vec<u8>>>;
+}
+
+impl<S: Scope, D: Data + Serialize> SerializeBackup<S> for Stream<S, StateBackup<S::Timestamp, D>> {
+    fn serialize_backup(&self) -> Stream<S, StateBackup<S::Timestamp, Vec<u8>>> {
+        self.map(|StateBackup(recovery_key, state_update)| {
+            StateBackup(recovery_key, state_update.map(|s| to_bytes(&s)))
+        })
+    }
+}
+
+/// Extension trait for [`Stream`].
+pub(crate) trait DeserializeBackup<S: Scope, D: Data + DeserializeOwned> {
+    /// Deserialize the state data in a backup stream.
+    ///
+    /// We do this after each stateful operator so the types
+    /// downstream are all compatible.
+    fn deserialize_backup(&self) -> Stream<S, StateBackup<S::Timestamp, D>>;
+}
+
+impl<S: Scope, D: Data + DeserializeOwned> DeserializeBackup<S, D>
+    for Stream<S, StateBackup<S::Timestamp, Vec<u8>>>
+{
+    fn deserialize_backup(&self) -> Stream<S, StateBackup<S::Timestamp, D>> {
+        self.map(|StateBackup(recovery_key, state_update)| {
+            StateBackup(recovery_key, state_update.map(|s| from_bytes(&s)))
+        })
+    }
+}
+
 /// Use a recovery config and the current worker's identity to build
 /// out the specific recovery writer instances that this worker will
 /// need to backup recovery data.
@@ -574,7 +629,7 @@ pub(crate) fn build_recovery_writers(
 ) -> Result<
     (
         Box<dyn ProgressWriter<u64>>,
-        Box<dyn StateWriter<u64, TdPyAny>>,
+        Box<dyn StateWriter<u64, Vec<u8>>>,
         Box<dyn StateCollector<u64>>,
     ),
     String,
@@ -631,7 +686,11 @@ pub(crate) fn build_recovery_writers(
         let partition = worker_index.try_into().unwrap();
         let create_partitions = worker_count.try_into().unwrap();
 
-        let (progress_writer, state_writer, state_collector) = py.allow_threads(|| {
+        let (progress_writer, state_writer, state_collector): (
+            KafkaWriter<String, FrontierUpdate<u64>>,
+            KafkaWriter<RecoveryKey<u64>, StateUpdate<Vec<u8>>>,
+            KafkaWriter<RecoveryKey<u64>, StateUpdate<Vec<u8>>>,
+        ) = py.allow_threads(|| {
             create_kafka_topic(hosts, &progress_topic, create_partitions);
             create_kafka_topic(hosts, &state_topic, create_partitions);
 
@@ -677,7 +736,7 @@ pub(crate) fn build_recovery_readers(
 ) -> Result<
     (
         Box<dyn ProgressReader<u64>>,
-        Box<dyn StateReader<u64, TdPyAny>>,
+        Box<dyn StateReader<u64, Vec<u8>>>,
     ),
     String,
 > {
@@ -856,8 +915,8 @@ impl<'r, T: Deserialize<'r>> Decode<'r, Sqlite> for FrontierUpdate<T> {
     }
 }
 
-impl StateWriter<u64, TdPyAny> for SqliteStateWriter {
-    fn write(&mut self, backup: &StateBackup<u64, TdPyAny>) {
+impl<D: Send + Sync + Serialize + Debug> StateWriter<u64, D> for SqliteStateWriter {
+    fn write(&mut self, backup: &StateBackup<u64, D>) {
         let StateBackup(recovery_key, state_update) = backup;
         let RecoveryKey(step_id, key, epoch) = recovery_key;
         let sql = format!("INSERT INTO {} (step_id, key, epoch, state) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (step_id, key, epoch) DO UPDATE SET state = EXCLUDED.state", self.table_name);
@@ -893,12 +952,12 @@ impl StateCollector<u64> for SqliteStateWriter {
     }
 }
 
-struct SqliteStateReader {
+struct SqliteStateReader<D> {
     rt: Runtime,
-    rx: tokio::sync::mpsc::Receiver<StateBackup<u64, TdPyAny>>,
+    rx: tokio::sync::mpsc::Receiver<StateBackup<u64, D>>,
 }
 
-impl SqliteStateReader {
+impl<D: Unpin + Send + Sync + DeserializeOwned + Debug + 'static> SqliteStateReader<D> {
     fn new(db_file: &Path) -> Self {
         let table_name = "state";
 
@@ -935,8 +994,8 @@ impl SqliteStateReader {
     }
 }
 
-impl StateReader<u64, TdPyAny> for SqliteStateReader {
-    fn read(&mut self) -> Option<StateBackup<u64, TdPyAny>> {
+impl<D: Debug> StateReader<u64, D> for SqliteStateReader<D> {
+    fn read(&mut self) -> Option<StateBackup<u64, D>> {
         self.rt.block_on(self.rx.recv())
     }
 }
@@ -1116,16 +1175,20 @@ impl<K: Serialize, P: Serialize> KafkaWriter<K, P> {
     }
 }
 
-impl StateWriter<u64, TdPyAny> for KafkaWriter<RecoveryKey<u64>, StateUpdate<TdPyAny>> {
-    fn write(&mut self, backup: &StateBackup<u64, TdPyAny>) {
+impl<T: Serialize + Debug, D: Serialize + Debug> StateWriter<T, D>
+    for KafkaWriter<RecoveryKey<T>, StateUpdate<D>>
+{
+    fn write(&mut self, backup: &StateBackup<T, D>) {
         let StateBackup(recovery_key, state_update) = backup;
         KafkaWriter::write(self, recovery_key, state_update);
         debug!("kafka state write backup={backup:?}");
     }
 }
 
-impl StateCollector<u64> for KafkaWriter<RecoveryKey<u64>, StateUpdate<TdPyAny>> {
-    fn delete(&mut self, recovery_key: &RecoveryKey<u64>) {
+impl<T: Serialize + Debug, D: Serialize> StateCollector<T>
+    for KafkaWriter<RecoveryKey<T>, StateUpdate<D>>
+{
+    fn delete(&mut self, recovery_key: &RecoveryKey<T>) {
         KafkaWriter::delete(self, recovery_key);
         debug!("kafka state delete recovery_key={recovery_key:?}");
     }
@@ -1182,8 +1245,10 @@ impl<K: DeserializeOwned, P: DeserializeOwned> KafkaReader<K, P> {
     }
 }
 
-impl StateReader<u64, TdPyAny> for KafkaReader<RecoveryKey<u64>, StateUpdate<TdPyAny>> {
-    fn read(&mut self) -> Option<StateBackup<u64, TdPyAny>> {
+impl<T: DeserializeOwned, D: DeserializeOwned> StateReader<T, D>
+    for KafkaReader<RecoveryKey<T>, StateUpdate<D>>
+{
+    fn read(&mut self) -> Option<StateBackup<T, D>> {
         loop {
             match KafkaReader::read(self) {
                 // Skip deletions if they haven't been compacted.
@@ -1198,15 +1263,15 @@ impl StateReader<u64, TdPyAny> for KafkaReader<RecoveryKey<u64>, StateUpdate<TdP
     }
 }
 
-impl ProgressWriter<u64> for KafkaWriter<String, FrontierUpdate<u64>> {
-    fn write(&mut self, frontier_update: &FrontierUpdate<u64>) {
+impl<T: Serialize + Debug> ProgressWriter<T> for KafkaWriter<String, FrontierUpdate<T>> {
+    fn write(&mut self, frontier_update: &FrontierUpdate<T>) {
         KafkaWriter::write(self, &String::from("worker_frontier"), &frontier_update);
         debug!("kafka frontier write frontier_backup={frontier_update:?}");
     }
 }
 
-impl ProgressReader<u64> for KafkaReader<String, FrontierUpdate<u64>> {
-    fn read(&mut self) -> Option<FrontierUpdate<u64>> {
+impl<T: DeserializeOwned + Debug> ProgressReader<T> for KafkaReader<String, FrontierUpdate<T>> {
+    fn read(&mut self) -> Option<FrontierUpdate<T>> {
         match KafkaReader::read(self) {
             Some((Some(_), Some(frontier_update))) => {
                 debug!("kafka frontier read frontier_update={frontier_update:?}");

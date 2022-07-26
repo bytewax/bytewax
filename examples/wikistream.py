@@ -3,14 +3,18 @@ import json
 import operator
 from datetime import timedelta
 
+# pip install sseclient-py urllib3
 import sseclient
 import urllib3
 
-from bytewax import Dataflow, inputs, parse, spawn_cluster
-from bytewax.inputs import ManualInputConfig
+from bytewax import Dataflow
+from bytewax.execution import run_main
+from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig
+from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
-def open_stream():
+def input_builder(worker_index, worker_count, resume_epoch):
     pool = urllib3.PoolManager()
     resp = pool.request(
         "GET",
@@ -20,20 +24,14 @@ def open_stream():
     )
     client = sseclient.SSEClient(resp)
 
+    # Since there is no way to replay missed SSE data, we're going to
+    # drop missed data. That's fine as long as we know to interpret
+    # the results with that in mind.
+    epoch = resume_epoch
     for event in client.events():
-        yield event.data
-
-
-@inputs.yield_epochs
-def input_builder(worker_index, worker_count, resume_epoch):
-    if worker_index == 0:
-        return inputs.tumbling_epoch(
-            open_stream(),
-            timedelta(seconds=2),
-            epoch_start=resume_epoch,
-        )
-    else:
-        return []
+        yield Emit(event.data)
+        epoch += 1
+        yield AdvanceTo(epoch)
 
 
 def output_builder(worker_index, worker_count):
@@ -44,18 +42,37 @@ def initial_count(data_dict):
     return data_dict["server_name"], 1
 
 
+def keep_max(max_count, new_count):
+    new_max = max(max_count, new_count)
+    return new_max, new_max
+
+
 flow = Dataflow()
 # "event_json"
 flow.map(json.loads)
 # {"server_name": "server.name", ...}
 flow.map(initial_count)
 # ("server.name", 1)
-flow.reduce_epoch(operator.add)
-# ("server.name", count)
+flow.reduce_window(
+    "sum",
+    SystemClockConfig(),
+    TumblingWindowConfig(length=timedelta(seconds=2)),
+    operator.add,
+)
+# ("server.name", sum_per_window)
+flow.stateful_map(
+    "keep_max",
+    lambda key: 0,
+    keep_max,
+)
+# ("server.name", max_per_window)
 flow.capture()
 
 
 if __name__ == "__main__":
-    spawn_cluster(
-        flow, ManualInputConfig(input_builder), output_builder, **parse.cluster_args()
+    run_main(
+        flow,
+        ManualInputConfig(input_builder),
+        output_builder,
+        recovery_config=SqliteRecoveryConfig("."),
     )
