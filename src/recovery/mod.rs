@@ -429,7 +429,7 @@ impl SqliteRecoveryConfig {
 ///
 /// Args:
 ///
-///     hosts: List of `host:port` strings of Kafka brokers.
+///     brokers: List of `host:port` strings of Kafka brokers.
 ///
 ///     topic_prefix: Prefix used for naming topics. Must be distinct
 ///         per-dataflow. Two topics will be created using this prefix
@@ -440,10 +440,10 @@ impl SqliteRecoveryConfig {
 ///     Config object. Pass this as the `recovery_config` argument to
 ///     your execution entry point.
 #[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
-#[pyo3(text_signature = "(hosts, topic_prefix, create)")]
+#[pyo3(text_signature = "(brokers, topic_prefix, create)")]
 struct KafkaRecoveryConfig {
     #[pyo3(get)]
-    hosts: Vec<String>,
+    brokers: Vec<String>,
     #[pyo3(get)]
     topic_prefix: String,
 }
@@ -451,11 +451,11 @@ struct KafkaRecoveryConfig {
 #[pymethods]
 impl KafkaRecoveryConfig {
     #[new]
-    #[args(hosts, topic_prefix)]
-    fn new(hosts: Vec<String>, topic_prefix: String) -> (Self, RecoveryConfig) {
+    #[args(brokers, topic_prefix)]
+    fn new(brokers: Vec<String>, topic_prefix: String) -> (Self, RecoveryConfig) {
         (
             Self {
-                hosts,
+                brokers,
                 topic_prefix,
             },
             RecoveryConfig {},
@@ -466,7 +466,7 @@ impl KafkaRecoveryConfig {
     fn __getstate__(&self) -> (&str, Vec<String>, &str) {
         (
             "KafkaRecoveryConfig",
-            self.hosts.clone(),
+            self.brokers.clone(),
             &self.topic_prefix,
         )
     }
@@ -479,7 +479,7 @@ impl KafkaRecoveryConfig {
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         if let Ok(("KafkaRecoveryConfig", hosts, topic_prefix)) = state.extract() {
-            self.hosts = hosts;
+            self.brokers = hosts;
             self.topic_prefix = topic_prefix;
             Ok(())
         } else {
@@ -680,7 +680,7 @@ pub(crate) fn build_recovery_writers(
     {
         let kafka_recovery_config = kafka_recovery_config.borrow();
 
-        let hosts = &kafka_recovery_config.hosts;
+        let hosts = &kafka_recovery_config.brokers;
         let state_topic = kafka_recovery_config.state_topic();
         let progress_topic = kafka_recovery_config.progress_topic();
         let partition = worker_index.try_into().unwrap();
@@ -768,19 +768,19 @@ pub(crate) fn build_recovery_readers(
     {
         let kafka_recovery_config = kafka_recovery_config.borrow();
 
-        let hosts = &kafka_recovery_config.hosts;
+        let brokers = &kafka_recovery_config.brokers;
         let state_topic = kafka_recovery_config.state_topic();
         let progress_topic = kafka_recovery_config.progress_topic();
         let partition = worker_index.try_into().unwrap();
         let create_partitions = worker_count.try_into().unwrap();
 
         let (progress_reader, state_reader) = py.allow_threads(|| {
-            create_kafka_topic(hosts, &progress_topic, create_partitions);
-            create_kafka_topic(hosts, &state_topic, create_partitions);
+            create_kafka_topic(brokers, &progress_topic, create_partitions);
+            create_kafka_topic(brokers, &state_topic, create_partitions);
 
             (
-                KafkaReader::new(hosts, &progress_topic, partition),
-                KafkaReader::new(hosts, &state_topic, partition),
+                KafkaReader::new(brokers, &progress_topic, partition),
+                KafkaReader::new(brokers, &state_topic, partition),
             )
         });
 
@@ -1084,7 +1084,7 @@ impl ProgressReader<u64> for SqliteProgressReader {
     }
 }
 
-fn create_kafka_topic(hosts: &[String], topic: &str, partitions: i32) {
+fn create_kafka_topic(brokers: &[String], topic: &str, partitions: i32) {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1092,7 +1092,7 @@ fn create_kafka_topic(hosts: &[String], topic: &str, partitions: i32) {
 
     let admin: AdminClient<_> = rt.block_on(async {
         ClientConfig::new()
-            .set("bootstrap.servers", hosts.join(","))
+            .set("bootstrap.servers", brokers.join(","))
             .create()
             .expect("Error building Kafka admin")
     });
@@ -1135,10 +1135,10 @@ struct KafkaWriter<K, P> {
 }
 
 impl<K: Serialize, P: Serialize> KafkaWriter<K, P> {
-    fn new(hosts: &[String], topic: String, partition: i32) -> Self {
-        debug!("Creating Kafka producer with hosts={hosts:?} topic={topic:?}");
+    fn new(brokers: &[String], topic: String, partition: i32) -> Self {
+        debug!("Creating Kafka producer with brokers={brokers:?} topic={topic:?}");
         let producer: BaseProducer = ClientConfig::new()
-            .set("bootstrap.servers", hosts.join(","))
+            .set("bootstrap.servers", brokers.join(","))
             .create()
             .expect("Error building Kafka producer");
 
@@ -1203,10 +1203,10 @@ struct KafkaReader<K, P> {
 }
 
 impl<K: DeserializeOwned, P: DeserializeOwned> KafkaReader<K, P> {
-    fn new(hosts: &[String], topic: &str, partition: i32) -> Self {
-        debug!("Loading recovery data from hosts={hosts:?} topic={topic:?}");
+    fn new(brokers: &[String], topic: &str, partition: i32) -> Self {
+        debug!("Loading recovery data from brokers={brokers:?} topic={topic:?}");
         let consumer: BaseConsumer = ClientConfig::new()
-            .set("bootstrap.servers", hosts.join(","))
+            .set("bootstrap.servers", brokers.join(","))
             // We don't want to use consumer groups because
             // re-balancing makes no sense in the recovery
             // context. librdkafka requires you to set a consumer

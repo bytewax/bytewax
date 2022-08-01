@@ -102,7 +102,7 @@ pub(crate) struct InputConfig;
 ///
 /// Args:
 ///
-///     hosts: Broker addresses. E.g. "localhost:9092,localhost:9093"
+///     brokers: Broker addresses. E.g. "localhost:9092,localhost:9093"
 ///
 ///     group_id: Group id as a string.
 ///
@@ -124,10 +124,12 @@ pub(crate) struct InputConfig;
 ///     Config object. Pass this as the `input_config` argument to
 ///     your execution entry point.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
-#[pyo3(text_signature = "(hosts, group_id, topics, tail, offset_reset, auto_commit, epoch_length)")]
+#[pyo3(
+    text_signature = "(brokers, group_id, topics, tail, offset_reset, auto_commit, epoch_length)"
+)]
 pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
-    pub hosts: Vec<String>,
+    pub brokers: Vec<String>,
     #[pyo3(get)]
     pub group_id: String,
     #[pyo3(get)]
@@ -146,7 +148,7 @@ pub(crate) struct KafkaInputConfig {
 impl KafkaInputConfig {
     #[new]
     #[args(
-        hosts,
+        brokers,
         group_id,
         topics,
         tail = true,
@@ -155,7 +157,7 @@ impl KafkaInputConfig {
         epoch_length = "pyo3_chrono::Duration(chrono::Duration::seconds(5))"
     )]
     fn new(
-        hosts: Vec<String>,
+        brokers: Vec<String>,
         group_id: String,
         topics: Vec<String>,
         tail: bool,
@@ -165,7 +167,7 @@ impl KafkaInputConfig {
     ) -> (Self, InputConfig) {
         (
             Self {
-                hosts,
+                brokers,
                 group_id,
                 topics,
                 tail,
@@ -191,7 +193,7 @@ impl KafkaInputConfig {
     ) {
         (
             "KafkaInputConfig",
-            self.hosts.clone(),
+            self.brokers.clone(),
             self.group_id.clone(),
             self.topics.clone(),
             self.tail,
@@ -229,7 +231,7 @@ impl KafkaInputConfig {
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         if let Ok((
             "KafkaInputConfig",
-            hosts,
+            brokers,
             group_id,
             topics,
             tail,
@@ -238,7 +240,7 @@ impl KafkaInputConfig {
             epoch_length,
         )) = state.extract()
         {
-            self.hosts = hosts;
+            self.brokers = brokers;
             self.group_id = group_id;
             self.topics = topics;
             self.tail = tail;
@@ -330,7 +332,7 @@ impl KafkaPump {
     // TODO: Support recovery epoch on Kafka input. That'll require
     // storing epoch to offset mappings.
     fn new(
-        hosts: &[String],
+        brokers: &[String],
         group_id: &str,
         topics: &[String],
         tail: bool,
@@ -343,7 +345,7 @@ impl KafkaPump {
 
         let consumer: BaseConsumer = ClientConfig::new()
             .set("group.id", group_id)
-            .set("bootstrap.servers", hosts.join(","))
+            .set("bootstrap.servers", brokers.join(","))
             .set("enable.partition.eof", format!("{eof}"))
             .set("session.timeout.ms", "6000")
             .set("enable.auto.commit", format!("{auto_commit}"))
@@ -493,7 +495,7 @@ pub(crate) fn pump_from_config(
     if let Ok(kafka_config) = input_config.downcast::<PyCell<KafkaInputConfig>>() {
         let kafka_config = kafka_config.borrow();
 
-        let hosts = &kafka_config.hosts;
+        let brokers = &kafka_config.brokers;
         let group_id = &kafka_config.group_id;
         let topics = &kafka_config.topics;
         let tail = kafka_config.tail;
@@ -508,7 +510,7 @@ pub(crate) fn pump_from_config(
         let input_handle = SendWrapper::new(input_handle);
         let kafka_pump = py.allow_threads(|| {
             SendWrapper::new(KafkaPump::new(
-                hosts,
+                brokers,
                 group_id,
                 topics,
                 tail,
