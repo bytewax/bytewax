@@ -340,7 +340,7 @@ impl Dataflow {
 
     // TODO: Update this example once we have a better idea about
     // input.
-    /// Reduce window lets you combine all items for a key within an
+    /// Reduce window lets you combine all items for a key within a
     /// window into an accumulator.
     ///
     /// It is like `bytewax.Dataflow.reduce()` but marks the

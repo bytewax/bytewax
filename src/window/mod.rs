@@ -93,9 +93,9 @@ pub(crate) fn build_clock<V>(
     py: Python,
     clock_config: Py<ClockConfig>,
 ) -> Result<Box<dyn Clock<V>>, String> {
-    let window_config = clock_config.as_ref(py);
+    let clock_config = clock_config.as_ref(py);
 
-    if let Ok(system_clock_config) = window_config.downcast::<PyCell<SystemClockConfig>>() {
+    if let Ok(system_clock_config) = clock_config.downcast::<PyCell<SystemClockConfig>>() {
         let _system_clock_config = system_clock_config.borrow();
 
         let clock = SystemClock::new();
@@ -104,7 +104,7 @@ pub(crate) fn build_clock<V>(
     } else {
         Err(format!(
             "Unknown clock_config type: {}",
-            window_config.get_type(),
+            clock_config.get_type(),
         ))
     }
 }

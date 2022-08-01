@@ -30,7 +30,7 @@ stateful operators, so you can read more on their methods on
 `bytewax.Dataflow`.
 
 4. Pass both these configs to the windowing operator of your
-choice. The **windowing operators** decided what kind of logic you
+choice. The **windowing operators** decide what kind of logic you
 should apply to values within a window and what should be the output
 of the window. E.g. `bytewax.Dataflow.reduce_window` combines all
 values in a window into a single output and sends that downstream.

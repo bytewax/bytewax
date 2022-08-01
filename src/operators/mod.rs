@@ -414,7 +414,7 @@ where
                     // frontier might have already progressed and it
                     // would be stranded.
                     activate_epochs_buffer.extend(outgoing_epoch_to_key_updates_buffer.keys().cloned().filter(is_closed));
-                    // Eagarly execute the frontier.
+                    // Eagerly execute the frontier.
                     activate_epochs_buffer.push(frontier_epoch);
                     activate_epochs_buffer.dedup();
                     activate_epochs_buffer.sort();
@@ -473,7 +473,7 @@ where
                                     key_values_buffer.extend(keys_buffer.drain(..).map(|k| (k.clone(), Poll::Ready(None))));
                                 } else {
                                     // Otherwise, wake up any keys
-                                    // that are passed their requested
+                                    // that are past their requested
                                     // activation time.
                                     key_values_buffer.extend(key_to_next_activate_at_buffer.iter().filter(|(_k, a)| a.elapsed() >= Duration::ZERO).map(|(k, _a)| (k.clone(), Poll::Pending)));
                                 }
