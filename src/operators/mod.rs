@@ -106,11 +106,7 @@ pub(crate) fn reduce(
     key: &StateKey,
     acc: Option<TdPyAny>,
     next_value: Poll<Option<TdPyAny>>,
-) -> (
-    Option<TdPyAny>,
-    impl IntoIterator<Item = TdPyAny>,
-    Option<Duration>,
-) {
+) -> StatefulUnaryLogicReturn<TdPyAny, TdPyAny, Option<TdPyAny>> {
     if let Poll::Ready(Some(value)) = next_value {
         Python::with_gil(|py| {
             let updated_acc: TdPyAny = match acc {
@@ -136,14 +132,36 @@ pub(crate) fn reduce(
             debug!("reduce for key={key:?}: is_complete={is_complete:?}(updated_acc={updated_acc:?}) -> should_emit_and_discard_acc={should_emit_and_discard_acc:?}");
 
             if should_emit_and_discard_acc {
-                (None, Some(updated_acc), None)
+                StatefulUnaryLogicReturn {
+                    updated_state: None,
+                    output: Some(updated_acc),
+                    activate_after: None,
+                }
             } else {
-                (Some(updated_acc), None, None)
+                StatefulUnaryLogicReturn {
+                    updated_state: Some(updated_acc),
+                    output: None,
+                    activate_after: None,
+                }
             }
         })
     } else {
-        (acc, None, None)
+        StatefulUnaryLogicReturn {
+            updated_state: acc,
+            output: None,
+            activate_after: None,
+        }
     }
+}
+
+/// Wrapper struct so we have named fields.
+///
+/// [`StatefulUnary::stateful_unary`]'s logic can do a lot each
+/// activation so this helps.
+pub(crate) struct StatefulUnaryLogicReturn<R, D, I: IntoIterator<Item = R>> {
+    pub(crate) updated_state: Option<D>,
+    pub(crate) output: I,
+    pub(crate) activate_after: Option<Duration>,
 }
 
 /// Extension trait for [`Stream`].
@@ -158,7 +176,7 @@ pub(crate) trait StatefulUnary<S: Scope, V: ExchangeData> {
         R: Data,                   // Output item type
         D: ExchangeData,           // Per-key state
         I: IntoIterator<Item = R>, // Iterator of output items
-        L: Fn(&StateKey, Option<D>, Poll<Option<V>>) -> (Option<D>, I, Option<Duration>) + 'static, // Logic
+        L: Fn(&StateKey, Option<D>, Poll<Option<V>>) -> StatefulUnaryLogicReturn<R, D, I> + 'static, // Logic
         H: Fn(&StateKey) -> u64 + 'static, // Hash function of key to worker
     >(
         &self,
@@ -229,7 +247,7 @@ pub(crate) trait StatefulUnary<S: Scope, V: ExchangeData> {
         R: Data,                   // Output item type
         D: ExchangeData,           // Per-key state
         I: IntoIterator<Item = R>, // Iterator of output items
-        L: Fn(&StateKey, Option<D>, Poll<Option<V>>) -> (Option<D>, I, Option<Duration>) + 'static, // Logic
+        L: Fn(&StateKey, Option<D>, Poll<Option<V>>) -> StatefulUnaryLogicReturn<R, D, I> + 'static, // Logic
         H: Fn(&StateKey) -> u64 + 'static, // Hash function of key to worker
     >(
         &self,
@@ -253,7 +271,7 @@ where
         R: Data,                   // Output item type
         D: ExchangeData,           // Per-key state
         I: IntoIterator<Item = R>, // Iterator of output items
-        L: Fn(&StateKey, Option<D>, Poll<Option<V>>) -> (Option<D>, I, Option<Duration>) + 'static, // Logic
+        L: Fn(&StateKey, Option<D>, Poll<Option<V>>) -> StatefulUnaryLogicReturn<R, D, I> + 'static, // Logic
         H: Fn(&StateKey) -> u64 + 'static, // Hash function of key to worker
     >(
         &self,
@@ -283,7 +301,7 @@ where
         R: Data,                   // Output item type
         D: ExchangeData,           // Per-key state
         I: IntoIterator<Item = R>, // Iterator of output items
-        L: Fn(&StateKey, Option<D>, Poll<Option<V>>) -> (Option<D>, I, Option<Duration>) + 'static, // Logic
+        L: Fn(&StateKey, Option<D>, Poll<Option<V>>) -> StatefulUnaryLogicReturn<R, D, I> + 'static, // Logic
         H: Fn(&StateKey) -> u64 + 'static, // Hash function of key to worker
     >(
         &self,
@@ -489,7 +507,7 @@ where
                                         }
                                     }
 
-                                    let (updated_state, output, activate_after) = logic(&key, state, next_value);
+                                    let StatefulUnaryLogicReturn { updated_state, output, activate_after } = logic(&key, state, next_value);
 
                                     let state_update = match updated_state {
                                         Some(state) => StateUpdate::Upsert(state),
@@ -575,11 +593,7 @@ pub(crate) fn stateful_map(
     key: &StateKey,
     state: Option<TdPyAny>,
     next_value: Poll<Option<TdPyAny>>,
-) -> (
-    Option<TdPyAny>,
-    impl IntoIterator<Item = TdPyAny>,
-    Option<Duration>,
-) {
+) -> StatefulUnaryLogicReturn<TdPyAny, TdPyAny, Option<TdPyAny>> {
     if let Poll::Ready(Some(value)) = next_value {
         let state = state.unwrap_or_else(|| build(builder, key));
 
@@ -593,10 +607,18 @@ pub(crate) fn stateful_map(
             });
             debug!("stateful_map for key={key:?}: mapper={mapper:?}(state={state:?}, value={value:?}) -> (updated_state={updated_state:?}, updated_value={updated_value:?})");
 
-            (updated_state, Some(updated_value), None)
+            StatefulUnaryLogicReturn {
+                updated_state,
+                output: Some(updated_value),
+                activate_after: None,
+            }
         })
     } else {
-        (state, None, None)
+        StatefulUnaryLogicReturn {
+            updated_state: state,
+            output: None,
+            activate_after: None,
+        }
     }
 }
 

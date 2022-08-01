@@ -26,7 +26,7 @@
 //! how to create a [`SystemClock`].
 
 use crate::dataflow::StepId;
-use crate::operators::StatefulUnary;
+use crate::operators::{StatefulUnary, StatefulUnaryLogicReturn};
 use crate::pyo3_extensions::{StateKey, TdPyAny, TdPyCallable};
 use crate::recovery::StateBackup;
 use crate::with_traceback;
@@ -503,7 +503,7 @@ where
                 let mut state = state.unwrap_or_default();
                 let (clock_state, windower_state, logic_state) = &mut state;
 
-                let mut emits = Vec::new();
+                let mut output = Vec::new();
 
                 let watermark = clock.watermark(clock_state, &value);
 
@@ -514,12 +514,12 @@ where
                         let value = value.clone();
                         match window_result {
                             Err(InsertError::Late(_id)) => {
-                                emits.push(Err(WindowError::Late(value)));
+                                output.push(Err(WindowError::Late(value)));
                             }
                             Ok(id) => {
                                 let window_state = logic_state.window_states.remove(&id);
 
-                                let (updated_window_state, output) =
+                                let (updated_window_state, window_output) =
                                     logic(&key, window_state, Some(value));
 
                                 match updated_window_state {
@@ -527,7 +527,7 @@ where
                                     None => logic_state.window_states.remove(&id),
                                 };
 
-                                emits.extend(output.into_iter().map(Ok));
+                                output.extend(window_output.into_iter().map(Ok));
                             }
                         }
                     }
@@ -536,21 +536,21 @@ where
                 for id in windower.drain_closed(windower_state, &watermark) {
                     let window_state = logic_state.window_states.remove(&id);
 
-                    let (updated_window_state, output) = logic(&key, window_state, None);
+                    let (updated_window_state, window_output) = logic(&key, window_state, None);
 
                     if let Some(_) = updated_window_state {
                         panic!("Stateful window logic did not return `None` on window close; state would be lost");
                     }
                     logic_state.window_states.remove(&id);
 
-                    emits.extend(output.into_iter().map(Ok));
+                    output.extend(window_output.into_iter().map(Ok));
                 }
 
                 let activate_after = windower
                     .activate_after(windower_state, &watermark)
                     .map(|d| d.to_std().unwrap_or(std::time::Duration::ZERO));
 
-                (Some(state), emits, activate_after)
+                StatefulUnaryLogicReturn { updated_state: Some(state), output, activate_after }
             },
             hasher,
             state_loading_stream,
