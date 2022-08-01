@@ -261,6 +261,38 @@ use tokio::runtime::Runtime;
 #[pyo3(text_signature = "()")]
 pub(crate) struct RecoveryConfig;
 
+impl RecoveryConfig {
+    /// Create an "empty" [`Self`] just for use in `__getnewargs__`.
+    #[allow(dead_code)]
+    pub(crate) fn pickle_new(py: Python) -> Py<Self> {
+        PyCell::new(py, RecoveryConfig {}).unwrap().into()
+    }
+}
+
+#[pymethods]
+impl RecoveryConfig {
+    #[new]
+    fn new() -> Self {
+        Self {}
+    }
+
+    /// Pickle as a tuple.
+    fn __getstate__(&self) -> (&str,) {
+        ("RecoveryConfig",)
+    }
+
+    /// Unpickle from tuple of arguments.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok(("RecoveryConfig",)) = state.extract() {
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for RecoveryConfig: {state:?}"
+            )))
+        }
+    }
+}
+
 /// Do not store any recovery data.
 ///
 /// This is the default if no `recovery_config` is passed to your

@@ -52,6 +52,38 @@ use timely::{Data, ExchangeData};
 #[pyo3(text_signature = "()")]
 pub(crate) struct ClockConfig;
 
+impl ClockConfig {
+    /// Create an "empty" [`Self`] just for use in `__getnewargs__`.
+    #[allow(dead_code)]
+    pub(crate) fn pickle_new(py: Python) -> Py<Self> {
+        PyCell::new(py, ClockConfig {}).unwrap().into()
+    }
+}
+
+#[pymethods]
+impl ClockConfig {
+    #[new]
+    fn new() -> Self {
+        Self {}
+    }
+
+    /// Pickle as a tuple.
+    fn __getstate__(&self) -> (&str,) {
+        ("ClockConfig",)
+    }
+
+    /// Unpickle from tuple of arguments.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok(("ClockConfig",)) = state.extract() {
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for ClockConfig: {state:?}"
+            )))
+        }
+    }
+}
+
 /// Use to simulate system time in tests. Increment "now" after each
 /// item.
 ///
@@ -186,6 +218,38 @@ pub(crate) fn build_clock<V>(
 #[pyclass(module = "bytewax.window", subclass)]
 #[pyo3(text_signature = "()")]
 pub(crate) struct WindowConfig;
+
+impl WindowConfig {
+    /// Create an "empty" [`Self`] just for use in `__getnewargs__`.
+    #[allow(dead_code)]
+    pub(crate) fn pickle_new(py: Python) -> Py<Self> {
+        PyCell::new(py, WindowConfig {}).unwrap().into()
+    }
+}
+
+#[pymethods]
+impl WindowConfig {
+    #[new]
+    fn new() -> Self {
+        Self {}
+    }
+
+    /// Pickle as a tuple.
+    fn __getstate__(&self) -> (&str,) {
+        ("WindowConfig",)
+    }
+
+    /// Unpickle from tuple of arguments.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok(("WindowConfig",)) = state.extract() {
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for WindowConfig: {state:?}"
+            )))
+        }
+    }
+}
 
 /// Tumbling windows of fixed duration.
 ///
