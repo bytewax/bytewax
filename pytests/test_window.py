@@ -17,7 +17,7 @@ def test_system_clock_tumbling_window():
             # reduce_window operator. So we have to kick the epoch to
             # get things to work.
             yield AdvanceTo(e + 1)
-            sleep(0.2)
+            sleep(0.4)
 
     out = []
 
@@ -28,7 +28,7 @@ def test_system_clock_tumbling_window():
         return acc + x
 
     clock_config = SystemClockConfig()
-    window_config = TumblingWindowConfig(length=timedelta(seconds=0.5))
+    window_config = TumblingWindowConfig(length=timedelta(seconds=1))
 
     flow = Dataflow()
     flow.reduce_window("sum", clock_config, window_config, add)
