@@ -52,6 +52,66 @@ use timely::{Data, ExchangeData};
 #[pyo3(text_signature = "()")]
 pub(crate) struct ClockConfig;
 
+/// Use to simulate system time in tests. Increment "now" after each
+/// item.
+///
+/// If the dataflow has no more input, all windows are closed.
+///
+/// The watermark uses the most recent "now".
+///
+/// Args:
+///
+///     item_incr (datetime.timedelta): Amount to increment "now"
+///         after each item.
+///
+/// Returns:
+///
+///     Config object. Pass this as the `clock_config` parameter to
+///     your windowing operator.
+#[pyclass(module="bytewax.window", extends=ClockConfig)]
+#[pyo3(text_signature = "(item_incr)")]
+struct TestingClockConfig {
+    #[pyo3(get)]
+    item_incr: pyo3_chrono::Duration,
+}
+
+#[pymethods]
+impl TestingClockConfig {
+    /// Tell pytest to ignore this class, even though it starts with
+    /// the name "Test".
+    #[allow(non_upper_case_globals)]
+    #[classattr]
+    const __test__: bool = false;
+
+    #[new]
+    #[args(item_incr)]
+    fn new(item_incr: pyo3_chrono::Duration) -> (Self, ClockConfig) {
+        (Self { item_incr }, ClockConfig {})
+    }
+
+    /// Pickle as a tuple.
+    fn __getstate__(&self) -> (&str, pyo3_chrono::Duration) {
+        ("TestingClockConfig", self.item_incr.clone())
+    }
+
+    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
+    fn __getnewargs__(&self) -> (pyo3_chrono::Duration,) {
+        (pyo3_chrono::Duration(Duration::zero()),)
+    }
+
+    /// Unpickle from tuple of arguments.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok(("TestingClockConfig", item_incr)) = state.extract() {
+            self.item_incr = item_incr;
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for TestingClockConfig: {state:?}"
+            )))
+        }
+    }
+}
+
 /// Use the system time inside the windowing operator to determine
 /// times.
 ///
@@ -95,7 +155,15 @@ pub(crate) fn build_clock<V>(
 ) -> Result<Box<dyn Clock<V>>, String> {
     let clock_config = clock_config.as_ref(py);
 
-    if let Ok(system_clock_config) = clock_config.downcast::<PyCell<SystemClockConfig>>() {
+    if let Ok(testing_clock_config) = clock_config.downcast::<PyCell<TestingClockConfig>>() {
+        let testing_clock_config = testing_clock_config.borrow();
+
+        let item_incr = testing_clock_config.item_incr.0;
+
+        let clock = TestingClock::new(item_incr);
+
+        Ok(Box::new(clock))
+    } else if let Ok(system_clock_config) = clock_config.downcast::<PyCell<SystemClockConfig>>() {
         let _system_clock_config = system_clock_config.borrow();
 
         let clock = SystemClock::new();
@@ -209,11 +277,18 @@ pub(crate) fn build_windower(
 
 /// Any persistent state that a [`Clock`] might need.
 ///
+/// A clock does not need to use or set all fields here. It should use
+/// whatever it needs internally in the class. This won't be modified
+/// outside of the current clock impl.
+///
 /// This is stored in the recovery system.
 ///
 /// Add new stuff here that newer [`Clock`]s might need.
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
-pub(crate) struct ClockState {}
+pub(crate) struct ClockState {
+    /// The time assigned to the last item seen.
+    last_item_time: Option<NaiveDateTime>,
+}
 
 /// Defines the sense of time for a windowing operator.
 pub(crate) trait Clock<V> {
@@ -236,6 +311,40 @@ pub(crate) trait Clock<V> {
     /// This can mutate the [`ClockState`] if noting that an item has
     /// arrived should advance the clock or something.
     fn time_for(&self, state: &mut ClockState, value: &V) -> NaiveDateTime;
+}
+
+/// Simulate system time for tests. Increment "now" after each item.
+struct TestingClock {
+    item_incr: Duration,
+}
+
+impl TestingClock {
+    fn new(item_incr: Duration) -> Self {
+        Self { item_incr }
+    }
+
+    fn last_item_time(&self, state: &mut ClockState) -> NaiveDateTime {
+        state
+            .last_item_time
+            .get_or_insert_with(|| chrono::offset::Local::now().naive_local())
+            .clone()
+    }
+}
+
+impl<V> Clock<V> for TestingClock {
+    fn watermark(&self, state: &mut ClockState, item: &Poll<Option<V>>) -> NaiveDateTime {
+        match item {
+            // If there will be no more values, close out all windows.
+            Poll::Ready(None) => chrono::naive::MAX_DATETIME,
+            _ => self.last_item_time(state),
+        }
+    }
+
+    fn time_for(&self, state: &mut ClockState, _item: &V) -> NaiveDateTime {
+        let last_item_time = self.last_item_time(state);
+        state.last_item_time = Some(last_item_time + self.item_incr);
+        last_item_time
+    }
 }
 
 /// Use the current system time.
@@ -594,6 +703,7 @@ pub(crate) fn reduce_window(
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ClockConfig>()?;
+    m.add_class::<TestingClockConfig>()?;
     m.add_class::<SystemClockConfig>()?;
     m.add_class::<WindowConfig>()?;
     m.add_class::<TumblingWindowConfig>()?;
