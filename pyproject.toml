@@ -37,5 +37,10 @@ doctest_optionflags = "NORMALIZE_WHITESPACE"
 testpaths = [
     "pytests",
     # TODO: Add back in doctests when we can figure out how to run them without import problems.
-    "docs",
+
+    # "pysrc",
+
+    # TODO: Turn back on markdown tests once we stabilize inputs.
+
+    # "docs",
 ]

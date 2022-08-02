@@ -1,4 +1,4 @@
-"""Bytewax's state recovery machinery.
+"""Recovering from failures.
 
 Bytewax allows you to **recover** a stateful dataflow; it will let you
 resume processing and output due to a failure without re-processing
@@ -63,4 +63,8 @@ delete the data in the recovery store using whatever operational tools
 you have for that storage type.
 
 """
-from .bytewax import KafkaRecoveryConfig, RecoveryConfig, SqliteRecoveryConfig  # noqa
+from .bytewax import (  # noqa: F401
+    KafkaRecoveryConfig,
+    RecoveryConfig,
+    SqliteRecoveryConfig,
+)

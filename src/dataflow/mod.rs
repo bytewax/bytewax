@@ -1,4 +1,6 @@
 use crate::pyo3_extensions::TdPyCallable;
+use crate::window::ClockConfig;
+use crate::window::WindowConfig;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
@@ -18,6 +20,24 @@ use std::fmt::Display;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub(crate) struct StepId(String);
+
+impl<'source> FromPyObject<'source> for StepId {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        Ok(StepId(ob.extract()?))
+    }
+}
+
+impl IntoPy<PyObject> for StepId {
+    fn into_py(self, py: Python) -> Py<PyAny> {
+        PyString::new(py, &self.0).into()
+    }
+}
+
+impl ToPyObject for StepId {
+    fn to_object(&self, py: Python) -> PyObject {
+        self.0.to_object(py)
+    }
+}
 
 impl Display for StepId {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
@@ -251,11 +271,8 @@ impl Dataflow {
     ///
     /// It is a stateful operator. It requires the the input stream
     /// has items that are `(key: str, value)` tuples so we can ensure
-    /// that all relevant values are routed to the relevant
-    /// accumulator.
-    ///
-    /// It is a recoverable operator. It requires a step ID to recover
-    /// the correct state.
+    /// that all relevant values are routed to the relevant state. It
+    /// also requires a step ID to recover the correct state.
     ///
     /// It calls two functions:
     ///
@@ -313,38 +330,41 @@ impl Dataflow {
     ///     is_complete: `is_complete(updated_accumulator: Any) =>
     ///         should_emit: bool`
     #[pyo3(text_signature = "(self, step_id, reducer, is_complete)")]
-    fn reduce(&mut self, step_id: String, reducer: TdPyCallable, is_complete: TdPyCallable) {
+    fn reduce(&mut self, step_id: StepId, reducer: TdPyCallable, is_complete: TdPyCallable) {
         self.steps.push(Step::Reduce {
-            step_id: StepId(step_id),
+            step_id,
             reducer,
             is_complete,
         });
     }
 
-    /// Reduce epoch lets you combine all items for a key within an
-    /// epoch into an accumulator.
+    // TODO: Update this example once we have a better idea about
+    // input.
+    /// Reduce window lets you combine all items for a key within a
+    /// window into an accumulator.
     ///
     /// It is like `bytewax.Dataflow.reduce()` but marks the
-    /// accumulator as complete automatically at the end of each epoch.
+    /// accumulator as complete automatically at the end of each
+    /// window.
     ///
-    /// It is a stateful operator. it requires the the input stream
+    /// It is a stateful operator. It requires the the input stream
     /// has items that are `(key: str, value)` tuples so we can ensure
-    /// that all relevant values are routed to the relevant
-    /// accumulator.
+    /// that all relevant values are routed to the relevant state. It
+    /// also requires a step ID to recover the correct state.
     ///
     /// It calls a **reducer** function which combines two values. The
     /// accumulator is initially the first value seen for a key. Values
     /// will be passed in arbitrary order. If there is only a single
-    /// value for a key in this epoch, this function will not be
+    /// value for a key in this window, this function will not be
     /// called.
     ///
     /// It emits `(key, accumulator)` tuples downstream at the end of
-    /// each epoch.
+    /// each window.
     ///
     /// It is commonly used for:
     ///
-    /// - Counting within epochs
-    /// - Accumulation within epochs
+    /// - Counting within windows
+    /// - Accumulation within windows
     ///
     /// >>> def add_initial_count(event):
     /// ...     return event["user"], 1
@@ -373,33 +393,29 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     reducer: `reducer(accumulator: Any, value: Any) =>
-    ///         updated_accumulator: Any`
-    #[pyo3(text_signature = "(self, reducer)")]
-    fn reduce_epoch(&mut self, reducer: TdPyCallable) {
-        self.steps.push(Step::ReduceEpoch { reducer });
-    }
-
-    /// Reduce epoch local lets you combine all items for a key within
-    /// an epoch _on a single worker._
+    ///     step_id: Uniquely identifies this step for recovery.
     ///
-    /// It is exactly like `bytewax.Dataflow.reduce_epoch()` but does
-    /// _not_ ensure all values for a key are routed to the same
-    /// worker and thus there is only one output accumulator per key.
+    ///     clock_config: Clock config to use. See `bytewax.window`.
     ///
-    /// You should use `bytewax.Dataflow.reduce_epoch()` unless you
-    /// need a network-overhead optimization and some later step does
-    /// full accumulation.
-    ///
-    /// It is only used for performance optimziation.
-    ///
-    /// Args:
+    ///     window_config: Windower config to use. See
+    ///         `bytewax.window`.
     ///
     ///     reducer: `reducer(accumulator: Any, value: Any) =>
     ///         updated_accumulator: Any`
-    #[pyo3(text_signature = "(self, reducer)")]
-    fn reduce_epoch_local(&mut self, reducer: TdPyCallable) {
-        self.steps.push(Step::ReduceEpochLocal { reducer });
+    #[pyo3(text_signature = "(self, step_id, clock_config, window_config, reducer)")]
+    fn reduce_window(
+        &mut self,
+        step_id: StepId,
+        clock_config: Py<ClockConfig>,
+        window_config: Py<WindowConfig>,
+        reducer: TdPyCallable,
+    ) {
+        self.steps.push(Step::ReduceWindow {
+            step_id,
+            clock_config,
+            window_config,
+            reducer,
+        });
     }
 
     /// Stateful map is a one-to-one transformation of values, but
@@ -408,10 +424,8 @@ impl Dataflow {
     ///
     /// It is a stateful operator. It requires the the input stream
     /// has items that are `(key: str, value)` tuples so we can ensure
-    /// that all relevant values are routed to the relevant state.
-    ///
-    /// It is a recoverable operator. It requires a step ID to recover
-    /// the correct state.
+    /// that all relevant values are routed to the relevant state. It
+    /// also requires a step ID to recover the correct state.
     ///
     /// It calls two functions:
     ///
@@ -472,9 +486,9 @@ impl Dataflow {
     ///     mapper: `mapper(state: Any, value: Any) => (updated_state:
     ///         Any, updated_value: Any)`
     #[pyo3(text_signature = "(self, step_id, builder, mapper)")]
-    fn stateful_map(&mut self, step_id: String, builder: TdPyCallable, mapper: TdPyCallable) {
+    fn stateful_map(&mut self, step_id: StepId, builder: TdPyCallable, mapper: TdPyCallable) {
         self.steps.push(Step::StatefulMap {
-            step_id: StepId(step_id),
+            step_id,
             builder,
             mapper,
         });
@@ -536,10 +550,10 @@ pub(crate) enum Step {
         reducer: TdPyCallable,
         is_complete: TdPyCallable,
     },
-    ReduceEpoch {
-        reducer: TdPyCallable,
-    },
-    ReduceEpochLocal {
+    ReduceWindow {
+        step_id: StepId,
+        clock_config: Py<ClockConfig>,
+        window_config: Py<WindowConfig>,
         reducer: TdPyCallable,
     },
     StatefulMap {
@@ -574,20 +588,23 @@ impl<'source> FromPyObject<'source> for Step {
         }
         if let Ok(("Reduce", step_id, reducer, is_complete)) = tuple.extract() {
             return Ok(Self::Reduce {
-                step_id: StepId(step_id),
+                step_id,
                 reducer,
                 is_complete,
             });
         }
-        if let Ok(("ReduceEpoch", reducer)) = tuple.extract() {
-            return Ok(Self::ReduceEpoch { reducer });
-        }
-        if let Ok(("ReduceEpochLocal", reducer)) = tuple.extract() {
-            return Ok(Self::ReduceEpochLocal { reducer });
+        if let Ok(("ReduceWindow", step_id, clock_config, window_config, reducer)) = tuple.extract()
+        {
+            return Ok(Self::ReduceWindow {
+                step_id,
+                clock_config,
+                window_config,
+                reducer,
+            });
         }
         if let Ok(("StatefulMap", step_id, builder, mapper)) = tuple.extract() {
             return Ok(Self::StatefulMap {
-                step_id: StepId(step_id),
+                step_id,
                 builder,
                 mapper,
             });
@@ -617,14 +634,25 @@ impl ToPyObject for Step {
                 step_id,
                 reducer,
                 is_complete,
-            } => ("Reduce", step_id.0.clone(), reducer, is_complete).to_object(py),
-            Self::ReduceEpoch { reducer } => ("ReduceEpoch", reducer).to_object(py),
-            Self::ReduceEpochLocal { reducer } => ("ReduceEpochLocal", reducer).to_object(py),
+            } => ("Reduce", step_id.clone(), reducer, is_complete).to_object(py),
+            Self::ReduceWindow {
+                step_id,
+                clock_config,
+                window_config,
+                reducer,
+            } => (
+                "ReduceWindow",
+                step_id.clone(),
+                clock_config,
+                window_config,
+                reducer,
+            )
+                .to_object(py),
             Self::StatefulMap {
                 step_id,
                 builder,
                 mapper,
-            } => ("StatefulMap", step_id.0.clone(), builder, mapper).to_object(py),
+            } => ("StatefulMap", step_id.clone(), builder, mapper).to_object(py),
             Self::Capture {} => ("Capture",).to_object(py),
         }
         .into()

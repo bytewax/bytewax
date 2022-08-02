@@ -1,16 +1,18 @@
+//!
+
 use crate::pyo3_extensions::{TdPyAny, TdPyIterator};
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use rdkafka::client::ClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::consumer::base_consumer::BaseConsumer;
-use rdkafka::consumer::{Consumer, ConsumerContext};
+use rdkafka::consumer::Consumer;
+use rdkafka::error::KafkaError;
 use rdkafka::message::Message;
-use std::time::Duration;
+use send_wrapper::SendWrapper;
+use std::time::{Duration, Instant};
 use timely::dataflow::InputHandle;
-use tokio::runtime::Runtime;
 
 /// Advance to the supplied epoch.
 ///
@@ -100,12 +102,11 @@ pub(crate) struct InputConfig;
 ///
 /// Args:
 ///
-///     brokers: Comma-separated of broker addresses.
-///         E.g. "localhost:9092,localhost:9093"
+///     brokers: Broker addresses. E.g. "localhost:9092,localhost:9093"
 ///
 ///     group_id: Group id as a string.
 ///
-///     topic: Topic to which consumer will subscribe.
+///     topics: Topics to which consumer will subscribe.
 ///
 ///     offset_reset: Can be "earliest" or "latest". Delegates where
 ///         to resume if auto_commit is not enabled. Defaults to
@@ -116,11 +117,7 @@ pub(crate) struct InputConfig;
 ///         when the process restarts to pick up where it left
 ///         off. Defaults to false.
 ///
-///     messages_per_epoch: (integer) Defines maximum number of
-///         messages per epoch.  Defaults to `1`. If the consumer
-///         times out waiting, the system will increment to the next
-///         epoch, and fewer (or no) messages may be assigned to the
-///         preceding epoch.
+///     epoch_length: (timedelta)
 ///
 /// Returns:
 ///
@@ -128,21 +125,23 @@ pub(crate) struct InputConfig;
 ///     your execution entry point.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
 #[pyo3(
-    text_signature = "(brokers, group_id, topics, offset_reset, auto_commit, messages_per_epoch)"
+    text_signature = "(brokers, group_id, topics, tail, offset_reset, auto_commit, epoch_length)"
 )]
 pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
-    pub brokers: String,
+    pub brokers: Vec<String>,
     #[pyo3(get)]
     pub group_id: String,
     #[pyo3(get)]
-    pub topics: String,
+    pub topics: Vec<String>,
+    #[pyo3(get)]
+    pub tail: bool,
     #[pyo3(get)]
     pub offset_reset: String,
     #[pyo3(get)]
     pub auto_commit: bool,
     #[pyo3(get)]
-    pub messages_per_epoch: u64,
+    epoch_length: pyo3_chrono::Duration,
 }
 
 #[pymethods]
@@ -152,46 +151,80 @@ impl KafkaInputConfig {
         brokers,
         group_id,
         topics,
+        tail = true,
         offset_reset = "\"earliest\".to_string()",
         auto_commit = false,
-        messages_per_epoch = 1
+        epoch_length = "pyo3_chrono::Duration(chrono::Duration::seconds(5))"
     )]
     fn new(
-        brokers: String,
+        brokers: Vec<String>,
         group_id: String,
-        topics: String,
+        topics: Vec<String>,
+        tail: bool,
         offset_reset: String,
         auto_commit: bool,
-        messages_per_epoch: u64,
+        epoch_length: pyo3_chrono::Duration,
     ) -> (Self, InputConfig) {
         (
             Self {
                 brokers,
                 group_id,
                 topics,
+                tail,
                 offset_reset,
                 auto_commit,
-                messages_per_epoch,
+                epoch_length,
             },
             InputConfig {},
         )
     }
 
-    fn __getstate__(&self) -> (&str, String, String, String, String, u64) {
+    fn __getstate__(
+        &self,
+    ) -> (
+        &str,
+        Vec<String>,
+        String,
+        Vec<String>,
+        bool,
+        String,
+        bool,
+        pyo3_chrono::Duration,
+    ) {
         (
             "KafkaInputConfig",
             self.brokers.clone(),
             self.group_id.clone(),
             self.topics.clone(),
+            self.tail,
             self.offset_reset.clone(),
-            self.messages_per_epoch,
+            self.auto_commit,
+            self.epoch_length,
         )
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (&str, &str, &str, &str, u64) {
+    fn __getnewargs__(
+        &self,
+    ) -> (
+        Vec<String>,
+        &str,
+        Vec<String>,
+        bool,
+        &str,
+        bool,
+        pyo3_chrono::Duration,
+    ) {
         let s = "UNINIT_PICKLED_STRING";
-        (s, s, s, s, 0)
+        (
+            Vec::new(),
+            s,
+            Vec::new(),
+            false,
+            s,
+            false,
+            pyo3_chrono::Duration(chrono::Duration::zero()),
+        )
     }
 
     /// Unpickle from tuple of arguments.
@@ -201,15 +234,19 @@ impl KafkaInputConfig {
             brokers,
             group_id,
             topics,
+            tail,
             offset_reset,
-            messages_per_epoch,
+            auto_commit,
+            epoch_length,
         )) = state.extract()
         {
             self.brokers = brokers;
             self.group_id = group_id;
             self.topics = topics;
+            self.tail = tail;
             self.offset_reset = offset_reset;
-            self.messages_per_epoch = messages_per_epoch;
+            self.auto_commit = auto_commit;
+            self.epoch_length = epoch_length;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -284,50 +321,49 @@ pub trait Pump {
 /// Encapsulates the process of pulling data out of a Kafka
 /// stream and feeding it into Timely.
 struct KafkaPump {
-    consumer: BaseConsumer<CustomContext>,
-    rt: Runtime,
+    consumer: BaseConsumer,
     push_to_timely: InputHandle<u64, TdPyAny>,
-    desired_messages_per_epoch: u64,
-    current_messages_per_epoch: u64,
-    current_epoch: u64,
+    epoch_length: Duration,
+    epoch_start: Instant,
     empty: bool,
 }
 
 impl KafkaPump {
     // TODO: Support recovery epoch on Kafka input. That'll require
-    // figuring out windowing.
-    fn new(config: PyRef<KafkaInputConfig>, push_to_timely: InputHandle<u64, TdPyAny>) -> Self {
-        let context = CustomContext;
+    // storing epoch to offset mappings.
+    fn new(
+        brokers: &[String],
+        group_id: &str,
+        topics: &[String],
+        tail: bool,
+        offset_reset: &str,
+        auto_commit: bool,
+        epoch_length: Duration,
+        push_to_timely: InputHandle<u64, TdPyAny>,
+    ) -> Self {
+        let eof = !tail;
 
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let consumer: BaseConsumer = ClientConfig::new()
+            .set("group.id", group_id)
+            .set("bootstrap.servers", brokers.join(","))
+            .set("enable.partition.eof", format!("{eof}"))
+            .set("session.timeout.ms", "6000")
+            .set("enable.auto.commit", format!("{auto_commit}"))
+            .set("auto.offset.reset", offset_reset)
+            .set_log_level(RDKafkaLogLevel::Debug)
+            .create()
+            .expect("Consumer creation failed");
 
-        let consumer: BaseConsumer<CustomContext> = rt.block_on(async {
-            ClientConfig::new()
-                .set("group.id", config.group_id.clone())
-                .set("bootstrap.servers", config.brokers.clone())
-                .set("enable.partition.eof", "false")
-                .set("session.timeout.ms", "6000")
-                .set("enable.auto.commit", config.auto_commit.to_string())
-                .set("auto.offset.reset", config.offset_reset.clone())
-                .set_log_level(RDKafkaLogLevel::Debug)
-                .create_with_context(context)
-                .expect("Consumer creation failed")
-        });
-
+        let topics: Vec<_> = topics.iter().map(|s| s.as_str()).collect();
         consumer
-            .subscribe(&[&config.topics])
+            .subscribe(&topics)
             .expect("Can't subscribe to specified topics");
 
         Self {
             consumer,
-            rt,
             push_to_timely,
-            current_epoch: 0,
-            desired_messages_per_epoch: config.messages_per_epoch,
-            current_messages_per_epoch: 0,
+            epoch_length,
+            epoch_start: Instant::now(),
             empty: false,
         }
     }
@@ -335,37 +371,32 @@ impl KafkaPump {
 
 impl Pump for KafkaPump {
     fn pump(&mut self) {
-        if self.current_messages_per_epoch == self.desired_messages_per_epoch {
-            self.current_messages_per_epoch = 0;
-            self.current_epoch += 1;
-            self.push_to_timely.advance_to(self.current_epoch);
-        } else {
-            self.rt.block_on(async {
-                match self.consumer.poll(Duration::from_millis(1000)) {
-                    None => {
-                        dbg!("No messages available, incrementing epoch");
-                        self.current_messages_per_epoch = 0;
-                        self.current_epoch += 1;
-                        self.push_to_timely.advance_to(self.current_epoch);
-                    }
-                    Some(r) => match r {
-                        Err(e) => panic!("Kafka error! {}", e),
-                        Ok(s) => {
-                            self.current_messages_per_epoch += 1;
-                            Python::with_gil(|py| {
-                                let key: Py<PyAny> =
-                                    s.key().map_or(py.None(), |k| PyBytes::new(py, k).into());
-                                let payload: Py<PyAny> = s
-                                    .payload()
-                                    .map_or(py.None(), |k| PyBytes::new(py, k).into());
-                                let key_payload: Py<PyAny> = (key, payload).into_py(py);
+        let now = Instant::now();
+        if now > self.epoch_start + self.epoch_length {
+            self.push_to_timely
+                .advance_to(self.push_to_timely.time() + 1);
+            self.epoch_start = now;
+        }
 
-                                self.push_to_timely.send(key_payload.into())
-                            })
-                        }
-                    },
-                }
-            })
+        // TODO: Figure out how we're going to rate limit all
+        // inputs. I think we could do something like "activate_delay"
+        // on the input source itself once we move from Pumps to
+        // sources.
+        match self.consumer.poll(Duration::from_millis(100)) {
+            Some(Err(KafkaError::PartitionEOF(_))) => {
+                self.empty = true;
+            }
+            Some(Err(err)) => panic!("Error reading input from Kafka topic: {err:?}"),
+            None => {}
+            Some(Ok(s)) => Python::with_gil(|py| {
+                let key: Py<PyAny> = s.key().map_or(py.None(), |k| PyBytes::new(py, k).into());
+                let payload: Py<PyAny> = s
+                    .payload()
+                    .map_or(py.None(), |k| PyBytes::new(py, k).into());
+                let key_payload: Py<PyAny> = (key, payload).into_py(py);
+
+                self.push_to_timely.send(key_payload.into())
+            }),
         }
     }
 
@@ -373,7 +404,6 @@ impl Pump for KafkaPump {
         self.push_to_timely.time()
     }
 
-    // Always true right now
     fn input_remains(&mut self) -> bool {
         !self.empty
     }
@@ -420,9 +450,15 @@ impl Pump for ManualPump {
                         if let Ok(send) = item.downcast::<PyCell<Emit>>() {
                             self.push_to_timely.send(send.borrow().item.clone());
                         } else if let Ok(advance_to) = item.downcast::<PyCell<AdvanceTo>>() {
-                            self.push_to_timely.advance_to(advance_to.borrow().epoch);
+                            let epoch = advance_to.borrow().epoch;
+                            let input_epoch = self.push_to_timely.time();
+                            if &epoch >= input_epoch {
+                                self.push_to_timely.advance_to(epoch)
+                            } else {
+                                panic!("The epoch on `AdvanceTo` must never decrease; got an epoch of `{epoch:?}` while current input epoch is `{input_epoch:?}`; are you respecting `resume_epoch`?");
+                            }
                         } else {
-                            panic!("{}", format!("Input must be an instance of either `AdvanceTo` or `Emit`. Got: {item:?}. See https://docs.bytewax.io/apidocs#bytewax.AdvanceTo for more information."))
+                            panic!("Input must be an instance of either `AdvanceTo` or `Emit`; got `{item:?}` instead. See https://docs.bytewax.io/apidocs#bytewax.AdvanceTo for more information.");
                         }
                     }
                     Err(err) => {
@@ -446,40 +482,66 @@ impl Pump for ManualPump {
 
 pub(crate) fn pump_from_config(
     py: Python,
-    config: Py<InputConfig>,
+    input_config: Py<InputConfig>,
     input_handle: InputHandle<u64, TdPyAny>,
     worker_index: usize,
     worker_count: usize,
     resume_epoch: u64,
 ) -> Box<dyn Pump> {
-    let input_config = config.as_ref(py);
+    // See comment in [`crate::recovery::build_recovery_writers`]
+    // about releasing the GIL during IO class building.
+    let input_config = input_config.as_ref(py);
+
     if let Ok(kafka_config) = input_config.downcast::<PyCell<KafkaInputConfig>>() {
         let kafka_config = kafka_config.borrow();
-        Box::new(KafkaPump::new(kafka_config, input_handle))
+
+        let brokers = &kafka_config.brokers;
+        let group_id = &kafka_config.group_id;
+        let topics = &kafka_config.topics;
+        let tail = kafka_config.tail;
+        let offset_reset = &kafka_config.offset_reset;
+        let auto_commit = kafka_config.auto_commit;
+        let epoch_length = kafka_config
+            .epoch_length
+            .0
+            .to_std()
+            .expect("Can't convert epoch_length into std::time::Duration; negative length?");
+
+        let input_handle = SendWrapper::new(input_handle);
+        let kafka_pump = py.allow_threads(|| {
+            SendWrapper::new(KafkaPump::new(
+                brokers,
+                group_id,
+                topics,
+                tail,
+                offset_reset,
+                auto_commit,
+                epoch_length,
+                input_handle.take(),
+            ))
+        });
+
+        Box::new(kafka_pump.take())
     } else if let Ok(manual_config) = input_config.downcast::<PyCell<ManualInputConfig>>() {
         let manual_config = manual_config.borrow();
-        Box::new(ManualPump::new(
+
+        // This one can't release the GIL because we're calling Python
+        // to construct it.
+        let manual_pump = ManualPump::new(
             py,
             worker_index,
             worker_count,
             resume_epoch,
             manual_config,
             input_handle,
-        ))
+        );
+
+        Box::new(manual_pump)
     } else {
         let pytype = input_config.get_type();
         panic!("Unknown input_config type: {pytype}")
     }
 }
-
-//  // A context can be used to change the behavior of producers and consumers by adding callbacks
-// that will be executed by librdkafka.
-// We're not using this yet, but seems like it will be helpful with recovery callbacks
-struct CustomContext;
-
-impl ClientContext for CustomContext {}
-
-impl ConsumerContext for CustomContext {}
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Emit>()?;

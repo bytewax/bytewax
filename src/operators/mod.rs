@@ -13,9 +13,11 @@ use crate::dataflow::StepId;
 use crate::log_func;
 use crate::pyo3_extensions::StateKey;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
+use crate::recovery::DeserializeBackup;
 use crate::recovery::ProgressReader;
 use crate::recovery::ProgressWriter;
 use crate::recovery::RecoveryKey;
+use crate::recovery::SerializeBackup;
 use crate::recovery::StateBackup;
 use crate::recovery::StateReader;
 use crate::recovery::StateUpdate;
@@ -23,19 +25,23 @@ use crate::recovery::StateWriter;
 use crate::recovery::{FrontierUpdate, StateCollector};
 use crate::with_traceback;
 use log::debug;
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::rc::Rc;
-use std::thread;
+use std::task::Poll;
+use std::time::{Duration, Instant};
 use timely::dataflow::channels::pact;
 use timely::dataflow::operators::flow_controlled::iterator_source;
 use timely::dataflow::operators::flow_controlled::IteratorSourceInput;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::generic::FrontieredInputHandle;
-use timely::dataflow::operators::FrontierNotificator;
 use timely::dataflow::operators::Operator;
+use timely::dataflow::operators::{Filter, FrontierNotificator};
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
@@ -62,7 +68,12 @@ pub(crate) fn filter(predicate: &TdPyCallable, item: &TdPyAny) -> bool {
         predicate,
         item
     );
-    Python::with_gil(|py| with_traceback!(py, predicate.call1(py, (item,))?.extract(py)))
+    Python::with_gil(|py| {
+        with_traceback!(py, {
+            let should_emit_pybool: TdPyAny = predicate.call1(py, (item,))?.into();
+            should_emit_pybool.extract(py).map_err(|_err| PyTypeError::new_err(format!("return value of `predicate` in filter operator must be a bool; got `{should_emit_pybool:?}` instead")))
+        })
+    })
 }
 
 pub(crate) fn inspect(inspector: &TdPyCallable, item: &TdPyAny) {
@@ -89,138 +100,160 @@ pub(crate) fn inspect_epoch(inspector: &TdPyCallable, epoch: &u64, item: &TdPyAn
     });
 }
 
-pub(crate) fn build_none() -> TdPyAny {
-    Python::with_gil(|py| py.None()).into()
-}
-
 pub(crate) fn reduce(
     reducer: &TdPyCallable,
     is_complete: &TdPyCallable,
     key: &StateKey,
-    acc: TdPyAny,
-    value: TdPyAny,
-) -> (Option<TdPyAny>, impl IntoIterator<Item = TdPyAny>) {
-    Python::with_gil(|py| {
-        let updated_acc: TdPyAny = if acc.is_none(py) {
-            value
-        } else {
-            let updated_acc = with_traceback!(
-                py,
-                reducer.call1(py, (acc.clone_ref(py), value.clone_ref(py)))
-            )
-            .into();
-            debug!("reduce for key={key:?}: reducer={reducer:?}(acc={acc:?}, value={value:?}) -> updated_acc={updated_acc:?}",);
-            updated_acc
-        };
+    acc: Option<TdPyAny>,
+    next_value: Poll<Option<TdPyAny>>,
+) -> StatefulUnaryLogicReturn<TdPyAny, TdPyAny, Option<TdPyAny>> {
+    if let Poll::Ready(Some(value)) = next_value {
+        Python::with_gil(|py| {
+            let updated_acc: TdPyAny = match acc {
+                // If there's no previous state for this key, use the
+                // current value.
+                None => value,
+                Some(acc) => {
+                    let updated_acc = with_traceback!(
+                        py,
+                        reducer.call1(py, (acc.clone_ref(py), value.clone_ref(py)))
+                    )
+                    .into();
+                    debug!("reduce for key={key:?}: reducer={reducer:?}(acc={acc:?}, value={value:?}) -> updated_acc={updated_acc:?}",);
+                    updated_acc
+                }
+            };
 
-        let should_emit_and_discard_acc: bool = with_traceback!(
-            py,
-            is_complete
-                .call1(py, (updated_acc.clone_ref(py),))?
-                .extract(py)
-        );
-        debug!("reduce for key={key:?}: is_complete={is_complete:?}(updated_acc={updated_acc:?}) -> should_emit_and_discard_acc={should_emit_and_discard_acc:?}");
+            let should_emit_and_discard_acc: bool = with_traceback!(py, {
+                let should_emit_and_discard_acc_pybool: TdPyAny =
+                    is_complete.call1(py, (updated_acc.clone_ref(py),))?.into();
+                should_emit_and_discard_acc_pybool.extract(py).map_err(|_err| PyTypeError::new_err(format!("return value of `is_complete` in reduce operator must be a bool; got `{should_emit_and_discard_acc_pybool:?}` instead")))
+            });
+            debug!("reduce for key={key:?}: is_complete={is_complete:?}(updated_acc={updated_acc:?}) -> should_emit_and_discard_acc={should_emit_and_discard_acc:?}");
 
-        if should_emit_and_discard_acc {
-            (None, Some(updated_acc))
-        } else {
-            (Some(updated_acc), None)
+            if should_emit_and_discard_acc {
+                StatefulUnaryLogicReturn {
+                    updated_state: None,
+                    output: Some(updated_acc),
+                    activate_after: None,
+                }
+            } else {
+                StatefulUnaryLogicReturn {
+                    updated_state: Some(updated_acc),
+                    output: None,
+                    activate_after: None,
+                }
+            }
+        })
+    } else {
+        StatefulUnaryLogicReturn {
+            updated_state: acc,
+            output: None,
+            activate_after: None,
         }
-    })
+    }
 }
 
-pub(crate) fn reduce_epoch(
-    reducer: &TdPyCallable,
-    acc: &mut Option<TdPyAny>,
-    _key: &StateKey,
-    value: TdPyAny,
-) {
-    debug!(
-        "{}, reducer:{:?}, key:{:?}, value:{:?}, acc:{:?}",
-        log_func!(),
-        reducer,
-        _key,
-        value,
-        acc
-    );
-    Python::with_gil(|py| {
-        let updated_acc = match acc {
-            Some(acc) => with_traceback!(py, reducer.call1(py, (acc.clone_ref(py), value))).into(),
-            None => value,
-        };
-        *acc = Some(updated_acc);
-        debug!(
-            "{}, reducer:{:?}, key:{:?}, updated_acc:{:?}",
-            log_func!(),
-            reducer,
-            _key,
-            acc
-        );
-    });
-}
-
-pub(crate) fn reduce_epoch_local(
-    reducer: &TdPyCallable,
-    accs: &mut HashMap<StateKey, TdPyAny>,
-    all_key_value_in_epoch: &Vec<(StateKey, TdPyAny)>,
-) {
-    Python::with_gil(|py| {
-        let _current = thread::current();
-        let id = _current.id();
-        for (key, value) in all_key_value_in_epoch {
-            let acc = accs.entry(key.clone());
-            debug!(
-                "thread:{:?}, {}, reducer:{:?}, key:{:?}, value:{:?}, acc:{:?}",
-                id,
-                log_func!(),
-                reducer,
-                key,
-                value,
-                acc
-            );
-            acc.and_modify(|acc| {
-                *acc = with_traceback!(py, reducer.call1(py, (acc.clone_ref(py), value))).into();
-                debug!(
-                    "{}, reducer:{:?}, key:{:?}, value:{:?}, updated_acc:{:?}",
-                    log_func!(),
-                    reducer,
-                    key,
-                    value,
-                    *acc
-                );
-            })
-            .or_insert(value.clone_ref(py));
-        }
-    });
+/// Wrapper struct so we have named fields.
+///
+/// [`StatefulUnary::stateful_unary`]'s logic can do a lot each
+/// activation so this helps.
+pub(crate) struct StatefulUnaryLogicReturn<R, D, I: IntoIterator<Item = R>> {
+    pub(crate) updated_state: Option<D>,
+    pub(crate) output: I,
+    pub(crate) activate_after: Option<Duration>,
 }
 
 /// Extension trait for [`Stream`].
 // Based on the good work in
 // https://github.com/TimelyDataflow/timely-dataflow/blob/0d0d84885672d6369a78cd9aff7beb2048390d3b/timely/src/dataflow/operators/aggregation/state_machine.rs#L57
-pub(crate) trait StatefulMap<S: Scope, V: ExchangeData> {
-    /// See [`crate::dataflow::Dataflow::stateful_map`] for semantics.
+pub(crate) trait StatefulUnary<S: Scope, V: ExchangeData> {
+    /// Create a new generic stateful operator and add the required
+    /// utility operators to filter and serde backup data.
     ///
-    /// All stateful operators that need recovery are implemented in
-    /// terms of this so that we only need to write the recovery
-    /// system interop once.
+    /// See [`stateful_unary_raw`] for a description of how `logic` works.
+    fn stateful_unary<
+        R: Data,                   // Output item type
+        D: ExchangeData,           // Per-key state
+        I: IntoIterator<Item = R>, // Iterator of output items
+        L: Fn(&StateKey, Option<D>, Poll<Option<V>>) -> StatefulUnaryLogicReturn<R, D, I> + 'static, // Logic
+        H: Fn(&StateKey) -> u64 + 'static, // Hash function of key to worker
+    >(
+        &self,
+        step_id: StepId,
+        logic: L,
+        hasher: H,
+        state_loading_stream: &Stream<S, StateBackup<S::Timestamp, Vec<u8>>>,
+        state_backup_streams: &mut Vec<Stream<S, StateBackup<S::Timestamp, Vec<u8>>>>,
+    ) -> Stream<S, (StateKey, R)>;
+
+    /// Create a new generic stateful operator.
     ///
-    /// For recovery, this takes a state loading stream, where you can
-    /// pipe in all state updates from a previous execution to
-    /// resume. It also emits downstream [`StateBackup`] events to be
-    /// backed up.
-    fn stateful_map<
-        R: Data,                                            // Output item type
-        D: ExchangeData,                                    // Per-key state
-        I: IntoIterator<Item = R>,                          // Iterator of output items
-        B: Fn(&StateKey) -> D + 'static,                    // Builder of new per-key state
-        M: Fn(&StateKey, D, V) -> (Option<D>, I) + 'static, // Mapper
-        H: Fn(&StateKey) -> u64 + 'static,                  // Hash function of key to worker
+    /// This is the core Timely operator that all Bytewax stateful
+    /// operators are implemented in terms of. It is awkwardly generic
+    /// because of that. We do this so we only have to implement the
+    /// very tricky recovery system interop once.
+    ///
+    /// # Logic
+    ///
+    /// `logic` takes three arguments and is called on new input items
+    /// or after a delay timeout has expired:
+    ///
+    /// - The awoken key. This is due to the input stream having an
+    /// item of `(key, value)` or an awakening being scheduled on that
+    /// key
+    ///
+    /// - The last state for that key. That might be [`None`] if there
+    /// wasn't any.
+    ///
+    /// - A possible incoming value. This has the same protocol as
+    /// [`std::async_iter::AsyncIterator::poll_next`]: this logic
+    /// might be awoken with no incoming values yet
+    /// ([`Poll::Pending`]), a new value has arrived ([`Poll::Ready`]
+    /// with a [`Some`]), or the stream has ended and there will be no
+    /// more input ([`Poll::Ready`] with a [`None`]).
+    ///
+    /// `logic` must return a 3-tuple of:
+    ///
+    /// - The updated state for the key, or [`None`] if the state
+    /// should be discarded.
+    ///
+    /// - Values to be emitted downstream. You probably only want to
+    /// emit values when the incoming value is [`None`], signaling the
+    /// window has closed, but you might want something more
+    /// generic.
+    ///
+    /// - Timeout delay to be awoken after with [`Poll::Pending`] as
+    /// the value. It's possible the logic will be awoken for this key
+    /// earlier if new data comes in. Timeouts are not buffered across
+    /// calls to logic, so you should always specify the delay to the
+    /// next time you should be woken up every time.
+    ///
+    /// # Output
+    ///
+    /// The output will be a stream of `(key, value)` output
+    /// 2-tuples. Values emitted by `logic` will be automatically
+    /// paired with the key in the output stream.
+    ///
+    /// # Recovery
+    ///
+    /// For recovery, this requires an input of [`StateBackups`] to
+    /// load, and emits a second output stream of [`StateBackups`] to
+    /// be connected to the rest of the recovery machinery.
+    ///
+    /// These input and outputs must just be for this stateful
+    /// operator.
+    fn stateful_unary_raw<
+        R: Data,                   // Output item type
+        D: ExchangeData,           // Per-key state
+        I: IntoIterator<Item = R>, // Iterator of output items
+        L: Fn(&StateKey, Option<D>, Poll<Option<V>>) -> StatefulUnaryLogicReturn<R, D, I> + 'static, // Logic
+        H: Fn(&StateKey) -> u64 + 'static, // Hash function of key to worker
     >(
         &self,
         step_id: StepId,
         state_loading_stream: Stream<S, StateBackup<S::Timestamp, D>>,
-        builder: B,
-        mapper: M,
+        logic: L,
         hasher: H,
     ) -> (
         Stream<S, (StateKey, R)>,
@@ -230,44 +263,76 @@ pub(crate) trait StatefulMap<S: Scope, V: ExchangeData> {
         S::Timestamp: Hash + Eq;
 }
 
-impl<S: Scope, V: ExchangeData> StatefulMap<S, V> for Stream<S, (StateKey, V)>
+impl<S: Scope, V: ExchangeData> StatefulUnary<S, V> for Stream<S, (StateKey, V)>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn stateful_map<
-        R: Data,                                            // Output item type
-        D: ExchangeData,                                    // Per-key state
-        I: IntoIterator<Item = R>,                          // Iterator of output items
-        B: Fn(&StateKey) -> D + 'static,                    // Builder of new per-key state
-        M: Fn(&StateKey, D, V) -> (Option<D>, I) + 'static, // Mapper
-        H: Fn(&StateKey) -> u64 + 'static,                  // Hash function of key to worker
+    fn stateful_unary<
+        R: Data,                   // Output item type
+        D: ExchangeData,           // Per-key state
+        I: IntoIterator<Item = R>, // Iterator of output items
+        L: Fn(&StateKey, Option<D>, Poll<Option<V>>) -> StatefulUnaryLogicReturn<R, D, I> + 'static, // Logic
+        H: Fn(&StateKey) -> u64 + 'static, // Hash function of key to worker
+    >(
+        &self,
+        step_id: StepId,
+        logic: L,
+        hasher: H,
+        state_loading_stream: &Stream<S, StateBackup<S::Timestamp, Vec<u8>>>,
+        state_backup_streams: &mut Vec<Stream<S, StateBackup<S::Timestamp, Vec<u8>>>>,
+    ) -> Stream<S, (StateKey, R)> {
+        let filter_step_id = step_id.clone();
+        let state_loading_stream = state_loading_stream
+            .filter(
+                move |StateBackup(RecoveryKey(loading_step_id, _key, _epoch), _state_update)| {
+                    &filter_step_id == loading_step_id
+                },
+            )
+            .deserialize_backup();
+
+        let (downstream, state_backup_stream) =
+            self.stateful_unary_raw(step_id, state_loading_stream, logic, hasher);
+
+        state_backup_streams.push(state_backup_stream.serialize_backup());
+        downstream
+    }
+
+    fn stateful_unary_raw<
+        R: Data,                   // Output item type
+        D: ExchangeData,           // Per-key state
+        I: IntoIterator<Item = R>, // Iterator of output items
+        L: Fn(&StateKey, Option<D>, Poll<Option<V>>) -> StatefulUnaryLogicReturn<R, D, I> + 'static, // Logic
+        H: Fn(&StateKey) -> u64 + 'static, // Hash function of key to worker
     >(
         &self,
         step_id: StepId,
         state_loading_stream: Stream<S, StateBackup<S::Timestamp, D>>,
-        builder: B,
-        mapper: M,
+        logic: L,
         hasher: H,
     ) -> (
         Stream<S, (StateKey, R)>,
         Stream<S, StateBackup<S::Timestamp, D>>,
     ) {
-        let mut op_builder = OperatorBuilder::new("StatefulMap".to_owned(), self.scope());
+        let mut op_builder = OperatorBuilder::new("StatefulUnary".to_owned(), self.scope());
 
         let (mut output_wrapper, output_stream) = op_builder.new_output();
         let (mut state_backup_wrapper, state_backup_stream) = op_builder.new_output();
 
         let hasher = Rc::new(hasher);
         let input_hasher = hasher.clone();
-        let mut input = op_builder.new_input_connection(
+        let mut input_handle = op_builder.new_input_connection(
             self,
             pact::Exchange::new(move |&(ref key, ref _value)| input_hasher(key)),
             // This is saying this input results in items on either
             // output.
             vec![Antichain::from_elem(0), Antichain::from_elem(0)],
+            // TODO: Figure out the magic incantation of
+            // S::Timestamp::minimum() and S::Timestamp::Summary that
+            // lets you do this without the trait bound S:
+            // Scope<Timestamp = u64> above.
         );
         let loading_hasher = hasher.clone();
-        let mut state_loading_input = op_builder.new_input_connection(
+        let mut state_loading_handle = op_builder.new_input_connection(
             &state_loading_stream,
             pact::Exchange::new(
                 move |StateBackup(RecoveryKey(ref _step_id, ref key, ref _epoch), ref _state)| {
@@ -279,11 +344,21 @@ where
             vec![Antichain::new(), Antichain::new()],
         );
 
-        op_builder.build(move |_init_capabilities| {
+        let info = op_builder.operator_info();
+        let activator = self.scope().activator_for(&info.address[..]);
+
+        op_builder.build(move |mut init_caps| {
             // This stores the working map of key to value on the
-            // frontier. We update this in-place when the frontier
-            // progresses and then emit the results.
+            // frontier. We update this in-place and emit the results.
             let mut state_cache = HashMap::new();
+
+            // We have to retain separate capabilities
+            // per-output. This seems to be only documented in
+            // https://github.com/TimelyDataflow/timely-dataflow/pull/187
+            // In reverse order because of how [`Vec::pop`] removes
+            // from back.
+            let mut state_backup_cap = init_caps.pop();
+            let mut output_cap = init_caps.pop();
 
             let mut tmp_backups = Vec::new();
             let mut incoming_epoch_to_backups_buffer = HashMap::new();
@@ -291,161 +366,212 @@ where
             let mut tmp_key_values = Vec::new();
             let mut incoming_epoch_to_key_values_buffer = HashMap::new();
 
+            let mut activate_epochs_buffer: Vec<S::Timestamp> = Vec::new();
+            let mut key_values_buffer = Vec::new();
+            let mut keys_buffer = Vec::new();
+            let mut key_to_next_activate_at_buffer: HashMap<StateKey, Instant> = HashMap::new();
+
             let mut outgoing_epoch_to_key_updates_buffer = HashMap::new();
 
-            // We have to jump through hoops to retain separate
-            // capabilities per-output. See
-            // https://github.com/TimelyDataflow/timely-dataflow/pull/187
-            let mut state_loading_fncater = FrontierNotificator::new();
-            let mut output_fncater = FrontierNotificator::new();
-            let mut state_backup_fncater = FrontierNotificator::new();
-
             move |input_frontiers| {
-                let mut input_handle = FrontieredInputHandle::new(&mut input, &input_frontiers[0]);
-                let mut state_loading_handle =
-                    FrontieredInputHandle::new(&mut state_loading_input, &input_frontiers[1]);
+                // Will there be no more data?
+                let eof = input_frontiers.iter().all(|f| f.is_empty());
+                let is_closed = |e: &S::Timestamp| input_frontiers.iter().all(|f| !f.less_equal(e));
 
-                let mut output_handle = output_wrapper.activate();
-                let mut state_backup_handle = state_backup_wrapper.activate();
+                if let (Some(output_cap), Some(state_backup_cap)) =
+                    (output_cap.as_mut(), state_backup_cap.as_mut())
+                {
+                    assert!(output_cap.time() == state_backup_cap.time());
+                    let mut output_handle = output_wrapper.activate();
+                    let mut state_backup_handle = state_backup_wrapper.activate();
 
-                // Store the state backups from the loading input in a
-                // buffer under the epoch until that frontier has
-                // passed.
-                state_loading_handle.for_each(|cap, backups| {
-                    let epoch = cap.time();
-                    backups.swap(&mut tmp_backups);
+                    // Buffer the state backups and item inputs so we
+                    // can apply them to the state cache in epoch
+                    // order.
+                    state_loading_handle.for_each(|cap, backups| {
+                        let epoch = cap.time();
+                        backups.swap(&mut tmp_backups);
 
-                    incoming_epoch_to_backups_buffer
-                        .entry(epoch.clone())
-                        .or_insert_with(Vec::new)
-                        .extend(tmp_backups.drain(..));
+                        incoming_epoch_to_backups_buffer
+                            .entry(epoch.clone())
+                            .or_insert_with(Vec::new)
+                            .extend(tmp_backups.drain(..));
+                    });
+                    input_handle.for_each(|cap, key_values| {
+                        let epoch = cap.time();
+                        key_values.swap(&mut tmp_key_values);
 
-                    state_loading_fncater.notify_at(cap.retain_for_output(1));
-                });
+                        incoming_epoch_to_key_values_buffer
+                            .entry(epoch.clone())
+                            .or_insert_with(Vec::new)
+                            .extend(tmp_key_values.drain(..));
 
-                // Store the input items in a buffer under the epoch
-                // until that frontier has passed.
-                input_handle.for_each(|cap, key_values| {
-                    let epoch = cap.time();
-                    key_values.swap(&mut tmp_key_values);
+                    });
 
-                    incoming_epoch_to_key_values_buffer
-                        .entry(epoch.clone())
-                        .or_insert_with(Vec::new)
-                        .extend(tmp_key_values.drain(..));
+                    // TODO: Is this the right way to get the epoch
+                    // from a frontier? I haven't seen any examples
+                    // with non-comparable timestamps to understand
+                    // this. Is the current capability reasonable for
+                    // when the frontiers are closed?
+                    let frontier_epoch = input_frontiers
+                        .iter()
+                        .flat_map(|mf| mf.frontier().iter().min().cloned())
+                        .min()
+                        .unwrap_or(output_cap.time().clone());
 
-                    // Input items will evolve the state and both emit
-                    // something downstream and result in a state
-                    // update.
+                    // Try to process all the epochs we have data for.
+                    // Filter out epochs that are ahead of the
+                    // frontier. The state at the beginning of those
+                    // epochs are not truly known yet, so we can't
+                    // apply input in those epochs yet.
+                    activate_epochs_buffer.extend(incoming_epoch_to_backups_buffer.keys().cloned().filter(is_closed));
+                    activate_epochs_buffer.extend(incoming_epoch_to_key_values_buffer.keys().cloned().filter(is_closed));
+                    // Even if we don't have input data from an epoch,
+                    // we might have some output data from the
+                    // previous activation we need to output and the
+                    // frontier might have already progressed and it
+                    // would be stranded.
+                    activate_epochs_buffer.extend(outgoing_epoch_to_key_updates_buffer.keys().cloned().filter(is_closed));
+                    // Eagerly execute the frontier.
+                    activate_epochs_buffer.push(frontier_epoch);
+                    activate_epochs_buffer.dedup();
+                    activate_epochs_buffer.sort();
 
-                    // AFAICT, ports are in order of `new_output()`
-                    // calls. Also I don't understand how to use
-                    // `retain_for_output()` multiple times since it
-                    // takes an owned
-                    // capability. `delayed_for_output()` seems to
-                    // work but might be incorrect?
-                    output_fncater.notify_at(cap.delayed_for_output(epoch, 0));
-                    state_backup_fncater.notify_at(cap.delayed_for_output(epoch, 1));
-                });
+                    // Drain to re-use buffer. For each epoch in
+                    // order:
+                    for epoch in activate_epochs_buffer.drain(..) {
+                        // Since the frontier has advanced to at least
+                        // this epoch (because we're going through
+                        // them in order), say that we'll not be
+                        // sending output at any older epochs. This
+                        // also asserts "apply changes in epoch order"
+                        // to the state cache.
+                        output_cap.downgrade(&epoch);
+                        state_backup_cap.downgrade(&epoch);
 
-                // Apply state loads first.
-                state_loading_fncater.for_each(
-                    &[input_handle.frontier(), state_loading_handle.frontier()],
-                    |state_update_cap, _ncater| {
-                        let epoch = state_update_cap.time();
+                        match (
+                            incoming_epoch_to_backups_buffer.remove(&epoch),
+                            incoming_epoch_to_key_values_buffer.remove(&epoch),
+                        ) {
+                            (Some(_), Some(_)) => panic!("Recoverable operator got both state backups and input for epoch {epoch:?}; is the resume epoch being respected?"),
+                            // Either load state backup.
+                            (Some(backups), None) => {
+                                // There will be multiple backups per
+                                // epoch, one for each key.
+                                for StateBackup(RecoveryKey(loading_step_id, key, _epoch), state_update) in
+                                    backups {
+                                        assert!(loading_step_id == step_id);
+                                        // Input on the state input
+                                        // fully overwrites state for
+                                        // that key.
+                                        match state_update {
+                                            StateUpdate::Upsert(state) => state_cache.insert(key, state),
+                                            StateUpdate::Reset => state_cache.remove(&key),
+                                        };
 
-                        if let Some(backups) = incoming_epoch_to_backups_buffer.remove(epoch) {
-                            for StateBackup(RecoveryKey(_step_id, key, _epoch), state_update) in
-                                backups
-                            {
-                                // Input on the state input fully
-                                // overwrites state for that key.
-                                match state_update {
-                                    StateUpdate::Upsert(state) => state_cache.insert(key, state),
-                                    StateUpdate::Reset => state_cache.remove(&key),
-                                };
-
-                                // Don't output state loads downstream
-                                // as backups.
-                            }
-                        }
-                    },
-                );
-
-                // Then run stateful map functionality.
-                output_fncater.for_each(
-                    &[input_handle.frontier(), state_loading_handle.frontier()],
-                    |downstream_cap, _ncater| {
-                        let epoch = downstream_cap.time();
-
-                        if let Some(key_values) = incoming_epoch_to_key_values_buffer.remove(epoch)
-                        {
-                            let mut output_session = output_handle.session(&downstream_cap);
-
-                            for (key, value) in key_values {
-                                let state_for_key = state_cache
-                                    .remove(&key)
-                                    // If there's no previous state, build
-                                    // anew.
-                                    .unwrap_or_else(|| builder(&key));
-
-                                let (updated_state_for_key, output) =
-                                    mapper(&key, state_for_key, value);
-                                let state_update = match updated_state_for_key {
-                                    Some(state) => StateUpdate::Upsert(state),
-                                    None => StateUpdate::Reset,
-                                };
-
-                                output_session.give_iterator(
-                                    output.into_iter().map(|item| (key.clone(), item)),
-                                );
-
-                                // Save the state so we can use it if
-                                // there are multiple values within
-                                // this epoch. We do not emit updated
-                                // state here because we don't have
-                                // finalized state for the epoch.
-                                match &state_update {
-                                    StateUpdate::Upsert(state) => {
-                                        state_cache.insert(key.clone(), state.clone())
+                                        // Don't output state loads
+                                        // downstream as backups.
                                     }
-                                    StateUpdate::Reset => state_cache.remove(&key),
-                                };
+                            }
+                            // Or run logic and buffer state updates.
+                            (None, incoming_key_values) => {
+                                let mut output_session = output_handle.session(&output_cap);
 
-                                outgoing_epoch_to_key_updates_buffer
-                                    .entry(epoch.clone())
-                                    .or_insert_with(HashMap::new)
-                                    .insert(key, state_update);
+                                // Include all the incoming data.
+                                key_values_buffer.extend(incoming_key_values.unwrap_or_default().into_iter().map(|(k, v)| (k, Poll::Ready(Some(v)))));
+
+                                if eof {
+                                    // If this is the last activation,
+                                    // signal that all keys have
+                                    // terminated.
+                                    keys_buffer.extend(key_values_buffer.iter().map(|(k, _v)| k).cloned());
+                                    keys_buffer.extend(state_cache.keys().cloned());
+                                    keys_buffer.dedup();
+                                    // Drain to re-use allocation.
+                                    key_values_buffer.extend(keys_buffer.drain(..).map(|k| (k.clone(), Poll::Ready(None))));
+                                } else {
+                                    // Otherwise, wake up any keys
+                                    // that are past their requested
+                                    // activation time.
+                                    key_values_buffer.extend(key_to_next_activate_at_buffer.iter().filter(|(_k, a)| a.elapsed() >= Duration::ZERO).map(|(k, _a)| (k.clone(), Poll::Pending)));
+                                }
+
+                                // Drain to re-use allocation.
+                                for (key, next_value) in key_values_buffer.drain(..) {
+                                    let state = state_cache.remove(&key);
+                                    // Remove any activation times
+                                    // this current one will satisfy.
+                                    if let Entry::Occupied(next_activate_at_entry) = key_to_next_activate_at_buffer.entry(key.clone()) {
+                                        if next_activate_at_entry.get().elapsed() >= Duration::ZERO {
+                                            next_activate_at_entry.remove();
+                                        }
+                                    }
+
+                                    let StatefulUnaryLogicReturn { updated_state, output, activate_after } = logic(&key, state, next_value);
+
+                                    let state_update = match updated_state {
+                                        Some(state) => StateUpdate::Upsert(state),
+                                        None => StateUpdate::Reset,
+                                    };
+                                    match &state_update {
+                                        StateUpdate::Upsert(state) => {
+                                            state_cache.insert(key.clone(), state.clone())
+                                        }
+                                        StateUpdate::Reset => state_cache.remove(&key),
+                                    };
+                                    outgoing_epoch_to_key_updates_buffer
+                                        .entry(epoch.clone())
+                                        .or_insert_with(HashMap::new)
+                                        .insert(key.clone(), state_update);
+
+                                    output_session.give_iterator(
+                                        output.into_iter().map(|item| (key.clone(), item)),
+                                    );
+
+                                    if let Some(activate_after) = activate_after {
+                                        let activate_at = Instant::now() + activate_after;
+                                        key_to_next_activate_at_buffer.entry(key.clone())
+                                            .and_modify(|next_activate_at: &mut Instant| if activate_at < *next_activate_at { *next_activate_at = activate_at; })
+                                            .or_insert(activate_at);
+                                    }
+                                }
                             }
                         }
-                    },
-                );
 
-                // Then output final state update.
-                state_backup_fncater.for_each(
-                    &[input_handle.frontier(), state_loading_handle.frontier()],
-                    |state_update_cap, _ncater| {
-                        let epoch = state_update_cap.time();
+                        // Output a final state update output per
+                        // epoch. Remove will ensure we slowly drain
+                        // the buffer.
+                        if is_closed(&epoch) {
+                            if let Some(key_updates) =
+                                outgoing_epoch_to_key_updates_buffer.remove(&epoch)
+                            {
+                                let mut state_backup_session =
+                                    state_backup_handle.session(&state_backup_cap);
 
-                        let mut state_backup_session =
-                            state_backup_handle.session(&state_update_cap);
+                                let backups = key_updates.into_iter().map(|(key, update)| {
+                                    StateBackup(
+                                        RecoveryKey(step_id.clone(), key, epoch.clone()),
+                                        update,
+                                    )
+                                });
 
-                        // Now that this epoch is complete, write out any
-                        // modified state. `remove()` will ensure we
-                        // slowly drain the buffer.
-                        if let Some(key_updates) =
-                            outgoing_epoch_to_key_updates_buffer.remove(epoch)
-                        {
-                            let backups = key_updates.into_iter().map(|(key, update)| {
-                                StateBackup(
-                                    RecoveryKey(step_id.clone(), key, epoch.clone()),
-                                    update,
-                                )
-                            });
-                            state_backup_session.give_iterator(backups);
+                                state_backup_session.give_iterator(backups);
+                            }
                         }
-                    },
-                );
+                    }
+
+                    // Schedule an activation at the next requested
+                    // wake up time.
+                    let now = Instant::now();
+                    if let Some(delay) = key_to_next_activate_at_buffer.values().map(|a| a.duration_since(now)).min() {
+                        activator.activate_after(delay);
+                    }
+                }
+
+                if eof {
+                    output_cap = None;
+                    state_backup_cap = None;
+                }
             }
         });
 
@@ -462,22 +588,38 @@ pub(crate) fn build(builder: &TdPyCallable, key: &StateKey) -> TdPyAny {
 }
 
 pub(crate) fn stateful_map(
+    builder: &TdPyCallable,
     mapper: &TdPyCallable,
     key: &StateKey,
-    state: TdPyAny,
-    value: TdPyAny,
-) -> (Option<TdPyAny>, impl IntoIterator<Item = TdPyAny>) {
-    Python::with_gil(|py| {
-        let (updated_state, emit_value): (Option<TdPyAny>, TdPyAny) = with_traceback!(
-            py,
-            mapper
-                .call1(py, (state.clone_ref(py), value.clone_ref(py)))?
-                .extract(py)
-        );
-        debug!("stateful_map for key={key:?}: mapper={mapper:?}(state={state:?}, value={value:?}) -> (updated_state={updated_state:?}, emit_value={emit_value:?})");
+    state: Option<TdPyAny>,
+    next_value: Poll<Option<TdPyAny>>,
+) -> StatefulUnaryLogicReturn<TdPyAny, TdPyAny, Option<TdPyAny>> {
+    if let Poll::Ready(Some(value)) = next_value {
+        let state = state.unwrap_or_else(|| build(builder, key));
 
-        (updated_state, std::iter::once(emit_value))
-    })
+        Python::with_gil(|py| {
+            let (updated_state, updated_value): (Option<TdPyAny>, TdPyAny) = with_traceback!(py, {
+                let updated_state_value_pytuple: TdPyAny = mapper
+                    .call1(py, (state.clone_ref(py), value.clone_ref(py)))?
+                    .into();
+                updated_state_value_pytuple.extract(py)
+                        .map_err(|_err| PyTypeError::new_err(format!("return value of `mapper` in stateful map operator must be a 2-tuple of `(updated_state, updated_value)`; got `{updated_state_value_pytuple:?}` instead")))
+            });
+            debug!("stateful_map for key={key:?}: mapper={mapper:?}(state={state:?}, value={value:?}) -> (updated_state={updated_state:?}, updated_value={updated_value:?})");
+
+            StatefulUnaryLogicReturn {
+                updated_state,
+                output: Some(updated_value),
+                activate_after: None,
+            }
+        })
+    } else {
+        StatefulUnaryLogicReturn {
+            updated_state: state,
+            output: None,
+            activate_after: None,
+        }
+    }
 }
 
 pub(crate) fn capture(captor: &TdPyCallable, epoch: &u64, item: &TdPyAny) {
@@ -817,7 +959,7 @@ where
 ///
 /// State must be stored in epoch order. [`WriteState`] above, does
 /// that.
-pub(crate) fn state_source<S: Scope, D: Data>(
+pub(crate) fn state_source<S: Scope, D: Data + Debug>(
     scope: &S,
     mut reader: Box<dyn StateReader<S::Timestamp, D>>,
     stop_at: S::Timestamp,
