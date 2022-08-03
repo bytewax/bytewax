@@ -239,11 +239,14 @@ impl KafkaInputConfig {
 /// Defines out a single source of input reads data.
 pub(crate) trait InputReader<D> {
     /// This has the same semantics as
-    /// [`std::async_iter::AsyncIterator::poll_next`]: no values ready
-    /// qyet ([`Poll::Pending`]), a new value has arrived
-    /// ([`Poll::Ready`] with a [`Some`]), or the stream has ended and
-    /// there will be no more output ([`Poll::Ready`] with a
-    /// [`None`]).
+    /// [`std::async_iter::AsyncIterator::poll_next`]:
+    ///
+    /// - [`Poll::Pending`]: no new values ready yet.
+    ///
+    /// - [`Poll::Ready`] with a [`Some`]: a new value has arrived.
+    ///
+    /// - [`Poll::Ready`] with a [`None`]: the stream has ended and
+    ///   [`next`] should not be called again.
     fn next(&mut self) -> Poll<Option<D>>;
 }
 
