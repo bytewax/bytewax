@@ -18,15 +18,18 @@ from .bytewax import InputConfig, KafkaInputConfig, ManualInputConfig  # noqa: F
 
 
 def TestingInputConfig(it):
-    """Produce input from this Python iterator. You only want to use this
+    """Produce input from this Python iterable. You only want to use this
     for unit testing.
 
-    The iterator must be identical on all workers; this will
+    The iterable must be identical on all workers; this will
     automatically distribute the items across workers.
+
+    The value `None` in the iterable will be ignored. See
+    `ManualInputConfig` for more info.
 
     Args:
 
-        it: Iterator for input.
+        it: Iterable for input.
 
     Returns:
 
