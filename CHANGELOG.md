@@ -5,6 +5,30 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Output is no longer specified using an `output_builder` for the
+  entire dataflow, but you supply an "output config" per capture. See
+  `bytewax.outputs` for more info.
+
+- Input is no longer specified on the execution entry point (like
+  `run_main`), it is instead on the `Dataflow` itself.
+
+- Epochs are no longer user-facing as part of the input system. Any
+  custom Python-based input components you write just need to be
+  iterators and emit items. Recovery snapshots and backups now happen
+  periodically, defaulting to every 10 seconds.
+
+- The `reduce_epoch` operator has been replaced with
+  `reduce_window`. It takes a "clock" and a "windower" to define the
+  kind of aggregation you want to do.
+
+- `run` and `run_cluster` have been removed and the remaining
+  execution entry points moved into `bytewax.execution`. You can now
+  get similar prototyping functionality with
+  `bytewax.execution.run_main` and `bytewax.execution.spawn_cluster`
+  using `Testing{Input,Output}Config`s.
+
+- `Dataflow` has been moved into `bytewax.dataflow.Dataflow`.
+
 ## 0.10.0
 
 - Input is no longer specified using an `input_builder`, but now an

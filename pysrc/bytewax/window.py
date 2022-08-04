@@ -4,8 +4,8 @@ Bytewax provides some operators and pre-built configurations for
 easily grouping data into buckets called **windows** and running code
 on just the values in those windows.
 
-See the operator methods on `bytewax.Dataflow` with `_window` in the
-name for simple example use cases of each.
+See the operator methods on `bytewax.dataflow.Dataflow` with `_window`
+in the name for simple example use cases of each.
 
 Use
 ---

@@ -206,12 +206,15 @@ pub(crate) trait StatefulUnary<S: Scope, V: ExchangeData> {
     /// - The last state for that key. That might be [`None`] if there
     /// wasn't any.
     ///
-    /// - A possible incoming value. This has the same protocol as
-    /// [`std::async_iter::AsyncIterator::poll_next`]: this logic
-    /// might be awoken with no incoming values yet
-    /// ([`Poll::Pending`]), a new value has arrived ([`Poll::Ready`]
-    /// with a [`Some`]), or the stream has ended and there will be no
-    /// more input ([`Poll::Ready`] with a [`None`]).
+    /// - A possible incoming value. This has the same semantics as
+    /// [`std::async_iter::AsyncIterator::poll_next`]:
+    ///
+    /// - [`Poll::Pending`]: no new values ready yet.
+    ///
+    /// - [`Poll::Ready`] with a [`Some`]: a new value has arrived.
+    ///
+    /// - [`Poll::Ready`] with a [`None`]: the stream has ended and
+    ///   logic will not be called again.
     ///
     /// `logic` must return a 3-tuple of:
     ///
@@ -620,10 +623,6 @@ pub(crate) fn stateful_map(
             activate_after: None,
         }
     }
-}
-
-pub(crate) fn capture(captor: &TdPyCallable, epoch: &u64, item: &TdPyAny) {
-    Python::with_gil(|py| with_traceback!(py, captor.call1(py, ((*epoch, item.clone_ref(py)),))));
 }
 
 /// Extension trait for [`Stream`].

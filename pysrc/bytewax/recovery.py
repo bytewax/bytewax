@@ -32,7 +32,8 @@ depending on the recovery store. E.g. when using a
 prefix.
 
 The epoch is the unit of recovery: dataflows will only resume on epoch
-boundaries.
+boundaries. Bytewax defaults to a new epoch every 10 seconds. See
+`bytewax.execution.EpochConfig` for more info.
 
 See comments on input configuration types in `bytewax.inputs` for any
 limitations each might have regarding recovery.

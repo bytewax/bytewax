@@ -1,3 +1,10 @@
+//! Internal definition of Bytewax dataflows.
+//!
+//! For a user-centric version of how to define a dataflow, read the
+//! `bytewax.dataflow` Python module docstring. Read that first.
+
+use crate::inputs::InputConfig;
+use crate::outputs::OutputConfig;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::window::ClockConfig;
 use crate::window::WindowConfig;
@@ -18,6 +25,10 @@ use sqlx::Type;
 use std::borrow::Cow;
 use std::fmt::Display;
 
+/// Newtype representing the unique name of a step in a dataflow.
+///
+/// Used as a key for looking up relevant state for different steps
+/// surrounding recovery.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub(crate) struct StepId(String);
 
@@ -30,12 +41,6 @@ impl<'source> FromPyObject<'source> for StepId {
 impl IntoPy<PyObject> for StepId {
     fn into_py(self, py: Python) -> Py<PyAny> {
         PyString::new(py, &self.0).into()
-    }
-}
-
-impl ToPyObject for StepId {
-    fn to_object(&self, py: Python) -> PyObject {
-        self.0.to_object(py)
     }
 }
 
@@ -87,95 +92,77 @@ impl<'r> Decode<'r, Sqlite> for StepId {
 /// Use the methods defined on this class to add steps with operators
 /// of the same name.
 ///
-/// See the execution functions in `bytewax` to run.
+/// See the execution entry points in `bytewax.execution` to run.
 ///
-/// TODO: Right now this is just a linear dataflow only.
-#[pyclass(module = "bytewax")] // Required to support pickling.
-#[pyo3(text_signature = "()")]
+/// See `bytewax.inputs` for more information on how input works.
+///
+/// Args:
+///
+///     input_config: Initial source of input. See `bytewax.inputs`.
+///
+// TODO: Right now this is just a linear dataflow only.
+#[pyclass(module = "bytewax.dataflow")]
+#[pyo3(text_signature = "(input_config)")]
 pub(crate) struct Dataflow {
-    pub steps: Vec<Step>,
+    pub(crate) input_config: Py<InputConfig>,
+    pub(crate) steps: Vec<Step>,
 }
 
 #[pymethods]
 impl Dataflow {
     #[new]
-    fn new() -> Self {
-        Self { steps: Vec::new() }
+    #[args(input_config)]
+    fn new(input_config: Py<InputConfig>) -> Self {
+        Self {
+            input_config,
+            steps: Vec::new(),
+        }
     }
 
-    /// Pickle a Dataflow as a list of the steps.
-    fn __getstate__(&self, py: Python) -> PyResult<Py<PyAny>> {
-        Ok(self.steps.to_object(py))
+    fn __getstate__(&self) -> (&str, Py<InputConfig>, Vec<Step>) {
+        ("Dataflow", self.input_config.clone(), self.steps.clone())
     }
 
-    /// Unpickle a Dataflow as a list of the steps.
-    fn __setstate__(&mut self, py: Python, state: Py<PyAny>) -> PyResult<()> {
-        self.steps = state.as_ref(py).extract()?;
-        Ok(())
+    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
+    fn __getnewargs__(&self, py: Python) -> (Py<InputConfig>,) {
+        (InputConfig::pickle_new(py),)
     }
 
-    /// Map is a one-to-one transformation of items.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok(("Dataflow", input_config, steps)) = state.extract() {
+            self.input_config = input_config;
+            self.steps = steps;
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for Dataflow: {state:?}"
+            )))
+        }
+    }
+
+    /// Capture is how you specify output of a dataflow.
     ///
-    /// It calls a **mapper** function on each item.
+    /// At least one capture is required on every dataflow.
     ///
-    /// It emits each updated item downstream.
+    /// It emits items downstream unmodified; you can capture midway
+    /// through a dataflow.
     ///
-    /// It is commonly used for:
+    /// See `bytewax.outputs` for more information on how output
+    /// works.
     ///
-    /// - Extracting keys
-    /// - Turning JSON into objects
-    /// - So many things
-    ///
-    /// >>> def add_one(item):
-    /// ...     return item + 10
     /// >>> flow = Dataflow()
-    /// >>> flow.map(add_one)
     /// >>> flow.capture()
     /// >>> inp = enumerate(range(3))
-    /// >>> for epoch, item in run(flow, inp):
-    /// ...     print(item)
-    /// 10
-    /// 11
-    /// 12
+    /// >>> sorted(run(flow, inp))
+    /// [(0, 0), (1, 1), (2, 2)]
     ///
     /// Args:
     ///
-    ///     mapper: `mapper(item: Any) => updated_item: Any`
-    #[pyo3(text_signature = "(self, mapper)")]
-    fn map(&mut self, mapper: TdPyCallable) {
-        self.steps.push(Step::Map { mapper });
-    }
-
-    /// Flat map is a one-to-many transformation of items.
-    ///
-    /// It calls a **mapper** function on each item.
-    ///
-    /// It emits each element in the returned iterator individually
-    /// downstream in the epoch of the input item.
-    ///
-    /// It is commonly used for:
-    ///
-    /// - Tokenizing
-    /// - Flattening hierarchical objects
-    /// - Breaking up aggregations for further processing
-    ///
-    /// >>> def split_into_words(sentence):
-    /// ...     return sentence.split()
-    /// >>> flow = Dataflow()
-    /// >>> flow.flat_map(split_into_words)
-    /// >>> flow.capture()
-    /// >>> inp = enumerate(["hello world"])
-    /// >>> for epoch, item in run(flow, inp):
-    /// ...     print(epoch, item)
-    /// 0 hello
-    /// 0 world
-    ///
-    /// Args:
-    ///
-    ///     mapper: `mapper(item: Any) => emit: Iterable[Any]`
-    #[pyo3(text_signature = "(self, mapper)")]
-    fn flat_map(&mut self, mapper: TdPyCallable) {
-        self.steps.push(Step::FlatMap { mapper });
+    ///     output_config: Sink to write output. See
+    ///         `bytewax.outputs`.
+    #[pyo3(text_signature = "(self, output_config)")]
+    fn capture(&mut self, output_config: Py<OutputConfig>) {
+        self.steps.push(Step::Capture { output_config });
     }
 
     /// Filter selectively keeps only some items.
@@ -209,6 +196,38 @@ impl Dataflow {
     #[pyo3(text_signature = "(self, predicate)")]
     fn filter(&mut self, predicate: TdPyCallable) {
         self.steps.push(Step::Filter { predicate });
+    }
+
+    /// Flat map is a one-to-many transformation of items.
+    ///
+    /// It calls a **mapper** function on each item.
+    ///
+    /// It emits each element in the returned iterator individually
+    /// downstream in the epoch of the input item.
+    ///
+    /// It is commonly used for:
+    ///
+    /// - Tokenizing
+    /// - Flattening hierarchical objects
+    /// - Breaking up aggregations for further processing
+    ///
+    /// >>> def split_into_words(sentence):
+    /// ...     return sentence.split()
+    /// >>> flow = Dataflow()
+    /// >>> flow.flat_map(split_into_words)
+    /// >>> flow.capture()
+    /// >>> inp = enumerate(["hello world"])
+    /// >>> for epoch, item in run(flow, inp):
+    /// ...     print(epoch, item)
+    /// 0 hello
+    /// 0 world
+    ///
+    /// Args:
+    ///
+    ///     mapper: `mapper(item: Any) => emit: Iterable[Any]`
+    #[pyo3(text_signature = "(self, mapper)")]
+    fn flat_map(&mut self, mapper: TdPyCallable) {
+        self.steps.push(Step::FlatMap { mapper });
     }
 
     /// Inspect allows you to observe, but not modify, items.
@@ -264,6 +283,38 @@ impl Dataflow {
     #[pyo3(text_signature = "(self, inspector)")]
     fn inspect_epoch(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::InspectEpoch { inspector });
+    }
+
+    /// Map is a one-to-one transformation of items.
+    ///
+    /// It calls a **mapper** function on each item.
+    ///
+    /// It emits each updated item downstream.
+    ///
+    /// It is commonly used for:
+    ///
+    /// - Extracting keys
+    /// - Turning JSON into objects
+    /// - So many things
+    ///
+    /// >>> def add_one(item):
+    /// ...     return item + 10
+    /// >>> flow = Dataflow()
+    /// >>> flow.map(add_one)
+    /// >>> flow.capture()
+    /// >>> inp = enumerate(range(3))
+    /// >>> for epoch, item in run(flow, inp):
+    /// ...     print(item)
+    /// 10
+    /// 11
+    /// 12
+    ///
+    /// Args:
+    ///
+    ///     mapper: `mapper(item: Any) => updated_item: Any`
+    #[pyo3(text_signature = "(self, mapper)")]
+    fn map(&mut self, mapper: TdPyCallable) {
+        self.steps.push(Step::Map { mapper });
     }
 
     /// Reduce lets you combine items for a key into an accumulator in
@@ -493,32 +544,6 @@ impl Dataflow {
             mapper,
         });
     }
-
-    /// Capture is how you specify output of a dataflow.
-    ///
-    /// At least one capture is required on every dataflow.
-    ///
-    /// It emits items downstream unmodified; you can capture midway
-    /// through a dataflow.
-    ///
-    /// Whenever an item flows into a capture operator, the [output
-    /// handler](./execution#builders) of the worker is called with
-    /// that item and epoch. For `bytewax.run()` and
-    /// `bytewax.run_cluster()` output handlers are setup for you that
-    /// return the output as the return value.
-    ///
-    /// There are no guarantees on the order that output is passed to
-    /// the output handler. Read the attached epoch to discern order.
-    ///
-    /// >>> flow = Dataflow()
-    /// >>> flow.capture()
-    /// >>> inp = enumerate(range(3))
-    /// >>> sorted(run(flow, inp))
-    /// [(0, 0), (1, 1), (2, 2)]
-    #[pyo3(text_signature = "(self)")]
-    fn capture(&mut self) {
-        self.steps.push(Step::Capture {});
-    }
 }
 
 /// The definition of one step in a Bytewax dataflow graph.
@@ -561,7 +586,9 @@ pub(crate) enum Step {
         builder: TdPyCallable,
         mapper: TdPyCallable,
     },
-    Capture {},
+    Capture {
+        output_config: Py<OutputConfig>,
+    },
 }
 
 /// Decode Steps from Python (name, funcs...) tuples.
@@ -609,8 +636,8 @@ impl<'source> FromPyObject<'source> for Step {
                 mapper,
             });
         }
-        if let Ok(("Capture",)) = tuple.extract() {
-            return Ok(Self::Capture {});
+        if let Ok(("Capture", output_config)) = tuple.extract() {
+            return Ok(Self::Capture { output_config });
         }
 
         Err(PyValueError::new_err(format!(
@@ -622,19 +649,19 @@ impl<'source> FromPyObject<'source> for Step {
 /// Represent Steps in Python as (name, funcs...) tuples.
 ///
 /// Required for pickling.
-impl ToPyObject for Step {
-    fn to_object(&self, py: Python) -> Py<PyAny> {
+impl IntoPy<PyObject> for Step {
+    fn into_py(self, py: Python) -> Py<PyAny> {
         match self {
-            Self::Map { mapper } => ("Map", mapper).to_object(py),
-            Self::FlatMap { mapper } => ("FlatMap", mapper).to_object(py),
-            Self::Filter { predicate } => ("Filter", predicate).to_object(py),
-            Self::Inspect { inspector } => ("Inspect", inspector).to_object(py),
-            Self::InspectEpoch { inspector } => ("InspectEpoch", inspector).to_object(py),
+            Self::Map { mapper } => ("Map", mapper).into_py(py),
+            Self::FlatMap { mapper } => ("FlatMap", mapper).into_py(py),
+            Self::Filter { predicate } => ("Filter", predicate).into_py(py),
+            Self::Inspect { inspector } => ("Inspect", inspector).into_py(py),
+            Self::InspectEpoch { inspector } => ("InspectEpoch", inspector).into_py(py),
             Self::Reduce {
                 step_id,
                 reducer,
                 is_complete,
-            } => ("Reduce", step_id.clone(), reducer, is_complete).to_object(py),
+            } => ("Reduce", step_id.clone(), reducer, is_complete).into_py(py),
             Self::ReduceWindow {
                 step_id,
                 clock_config,
@@ -647,15 +674,14 @@ impl ToPyObject for Step {
                 window_config,
                 reducer,
             )
-                .to_object(py),
+                .into_py(py),
             Self::StatefulMap {
                 step_id,
                 builder,
                 mapper,
-            } => ("StatefulMap", step_id.clone(), builder, mapper).to_object(py),
-            Self::Capture {} => ("Capture",).to_object(py),
+            } => ("StatefulMap", step_id.clone(), builder, mapper).into_py(py),
+            Self::Capture { output_config } => ("Capture", output_config).into_py(py),
         }
-        .into()
     }
 }
 

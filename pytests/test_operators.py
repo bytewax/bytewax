@@ -3,116 +3,85 @@ from collections import defaultdict
 
 from pytest import raises
 
-from bytewax import Dataflow
-from bytewax.execution import run
+from bytewax.dataflow import Dataflow
+from bytewax.execution import run_main
+from bytewax.inputs import TestingInputConfig
+from bytewax.outputs import TestingOutputConfig
 
 
 def test_map():
     def add_one(item):
         return item + 1
 
-    inp = [
-        (0, 0),
-        (0, 1),
-        (0, 2),
-    ]
-
-    flow = Dataflow()
+    inp = [0, 1, 2]
+    flow = Dataflow(TestingInputConfig(inp))
     flow.map(add_one)
-    flow.capture()
+    out = []
+    flow.capture(TestingOutputConfig(out))
 
-    out = run(flow, inp)
+    run_main(flow)
 
-    assert sorted(out) == sorted(
-        [
-            (0, 1),
-            (0, 2),
-            (0, 3),
-        ]
-    )
+    assert sorted(out) == sorted([1, 2, 3])
 
 
 def test_flat_map():
     def split_into_words(sentence):
         return sentence.split()
 
-    inp = [
-        (1, "split this"),
-    ]
-
-    flow = Dataflow()
+    inp = ["split this"]
+    flow = Dataflow(TestingInputConfig(inp))
     flow.flat_map(split_into_words)
-    flow.capture()
+    out = []
+    flow.capture(TestingOutputConfig(out))
 
-    out = run(flow, inp)
+    run_main(flow)
 
-    assert sorted(out) == sorted(
-        [
-            (1, "split"),
-            (1, "this"),
-        ]
-    )
+    assert sorted(out) == sorted(["split", "this"])
 
 
 def test_filter():
     def is_odd(item):
         return item % 2 != 0
 
-    inp = [
-        (0, 1),
-        (0, 2),
-        (0, 3),
-    ]
-
-    flow = Dataflow()
+    inp = [1, 2, 3]
+    flow = Dataflow(TestingInputConfig(inp))
     flow.filter(is_odd)
-    flow.capture()
+    out = []
+    flow.capture(TestingOutputConfig(out))
 
-    out = run(flow, inp)
+    run_main(flow)
 
-    assert sorted(out) == sorted([(0, 1), (0, 3)])
+    assert sorted(out) == sorted([1, 3])
 
 
 def test_inspect():
-    inp = [
-        (1, "a"),
-    ]
+    inp = ["a"]
+    flow = Dataflow(TestingInputConfig(inp))
     seen = []
-
-    flow = Dataflow()
     flow.inspect(seen.append)
-    flow.capture()
+    out = []
+    flow.capture(TestingOutputConfig(out))
 
-    out = run(flow, inp)
+    run_main(flow)
 
-    assert sorted(out) == sorted(
-        [
-            (1, "a"),
-        ]
-    )
+    assert sorted(out) == sorted(["a"])
     # Check side-effects after execution is complete.
-    assert seen == ["a"]
+    assert seen == sorted(["a"])
 
 
 def test_inspect_epoch():
-    inp = [
-        (1, "a"),
-    ]
+    inp = ["a"]
+    flow = Dataflow(TestingInputConfig(inp))
     seen = []
-
-    flow = Dataflow()
     flow.inspect_epoch(lambda epoch, item: seen.append((epoch, item)))
-    flow.capture()
+    out = []
+    flow.capture(TestingOutputConfig(out))
 
-    out = run(flow, inp)
+    run_main(flow)
 
-    assert sorted(out) == sorted(
-        [
-            (1, "a"),
-        ]
-    )
+    assert sorted(out) == sorted(["a"])
     # Check side-effects after execution is complete.
-    assert seen == [(1, "a")]
+    assert seen == sorted([(0, "a")])
 
 
 def test_reduce():
@@ -126,42 +95,36 @@ def test_reduce():
         return any(event["type"] == "logout" for event in session)
 
     inp = [
-        (0, {"user": "a", "type": "login"}),
-        (1, {"user": "a", "type": "post"}),
-        (1, {"user": "b", "type": "login"}),
-        (2, {"user": "a", "type": "logout"}),
-        (3, {"user": "b", "type": "logout"}),
+        {"user": "a", "type": "login"},
+        {"user": "a", "type": "post"},
+        {"user": "b", "type": "login"},
+        {"user": "a", "type": "logout"},
+        {"user": "b", "type": "logout"},
     ]
-
-    flow = Dataflow()
+    flow = Dataflow(TestingInputConfig(inp))
     flow.map(user_as_key)
     flow.reduce("sessionizer", extend_session, session_complete)
-    flow.capture()
+    out = []
+    flow.capture(TestingOutputConfig(out))
 
-    out = run(flow, inp)
+    run_main(flow)
 
     assert sorted(out) == sorted(
         [
             (
-                2,
-                (
-                    "a",
-                    [
-                        {"user": "a", "type": "login"},
-                        {"user": "a", "type": "post"},
-                        {"user": "a", "type": "logout"},
-                    ],
-                ),
+                "a",
+                [
+                    {"user": "a", "type": "login"},
+                    {"user": "a", "type": "post"},
+                    {"user": "a", "type": "logout"},
+                ],
             ),
             (
-                3,
-                (
-                    "b",
-                    [
-                        {"user": "b", "type": "login"},
-                        {"user": "b", "type": "logout"},
-                    ],
-                ),
+                "b",
+                [
+                    {"user": "b", "type": "login"},
+                    {"user": "b", "type": "logout"},
+                ],
             ),
         ]
     )
@@ -188,26 +151,17 @@ def test_stateful_map():
         else:
             return []
 
-    inp = [
-        (0, "a"),
-        (0, "a"),
-        (1, "a"),
-        (1, "b"),
-    ]
-    flow = Dataflow()
+    inp = ["a", "a", "a", "b"]
+    flow = Dataflow(TestingInputConfig(inp))
     flow.map(add_key)
     flow.stateful_map("build_seen", build_seen, check)
     flow.flat_map(remove_seen)
-    flow.capture()
+    out = []
+    flow.capture(TestingOutputConfig(out))
 
-    out = run(flow, inp)
+    run_main(flow)
 
-    assert sorted(out) == sorted(
-        [
-            (0, "a"),
-            (1, "b"),
-        ]
-    )
+    assert sorted(out) == sorted(["a", "b"])
 
 
 def test_stateful_map_error_on_non_kv_tuple():
@@ -217,15 +171,15 @@ def test_stateful_map_error_on_non_kv_tuple():
         return type_to_count, [(event["type"], current_count)]
 
     inp = [
-        (0, {"user": "a", "type": "login"}),
-        (0, {"user": "a", "type": "post"}),
-        (0, {"user": "b", "type": "login"}),
-        (1, {"user": "b", "type": "post"}),
+        {"user": "a", "type": "login"},
+        {"user": "a", "type": "post"},
+        {"user": "b", "type": "login"},
+        {"user": "b", "type": "post"},
     ]
-
-    flow = Dataflow()
+    flow = Dataflow(TestingInputConfig(inp))
     flow.stateful_map("running_count", lambda key: defaultdict(int), running_count)
-    flow.capture()
+    out = []
+    flow.capture(TestingOutputConfig(out))
 
     expect = (
         "Dataflow requires a `(key, value)` 2-tuple as input to every stateful "
@@ -233,7 +187,7 @@ def test_stateful_map_error_on_non_kv_tuple():
     )
 
     with raises(TypeError, match=re.escape(expect)):
-        run(flow, inp)
+        run_main(flow)
 
 
 def test_stateful_map_error_on_non_string_key():
@@ -249,16 +203,16 @@ def test_stateful_map_error_on_non_string_key():
 
     # Note that the resulting key will be an int.
     inp = [
-        (0, {"user": {"id": 1}, "type": "login"}),
-        (0, {"user": {"id": 1}, "type": "post"}),
-        (0, {"user": {"id": 2}, "type": "login"}),
-        (1, {"user": {"id": 2}, "type": "post"}),
+        {"user": {"id": 1}, "type": "login"},
+        {"user": {"id": 1}, "type": "post"},
+        {"user": {"id": 2}, "type": "login"},
+        {"user": {"id": 2}, "type": "post"},
     ]
-
-    flow = Dataflow()
+    flow = Dataflow(TestingInputConfig(inp))
     flow.map(add_key)
     flow.stateful_map("running_count", lambda key: defaultdict(int), running_count)
-    flow.capture()
+    out = []
+    flow.capture(TestingOutputConfig(out))
 
     with raises(
         TypeError,
@@ -267,43 +221,4 @@ def test_stateful_map_error_on_non_string_key():
             "got `{'id': 1}` instead"
         ),
     ):
-        run(flow, inp)
-
-
-def test_capture():
-    inp = [
-        (0, "a"),
-        (1, "b"),
-    ]
-    out = []
-
-    flow = Dataflow()
-    flow.capture()
-
-    out = run(flow, inp)
-
-    assert sorted(out) == sorted(inp)
-
-
-def test_capture_multiple():
-    inp = [
-        (0, "a"),
-        (1, "b"),
-    ]
-    out = []
-
-    flow = Dataflow()
-    flow.capture()
-    flow.map(str.upper)
-    flow.capture()
-
-    out = run(flow, inp)
-
-    assert sorted(out) == sorted(
-        [
-            (0, "a"),
-            (0, "A"),
-            (1, "b"),
-            (1, "B"),
-        ]
-    )
+        run_main(flow)

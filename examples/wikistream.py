@@ -7,14 +7,15 @@ from datetime import timedelta
 import sseclient
 import urllib3
 
-from bytewax import Dataflow
-from bytewax.execution import run_main
-from bytewax.inputs import AdvanceTo, Emit, ManualInputConfig
+from bytewax.dataflow import Dataflow
+from bytewax.execution import spawn_cluster
+from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import StdOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
-def input_builder(worker_index, worker_count, resume_epoch):
+def input_builder(worker_index, worker_count):
     pool = urllib3.PoolManager()
     resp = pool.request(
         "GET",
@@ -27,15 +28,8 @@ def input_builder(worker_index, worker_count, resume_epoch):
     # Since there is no way to replay missed SSE data, we're going to
     # drop missed data. That's fine as long as we know to interpret
     # the results with that in mind.
-    epoch = resume_epoch
     for event in client.events():
-        yield Emit(event.data)
-        epoch += 1
-        yield AdvanceTo(epoch)
-
-
-def output_builder(worker_index, worker_count):
-    return print
+        yield event.data
 
 
 def initial_count(data_dict):
@@ -47,7 +41,7 @@ def keep_max(max_count, new_count):
     return new_max, new_max
 
 
-flow = Dataflow()
+flow = Dataflow(ManualInputConfig(input_builder))
 # "event_json"
 flow.map(json.loads)
 # {"server_name": "server.name", ...}
@@ -66,13 +60,11 @@ flow.stateful_map(
     keep_max,
 )
 # ("server.name", max_per_window)
-flow.capture()
+flow.capture(StdOutputConfig())
 
 
 if __name__ == "__main__":
-    run_main(
+    spawn_cluster(
         flow,
-        ManualInputConfig(input_builder),
-        output_builder,
         recovery_config=SqliteRecoveryConfig("."),
     )

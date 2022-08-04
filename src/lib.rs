@@ -9,6 +9,7 @@ pub(crate) mod dataflow;
 pub(crate) mod execution;
 pub(crate) mod inputs;
 pub(crate) mod operators;
+pub(crate) mod outputs;
 pub(crate) mod pyo3_extensions;
 pub(crate) mod recovery;
 pub(crate) mod webserver;
@@ -39,6 +40,7 @@ fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
     dataflow::register(py, m)?;
     execution::register(py, m)?;
     inputs::register(py, m)?;
+    outputs::register(py, m)?;
     recovery::register(py, m)?;
     window::register(py, m)?;
 

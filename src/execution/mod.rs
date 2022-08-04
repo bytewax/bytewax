@@ -6,13 +6,13 @@
 //! [`worker_main()`] for the root of all the internal action here.
 
 use crate::dataflow::{Dataflow, Step};
-use crate::inputs::pump_from_config;
-use crate::inputs::InputConfig;
-use crate::inputs::Pump;
+use crate::inputs::build_input_reader;
+use crate::inputs::InputReader;
 use crate::operators::CollectGarbage;
 use crate::operators::*;
-use crate::pyo3_extensions::TdPyCallable;
-use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, StateKey};
+use crate::outputs::build_output_writer;
+use crate::outputs::capture;
+use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, StateKey, TdPyAny};
 use crate::recovery::RecoveryConfig;
 use crate::recovery::StateReader;
 use crate::recovery::StateWriter;
@@ -23,19 +23,310 @@ use crate::window::{build_clock, build_windower, reduce_window, StatefulWindowUn
 use log::debug;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use std::fmt::Debug;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::task::Poll;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use timely::communication::Allocate;
+use timely::dataflow::operators::generic::source;
 use timely::dataflow::operators::result::*;
-use timely::dataflow::operators::*;
-use timely::dataflow::InputHandle;
-use timely::dataflow::ProbeHandle;
+use timely::dataflow::{operators::*, Stream};
+use timely::dataflow::{ProbeHandle, Scope};
 use timely::progress::Antichain;
 use timely::progress::Timestamp;
 use timely::worker::Worker;
+use timely::Data;
+
+/// Base class for an epoch config.
+///
+/// These define how epochs are assigned on source input data. You
+/// should only need to set this if you are testing the recovery
+/// system or are doing deep exactly-once integration work. Changing
+/// this does not change the semantics of any of the operators.
+///
+/// Use a specific subclass of this for the epoch definition you need.
+#[pyclass(module = "bytewax.execution", subclass)]
+#[pyo3(text_signature = "()")]
+pub(crate) struct EpochConfig;
+
+impl EpochConfig {
+    /// Create an "empty" [`Self`] just for use in `__getnewargs__`.
+    #[allow(dead_code)]
+    pub(crate) fn pickle_new(py: Python) -> Py<Self> {
+        PyCell::new(py, EpochConfig {}).unwrap().into()
+    }
+}
+
+#[pymethods]
+impl EpochConfig {
+    #[new]
+    fn new() -> Self {
+        Self {}
+    }
+
+    /// Pickle as a tuple.
+    fn __getstate__(&self) -> (&str,) {
+        ("EpochConfig",)
+    }
+
+    /// Unpickle from tuple of arguments.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok(("EpochConfig",)) = state.extract() {
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for EpochConfig: {state:?}"
+            )))
+        }
+    }
+}
+
+/// Use for deterministic epochs in tests. Increment epoch by 1 after
+/// each item.
+///
+/// Returns:
+///
+///     Config object. Pass this as the `epoch_config` parameter of
+///     your execution entry point.
+#[pyclass(module="bytewax.execution", extends=EpochConfig)]
+#[pyo3(text_signature = "()")]
+struct TestingEpochConfig {}
+
+#[pymethods]
+impl TestingEpochConfig {
+    /// Tell pytest to ignore this class, even though it starts with
+    /// the name "Test".
+    #[allow(non_upper_case_globals)]
+    #[classattr]
+    const __test__: bool = false;
+
+    #[new]
+    #[args()]
+    fn new() -> (Self, EpochConfig) {
+        (Self {}, EpochConfig {})
+    }
+
+    /// Pickle as a tuple.
+    fn __getstate__(&self) -> (&str,) {
+        ("TestingEpochConfig",)
+    }
+
+    /// Unpickle from tuple of arguments.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok(("TestingEpochConfig",)) = state.extract() {
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for TestingEpochConfig: {state:?}"
+            )))
+        }
+    }
+}
+
+/// Increment epochs at regular system time intervals.
+///
+/// This is the default with 10 second epoch intervals if no
+/// `epoch_config` is passed to your execution entry point.
+///
+/// Args:
+///
+///     epoch_length (datetime.timedelta): System time length of each
+///         epoch.
+///
+/// Returns:
+///
+///     Config object. Pass this as the `epoch_config` parameter of
+///     your execution entry point.
+#[pyclass(module="bytewax.window", extends=EpochConfig)]
+#[pyo3(text_signature = "(epoch_length)")]
+struct PeriodicEpochConfig {
+    #[pyo3(get)]
+    epoch_length: pyo3_chrono::Duration,
+}
+
+#[pymethods]
+impl PeriodicEpochConfig {
+    #[new]
+    #[args(epoch_length)]
+    fn new(epoch_length: pyo3_chrono::Duration) -> (Self, EpochConfig) {
+        (Self { epoch_length }, EpochConfig {})
+    }
+
+    /// Pickle as a tuple.
+    fn __getstate__(&self) -> (&str, pyo3_chrono::Duration) {
+        ("PeriodicEpochConfig", self.epoch_length.clone())
+    }
+
+    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
+    fn __getnewargs__(&self) -> (pyo3_chrono::Duration,) {
+        (pyo3_chrono::Duration(chrono::Duration::zero()),)
+    }
+
+    /// Unpickle from tuple of arguments.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        if let Ok(("PeriodicEpochConfig", epoch_length)) = state.extract() {
+            self.epoch_length = epoch_length;
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "bad pickle contents for PeriodicEpochConfig: {state:?}"
+            )))
+        }
+    }
+}
+
+/// Default to 10 second periodic epochs.
+pub(crate) fn default_epoch_config() -> Py<EpochConfig> {
+    Python::with_gil(|py| {
+        PyCell::new(
+            py,
+            PeriodicEpochConfig::new(pyo3_chrono::Duration(chrono::Duration::seconds(10))),
+        )
+        .unwrap()
+        .extract()
+        .unwrap()
+    })
+}
+
+/// Input source that increments the epoch after each item.
+pub(crate) fn testing_input_source<S, D: Data + Debug>(
+    scope: &S,
+    mut reader: Box<dyn InputReader<D>>,
+    start_at: S::Timestamp,
+    probe: &ProbeHandle<S::Timestamp>,
+) -> Stream<S, D>
+where
+    S: Scope<Timestamp = u64>,
+{
+    source(scope, "TestingInputSource", move |mut init_cap, info| {
+        let probe = probe.clone();
+        let activator = scope.activator_for(&info.address[..]);
+
+        init_cap.downgrade(&start_at);
+        let mut cap = Some(init_cap);
+
+        move |output| {
+            let mut eof = false;
+
+            if let Some(cap) = cap.as_mut() {
+                let epoch = cap.time();
+
+                if !probe.less_than(epoch) {
+                    match reader.next() {
+                        Poll::Pending => {}
+                        Poll::Ready(None) => {
+                            eof = true;
+                        }
+                        Poll::Ready(Some(item)) => {
+                            output.session(&cap).give(item);
+
+                            let next_epoch = epoch + 1;
+                            cap.downgrade(&next_epoch);
+                        }
+                    }
+                }
+            }
+
+            if eof {
+                cap = None;
+            } else {
+                activator.activate();
+            }
+        }
+    })
+}
+
+/// Input source that increments the epoch periodically by system
+/// time.
+pub(crate) fn periodic_input_source<S, D: Data + Debug>(
+    scope: &S,
+    mut reader: Box<dyn InputReader<D>>,
+    start_at: S::Timestamp,
+    probe: &ProbeHandle<S::Timestamp>,
+    epoch_length: Duration,
+) -> Stream<S, D>
+where
+    S: Scope<Timestamp = u64>,
+{
+    source(scope, "PeriodicInputSource", move |mut init_cap, info| {
+        let probe = probe.clone();
+        let activator = scope.activator_for(&info.address[..]);
+
+        init_cap.downgrade(&start_at);
+        let mut cap = Some(init_cap);
+        let mut epoch_started = Instant::now();
+
+        move |output| {
+            let mut eof = false;
+
+            if let Some(cap) = cap.as_mut() {
+                let epoch = cap.time();
+
+                if !probe.less_than(epoch) {
+                    if epoch_started.elapsed() > epoch_length {
+                        let next_epoch = epoch + 1;
+                        cap.downgrade(&next_epoch);
+                        epoch_started = Instant::now();
+                    }
+
+                    match reader.next() {
+                        Poll::Pending => {}
+                        Poll::Ready(None) => {
+                            eof = true;
+                        }
+                        Poll::Ready(Some(item)) => {
+                            output.session(&cap).give(item);
+                        }
+                    }
+                }
+            }
+
+            if eof {
+                cap = None;
+            } else {
+                activator.activate();
+            }
+        }
+    })
+}
+
+fn build_input_source<S>(
+    py: Python,
+    epoch_config: Py<EpochConfig>,
+    scope: &S,
+    reader: Box<dyn InputReader<TdPyAny>>,
+    start_at: S::Timestamp,
+    probe: &ProbeHandle<S::Timestamp>,
+) -> Result<Stream<S, TdPyAny>, String>
+where
+    S: Scope<Timestamp = u64>,
+{
+    let epoch_config = epoch_config.as_ref(py);
+
+    if let Ok(testing_config) = epoch_config.downcast::<PyCell<TestingEpochConfig>>() {
+        let _testing_config = testing_config.borrow();
+
+        Ok(testing_input_source(scope, reader, start_at, probe))
+    } else if let Ok(periodic_config) = epoch_config.downcast::<PyCell<PeriodicEpochConfig>>() {
+        let periodic_config = periodic_config.borrow();
+
+        let epoch_length = periodic_config.epoch_length.0.to_std().expect("");
+
+        Ok(periodic_input_source(
+            scope,
+            reader,
+            start_at,
+            probe,
+            epoch_length,
+        ))
+    } else {
+        let pytype = epoch_config.get_type();
+        Err(format!("Unknown epoch_config type: {pytype}"))
+    }
+}
 
 /// Compile a dataflow which reads the progress data from the previous
 /// execution and calculates the resume epoch.
@@ -104,30 +395,31 @@ fn build_resume_epoch_calc_dataflow<A: Allocate>(
 fn build_production_dataflow<A: Allocate>(
     py: Python,
     worker: &mut Worker<A>,
+    epoch_config: Py<EpochConfig>,
     resume_epoch: u64,
     flow: Py<Dataflow>,
-    input_config: Py<InputConfig>,
-    output_builder: TdPyCallable,
     state_reader: Box<dyn StateReader<u64, Vec<u8>>>,
     progress_writer: Box<dyn ProgressWriter<u64>>,
     state_writer: Box<dyn StateWriter<u64, Vec<u8>>>,
     state_collector: Box<dyn StateCollector<u64>>,
-) -> Result<(Box<dyn Pump>, ProbeHandle<u64>), String> {
+) -> Result<ProbeHandle<u64>, String> {
     let worker_index = worker.index();
     let worker_count = worker.peers();
 
     worker.dataflow(|scope| {
-        let mut root_input = InputHandle::new();
+        let flow = flow.as_ref(py).borrow();
+
         let mut probe = ProbeHandle::new();
 
         let state_loading_stream = state_source(scope, state_reader, resume_epoch, &probe);
-        let mut stream = scope.input_from(&mut root_input);
-        root_input.advance_to(resume_epoch);
+        let input_reader =
+            build_input_reader(py, flow.input_config.clone(), worker_index, worker_count)?;
+        let mut stream =
+            build_input_source(py, epoch_config, scope, input_reader, resume_epoch, &probe)?;
 
         let mut state_backup_streams = Vec::new();
         let mut capture_streams = Vec::new();
 
-        let flow = flow.as_ref(py).borrow();
         for step in &flow.steps {
             // All these closure lifetimes are static, so tell
             // Python's GC that there's another pointer to the
@@ -217,8 +509,12 @@ fn build_production_dataflow<A: Allocate>(
                         )
                         .map(wrap_state_pair);
                 }
-                Step::Capture {} => {
-                    let capture = stream;
+                Step::Capture { output_config } => {
+                    let mut writer =
+                        build_output_writer(py, output_config, worker_index, worker_count)?;
+
+                    let capture =
+                        stream.inspect_time(move |epoch, item| capture(&mut writer, epoch, item));
 
                     capture_streams.push(capture.clone());
                     stream = capture;
@@ -234,15 +530,7 @@ fn build_production_dataflow<A: Allocate>(
             .concatenate(state_backup_streams)
             .write_state_with(state_writer);
 
-        let worker_output: TdPyCallable = output_builder
-            .call1(py, (worker_index, worker_count))
-            .unwrap()
-            .extract(py)
-            .unwrap();
-
-        let capture_stream = scope
-            .concatenate(capture_streams)
-            .inspect_time(move |epoch, item| capture(&worker_output, epoch, item));
+        let capture_stream = scope.concatenate(capture_streams);
 
         let dataflow_frontier_stream = capture_stream
             // TODO: Can we only downstream progress messages? Doing this
@@ -260,43 +548,8 @@ fn build_production_dataflow<A: Allocate>(
             .collect_garbage(state_collector, dataflow_frontier_stream)
             .probe_with(&mut probe);
 
-        let pump = pump_from_config(
-            py,
-            input_config,
-            root_input,
-            worker_index,
-            worker_count,
-            resume_epoch,
-        );
-        Ok((pump, probe))
+        Ok(probe)
     })
-}
-
-/// Run a dataflow which uses a [`Pump`] until complete.
-fn pump_until_done<A: Allocate>(
-    worker: &mut Worker<A>,
-    interrupt_flag: &AtomicBool,
-    mut pumps_with_input_remaining: Vec<Box<dyn Pump>>,
-    probe: ProbeHandle<u64>,
-) {
-    while !interrupt_flag.load(Ordering::Relaxed) && !probe.done() {
-        if !pumps_with_input_remaining.is_empty() {
-            // We have input remaining, pump the pumps, and step the workers while
-            // there is work less than the current epoch to do.
-            let mut updated_pumps = Vec::new();
-            for mut pump in pumps_with_input_remaining.into_iter() {
-                pump.pump();
-                worker.step_while(|| probe.less_than(&pump.input_time()));
-                if pump.input_remains() {
-                    updated_pumps.push(pump);
-                }
-            }
-            pumps_with_input_remaining = updated_pumps;
-        } else {
-            // Inputs are empty, step the workers until probe is done.
-            worker.step();
-        }
-    }
 }
 
 /// Run a dataflow which uses sources until complete.
@@ -346,8 +599,7 @@ fn build_and_run_production_dataflow<A: Allocate>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     flow: Py<Dataflow>,
-    input_config: Py<InputConfig>,
-    output_builder: TdPyCallable,
+    epoch_config: Py<EpochConfig>,
     recovery_config: Py<RecoveryConfig>,
     resume_epoch: u64,
 ) -> Result<(), String> {
@@ -361,14 +613,13 @@ fn build_and_run_production_dataflow<A: Allocate>(
         build_recovery_writers(py, worker_index, worker_count, recovery_config)
     })?;
 
-    let (pump, probe) = Python::with_gil(|py| {
+    let probe = Python::with_gil(|py| {
         build_production_dataflow(
             py,
             worker,
+            epoch_config,
             resume_epoch,
             flow,
-            input_config,
-            output_builder,
             state_reader,
             progress_writer,
             state_writer,
@@ -376,7 +627,7 @@ fn build_and_run_production_dataflow<A: Allocate>(
         )
     })?;
 
-    pump_until_done(worker, &interrupt_flag, vec![pump], probe);
+    run_until_done(worker, &interrupt_flag, probe);
 
     Ok(())
 }
@@ -397,10 +648,10 @@ fn worker_main<A: Allocate>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     flow: Py<Dataflow>,
-    input_config: Py<InputConfig>,
-    output_builder: TdPyCallable,
+    epoch_config: Option<Py<EpochConfig>>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> Result<(), String> {
+    let epoch_config = epoch_config.unwrap_or_else(default_epoch_config);
     let recovery_config = recovery_config.unwrap_or_else(default_recovery_config);
 
     let resume_epoch =
@@ -410,8 +661,7 @@ fn worker_main<A: Allocate>(
         worker,
         interrupt_flag,
         flow,
-        input_config,
-        output_builder,
+        epoch_config,
         recovery_config,
         resume_epoch,
     )?;
@@ -441,9 +691,6 @@ fn worker_main<A: Allocate>(
 /// >>> run_main(flow, ManualConfig(input_builder), output_builder)  # doctest: +ELLIPSIS
 /// (...)
 ///
-/// See `bytewax.run()` for a convenience method to not need to worry
-/// about input or output builders.
-///
 /// See `bytewax.spawn_cluster()` for starting a cluster on this
 /// machine with full control over inputs and outputs.
 ///
@@ -451,23 +698,19 @@ fn worker_main<A: Allocate>(
 ///
 ///     flow: Dataflow to run.
 ///
-///     input_config: Input config of type Manual or Kafka. See `bytewax.inputs`.
-///
-///     output_builder: Returns a callback function for each worker
-///         thread, called with `(epoch, item)` whenever and item
-///         passes by a capture operator on this process.
+///     epoch_config: A custom epoch config. You probably don't need
+///         this. See `EpochConfig` for more info.
 ///
 ///     recovery_config: State recovery config. See
 ///         `bytewax.recovery`. If `None`, state will not be
 ///         persisted.
 ///
-#[pyfunction(flow, input_config, output_builder, "*", recovery_config = "None")]
-#[pyo3(text_signature = "(flow, input_config, output_builder, *, recovery_config)")]
+#[pyfunction(flow, "*", epoch_length = "None", recovery_config = "None")]
+#[pyo3(text_signature = "(flow, *, epoch_config, recovery_config)")]
 pub(crate) fn run_main(
     py: Python,
     flow: Py<Dataflow>,
-    input_config: Py<InputConfig>,
-    output_builder: TdPyCallable,
+    epoch_config: Option<Py<EpochConfig>>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
     let result = py.allow_threads(move || {
@@ -479,14 +722,7 @@ pub(crate) fn run_main(
             timely::execute::execute_directly::<Result<(), String>, _>(move |worker| {
                 let interrupt_flag = AtomicBool::new(false);
 
-                worker_main(
-                    worker,
-                    &interrupt_flag,
-                    flow,
-                    input_config,
-                    output_builder,
-                    recovery_config,
-                )
+                worker_main(worker, &interrupt_flag, flow, epoch_config, recovery_config)
             })
         })
     });
@@ -527,9 +763,6 @@ pub(crate) fn run_main(
 /// See `bytewax.run_main()` for a way to test input and output
 /// builders without the complexity of starting a cluster.
 ///
-/// See `bytewax.run_cluster()` for a convenience method to pass data
-/// through a dataflow for notebook development.
-///
 /// See `bytewax.spawn_cluster()` for starting a simple cluster
 /// locally on one machine.
 ///
@@ -537,16 +770,13 @@ pub(crate) fn run_main(
 ///
 ///     flow: Dataflow to run.
 ///
-///     input_config: Input config of type Manual or Kafka. See `bytewax.inputs`.
-///
-///     output_builder: Returns a callback function for each worker
-///         thread, called with `(epoch, item)` whenever and item
-///         passes by a capture operator on this process.
-///
 ///     addresses: List of host/port addresses for all processes in
 ///         this cluster (including this one).
 ///
 ///     proc_id: Index of this process in cluster; starts from 0.
+///
+///     epoch_config: A custom epoch config. You probably don't need
+///         this. See `EpochConfig` for more info.
 ///
 ///     recovery_config: State recovery config. See
 ///         `bytewax.recovery`. If `None`, state will not be
@@ -556,24 +786,22 @@ pub(crate) fn run_main(
 ///         each process.
 #[pyfunction(
     flow,
-    input_config,
-    output_builder,
     addresses,
     proc_id,
     "*",
+    epoch_config = "None",
     recovery_config = "None",
     worker_count_per_proc = "1"
 )]
 #[pyo3(
-    text_signature = "(flow, input_config, output_builder, addresses, proc_id, *, recovery_config, worker_count_per_proc)"
+    text_signature = "(flow, addresses, proc_id, *, epoch_config, recovery_config, worker_count_per_proc)"
 )]
 pub(crate) fn cluster_main(
     py: Python,
     flow: Py<Dataflow>,
-    input_config: Py<InputConfig>,
-    output_builder: TdPyCallable,
     addresses: Option<Vec<String>>,
     proc_id: usize,
+    epoch_config: Option<Py<EpochConfig>>,
     recovery_config: Option<Py<RecoveryConfig>>,
     worker_count_per_proc: usize,
 ) -> PyResult<()> {
@@ -627,8 +855,7 @@ pub(crate) fn cluster_main(
                     worker,
                     &should_shutdown_w,
                     flow.clone(),
-                    input_config.clone(),
-                    output_builder.clone(),
+                    epoch_config.clone(),
                     recovery_config.clone(),
                 )
             },
@@ -669,6 +896,9 @@ pub(crate) fn cluster_main(
 }
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<EpochConfig>()?;
+    m.add_class::<TestingEpochConfig>()?;
+    m.add_class::<PeriodicEpochConfig>()?;
     m.add_function(wrap_pyfunction!(run_main, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
     Ok(())

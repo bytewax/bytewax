@@ -1,3 +1,7 @@
+//! Newtypes around PyO3 types which allow easier interfacing with
+//! Timely or other Rust libraries we use.
+
+use crate::with_traceback;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -19,8 +23,6 @@ use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-
-use crate::with_traceback;
 
 /// Represents a Python object flowing through a Timely dataflow.
 ///
@@ -47,46 +49,30 @@ impl Deref for TdPyAny {
     }
 }
 
-/// Allows use in some Rust to Python conversions.
-// I Don't really get the difference between ToPyObject and IntoPy
-// yet.
-impl ToPyObject for TdPyAny {
-    fn to_object(&self, py: Python) -> Py<PyAny> {
-        self.0.clone_ref(py)
-    }
-}
-
-/// Allow passing to Python function calls without explicit
-/// conversion.
 impl IntoPy<PyObject> for TdPyAny {
     fn into_py(self, _py: Python) -> Py<PyAny> {
         self.0
     }
 }
 
-/// Allow passing a reference to Python function calls without
-/// explicit conversion.
 impl IntoPy<PyObject> for &TdPyAny {
-    fn into_py(self, _py: Python) -> Py<PyAny> {
-        self.0.clone_ref(_py)
+    fn into_py(self, py: Python) -> Py<PyAny> {
+        self.0.clone_ref(py)
     }
 }
 
-/// Conveniently re-wrap Python objects for use in Timely.
 impl From<&PyAny> for TdPyAny {
     fn from(x: &PyAny) -> Self {
         Self(x.into())
     }
 }
 
-/// Conveniently re-wrap Python objects for use in Timely.
 impl From<&PyString> for TdPyAny {
     fn from(x: &PyString) -> Self {
         Self(x.into())
     }
 }
 
-/// Conveniently re-wrap Python objects for use in Timely.
 impl From<Py<PyAny>> for TdPyAny {
     fn from(x: Py<PyAny>) -> Self {
         Self(x)
@@ -249,12 +235,6 @@ impl IntoPy<PyObject> for StateKey {
     }
 }
 
-impl ToPyObject for StateKey {
-    fn to_object(&self, py: Python) -> Py<PyAny> {
-        self.0.to_object(py)
-    }
-}
-
 impl Type<Sqlite> for StateKey {
     fn type_info() -> SqliteTypeInfo {
         <String as Type<Sqlite>>::type_info()
@@ -309,20 +289,13 @@ pub(crate) fn wrap_state_pair(key_value: (StateKey, TdPyAny)) -> TdPyAny {
 ///
 /// Otherwise the GIL would be held for the entire life of the iterator.
 #[derive(Clone)]
-pub(crate) struct TdPyIterator(pub(crate) Py<PyIterator>);
+pub(crate) struct TdPyIterator(Py<PyIterator>);
 
 /// Have PyO3 do type checking to ensure we only make from iterable
 /// objects.
 impl<'source> FromPyObject<'source> for TdPyIterator {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        Ok(ob.iter()?.into())
-    }
-}
-
-/// Conveniently re-wrap PyO3 objects.
-impl From<&PyIterator> for TdPyIterator {
-    fn from(x: &PyIterator) -> Self {
-        Self(x.into())
+        Ok(Self(ob.iter()?.into()))
     }
 }
 
@@ -375,6 +348,12 @@ impl ToPyObject for TdPyCallable {
 ///
 /// Just pass through to [`Py`].
 impl TdPyCallable {
+    /// Create an "empty" [`Self`] just for use in `__getnewargs__`.
+    #[allow(dead_code)]
+    pub(crate) fn pickle_new(py: Python) -> Self {
+        Self(py.eval("print", None, None).unwrap().into())
+    }
+
     pub(crate) fn call1(&self, py: Python, args: impl IntoPy<Py<PyTuple>>) -> PyResult<Py<PyAny>> {
         self.0.call1(py, args)
     }
