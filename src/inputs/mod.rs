@@ -236,7 +236,7 @@ impl KafkaInputConfig {
     }
 }
 
-/// Defines out a single source of input reads data.
+/// Defines how a single source of input reads data.
 pub(crate) trait InputReader<D> {
     /// This has the same semantics as
     /// [`std::async_iter::AsyncIterator::poll_next`]:
