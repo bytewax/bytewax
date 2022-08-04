@@ -4,25 +4,56 @@
 //! the `bytewax.execution` Python module docstring. Read that first.
 //!
 //! [`worker_main()`] for the root of all the internal action here.
+//!
+//! Dataflow Building
+//! -----------------
+//!
+//! The "blueprint" of a dataflow in [`crate::dataflow::Dataflow`] is
+//! compiled into a Timely dataflow in [`build_production_dataflow`].
+//!
+//! See [`crate::recovery`] for a description of the recovery
+//! components added to the Timely dataflow.
+//!
+//! Source Architecture
+//! -------------------
+//!
+//! The input system described in [`crate::input`] only deals with
+//! "what is the next item of data for this worker?" The source
+//! operators here control the epochs used in the dataflow. They call
+//! out to [`crate::input::InputReader`] impls to actually get the
+//! next item.
+//!
+//! This system follows our standard pattern of having parallel Python
+//! config objects and Rust impl structs for each trait of behavior we
+//! want. E.g. [`PeriodicEpochConfig`] represents a token in Python
+//! for how to create a [`periodic_epoch_source`].
 
 use crate::dataflow::{Dataflow, Step};
 use crate::inputs::build_input_reader;
 use crate::inputs::InputReader;
-use crate::operators::CollectGarbage;
 use crate::operators::*;
 use crate::outputs::build_output_writer;
 use crate::outputs::capture;
-use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, StateKey, TdPyAny};
-use crate::recovery::RecoveryConfig;
-use crate::recovery::StateReader;
-use crate::recovery::StateWriter;
-use crate::recovery::{build_recovery_readers, build_recovery_writers, FrontierUpdate};
+use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny};
+use crate::recovery::CollectGarbage;
+use crate::recovery::StatefulUnary;
+use crate::recovery::WriteProgress;
+use crate::recovery::WriteState;
+use crate::recovery::{
+    build_recovery_readers, build_recovery_writers, build_resume_epoch_calc_dataflow,
+    build_state_loading_dataflow,
+};
 use crate::recovery::{default_recovery_config, ProgressWriter};
 use crate::recovery::{ProgressReader, StateCollector};
-use crate::window::{build_clock, build_windower, reduce_window, StatefulWindowUnary, fold_window};
+use crate::recovery::{RecoveryConfig, StepId};
+use crate::recovery::{RecoveryStoreSummary, StateWriter};
+use crate::recovery::{StateBytes, StateKey};
+use crate::recovery::{StateReader, StateUpdate};
+use crate::window::{build_clock_builder, build_windower_builder, StatefulWindowUnary};
 use log::debug;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -31,11 +62,9 @@ use std::task::Poll;
 use std::thread;
 use std::time::{Duration, Instant};
 use timely::communication::Allocate;
-use timely::dataflow::operators::generic::source;
-use timely::dataflow::operators::result::*;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::{operators::*, Stream};
 use timely::dataflow::{ProbeHandle, Scope};
-use timely::progress::Antichain;
 use timely::progress::Timestamp;
 use timely::worker::Worker;
 use timely::Data;
@@ -86,6 +115,12 @@ impl EpochConfig {
 
 /// Use for deterministic epochs in tests. Increment epoch by 1 after
 /// each item.
+///
+/// _This requires all workers to have exactly the same number of
+/// input items! Otherwise the dataflow will hang!_
+///
+/// You almost assuredly do not want to use this unless you are
+/// writing tests of the recovery system.
 ///
 /// Returns:
 ///
@@ -192,27 +227,38 @@ pub(crate) fn default_epoch_config() -> Py<EpochConfig> {
 }
 
 /// Input source that increments the epoch after each item.
-pub(crate) fn testing_input_source<S, D: Data + Debug>(
+pub(crate) fn testing_epoch_source<S, D: Data + Debug>(
     scope: &S,
+    step_id: StepId,
+    key: StateKey,
     mut reader: Box<dyn InputReader<D>>,
     start_at: S::Timestamp,
     probe: &ProbeHandle<S::Timestamp>,
-) -> Stream<S, D>
+) -> (Stream<S, D>, Stream<S, (StateKey, (StepId, StateUpdate))>)
 where
     S: Scope<Timestamp = u64>,
 {
-    source(scope, "TestingInputSource", move |mut init_cap, info| {
-        let probe = probe.clone();
-        let activator = scope.activator_for(&info.address[..]);
+    let mut op_builder = OperatorBuilder::new(format!("{step_id}"), scope.clone());
 
-        init_cap.downgrade(&start_at);
-        let mut cap = Some(init_cap);
+    let (mut output_wrapper, output_stream) = op_builder.new_output();
+    let (mut state_update_wrapper, state_update_stream) = op_builder.new_output();
 
-        move |output| {
-            let mut eof = false;
+    let probe = probe.clone();
+    let info = op_builder.operator_info();
+    let activator = scope.activator_for(&info.address[..]);
 
-            if let Some(cap) = cap.as_mut() {
-                let epoch = cap.time();
+    op_builder.build(move |mut init_caps| {
+        let mut state_update_cap = init_caps.pop().map(|cap| cap.delayed(&start_at));
+        let mut output_cap = init_caps.pop().map(|cap| cap.delayed(&start_at));
+
+        let mut eof = false;
+
+        move |_input_frontiers| {
+            if let (Some(output_cap), Some(state_update_cap)) =
+                (output_cap.as_mut(), state_update_cap.as_mut())
+            {
+                assert!(output_cap.time() == state_update_cap.time());
+                let epoch = output_cap.time();
 
                 if !probe.less_than(epoch) {
                     match reader.next() {
@@ -221,54 +267,97 @@ where
                             eof = true;
                         }
                         Poll::Ready(Some(item)) => {
-                            output.session(&cap).give(item);
+                            output_wrapper.activate().session(&output_cap).give(item);
+
+                            // Snapshot just before incrementing epoch
+                            // to get the "end of the epoch" state.
+                            let state_bytes = reader.snapshot();
+                            let update = (
+                                key.clone(),
+                                (step_id.clone(), StateUpdate::Upsert(state_bytes)),
+                            );
+                            state_update_wrapper
+                                .activate()
+                                .session(&state_update_cap)
+                                .give(update);
 
                             let next_epoch = epoch + 1;
-                            cap.downgrade(&next_epoch);
+
+                            output_cap.downgrade(&next_epoch);
+                            state_update_cap.downgrade(&next_epoch);
                         }
                     }
                 }
             }
 
             if eof {
-                cap = None;
+                output_cap = None;
+                state_update_cap = None;
             } else {
                 activator.activate();
             }
         }
-    })
+    });
+
+    (output_stream, state_update_stream)
 }
 
 /// Input source that increments the epoch periodically by system
 /// time.
-pub(crate) fn periodic_input_source<S, D: Data + Debug>(
+pub(crate) fn periodic_epoch_source<S, D: Data + Debug>(
     scope: &S,
+    step_id: StepId,
+    key: StateKey,
     mut reader: Box<dyn InputReader<D>>,
     start_at: S::Timestamp,
     probe: &ProbeHandle<S::Timestamp>,
     epoch_length: Duration,
-) -> Stream<S, D>
+) -> (Stream<S, D>, Stream<S, (StateKey, (StepId, StateUpdate))>)
 where
     S: Scope<Timestamp = u64>,
 {
-    source(scope, "PeriodicInputSource", move |mut init_cap, info| {
-        let probe = probe.clone();
-        let activator = scope.activator_for(&info.address[..]);
+    let mut op_builder = OperatorBuilder::new(format!("{step_id}"), scope.clone());
 
-        init_cap.downgrade(&start_at);
-        let mut cap = Some(init_cap);
+    let (mut output_wrapper, output_stream) = op_builder.new_output();
+    let (mut state_update_wrapper, state_update_stream) = op_builder.new_output();
+
+    let probe = probe.clone();
+    let info = op_builder.operator_info();
+    let activator = scope.activator_for(&info.address[..]);
+
+    op_builder.build(move |mut init_caps| {
+        let mut state_update_cap = init_caps.pop().map(|cap| cap.delayed(&start_at));
+        let mut output_cap = init_caps.pop().map(|cap| cap.delayed(&start_at));
+
+        let mut eof = false;
         let mut epoch_started = Instant::now();
 
-        move |output| {
-            let mut eof = false;
-
-            if let Some(cap) = cap.as_mut() {
-                let epoch = cap.time();
+        move |_input_frontiers| {
+            if let (Some(output_cap), Some(state_update_cap)) =
+                (output_cap.as_mut(), state_update_cap.as_mut())
+            {
+                assert!(output_cap.time() == state_update_cap.time());
+                let epoch = output_cap.time();
 
                 if !probe.less_than(epoch) {
                     if epoch_started.elapsed() > epoch_length {
+                        // Snapshot just before incrementing epoch to
+                        // get the "end of the epoch state".
+                        let state_bytes = reader.snapshot();
+                        let update = (
+                            key.clone(),
+                            (step_id.clone(), StateUpdate::Upsert(state_bytes)),
+                        );
+                        state_update_wrapper
+                            .activate()
+                            .session(&state_update_cap)
+                            .give(update);
+
                         let next_epoch = epoch + 1;
-                        cap.downgrade(&next_epoch);
+
+                        output_cap.downgrade(&next_epoch);
+                        state_update_cap.downgrade(&next_epoch);
+
                         epoch_started = Instant::now();
                     }
 
@@ -278,29 +367,54 @@ where
                             eof = true;
                         }
                         Poll::Ready(Some(item)) => {
-                            output.session(&cap).give(item);
+                            output_wrapper.activate().session(&output_cap).give(item);
                         }
                     }
                 }
             }
 
             if eof {
-                cap = None;
+                output_cap = None;
+                state_update_cap = None;
             } else {
                 activator.activate();
             }
         }
-    })
+    });
+
+    (output_stream, state_update_stream)
 }
 
-fn build_input_source<S>(
+/// Generate the [`StateKey`] that represents this worker and
+/// determine if there's any resume state.
+fn resume_input_state(
+    worker_index: usize,
+    _worker_count: usize,
+    mut step_to_resume_state_bytes: HashMap<StateKey, StateBytes>,
+) -> (Option<StateBytes>, StateKey) {
+    let key = StateKey::Worker(worker_index);
+
+    let resume_state_bytes = step_to_resume_state_bytes.remove(&key);
+
+    (resume_state_bytes, key)
+}
+
+fn build_source<S>(
     py: Python,
     epoch_config: Py<EpochConfig>,
     scope: &S,
+    step_id: StepId,
+    key: StateKey,
     reader: Box<dyn InputReader<TdPyAny>>,
     start_at: S::Timestamp,
     probe: &ProbeHandle<S::Timestamp>,
-) -> Result<Stream<S, TdPyAny>, String>
+) -> Result<
+    (
+        Stream<S, TdPyAny>,
+        Stream<S, (StateKey, (StepId, StateUpdate))>,
+    ),
+    String,
+>
 where
     S: Scope<Timestamp = u64>,
 {
@@ -309,14 +423,22 @@ where
     if let Ok(testing_config) = epoch_config.downcast::<PyCell<TestingEpochConfig>>() {
         let _testing_config = testing_config.borrow();
 
-        Ok(testing_input_source(scope, reader, start_at, probe))
+        Ok(testing_epoch_source(
+            scope, step_id, key, reader, start_at, probe,
+        ))
     } else if let Ok(periodic_config) = epoch_config.downcast::<PyCell<PeriodicEpochConfig>>() {
         let periodic_config = periodic_config.borrow();
 
-        let epoch_length = periodic_config.epoch_length.0.to_std().expect("");
+        let epoch_length = periodic_config
+            .epoch_length
+            .0
+            .to_std()
+            .map_err(|err| format!("Invalid epoch length: {err:?}"))?;
 
-        Ok(periodic_input_source(
+        Ok(periodic_epoch_source(
             scope,
+            step_id,
+            key,
             reader,
             start_at,
             probe,
@@ -326,63 +448,6 @@ where
         let pytype = epoch_config.get_type();
         Err(format!("Unknown epoch_config type: {pytype}"))
     }
-}
-
-/// Compile a dataflow which reads the progress data from the previous
-/// execution and calculates the resume epoch.
-fn build_resume_epoch_calc_dataflow<A: Allocate>(
-    timely_worker: &mut Worker<A>,
-    // TODO: Allow multiple (or none) FrontierReaders so you can recover a
-    // different-sized cluster.
-    progress_reader: Box<dyn ProgressReader<u64>>,
-    resume_epoch_tx: std::sync::mpsc::Sender<u64>,
-) -> Result<ProbeHandle<()>, String> {
-    timely_worker.dataflow(|scope| {
-        let mut probe = ProbeHandle::new();
-
-        progress_source(scope, progress_reader, &probe)
-            .accumulate(
-                // A frontier of [0] is the "earliest", not the empty
-                // frontier. (Empty is "complete" or "last", which is
-                // used below).
-                Antichain::from_elem(Default::default()),
-                |worker_frontier, frontier_updates| {
-                    for FrontierUpdate(antichain) in frontier_updates.iter() {
-                        // For each worker in the failed cluster, find the
-                        // latest frontier.
-                        if timely::PartialOrder::less_than(worker_frontier, &antichain) {
-                            *worker_frontier = antichain.clone();
-                        }
-                    }
-                },
-            )
-            // Each worker in the recovery cluster reads only some of
-            // the frontier data of workers in the failed cluster.
-            .broadcast()
-            .accumulate(Antichain::new(), |dataflow_frontier, worker_frontiers| {
-                for worker_frontier in worker_frontiers.iter() {
-                    // The slowest of the workers in the failed
-                    // cluster is the resume epoch.
-                    if timely::PartialOrder::less_than(worker_frontier, dataflow_frontier) {
-                        *dataflow_frontier = worker_frontier.clone();
-                    }
-                }
-            })
-            .map(|dataflow_frontier| {
-                // TODO: Is this the right way to transform a frontier
-                // back into a recovery epoch?
-                dataflow_frontier
-                    .elements()
-                    .iter()
-                    .cloned()
-                    .min()
-                    .unwrap_or_default()
-            })
-            .inspect(move |resume_epoch| resume_epoch_tx.send(*resume_epoch).unwrap())
-            .probe_with(&mut probe);
-
-        Ok(probe)
-    })
 }
 
 /// Turn the abstract blueprint for a dataflow into a Timely dataflow
@@ -397,10 +462,11 @@ fn build_production_dataflow<A: Allocate>(
     worker: &mut Worker<A>,
     epoch_config: Py<EpochConfig>,
     resume_epoch: u64,
+    mut step_to_key_to_resume_state_bytes: HashMap<StepId, HashMap<StateKey, StateBytes>>,
+    recovery_store_summary: RecoveryStoreSummary<u64>,
     flow: Py<Dataflow>,
-    state_reader: Box<dyn StateReader<u64, Vec<u8>>>,
     progress_writer: Box<dyn ProgressWriter<u64>>,
-    state_writer: Box<dyn StateWriter<u64, Vec<u8>>>,
+    state_writer: Box<dyn StateWriter<u64>>,
     state_collector: Box<dyn StateCollector<u64>>,
 ) -> Result<ProbeHandle<u64>, String> {
     let worker_index = worker.index();
@@ -411,14 +477,13 @@ fn build_production_dataflow<A: Allocate>(
 
         let mut probe = ProbeHandle::new();
 
-        let state_loading_stream = state_source(scope, state_reader, resume_epoch, &probe);
-        let input_reader =
-            build_input_reader(py, flow.input_config.clone(), worker_index, worker_count)?;
-        let mut stream =
-            build_input_source(py, epoch_config, scope, input_reader, resume_epoch, &probe)?;
-
-        let mut state_backup_streams = Vec::new();
+        let mut input_streams = Vec::new();
+        let mut state_update_streams = Vec::new();
         let mut capture_streams = Vec::new();
+
+        // Start with an "empty" stream. We might overwrite it with
+        // input later.
+        let mut stream = None.to_stream(scope);
 
         for step in &flow.steps {
             // All these closure lifetimes are static, so tell
@@ -427,6 +492,39 @@ fn build_production_dataflow<A: Allocate>(
             // for a while when it's moved into the closure.
             let step = step.clone();
             match step {
+                Step::Input {
+                    step_id,
+                    input_config,
+                } => {
+                    let (resume_state_bytes, recovery_key) = resume_input_state(
+                        worker_index,
+                        worker_count,
+                        step_to_key_to_resume_state_bytes
+                            .remove(&step_id)
+                            .unwrap_or_default(),
+                    );
+
+                    let input_reader = build_input_reader(
+                        py,
+                        input_config,
+                        worker_index,
+                        worker_count,
+                        resume_state_bytes,
+                    )?;
+                    let (downstream, update_stream) = build_source(
+                        py,
+                        epoch_config.clone_ref(py),
+                        scope,
+                        step_id,
+                        recovery_key,
+                        input_reader,
+                        resume_epoch,
+                        &probe,
+                    )?;
+                    input_streams.push(downstream.clone());
+                    stream = downstream;
+                    state_update_streams.push(update_stream);
+                }
                 Step::Map { mapper } => {
                     stream = stream.map(move |item| map(&mapper, item));
                 }
@@ -437,22 +535,23 @@ fn build_production_dataflow<A: Allocate>(
                     stream = stream.filter(move |item| filter(&predicate, item));
                 }
                 Step::FoldWindow { step_id, clock_config, window_config, builder, folder } => {
-                    let windower = build_windower(py, window_config)?;
-                    let clock = build_clock(py, clock_config)?;
+                    let key_to_resume_state_bytes = step_to_key_to_resume_state_bytes
+                        .remove(&step_id)
+                        .unwrap_or_default();
 
-                    stream = stream
-                        .map(extract_state_pair)
-                        .stateful_window_unary(
+                    let clock_builder = build_clock_builder(py, clock_config)?;
+                    let windower_builder = build_windower_builder(py, window_config)?;
+
+                    let (downstream, update_stream) =
+                        stream.map(extract_state_pair).stateful_window_unary(
                             step_id,
-                            clock,
-                            windower,
-                            move |key, state, next_value| {
-                                fold_window(&builder, &folder, key, state, next_value)
-                            },
-                            StateKey::route,
-                            &state_loading_stream,
-                            &mut state_backup_streams,
-                        )
+                            clock_builder,
+                            windower_builder,
+                            FoldWindowLogic::new(builder, folder),
+                            key_to_resume_state_bytes,
+                        );
+
+                    stream = downstream
                         .map(|(key, result)| {
                             result
                                 .map(|value| (key.clone(), value))
@@ -462,6 +561,7 @@ fn build_production_dataflow<A: Allocate>(
                         // ignore late values.
                         .ok()
                         .map(wrap_state_pair);
+                    state_update_streams.push(update_stream);
                 }
                 Step::Inspect { inspector } => {
                     stream = stream.inspect(move |item| inspect(&inspector, item));
@@ -475,16 +575,18 @@ fn build_production_dataflow<A: Allocate>(
                     reducer,
                     is_complete,
                 } => {
-                    stream = stream
-                        .map(extract_state_pair)
-                        .stateful_unary(
+                    let key_to_resume_state_bytes = step_to_key_to_resume_state_bytes
+                        .remove(&step_id)
+                        .unwrap_or_default();
+
+                    let (downstream, update_stream) =
+                        stream.map(extract_state_pair).stateful_unary(
                             step_id,
-                            move |key, acc, value| reduce(&reducer, &is_complete, key, acc, value),
-                            StateKey::route,
-                            &state_loading_stream,
-                            &mut state_backup_streams,
-                        )
-                        .map(wrap_state_pair);
+                            ReduceLogic::builder(reducer, is_complete),
+                            key_to_resume_state_bytes,
+                        );
+                    stream = downstream.map(wrap_state_pair);
+                    state_update_streams.push(update_stream);
                 }
                 Step::ReduceWindow {
                     step_id,
@@ -492,22 +594,23 @@ fn build_production_dataflow<A: Allocate>(
                     window_config,
                     reducer,
                 } => {
-                    let windower = build_windower(py, window_config)?;
-                    let clock = build_clock(py, clock_config)?;
+                    let key_to_resume_state_bytes = step_to_key_to_resume_state_bytes
+                        .remove(&step_id)
+                        .unwrap_or_default();
 
-                    stream = stream
-                        .map(extract_state_pair)
-                        .stateful_window_unary(
+                    let clock_builder = build_clock_builder(py, clock_config)?;
+                    let windower_builder = build_windower_builder(py, window_config)?;
+
+                    let (downstream, update_stream) =
+                        stream.map(extract_state_pair).stateful_window_unary(
                             step_id,
-                            clock,
-                            windower,
-                            move |key, state, next_value| {
-                                reduce_window(&reducer, key, state, next_value)
-                            },
-                            StateKey::route,
-                            &state_loading_stream,
-                            &mut state_backup_streams,
-                        )
+                            clock_builder,
+                            windower_builder,
+                            ReduceWindowLogic::builder(reducer),
+                            key_to_resume_state_bytes,
+                        );
+
+                    stream = downstream
                         .map(|(key, result)| {
                             result
                                 .map(|value| (key.clone(), value))
@@ -517,24 +620,25 @@ fn build_production_dataflow<A: Allocate>(
                         // ignore late values.
                         .ok()
                         .map(wrap_state_pair);
+                    state_update_streams.push(update_stream);
                 }
                 Step::StatefulMap {
                     step_id,
                     builder,
                     mapper,
                 } => {
-                    stream = stream
-                        .map(extract_state_pair)
-                        .stateful_unary(
+                    let key_to_resume_state_bytes = step_to_key_to_resume_state_bytes
+                        .remove(&step_id)
+                        .unwrap_or_default();
+
+                    let (downstream, update_stream) =
+                        stream.map(extract_state_pair).stateful_unary(
                             step_id,
-                            move |key, state, value| {
-                                stateful_map(&builder, &mapper, key, state, value)
-                            },
-                            StateKey::route,
-                            &state_loading_stream,
-                            &mut state_backup_streams,
-                        )
-                        .map(wrap_state_pair);
+                            StatefulMapLogic::builder(builder, mapper),
+                            key_to_resume_state_bytes,
+                        );
+                    stream = downstream.map(wrap_state_pair);
+                    state_update_streams.push(update_stream);
                 }
                 Step::Capture { output_config } => {
                     let mut writer =
@@ -549,17 +653,26 @@ fn build_production_dataflow<A: Allocate>(
             }
         }
 
+        if input_streams.is_empty() {
+            return Err(format!("Dataflow needs to contain at least one input"));
+        }
         if capture_streams.is_empty() {
-            return Err("Dataflow needs to contain at least one capture".into());
+            return Err(format!("Dataflow needs to contain at least one capture"));
+        }
+        if !step_to_key_to_resume_state_bytes.is_empty() {
+            return Err(format!(
+                "Recovery data had unknown step IDs: {:?}",
+                step_to_key_to_resume_state_bytes.keys(),
+            ));
         }
 
         let state_backup_stream = scope
-            .concatenate(state_backup_streams)
+            .concatenate(state_update_streams)
             .write_state_with(state_writer);
 
         let capture_stream = scope.concatenate(capture_streams);
 
-        let dataflow_frontier_stream = capture_stream
+        let dataflow_frontier_backup_stream = capture_stream
             // TODO: Can we only downstream progress messages? Doing this
             // flat_map trick results in nothing (not even progress)
             // downstream.
@@ -571,8 +684,11 @@ fn build_production_dataflow<A: Allocate>(
             .broadcast();
 
         state_backup_stream
-            .concat(&state_loading_stream)
-            .collect_garbage(state_collector, dataflow_frontier_stream)
+            .collect_garbage(
+                recovery_store_summary,
+                state_collector,
+                dataflow_frontier_backup_stream,
+            )
             .probe_with(&mut probe);
 
         Ok(probe)
@@ -593,15 +709,8 @@ fn run_until_done<A: Allocate, T: Timestamp>(
 fn build_and_run_resume_epoch_calc_dataflow<A: Allocate>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
-    recovery_config: Py<RecoveryConfig>,
+    progress_reader: Box<dyn ProgressReader<u64>>,
 ) -> Result<u64, String> {
-    let worker_index = worker.index();
-    let worker_count = worker.peers();
-
-    let (progress_reader, _state_reader) = Python::with_gil(|py| {
-        build_recovery_readers(py, worker_index, worker_count, recovery_config)
-    })?;
-
     let (resume_epoch_tx, resume_epoch_rx) = std::sync::mpsc::channel();
     let probe = build_resume_epoch_calc_dataflow(worker, progress_reader, resume_epoch_tx)?;
 
@@ -613,8 +722,8 @@ fn build_and_run_resume_epoch_calc_dataflow<A: Allocate>(
             resume_epoch
         }
         Err(_) => {
-            let default_epoch = Default::default();
-            debug!("No resume epoch calculated; probably empty recovery store; starting at default epoch {default_epoch}");
+            let default_epoch = <u64 as Timestamp>::minimum();
+            debug!("No resume epoch calculated; probably empty recovery store; starting at minimum epoch {default_epoch}");
             default_epoch
         }
     };
@@ -622,32 +731,66 @@ fn build_and_run_resume_epoch_calc_dataflow<A: Allocate>(
     Ok(resume_epoch)
 }
 
+fn build_and_run_state_loading_dataflow<A: Allocate>(
+    worker: &mut Worker<A>,
+    interrupt_flag: &AtomicBool,
+    resume_epoch: u64,
+    state_reader: Box<dyn StateReader<u64>>,
+) -> Result<
+    (
+        HashMap<StepId, HashMap<StateKey, StateBytes>>,
+        RecoveryStoreSummary<u64>,
+    ),
+    String,
+> {
+    let (step_to_key_to_resume_state_bytes_tx, step_to_key_to_resume_state_bytes_rx) =
+        std::sync::mpsc::channel();
+    let (recovery_store_summary_tx, recovery_store_summary_rx) = std::sync::mpsc::channel();
+
+    let probe = build_state_loading_dataflow(
+        worker,
+        state_reader,
+        resume_epoch,
+        step_to_key_to_resume_state_bytes_tx,
+        recovery_store_summary_tx,
+    )?;
+
+    run_until_done(worker, &interrupt_flag, probe);
+
+    let mut step_to_key_to_resume_state_bytes = HashMap::new();
+    while let Ok((step_id, key_to_resume_state_bytes)) = step_to_key_to_resume_state_bytes_rx.recv()
+    {
+        step_to_key_to_resume_state_bytes.insert(step_id, key_to_resume_state_bytes);
+    }
+
+    let recovery_store_summary = recovery_store_summary_rx
+        .recv()
+        .expect("Recovery store summary not returned from loading dataflow");
+
+    Ok((step_to_key_to_resume_state_bytes, recovery_store_summary))
+}
+
 fn build_and_run_production_dataflow<A: Allocate>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     flow: Py<Dataflow>,
     epoch_config: Py<EpochConfig>,
-    recovery_config: Py<RecoveryConfig>,
     resume_epoch: u64,
+    step_to_key_to_resume_state_bytes: HashMap<StepId, HashMap<StateKey, StateBytes>>,
+    recovery_store_summary: RecoveryStoreSummary<u64>,
+    progress_writer: Box<dyn ProgressWriter<u64>>,
+    state_writer: Box<dyn StateWriter<u64>>,
+    state_collector: Box<dyn StateCollector<u64>>,
 ) -> Result<(), String> {
-    let worker_index = worker.index();
-    let worker_count = worker.peers();
-
-    let (_progress_reader, state_reader) = Python::with_gil(|py| {
-        build_recovery_readers(py, worker_index, worker_count, recovery_config.clone())
-    })?;
-    let (progress_writer, state_writer, state_collector) = Python::with_gil(|py| {
-        build_recovery_writers(py, worker_index, worker_count, recovery_config)
-    })?;
-
     let probe = Python::with_gil(|py| {
         build_production_dataflow(
             py,
             worker,
             epoch_config,
             resume_epoch,
+            step_to_key_to_resume_state_bytes,
+            recovery_store_summary,
             flow,
-            state_reader,
             progress_writer,
             state_writer,
             state_collector,
@@ -681,16 +824,33 @@ fn worker_main<A: Allocate>(
     let epoch_config = epoch_config.unwrap_or_else(default_epoch_config);
     let recovery_config = recovery_config.unwrap_or_else(default_recovery_config);
 
+    let worker_index = worker.index();
+    let worker_count = worker.peers();
+
+    let (progress_reader, state_reader) = Python::with_gil(|py| {
+        build_recovery_readers(py, worker_index, worker_count, recovery_config.clone())
+    })?;
+    let (progress_writer, state_writer, state_collector) = Python::with_gil(|py| {
+        build_recovery_writers(py, worker_index, worker_count, recovery_config)
+    })?;
+
     let resume_epoch =
-        build_and_run_resume_epoch_calc_dataflow(worker, interrupt_flag, recovery_config.clone())?;
+        build_and_run_resume_epoch_calc_dataflow(worker, interrupt_flag, progress_reader)?;
+
+    let (step_to_key_to_resume_state_bytes, recovery_store_summary) =
+        build_and_run_state_loading_dataflow(worker, interrupt_flag, resume_epoch, state_reader)?;
 
     build_and_run_production_dataflow(
         worker,
         interrupt_flag,
         flow,
         epoch_config,
-        recovery_config,
         resume_epoch,
+        step_to_key_to_resume_state_bytes,
+        recovery_store_summary,
+        progress_writer,
+        state_writer,
+        state_collector,
     )?;
 
     shutdown_worker(worker);
@@ -707,16 +867,16 @@ fn worker_main<A: Allocate>(
 /// builders with a single worker before using them in a cluster
 /// setting.
 ///
+/// >>> from bytewax.dataflow import Dataflow
+/// >>> from bytewax.inputs import TestingInputConfig
+/// >>> from bytewax.outputs import StdOutputConfig
 /// >>> flow = Dataflow()
-/// >>> flow.capture()
-/// >>> def input_builder(worker_index, worker_count, resume_epoch):
-/// ...     for epoch, item in enumerate(range(resume_epoch, 3)):
-/// ...         yield AdvanceTo(epoch)
-/// ...         yield Emit(item)
-/// >>> def output_builder(worker_index, worker_count):
-/// ...     return print
-/// >>> run_main(flow, ManualConfig(input_builder), output_builder)  # doctest: +ELLIPSIS
-/// (...)
+/// >>> flow.input("inp", TestingInputConfig(range(3)))
+/// >>> flow.capture(StdOutputConfig())
+/// >>> run_main(flow)
+/// 0
+/// 1
+/// 2
 ///
 /// See `bytewax.spawn_cluster()` for starting a cluster on this
 /// machine with full control over inputs and outputs.
@@ -777,15 +937,18 @@ pub(crate) fn run_main(
 ///
 /// Blocks until execution is complete.
 ///
+/// >>> from bytewax.dataflow import Dataflow
+/// >>> from bytewax.inputs import TestingInputConfig
+/// >>> from bytewax.outputs import StdOutputConfig
 /// >>> flow = Dataflow()
-/// >>> def input_builder(worker_index, worker_count, resume_epoch):
-/// ...     for epoch, item in enumerate(range(resume_epoch, 3)):
-/// ...         yield AdvanceTo(epoch)
-/// ...         yield Emit(item)
-/// >>> def output_builder(worker_index, worker_count):
-/// ...     return print
-/// >>> cluster_main(flow, ManualInput(input_builder), output_builder)  # doctest: +ELLIPSIS
-/// (...)
+/// >>> flow.input("inp", TestingInputConfig(range(3)))
+/// >>> flow.capture(StdOutputConfig())
+/// >>> addresses = []  # In a real example, you'd find the "host:port" of all other Bytewax workers.
+/// >>> proc_id = 0  # In a real example, you'd assign each worker a distinct ID from 0..proc_count.
+/// >>> cluster_main(flow, addresses, proc_id)
+/// 0
+/// 1
+/// 2
 ///
 /// See `bytewax.run_main()` for a way to test input and output
 /// builders without the complexity of starting a cluster.

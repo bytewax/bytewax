@@ -1,11 +1,11 @@
 from threading import Event
 
-from pytest import fixture, mark, raises
+from pytest import fixture, raises
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main, TestingEpochConfig
 from bytewax.inputs import TestingInputConfig
-from bytewax.outputs import TestingOutputConfig
+from bytewax.outputs import TestingEpochOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
 
 epoch_config = TestingEpochConfig()
@@ -30,7 +30,9 @@ def build_keep_max_dataflow(armed, inp):
     exception if `should_explode` is truthy and `armed` is set.
 
     """
-    flow = Dataflow(TestingInputConfig(inp))
+    flow = Dataflow()
+
+    flow.input("inp", TestingInputConfig(inp))
 
     def trigger(item):
         """Odd numbers cause exception if armed."""
@@ -51,15 +53,14 @@ def build_keep_max_dataflow(armed, inp):
                 new_max = None
         return new_max, new_max
 
-    flow.stateful_map("keep_max", lambda key: None, keep_max)
+    flow.stateful_map("keep_max", lambda: None, keep_max)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.capture(TestingEpochOutputConfig(out))
 
     return flow, out
 
 
-@mark.skip(reason="Re-enable once we have input source state recovery")
 def test_recover_with_latest_state(recovery_config):
     armed = Event()
     # Will explode on first run.
@@ -106,7 +107,6 @@ def test_recover_with_latest_state(recovery_config):
     )
 
 
-@mark.skip(reason="Re-enable once we have input source state recovery")
 def test_recover_doesnt_gc_last_write(recovery_config):
     armed = Event()
     # Will explode on first run.
@@ -165,7 +165,6 @@ def test_recover_doesnt_gc_last_write(recovery_config):
     )
 
 
-@mark.skip(reason="Re-enable once we have input source state recovery")
 def test_recover_respects_delete(recovery_config):
     armed = Event()
     # Will explode on first run.

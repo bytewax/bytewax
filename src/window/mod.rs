@@ -15,8 +15,12 @@
 //! [`StatefulWindowUnary::stateful_window_unary`] so we only have to
 //! write the window management code once.
 //!
+//! To implement a new user-facing windowing operator, implement
+//! [`WindowLogic`] and pass that to
+//! [`StatefulWindowUnary::stateful_window_unary`].
+//!
 //! That operator itself is based upon
-//! [`crate::operators::StatefulUnary`], which provides a generic
+//! [`StatefulUnary::stateful_unary`], which provides a generic
 //! abstraction to the recovery system. We get recovery for "free" as
 //! long as we play by the rules of that operator.
 //!
@@ -25,18 +29,17 @@
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
 
-use crate::dataflow::StepId;
-use crate::operators::{StatefulUnary, StatefulUnaryLogicReturn};
-use crate::pyo3_extensions::{StateKey, TdPyAny, TdPyCallable};
-use crate::recovery::StateBackup;
-use crate::with_traceback;
+use crate::recovery::{StateBytes, StateKey};
+use crate::recovery::{StateUpdate, StepId};
+use crate::recovery::{StatefulLogic, StatefulUnary};
 use chrono::{Duration, NaiveDateTime};
-use log::debug;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::marker::PhantomData;
+use std::rc::Rc;
 use std::task::Poll;
 use timely::dataflow::{Scope, Stream};
 use timely::{Data, ExchangeData};
@@ -96,6 +99,9 @@ impl ClockConfig {
 ///     item_incr (datetime.timedelta): Amount to increment "now"
 ///         after each item.
 ///
+///     start_at (datetime.datetime): Initial "now" / time of first
+///         item. If you set this and use a window config
+///
 /// Returns:
 ///
 ///     Config object. Pass this as the `clock_config` parameter to
@@ -105,6 +111,8 @@ impl ClockConfig {
 struct TestingClockConfig {
     #[pyo3(get)]
     item_incr: pyo3_chrono::Duration,
+    #[pyo3(get)]
+    start_at: pyo3_chrono::NaiveDateTime,
 }
 
 #[pymethods]
@@ -116,25 +124,42 @@ impl TestingClockConfig {
     const __test__: bool = false;
 
     #[new]
-    #[args(item_incr)]
-    fn new(item_incr: pyo3_chrono::Duration) -> (Self, ClockConfig) {
-        (Self { item_incr }, ClockConfig {})
+    #[args(item_incr, start)]
+    fn new(
+        item_incr: pyo3_chrono::Duration,
+        start_at: pyo3_chrono::NaiveDateTime,
+    ) -> (Self, ClockConfig) {
+        (
+            Self {
+                item_incr,
+                start_at,
+            },
+            ClockConfig {},
+        )
     }
 
     /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, pyo3_chrono::Duration) {
-        ("TestingClockConfig", self.item_incr.clone())
+    fn __getstate__(&self) -> (&str, pyo3_chrono::Duration, pyo3_chrono::NaiveDateTime) {
+        (
+            "TestingClockConfig",
+            self.item_incr.clone(),
+            self.start_at.clone(),
+        )
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (pyo3_chrono::Duration,) {
-        (pyo3_chrono::Duration(Duration::zero()),)
+    fn __getnewargs__(&self) -> (pyo3_chrono::Duration, pyo3_chrono::NaiveDateTime) {
+        (
+            pyo3_chrono::Duration(Duration::zero()),
+            pyo3_chrono::NaiveDateTime(chrono::naive::MAX_DATETIME),
+        )
     }
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("TestingClockConfig", item_incr)) = state.extract() {
+        if let Ok(("TestingClockConfig", item_incr, start_at)) = state.extract() {
             self.item_incr = item_incr;
+            self.start_at = start_at;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -181,26 +206,25 @@ impl SystemClockConfig {
     }
 }
 
-pub(crate) fn build_clock<V>(
+pub(crate) fn build_clock_builder<V: 'static>(
     py: Python,
     clock_config: Py<ClockConfig>,
-) -> Result<Box<dyn Clock<V>>, String> {
+) -> Result<Box<dyn Fn(Option<StateBytes>) -> Box<dyn Clock<V>>>, String> {
     let clock_config = clock_config.as_ref(py);
 
     if let Ok(testing_clock_config) = clock_config.downcast::<PyCell<TestingClockConfig>>() {
         let testing_clock_config = testing_clock_config.borrow();
 
         let item_incr = testing_clock_config.item_incr.0;
+        let start_at = testing_clock_config.start_at.0;
 
-        let clock = TestingClock::new(item_incr);
-
-        Ok(Box::new(clock))
+        let builder = TestingClock::builder(item_incr, start_at);
+        Ok(Box::new(builder))
     } else if let Ok(system_clock_config) = clock_config.downcast::<PyCell<SystemClockConfig>>() {
         let _system_clock_config = system_clock_config.borrow();
 
-        let clock = SystemClock::new();
-
-        Ok(Box::new(clock))
+        let builder = SystemClock::builder();
+        Ok(Box::new(builder))
     } else {
         Err(format!(
             "Unknown clock_config type: {}",
@@ -258,7 +282,8 @@ impl WindowConfig {
 ///     length (datetime.timedelta): Length of window.
 ///
 ///     start_at (datetime.datetime): Instant of the first window. You
-///         can use this to align all windows to an hour, e.g.
+///         can use this to align all windows to an hour,
+///         e.g. Defaults to system time of dataflow start.
 ///
 /// Returns:
 ///
@@ -313,10 +338,10 @@ impl TumblingWindowConfig {
     }
 }
 
-pub(crate) fn build_windower(
+pub(crate) fn build_windower_builder(
     py: Python,
     window_config: Py<WindowConfig>,
-) -> Result<Box<dyn Windower>, String> {
+) -> Result<Box<dyn Fn(Option<StateBytes>) -> Box<dyn Windower>>, String> {
     let window_config = window_config.as_ref(py);
 
     if let Ok(tumbling_window_config) = window_config.downcast::<PyCell<TumblingWindowConfig>>() {
@@ -328,30 +353,14 @@ pub(crate) fn build_windower(
             .map(|t| t.0)
             .unwrap_or(chrono::offset::Local::now().naive_local());
 
-        let windower = TumblingWindower::new(length, start_at);
-
-        Ok(Box::new(windower))
+        let builder = TumblingWindower::builder(length, start_at);
+        Ok(Box::new(builder))
     } else {
         Err(format!(
             "Unknown window_config type: {}",
             window_config.get_type(),
         ))
     }
-}
-
-/// Any persistent state that a [`Clock`] might need.
-///
-/// A clock does not need to use or set all fields here. It should use
-/// whatever it needs internally in the class. This won't be modified
-/// outside of the current clock impl.
-///
-/// This is stored in the recovery system.
-///
-/// Add new stuff here that newer [`Clock`]s might need.
-#[derive(Clone, Default, Debug, Serialize, Deserialize)]
-pub(crate) struct ClockState {
-    /// The time assigned to the last item seen.
-    last_item_time: Option<NaiveDateTime>,
 }
 
 /// Defines the sense of time for a windowing operator.
@@ -368,106 +377,145 @@ pub(crate) trait Clock<V> {
     ///
     /// This can mutate the [`ClockState`] on every call to ensure
     /// future calls are accurate.
-    fn watermark(&self, state: &mut ClockState, value: &Poll<Option<V>>) -> NaiveDateTime;
+    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> NaiveDateTime;
 
     /// Get the time for an item.
     ///
     /// This can mutate the [`ClockState`] if noting that an item has
     /// arrived should advance the clock or something.
-    fn time_for(&self, state: &mut ClockState, value: &V) -> NaiveDateTime;
+    fn time_for(&mut self, value: &V) -> NaiveDateTime;
+
+    /// Snapshot the internal state of this clock.
+    ///
+    /// Serialize any and all state necessary to re-construct this
+    /// clock exactly how it is in
+    /// [`StatefulWindowUnary::stateful_window_unary`]'s
+    /// `logic_builder`.
+    fn snapshot(&self) -> StateBytes;
 }
 
 /// Simulate system time for tests. Increment "now" after each item.
 struct TestingClock {
     item_incr: Duration,
+    current_time: NaiveDateTime,
 }
 
 impl TestingClock {
-    fn new(item_incr: Duration) -> Self {
-        Self { item_incr }
-    }
+    fn builder<V>(
+        item_incr: Duration,
+        start_at: NaiveDateTime,
+    ) -> impl Fn(Option<StateBytes>) -> Box<dyn Clock<V>> {
+        move |resume_state_bytes: Option<StateBytes>| {
+            let current_time = resume_state_bytes.map(StateBytes::de).unwrap_or(start_at);
 
-    fn last_item_time(&self, state: &mut ClockState) -> NaiveDateTime {
-        state
-            .last_item_time
-            .get_or_insert_with(|| chrono::offset::Local::now().naive_local())
-            .clone()
+            Box::new(Self {
+                item_incr,
+                current_time,
+            })
+        }
     }
 }
 
 impl<V> Clock<V> for TestingClock {
-    fn watermark(&self, state: &mut ClockState, item: &Poll<Option<V>>) -> NaiveDateTime {
-        match item {
+    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> NaiveDateTime {
+        match next_value {
             // If there will be no more values, close out all windows.
             Poll::Ready(None) => chrono::naive::MAX_DATETIME,
-            _ => self.last_item_time(state),
+            _ => self.current_time,
         }
     }
 
-    fn time_for(&self, state: &mut ClockState, _item: &V) -> NaiveDateTime {
-        let last_item_time = self.last_item_time(state);
-        state.last_item_time = Some(last_item_time + self.item_incr);
-        last_item_time
+    fn time_for(&mut self, _item: &V) -> NaiveDateTime {
+        let item_time = self.current_time.clone();
+        self.current_time += self.item_incr;
+        item_time
     }
+
+    fn snapshot(&self) -> StateBytes {
+        StateBytes::ser(&self.current_time)
+    }
+}
+
+#[test]
+fn test_testing_clock() {
+    use chrono::{NaiveDate, NaiveTime};
+
+    let mut clock = TestingClock {
+        item_incr: Duration::seconds(1),
+        current_time: NaiveDateTime::new(
+            NaiveDate::from_ymd(2022, 1, 1),
+            NaiveTime::from_hms_milli(0, 0, 0, 0),
+        ),
+    };
+    assert_eq!(
+        clock.time_for(&"x"),
+        NaiveDateTime::new(
+            NaiveDate::from_ymd(2022, 1, 1),
+            NaiveTime::from_hms_milli(0, 0, 0, 0)
+        )
+    );
+    assert_eq!(
+        clock.time_for(&"y"),
+        NaiveDateTime::new(
+            NaiveDate::from_ymd(2022, 1, 1),
+            NaiveTime::from_hms_milli(0, 0, 1, 0)
+        )
+    );
+    assert_eq!(
+        clock.time_for(&"z"),
+        NaiveDateTime::new(
+            NaiveDate::from_ymd(2022, 1, 1),
+            NaiveTime::from_hms_milli(0, 0, 2, 0)
+        )
+    );
 }
 
 /// Use the current system time.
 struct SystemClock {}
 
 impl SystemClock {
-    fn new() -> Self {
-        Self {}
-    }
-
-    fn now(&self) -> NaiveDateTime {
-        chrono::offset::Local::now().naive_local()
+    fn builder<V>() -> impl Fn(Option<StateBytes>) -> Box<dyn Clock<V>> {
+        move |_resume_state_bytes| Box::new(Self {})
     }
 }
 
 impl<V> Clock<V> for SystemClock {
-    fn watermark(&self, _state: &mut ClockState, item: &Poll<Option<V>>) -> NaiveDateTime {
-        match item {
+    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> NaiveDateTime {
+        match next_value {
             // If there will be no more values, close out all windows.
             Poll::Ready(None) => chrono::naive::MAX_DATETIME,
-            _ => self.now(),
+            _ => chrono::offset::Local::now().naive_local(),
         }
     }
 
-    fn time_for(&self, _state: &mut ClockState, _item: &V) -> NaiveDateTime {
-        self.now()
+    fn time_for(&mut self, item: &V) -> NaiveDateTime {
+        let next_value = Poll::Ready(Some(item));
+        self.watermark(&next_value)
+    }
+
+    fn snapshot(&self) -> StateBytes {
+        StateBytes::ser(&())
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
-pub(crate) struct WindowId(i64);
-
-/// Any persistent state a [`Windower`] might need.
-///
-/// This is stored in the recovery system.
-///
-/// Add new stuff here that newer [`Windower`]s might need.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub(crate) struct WindowerState {
-    close_times: HashMap<WindowId, NaiveDateTime>,
-}
-
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-struct Window {
-    id: WindowId,
-    close: NaiveDateTime,
-}
+/// Unique ID for a window coming from a single [`Windower`] impl.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) struct WindowKey(i64);
 
 /// An error that can occur when windowing an item.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum InsertError {
     /// The inserted item was late for a window.
-    Late(WindowId),
+    Late(WindowKey),
 }
 
-/// Defines a kind of time-based windows.
+/// Defines a kind of time-based windower.
 ///
-/// All relevant data needed to perform the inner methods must be
-/// stored in the [`WindowerState`].
+/// This should keep internal state of which windows are open and
+/// accepting values.
+///
+/// A separate instance of this is created for each key in the
+/// stateful stream. There is no way to interact across keys.
 pub(crate) trait Windower {
     /// Attempt to insert an incoming value into a window, creating it
     /// if necessary.
@@ -475,19 +523,16 @@ pub(crate) trait Windower {
     /// If the current item is "late" for all windows, return
     /// [`WindowError::Late`].
     ///
-    /// This must update the [`WindowerState`].
+    /// This should update any internal state.
     fn insert(
-        &self,
-        state: &mut WindowerState,
+        &mut self,
         watermark: &NaiveDateTime,
         item_time: NaiveDateTime,
-    ) -> Vec<Result<WindowId, InsertError>>;
+    ) -> Vec<Result<WindowKey, InsertError>>;
 
     /// Look at the current watermark, determine which windows are now
-    /// closed, return them, and remove them from the state.
-    ///
-    /// This must update the [`WindowerState`].
-    fn drain_closed(&self, state: &mut WindowerState, watermark: &NaiveDateTime) -> Vec<WindowId>;
+    /// closed, return them, and remove them from internal state.
+    fn drain_closed(&mut self, watermark: &NaiveDateTime) -> Vec<WindowKey>;
 
     /// Return how much system time should pass before the windowing
     /// operator should be activated again, even if there is no
@@ -495,52 +540,67 @@ pub(crate) trait Windower {
     ///
     /// Use this to signal to Timely's execution when windows will be
     /// closing so we can close them without data.
-    fn activate_after(
-        &self,
-        state: &mut WindowerState,
-        watermark: &NaiveDateTime,
-    ) -> Option<Duration>;
+    fn activate_after(&mut self, watermark: &NaiveDateTime) -> Option<Duration>;
+
+    /// Snapshot the internal state of this windower.
+    ///
+    /// Serialize any and all state necessary to re-construct this
+    /// windower exactly how it is in
+    /// [`StatefulWindowUnary::stateful_window_unary`]'s
+    /// `logic_builder`.
+    fn snapshot(&self) -> StateBytes;
 }
 
 /// Use fixed-length tumbling windows aligned to a start time.
 struct TumblingWindower {
     length: Duration,
     start_at: NaiveDateTime,
+    close_times: HashMap<WindowKey, NaiveDateTime>,
 }
 
 impl TumblingWindower {
-    fn new(length: Duration, start_at: NaiveDateTime) -> Self {
-        Self { length, start_at }
+    fn builder(
+        length: Duration,
+        start_at: NaiveDateTime,
+    ) -> impl Fn(Option<StateBytes>) -> Box<dyn Windower> {
+        move |resume_state_bytes| {
+            let close_times = resume_state_bytes.map(StateBytes::de).unwrap_or_default();
+
+            Box::new(Self {
+                length,
+                start_at,
+                close_times,
+            })
+        }
     }
 }
 
 impl Windower for TumblingWindower {
     fn insert(
-        &self,
-        state: &mut WindowerState,
+        &mut self,
         watermark: &NaiveDateTime,
         item_time: NaiveDateTime,
-    ) -> Vec<Result<WindowId, InsertError>> {
+    ) -> Vec<Result<WindowKey, InsertError>> {
         let since_start_at = item_time - self.start_at;
         let window_count = since_start_at.num_milliseconds() / self.length.num_milliseconds();
 
-        let id = WindowId(window_count);
+        let key = WindowKey(window_count);
         let close_at = self.start_at + self.length * (window_count as i32 + 1);
 
         if &close_at < watermark {
-            vec![Err(InsertError::Late(id))]
+            vec![Err(InsertError::Late(key))]
         } else {
-            state.close_times.insert(id.clone(), close_at);
-            vec![Ok(id)]
+            self.close_times.insert(key.clone(), close_at);
+            vec![Ok(key)]
         }
     }
 
-    fn drain_closed(&self, state: &mut WindowerState, watermark: &NaiveDateTime) -> Vec<WindowId> {
+    fn drain_closed(&mut self, watermark: &NaiveDateTime) -> Vec<WindowKey> {
         // TODO: Gosh I really want [`HashMap::drain_filter`].
         let mut future_close_times = HashMap::new();
         let mut closed_ids = Vec::new();
 
-        for (id, close_at) in state.close_times.iter() {
+        for (id, close_at) in self.close_times.iter() {
             if close_at < &watermark {
                 closed_ids.push(id.clone());
             } else {
@@ -548,42 +608,21 @@ impl Windower for TumblingWindower {
             }
         }
 
-        state.close_times = future_close_times;
+        self.close_times = future_close_times;
         closed_ids
     }
 
-    fn activate_after(
-        &self,
-        state: &mut WindowerState,
-        watermark: &NaiveDateTime,
-    ) -> Option<Duration> {
+    fn activate_after(&mut self, watermark: &NaiveDateTime) -> Option<Duration> {
         let watermark = watermark.clone();
-        state
-            .close_times
+        self.close_times
             .values()
             .cloned()
             .map(|t| t - watermark)
             .min()
     }
-}
-/// The persistent state per-window that
-/// [`StatefulWindowUnary::stateful_window_unary`] will need.
-///
-/// The return types of the logic function in
-/// [`StatefulWindowUnary::stateful_window_unary`] determine what
-/// values we'll need to store here.
-///
-/// This is stored in the recovery system.
-#[derive(Clone, Serialize, Deserialize)]
-struct LogicState<D> {
-    window_states: HashMap<WindowId, D>,
-}
 
-impl<D> Default for LogicState<D> {
-    fn default() -> Self {
-        Self {
-            window_states: HashMap::new(),
-        }
+    fn snapshot(&self) -> StateBytes {
+        StateBytes::ser(&self.close_times)
     }
 }
 
@@ -594,6 +633,179 @@ pub(crate) enum WindowError<V> {
     Late(V),
 }
 
+/// Impl this trait to create a windowing operator.
+///
+/// A separate instance of this will be create for each window a
+/// [`Windower`] creates. There is no way to interact across windows
+/// or keys.
+pub(crate) trait WindowLogic<V, R, I: IntoIterator<Item = R>> {
+    /// Logic to run when this the window sees a new value.
+    ///
+    /// `next_value` has the same semantics as
+    /// [`std::iter::Iterator::next`]: An incoming value or [`None`]
+    /// if the window for this key has just closed.
+    ///
+    /// This must return any values to be emitted downstream. You
+    /// probably only want to emit values when `next_value` is
+    /// [`None`], signaling the window has closed, but you might want
+    /// something more generic. They will be automatically paired with
+    /// the key in the output stream.
+    fn exec(&mut self, next_value: Option<V>) -> I;
+
+    /// Snapshot the internal state of this logic.
+    ///
+    /// Serialize any and all state necessary to re-construct this
+    /// window exactly how it is in
+    /// [`StatefulWindowUnary::stateful_window_unary`]'s
+    /// `logic_builder`.
+    fn snapshot(&self) -> StateBytes;
+}
+
+/// Implement [`WindowLogic`] in terms of [`StatefulLogic`], bridging
+/// the gap between a windowing operator and the underlying stateful
+/// operator.
+struct WindowStatefulLogic<V, R, I, L, LB>
+where
+    I: IntoIterator<Item = R>,
+    L: WindowLogic<V, R, I>,
+    LB: Fn(Option<StateBytes>) -> L,
+{
+    clock: Box<dyn Clock<V>>,
+    windower: Box<dyn Windower>,
+    logic_cache: HashMap<WindowKey, L>,
+    /// This has to be an [`Rc`] because multiple keys all need to use
+    /// the same builder and we don't know how many there'll be.
+    logic_builder: Rc<LB>,
+    key_to_resume_state_bytes: HashMap<WindowKey, StateBytes>,
+    out_pdata: PhantomData<R>,
+    out_iter_pdata: PhantomData<I>,
+}
+
+impl<V, R, I, L, LB> WindowStatefulLogic<V, R, I, L, LB>
+where
+    I: IntoIterator<Item = R>,
+    L: WindowLogic<V, R, I>,
+    LB: Fn(Option<StateBytes>) -> L,
+{
+    fn builder<
+        CB: Fn(Option<StateBytes>) -> Box<dyn Clock<V>> + 'static, // Clock builder
+        WB: Fn(Option<StateBytes>) -> Box<dyn Windower> + 'static, // Windower builder
+    >(
+        clock_builder: CB,
+        windower_builder: WB,
+        logic_builder: LB,
+    ) -> impl Fn(Option<StateBytes>) -> Self {
+        let logic_builder = Rc::new(logic_builder);
+
+        move |resume_state_bytes| {
+            let resume_state_bytes: Option<(
+                StateBytes,
+                StateBytes,
+                HashMap<WindowKey, StateBytes>,
+            )> = resume_state_bytes.map(|state_bytes| state_bytes.de());
+            let (clock_resume_state_bytes, windower_resume_state_bytes, key_to_resume_state_bytes) =
+                match resume_state_bytes {
+                    Some((c, w, l)) => (Some(c), Some(w), Some(l)),
+                    None => (None, None, None),
+                };
+
+            let clock = clock_builder(clock_resume_state_bytes);
+            let windower = windower_builder(windower_resume_state_bytes);
+            let logic_cache = HashMap::new();
+            let logic_builder = logic_builder.clone();
+            let key_to_resume_state_bytes = key_to_resume_state_bytes.unwrap_or_default();
+
+            Self {
+                clock,
+                windower,
+                logic_cache,
+                logic_builder,
+                key_to_resume_state_bytes,
+                out_pdata: PhantomData,
+                out_iter_pdata: PhantomData,
+            }
+        }
+    }
+}
+
+impl<V: Clone, R, I, L, LB>
+    StatefulLogic<V, Result<R, WindowError<V>>, Vec<Result<R, WindowError<V>>>>
+    for WindowStatefulLogic<V, R, I, L, LB>
+where
+    I: IntoIterator<Item = R>,
+    L: WindowLogic<V, R, I>,
+    LB: Fn(Option<StateBytes>) -> L,
+{
+    fn exec(
+        &mut self,
+        next_value: Poll<Option<V>>,
+    ) -> (Vec<Result<R, WindowError<V>>>, Option<std::time::Duration>) {
+        let mut output = Vec::new();
+
+        let watermark = self.clock.watermark(&next_value);
+
+        if let Poll::Ready(Some(value)) = next_value {
+            let item_time = self.clock.time_for(&value);
+
+            for window_result in self.windower.insert(&watermark, item_time) {
+                let value = value.clone();
+                match window_result {
+                    Err(InsertError::Late(_window_key)) => {
+                        output.push(Err(WindowError::Late(value)));
+                    }
+                    Ok(window_key) => {
+                        let logic = self
+                            .logic_cache
+                            .entry(window_key)
+                            .or_insert_with_key(|key| {
+                                // Remove so we only use the resume
+                                // state once.
+                                let resume_state_bytes = self.key_to_resume_state_bytes.remove(key);
+                                (self.logic_builder)(resume_state_bytes)
+                            });
+                        let window_output = logic.exec(Some(value));
+                        output.extend(window_output.into_iter().map(Ok));
+                    }
+                }
+            }
+        }
+
+        for window_key in self.windower.drain_closed(&watermark) {
+            if let Some(mut logic) = self.logic_cache.remove(&window_key) {
+                let window_output = logic.exec(None);
+                output.extend(window_output.into_iter().map(Ok));
+            }
+        }
+
+        let activate_after = self
+            .windower
+            .activate_after(&watermark)
+            // [`chrono::Duration`] supports negative
+            // durations but [`std::time::Duration`] does not,
+            // so clamp to 0.
+            .map(|d| d.to_std().unwrap_or(std::time::Duration::ZERO));
+
+        (output, activate_after)
+    }
+
+    // TODO: Set a timeout on destroying window state per key?
+    /// Note that we never return [`StateUpdate::Reset`] so once a key
+    /// is seen, we permanently allocate state for the window system.
+    fn snapshot(&self) -> StateUpdate {
+        let window_to_logic_resume_state_bytes: HashMap<WindowKey, StateBytes> = self
+            .logic_cache
+            .iter()
+            .map(|(window_key, logic)| (window_key.clone(), logic.snapshot()))
+            .collect();
+        let state = (
+            self.clock.snapshot(),
+            self.windower.snapshot(),
+            window_to_logic_resume_state_bytes,
+        );
+        StateUpdate::Upsert(StateBytes::ser(&state))
+    }
+}
+
 /// Extension trait for [`Stream`].
 pub(crate) trait StatefulWindowUnary<S: Scope, V: ExchangeData> {
     /// Create a new generic windowing operator.
@@ -602,52 +814,54 @@ pub(crate) trait StatefulWindowUnary<S: Scope, V: ExchangeData> {
     /// operators are implemented in terms of. We do this so we only
     /// have to implement the detailed windowing code once.
     ///
-    /// # Logic
+    /// # Input
     ///
-    /// `logic` takes three arguments and is called on each incoming
-    /// item and when the window closes:
+    /// Because this is a stateful operator, the input must be a
+    /// stream of `(key, value)` 2-tuples. They will automatically be
+    /// routed to the same worker and windowing state by key.
     ///
-    /// - The relevant key.
+    /// This means that windows are distinct per-key and there is no
+    /// interaction between them.
     ///
-    /// - The last state for that key and window. This might be
-    /// [`None`] if there wasn't any.
+    /// Currently we permanently allocate windowing state per-key; it
+    /// is never freed; if you have a lot of fleeting keys, perhaps
+    /// re-think your key space.
     ///
-    /// - An incoming value or [`None`] if the window for this key has
-    /// just closed. Think of this as the same protocol as
-    /// [`std::iter::Iterator::next`].
+    /// # Logic Builder
     ///
-    /// `logic` must return a 2-tuple of:
+    /// This is a closure that should build a new instance of your
+    /// logic for a window, given the last snapshot of its state for
+    /// that window. You should implement the deserialization from
+    /// [`StateBytes`] in this builder; it should be the reverse of
+    /// your [`WindowLogic::snapshot`].
     ///
-    /// - The updated state for the key, or [`None`] if the state
-    /// should be discarded.
+    /// See [`WindowLogic`] for the semantics of the logic.
     ///
-    /// - Values to be emitted downstream. You probably only want to
-    /// emit values when the incoming value is [`None`], signaling the
-    /// window has closed, but you might want something more
-    /// generic. They will be automatically paired with the key in the
-    /// output stream.
+    /// This will be called periodically as new windows are created.
     ///
     /// # Output
     ///
     /// The output will be a stream of `(key, value)` output
-    /// 2-tuples. Values emitted by `logic` will automatically be
-    /// paired with the key in the output stream.
+    /// 2-tuples. Values emitted by [`WindowLogic::exec`] will
+    /// automatically be paired with the key in the output stream.
     fn stateful_window_unary<
-        R: Data,                                                            // Output item type
-        D: ExchangeData,           // Per-key per-window state
-        I: IntoIterator<Item = R>, // Iterator of output items
-        L: Fn(&StateKey, Option<D>, Option<V>) -> (Option<D>, I) + 'static, // Logic
-        H: Fn(&StateKey) -> u64 + 'static, // Hash function of key to worker
+        R: Data,                                                   // Output item type
+        I: IntoIterator<Item = R> + 'static,                       // Iterator of output items
+        CB: Fn(Option<StateBytes>) -> Box<dyn Clock<V>> + 'static, // Clock builder
+        WB: Fn(Option<StateBytes>) -> Box<dyn Windower> + 'static, // Windower builder
+        L: WindowLogic<V, R, I> + 'static,                         // Logic
+        LB: Fn(Option<StateBytes>) -> L + 'static,                 // Logic builder
     >(
         &self,
         step_id: StepId,
-        clock: Box<dyn Clock<V>>,
-        windower: Box<dyn Windower>,
-        logic: L,
-        hasher: H,
-        state_loading_stream: &Stream<S, StateBackup<S::Timestamp, Vec<u8>>>,
-        state_backup_streams: &mut Vec<Stream<S, StateBackup<S::Timestamp, Vec<u8>>>>,
-    ) -> Stream<S, (StateKey, Result<R, WindowError<V>>)>;
+        clock_builder: CB,
+        windower_builder: WB,
+        logic_builder: LB,
+        resume_state: HashMap<StateKey, StateBytes>,
+    ) -> (
+        Stream<S, (StateKey, Result<R, WindowError<V>>)>,
+        Stream<S, (StateKey, (StepId, StateUpdate))>,
+    );
 }
 
 impl<S, V: ExchangeData + Debug> StatefulWindowUnary<S, V> for Stream<S, (StateKey, V)>
@@ -655,138 +869,28 @@ where
     S: Scope<Timestamp = u64>,
 {
     fn stateful_window_unary<
-        R: Data,                                                            // Output item type
-        D: ExchangeData,           // Per-key per-window state
-        I: IntoIterator<Item = R>, // Iterator of output items
-        L: Fn(&StateKey, Option<D>, Option<V>) -> (Option<D>, I) + 'static, // Logic
-        H: Fn(&StateKey) -> u64 + 'static, // Hash function of key to worker
+        R: Data,                                                   // Output item type
+        I: IntoIterator<Item = R> + 'static,                       // Iterator of output items
+        CB: Fn(Option<StateBytes>) -> Box<dyn Clock<V>> + 'static, // Clock builder
+        WB: Fn(Option<StateBytes>) -> Box<dyn Windower> + 'static, // Windower builder
+        L: WindowLogic<V, R, I> + 'static,                         // Logic
+        LB: Fn(Option<StateBytes>) -> L + 'static,                 // Logic builder
     >(
         &self,
         step_id: StepId,
-        clock: Box<dyn Clock<V>>,
-        windower: Box<dyn Windower>,
-        logic: L,
-        hasher: H,
-        state_loading_stream: &Stream<S, StateBackup<S::Timestamp, Vec<u8>>>,
-        state_backup_streams: &mut Vec<Stream<S, StateBackup<S::Timestamp, Vec<u8>>>>,
-    ) -> Stream<S, (StateKey, Result<R, WindowError<V>>)> {
+        clock_builder: CB,
+        windower_builder: WB,
+        logic_builder: LB,
+        resume_state: HashMap<StateKey, StateBytes>,
+    ) -> (
+        Stream<S, (StateKey, Result<R, WindowError<V>>)>,
+        Stream<S, (StateKey, (StepId, StateUpdate))>,
+    ) {
         self.stateful_unary(
-            step_id,
-            move |key, state: Option<(ClockState, WindowerState, LogicState<D>)>, value| {
-                let mut state = state.unwrap_or_default();
-                let (clock_state, windower_state, logic_state) = &mut state;
-
-                let mut output = Vec::new();
-
-                let watermark = clock.watermark(clock_state, &value);
-
-                if let Poll::Ready(Some(value)) = value {
-                    let item_time = clock.time_for(clock_state, &value);
-
-                    for window_result in windower.insert(windower_state, &watermark, item_time) {
-                        let value = value.clone();
-                        match window_result {
-                            Err(InsertError::Late(_id)) => {
-                                output.push(Err(WindowError::Late(value)));
-                            }
-                            Ok(id) => {
-                                let window_state = logic_state.window_states.remove(&id);
-
-                                let (updated_window_state, window_output) =
-                                    logic(&key, window_state, Some(value));
-
-                                match updated_window_state {
-                                    Some(state) => logic_state.window_states.insert(id, state),
-                                    None => logic_state.window_states.remove(&id),
-                                };
-
-                                output.extend(window_output.into_iter().map(Ok));
-                            }
-                        }
-                    }
-                }
-
-                for id in windower.drain_closed(windower_state, &watermark) {
-                    let window_state = logic_state.window_states.remove(&id);
-
-                    let (updated_window_state, window_output) = logic(&key, window_state, None);
-
-                    if let Some(_) = updated_window_state {
-                        panic!("Stateful window logic did not return `None` on window close; state would be lost");
-                    }
-                    logic_state.window_states.remove(&id);
-
-                    output.extend(window_output.into_iter().map(Ok));
-                }
-
-                let activate_after = windower
-                    .activate_after(windower_state, &watermark)
-                    .map(|d| d.to_std().unwrap_or(std::time::Duration::ZERO));
-
-                StatefulUnaryLogicReturn { updated_state: Some(state), output, activate_after }
-            },
-            hasher,
-            state_loading_stream,
-            state_backup_streams,
+            step_id.clone(),
+            WindowStatefulLogic::builder(clock_builder, windower_builder, logic_builder),
+            resume_state,
         )
-    }
-}
-
-/// Shim function for [`crate::dataflow::Dataflow::reduce_window`].
-pub(crate) fn reduce_window(
-    reducer: &TdPyCallable,
-    key: &StateKey,
-    acc: Option<TdPyAny>,
-    next_value: Option<TdPyAny>,
-) -> (Option<TdPyAny>, impl IntoIterator<Item = TdPyAny>) {
-    match next_value {
-        Some(value) => {
-            Python::with_gil(|py| {
-                let updated_acc: TdPyAny = match acc {
-                    // If there's no previous state for this key, use
-                    // the current value.
-                    None => value,
-                    Some(acc) => {
-                        let updated_acc = with_traceback!(
-                            py,
-                            reducer.call1(py, (acc.clone_ref(py), value.clone_ref(py)))
-                        )
-                        .into();
-                        debug!("reduce_window for key={key:?}: reducer={reducer:?}(acc={acc:?}, value={value:?}) -> updated_acc={updated_acc:?}",);
-
-                        updated_acc
-                    }
-                };
-
-                (Some(updated_acc), None)
-            })
-        }
-        None => (None, acc),
-    }
-}
-
-/// Shim function for [`crate::dataflow::Dataflow::fold_window`].
-pub(crate) fn fold_window(
-    builder: &TdPyCallable,
-    folder: &TdPyCallable,
-    key: &StateKey,
-    acc: Option<TdPyAny>,
-    next_value: Option<TdPyAny>,
-) -> (Option<TdPyAny>, impl IntoIterator<Item = TdPyAny>) {
-    match next_value {
-        Some(value) => Python::with_gil(|py| {
-            // Save the value's debug string here first, because its ownership
-            // will be moved to the `folder` function.
-            let value_dbg = format!("{value:?}");
-            // Either take acc's value or build the initial one with the builder,
-            // then update it with the folder.
-            let acc = acc
-                .unwrap_or_else(|| with_traceback!(py, builder.call1(py, (key.clone(),))).into());
-            let updated_acc = with_traceback!(py, folder.call1(py, (acc, value))).into();
-            debug!("fold_window for key={key:?}: builder={builder:?}, value={value_dbg}) -> updated_acc={updated_acc:?}",);
-            (Some(updated_acc), None)
-        }),
-        None => (None, acc),
     }
 }
 
