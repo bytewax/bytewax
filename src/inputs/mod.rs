@@ -3,7 +3,7 @@
 //! For a user-centric version of input, read the `bytewax.input`
 //! Python module docstring. Read that first.
 
-use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
+use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyCoroIterator};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -62,6 +62,16 @@ impl InputConfig {
 /// source.
 ///
 /// Currently does not support recovery.
+///
+/// Because Bytewax's execution is cooperative, the resulting
+/// iterators _must not block_ waiting for new data, otherwise pending
+/// execution of other steps in the dataflow will be delayed an
+/// throughput will be reduced. If you are using a generator and no
+/// data is ready yet, have it `yield None` or just `yield` to signal
+/// this. As a side effect, any `None` in the resulting iterables will
+/// be ignored; if you really need to emit bare `None`, wrap all items
+/// in some sort of wrapper object and unwrap those immediately in a
+/// `map` operator.
 ///
 /// Args:
 ///
@@ -301,7 +311,7 @@ pub(crate) fn build_input_reader(
 /// Construct a Python iterator for each worker from a builder
 /// function.
 struct ManualInput {
-    pyiter: TdPyIterator,
+    pyiter: TdPyCoroIterator,
 }
 
 impl ManualInput {
@@ -311,7 +321,7 @@ impl ManualInput {
         worker_index: usize,
         worker_count: usize,
     ) -> Self {
-        let pyiter: TdPyIterator = input_builder
+        let pyiter: TdPyCoroIterator = input_builder
             .call1(py, (worker_index, worker_count))
             .unwrap()
             .extract(py)
@@ -322,7 +332,7 @@ impl ManualInput {
 
 impl InputReader<TdPyAny> for ManualInput {
     fn next(&mut self) -> Poll<Option<TdPyAny>> {
-        Poll::Ready(self.pyiter.next())
+        self.pyiter.next()
     }
 }
 

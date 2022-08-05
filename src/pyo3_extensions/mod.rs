@@ -23,6 +23,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
+use std::task::Poll;
 
 /// Represents a Python object flowing through a Timely dataflow.
 ///
@@ -284,7 +285,7 @@ pub(crate) fn wrap_state_pair(key_value: (StateKey, TdPyAny)) -> TdPyAny {
     })
 }
 
-/// A Python iterator that only gets the GIL when calling .next() and
+/// A Python iterator that only gets the GIL when calling [`next`] and
 /// automatically wraps in [`TdPyAny`].
 ///
 /// Otherwise the GIL would be held for the entire life of the iterator.
@@ -306,6 +307,35 @@ impl Iterator for TdPyIterator {
         Python::with_gil(|py| {
             let mut iter = self.0.as_ref(py);
             iter.next().map(|r| with_traceback!(py, r).into())
+        })
+    }
+}
+
+/// Similar to [`TdPyIterator`] but interprets the iterator sending
+/// Python `None` as [`Poll::Pending`] so we can use it in a
+/// coroutine-like context.
+#[derive(Clone)]
+pub(crate) struct TdPyCoroIterator(Py<PyIterator>);
+
+/// Have PyO3 do type checking to ensure we only make from iterable
+/// objects.
+impl<'source> FromPyObject<'source> for TdPyCoroIterator {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        Ok(Self(ob.iter()?.into()))
+    }
+}
+
+// TODO: Could maybe bridge this with std::iter::AsyncIterator?
+impl TdPyCoroIterator {
+    pub(crate) fn next(&mut self) -> Poll<Option<TdPyAny>> {
+        Python::with_gil(|py| {
+            let mut iter = self.0.as_ref(py);
+            match iter.next() {
+                Some(Err(err)) => with_traceback!(py, Err(err)),
+                Some(Ok(item)) if item.is_none() => Poll::Pending,
+                Some(Ok(item)) => Poll::Ready(Some(item.into())),
+                None => Poll::Ready(None),
+            }
         })
     }
 }
