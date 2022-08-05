@@ -777,12 +777,11 @@ pub(crate) fn fold_window(
         Some(value) => Python::with_gil(|py| {
             let initial_acc = acc
                 .unwrap_or_else(|| with_traceback!(py, builder.call1(py, (key.clone(),))).into());
-            // I have to start building the debug message here first, because ownership
-            // of `value` will be moved to the `folder` function.
-            let msg =
-                format!("fold_window for key={key:?}: builder={builder:?}, value={value:?}) -> ");
+            // Save the value's debug string here first, because its ownership
+            // will be moved to the `folder` function.
+            let value_dbg = format!("{value:?}");
             let updated_acc = with_traceback!(py, folder.call1(py, (initial_acc, value))).into();
-            debug!("{msg} updated_acc={updated_acc:?}",);
+            debug!("fold_window for key={key:?}: builder={builder:?}, value={value_dbg}) -> updated_acc={updated_acc:?}",);
             (Some(updated_acc), None)
         }),
         None => (None, acc),
