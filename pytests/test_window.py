@@ -33,8 +33,7 @@ def test_tumbling_window():
 
 
 def test_fold_window():
-    def gen(i, n, r):
-        assert r == 0
+    def gen():
         yield from [
             {"user": "a", "type": "login"},
             {"user": "a", "type": "post"},
@@ -44,11 +43,6 @@ def test_fold_window():
             {"user": "b", "type": "post"},
             {"user": "b", "type": "post"},
         ]
-
-    out = []
-
-    def ob(i, n):
-        return out.append
 
     def extract_id(event):
         return (event["user"], event)
@@ -75,6 +69,6 @@ def test_fold_window():
     run_main(flow)
 
     assert len(out) == 3
-    assert (0, ("a", {"login": 1, "post": 2})) in out
-    assert (0, ("a", {"post": 1})) in out
-    assert (0, ("b", {"login": 1, "post": 2})) in out
+    assert ("a", {"login": 1, "post": 2}) in out
+    assert ("a", {"post": 1}) in out
+    assert ("b", {"login": 1, "post": 2}) in out
