@@ -396,7 +396,7 @@ impl Dataflow {
     /// build the initial value.
     ///
     /// See reduce_window's documentation and the `test_fold_window` test in
-    /// `bytewax/pytests/test_window.py file for more details.
+    /// `bytewax/pytests/test_window.py` file for more details.
     ///
     /// Args:
     ///
