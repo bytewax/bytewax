@@ -1,11 +1,17 @@
 import random
 
-from bytewax import Dataflow, inputs, parse, run_cluster
+from bytewax.dataflow import Dataflow
+from bytewax.execution import spawn_cluster
+from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import ManualEpochOutputConfig
 
 
-def random_datapoints():
-    for _ in range(20):
-        yield "QPS", random.randrange(0, 10)
+def input_builder(worker_index, worker_count):
+    def random_datapoints():
+        for _ in range(20):
+            yield "QPS", random.randrange(0, 10)
+
+    return random_datapoints()
 
 
 class ZTestDetector:
@@ -46,22 +52,27 @@ class ZTestDetector:
         return self, (value, self.mu, self.sigma, is_anomalous)
 
 
-def inspector(epoch, metric__value_mu_sigma_anomalous):
-    metric, (value, mu, sigma, is_anomalous) = metric__value_mu_sigma_anomalous
-    print(
-        f"{metric} @ {epoch}: value = {value}, mu = {mu:.2f}, sigma = {sigma:.2f}, {is_anomalous}"
-    )
+def output_builder(worker_index, worker_count):
+    def inspector(input):
+        epoch, rest = input
+        metric, (value, mu, sigma, is_anomalous) = rest
+        print(
+            f"{metric} @ {epoch}: "
+            f"value = {value}, "
+            f"mu = {mu:.2f}, "
+            f"sigma = {sigma:.2f}, "
+            f"{is_anomalous}"
+        )
 
-
-flow = Dataflow()
-# ("metric", value)
-flow.stateful_map(lambda key: ZTestDetector(2.0), ZTestDetector.push)
-# ("metric", (value, mu, sigma, is_anomalous))
-flow.capture()
+    return inspector
 
 
 if __name__ == "__main__":
-    for epoch, item in run_cluster(
-        flow, inputs.fully_ordered(random_datapoints()), **parse.cluster_args()
-    ):
-        inspector(epoch, item)
+    flow = Dataflow(ManualInputConfig(input_builder))
+    # ("metric", value)
+    flow.stateful_map(
+        "AnomalyDetector", lambda key: ZTestDetector(2.0), ZTestDetector.push
+    )
+    # ("metric", (value, mu, sigma, is_anomalous))
+    flow.capture(ManualEpochOutputConfig(output_builder))
+    spawn_cluster(flow)
