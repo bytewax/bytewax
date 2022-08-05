@@ -395,8 +395,53 @@ impl Dataflow {
     /// It is like `bytewax.Dataflow.reduce_window()` but uses a function to
     /// build the initial value.
     ///
-    /// See reduce_window's documentation and the `test_fold_window` test in
-    /// `bytewax/pytests/test_window.py` file for more details.
+    /// It is a stateful operator. It requires the the input stream
+    /// has items that are `(key: str, value)` tuples so we can ensure
+    /// that all relevant values are routed to the relevant state. It
+    /// also requires a step ID to recover the correct state.
+    ///
+    /// It calls two functions:
+    ///
+    /// - A **builder** function which is called the first time a key appears
+    ///   and is expected to return the empty state for that key.
+    ///
+    /// - A **folder** which combines a new value with an accumulator.
+    ///   The accumulator is initially the output of the builder function.
+    ///   Values will be passed in window order, but no order
+    ///   is defined within a window.
+    ///
+    /// It emits `(key, accumulator)` tuples downstream when the window closes
+    ///
+    ///
+    /// >>> def gen():
+    /// ...     yield from [
+    /// ...         {"user": "a", "type": "login"},
+    /// ...         {"user": "a", "type": "post"},
+    /// ...         {"user": "a", "type": "post"},
+    /// ...         {"user": "b", "type": "login"},
+    /// ...         {"user": "a", "type": "post"},
+    /// ...         {"user": "b", "type": "post"},
+    /// ...         {"user": "b", "type": "post"},
+    /// ...     ]
+    /// >>> def extract_id(event):
+    /// ...     return (event["user"], event)
+    /// >>> def build(key):
+    /// ...     return defaultdict(lambda: 0)
+    /// >>> def count(results, event):
+    /// ...     results[event["type"]] += 1
+    /// ...     return results
+    /// >>> clock_config = TestingClockConfig(item_incr=timedelta(seconds=4))
+    /// >>> window_config = TumblingWindowConfig(length=timedelta(seconds=10))
+    /// >>> out = []
+    /// >>> flow = Dataflow(TestingInputConfig(gen()))
+    /// >>> flow.map(extract_id)
+    /// >>> flow.fold_window("sum", clock_config, window_config, build, count)
+    /// >>> flow.capture(TestingOutputConfig(out))
+    /// >>> run_main(flow)
+    /// >>> assert len(out) == 3
+    /// >>> assert ("a", {"login": 1, "post": 2}) in out
+    /// >>> assert ("a", {"post": 1}) in out
+    /// >>> assert ("b", {"login": 1, "post": 2}) in out
     ///
     /// Args:
     ///
