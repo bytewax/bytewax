@@ -775,12 +775,14 @@ pub(crate) fn fold_window(
 ) -> (Option<TdPyAny>, impl IntoIterator<Item = TdPyAny>) {
     match next_value {
         Some(value) => Python::with_gil(|py| {
-            let initial_acc = acc
-                .unwrap_or_else(|| with_traceback!(py, builder.call1(py, (key.clone(),))).into());
             // Save the value's debug string here first, because its ownership
             // will be moved to the `folder` function.
             let value_dbg = format!("{value:?}");
-            let updated_acc = with_traceback!(py, folder.call1(py, (initial_acc, value))).into();
+            // Either take acc's value or build the initial one with the builder,
+            // then update it with the folder.
+            let acc = acc
+                .unwrap_or_else(|| with_traceback!(py, builder.call1(py, (key.clone(),))).into());
+            let updated_acc = with_traceback!(py, folder.call1(py, (acc, value))).into();
             debug!("fold_window for key={key:?}: builder={builder:?}, value={value_dbg}) -> updated_acc={updated_acc:?}",);
             (Some(updated_acc), None)
         }),

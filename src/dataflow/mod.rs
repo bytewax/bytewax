@@ -389,7 +389,26 @@ impl Dataflow {
         });
     }
 
-    /// TODO
+    /// Fold window lets you combine all items for a key within a
+    /// window into an accumulator, using a function to build its initial value.
+    ///
+    /// It is like `bytewax.Dataflow.reduce_window()` but uses a function to
+    /// build the initial value.
+    ///
+    /// See reduce_window's documentation and the `test_fold_window` test in
+    /// `bytewax/pytests/test_window.py file for more details.
+    ///
+    /// Args:
+    ///
+    ///     step_id: Uniquely identifies this step for recovery.
+    ///
+    ///     clock_config: Clock config to use. See `bytewax.window`.
+    ///
+    ///     window_config: Windower config to use. See `bytewax.window`.
+    ///
+    ///     builder: `builder(key: Any) => initial_accumulator: Any`
+    ///
+    ///     folder: `folder(accumulator: Any, value: Any) => updated_accumulator: Any`
     #[pyo3(text_signature = "(self, step_id, clock_config, window_config, builder, folder)")]
     fn fold_window(
         &mut self,
