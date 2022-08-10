@@ -5,6 +5,9 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Added the `fold_window` operator, works like `reduce_window` but allows
+  the user to build the initial accumulator for each key in a `builder` function.
+
 - Output is no longer specified using an `output_builder` for the
   entire dataflow, but you supply an "output config" per capture. See
   `bytewax.outputs` for more info.

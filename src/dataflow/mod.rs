@@ -389,6 +389,89 @@ impl Dataflow {
         });
     }
 
+    /// Fold window lets you combine all items for a key within a
+    /// window into an accumulator, using a function to build its initial value.
+    ///
+    /// It is like `bytewax.Dataflow.reduce_window()` but uses a function to
+    /// build the initial value.
+    ///
+    /// It is a stateful operator. It requires the the input stream
+    /// has items that are `(key: str, value)` tuples so we can ensure
+    /// that all relevant values are routed to the relevant state. It
+    /// also requires a step ID to recover the correct state.
+    ///
+    /// It calls two functions:
+    ///
+    /// - A **builder** function which is called the first time a key appears
+    ///   and is expected to return the empty state for that key.
+    ///
+    /// - A **folder** which combines a new value with an accumulator.
+    ///   The accumulator is initially the output of the builder function.
+    ///   Values will be passed in window order, but no order
+    ///   is defined within a window.
+    ///
+    /// It emits `(key, accumulator)` tuples downstream when the window closes
+    ///
+    ///
+    /// >>> def gen():
+    /// ...     yield from [
+    /// ...         {"user": "a", "type": "login"},
+    /// ...         {"user": "a", "type": "post"},
+    /// ...         {"user": "a", "type": "post"},
+    /// ...         {"user": "b", "type": "login"},
+    /// ...         {"user": "a", "type": "post"},
+    /// ...         {"user": "b", "type": "post"},
+    /// ...         {"user": "b", "type": "post"},
+    /// ...     ]
+    /// >>> def extract_id(event):
+    /// ...     return (event["user"], event)
+    /// >>> def build(key):
+    /// ...     return defaultdict(lambda: 0)
+    /// >>> def count(results, event):
+    /// ...     results[event["type"]] += 1
+    /// ...     return results
+    /// >>> clock_config = TestingClockConfig(item_incr=timedelta(seconds=4))
+    /// >>> window_config = TumblingWindowConfig(length=timedelta(seconds=10))
+    /// >>> out = []
+    /// >>> flow = Dataflow(TestingInputConfig(gen()))
+    /// >>> flow.map(extract_id)
+    /// >>> flow.fold_window("sum", clock_config, window_config, build, count)
+    /// >>> flow.capture(TestingOutputConfig(out))
+    /// >>> run_main(flow)
+    /// >>> assert len(out) == 3
+    /// >>> assert ("a", {"login": 1, "post": 2}) in out
+    /// >>> assert ("a", {"post": 1}) in out
+    /// >>> assert ("b", {"login": 1, "post": 2}) in out
+    ///
+    /// Args:
+    ///
+    ///     step_id: Uniquely identifies this step for recovery.
+    ///
+    ///     clock_config: Clock config to use. See `bytewax.window`.
+    ///
+    ///     window_config: Windower config to use. See `bytewax.window`.
+    ///
+    ///     builder: `builder(key: Any) => initial_accumulator: Any`
+    ///
+    ///     folder: `folder(accumulator: Any, value: Any) => updated_accumulator: Any`
+    #[pyo3(text_signature = "(self, step_id, clock_config, window_config, builder, folder)")]
+    fn fold_window(
+        &mut self,
+        step_id: StepId,
+        clock_config: Py<ClockConfig>,
+        window_config: Py<WindowConfig>,
+        builder: TdPyCallable,
+        folder: TdPyCallable,
+    ) {
+        self.steps.push(Step::FoldWindow {
+            step_id,
+            clock_config,
+            window_config,
+            builder,
+            folder,
+        });
+    }
+
     // TODO: Update this example once we have a better idea about
     // input.
     /// Reduce window lets you combine all items for a key within a
@@ -564,6 +647,13 @@ pub(crate) enum Step {
     Filter {
         predicate: TdPyCallable,
     },
+    FoldWindow {
+        step_id: StepId,
+        clock_config: Py<ClockConfig>,
+        window_config: Py<WindowConfig>,
+        builder: TdPyCallable,
+        folder: TdPyCallable,
+    },
     Inspect {
         inspector: TdPyCallable,
     },
@@ -606,6 +696,17 @@ impl<'source> FromPyObject<'source> for Step {
         }
         if let Ok(("Filter", predicate)) = tuple.extract() {
             return Ok(Self::Filter { predicate });
+        }
+        if let Ok(("FoldWindow", step_id, clock_config, window_config, builder, folder)) =
+            tuple.extract()
+        {
+            return Ok(Self::FoldWindow {
+                step_id,
+                clock_config,
+                window_config,
+                builder,
+                folder,
+            });
         }
         if let Ok(("Inspect", inspector)) = tuple.extract() {
             return Ok(Self::Inspect { inspector });
@@ -655,6 +756,21 @@ impl IntoPy<PyObject> for Step {
             Self::Map { mapper } => ("Map", mapper).into_py(py),
             Self::FlatMap { mapper } => ("FlatMap", mapper).into_py(py),
             Self::Filter { predicate } => ("Filter", predicate).into_py(py),
+            Self::FoldWindow {
+                step_id,
+                clock_config,
+                window_config,
+                builder,
+                folder,
+            } => (
+                "FoldWindow",
+                step_id.clone(),
+                clock_config,
+                window_config,
+                builder,
+                folder,
+            )
+                .into_py(py),
             Self::Inspect { inspector } => ("Inspect", inspector).into_py(py),
             Self::InspectEpoch { inspector } => ("InspectEpoch", inspector).into_py(py),
             Self::Reduce {
