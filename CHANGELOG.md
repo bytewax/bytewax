@@ -5,6 +5,11 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## 0.10.1
+
+- Bugfix: Resolves pickling error. KafkaInputConfig now works with
+  `spawn_cluster`.
+
 ## 0.10.0
 
 - Input is no longer specified using an `input_builder`, but now an
