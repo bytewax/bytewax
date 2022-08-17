@@ -177,21 +177,22 @@ impl KafkaInputConfig {
         )
     }
 
-    fn __getstate__(&self) -> (&str, String, String, String, String, u64) {
+    fn __getstate__(&self) -> (&str, String, String, String, String, bool, u64) {
         (
             "KafkaInputConfig",
             self.brokers.clone(),
             self.group_id.clone(),
             self.topics.clone(),
             self.offset_reset.clone(),
+            self.auto_commit,
             self.messages_per_epoch,
         )
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (&str, &str, &str, &str, u64) {
+    fn __getnewargs__(&self) -> (&str, &str, &str, &str, bool, u64) {
         let s = "UNINIT_PICKLED_STRING";
-        (s, s, s, s, 0)
+        (s, s, s, s, false, 0)
     }
 
     /// Unpickle from tuple of arguments.
@@ -202,6 +203,7 @@ impl KafkaInputConfig {
             group_id,
             topics,
             offset_reset,
+            auto_commit,
             messages_per_epoch,
         )) = state.extract()
         {
@@ -209,6 +211,7 @@ impl KafkaInputConfig {
             self.group_id = group_id;
             self.topics = topics;
             self.offset_reset = offset_reset;
+            self.auto_commit = auto_commit;
             self.messages_per_epoch = messages_per_epoch;
             Ok(())
         } else {
