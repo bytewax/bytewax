@@ -26,10 +26,9 @@ use crate::with_traceback;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use rdkafka::admin::{AdminClient, AdminOptions, ResourceSpecifier};
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::base_consumer::BaseConsumer;
-use rdkafka::consumer::Consumer;
+use rdkafka::consumer::{Consumer, DefaultConsumerContext};
 use rdkafka::error::KafkaError;
 use rdkafka::message::Message;
 use rdkafka::{Offset, TopicPartitionList};
@@ -422,34 +421,27 @@ struct KafkaInput {
     positions: HashMap<KafkaPartition, KafkaPosition>,
 }
 
+// Using an rdkafka::admin::AdminClient did not always return partition counts
+// for a topic, so create a BaseConsumer to fetch the metadata for a topic instead.
+// Inspired by https://github.com/fede1024/rust-rdkafka/blob/5d23e82a675d9df1bf343aedcaa35be864787dab/tests/test_admin.rs#L33
 fn get_kafka_partition_count(brokers: &[String], topic: &str) -> i32 {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let consumer: BaseConsumer<DefaultConsumerContext> = ClientConfig::new()
+        .set("bootstrap.servers", brokers.join(","))
+        .create()
+        .expect("creating consumer failed");
 
-    let admin: AdminClient<_> = rt.block_on(async {
-        ClientConfig::new()
-            .set("bootstrap.servers", brokers.join(","))
-            .create()
-            .expect("Error building Kafka admin")
-    });
-    let admin_options = AdminOptions::new();
+    let timeout = Some(Duration::from_secs(5));
 
-    let rec_spec = ResourceSpecifier::Topic(topic);
-    let future = admin.describe_configs(vec![&rec_spec], &admin_options);
-    rt.block_on(future)
-        .expect("Error in Kafka admin client")
-        .pop()
-        .unwrap()
-        .expect("Error describing Kafka topic")
-        .get("partition_count")
-        .expect("No partition count in Kafka topic description")
-        .value
-        .clone()
-        .expect("No partition count value in Kafka topic description")
-        .parse()
-        .expect("Kafka topic partition count does not fit into i32")
+    let metadata = consumer
+        .fetch_metadata(Some(topic), timeout)
+        .map_err(|e| e.to_string())
+        .expect("Unable to fetch topic metadata for {topic}");
+    let topic = &metadata.topics()[0];
+    topic
+        .partitions()
+        .len()
+        .try_into()
+        .expect("Unable to convert topic partition count to i32")
 }
 
 // TODO: One day could use this impl for the Python version in
