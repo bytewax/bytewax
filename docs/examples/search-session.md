@@ -61,46 +61,34 @@ Epochs
 Now that we've got those, here's a small dump of some example data you
 could imagine comming from your app's events infrastructure.
 
+Let's write a function that will yield one of these events at a time
+into our dataflow.
+
 ```python
 IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS = [
-    # epoch, event
-    (0, AppOpen(user=1)),
-    (1, Search(user=1, query="dogs")),
+    AppOpen(user=1),
+    Search(user=1, query="dogs"),
     # Eliding named args...
-    (2, Results(1, ["fido", "rover", "buddy"])),
-    (3, ClickResult(1, "rover")),
-    (4, Search(1, "cats")),
-    (5, Results(1, ["fluffy", "burrito", "kathy"])),
-    (6, ClickResult(1, "fluffy")),
-    (7, AppOpen(2)),
-    (8, ClickResult(1, "kathy")),
-    (9, Search(2, "fruit")),
-    (10, AppClose(1)),
-    (11, AppClose(2)),
+    Results(1, ["fido", "rover", "buddy"]),
+    ClickResult(1, "rover"),
+    Search(1, "cats"),
+    Results(1, ["fluffy", "burrito", "kathy"]),
+    ClickResult(1, "fluffy"),
+    AppOpen(2),
+    ClickResult(1, "kathy"),
+    Search(2, "fruit"),
+    AppClose(1),
+    AppClose(2),
 ]
+
+def input_builder(worker_index, worker_count, resume_state):
+    state = resume_state or {}
+    for line in IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS:
+        yield(state, line)
 ```
 
-Let's breakdown some of the details here.
-
-One of Bytewax's cool powers is giving you a high level control over
-the concept of time in your execution via attaching a kind of
-timestamp called an **epoch** to each **item** of input data.
-
-[You can read more about the details of epochs in our
-documentation](/getting-started/epochs/), but the most important facet of them for this
-example is that they are the _only_ way you can set up a sense of
-order in your data.
-
-Since we are going to use the order in which events happen to divvy
-them up into user sessions, we need to take advantage of epochs at
-some level. In this basic example, we're going to label each input
-event with a monotonically increasing epoch. [There are some some
-scaling downsides to this approach](/getting-started/epochs/), but we will be
-using it here anyway to demonstrate the basics of epochs.
-
-You tell Bytewax what epoch each input item has by having your input
-iterator yield `(epoch, item)` tuples. In this example, we're
-explicitly making those tuples and putting them in a list.
+For the moment, we aren't going to be using our resume state to manage failures,
+but returning the empty state is a requirement for our input builder.
 
 High-Level Plan
 ---------------
@@ -123,17 +111,22 @@ The Dataflow
 Now that we have some input data, let's start defining the
 computational steps of our dataflow based on our plan.
 
-To start, make an empty `Dataflow` object from Bytewax.
+To start, create an empty `bytewax.dataflow.Dataflow` object.
+
+In this case, we'll use a `ManualInputConfig`, which takes the
+`input_builder` function that we defined above.
 
 ```python
-from bytewax import Dataflow
+from bytewax.inputs import ManualInputConfig
+from bytewax.dataflow import Dataflow
 
 flow = Dataflow()
+flow.input("input", ManualInputConfig(input_builder))
 ```
 
-You can then add a series of **steps** to the dataflow. Steps are made
-up of **operators**, that provide a "shape" of transformation, and
-**logic functions**, that you supply to do your specific
+Now that we have a Dataflow, and some input, we can add a series of **steps**
+to the dataflow. Steps are made up of **operators**, that provide a "shape"
+of transformation, and **logic functions**, that you supply to do your specific
 transformation. [You can read more about all the operators in our
 documentation.](/getting-started/operators)
 
@@ -262,11 +255,19 @@ def calc_ctr(search_session):
 flow.map(calc_ctr)
 ```
 
-Bytewax requires you to mark what parts of the dataflow should be
-captured for output.
+Now that our dataflow is done, we can define a function to be called for each output item.
+In this example, we're just printing out what we've received.
+
 
 ```python
-flow.capture()
+from bytewax.outputs import ManualOutputConfig
+
+def output_builder(worker_index, worker_count):
+    def output_handler(item):
+        print(item)
+    return output_handler
+
+flow.capture(ManualOutputConfig(output_builder))
 ```
 
 Now we're done with defining the dataflow. Let's run it!
@@ -276,26 +277,23 @@ Execution
 
 [Bytewax provides a few different entry points for executing your
 dataflow](/getting-started/execution/), but because we're focusing on the dataflow in
-this example, we're going to use `bytewax.run` which is the most basic
-execution mode that pushes input items in an iterator through the
-dataflow.
+this example, we're going to use `bytewax.execution.run_main` which is the most basic
+execution mode.
 
 Let's take our example list of events and pipe it in:
 
 ```python
-from bytewax import run
+from bytewax.execution import run_main
 
-
-for epoch, item in run(flow, IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS):
-    print(epoch, item)
+run_main(flow)
 ```
 
 Let's inspect the output and see if it makes sense.
 
 ```{testoutput}
-10 1.0
-10 1.0
-11 0.0
+1.0
+1.0
+0.0
 ```
 
 Since the [capture](/apidocs#bytewax.Dataflow.capture) step is immediately after
@@ -305,11 +303,3 @@ session. That checks out! There were three searches in the input:
 so they contributed `1.0` to the CTR, while the no-click search
 contributed `0.0`.
 
-The first number on each output line is the epoch of that data
-item. Most operators do not modify the epoch attached to each item as
-they transform it. The only operator that modifies the epoch in this
-example is [reduce](/apidocs#bytewax.Dataflow.reduce) which emits output at the epoch
-of the input that is marked as "complete". Since we are marking user
-sessions as complete when reduce has an `AppClose` event as input
-(originally assigned epochs `10` and `11`), those epochs are applied
-to the resulting sessions and are carried through to the output here.
