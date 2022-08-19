@@ -36,7 +36,7 @@ We are going to eventually create a cluster of dataflows where we could have mul
 
 ```python
 import json
-from bytewax.inputs import AdvanceTo, Emit
+from bytewax.inputs import ManualInputConfig
 
 PRODUCT_IDS = ['BTC-USD','ETH-USD']
 ```
