@@ -61,13 +61,14 @@ def test_fold_window():
         results[event["type"]] += 1
         return results
 
+    start_at = datetime(2022, 1, 1)
     # This will result in times for events of +0, +4, +8, +12.
     clock_config = TestingClockConfig(
-        item_incr=timedelta(seconds=4), start_at=datetime(2022, 1, 1, 0, 0, 4)
+        item_incr=timedelta(seconds=4), start_at=start_at
     )
     # And since the window is +10, we should get a window with value
     # of 3 and then 1.
-    window_config = TumblingWindowConfig(length=timedelta(seconds=10))
+    window_config = TumblingWindowConfig(length=timedelta(seconds=10), start_at=start_at)
 
     flow = Dataflow()
     flow.input("inp", TestingInputConfig(gen()))
