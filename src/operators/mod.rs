@@ -323,41 +323,20 @@ impl FoldWindowLogic {
 impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for FoldWindowLogic {
     fn exec(&mut self, next_value: Option<TdPyAny>) -> Option<TdPyAny> {
         match next_value {
-            Some(value) => {
-                Python::with_gil(|py| {
-                    let updated_acc: TdPyAny = match &self.acc {
-                        // If there's no previous state for this key,
-                        // use the current value.
-                        None => {
-                            let initial_acc: TdPyAny =
-                                with_traceback!(py, self.builder.call1(py, ())).into();
-                            let updated_acc = with_traceback!(
-                                py,
-                                self.folder
-                                    .call1(py, (initial_acc.clone_ref(py), value.clone_ref(py)))
-                            )
-                            .into();
-                            debug!("fold_window: folder={:?}(initial_acc={initial_acc:?}, value={value:?}) -> updated_acc={updated_acc:?}", self.folder);
-                            updated_acc
-                        }
-                        Some(acc) => {
-                            let updated_acc = with_traceback!(
-                                py,
-                                self.folder
-                                    .call1(py, (acc.clone_ref(py), value.clone_ref(py)))
-                            )
-                            .into();
-                            debug!("fold_window: folder={:?}(acc={acc:?}, value={value:?}) -> updated_acc={updated_acc:?}", self.folder);
-
-                            updated_acc
-                        }
-                    };
-
-                    self.acc = Some(updated_acc);
-
-                    None
-                })
-            }
+            Some(value) => Python::with_gil(|py| {
+                let acc: TdPyAny = self
+                    .acc
+                    .take()
+                    .unwrap_or_else(|| with_traceback!(py, self.builder.call1(py, ())).into());
+                // Build the strings for debugging before moving the ownership to the folder
+                let acc_display = format!("{:?}", acc);
+                let value_display = format!("{:?}", value);
+                // Call the folder with the initialized accumulator
+                let updated_acc = with_traceback!(py, self.folder.call1(py, (acc, value))).into();
+                debug!("fold_window: builder={:?}, folder={:?}(acc={acc_display}, value={value_display}) -> updated_acc={updated_acc:?}", self.builder, self.folder);
+                self.acc = Some(updated_acc);
+                None
+            }),
             // Emit at end of window.
             None => self.acc.take(),
         }
