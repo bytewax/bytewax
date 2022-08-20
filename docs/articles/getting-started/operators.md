@@ -12,10 +12,6 @@ You can add steps to your dataflow by calling the method with the name of the op
 
 There is a detailed description of every operator, its behavior, and a simple example in the API docs for [`bytewax.Dataflow`](/apidocs#bytewax.Dataflow).
 
-## Epoch Modification
-
-Operators generally do not modify the epoch of the data that is passing through them. If they do, that will be called out explicitly in their API documentation. For example, [`bytewax.Dataflow.reduce()`](/apidocs#bytewax.Dataflow.reduce) mentions that its output will be only in the epoch of the most recent value for each key.
-
 ## Stateful Operators
 
 Any operator which carries state between processing items is a
@@ -27,9 +23,3 @@ and **values** in a `(key, value)` two-tuple. Keys must be
 strings. Bytewax can then route the value to the worker that has the
 relevant state. Any output from these operators will also be `(key,
 output_item)` two-tuples as well.
-
-## Recoverable Operators
-
-Stateful operators which persist state across epochs are also **recoverable operators**.
-
-They all take a `step_id` argument so that their state is backed up correctly.

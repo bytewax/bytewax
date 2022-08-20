@@ -15,12 +15,18 @@ And a copy of the code in a file called `wordcount.py`.
 ```python doctest:SORT_OUTPUT doctest:ELLIPSIS doctest:NORMALIZE_WHITESPACE
 import re
 
-from bytewax import Dataflow, run
+from bytewax.dataflow import Dataflow
+from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import ManualOutputConfig
+from bytewax.execution import run_main
+from bytewax.window import TestingClockConfig, TumblingWindowConfig
+from datetime import timedelta, datetime
+import operator
 
-
-def file_input():
+def input_builder(worker_index, worker_count, resume_state):
+    state = None #ignore recovery
     for line in open("wordcount.txt"):
-        yield 1, line
+        yield state, line
 
 
 def lower(line):
@@ -32,23 +38,31 @@ def tokenize(line):
 
 
 def initial_count(word):
-    return word, 1
+    return word, 0
     
     
 def add(count1, count2):
     return count1 + count2
 
+def output_builder(worker_index, worker_count):
+    def output_handler(item):
+        print(item)
+    return output_handler
+
+start_at = datetime(2022, 1, 1)
+cc = TestingClockConfig(item_incr=timedelta(seconds=5), start_at=start_at)
+wc = TumblingWindowConfig(length=timedelta(seconds=5), start_at=start_at)
 
 flow = Dataflow()
+flow.input("input", ManualInputConfig(input_builder))
 flow.map(lower)
 flow.flat_map(tokenize)
 flow.map(initial_count)
-flow.reduce_epoch(add)
-flow.capture()
+flow.reduce_window("sum", cc, wc, add)
+flow.capture(ManualOutputConfig(output_builder))
 
 
-for epoch, item in run(flow, file_input()):
-    print(item)
+run_main(flow)
 ```
 
 ## Running the example
@@ -56,7 +70,6 @@ for epoch, item in run(flow, file_input()):
 Now that we have our program and our input, we can run our example via `python ./wordcount.py` and see the completed result:
 
 ```{testoutput}
-("'tis", 1)
 ('a', 1)
 ('against', 1)
 ('and', 2)
@@ -84,14 +97,15 @@ We'll start with how to get input we'll push through our dataflow.
 ### Take a line from the file
 
 ```python
-def file_input():
+def input_builder(worker_index, worker_count, resume_state):
+    state = None #ignore recovery
     for line in open("wordcount.txt"):
-        yield 1, line
+        yield state, line
 ```
 
 To receive input, our program needs an **input iterator**. We've defined a [Python generator](https://docs.python.org/3/glossary.html#term-generator) that will read our input file. There are also more advanced ways to provide input, which you can read about later when we talk about [execution modes](/getting-started/execution/).
 
-This generator yields two-tuples of `1` and a line from our file. The `1` in this example is significant, but we'll talk more about it when we discuss [epochs](/getting-started/epochs/).
+This generator yields two-tuples of `state` and a line from our file. The `state` in this example is significant, but we'll talk more about it when we discuss [recovery](/getting-started/recovery/).
 
 Let's define the steps that we want to execute for each line of input that we receive. We will add these steps to a **dataflow object**, `bytewax.Dataflow()`.
 
@@ -105,6 +119,7 @@ def lower(line):
 
 
 flow = Dataflow()
+flow.input("input", ManualInputConfig(input_builder))
 flow.map(lower)
 ```
 
@@ -112,7 +127,7 @@ For each item that our generator produces, the map operator will use the [built-
 
 ### Split the line into words
 
-When our `file_input()` function is called, it will receive an entire line from our file. In order to count the words in the file, we'll need to break that line up into individual words.
+When our `input_builder()` function is called, it will receive an entire line from our file. In order to count the words in the file, we'll need to break that line up into individual words.
 
 Enter our `tokenize()` function, which uses a Python regular expression to split the line of input into a list of words:
 
@@ -146,7 +161,7 @@ The flat map operator defines a step which calls a function on each input item. 
 
 At this point in the dataflow, the items of data are the individual words.
 
-Let's skip ahead to the second operator here, [reduce epoch](/apidocs#bytewax.Dataflow.reduce_epoch).
+Let's skip ahead to the second operator here, [reduce window](/apidocs#bytewax.Dataflow.reduce_window).
 
 ```python
 def initial_count(word):
@@ -156,43 +171,42 @@ def initial_count(word):
 def add(count1, count2):
     return count1 + count2
     
-
 flow.map(initial_count)
-flow.reduce_epoch(add)
+start_at = datetime(2022, 1, 1)
+cc = TestingClockConfig(item_incr=timedelta(seconds=1), start_at=start_at)
+wc = TumblingWindowConfig(length=timedelta(seconds=2), start_at=start_at)
+flow.reduce_window("sum", cc, wc, add)
 ```
 
 Its super power is that it can repeatedly combine together items into a single, aggregate value via a reducing function. Think about it like reducing a sauce while cooking: you are boiling all of the values down to something more concentrated.
 
 In this case, we pass it the reducing function `add()` which will sum together the counts of words so that the final aggregator value is the total.
 
-How does reduce epoch know which items to combine? Part of its requirements are that the input items from the previous step in the dataflow are `(key, value)` two-tuples, and it will make sure that all values for a given key are passed to the reducing function. Thus, if we make the word the key, we'll be able to get separate counts!
+How does reduce_window know which items to combine? Part of its requirements are that the input items from the previous step in the dataflow are `(key, value)` two-tuples, and it will make sure that all values for a given key are passed to the reducing function. Thus, if we make the word the key, we'll be able to get separate counts!
 
 That explains the previous map step in the dataflow with `initial_count()`.
 
-This map sets up the shape that reduce epoch needs: two-tuples where the key is the word, and the value is something we can add together. In this case, since we have a copy of a word for each instance, it represents that we should add `1` to the total count, so label that here.
-
-The "epoch" part of reduce epoch means that we repeat the reduction in each epoch. We'll gloss over that here, but know we'll be counting all the words from the input. Epochs will be further [explained later](/getting-started/epochs/).
+This map sets up the shape that reduce_window needs: two-tuples where the key is the word, and the value is something we can add together. In this case, since we have a copy of a word for each instance, it represents that we should add `1` to the total count, so label that here.
 
 ### Print out the counts
 
 The last part of our dataflow program will use the [capture operator](/apidocs#bytewax.Dataflow.capture) to mark the output of our reduction as the dataflow's final output.
 
 ```python
-flow.capture()
+flow.capture(ManualOutputConfig(output_builder))
 ```
 
 This means that whatever items are flowing through this point in the dataflow will be passed on as output. Output is routed in different ways depending on how the dataflow is run.
 
 ### Running
 
-To run the example, we'll need to introduce one more function, `bytewax.run()`:
+To run the example, we'll need to introduce one more function, `bytewax.run_main()`:
 
 ```python doctest:SORT_OUTPUT doctest:SORT_EXPECTED
-for epoch, item in run(flow, file_input()):
-    print(item)
+run_main(flow)
 ```
 
-When we call `run()`, our dataflow program will begin running, Bytewax will read the input items and epoch from our input generator, push the data through each step in the dataflow, and return the captured output. We then print the output of the final step.
+When we call `run_main()`, our dataflow program will begin running, Bytewax will read the input items and epoch from our input generator, push the data through each step in the dataflow, and return the captured output. We then print the output of the final step.
 
 Here is the complete output when running the example:
 
