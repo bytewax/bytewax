@@ -17,21 +17,25 @@ The simplest entry point is `bytewax.run_main()`. It will run your dataflow on a
 ```python doctest:SORT_OUTPUT
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.inputs import TestingInputConfig
-from bytewax.outputs import TestingOutputConfig, StdOutputConfig
+from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import ManualOutputConfig
 
-result = []
-output = TestingOutputConfig(result)
+def input_builder(worker_index, worker_count, resume_state):
+    state = None # Ignore recovery
+    for i in range(3):
+        yield (state, i)
+
+def output_builder(worker_index, worker_count):
+    def output_handler(item):
+        print(item)
+    return output_handler
 
 flow = Dataflow()
-flow.input("inp", TestingInputConfig(range(3)))
+flow.input("inp", ManualInputConfig(input_builder))
 flow.map(lambda item: item + 1)
-flow.capture(output)
-
+flow.capture(ManualOutputConfig(output_builder))
 
 run_main(flow)
-for i in result:
-    print(i)
 ```
 
 ```{testoutput}
@@ -68,7 +72,7 @@ Output is configured similarly to input, using a configuration and the `capture`
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
 from bytewax.inputs import ManualInputConfig
-from bytewax.outputs import StdOutputConfig
+from bytewax.outputs import ManualOutputConfig
 from bytewax.testing import doctest_ctx
 
 def input_builder(worker_index, worker_count, resume_state):
@@ -80,22 +84,21 @@ def incr(item):
     item["Item"] += 1
     return item
 
-result = []
-output = TestingOutputConfig(result)
+def output_builder(worker_index, worker_count):
+    def output_handler(item):
+        print(item)
+    return output_handler
 
 flow = Dataflow()
 flow.input("inp", ManualInputConfig(input_builder))
 flow.map(incr)
-flow.capture(output)
+flow.capture(ManualOutputConfig(output_builder))
 spawn_cluster(
     flow,
     proc_count=2,
     worker_count_per_proc=2,
     mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
 )
-
-for i in result:
-    print(i)
 ```
 
 ```{testoutput}
@@ -133,7 +136,7 @@ For a `ManualOutputConfig` passed to `capture`, the output builder function shou
 from bytewax.dataflow import Dataflow
 from bytewax.execution import cluster_main
 from bytewax.inputs import ManualInputConfig
-from bytewax.outputs import TestingOutputConfig
+from bytewax.outputs import TestingOutputConfig, ManualOutputConfig
 from bytewax.testing import doctest_ctx
 
 def input_builder(worker_index, worker_count, resume_state):
@@ -145,14 +148,15 @@ def incr(item):
     item["Item"] += 1
     return item
 
-# See examples for uses of our non-test input/output config
-result = []
-output = TestingOutputConfig(result)
+def output_builder(worker_index, worker_count):
+    def output_handler(item):
+        print(item)
+    return output_handler
 
 flow = Dataflow()
 flow.input("inp", ManualInputConfig(input_builder))
 flow.map(incr)
-flow.capture(output)
+flow.capture(ManualOutputConfig(output_builder))
 
 addresses = [
     "localhost:2101",
@@ -166,9 +170,6 @@ cluster_main(
     proc_id=0,
     worker_count_per_proc=2
 )
-
-for i in result:
-    print(i)
 ```
 
 In this toy example here, the cluster is only of a single process with an ID of `0`, so there are only two workers in the sample output:
