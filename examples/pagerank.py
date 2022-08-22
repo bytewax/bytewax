@@ -1,18 +1,22 @@
 import collections
 import operator
 
-from bytewax import Dataflow, parse, run_cluster
+from datetime import timedelta
 
-FIRST_ITERATION = 0
+from bytewax.dataflow import Dataflow
+from bytewax.execution import run_main
+from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import StdOutputConfig
+from bytewax.window import TumblingWindowConfig, SystemClockConfig
 
-
-def read_edges(filename):
-    with open(filename) as lines:
+def read_edges(worker_index, worker_count, resume_state):
+    state = resume_state or None #ignoring recovery here
+    with open("examples/sample_data/graph.txt") as lines:
         for line in lines:
             line = line.strip()
             if line:
                 parent, child = tuple(x.strip() for x in line.split(","))
-                yield FIRST_ITERATION, (parent, {child})
+                yield state, (parent, {child})
 
 
 INITIAL_WEIGHT = 1.0
@@ -37,40 +41,24 @@ def sum_to_weight(node_sum):
 
 
 flow = Dataflow()
+flow.input("input", ManualInputConfig(read_edges))
 # (parent, {child}) per edge
-flow.reduce_epoch(operator.or_)
+flow.reduce_window(
+    "sum", SystemClockConfig(), TumblingWindowConfig(length=timedelta(seconds=5)), operator.or_
+)
 # (parent, children) per parent
-
-# TODO: Some sort of state capture here. This will be tricky because
-# we don't have a way of building state per-worker generically
-# yet. Timely uses Rust closures, but we're outside that context here.
-
 flow.map(with_initial_weight)
 # (parent, weight, children) per parent
 flow.flat_map(parent_contribs)
-# (child, contrib) per child * parent
-
-# This is a network-bound performance optimization to pre-aggregate
-# contribution sums in the worker before sending them to other
-# workers. See
-# https://github.com/frankmcsherry/blog/blob/master/posts/2015-07-08.md#implementation-2-worker-level-aggregation
-flow.reduce_epoch_local(operator.add)
-
 # (node, sum_contrib) per node per worker
-flow.reduce_epoch(operator.add)
+flow.reduce_window(
+    "sum", SystemClockConfig(), TumblingWindowConfig(length=timedelta(seconds=5)), operator.add
+)
 # (node, sum_contrib) per node
 flow.map(sum_to_weight)
 # (node, updated_weight) per node
-
-# TODO: Figure out worker-persistent state? Then we don't need to
-# re-join with the graph to get connectivity. Also figure out how to
-# iterate.
-
-flow.capture()
+flow.capture(StdOutputConfig())
 
 
 if __name__ == "__main__":
-    for epoch, item in run_cluster(
-        flow, read_edges("examples/sample_data/graph.txt"), **parse.cluster_args()
-    ):
-        print(epoch, item)
+    run_main(flow)
