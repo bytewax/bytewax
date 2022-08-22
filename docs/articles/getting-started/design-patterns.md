@@ -22,7 +22,7 @@ from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import TestingInputConfig
 from bytewax.outputs import TestingOutputConfig
-from bytewax.window import TestingClockConfig, TumblingWindowConfig
+from bytewax.window import SystemClockConfig, TumblingWindowConfig
 from datetime import timedelta, datetime
 
 
@@ -90,55 +90,6 @@ print(result)
 ['hello', 'world']
 ```
 
-For inspect epoch:
-
-```python
-def log(epoch, item):
-    print(epoch, item)
-
-input = TestingInputConfig(["a", "b"])
-output = TestingOutputConfig([])
-
-flow = Dataflow()
-flow.input("inp", input)
-flow.inspect_epoch(log)
-flow.capture(output)
-
-run_main(flow)
-```
-
-```{testoutput}
-0 a
-0 b
-```
-
-```python
-flow = Dataflow()
-flow.input("inp", input)
-flow.inspect_epoch(lambda e, i: print(e, i))
-flow.capture(output)
-
-run_main(flow)
-```
-
-```{testoutput}
-0 a
-0 b
-```
-
-```python
-flow = Dataflow()
-flow.input("inp", input)
-flow.inspect_epoch(print)
-flow.capture(output)
-
-run_main(flow)
-```
-
-```{testoutput}
-0 a
-0 b
-```
 
 For reduce window:
 
@@ -152,14 +103,13 @@ result = []
 input = TestingInputConfig([("a", ["x"]), ("a", ["y"])])
 output = TestingOutputConfig(result)
 
-start_at = datetime(2022, 1, 1)
-cc = TestingClockConfig(item_incr=timedelta(seconds=1), start_at=start_at)
-wc = TumblingWindowConfig(length=timedelta(seconds=5), start_at=start_at)
+clock = SystemClockConfig()
+window = TumblingWindowConfig(length=timedelta(seconds=5))
 
 flow = Dataflow()
 flow.input("inp", input)
 # This is where we operate on the input
-flow.reduce_window("reduce", cc, wc, add_to_list)
+flow.reduce_window("reduce", clock, window, add_to_list)
 flow.capture(output)
 
 run_main(flow)
@@ -175,15 +125,14 @@ result = []
 input = TestingInputConfig([("a", ["x"]), ("a", ["y"])])
 output = TestingOutputConfig(result)
 
-start_at = datetime(2022, 1, 1)
-cc = TestingClockConfig(item_incr=timedelta(seconds=1), start_at=start_at)
-wc = TumblingWindowConfig(length=timedelta(seconds=5), start_at=start_at)
+clock = SystemClockConfig()
+window = TumblingWindowConfig(length=timedelta(seconds=5))
 
 flow = Dataflow()
 flow.input("inp", input)
 
 # This is where we operate on the input
-flow.reduce_window("reduce", cc, wc, lambda l1, l2: l1 + l2)
+flow.reduce_window("reduce", clock, window, lambda l1, l2: l1 + l2)
 flow.capture(output)
 
 run_main(flow)
@@ -201,15 +150,14 @@ result = []
 input = TestingInputConfig([("a", ["x"]), ("a", ["y"])])
 output = TestingOutputConfig(result)
 
-start_at = datetime(2022, 1, 1)
-cc = TestingClockConfig(item_incr=timedelta(seconds=1), start_at=start_at)
-wc = TumblingWindowConfig(length=timedelta(seconds=5), start_at=start_at)
+clock = SystemClockConfig()
+window = TumblingWindowConfig(length=timedelta(seconds=5))
 
 flow = Dataflow()
 flow.input("inp", input)
 
 # This is where we operate on the input
-flow.reduce_window("reduce", cc, wc, operator.add)
+flow.reduce_window("reduce", clock, window, operator.add)
 flow.capture(output)
 
 run_main(flow)
@@ -275,11 +223,11 @@ def user_reducer(all_events, new_events):
     return all_events + new_events
 
 
-def collect_user_events(flow, cc, wc):
+def collect_user_events(flow, clock, window):
     # event
     flow.map(lambda e: (e["user_id"], [e]))
     # (user_id, event)
-    flow.reduce_window("reducer", cc, wc, user_reducer)
+    flow.reduce_window("reducer", clock, window, user_reducer)
     # (user_id, events_for_user)
     flow.map(lambda u_es: u_es[1])
     # events_for_user
@@ -290,13 +238,12 @@ input = TestingInputConfig(
     [{"user_id": "1", "type": "login"}, {"user_id": "1", "type": "logout"}]
 )
 output = TestingOutputConfig(result)
-start_at = datetime(2022, 1, 1)
-cc = TestingClockConfig(item_incr=timedelta(seconds=1), start_at=start_at)
-wc = TumblingWindowConfig(length=timedelta(seconds=5), start_at=start_at)
+clock = SystemClockConfig()
+window = TumblingWindowConfig(length=timedelta(seconds=5))
 
 flow = Dataflow()
 flow.input("inp", input)
-collect_user_events(flow, cc, wc)
+collect_user_events(flow, clock, window)
 flow.capture(output)
 
 run_main(flow)
