@@ -6,10 +6,10 @@ from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import ManualEpochOutputConfig
 
 
-def input_builder(worker_index, worker_count):
+def input_builder(worker_index, worker_count, state):
     def random_datapoints():
         for _ in range(20):
-            yield "QPS", random.randrange(0, 10)
+            yield None, ("QPS", random.randrange(0, 10))
 
     return random_datapoints()
 
@@ -68,10 +68,11 @@ def output_builder(worker_index, worker_count):
 
 
 if __name__ == "__main__":
-    flow = Dataflow(ManualInputConfig(input_builder))
+    flow = Dataflow()
+    flow.input("input", ManualInputConfig(input_builder))
     # ("metric", value)
     flow.stateful_map(
-        "AnomalyDetector", lambda key: ZTestDetector(2.0), ZTestDetector.push
+        "AnomalyDetector", lambda: ZTestDetector(2.0), ZTestDetector.push
     )
     # ("metric", (value, mu, sigma, is_anomalous))
     flow.capture(ManualEpochOutputConfig(output_builder))
