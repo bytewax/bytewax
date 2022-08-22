@@ -5,7 +5,17 @@ from datetime import timedelta
 
 from utils import twitter
 
-from bytewax import Dataflow, inputs, parse, run_cluster
+from bytewax.dataflow import Dataflow
+from bytewax.execution import run_main
+from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import StdOutputConfig
+from bytewax.window import TumblingWindowConfig, SystemClockConfig
+
+
+def input_builder(worker_index, worker_count, resume_state):
+    state = None  # ignore recovery
+    for tweet in twitter.get_stream():
+        yield state, tweet
 
 
 def decode(x):
@@ -25,6 +35,7 @@ def initial_count(coin):
 
 
 flow = Dataflow()
+flow.input("input", ManualInputConfig(input_builder))
 # "event_json"
 flow.flat_map(decode)
 # {event_dict}
@@ -32,15 +43,12 @@ flow.flat_map(coin_name)
 # "coin"
 flow.map(initial_count)
 # ("coin", 1)
-flow.reduce_epoch(operator.add)
+flow.reduce_window(
+    "sum", SystemClockConfig(), TumblingWindowConfig(length=timedelta(seconds=2)), operator.add
+)
 # ("coin", count)
-flow.capture()
-
+flow.capture(StdOutputConfig())
 
 if __name__ == "__main__":
-    for epoch, item in run_cluster(
-        flow,
-        inputs.tumbling_epoch(twitter.get_stream(), timedelta(seconds=2)),
-        **parse.cluster_args()
-    ):
-        print(epoch, item)
+    run_main(flow)
+
