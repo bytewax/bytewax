@@ -70,3 +70,6 @@ docs/_build/
 
 # Pyenv
 .python-version
+
+# Data generated during examples' execution
+parquet_demo_out/
