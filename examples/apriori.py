@@ -1,13 +1,22 @@
 import itertools
 import operator
+
 from collections import Counter
+from datetime import timedelta
 
-from bytewax import Dataflow, parse, run_cluster
+from bytewax.dataflow import Dataflow
+from bytewax.execution import spawn_cluster, run_main
+from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import StdOutputConfig, ManualOutputConfig, TestingOutputConfig
+from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
-def file_input():
-    for line in open("examples/sample_data/apriori.txt"):
-        yield 1, line
+def input_builder(worker_index, worker_count, state):
+    def file_input():
+        for line in open("examples/sample_data/apriori.txt"):
+            yield None, line
+
+    return file_input()
 
 
 def lower(line):
@@ -15,7 +24,7 @@ def lower(line):
 
 
 def tokenize(line):
-    return [l.strip() for l in line.split(",")]
+    return [word.strip() for word in line.split(",")]
 
 
 def initial_count(word):
@@ -30,38 +39,43 @@ def build_pairs(line):
     tokens = tokenize(line)
 
     for left, right in itertools.combinations(tokens, 2):
-
         # popular pairs need to contain a popular product
-        if left not in (most_popular_products) and right not in most_popular_products:
-            continue
-
-        pair = tuple(sorted((left, right)))  # order tuple for count
-        yield pair
+        if left in most_popular_products or right in most_popular_products:
+            pair = sorted((left, right))  # order elements for count
+            yield "-".join(pair)
 
 
 product_counter: Counter = Counter()
 most_popular_products: dict[str, int] = {}
 
+cc = SystemClockConfig()
+wc = TumblingWindowConfig(length=timedelta(seconds=5))
+
 # first pass - count products
+out = []
 flow = Dataflow()
+flow.input("input", ManualInputConfig(input_builder))
 flow.map(lower)
 flow.flat_map(tokenize)
 flow.map(initial_count)
-flow.reduce_epoch(operator.add)
-flow.capture()
+flow.reduce_window("reduce", cc, wc, operator.add)
+flow.capture(TestingOutputConfig(out))
 
 # second pass - count pairs
+out2 = []
 flow2 = Dataflow()
+flow2.input("input", ManualInputConfig(input_builder))
 flow2.map(lower)
 flow2.filter(is_most_common)  # count basket only with popular products
 flow2.flat_map(build_pairs)
 flow2.map(initial_count)
-flow2.reduce_epoch(operator.add)
-flow2.capture()
+flow2.reduce_window("reduce", cc, wc, operator.add)
+flow2.capture(TestingOutputConfig(out2))
 
 
 if __name__ == "__main__":
-    for _, item in run_cluster(flow, file_input(), **parse.cluster_args()):
+    run_main(flow)
+    for item in out:
         pair, count = item
         product_counter[pair] = count
 
@@ -73,7 +87,8 @@ if __name__ == "__main__":
         most_popular_products[product] = count
 
     most_popular_pairs: Counter = Counter()
-    for _, item in run_cluster(flow2, file_input(), **parse.cluster_args()):
+    run_main(flow2)
+    for item in out2:
         pair, count = item
         most_popular_pairs[pair] = count
 
