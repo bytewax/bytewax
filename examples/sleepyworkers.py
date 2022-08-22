@@ -1,7 +1,7 @@
-import time
-
-import bytewax
-from bytewax import Dataflow, parse, run_cluster
+from bytewax.dataflow import Dataflow
+from bytewax.execution import run_main
+from bytewax.inputs import TestingInputConfig
+from bytewax.outputs import StdOutputConfig
 
 
 def slow(x):
@@ -27,15 +27,13 @@ def output(x):
 
 
 flow = Dataflow()
+flow.input("stateless_input", TestingInputConfig(["in1", "in2", "in3", "in4", "in5"]))
 flow.inspect(print)
 # flow.map(slow)
 flow.map(busy)
 flow.map(output)
-flow.capture()
+flow.capture(StdOutputConfig())
 
 
 if __name__ == "__main__":
-    for epoch, item in run_cluster(
-        flow, enumerate(["in1", "in2", "in3", "in4", "in5"]), **parse.cluster_args()
-    ):
-        print(epoch, item)
+    run_main(flow)
