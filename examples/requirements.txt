@@ -4,3 +4,6 @@ fake-web-events
 
 # orderbook
 websocket-client
+
+# translator
+tensorflow
