@@ -37,6 +37,7 @@ We are going to eventually create a cluster of dataflows where we could have mul
 ```python
 import json
 from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import ManualOutputConfig
 
 PRODUCT_IDS = ['BTC-USD','ETH-USD']
 ```
@@ -45,6 +46,7 @@ PRODUCT_IDS = ['BTC-USD','ETH-USD']
 from websocket import create_connection
 
 def ws_input(product_ids):
+    state = None
     ws = create_connection("wss://ws-feed.pro.coinbase.com")
     ws.send(
         json.dumps(
@@ -56,23 +58,17 @@ def ws_input(product_ids):
         )
     )
     print(ws.recv())
-    epoch = 0
     while True:
-        yield Emit(ws.recv())
-        epoch += 1
-        yield AdvanceTo(epoch)
+        yield state, ws.recv()
 ```
 
 For testing purposes, if you don't want to perform HTTP requests, you can read the sample websocket data from a local file with a list of JSON responses.
 
 ```python
-def ws_input(product_ids):
+def ws_input(product_ids, state):
     print('{"type":"subscriptions","channels":[{"name":"level2","product_ids":["BTC-USD","ETH-USD"]}]}')
-    epoch = 0
     for msg in open("crypto-sockets.json"):
-        yield Emit(msg)
-        epoch += 1
-        yield AdvanceTo(epoch)
+        yield state, msg
 ```
 
 Now that we have our websocket based data generator built, we will write an input builder for our dataflow. Since we're using a manual input builder, we'll pass a `ManualInputConfig` as our `input_config` with the builder as a parameter. The input builder is called on each worker and the function will have information about the `worker_index` and the total number of workers (`worker_count`). In this case we are designing our input builder to handle multiple workers and multiple currency pairs, so that we can parallelize the input. So we will distribute the currency pairs with the logic in the code below. It should be noted that if you run more than one worker with only one currency pair, the other workers will not be used.
@@ -80,11 +76,12 @@ Now that we have our websocket based data generator built, we will write an inpu
 ```python
 from bytewax.inputs import ManualInputConfig
 
-def input_builder(worker_index, worker_count, resume_epoch):
-    assert resume_epoch == 0  # We're not going to worry about stateful recovery in this example.
+def input_builder(worker_index, worker_count, resume_state):
+    # We're not going to worry about stateful recovery in this example.
+    state = None
     prods_per_worker = int(len(PRODUCT_IDS)/worker_count)
     product_ids = PRODUCT_IDS[int(worker_index*prods_per_worker):int(worker_index*prods_per_worker+prods_per_worker)]
-    return ws_input(product_ids)
+    return ws_input(product_ids, state)
 
 input_config = ManualInputConfig(input_builder)
 ```
@@ -102,12 +99,13 @@ Building Our Dataflow
 Before we get to the exciting part of our order book dataflow we need to prep the data. We initially receive some JSON formatted text, so we will first deserialize the JSON we are receiving from the websocket into a dictionary. Once deserialized, we can reformat the data to be a tuple of the shape (product_id, data). This will permit us to aggregate by the product_id as our key in the next step.
 
 ```python
-from bytewax import Dataflow
+from bytewax.dataflow import Dataflow
 
 def key_on_product(data):
     return(data['product_id'],data)
 
 flow = Dataflow()
+flow.input("input", ManualInputConfig(input_builder))
 flow.map(json.loads)
 # {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'}
 flow.map(key_on_product)
@@ -212,7 +210,7 @@ class OrderBook:
                         self.bid_price = price
         return self, {'bid': self.bid_price, 'bid_size': self.bids[self.bid_price], 'ask': self.ask_price, 'ask_price': self.asks[self.ask_price], 'spread': self.ask_price-self.bid_price}
 
-flow.stateful_map("order_book", lambda key: OrderBook(), OrderBook.update)
+flow.stateful_map("order_book", OrderBook, OrderBook.update)
 ```
 
 With our snapshot processed, for each new message we receive from the websocket, we can update the order book, the bid and ask price and the spread via the `update` method. Sometimes an order was filled or it was cancelled and in this case what we receive from the update is something similar to `'changes': [['buy', '36905.39', '0.00000000']]`. When we receive these updates of size `'0.00000000'`, we can remove that item from our book and potentially update our bid and ask price. The code below will check if the order should be removed and if not it will update the order. If the order was removed, it will check to make sure the bid and ask prices are modified if required.
@@ -223,29 +221,29 @@ The `capture` operator is designed to use the output builder function that we de
 
 ```python
 flow.filter(lambda x: x[-1]['spread'] / x[-1]['ask'] > 0.0001)
-flow.capture()
+flow.capture(ManualOutputConfig(output_builder))
 ```
 
 [Bytewax provides a few different entry points for executing a dataflow](/getting-started/execution/).
 That's it, let's run it and verify our output:
 
 ```python
-from bytewax import run_main
+from bytewax.execution import run_main
 
-run_main(flow, input_config, output_builder)
+run_main(flow)
 ```
 
 ```{testoutput}
 {"type":"subscriptions","channels":[{"name":"level2","product_ids":["BTC-USD","ETH-USD"]}]}
-(0, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
-(2, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
-(4, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
-(6, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
-(8, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
-(10, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.04939131, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
-(12, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.04939131, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
-(14, ('BTC-USD', {'bid': 19814.24, 'bid_size': 0.04939131, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896}))
-(15, ('ETH-USD', {'bid': 1088.41, 'bid_size': 7.6889646, 'ask': 1088.7, 'ask_price': 0.12011129, 'spread': 0.2899999999999636}))
+('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896})
+('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896})
+('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896})
+('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896})
+('BTC-USD', {'bid': 19814.24, 'bid_size': 0.05, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896})
+('BTC-USD', {'bid': 19814.24, 'bid_size': 0.04939131, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896})
+('BTC-USD', {'bid': 19814.24, 'bid_size': 0.04939131, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896})
+('BTC-USD', {'bid': 19814.24, 'bid_size': 0.04939131, 'ask': 19816.94, 'ask_price': 0.5038223, 'spread': 2.6999999999970896})
+('ETH-USD', {'bid': 1088.41, 'bid_size': 7.6889646, 'ask': 1088.7, 'ask_price': 0.12011129, 'spread': 0.2899999999999636})
 ```
 
 Another entry point `bytewax.spawn_cluster` which allows us to run dataflows in parallel on threads and processes.
