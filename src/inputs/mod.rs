@@ -11,7 +11,7 @@
 //! sources are generated and epochs assigned. The only goal of the
 //! input system is "what's my next item for this worker?"
 //!
-//! Output is based around the core trait of [`InputReader`].  The
+//! Input is based around the core trait of [`InputReader`].  The
 //! [`crate::dataflow::Dataflow::input`] operator delegates to impls
 //! of that trait for actual writing.
 //!

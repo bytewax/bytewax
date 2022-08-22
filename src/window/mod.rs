@@ -124,7 +124,7 @@ impl TestingClockConfig {
     const __test__: bool = false;
 
     #[new]
-    #[args(item_incr, start)]
+    #[args(item_incr, start_at)]
     fn new(
         item_incr: pyo3_chrono::Duration,
         start_at: pyo3_chrono::NaiveDateTime,

@@ -19,7 +19,7 @@
 //! get proper recovery behavior.
 //!
 //! The general idea is that you pass a **logic builder** which takes
-//! any previous state snapshots from the last exectuion and builds an
+//! any previous state snapshots from the last execution and builds an
 //! instance of your logic. Then your logic is **snapshotted** at the
 //! end of each epoch, and that state durably saved in the recovery
 //! store.
@@ -126,7 +126,7 @@
 //!
 //! Stateful unary does not backup itself. Instead, each stateful
 //! operator generates a second **state backup stream** output. These
-//! are then connected to the rest of the recovery componenets, after
+//! are then connected to the rest of the recovery components, after
 //! serializing / deserializing the state so that the recovery streams
 //! are all backups of bytes.
 //!
@@ -137,7 +137,7 @@
 //!
 //! The [`crate::operator::WriteProgress`] operator then looks at the
 //! **worker frontier**, the combined stream of written backups and
-//! all captures. This will be writen via the [`ProgressWriter`]. It
+//! all captures. This will be written via the [`ProgressWriter`]. It
 //! emits heartbeats.
 //!
 //! These worker frontier heartbeats are then broadcast so operators
@@ -749,7 +749,7 @@ pub(crate) trait StatefulLogic<V, R, I: IntoIterator<Item = R>> {
     /// operator exactly how it currently is in the
     /// [`StatefulUnary::stateful_unary`]'s `logic_builder`.
     ///
-    /// eturn [`StateUpdate::Reset`] whenever this logic for this key
+    /// Return [`StateUpdate::Reset`] whenever this logic for this key
     /// is "complete" and should be discarded. It will be built again
     /// if the key is encountered again.
     ///
