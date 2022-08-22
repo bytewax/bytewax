@@ -59,7 +59,7 @@ Epochs
 ------
 
 Now that we've got those, here's a small dump of some example data you
-could imagine comming from your app's events infrastructure.
+could imagine coming from your app's events infrastructure.
 
 Let's write a function that will yield one of these events at a time
 into our dataflow.
@@ -82,7 +82,7 @@ IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS = [
 ]
 
 def input_builder(worker_index, worker_count, resume_state):
-    state = resume_state or {}
+    state = resume_state or None
     for line in IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS:
         yield(state, line)
 ```
