@@ -7,3 +7,7 @@ websocket-client
 
 # translator
 tensorflow
+
+# wikistream
+sseclient-py
+urllib3

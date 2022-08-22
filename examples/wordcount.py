@@ -1,11 +1,18 @@
 import re
+import operator
+from datetime import timedelta
 
-from bytewax import Dataflow, parse, run_cluster
+from bytewax.dataflow import Dataflow
+from bytewax.execution import run_main
+from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import StdOutputConfig
+from bytewax.window import TumblingWindowConfig, SystemClockConfig
 
 
-def file_input():
+def input_builder(worker_index, worker_count, resume_state):
+    state = None  # ignore recovery
     for line in open("examples/sample_data/wordcount.txt"):
-        yield 1, line
+        yield state, line
 
 
 def lower(line):
@@ -19,24 +26,27 @@ def tokenize(line):
 def initial_count(word):
     return word, 1
 
+def output_builder(worker_index, worker_count):
+    return print
 
-def add(count1, count2):
-    return count1 + count2
 
+cc = SystemClockConfig()
+wc = TumblingWindowConfig(length=timedelta(seconds=5))
 
 flow = Dataflow()
-# "Here, we have FULL sentences."
+flow.input("input", ManualInputConfig(input_builder))
+# Full line WITH uppercase
 flow.map(lower)
-# "here, we have lowercase sentences."
+# full line lowercased
 flow.flat_map(tokenize)
-# "words"
+# word
 flow.map(initial_count)
-# ("word", 1)
-flow.reduce_epoch(add)
+# ("word, 1")
+flow.reduce_window(
+    "sum", SystemClockConfig(), TumblingWindowConfig(length=timedelta(seconds=5)), operator.add
+)
 # ("word", count)
-flow.capture()
-
+flow.capture(StdOutputConfig())
 
 if __name__ == "__main__":
-    for epoch, item in run_cluster(flow, file_input(), **parse.cluster_args()):
-        print(epoch, item)
+    run_main(flow)
