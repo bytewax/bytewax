@@ -26,9 +26,7 @@ def input_builder(worker_index, worker_count, resume_state):
         yield (state, i)
 
 def output_builder(worker_index, worker_count):
-    def output_handler(item):
-        print(item)
-    return output_handler
+    return print
 
 flow = Dataflow()
 flow.input("inp", ManualInputConfig(input_builder))
@@ -85,9 +83,7 @@ def incr(item):
     return item
 
 def output_builder(worker_index, worker_count):
-    def output_handler(item):
-        print(item)
-    return output_handler
+    return print
 
 flow = Dataflow()
 flow.input("inp", ManualInputConfig(input_builder))
@@ -149,9 +145,7 @@ def incr(item):
     return item
 
 def output_builder(worker_index, worker_count):
-    def output_handler(item):
-        print(item)
-    return output_handler
+    return print
 
 flow = Dataflow()
 flow.input("inp", ManualInputConfig(input_builder))

@@ -263,9 +263,7 @@ In this example, we're just printing out what we've received.
 from bytewax.outputs import ManualOutputConfig
 
 def output_builder(worker_index, worker_count):
-    def output_handler(item):
-        print(item)
-    return output_handler
+    return print
 
 flow.capture(ManualOutputConfig(output_builder))
 ```
