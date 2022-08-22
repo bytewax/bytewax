@@ -13,15 +13,17 @@ And by opposing end them.
 And a copy of the code in a file called `wordcount.py`.
 
 ```python doctest:SORT_OUTPUT doctest:ELLIPSIS doctest:NORMALIZE_WHITESPACE
+import operator
 import re
+
+from datetime import timedelta, datetime
 
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import ManualOutputConfig
 from bytewax.execution import run_main
 from bytewax.window import TestingClockConfig, TumblingWindowConfig
-from datetime import timedelta, datetime
-import operator
+
 
 def input_builder(worker_index, worker_count, resume_state):
     state = None #ignore recovery
@@ -38,19 +40,19 @@ def tokenize(line):
 
 
 def initial_count(word):
-    return word, 0
+    return word, 1
     
     
 def add(count1, count2):
     return count1 + count2
 
+
 def output_builder(worker_index, worker_count):
-    def output_handler(item):
-        print(item)
-    return output_handler
+    return print
+
 
 start_at = datetime(2022, 1, 1)
-cc = TestingClockConfig(item_incr=timedelta(seconds=5), start_at=start_at)
+cc = TestingClockConfig(item_incr=timedelta(seconds=1), start_at=start_at)
 wc = TumblingWindowConfig(length=timedelta(seconds=5), start_at=start_at)
 
 flow = Dataflow()
@@ -61,7 +63,6 @@ flow.map(initial_count)
 flow.reduce_window("sum", cc, wc, add)
 flow.capture(ManualOutputConfig(output_builder))
 
-
 run_main(flow)
 ```
 
@@ -70,10 +71,32 @@ run_main(flow)
 Now that we have our program and our input, we can run our example via `python ./wordcount.py` and see the completed result:
 
 ```{testoutput}
+("'tis", 1)
 ('a', 1)
 ('against', 1)
 ('and', 2)
-...
+('arms', 1)
+('arrows', 1)
+('be', 2)
+('by', 1)
+('end', 1)
+('fortune', 1)
+('in', 1)
+('is', 1)
+('mind', 1)
+('nobler', 1)
+('not', 1)
+('of', 2)
+('opposing', 1)
+('or', 2)
+('outrageous', 1)
+('question', 1)
+('sea', 1)
+('slings', 1)
+('suffer', 1)
+('take', 1)
+('that', 1)
+('the', 3)
 ('them', 1)
 ('to', 4)
 ('troubles', 1)
@@ -174,7 +197,7 @@ def add(count1, count2):
 flow.map(initial_count)
 start_at = datetime(2022, 1, 1)
 cc = TestingClockConfig(item_incr=timedelta(seconds=1), start_at=start_at)
-wc = TumblingWindowConfig(length=timedelta(seconds=2), start_at=start_at)
+wc = TumblingWindowConfig(length=timedelta(seconds=5), start_at=start_at)
 flow.reduce_window("sum", cc, wc, add)
 ```
 
