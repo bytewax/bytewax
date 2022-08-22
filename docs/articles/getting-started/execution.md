@@ -10,7 +10,7 @@ See our API docs or docstrings for a detailed description of arguments to these 
 
 ## Single Worker Run
 
-The simplest entry point is `bytewax.run_main()`. It will run your dataflow on a single worker in the current process. It has a simple iterator-based API takes an **input iterator** of `(epoch, item)` tuples and collects all output into a list of `(epoch, item)` tuples and returns it.
+The simplest entry point is `bytewax.run_main()`. It will run your dataflow on a single worker in the current process. It has a simple iterator-based API takes an **input iterator** of `(state, item)` tuples and collects all output into a list of `(state, item)` tuples and returns it.
 
 `run_main()` blocks until all output has been collected.
 

@@ -249,9 +249,10 @@ run_main(flow)
 Another entry point `bytewax.spawn_cluster` which allows us to run dataflows in parallel on threads and processes.
 
 ```python doctest:SKIP
-from bytewax import parse, spawn_cluster
+from bytewax import parse
+from bytewax.execution import run_main
 
-spawn_cluster(flow, input_config, output_builder, **parse.cluster_args())
+spawn_cluster(flow, **parse.cluster_args())
 ```
 
 If running from the command line, you can invoke it yourself with:
@@ -265,9 +266,9 @@ And eventually, if the spread is greater than $5, we will see some output simila
 
 ```bash
 {"type":"subscriptions","channels":[{"name":"level2","product_ids":["BTC-USD"]}]}
-(1046, ('BTC-USD', (38590.1, 0.00945844, 38596.73, 0.01347429, 6.630000000004657)))
-(1047, ('BTC-USD', (38590.1, 0.00945844, 38597.13, 0.02591147, 7.029999999998836)))
-(1048, ('BTC-USD', (38590.1, 0.00945844, 38597.13, 0.02591147, 7.029999999998836)))
+('BTC-USD', (38590.1, 0.00945844, 38596.73, 0.01347429, 6.630000000004657))
+('BTC-USD', (38590.1, 0.00945844, 38597.13, 0.02591147, 7.029999999998836))
+('BTC-USD', (38590.1, 0.00945844, 38597.13, 0.02591147, 7.029999999998836))
 ```
 
 That's it!
