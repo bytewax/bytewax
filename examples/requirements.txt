@@ -1,3 +1,6 @@
 pandas
 pyarrow
 fake-web-events
+
+# orderbook
+websocket-client

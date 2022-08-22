@@ -1,13 +1,16 @@
-import json, time
+import json
 
-from websocket import create_connection
-from bytewax import Dataflow, parse, spawn_cluster, AdvanceTo, Emit
+from websocket import create_connection #pip install websocket-client
+from bytewax import parse
+from bytewax.dataflow import Dataflow
+from bytewax.execution import spawn_cluster
 from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import ManualOutputConfig
 
 PRODUCT_IDS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 
 
-def ws_input(product_ids):
+def ws_input(product_ids, state):
     ws = create_connection("wss://ws-feed.pro.coinbase.com")
     ws.send(
         json.dumps(
@@ -20,21 +23,19 @@ def ws_input(product_ids):
     )
     # The first msg is just a confirmation that we have subscribed.
     print(ws.recv())
-    epoch = 0
     while True:
-        yield Emit(ws.recv())
-        epoch += 1
-        yield AdvanceTo(epoch)
+        yield state, ws.recv()
 
 
-def input_builder(worker_index, worker_count):
+def input_builder(worker_index, worker_count, resume_state):
+    state = resume_state or None
     prods_per_worker = int(len(PRODUCT_IDS) / worker_count)
     product_ids = PRODUCT_IDS[
         int(worker_index * prods_per_worker) : int(
             worker_index * prods_per_worker + prods_per_worker
         )
     ]
-    return ws_input(product_ids)
+    return ws_input(product_ids, state)
 
 
 def output_builder(worker_index, worker_count):
@@ -112,19 +113,18 @@ class OrderBook:
 
 
 flow = Dataflow()
+flow.input("input", ManualInputConfig(input_builder))
 flow.map(json.loads)
 # {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'}
 flow.map(key_on_product)
 # ('BTC-USD', {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'})
-flow.stateful_map(lambda key: OrderBook(), OrderBook.update)
+flow.stateful_map("order_book", OrderBook, OrderBook.update)
 # if using bytewax>0.9.0 --> flow.stateful_map("order_book", lambda key: OrderBook(), OrderBook.update)
 # ('BTC-USD', (36905.39, 0.00334873, 36905.4, 1.6e-05, 0.010000000002037268))
 flow.filter(
     lambda x: x[-1]["spread"] / x[-1]["ask"] > 0.0001
 )  # filter on 0.1% spread as a per
-flow.capture()
+flow.capture(ManualOutputConfig(output_builder))
 
 if __name__ == "__main__":
-    spawn_cluster(
-        flow, ManualInputConfig(input_builder), output_builder, **parse.cluster_args()
-    )
+    spawn_cluster(flow, **parse.cluster_args())
