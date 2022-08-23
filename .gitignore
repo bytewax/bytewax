@@ -73,3 +73,4 @@ docs/_build/
 
 # Data generated during examples' execution
 parquet_demo_out/
+.ipynb_checkpoints/
