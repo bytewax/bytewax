@@ -1,4 +1,3 @@
-bytewax
 pandas
-feast
+feast==0.21.2
 kafka-python==2.0.2

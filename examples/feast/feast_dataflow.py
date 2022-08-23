@@ -7,7 +7,7 @@ from kafka import KafkaConsumer
 
 from bytewax.execution import spawn_cluster
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import ManualInputConfig
+from bytewax.inputs import KafkaInputConfig
 from bytewax.outputs import ManualOutputConfig
 from bytewax.window import TumblingWindowConfig, SystemClockConfig
 
@@ -91,8 +91,12 @@ def calculate_avg(driver_events):
 
 
 def add_driver_id(event):
+    key_bytes, payload_bytes = event
+    key = json.loads(key_bytes) if key_bytes else None
+    payload = json.loads(payload_bytes) if payload_bytes else None
     # Event needs to be within an array for `collect_events`
-    return f"{event['driver_id']}", [event]
+    if payload:
+        return f"{payload['driver_id']}", [payload]
 
 
 if __name__ == "__main__":
@@ -124,7 +128,7 @@ if __name__ == "__main__":
     window = TumblingWindowConfig(length=dt.timedelta(seconds=0.1))
 
     flow = Dataflow()
-    flow.input("input", ManualInputConfig(input_builder))
+    flow.input("input", KafkaInputConfig(brokers=["localhost:9092"], topic="drivers"))
     flow.map(add_driver_id)
     flow.reduce_window("collect", clock, window, collect_events)
     flow.map(calculate_avg)
