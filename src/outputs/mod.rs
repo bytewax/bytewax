@@ -15,10 +15,13 @@
 //! want. E.g. [`StdOutputConfig`] represents a token in Python for
 //! how to create a [`StdOutputWriter`].
 
+use std::ffi::CString;
+
 use crate::{
     pyo3_extensions::{TdPyAny, TdPyCallable},
     with_traceback,
 };
+use pyo3::ffi::PySys_WriteStdout;
 use pyo3::{exceptions::PyValueError, prelude::*};
 
 /// Base class for an output config.
@@ -331,7 +334,11 @@ impl OutputWriter<u64, TdPyAny> for StdOutput {
                 .expect("Items written to std out need to implement `__str__`")
                 .extract()
                 .unwrap();
-            println!("{item_str}");
+            let output = CString::new(format!("{item_str}\n")).unwrap();
+            let stdout_str = output.as_ptr() as *const i8;
+            unsafe {
+                PySys_WriteStdout(stdout_str);
+            }
         });
     }
 }

@@ -14,12 +14,10 @@ There is a detailed description of every operator, its behavior, and a simple ex
 
 ## Stateful Operators
 
-Any operator which carries state between processing items is a
-**stateful operator**.
+Any operator which carries state between processing items is a **stateful operator**.
 
-In order to coordinate this state in a multiple-worker execution, all
-stateful operators require that their input are make up of **keys**
-and **values** in a `(key, value)` two-tuple. Keys must be
-strings. Bytewax can then route the value to the worker that has the
-relevant state. Any output from these operators will also be `(key,
-output_item)` two-tuples as well.
+In order to coordinate this state in a multiple-worker execution, all stateful operators require that their inputs are made up of **keys** and **values** in a `(key, value)` two-tuple. Keys must be strings. Bytewax can then route the value to the worker that has the relevant state. Any output from these operators will also be `(key, output_item)` two-tuples as well.
+
+### Stateful Operators and Recovery
+
+When a Bytewax dataflow is configured with recovery, state for operators can be periodically persisted. In the event of a or a crash or a restart, stateful operators can recover their internal state from a recovery store. For more information, see the documentation on [recovery](/getting-started/recovery/).

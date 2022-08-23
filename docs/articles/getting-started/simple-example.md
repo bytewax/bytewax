@@ -20,7 +20,7 @@ from datetime import timedelta, datetime
 
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import ManualInputConfig
-from bytewax.outputs import ManualOutputConfig
+from bytewax.outputs import StdOutputConfig
 from bytewax.execution import run_main
 from bytewax.window import TestingClockConfig, TumblingWindowConfig
 
@@ -46,11 +46,6 @@ def initial_count(word):
 def add(count1, count2):
     return count1 + count2
 
-
-def output_builder(worker_index, worker_count):
-    return print
-
-
 start_at = datetime(2022, 1, 1)
 cc = TestingClockConfig(item_incr=timedelta(seconds=1), start_at=start_at)
 wc = TumblingWindowConfig(length=timedelta(seconds=5), start_at=start_at)
@@ -61,7 +56,7 @@ flow.map(lower)
 flow.flat_map(tokenize)
 flow.map(initial_count)
 flow.reduce_window("sum", cc, wc, add)
-flow.capture(ManualOutputConfig(output_builder))
+flow.capture(StdOutputConfig())
 
 run_main(flow)
 ```
@@ -216,7 +211,7 @@ This map sets up the shape that reduce_window needs: two-tuples where the key is
 The last part of our dataflow program will use the [capture operator](/apidocs#bytewax.Dataflow.capture) to mark the output of our reduction as the dataflow's final output.
 
 ```python
-flow.capture(ManualOutputConfig(output_builder))
+flow.capture(StdOutputConfig())
 ```
 
 This means that whatever items are flowing through this point in the dataflow will be passed on as output. Output is routed in different ways depending on how the dataflow is run.

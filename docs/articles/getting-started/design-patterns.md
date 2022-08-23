@@ -20,20 +20,19 @@ For flat map:
 ```python
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.inputs import TestingInputConfig
-from bytewax.outputs import TestingOutputConfig
+from bytewax.inputs import TestingInputConfig, ManualInputConfig
+from bytewax.outputs import StdOutputConfig
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
 from datetime import timedelta, datetime
-
 
 def split_sentence(sentence):
     return sentence.split()
 
+def input_builder(wi, wc, rs):
+    for sentence in ["hello world"]:
+        yield None, sentence
 
-# We'll populate this list with the output so we can inspect it
-result = []
-output = TestingOutputConfig(result)
-input = TestingInputConfig(["hello world"])
+input = ManualInputConfig(input_builder)
 
 flow = Dataflow()
 flow.input("inp", input)
@@ -41,18 +40,16 @@ flow.input("inp", input)
 # This is where we operate on the input
 flow.flat_map(split_sentence)
 
-flow.capture(output)
+flow.capture(StdOutputConfig())
 run_main(flow)
-print(result)
 ```
 
 ```{testoutput}
-['hello', 'world']
+hello
+world
 ```
 
 ```python
-result = []
-output = TestingOutputConfig(result)
 input = TestingInputConfig(["hello world"])
 
 flow = Dataflow()
@@ -61,18 +58,16 @@ flow.input("inp", input)
 # This is where we operate on the input
 flow.flat_map(lambda s: s.split())
 
-flow.capture(output)
+flow.capture(StdOutputConfig())
 run_main(flow)
-print(result)
 ```
 
 ```{testoutput}
-['hello', 'world']
+hello
+world
 ```
 
 ```python
-result = []
-output = TestingOutputConfig(result)
 input = TestingInputConfig(["hello world"])
 
 flow = Dataflow()
@@ -81,13 +76,13 @@ flow.input("inp", input)
 # This is where we operate on the input
 flow.flat_map(str.split)
 
-flow.capture(output)
+flow.capture(StdOutputConfig())
 run_main(flow)
-print(result)
 ```
 
 ```{testoutput}
-['hello', 'world']
+hello
+world
 ```
 
 
@@ -99,9 +94,7 @@ def add_to_list(l, items):
     return l
 
 
-result = []
 input = TestingInputConfig([("a", ["x"]), ("a", ["y"])])
-output = TestingOutputConfig(result)
 
 clock = SystemClockConfig()
 window = TumblingWindowConfig(length=timedelta(seconds=5))
@@ -110,20 +103,18 @@ flow = Dataflow()
 flow.input("inp", input)
 # This is where we operate on the input
 flow.reduce_window("reduce", clock, window, add_to_list)
-flow.capture(output)
+flow.capture(StdOutputConfig())
 
 run_main(flow)
-print(result)
 ```
 
 ```{testoutput}
-[('a', ['x', 'y'])]
+('a', ['x', 'y'])
 ```
 
 ```python
 result = []
 input = TestingInputConfig([("a", ["x"]), ("a", ["y"])])
-output = TestingOutputConfig(result)
 
 clock = SystemClockConfig()
 window = TumblingWindowConfig(length=timedelta(seconds=5))
@@ -133,14 +124,13 @@ flow.input("inp", input)
 
 # This is where we operate on the input
 flow.reduce_window("reduce", clock, window, lambda l1, l2: l1 + l2)
-flow.capture(output)
+flow.capture(StdOutputConfig())
 
 run_main(flow)
-print(result)
 ```
 
 ```{testoutput}
-[('a', ['x', 'y'])]
+('a', ['x', 'y'])
 ```
 
 ```python
@@ -148,7 +138,6 @@ import operator
 
 result = []
 input = TestingInputConfig([("a", ["x"]), ("a", ["y"])])
-output = TestingOutputConfig(result)
 
 clock = SystemClockConfig()
 window = TumblingWindowConfig(length=timedelta(seconds=5))
@@ -158,14 +147,13 @@ flow.input("inp", input)
 
 # This is where we operate on the input
 flow.reduce_window("reduce", clock, window, operator.add)
-flow.capture(output)
+flow.capture(StdOutputConfig())
 
 run_main(flow)
-print(result)
 ```
 
 ```{testoutput}
-[('a', ['x', 'y'])]
+('a', ['x', 'y'])
 ```
 
 For filter:
@@ -174,42 +162,39 @@ For filter:
 def is_odd(item):
     return item % 2 == 1
 
-result = []
 input = TestingInputConfig([5, 9, 2])
-output = TestingOutputConfig(result)
 
 flow = Dataflow()
 flow.input("inp", input)
 # This is where we operate on the input
 flow.filter(is_odd)
-flow.capture(output)
+flow.capture(StdOutputConfig())
 
 run_main(flow)
-print(result)
 ```
 
 ```{testoutput}
-[5, 9]
+5
+9
 ```
 
 ```python
 result = []
 input = TestingInputConfig([5, 9, 2])
-output = TestingOutputConfig(result)
 
 flow = Dataflow()
 flow.input("inp", input)
 
 # This is where we operate on the input
 flow.filter(lambda x: x % 2 == 1)
-flow.capture(output)
+flow.capture(StdOutputConfig())
 
 run_main(flow)
-print(result)
 ```
 
 ```{testoutput}
-[5, 9]
+5
+9
 ```
 
 ## Subflows
@@ -233,23 +218,20 @@ def collect_user_events(flow, clock, window):
     # events_for_user
 
 
-result = []
 input = TestingInputConfig(
     [{"user_id": "1", "type": "login"}, {"user_id": "1", "type": "logout"}]
 )
-output = TestingOutputConfig(result)
 clock = SystemClockConfig()
 window = TumblingWindowConfig(length=timedelta(seconds=5))
 
 flow = Dataflow()
 flow.input("inp", input)
 collect_user_events(flow, clock, window)
-flow.capture(output)
+flow.capture(StdOutputConfig())
 
 run_main(flow)
-print(result)
 ```
 
 ```{testoutput}
-[[{'user_id': '1', 'type': 'login'}, {'user_id': '1', 'type': 'logout'}]]
+[{'user_id': '1', 'type': 'login'}, {'user_id': '1', 'type': 'logout'}]
 ```
