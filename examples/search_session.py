@@ -105,10 +105,6 @@ def calc_ctr(search_session):
         return 0.0
 
 
-def output_builder(worker_index, worker_count):
-    return print
-
-
 flow = Dataflow()
 flow.input("input", ManualInputConfig(input_builder))
 # event

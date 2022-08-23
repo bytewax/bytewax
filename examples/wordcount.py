@@ -26,10 +26,6 @@ def tokenize(line):
 def initial_count(word):
     return word, 1
 
-def output_builder(worker_index, worker_count):
-    return print
-
-
 cc = SystemClockConfig()
 wc = TumblingWindowConfig(length=timedelta(seconds=5))
 

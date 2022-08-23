@@ -4,7 +4,7 @@ from bytewax import parse
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
 from bytewax.inputs import ManualInputConfig
-from bytewax.outputs import ManualOutputConfig
+from bytewax.outputs import StdOutputConfig
 from bytewax.recovery import KafkaRecoveryConfig, SqliteRecoveryConfig
 
 
@@ -21,10 +21,6 @@ def input_builder(worker_index, worker_count, resume_state):
                 raise RuntimeError("boom")
             resume_state += 1
             yield (resume_state, line)
-
-
-def output_builder(worker_index, worker_count):
-    return print
 
 
 def lower(line):
@@ -59,7 +55,7 @@ flow.map(initial_count)
 # ("word", 1)
 flow.stateful_map("running_count", count_builder, add)
 # ("word", running_count)
-flow.capture(ManualOutputConfig(output_builder))
+flow.capture(StdOutputConfig())
 
 
 recovery_config = KafkaRecoveryConfig(
