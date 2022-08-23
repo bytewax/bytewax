@@ -3,10 +3,10 @@ import random
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
 from bytewax.inputs import ManualInputConfig
-from bytewax.outputs import ManualEpochOutputConfig
+from bytewax.outputs import ManualOutputConfig
 
 
-def input_builder(worker_index, worker_count, state):
+def input_builder(worker_index, worker_count, resume_state):
     def random_datapoints():
         for _ in range(20):
             yield None, ("QPS", random.randrange(0, 10))
@@ -48,16 +48,16 @@ class ZTestDetector:
 
         self._push(value)
         self._recalc_stats()
+        print(self)
 
         return self, (value, self.mu, self.sigma, is_anomalous)
 
 
 def output_builder(worker_index, worker_count):
     def inspector(input):
-        epoch, rest = input
-        metric, (value, mu, sigma, is_anomalous) = rest
+        metric, (value, mu, sigma, is_anomalous) = input
         print(
-            f"{metric} @ {epoch}: "
+            f"{metric}: "
             f"value = {value}, "
             f"mu = {mu:.2f}, "
             f"sigma = {sigma:.2f}, "
@@ -75,5 +75,5 @@ if __name__ == "__main__":
         "AnomalyDetector", lambda: ZTestDetector(2.0), ZTestDetector.push
     )
     # ("metric", (value, mu, sigma, is_anomalous))
-    flow.capture(ManualEpochOutputConfig(output_builder))
+    flow.capture(ManualOutputConfig(output_builder))
     spawn_cluster(flow)
