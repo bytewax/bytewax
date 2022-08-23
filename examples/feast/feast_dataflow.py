@@ -1,19 +1,24 @@
 import datetime as dt
 import json
-
 import pandas as pd
+
 from feast import FeatureStore
 from kafka import KafkaConsumer
 
-from bytewax import cluster_main, Dataflow, inputs
+from bytewax.execution import spawn_cluster
+from bytewax.dataflow import Dataflow
 from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import ManualOutputConfig
+from bytewax.window import TumblingWindowConfig, SystemClockConfig
 
 # Configure the feature store for each worker to access
 store = FeatureStore(repo_path=".")
 
 
-@inputs.yield_epochs
-def input_builder(worker_index, worker_count, resume_epoch):
+def input_builder(worker_index, worker_count, resume_state):
+    # Ignore state recovery
+    resume_state = None
+
     def consume_from_kafka():
         consumer = KafkaConsumer(
             bootstrap_servers="localhost:9092", auto_offset_reset="earliest"
@@ -21,19 +26,9 @@ def input_builder(worker_index, worker_count, resume_epoch):
         consumer.subscribe("drivers")
         for msg in consumer:
             event = msg.value
-            yield json.loads(event)
+            yield resume_state, json.loads(event)
 
-    return inputs.tumbling_epoch(
-        inputs.sorted_window(
-            consume_from_kafka(),
-            dt.timedelta(days=1),
-            lambda x: dt.datetime.fromisoformat(x["event_timestamp"]),
-        ),
-        # Make epochs daily intervals to determine daily avg
-        dt.timedelta(days=1),
-        # Since we're taking in all input at once, use event timestamp for time
-        lambda x: dt.datetime.fromisoformat(x["event_timestamp"]),
-    )
+    return consume_from_kafka()
 
 
 def output_builder(worker_index, worker_count):
@@ -50,8 +45,7 @@ def output_builder(worker_index, worker_count):
         }
     """
 
-    def output_fn(epoch_dataframe):
-        _, panda_df = epoch_dataframe
+    def output_fn(panda_df):
         store.write_to_online_store("driver_daily_stats", panda_df)
 
         # Retrieve/print from store for demonstrative purposes
@@ -98,20 +92,42 @@ def calculate_avg(driver_events):
 
 def add_driver_id(event):
     # Event needs to be within an array for `collect_events`
-    return event["driver_id"], [event]
+    return f"{event['driver_id']}", [event]
 
 
 if __name__ == "__main__":
+    # FIXME: I think we need to use the TestingClockConfig here to replicate
+    #        the behavior that was in the input_builder before, but I'm not
+    #        sure how to exactly replicate this with clock and window configs.
+    #
+    #    This is how the input was defined:
+    #    return inputs.tumbling_epoch(
+    #        inputs.sorted_window(
+    #            consume_from_kafka(),
+    #            dt.timedelta(days=1),
+    #            lambda x: dt.datetime.fromisoformat(x["event_timestamp"]),
+    #        ),
+    #        # Make epochs daily intervals to determine daily avg
+    #        dt.timedelta(days=1),
+    #        # Since we're taking in all input at once,
+    #        # use event timestamp for time
+    #        lambda x: dt.datetime.fromisoformat(x["event_timestamp"]),
+    #    )
+    #
+    # clock = TestingClockConfig(
+    #     item_incr=dt.timedelta(days=1), start_at=dt.datetime.now()
+    # )
+    clock = SystemClockConfig()
+    # FIXME: Just using a 0.1 seconds window here since all the data is sent
+    #        in less than a second and the window doesn't close otherwise,
+    #        move it to `days=1` once the original behavior is replicated
+    window = TumblingWindowConfig(length=dt.timedelta(seconds=0.1))
+
     flow = Dataflow()
+    flow.input("input", ManualInputConfig(input_builder))
     flow.map(add_driver_id)
-    flow.reduce_epoch(collect_events)
+    flow.reduce_window("collect", clock, window, collect_events)
     flow.map(calculate_avg)
-    flow.capture()
-    # In order to finely tune epochs in this example, we are handrolling a Kafka consumer
-    cluster_main(
-        flow,
-        ManualInputConfig(input_builder),
-        output_builder,
-        [],  # addresses
-        0,  # process id
-    )
+    # flow.inspect(print)
+    flow.capture(ManualOutputConfig(output_builder))
+    spawn_cluster(flow)
