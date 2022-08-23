@@ -176,7 +176,7 @@ recovery](/getting-started/recovery/) we need to enhance our input
 builder with a few things.
 
 First, we need the ability to resume our input from where we left off.
-When using the `ManualInputBuilder`, we emit a state object, that we
+When using the `ManualInputConfig`, we emit a state object, that we
 will be provided with as the argument `resume_state` on our next invocation.
 
 Here we're using the line number from `enumerate` as our state, and
