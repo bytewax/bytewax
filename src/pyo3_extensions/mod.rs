@@ -67,12 +67,6 @@ impl From<Py<PyAny>> for TdPyAny {
     }
 }
 
-impl From<&PyList> for TdPyAny {
-    fn from(x: &PyList) -> Self {
-        Self(x.into())
-    }
-}
-
 /// Allows you to debug print Python objects using their repr.
 impl std::fmt::Debug for TdPyAny {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -166,12 +160,12 @@ fn test_serde() {
 
     pyo3::prepare_freethreaded_python();
 
-    let pyobj: TdPyAny = Python::with_gil(|py| PyList::new(py, vec![1, 2, 3]).into());
+    let pyobj: TdPyAny = Python::with_gil(|py| PyString::new(py, "hello").into());
     // This does a round-trip.
     assert_tokens(
         &pyobj,
         &[Token::Bytes(&[
-            128, 4, 149, 11, 0, 0, 0, 0, 0, 0, 0, 93, 148, 40, 75, 1, 75, 2, 75, 3, 101, 46,
+            128, 3, 93, 113, 0, 40, 75, 1, 75, 2, 75, 3, 101, 46
         ])],
     );
 }
