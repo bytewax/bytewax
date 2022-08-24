@@ -1,9 +1,14 @@
-from bytewax import Dataflow, parse, run_cluster
+from bytewax.dataflow import Dataflow
+from bytewax.execution import spawn_cluster
+from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import StdOutputConfig
 
 
-def inp():
+def input_builder(worker_index, worker_count, state):
+    # Ignore state recovery here
+    state = None
     for i in range(10):
-        yield (0, i)
+        yield state, i
 
 
 def double(x):
@@ -18,18 +23,13 @@ def stringy(x):
     return f"<dance>{x}</dance>"
 
 
-def peek(x):
-    print(f"peekin at {x}")
-
-
 flow = Dataflow()
+flow.input("input", ManualInputConfig(input_builder))
 flow.map(double)
 flow.map(minus_one)
 flow.map(stringy)
-flow.capture()
+flow.capture(StdOutputConfig())
 
 
 if __name__ == "__main__":
-    out = run_cluster(flow, inp(), **parse.cluster_args())
-    for epoch, item in out:
-        print(epoch, item)
+    spawn_cluster(flow)

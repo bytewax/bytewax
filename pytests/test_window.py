@@ -74,6 +74,7 @@ def test_fold_window():
     flow.input("inp", TestingInputConfig(gen()))
     flow.map(extract_id)
     flow.fold_window("sum", clock_config, window_config, build, count)
+
     out = []
     flow.capture(TestingOutputConfig(out))
 

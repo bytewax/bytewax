@@ -11,7 +11,7 @@ flow.input(
     "inp",
     KafkaInputConfig(
         brokers=["localhost:9092"],
-        topic="input_test",
+        topic="input_topic",
     ),
 )
 
@@ -26,7 +26,6 @@ def deserialize(key_bytes__payload_bytes):
 flow.map(deserialize)
 
 flow.capture(StdOutputConfig())
-
 
 if __name__ == "__main__":
     run_main(flow)

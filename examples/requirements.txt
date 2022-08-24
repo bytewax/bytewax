@@ -1,0 +1,13 @@
+pandas
+pyarrow
+fake-web-events
+
+# orderbook
+websocket-client
+
+# translator
+tensorflow
+
+# wikistream
+sseclient-py
+urllib3
