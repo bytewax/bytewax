@@ -5,7 +5,7 @@ edition = "2021"
 
 [lib]
 name = "bytewax"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [package.metadata.maturin]
 python-source = "pysrc"
