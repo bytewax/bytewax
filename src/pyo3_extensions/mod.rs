@@ -162,6 +162,8 @@ fn test_serde() {
 
     let pyobj: TdPyAny = Python::with_gil(|py| PyString::new(py, "hello").into());
 
+    // Python < 3.8 serializes strings differently than python >= 3.8.
+    // We get the current python version here so we can assert based on that.
     let (major, minor) = Python::with_gil(|py| {
         let sys = PyModule::import(py, "sys").unwrap();
         let version = sys.getattr("version_info").unwrap();
@@ -170,8 +172,9 @@ fn test_serde() {
         (major, minor)
     });
 
-    println!("Python {major}.{minor}");
+    // We only support python 3...
     assert_eq!(major, 3);
+
     let expected = if minor < 8 {
         Token::Bytes(&[128, 3, 88, 5, 0, 0, 0, 104, 101, 108, 108, 111, 113, 0, 46])
     } else {
