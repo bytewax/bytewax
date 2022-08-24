@@ -18,6 +18,14 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         architecture: x64
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: 1.61
+    - name: Rust tests
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --no-default-features
     - uses: messense/maturin-action@v1
       with:
         rust-toolchain: 1.61
@@ -52,6 +60,14 @@ jobs:
       run: |
         $python_path = python -c "import sys; print(sys.executable)"
         echo "PYTHON_PATH=$python_path" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf-8 -Append
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: 1.61
+    - name: Rust tests
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --no-default-features
     - uses: messense/maturin-action@v1
       with:
         rust-toolchain: 1.61
@@ -80,6 +96,14 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         architecture: x64
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: 1.61
+    - name: Rust tests
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --no-default-features
     - uses: messense/maturin-action@v1
       with:
         rust-toolchain: 1.61

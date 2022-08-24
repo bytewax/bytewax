@@ -96,16 +96,16 @@ impl ClockConfig {
 ///
 /// Args:
 ///
-///     item_incr (datetime.timedelta): Amount to increment "now"
-///         after each item.
+///   item_incr (datetime.timedelta): Amount to increment "now"
+///       after each item.
 ///
-///     start_at (datetime.datetime): Initial "now" / time of first
-///         item. If you set this and use a window config
+///   start_at (datetime.datetime): Initial "now" / time of first
+///       item. If you set this and use a window config
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `clock_config` parameter to
-///     your windowing operator.
+///   Config object. Pass this as the `clock_config` parameter to
+///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=ClockConfig)]
 #[pyo3(text_signature = "(item_incr)")]
 struct TestingClockConfig {
@@ -176,8 +176,8 @@ impl TestingClockConfig {
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `clock_config` parameter to
-///     your windowing operator.
+///   Config object. Pass this as the `clock_config` parameter to
+///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=ClockConfig)]
 struct SystemClockConfig {}
 
@@ -279,16 +279,16 @@ impl WindowConfig {
 ///
 /// Args:
 ///
-///     length (datetime.timedelta): Length of window.
+///   length (datetime.timedelta): Length of window.
 ///
-///     start_at (datetime.datetime): Instant of the first window. You
-///         can use this to align all windows to an hour,
-///         e.g. Defaults to system time of dataflow start.
+///   start_at (datetime.datetime): Instant of the first window. You
+///       can use this to align all windows to an hour,
+///       e.g. Defaults to system time of dataflow start.
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `window_config` parameter to
-///     your windowing operator.
+///   Config object. Pass this as the `window_config` parameter to
+///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=WindowConfig)]
 struct TumblingWindowConfig {
     #[pyo3(get)]

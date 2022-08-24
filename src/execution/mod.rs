@@ -17,10 +17,10 @@
 //! Source Architecture
 //! -------------------
 //!
-//! The input system described in [`crate::input`] only deals with
+//! The input system described in [`crate::inputs`] only deals with
 //! "what is the next item of data for this worker?" The source
 //! operators here control the epochs used in the dataflow. They call
-//! out to [`crate::input::InputReader`] impls to actually get the
+//! out to [`crate::inputs::InputReader`] impls to actually get the
 //! next item.
 //!
 //! This system follows our standard pattern of having parallel Python
@@ -124,8 +124,8 @@ impl EpochConfig {
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `epoch_config` parameter of
-///     your execution entry point.
+///   Config object. Pass this as the `epoch_config` parameter of
+///   your execution entry point.
 #[pyclass(module="bytewax.execution", extends=EpochConfig)]
 #[pyo3(text_signature = "()")]
 struct TestingEpochConfig {}
@@ -168,13 +168,13 @@ impl TestingEpochConfig {
 ///
 /// Args:
 ///
-///     epoch_length (datetime.timedelta): System time length of each
-///         epoch.
+///   epoch_length (datetime.timedelta): System time length of each
+///       epoch.
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `epoch_config` parameter of
-///     your execution entry point.
+///   Config object. Pass this as the `epoch_config` parameter of
+///   your execution entry point.
 #[pyclass(module="bytewax.window", extends=EpochConfig)]
 #[pyo3(text_signature = "(epoch_length)")]
 struct PeriodicEpochConfig {
@@ -883,14 +883,14 @@ fn worker_main<A: Allocate>(
 ///
 /// Args:
 ///
-///     flow: Dataflow to run.
+///   flow: Dataflow to run.
 ///
-///     epoch_config: A custom epoch config. You probably don't need
-///         this. See `EpochConfig` for more info.
+///   epoch_config: A custom epoch config. You probably don't need
+///       this. See `EpochConfig` for more info.
 ///
-///     recovery_config: State recovery config. See
-///         `bytewax.recovery`. If `None`, state will not be
-///         persisted.
+///   recovery_config: State recovery config. See
+///       `bytewax.recovery`. If `None`, state will not be
+///       persisted.
 ///
 #[pyfunction(flow, "*", epoch_length = "None", recovery_config = "None")]
 #[pyo3(text_signature = "(flow, *, epoch_config, recovery_config)")]
@@ -958,22 +958,22 @@ pub(crate) fn run_main(
 ///
 /// Args:
 ///
-///     flow: Dataflow to run.
+///   flow: Dataflow to run.
 ///
-///     addresses: List of host/port addresses for all processes in
-///         this cluster (including this one).
+///   addresses: List of host/port addresses for all processes in
+///       this cluster (including this one).
 ///
-///     proc_id: Index of this process in cluster; starts from 0.
+///   proc_id: Index of this process in cluster; starts from 0.
 ///
-///     epoch_config: A custom epoch config. You probably don't need
-///         this. See `EpochConfig` for more info.
+///   epoch_config: A custom epoch config. You probably don't need
+///       this. See `EpochConfig` for more info.
 ///
-///     recovery_config: State recovery config. See
-///         `bytewax.recovery`. If `None`, state will not be
-///         persisted.
+///   recovery_config: State recovery config. See
+///       `bytewax.recovery`. If `None`, state will not be
+///       persisted.
 ///
-///     worker_count_per_proc: Number of worker threads to start on
-///         each process.
+///   worker_count_per_proc: Number of worker threads to start on
+///       each process.
 #[pyfunction(
     flow,
     addresses,
