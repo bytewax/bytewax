@@ -46,12 +46,16 @@ Here is an example of a simple dataflow program using Bytewax:
 ```python
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.inputs import TestingInputConfig
+from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
 
+def input_builder(worker_index, worker_count, resume_from):
+    resume_from = None # Ignore recovery logic
+    for e in range(10):
+        yield resume_from, e
 
 flow = Dataflow()
-flow.input("stateless_input", TestingInputConfig(range(10)))
+flow.input("input", ManualInputConfig(input_builder))
 flow.map(lambda x: x * x)
 flow.capture(StdOutputConfig())
 

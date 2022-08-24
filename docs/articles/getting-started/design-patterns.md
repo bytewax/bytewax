@@ -15,29 +15,32 @@ You can also use [lambdas](https://docs.python.org/3/tutorial/controlflow.html#l
 
 The following sets of examples are equivalent.
 
-For flat map:
-
 ```python
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.inputs import TestingInputConfig, ManualInputConfig
+from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
 from datetime import timedelta, datetime
 
+# For all examples below
+def input_builder(worker_index, worker_count, resume_from):
+    resume_from = None # Ignore recovery logic
+    for e in data:
+        yield resume_from, e
+```
+
+### For flat map:
+
+```python
 def split_sentence(sentence):
     return sentence.split()
 
-def input_builder(wi, wc, rs):
-    for sentence in ["hello world"]:
-        yield None, sentence
-
-input = ManualInputConfig(input_builder)
-
+data = ["hello world"]
 flow = Dataflow()
-flow.input("inp", input)
+flow.input("inp", ManualInputConfig(input_builder))
 
-# This is where we operate on the input
+# Operate on input
 flow.flat_map(split_sentence)
 
 flow.capture(StdOutputConfig())
@@ -47,15 +50,14 @@ run_main(flow)
 ```{testoutput}
 hello
 world
-```
+````
 
 ```python
-input = TestingInputConfig(["hello world"])
-
+data = ["hello world"]
 flow = Dataflow()
-flow.input("inp", input)
+flow.input("inp", ManualInputConfig(input_builder))
 
-# This is where we operate on the input
+# Operate on input
 flow.flat_map(lambda s: s.split())
 
 flow.capture(StdOutputConfig())
@@ -68,12 +70,11 @@ world
 ```
 
 ```python
-input = TestingInputConfig(["hello world"])
-
+data = ["hello world"]
 flow = Dataflow()
-flow.input("inp", input)
+flow.input("inp", ManualInputConfig(input_builder))
 
-# This is where we operate on the input
+# Operate on input
 flow.flat_map(str.split)
 
 flow.capture(StdOutputConfig())
@@ -85,23 +86,21 @@ hello
 world
 ```
 
-
-For reduce window:
+### For reduce window:
 
 ```python
 def add_to_list(l, items):
     l.extend(items)
     return l
 
-
-input = TestingInputConfig([("a", ["x"]), ("a", ["y"])])
-
 clock = SystemClockConfig()
 window = TumblingWindowConfig(length=timedelta(seconds=5))
 
+data = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
-flow.input("inp", input)
-# This is where we operate on the input
+flow.input("inp", ManualInputConfig(input_builder))
+
+# Operate on input
 flow.reduce_window("reduce", clock, window, add_to_list)
 flow.capture(StdOutputConfig())
 
@@ -113,16 +112,11 @@ run_main(flow)
 ```
 
 ```python
-result = []
-input = TestingInputConfig([("a", ["x"]), ("a", ["y"])])
-
-clock = SystemClockConfig()
-window = TumblingWindowConfig(length=timedelta(seconds=5))
-
+data = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
-flow.input("inp", input)
+flow.input("inp", ManualInputConfig(input_builder))
 
-# This is where we operate on the input
+# Operate on input
 flow.reduce_window("reduce", clock, window, lambda l1, l2: l1 + l2)
 flow.capture(StdOutputConfig())
 
@@ -136,16 +130,11 @@ run_main(flow)
 ```python
 import operator
 
-result = []
-input = TestingInputConfig([("a", ["x"]), ("a", ["y"])])
-
-clock = SystemClockConfig()
-window = TumblingWindowConfig(length=timedelta(seconds=5))
-
+data = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
-flow.input("inp", input)
+flow.input("inp", ManualInputConfig(input_builder))
 
-# This is where we operate on the input
+# Operate on input
 flow.reduce_window("reduce", clock, window, operator.add)
 flow.capture(StdOutputConfig())
 
@@ -154,47 +143,6 @@ run_main(flow)
 
 ```{testoutput}
 ('a', ['x', 'y'])
-```
-
-For filter:
-
-```python
-def is_odd(item):
-    return item % 2 == 1
-
-input = TestingInputConfig([5, 9, 2])
-
-flow = Dataflow()
-flow.input("inp", input)
-# This is where we operate on the input
-flow.filter(is_odd)
-flow.capture(StdOutputConfig())
-
-run_main(flow)
-```
-
-```{testoutput}
-5
-9
-```
-
-```python
-result = []
-input = TestingInputConfig([5, 9, 2])
-
-flow = Dataflow()
-flow.input("inp", input)
-
-# This is where we operate on the input
-flow.filter(lambda x: x % 2 == 1)
-flow.capture(StdOutputConfig())
-
-run_main(flow)
-```
-
-```{testoutput}
-5
-9
 ```
 
 ## Subflows
@@ -210,21 +158,21 @@ def user_reducer(all_events, new_events):
 
 def collect_user_events(flow, clock, window):
     # event
-    flow.map(lambda e: (e["user_id"], e["type"]))
+    flow.map(lambda e: (e["user_id"], [e["type"]]))
     # (user_id, [event])
     flow.reduce_window("reducer", clock, window, user_reducer)
     # (user_id, events_for_user)
     flow.map(lambda e: {"user_id": e[0], "all_events": e[1]})
 
 
-input = TestingInputConfig(
-    [{"user_id": "1", "type": ["login"]}, {"user_id": "1", "type": ["logout"]}]
-)
 clock = SystemClockConfig()
 window = TumblingWindowConfig(length=timedelta(seconds=5))
 
+data = [{"user_id": "1", "type": "login"}, {"user_id": "1", "type": "logout"}]
 flow = Dataflow()
-flow.input("inp", input)
+flow.input("inp", ManualInputConfig(input_builder))
+
+# Operate on input
 collect_user_events(flow, clock, window)
 flow.capture(StdOutputConfig())
 
