@@ -210,16 +210,15 @@ def user_reducer(all_events, new_events):
 
 def collect_user_events(flow, clock, window):
     # event
-    flow.map(lambda e: (e["user_id"], [e]))
-    # (user_id, event)
+    flow.map(lambda e: (e["user_id"], e["type"]))
+    # (user_id, [event])
     flow.reduce_window("reducer", clock, window, user_reducer)
     # (user_id, events_for_user)
-    flow.map(lambda u_es: u_es[1])
-    # events_for_user
+    flow.map(lambda e: {"user_id": e[0], "all_events": e[1]})
 
 
 input = TestingInputConfig(
-    [{"user_id": "1", "type": "login"}, {"user_id": "1", "type": "logout"}]
+    [{"user_id": "1", "type": ["login"]}, {"user_id": "1", "type": ["logout"]}]
 )
 clock = SystemClockConfig()
 window = TumblingWindowConfig(length=timedelta(seconds=5))
@@ -233,5 +232,5 @@ run_main(flow)
 ```
 
 ```{testoutput}
-[{'user_id': '1', 'type': 'login'}, {'user_id': '1', 'type': 'logout'}]
+{'user_id': '1', 'all_events': ['login', 'logout']}
 ```
