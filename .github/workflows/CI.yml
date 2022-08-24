@@ -21,6 +21,10 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         toolchain: 1.61
+    - name: Install system dependency
+      shell: bash
+      run: |
+        pip install dill
     - name: Rust tests
       uses: actions-rs/cargo@v1
       with:
@@ -63,6 +67,10 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         toolchain: 1.61
+    - name: Install system dependency
+      shell: bash
+      run: |
+        pip install dill
     - name: Rust tests
       uses: actions-rs/cargo@v1
       with:
@@ -99,6 +107,10 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         toolchain: 1.61
+    - name: Install system dependency
+      shell: bash
+      run: |
+        pip install dill
     - name: Rust tests
       uses: actions-rs/cargo@v1
       with:
