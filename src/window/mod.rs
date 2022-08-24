@@ -96,16 +96,16 @@ impl ClockConfig {
 ///
 /// Args:
 ///
-///     item_incr (datetime.timedelta): Amount to increment "now"
-///         after each item.
+///   item_incr (datetime.timedelta): Amount to increment "now"
+///       after each item.
 ///
-///     start_at (datetime.datetime): Initial "now" / time of first
-///         item. If you set this and use a window config
+///   start_at (datetime.datetime): Initial "now" / time of first
+///       item. If you set this and use a window config
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `clock_config` parameter to
-///     your windowing operator.
+///   Config object. Pass this as the `clock_config` parameter to
+///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=ClockConfig)]
 #[pyo3(text_signature = "(item_incr)")]
 struct TestingClockConfig {
@@ -142,8 +142,8 @@ impl TestingClockConfig {
     fn __getstate__(&self) -> (&str, pyo3_chrono::Duration, pyo3_chrono::NaiveDateTime) {
         (
             "TestingClockConfig",
-            self.item_incr.clone(),
-            self.start_at.clone(),
+            self.item_incr,
+            self.start_at,
         )
     }
 
@@ -176,8 +176,8 @@ impl TestingClockConfig {
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `clock_config` parameter to
-///     your windowing operator.
+///   Config object. Pass this as the `clock_config` parameter to
+///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=ClockConfig)]
 struct SystemClockConfig {}
 
@@ -279,16 +279,16 @@ impl WindowConfig {
 ///
 /// Args:
 ///
-///     length (datetime.timedelta): Length of window.
+///   length (datetime.timedelta): Length of window.
 ///
-///     start_at (datetime.datetime): Instant of the first window. You
-///         can use this to align all windows to an hour,
-///         e.g. Defaults to system time of dataflow start.
+///   start_at (datetime.datetime): Instant of the first window. You
+///       can use this to align all windows to an hour,
+///       e.g. Defaults to system time of dataflow start.
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `window_config` parameter to
-///     your windowing operator.
+///   Config object. Pass this as the `window_config` parameter to
+///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=WindowConfig)]
 struct TumblingWindowConfig {
     #[pyo3(get)]
@@ -351,7 +351,7 @@ pub(crate) fn build_windower_builder(
         let start_at = tumbling_window_config
             .start_at
             .map(|t| t.0)
-            .unwrap_or(chrono::offset::Local::now().naive_local());
+            .unwrap_or_else(|| chrono::offset::Local::now().naive_local());
 
         let builder = TumblingWindower::builder(length, start_at);
         Ok(Box::new(builder))
@@ -426,7 +426,7 @@ impl<V> Clock<V> for TestingClock {
     }
 
     fn time_for(&mut self, _item: &V) -> NaiveDateTime {
-        let item_time = self.current_time.clone();
+        let item_time = self.current_time;
         self.current_time += self.item_incr;
         item_time
     }
@@ -590,7 +590,7 @@ impl Windower for TumblingWindower {
         if &close_at < watermark {
             vec![Err(InsertError::Late(key))]
         } else {
-            self.close_times.insert(key.clone(), close_at);
+            self.close_times.insert(key, close_at);
             vec![Ok(key)]
         }
     }
@@ -601,10 +601,10 @@ impl Windower for TumblingWindower {
         let mut closed_ids = Vec::new();
 
         for (id, close_at) in self.close_times.iter() {
-            if close_at < &watermark {
-                closed_ids.push(id.clone());
+            if close_at < watermark {
+                closed_ids.push(*id);
             } else {
-                future_close_times.insert(id.clone(), close_at.clone());
+                future_close_times.insert(*id, *close_at);
             }
         }
 
@@ -613,7 +613,7 @@ impl Windower for TumblingWindower {
     }
 
     fn activate_after(&mut self, watermark: &NaiveDateTime) -> Option<Duration> {
-        let watermark = watermark.clone();
+        let watermark = *watermark;
         self.close_times
             .values()
             .cloned()
@@ -795,7 +795,7 @@ where
         let window_to_logic_resume_state_bytes: HashMap<WindowKey, StateBytes> = self
             .logic_cache
             .iter()
-            .map(|(window_key, logic)| (window_key.clone(), logic.snapshot()))
+            .map(|(window_key, logic)| (*window_key, logic.snapshot()))
             .collect();
         let state = (
             self.clock.snapshot(),
@@ -887,7 +887,7 @@ where
         Stream<S, (StateKey, (StepId, StateUpdate))>,
     ) {
         self.stateful_unary(
-            step_id.clone(),
+            step_id,
             WindowStatefulLogic::builder(clock_builder, windower_builder, logic_builder),
             resume_state,
         )

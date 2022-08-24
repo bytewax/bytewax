@@ -44,9 +44,7 @@
 //!
 //! The data model for state table is represented in the structs
 //! [`RecoveryKey`] and [`StateBackup`] for the key and value
-//! respectively. For the progress table, there is only a single key
-//! representing "worker frontier" and the value is
-//! [`FrontierUpdate`].
+//! respectively.
 //!
 //! The recovery machinery works only on [`StateBytes`], not on actual
 //! live objects. We do this so we can interleave multiple concrete
@@ -71,11 +69,11 @@
 //! data is routed appropriately for each worker.
 //!
 //! The recovery system uses a few custom utility operators
-//! ([`crate::operators::WriteState`],
-//! [`crate::operators::WriteProgress`],
-//! [`crate::operators::CollectGarbage`],
-//! [`crate::operators::state_source`],
-//! [`crate::operators::progress_source`]) to implement
+//! ([`WriteState`],
+//! [`WriteProgress`],
+//! [`CollectGarbage`],
+//! [`state_source`],
+//! [`progress_source`]) to implement
 //! behavior. These operators do not represent user-facing dataflow
 //! logic, but instead implement our recovery behavior.
 //!
@@ -113,15 +111,15 @@
 //! On Backup
 //! ---------
 //!
-//! [`crate::execution::build_production_dataflow`] builds the parts
-//! of the dataflow for backup. Look there for what is described
-//! below.
+//! The (private) function `build_production_dataflow` in [`crate::execution`]
+//! builds the parts of the dataflow for backup.
+//! Look there for what is described below.
 //!
 //! We currently have a few user-facing stateful operators
-//! (e.g. [`crate::operators::Reduce`],
-//! [`crate::operators::StatefulMap`]). But they are both implemented
+//! (e.g. [`crate::dataflow::Dataflow::reduce`],
+//! [`crate::dataflow::Dataflow::stateful_map`]). But they are both implemented
 //! on top of a general underlying one:
-//! [`crate::operators::StatefulUnary`]. This means all in-operator
+//! [`crate::recovery::StatefulUnary`]. This means all in-operator
 //! recovery-related code is only written once.
 //!
 //! Stateful unary does not backup itself. Instead, each stateful
@@ -131,11 +129,11 @@
 //! are all backups of bytes.
 //!
 //! All state backups from all stateful operators are concatenated
-//! into the [`crate::operators::WriteState`] operator, which actually
+//! into the [`WriteState`] operator, which actually
 //! performs the writes via the [`StateWriter`]. It emits the backups
 //! after writing downstream so progress can be monitored.
 //!
-//! The [`crate::operator::WriteProgress`] operator then looks at the
+//! The [`WriteProgress`] operator then looks at the
 //! **worker frontier**, the combined stream of written backups and
 //! all captures. This will be written via the [`ProgressWriter`]. It
 //! emits heartbeats.
@@ -145,7 +143,7 @@
 //! cluster, the **dataflow frontier**.
 //!
 //! The dataflow frontier heartbeat stream and completed state backups
-//! are then fed into the [`crate::operators::GarbageCollector`]
+//! are then fed into the [`crate::recovery::CollectGarbage`]
 //! operator. It uses the dataflow frontier to detect when some state
 //! is no longer necessary for recovery and issues deletes via the
 //! [`StateCollector`]. GC keeps an in-memory summary of the keys and
@@ -158,8 +156,9 @@
 //! On Resume
 //! ---------
 //!
-//! [`crate::execution::worker_main`] is where loading starts. It's
-//! broken into two dataflows, built in
+//! The (private) function `worker_main` in [`crate::execution`]
+//! is where loading starts.
+//! It's broken into two dataflows, built in
 //! [`build_resume_epoch_calc_dataflow`],
 //! [`build_state_loading_dataflow`].
 //!
@@ -198,7 +197,7 @@
 //! state is loaded into maps by [`StepId`] and [`StateKey`] so that
 //! the production dataflow's operators can deserialize the relevant
 //! state when running. This state data also is used to produce a
-//! [`RecoveryStoreSummary`] so that the [`GarbageCollector`] operator
+//! [`RecoveryStoreSummary`] so that the [`CollectGarbage`] operator
 //! has a correct cache of all previously-written state keys.
 //!
 //! Once the state loading is complete, the resulting **resume state**
@@ -395,15 +394,15 @@ pub(crate) fn default_recovery_config() -> Py<RecoveryConfig> {
 ///
 /// Args:
 ///
-///     db_dir (Path): Existing directory to store per-worker DBs
-///         in. Must be distinct per-dataflow. DB files will have
-///         names like `"worker0.sqlite3"`. You can use `"."` for the
-///         current directory.
+///   db_dir (Path): Existing directory to store per-worker DBs
+///       in. Must be distinct per-dataflow. DB files will have
+///       names like `"worker0.sqlite3"`. You can use `"."` for the
+///       current directory.
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `recovery_config` argument to
-///     your execution entry point.
+///   Config object. Pass this as the `recovery_config` argument to
+///   your execution entry point.
 #[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
 #[pyo3(text_signature = "(db_dir)")]
 struct SqliteRecoveryConfig {
@@ -486,18 +485,18 @@ impl SqliteRecoveryConfig {
 ///
 /// Args:
 ///
-///     brokers (List[str]): List of `host:port` strings of Kafka
-///         brokers.
+///   brokers (List[str]): List of `host:port` strings of Kafka
+///       brokers.
 ///
-///     topic_prefix (str): Prefix used for naming topics. Must be
-///         distinct per-dataflow. Two topics will be created using
-///         this prefix `"topic_prefix-progress"` and
-///         `"topic_prefix-state"`.
+///   topic_prefix (str): Prefix used for naming topics. Must be
+///       distinct per-dataflow. Two topics will be created using
+///       this prefix `"topic_prefix-progress"` and
+///       `"topic_prefix-state"`.
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `recovery_config` argument to
-///     your execution entry point.
+///   Config object. Pass this as the `recovery_config` argument to
+///   your execution entry point.
 #[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
 #[pyo3(text_signature = "(brokers, topic_prefix)")]
 struct KafkaRecoveryConfig {
@@ -574,7 +573,7 @@ fn to_bytes<T: Serialize>(obj: &T) -> Vec<u8> {
 
 fn from_bytes<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> T {
     let t_name = type_name::<T>();
-    bincode::deserialize(bytes).expect(&format!("Error deserializing recovery {t_name})"))
+    bincode::deserialize(bytes).unwrap_or_else(|_| panic!("Error deserializing recovery {t_name})"))
 }
 
 // Here's our public facing recovery operator data model and trait.
@@ -680,7 +679,10 @@ impl StateBytes {
         // versions, then recovery doesn't work. Or if we use an
         // encoding that isn't deterministic.
         let t_name = type_name::<T>();
-        Self(bincode::serialize(obj).expect(&format!("Error serializing recovery state {t_name}")))
+        Self(
+            bincode::serialize(obj)
+                .unwrap_or_else(|_| panic!("Error serializing recovery {t_name})")),
+        )
     }
 
     /// Deserialize these bytes from the recovery system into a state
@@ -688,7 +690,7 @@ impl StateBytes {
     pub(crate) fn de<T: DeserializeOwned>(self) -> T {
         let t_name = type_name::<T>();
         bincode::deserialize(&self.0)
-            .expect(&format!("Error deserializing recovery state {t_name})"))
+            .unwrap_or_else(|_| panic!("Error deserializing recovery state {t_name})"))
     }
 }
 
@@ -878,7 +880,7 @@ pub(crate) fn build_resume_epoch_calc_dataflow<A: Allocate, T: Timestamp>(
                     .iter()
                     .cloned()
                     .min()
-                    .unwrap_or(T::minimum())
+                    .unwrap_or_else(T::minimum)
             })
             .map(move |resume_epoch| resume_epoch_tx.send(resume_epoch).unwrap())
             .probe_with(&mut probe);
@@ -927,9 +929,9 @@ pub(crate) fn build_state_loading_dataflow<A: Allocate>(
                             backups.swap(&mut tmp_backups);
 
                             epoch_to_backups_buffer
-                                .entry(epoch.clone())
+                                .entry(*epoch)
                                 .or_insert_with(Vec::new)
-                                .extend(tmp_backups.drain(..));
+                                .append(&mut tmp_backups);
 
                             fncater.notify_at(cap.retain());
                         });
@@ -979,9 +981,9 @@ pub(crate) fn build_state_loading_dataflow<A: Allocate>(
                         backups.swap(&mut tmp_backups);
 
                         epoch_to_backups_buffer
-                            .entry(epoch.clone())
+                            .entry(*epoch)
                             .or_insert_with(Vec::new)
-                            .extend(tmp_backups.drain(..));
+                            .append(&mut tmp_backups);
 
                         fncater.notify_at(cap.retain());
                     });
@@ -1045,17 +1047,14 @@ where
     iterator_source(
         scope,
         "ProgressSource",
-        move |last_cap| match reader.read() {
-            Some(backup) => {
-                Some(IteratorSourceInput {
-                    lower_bound: S::Timestamp::minimum(),
-                    // An iterator of (timestamp, iterator of
-                    // items). Nested [`IntoIterator`]s.
-                    data: Some((S::Timestamp::minimum(), Some(backup))),
-                    target: last_cap.clone(),
-                })
-            }
-            None => None,
+        move |last_cap| {
+            reader.read().map(|backup| IteratorSourceInput {
+                lower_bound: S::Timestamp::minimum(),
+                // An iterator of (timestamp, iterator of
+                // items). Nested [`IntoIterator`]s.
+                data: Some((S::Timestamp::minimum(), Some(backup))),
+                target: last_cap.clone(),
+            })
         },
         probe.clone(),
     )
@@ -1132,7 +1131,7 @@ impl<S: Scope> WriteState<S> for Stream<S, (StateKey, (StepId, StateUpdate))> {
                     epoch_to_backups_buffer
                         .entry(epoch.clone())
                         .or_insert_with(Vec::new)
-                        .extend(tmp_backups.drain(..));
+                        .append(&mut tmp_backups);
 
                     ncater.notify_at(cap.retain());
                 });
@@ -1191,7 +1190,7 @@ impl<S: Scope, D: Data> WriteProgress<S, D> for Stream<S, D> {
                     // Don't write out the last "empty" frontier to
                     // allow restarting from the end of the dataflow.
                     if !frontier.elements().is_empty() {
-                        let backup = FrontierBackup(worker_index, frontier.to_owned());
+                        let backup = FrontierBackup(worker_index, frontier);
 
                         frontier_writer.write(&backup);
 
@@ -1462,9 +1461,9 @@ where
                         key_values.swap(&mut tmp_key_values);
 
                         incoming_epoch_to_key_values_buffer
-                            .entry(epoch.clone())
+                            .entry(*epoch)
                             .or_insert_with(Vec::new)
-                            .extend(tmp_key_values.drain(..));
+                            .append(&mut tmp_key_values);
                     });
 
                     // TODO: Is this the right way to get the epoch
@@ -1476,7 +1475,7 @@ where
                         .iter()
                         .flat_map(|mf| mf.frontier().iter().min().cloned())
                         .min()
-                        .unwrap_or(output_cap.time().clone());
+                        .unwrap_or_else(|| *output_cap.time());
 
                     // Now let's find out which epochs we should wake
                     // up the logic for.
@@ -1558,7 +1557,7 @@ where
                             key_values_buffer.extend(
                                 keys_buffer
                                     .drain(..)
-                                    .map(|k| (k.clone(), Poll::Ready(None))),
+                                    .map(|k| (k, Poll::Ready(None))),
                             );
                         } else {
                             // Otherwise, wake up any keys
@@ -1573,7 +1572,7 @@ where
                         }
 
                         let activated_keys = activated_epoch_to_keys_buffer
-                            .entry(epoch.clone())
+                            .entry(epoch)
                             .or_default();
 
                         let mut output_session = output_handle.session(&output_cap);
@@ -2351,7 +2350,7 @@ impl<T: DeserializeOwned> StateReader<T> for KafkaReader<RecoveryKey<T>, StateUp
 
 impl<T: Serialize + Debug> ProgressWriter<T> for KafkaWriter<String, FrontierBackup<T>> {
     fn write(&mut self, backup: &FrontierBackup<T>) {
-        KafkaWriter::write(self, &String::from("worker_frontier"), &backup);
+        KafkaWriter::write(self, &String::from("worker_frontier"), backup);
         debug!("kafka frontier write backup={backup:?}");
     }
 }

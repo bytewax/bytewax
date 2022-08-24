@@ -17,10 +17,10 @@
 //! Source Architecture
 //! -------------------
 //!
-//! The input system described in [`crate::input`] only deals with
+//! The input system described in [`crate::inputs`] only deals with
 //! "what is the next item of data for this worker?" The source
 //! operators here control the epochs used in the dataflow. They call
-//! out to [`crate::input::InputReader`] impls to actually get the
+//! out to [`crate::inputs::InputReader`] impls to actually get the
 //! next item.
 //!
 //! This system follows our standard pattern of having parallel Python
@@ -124,8 +124,8 @@ impl EpochConfig {
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `epoch_config` parameter of
-///     your execution entry point.
+///   Config object. Pass this as the `epoch_config` parameter of
+///   your execution entry point.
 #[pyclass(module="bytewax.execution", extends=EpochConfig)]
 #[pyo3(text_signature = "()")]
 struct TestingEpochConfig {}
@@ -168,13 +168,13 @@ impl TestingEpochConfig {
 ///
 /// Args:
 ///
-///     epoch_length (datetime.timedelta): System time length of each
-///         epoch.
+///   epoch_length (datetime.timedelta): System time length of each
+///       epoch.
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `epoch_config` parameter of
-///     your execution entry point.
+///   Config object. Pass this as the `epoch_config` parameter of
+///   your execution entry point.
 #[pyclass(module="bytewax.window", extends=EpochConfig)]
 #[pyo3(text_signature = "(epoch_length)")]
 struct PeriodicEpochConfig {
@@ -192,7 +192,7 @@ impl PeriodicEpochConfig {
 
     /// Pickle as a tuple.
     fn __getstate__(&self) -> (&str, pyo3_chrono::Duration) {
-        ("PeriodicEpochConfig", self.epoch_length.clone())
+        ("PeriodicEpochConfig", self.epoch_length)
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -654,10 +654,10 @@ fn build_production_dataflow<A: Allocate>(
         }
 
         if input_streams.is_empty() {
-            return Err(format!("Dataflow needs to contain at least one input"));
+            return Err("Dataflow needs to contain at least one input".to_string());
         }
         if capture_streams.is_empty() {
-            return Err(format!("Dataflow needs to contain at least one capture"));
+            return Err("Dataflow needs to contain at least one capture".to_string());
         }
         if !step_to_key_to_resume_state_bytes.is_empty() {
             return Err(format!(
@@ -714,7 +714,7 @@ fn build_and_run_resume_epoch_calc_dataflow<A: Allocate>(
     let (resume_epoch_tx, resume_epoch_rx) = std::sync::mpsc::channel();
     let probe = build_resume_epoch_calc_dataflow(worker, progress_reader, resume_epoch_tx)?;
 
-    run_until_done(worker, &interrupt_flag, probe);
+    run_until_done(worker, interrupt_flag, probe);
 
     let resume_epoch = match resume_epoch_rx.recv() {
         Ok(resume_epoch) => {
@@ -755,7 +755,7 @@ fn build_and_run_state_loading_dataflow<A: Allocate>(
         recovery_store_summary_tx,
     )?;
 
-    run_until_done(worker, &interrupt_flag, probe);
+    run_until_done(worker, interrupt_flag, probe);
 
     let mut step_to_key_to_resume_state_bytes = HashMap::new();
     while let Ok((step_id, key_to_resume_state_bytes)) = step_to_key_to_resume_state_bytes_rx.recv()
@@ -797,7 +797,7 @@ fn build_and_run_production_dataflow<A: Allocate>(
         )
     })?;
 
-    run_until_done(worker, &interrupt_flag, probe);
+    run_until_done(worker, interrupt_flag, probe);
 
     Ok(())
 }
@@ -883,14 +883,14 @@ fn worker_main<A: Allocate>(
 ///
 /// Args:
 ///
-///     flow: Dataflow to run.
+///   flow: Dataflow to run.
 ///
-///     epoch_config: A custom epoch config. You probably don't need
-///         this. See `EpochConfig` for more info.
+///   epoch_config: A custom epoch config. You probably don't need
+///       this. See `EpochConfig` for more info.
 ///
-///     recovery_config: State recovery config. See
-///         `bytewax.recovery`. If `None`, state will not be
-///         persisted.
+///   recovery_config: State recovery config. See
+///       `bytewax.recovery`. If `None`, state will not be
+///       persisted.
 ///
 #[pyfunction(flow, "*", epoch_length = "None", recovery_config = "None")]
 #[pyo3(text_signature = "(flow, *, epoch_config, recovery_config)")]
@@ -958,22 +958,22 @@ pub(crate) fn run_main(
 ///
 /// Args:
 ///
-///     flow: Dataflow to run.
+///   flow: Dataflow to run.
 ///
-///     addresses: List of host/port addresses for all processes in
-///         this cluster (including this one).
+///   addresses: List of host/port addresses for all processes in
+///       this cluster (including this one).
 ///
-///     proc_id: Index of this process in cluster; starts from 0.
+///   proc_id: Index of this process in cluster; starts from 0.
 ///
-///     epoch_config: A custom epoch config. You probably don't need
-///         this. See `EpochConfig` for more info.
+///   epoch_config: A custom epoch config. You probably don't need
+///       this. See `EpochConfig` for more info.
 ///
-///     recovery_config: State recovery config. See
-///         `bytewax.recovery`. If `None`, state will not be
-///         persisted.
+///   recovery_config: State recovery config. See
+///       `bytewax.recovery`. If `None`, state will not be
+///       persisted.
 ///
-///     worker_count_per_proc: Number of worker threads to start on
-///         each process.
+///   worker_count_per_proc: Number of worker threads to start on
+///       each process.
 #[pyfunction(
     flow,
     addresses,
@@ -997,7 +997,7 @@ pub(crate) fn cluster_main(
 ) -> PyResult<()> {
     py.allow_threads(move || {
         let addresses = addresses.unwrap_or_default();
-        let (builders, other) = if addresses.len() < 1 {
+        let (builders, other) = if addresses.is_empty() {
             timely::CommunicationConfig::Process(worker_count_per_proc)
         } else {
             timely::CommunicationConfig::Cluster {

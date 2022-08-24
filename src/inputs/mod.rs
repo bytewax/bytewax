@@ -18,7 +18,7 @@
 //! This system follows our standard pattern of having parallel Python
 //! config objects and Rust impl structs for each trait of behavior we
 //! want. E.g. [`KafkaInputConfig`] represents a token in Python for
-//! how to create a [`KafkaInputReader`].
+//! how to create a [`KafkaInput`].
 
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyCoroIterator};
 use crate::recovery::StateBytes;
@@ -92,20 +92,20 @@ impl InputConfig {
 ///
 /// Args:
 ///
-///     input_builder: `input_builder(worker_index: int, worker_count:
-///         int, resume_state: Option[Any]) => Iterator[Tuple[Any,
-///         Any]]` Builder function which returns an iterator of
-///         2-tuples of `(state, item)`. `item` is the input that
-///         worker should introduce into the dataflow. `state` is a
-///         snapshot of any internal state it will take to resume this
-///         input from its current position _after the current
-///         item_. Note that e.g. returning the same list from each
-///         worker will result in duplicate data in the dataflow.
+///   input_builder: `input_builder(worker_index: int, worker_count:
+///       int, resume_state: Option[Any]) => Iterator[Tuple[Any,
+///       Any]]` Builder function which returns an iterator of
+///       2-tuples of `(state, item)`. `item` is the input that
+///       worker should introduce into the dataflow. `state` is a
+///       snapshot of any internal state it will take to resume this
+///       input from its current position _after the current
+///       item_. Note that e.g. returning the same list from each
+///       worker will result in duplicate data in the dataflow.
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `input_config` argument to the
-///     `bytewax.dataflow.Dataflow.input`.
+///   Config object. Pass this as the `input_config` argument to the
+///   `bytewax.dataflow.Dataflow.input`.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
 #[pyo3(text_signature = "(input_builder)")]
 pub(crate) struct ManualInputConfig {
@@ -152,22 +152,22 @@ impl ManualInputConfig {
 ///
 /// Args:
 ///
-///     brokers (List[str]): List of `host:port` strings of Kafka
-///         brokers.
+///   brokers (List[str]): List of `host:port` strings of Kafka
+///       brokers.
 ///
-///     topic (str): Topic to which consumer will subscribe.
+///   topic (str): Topic to which consumer will subscribe.
 ///
-///     tail (bool): Wait for new data on this topic when the end is
-///         initially reached.
+///   tail (bool): Wait for new data on this topic when the end is
+///       initially reached.
 ///
-///     starting_offset (str): Can be "beginning" or "end". Delegates
-///         where to resume if auto_commit is not enabled. Defaults to
-///         "beginning".
+///   starting_offset (str): Can be "beginning" or "end". Delegates
+///       where to resume if auto_commit is not enabled. Defaults to
+///       "beginning".
 ///
 /// Returns:
 ///
-///     Config object. Pass this as the `input_config` argument to the
-///     `bytewax.dataflow.Dataflow.input`.
+///   Config object. Pass this as the `input_config` argument to the
+///   `bytewax.dataflow.Dataflow.input`.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
 #[pyo3(text_signature = "(brokers, topic, tail, starting_offset)")]
 pub(crate) struct KafkaInputConfig {
@@ -505,11 +505,8 @@ impl KafkaInput {
         let mut partitions = TopicPartitionList::new();
         for partition in distribute(0..partition_count, worker_index, worker_count) {
             let partition = KafkaPartition(partition);
-            let resume_offset: Option<Offset> = positions
-                .entry(partition)
-                .or_insert(KafkaPosition::Default)
-                .clone()
-                .into();
+            let resume_offset: Option<Offset> =
+                (*positions.entry(partition).or_insert(KafkaPosition::Default)).into();
             // If we don't know the offset for this partition from the
             // resume state, use the default starting offset.
             let offset = resume_offset.unwrap_or(starting_offset);

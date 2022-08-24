@@ -13,7 +13,7 @@
 //! This system follows our standard pattern of having parallel Python
 //! config objects and Rust impl structs for each trait of behavior we
 //! want. E.g. [`StdOutputConfig`] represents a token in Python for
-//! how to create a [`StdOutputWriter`].
+//! how to create a [`StdOutput`].
 
 use std::ffi::CString;
 
@@ -70,17 +70,17 @@ impl OutputConfig {
 ///
 /// Args:
 ///
-///     output_builder: `output_builder(worker_index: int,
-///         worker_count: int) => output_handler(item: Any)` Builder
-///         function which returns a handler function for each worker
-///         thread, called with `item` whenever an item passes by this
-///         capture operator on this worker.
+///   output_builder: `output_builder(worker_index: int,
+///       worker_count: int) => output_handler(item: Any)` Builder
+///       function which returns a handler function for each worker
+///       thread, called with `item` whenever an item passes by this
+///       capture operator on this worker.
 ///
 /// Returns:
 ///
-///     Config object. Pass this to the
-///     `bytewax.dataflow.Dataflow.capture` operator.
-#[pyclass(module = "bytewax.outputs", extends = OutputConfig)]
+///   Config object. Pass this to the
+///   `bytewax.dataflow.Dataflow.capture` operator.
+#[pyclass(module = "bytewax.outputs", extends = OutputConfig, subclass)]
 #[pyo3(text_signature = "(output_builder)")]
 pub(crate) struct ManualOutputConfig {
     output_builder: TdPyCallable,
@@ -124,18 +124,18 @@ impl ManualOutputConfig {
 ///
 /// Args:
 ///
-///     output_builder: `output_builder(worker_index: int,
-///         worker_count: int) => output_handler(epoch_item:
-///         Tuple[int, Any])` Builder function which returns a handler
-///         function for each worker thread, called with `(epoch,
-///         item)` whenever an item passes by this capture operator on
-///         this worker.
+///   output_builder: `output_builder(worker_index: int,
+///       worker_count: int) => output_handler(epoch_item:
+///       Tuple[int, Any])` Builder function which returns a handler
+///       function for each worker thread, called with `(epoch,
+///       item)` whenever an item passes by this capture operator on
+///       this worker.
 ///
 /// Returns:
 ///
-///     Config object. Pass this to the
-///     `bytewax.dataflow.Dataflow.capture` operator.
-#[pyclass(module = "bytewax.outputs", extends = OutputConfig)]
+///   Config object. Pass this to the
+///   `bytewax.dataflow.Dataflow.capture` operator.
+#[pyclass(module = "bytewax.outputs", extends = OutputConfig, subclass)]
 #[pyo3(text_signature = "(output_builder)")]
 pub(crate) struct ManualEpochOutputConfig {
     output_builder: TdPyCallable,
@@ -179,8 +179,8 @@ impl ManualEpochOutputConfig {
 ///
 /// Returns:
 ///
-///     Config object. Pass this to the
-///     `bytewax.dataflow.Dataflow.capture` operator.
+///   Config object. Pass this to the
+///   `bytewax.dataflow.Dataflow.capture` operator.
 #[pyclass(module = "bytewax.outputs", extends = OutputConfig)]
 #[pyo3(text_signature = "()")]
 pub(crate) struct StdOutputConfig {}
@@ -249,7 +249,7 @@ pub(crate) fn build_output_writer(
     } else if let Ok(config) = config.downcast::<PyCell<StdOutputConfig>>() {
         let _config = config.borrow();
 
-        let writer = py.allow_threads(|| StdOutput::new());
+        let writer = py.allow_threads(StdOutput::new);
 
         Ok(Box::new(writer))
     } else {

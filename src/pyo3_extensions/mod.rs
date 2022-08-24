@@ -161,13 +161,29 @@ fn test_serde() {
     pyo3::prepare_freethreaded_python();
 
     let pyobj: TdPyAny = Python::with_gil(|py| PyString::new(py, "hello").into());
-    // This does a round-trip.
-    assert_tokens(
-        &pyobj,
-        &[Token::Bytes(&[
+
+    // Python < 3.8 serializes strings differently than python >= 3.8.
+    // We get the current python version here so we can assert based on that.
+    let (major, minor) = Python::with_gil(|py| {
+        let sys = PyModule::import(py, "sys").unwrap();
+        let version = sys.getattr("version_info").unwrap();
+        let major: i32 = version.getattr("major").unwrap().extract().unwrap();
+        let minor: i32 = version.getattr("minor").unwrap().extract().unwrap();
+        (major, minor)
+    });
+
+    // We only support python 3...
+    assert_eq!(major, 3);
+
+    let expected = if minor < 8 {
+        Token::Bytes(&[128, 3, 88, 5, 0, 0, 0, 104, 101, 108, 108, 111, 113, 0, 46])
+    } else {
+        Token::Bytes(&[
             128, 4, 149, 9, 0, 0, 0, 0, 0, 0, 0, 140, 5, 104, 101, 108, 108, 111, 148, 46,
-        ])],
-    );
+        ])
+    };
+    // This does a round-trip.
+    assert_tokens(&pyobj, &[expected]);
 }
 
 /// Re-use Python's value semantics in Rust code.

@@ -2,12 +2,12 @@
 //!
 //! The two big things in here are:
 //!
-//!     1. Shim functions that totally encapsulate PyO3 and Python
-//!     calling boilerplate to easily pass into Timely operators.
+//!   1. Shim functions that totally encapsulate PyO3 and Python
+//!   calling boilerplate to easily pass into Timely operators.
 //!
-//!     2. Implementation of stateful operators using
-//!     [`crate::recovery::StatefulLogic`] and
-//!     [`crate::window::WindowLogic`].
+//!   2. Implementation of stateful operators using
+//!   [`crate::recovery::StatefulLogic`] and
+//!   [`crate::window::WindowLogic`].
 
 use crate::log_func;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};

@@ -4,9 +4,10 @@
 //! `bytewax.dataflow` Python module docstring. Read that first.
 //!
 //! This is a "blueprint" of a dataflow. We compile this into a Timely
-//! dataflow in [`crate::execution::build_production_dataflow`]. We
-//! can't call into this structure directly from Timely because PyO3
-//! does not like generics.
+//! dataflow in [`crate::execution`] in the (private) `build_production_dataflow`
+//! function.
+//! We can't call into this structure directly from Timely because PyO3 does
+//! not like generics.
 
 use crate::inputs::InputConfig;
 use crate::outputs::OutputConfig;
@@ -74,10 +75,10 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     step_id (str): Uniquely identifies this step for recovery.
+    ///   step_id (str): Uniquely identifies this step for recovery.
     ///
-    ///     input_config (bytewax.input.InputConfig): Input config to
-    ///         use. See `bytewax.inputs`.
+    ///   input_config (bytewax.input.InputConfig): Input config to
+    ///       use. See `bytewax.inputs`.
     #[pyo3(text_signature = "(self, step_id, input_config)")]
     fn input(&mut self, step_id: StepId, input_config: Py<InputConfig>) {
         self.steps.push(Step::Input {
@@ -109,8 +110,8 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     output_config (bytewax.outputs.OutputConfig): Output
-    ///         config to use. See `bytewax.outputs`.
+    ///   output_config (bytewax.outputs.OutputConfig): Output
+    ///       config to use. See `bytewax.outputs`.
     #[pyo3(text_signature = "(self, output_config)")]
     fn capture(&mut self, output_config: Py<OutputConfig>) {
         self.steps.push(Step::Capture { output_config });
@@ -145,7 +146,7 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     predicate: `predicate(item: Any) => should_emit: bool`
+    ///   predicate: `predicate(item: Any) => should_emit: bool`
     #[pyo3(text_signature = "(self, predicate)")]
     fn filter(&mut self, predicate: TdPyCallable) {
         self.steps.push(Step::Filter { predicate });
@@ -180,7 +181,7 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     mapper: `mapper(item: Any) => emit: Iterable[Any]`
+    ///   mapper: `mapper(item: Any) => emit: Iterable[Any]`
     #[pyo3(text_signature = "(self, mapper)")]
     fn flat_map(&mut self, mapper: TdPyCallable) {
         self.steps.push(Step::FlatMap { mapper });
@@ -211,7 +212,7 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     inspector: `inspector(item: Any) => None`
+    ///   inspector: `inspector(item: Any) => None`
     #[pyo3(text_signature = "(self, inspector)")]
     fn inspect(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::Inspect { inspector });
@@ -244,7 +245,7 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     inspector: `inspector(epoch: int, item: Any) => None`
+    ///   inspector: `inspector(epoch: int, item: Any) => None`
     #[pyo3(text_signature = "(self, inspector)")]
     fn inspect_epoch(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::InspectEpoch { inspector });
@@ -278,7 +279,7 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     mapper: `mapper(item: Any) => updated_item: Any`
+    ///   mapper: `mapper(item: Any) => updated_item: Any`
     #[pyo3(text_signature = "(self, mapper)")]
     fn map(&mut self, mapper: TdPyCallable) {
         self.steps.push(Step::Map { mapper });
@@ -346,13 +347,13 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     step_id (str): Uniquely identifies this step for recovery.
+    ///   step_id (str): Uniquely identifies this step for recovery.
     ///
-    ///     reducer: `reducer(accumulator: Any, value: Any) =>
-    ///         updated_accumulator: Any`
+    ///   reducer: `reducer(accumulator: Any, value: Any) =>
+    ///       updated_accumulator: Any`
     ///
-    ///     is_complete: `is_complete(updated_accumulator: Any) =>
-    ///         should_emit: bool`
+    ///   is_complete: `is_complete(updated_accumulator: Any) =>
+    ///       should_emit: bool`
     #[pyo3(text_signature = "(self, step_id, reducer, is_complete)")]
     fn reduce(&mut self, step_id: StepId, reducer: TdPyCallable, is_complete: TdPyCallable) {
         self.steps.push(Step::Reduce {
@@ -418,15 +419,15 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     step_id: Uniquely identifies this step for recovery.
+    ///   step_id: Uniquely identifies this step for recovery.
     ///
-    ///     clock_config: Clock config to use. See `bytewax.window`.
+    ///   clock_config: Clock config to use. See `bytewax.window`.
     ///
-    ///     window_config: Windower config to use. See `bytewax.window`.
+    ///   window_config: Windower config to use. See `bytewax.window`.
     ///
-    ///     builder: `builder(key: Any) => initial_accumulator: Any`
+    ///   builder: `builder(key: Any) => initial_accumulator: Any`
     ///
-    ///     folder: `folder(accumulator: Any, value: Any) => updated_accumulator: Any`
+    ///   folder: `folder(accumulator: Any, value: Any) => updated_accumulator: Any`
     #[pyo3(text_signature = "(self, step_id, clock_config, window_config, builder, folder)")]
     fn fold_window(
         &mut self,
@@ -510,16 +511,16 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     step_id (str): Uniquely identifies this step for recovery.
+    ///   step_id (str): Uniquely identifies this step for recovery.
     ///
-    ///     clock_config (bytewax.window.ClockConfig): Clock config to
-    ///         use. See `bytewax.window`.
+    ///   clock_config (bytewax.window.ClockConfig): Clock config to
+    ///       use. See `bytewax.window`.
     ///
-    ///     window_config (bytewax.window.WindowConfig): Windower
-    ///         config to use. See `bytewax.window`.
+    ///   window_config (bytewax.window.WindowConfig): Windower
+    ///       config to use. See `bytewax.window`.
     ///
-    ///     reducer: `reducer(accumulator: Any, value: Any) =>
-    ///         updated_accumulator: Any`
+    ///   reducer: `reducer(accumulator: Any, value: Any) =>
+    ///       updated_accumulator: Any`
     #[pyo3(text_signature = "(self, step_id, clock_config, window_config, reducer)")]
     fn reduce_window(
         &mut self,
@@ -604,12 +605,12 @@ impl Dataflow {
     ///
     /// Args:
     ///
-    ///     step_id (str): Uniquely identifies this step for recovery.
+    ///   step_id (str): Uniquely identifies this step for recovery.
     ///
-    ///     builder: `builder(key: Any) => new_state: Any`
+    ///   builder: `builder(key: Any) => new_state: Any`
     ///
-    ///     mapper: `mapper(state: Any, value: Any) => (updated_state:
-    ///         Any, updated_value: Any)`
+    ///   mapper: `mapper(state: Any, value: Any) => (updated_state:
+    ///       Any, updated_value: Any)`
     #[pyo3(text_signature = "(self, step_id, builder, mapper)")]
     fn stateful_map(&mut self, step_id: StepId, builder: TdPyCallable, mapper: TdPyCallable) {
         self.steps.push(Step::StatefulMap {
@@ -696,13 +697,13 @@ impl<'source> FromPyObject<'source> for Step {
         } else if let Ok(("FoldWindow", step_id, clock_config, window_config, builder, folder)) =
             tuple.extract()
         {
-            return Ok(Self::FoldWindow {
+            Ok(Self::FoldWindow {
                 step_id,
                 clock_config,
                 window_config,
                 builder,
                 folder,
-            });
+            })
         } else if let Ok(("Inspect", inspector)) = tuple.extract() {
             Ok(Self::Inspect { inspector })
         } else if let Ok(("InspectEpoch", inspector)) = tuple.extract() {
@@ -759,7 +760,7 @@ impl IntoPy<PyObject> for Step {
                 folder,
             } => (
                 "FoldWindow",
-                step_id.clone(),
+                step_id,
                 clock_config,
                 window_config,
                 builder,
@@ -772,7 +773,7 @@ impl IntoPy<PyObject> for Step {
                 step_id,
                 reducer,
                 is_complete,
-            } => ("Reduce", step_id.clone(), reducer, is_complete).into_py(py),
+            } => ("Reduce", step_id, reducer, is_complete).into_py(py),
             Self::ReduceWindow {
                 step_id,
                 clock_config,
@@ -780,7 +781,7 @@ impl IntoPy<PyObject> for Step {
                 reducer,
             } => (
                 "ReduceWindow",
-                step_id.clone(),
+                step_id,
                 clock_config,
                 window_config,
                 reducer,
@@ -790,7 +791,7 @@ impl IntoPy<PyObject> for Step {
                 step_id,
                 builder,
                 mapper,
-            } => ("StatefulMap", step_id.clone(), builder, mapper).into_py(py),
+            } => ("StatefulMap", step_id, builder, mapper).into_py(py),
             Self::Capture { output_config } => ("Capture", output_config).into_py(py),
         }
     }
