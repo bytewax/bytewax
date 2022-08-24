@@ -697,13 +697,13 @@ impl<'source> FromPyObject<'source> for Step {
         } else if let Ok(("FoldWindow", step_id, clock_config, window_config, builder, folder)) =
             tuple.extract()
         {
-            return Ok(Self::FoldWindow {
+            Ok(Self::FoldWindow {
                 step_id,
                 clock_config,
                 window_config,
                 builder,
                 folder,
-            });
+            })
         } else if let Ok(("Inspect", inspector)) = tuple.extract() {
             Ok(Self::Inspect { inspector })
         } else if let Ok(("InspectEpoch", inspector)) = tuple.extract() {
@@ -760,7 +760,7 @@ impl IntoPy<PyObject> for Step {
                 folder,
             } => (
                 "FoldWindow",
-                step_id.clone(),
+                step_id,
                 clock_config,
                 window_config,
                 builder,
@@ -773,7 +773,7 @@ impl IntoPy<PyObject> for Step {
                 step_id,
                 reducer,
                 is_complete,
-            } => ("Reduce", step_id.clone(), reducer, is_complete).into_py(py),
+            } => ("Reduce", step_id, reducer, is_complete).into_py(py),
             Self::ReduceWindow {
                 step_id,
                 clock_config,
@@ -781,7 +781,7 @@ impl IntoPy<PyObject> for Step {
                 reducer,
             } => (
                 "ReduceWindow",
-                step_id.clone(),
+                step_id,
                 clock_config,
                 window_config,
                 reducer,
@@ -791,7 +791,7 @@ impl IntoPy<PyObject> for Step {
                 step_id,
                 builder,
                 mapper,
-            } => ("StatefulMap", step_id.clone(), builder, mapper).into_py(py),
+            } => ("StatefulMap", step_id, builder, mapper).into_py(py),
             Self::Capture { output_config } => ("Capture", output_config).into_py(py),
         }
     }

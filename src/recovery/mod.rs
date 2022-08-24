@@ -573,7 +573,7 @@ fn to_bytes<T: Serialize>(obj: &T) -> Vec<u8> {
 
 fn from_bytes<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> T {
     let t_name = type_name::<T>();
-    bincode::deserialize(bytes).expect(&format!("Error deserializing recovery {t_name})"))
+    bincode::deserialize(bytes).unwrap_or_else(|_| panic!("Error deserializing recovery {t_name})"))
 }
 
 // Here's our public facing recovery operator data model and trait.
@@ -679,7 +679,10 @@ impl StateBytes {
         // versions, then recovery doesn't work. Or if we use an
         // encoding that isn't deterministic.
         let t_name = type_name::<T>();
-        Self(bincode::serialize(obj).expect(&format!("Error serializing recovery state {t_name}")))
+        Self(
+            bincode::serialize(obj)
+                .unwrap_or_else(|_| panic!("Error serializing recovery {t_name})")),
+        )
     }
 
     /// Deserialize these bytes from the recovery system into a state
@@ -687,7 +690,7 @@ impl StateBytes {
     pub(crate) fn de<T: DeserializeOwned>(self) -> T {
         let t_name = type_name::<T>();
         bincode::deserialize(&self.0)
-            .expect(&format!("Error deserializing recovery state {t_name})"))
+            .unwrap_or_else(|_| panic!("Error deserializing recovery state {t_name})"))
     }
 }
 
@@ -877,7 +880,7 @@ pub(crate) fn build_resume_epoch_calc_dataflow<A: Allocate, T: Timestamp>(
                     .iter()
                     .cloned()
                     .min()
-                    .unwrap_or(T::minimum())
+                    .unwrap_or_else(T::minimum)
             })
             .map(move |resume_epoch| resume_epoch_tx.send(resume_epoch).unwrap())
             .probe_with(&mut probe);
@@ -926,9 +929,9 @@ pub(crate) fn build_state_loading_dataflow<A: Allocate>(
                             backups.swap(&mut tmp_backups);
 
                             epoch_to_backups_buffer
-                                .entry(epoch.clone())
+                                .entry(*epoch)
                                 .or_insert_with(Vec::new)
-                                .extend(tmp_backups.drain(..));
+                                .append(&mut tmp_backups);
 
                             fncater.notify_at(cap.retain());
                         });
@@ -978,9 +981,9 @@ pub(crate) fn build_state_loading_dataflow<A: Allocate>(
                         backups.swap(&mut tmp_backups);
 
                         epoch_to_backups_buffer
-                            .entry(epoch.clone())
+                            .entry(*epoch)
                             .or_insert_with(Vec::new)
-                            .extend(tmp_backups.drain(..));
+                            .append(&mut tmp_backups);
 
                         fncater.notify_at(cap.retain());
                     });
@@ -1044,17 +1047,14 @@ where
     iterator_source(
         scope,
         "ProgressSource",
-        move |last_cap| match reader.read() {
-            Some(backup) => {
-                Some(IteratorSourceInput {
-                    lower_bound: S::Timestamp::minimum(),
-                    // An iterator of (timestamp, iterator of
-                    // items). Nested [`IntoIterator`]s.
-                    data: Some((S::Timestamp::minimum(), Some(backup))),
-                    target: last_cap.clone(),
-                })
-            }
-            None => None,
+        move |last_cap| {
+            reader.read().map(|backup| IteratorSourceInput {
+                lower_bound: S::Timestamp::minimum(),
+                // An iterator of (timestamp, iterator of
+                // items). Nested [`IntoIterator`]s.
+                data: Some((S::Timestamp::minimum(), Some(backup))),
+                target: last_cap.clone(),
+            })
         },
         probe.clone(),
     )
@@ -1131,7 +1131,7 @@ impl<S: Scope> WriteState<S> for Stream<S, (StateKey, (StepId, StateUpdate))> {
                     epoch_to_backups_buffer
                         .entry(epoch.clone())
                         .or_insert_with(Vec::new)
-                        .extend(tmp_backups.drain(..));
+                        .append(&mut tmp_backups);
 
                     ncater.notify_at(cap.retain());
                 });
@@ -1190,7 +1190,7 @@ impl<S: Scope, D: Data> WriteProgress<S, D> for Stream<S, D> {
                     // Don't write out the last "empty" frontier to
                     // allow restarting from the end of the dataflow.
                     if !frontier.elements().is_empty() {
-                        let backup = FrontierBackup(worker_index, frontier.to_owned());
+                        let backup = FrontierBackup(worker_index, frontier);
 
                         frontier_writer.write(&backup);
 
@@ -1461,9 +1461,9 @@ where
                         key_values.swap(&mut tmp_key_values);
 
                         incoming_epoch_to_key_values_buffer
-                            .entry(epoch.clone())
+                            .entry(*epoch)
                             .or_insert_with(Vec::new)
-                            .extend(tmp_key_values.drain(..));
+                            .append(&mut tmp_key_values);
                     });
 
                     // TODO: Is this the right way to get the epoch
@@ -1475,7 +1475,7 @@ where
                         .iter()
                         .flat_map(|mf| mf.frontier().iter().min().cloned())
                         .min()
-                        .unwrap_or(output_cap.time().clone());
+                        .unwrap_or_else(|| *output_cap.time());
 
                     // Now let's find out which epochs we should wake
                     // up the logic for.
@@ -1557,7 +1557,7 @@ where
                             key_values_buffer.extend(
                                 keys_buffer
                                     .drain(..)
-                                    .map(|k| (k.clone(), Poll::Ready(None))),
+                                    .map(|k| (k, Poll::Ready(None))),
                             );
                         } else {
                             // Otherwise, wake up any keys
@@ -1572,7 +1572,7 @@ where
                         }
 
                         let activated_keys = activated_epoch_to_keys_buffer
-                            .entry(epoch.clone())
+                            .entry(epoch)
                             .or_default();
 
                         let mut output_session = output_handle.session(&output_cap);
@@ -2350,7 +2350,7 @@ impl<T: DeserializeOwned> StateReader<T> for KafkaReader<RecoveryKey<T>, StateUp
 
 impl<T: Serialize + Debug> ProgressWriter<T> for KafkaWriter<String, FrontierBackup<T>> {
     fn write(&mut self, backup: &FrontierBackup<T>) {
-        KafkaWriter::write(self, &String::from("worker_frontier"), &backup);
+        KafkaWriter::write(self, &String::from("worker_frontier"), backup);
         debug!("kafka frontier write backup={backup:?}");
     }
 }

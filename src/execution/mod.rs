@@ -192,7 +192,7 @@ impl PeriodicEpochConfig {
 
     /// Pickle as a tuple.
     fn __getstate__(&self) -> (&str, pyo3_chrono::Duration) {
-        ("PeriodicEpochConfig", self.epoch_length.clone())
+        ("PeriodicEpochConfig", self.epoch_length)
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -654,10 +654,10 @@ fn build_production_dataflow<A: Allocate>(
         }
 
         if input_streams.is_empty() {
-            return Err(format!("Dataflow needs to contain at least one input"));
+            return Err("Dataflow needs to contain at least one input".to_string());
         }
         if capture_streams.is_empty() {
-            return Err(format!("Dataflow needs to contain at least one capture"));
+            return Err("Dataflow needs to contain at least one capture".to_string());
         }
         if !step_to_key_to_resume_state_bytes.is_empty() {
             return Err(format!(
@@ -714,7 +714,7 @@ fn build_and_run_resume_epoch_calc_dataflow<A: Allocate>(
     let (resume_epoch_tx, resume_epoch_rx) = std::sync::mpsc::channel();
     let probe = build_resume_epoch_calc_dataflow(worker, progress_reader, resume_epoch_tx)?;
 
-    run_until_done(worker, &interrupt_flag, probe);
+    run_until_done(worker, interrupt_flag, probe);
 
     let resume_epoch = match resume_epoch_rx.recv() {
         Ok(resume_epoch) => {
@@ -755,7 +755,7 @@ fn build_and_run_state_loading_dataflow<A: Allocate>(
         recovery_store_summary_tx,
     )?;
 
-    run_until_done(worker, &interrupt_flag, probe);
+    run_until_done(worker, interrupt_flag, probe);
 
     let mut step_to_key_to_resume_state_bytes = HashMap::new();
     while let Ok((step_id, key_to_resume_state_bytes)) = step_to_key_to_resume_state_bytes_rx.recv()
@@ -797,7 +797,7 @@ fn build_and_run_production_dataflow<A: Allocate>(
         )
     })?;
 
-    run_until_done(worker, &interrupt_flag, probe);
+    run_until_done(worker, interrupt_flag, probe);
 
     Ok(())
 }
@@ -997,7 +997,7 @@ pub(crate) fn cluster_main(
 ) -> PyResult<()> {
     py.allow_threads(move || {
         let addresses = addresses.unwrap_or_default();
-        let (builders, other) = if addresses.len() < 1 {
+        let (builders, other) = if addresses.is_empty() {
             timely::CommunicationConfig::Process(worker_count_per_proc)
         } else {
             timely::CommunicationConfig::Cluster {

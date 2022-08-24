@@ -249,7 +249,7 @@ pub(crate) fn build_output_writer(
     } else if let Ok(config) = config.downcast::<PyCell<StdOutputConfig>>() {
         let _config = config.borrow();
 
-        let writer = py.allow_threads(|| StdOutput::new());
+        let writer = py.allow_threads(StdOutput::new);
 
         Ok(Box::new(writer))
     } else {

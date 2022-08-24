@@ -505,11 +505,8 @@ impl KafkaInput {
         let mut partitions = TopicPartitionList::new();
         for partition in distribute(0..partition_count, worker_index, worker_count) {
             let partition = KafkaPartition(partition);
-            let resume_offset: Option<Offset> = positions
-                .entry(partition)
-                .or_insert(KafkaPosition::Default)
-                .clone()
-                .into();
+            let resume_offset: Option<Offset> =
+                (*positions.entry(partition).or_insert(KafkaPosition::Default)).into();
             // If we don't know the offset for this partition from the
             // resume state, use the default starting offset.
             let offset = resume_offset.unwrap_or(starting_offset);
