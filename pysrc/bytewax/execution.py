@@ -3,15 +3,15 @@
 Run an instantiated `bytewax.dataflow.Dataflow` using one of the entry
 point functions in this module.
 
-Entry Points
-------------
-
-TODO
 
 Epoch Configs
 -------------
 
-TODO
+Epochs define the granularity of recovery in a bytewax dataflow. By default, we
+snapshot recovery every 10 seconds. You should only need to set this if you are 
+testing the recovery system or are doing deep exactly-once integration work. Changing
+this does not change the semantics of any of the operators.
+
 
 """
 from typing import Any, Iterable, List, Optional, Tuple
