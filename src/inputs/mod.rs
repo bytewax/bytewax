@@ -20,9 +20,11 @@
 //! want. E.g. [`KafkaInputConfig`] represents a token in Python for
 //! how to create a [`KafkaInput`].
 
+use crate::StringResult;
+use crate::py_unwrap;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyCoroIterator};
 use crate::recovery::StateBytes;
-use crate::with_traceback;
+use crate::try_unwrap;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -273,7 +275,7 @@ pub(crate) fn build_input_reader(
     worker_index: usize,
     worker_count: usize,
     resume_state_bytes: Option<StateBytes>,
-) -> Result<Box<dyn InputReader<TdPyAny>>, String> {
+) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
     // See comment in [`crate::recovery::build_recovery_writers`]
     // about releasing the GIL during IO class building.
     let config = config.as_ref(py);
@@ -346,11 +348,9 @@ impl ManualInput {
             .map(|resume_state_bytes| resume_state_bytes.de())
             .unwrap_or_else(|| py.None().into());
 
-        let pyiter: TdPyCoroIterator = with_traceback!(py, {
-            input_builder
-                .call1(py, (worker_index, worker_count, resume_state.clone_ref(py)))?
-                .extract(py)
-        });
+        let pyiter: TdPyCoroIterator = try_unwrap!(input_builder
+            .call1(py, (worker_index, worker_count, resume_state.clone_ref(py)))?
+            .extract(py));
 
         Self {
             pyiter,
@@ -364,12 +364,13 @@ impl InputReader<TdPyAny> for ManualInput {
         self.pyiter.next().map(|poll| {
             poll.map(|state_item_pytuple| {
                 Python::with_gil(|py| {
-                    let (updated_state, item): (TdPyAny, TdPyAny) =
-                        with_traceback!(py, {
-                            state_item_pytuple
-                                .extract(py)
-                                .map_err(|_err| PyTypeError::new_err(format!("Manual input builders must yield `(state, item)` two-tuples; got `{state_item_pytuple:?}` instead")))
-                        });
+                    let (updated_state, item): (TdPyAny, TdPyAny) = py_unwrap!(
+                        state_item_pytuple.extract(py),
+                        format!(
+                            "Manual input builders must yield `(state, item)` \
+                                two-tuples; got `{state_item_pytuple:?}` instead"
+                        )
+                    );
 
                     self.last_state = updated_state;
 

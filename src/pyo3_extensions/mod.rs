@@ -1,8 +1,10 @@
 //! Newtypes around PyO3 types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
 
+use crate::py_unwrap;
+use crate::unwrap_any;
 use crate::recovery::StateKey;
-use crate::with_traceback;
+use crate::try_unwrap;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -194,7 +196,7 @@ impl PartialEq for TdPyAny {
             // pointer identity.
             let self_ = self.as_ref(py);
             let other = other.as_ref(py);
-            with_traceback!(py, self_.rich_compare(other, CompareOp::Eq)?.is_true())
+            try_unwrap!(self_.rich_compare(other, CompareOp::Eq)?.is_true())
         })
     }
 }
@@ -203,13 +205,19 @@ impl PartialEq for TdPyAny {
 /// routing into Timely's stateful operators.
 pub(crate) fn extract_state_pair(key_value_pytuple: TdPyAny) -> (StateKey, TdPyAny) {
     Python::with_gil(|py| {
-        let (key, value): (TdPyAny, TdPyAny) = with_traceback!(py, key_value_pytuple.extract(py)
-            .map_err(|_err| PyTypeError::new_err(format!("Dataflow requires a `(key, value)` 2-tuple as input to every stateful operator; got `{key_value_pytuple:?}` instead"))));
-        let key: String = with_traceback!(
-            py,
-            key.extract(py).map_err(|_err| PyTypeError::new_err(format!(
-                "Stateful logic functions must return string keys in `(key, value)`; got `{key:?}` instead"
-            )))
+        let (key, value): (TdPyAny, TdPyAny) = py_unwrap!(
+            key_value_pytuple.extract(py),
+            format!(
+                "Dataflow requires a `(key, value)` 2-tuple as input to \
+                    every stateful operator; got `{key_value_pytuple:?}` instead"
+            )
+        );
+        let key: String = py_unwrap!(
+            key.extract(py),
+            format!(
+                "Stateful logic functions must return string keys \
+                    in `(key, value)`; got `{key:?}` instead"
+            )
         );
         (StateKey::Hash(key), value)
     })
@@ -244,7 +252,7 @@ impl Iterator for TdPyIterator {
     fn next(&mut self) -> Option<Self::Item> {
         Python::with_gil(|py| {
             let mut iter = self.0.as_ref(py);
-            iter.next().map(|r| with_traceback!(py, r).into())
+            iter.next().map(|r| unwrap_any!(r).into())
         })
     }
 }
@@ -269,7 +277,7 @@ impl TdPyCoroIterator {
         Python::with_gil(|py| {
             let mut iter = self.0.as_ref(py);
             match iter.next() {
-                Some(Err(err)) => with_traceback!(py, Err(err)),
+                Some(Err(err)) => unwrap_any!(Err(err)),
                 Some(Ok(item)) if item.is_none() => Poll::Pending,
                 Some(Ok(item)) => Poll::Ready(Some(item.into())),
                 None => Poll::Ready(None),

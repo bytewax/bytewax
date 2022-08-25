@@ -282,6 +282,12 @@ use timely::Data;
 use timely::ExchangeData;
 use tokio::runtime::Runtime;
 
+use crate::StringResult;
+
+/// Common data type used across the codebase
+pub(crate) type StreamStateKey<T> = (StateKey, T);
+pub(crate) type EpochData = StreamStateKey<(StepId, StateUpdate)>;
+
 /// Base class for a recovery config.
 ///
 /// This describes how each worker in a dataflow cluster should store
@@ -834,7 +840,7 @@ pub(crate) fn build_resume_epoch_calc_dataflow<A: Allocate, T: Timestamp>(
     // different-sized cluster.
     progress_reader: Box<dyn ProgressReader<T>>,
     resume_epoch_tx: std::sync::mpsc::Sender<T>,
-) -> Result<ProbeHandle<()>, String> {
+) -> StringResult<ProbeHandle<()>> {
     timely_worker.dataflow(|scope| {
         let mut probe = ProbeHandle::new();
 
@@ -906,7 +912,7 @@ pub(crate) fn build_state_loading_dataflow<A: Allocate>(
         HashMap<StateKey, StateBytes>,
     )>,
     recovery_store_summary_tx: std::sync::mpsc::Sender<RecoveryStoreSummary<u64>>,
-) -> Result<ProbeHandle<u64>, String> {
+) -> StringResult<ProbeHandle<u64>> {
     timely_worker.dataflow(|scope| {
         let mut probe = ProbeHandle::new();
 
@@ -1229,7 +1235,7 @@ impl<S: Scope> CollectGarbage<S> for Stream<S, StateBackup<S::Timestamp>> {
     ) -> Stream<S, ()> {
         let mut op_builder = OperatorBuilder::new("CollectGarbage".to_string(), self.scope());
 
-        let mut state_input = op_builder.new_input(&self, pact::Pipeline);
+        let mut state_input = op_builder.new_input(self, pact::Pipeline);
         let mut dataflow_frontier_input = op_builder.new_input(&dataflow_frontier, pact::Pipeline);
 
         let (mut output_wrapper, stream) = op_builder.new_output();
@@ -1349,10 +1355,7 @@ pub(crate) trait StatefulUnary<S: Scope, V: ExchangeData> {
         step_id: StepId,
         logic_builder: LB,
         resume_state: HashMap<StateKey, StateBytes>,
-    ) -> (
-        Stream<S, (StateKey, R)>,
-        Stream<S, (StateKey, (StepId, StateUpdate))>,
-    )
+    ) -> (Stream<S, (StateKey, R)>, Stream<S, EpochData>)
     where
         S::Timestamp: Hash + Eq;
 }
@@ -1554,11 +1557,8 @@ where
                             keys_buffer.extend(key_to_next_activate_at_buffer.keys().cloned());
                             keys_buffer.dedup();
                             // Drain to re-use allocation.
-                            key_values_buffer.extend(
-                                keys_buffer
-                                    .drain(..)
-                                    .map(|k| (k, Poll::Ready(None))),
-                            );
+                            key_values_buffer
+                                .extend(keys_buffer.drain(..).map(|k| (k, Poll::Ready(None))));
                         } else {
                             // Otherwise, wake up any keys
                             // that are past their requested
@@ -1571,9 +1571,8 @@ where
                             );
                         }
 
-                        let activated_keys = activated_epoch_to_keys_buffer
-                            .entry(epoch)
-                            .or_default();
+                        let activated_keys =
+                            activated_epoch_to_keys_buffer.entry(epoch).or_default();
 
                         let mut output_session = output_handle.session(&output_cap);
                         let mut state_update_session =
@@ -1676,14 +1675,11 @@ pub(crate) fn build_recovery_writers(
     worker_index: usize,
     worker_count: usize,
     recovery_config: Py<RecoveryConfig>,
-) -> Result<
-    (
-        Box<dyn ProgressWriter<u64>>,
-        Box<dyn StateWriter<u64>>,
-        Box<dyn StateCollector<u64>>,
-    ),
-    String,
-> {
+) -> StringResult<(
+    Box<dyn ProgressWriter<u64>>,
+    Box<dyn StateWriter<u64>>,
+    Box<dyn StateCollector<u64>>,
+)> {
     // Horrible news: we have to be very studious and release the GIL
     // any time we know we have it and we call into complex Rust
     // libraries because internally it might call log!() on a
@@ -1783,7 +1779,7 @@ pub(crate) fn build_recovery_readers(
     worker_index: usize,
     worker_count: usize,
     recovery_config: Py<RecoveryConfig>,
-) -> Result<(Box<dyn ProgressReader<u64>>, Box<dyn StateReader<u64>>), String> {
+) -> StringResult<(Box<dyn ProgressReader<u64>>, Box<dyn StateReader<u64>>)> {
     // See comment about the GIL in
     // [`build_recovery_writers`].
     let recovery_config = recovery_config.as_ref(py);

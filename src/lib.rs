@@ -18,6 +18,9 @@ pub(crate) mod window;
 #[macro_use]
 pub(crate) mod macros;
 
+/// Result type used in the crate that holds a String as the Err type.
+pub(crate) type StringResult<E> = Result<E, String>;
+
 #[pyfunction]
 #[pyo3(text_signature = "(secs)")]
 fn sleep_keep_gil(secs: u64) {
