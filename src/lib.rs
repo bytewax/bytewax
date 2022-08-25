@@ -19,7 +19,7 @@ pub(crate) mod window;
 pub(crate) mod macros;
 
 /// Result type used in the crate that holds a String as the Err type.
-pub(crate) type StringResult<E> = Result<E, String>;
+pub(crate) type StringResult<T> = Result<T, String>;
 
 #[pyfunction]
 #[pyo3(text_signature = "(secs)")]
