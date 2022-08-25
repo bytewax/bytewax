@@ -4,23 +4,66 @@
 <h1 class="api__article-title">Module <strong>bytewax.inputs</strong></h1>
 </header>
 <section class="api__article-intro" id="section-intro">
-<p>Helpers to let you quickly define epoch / batching semantics.</p>
-<p>Use these to wrap an existing iterator which yields items.</p>
+<p>Dataflow input sources.</p>
+<p>Bytewax provides pre-packaged output configuration options for common
+sources you might want to read dataflow input from.</p>
+<h2 id="use">Use</h2>
+<p>Create an <code><a title="bytewax.inputs.InputConfig" href="#bytewax.inputs.InputConfig">InputConfig</a></code> subclass for the source you'd like to read
+from. Then pass that config object to the <code><a title="bytewax.dataflow.Dataflow" href="dataflow.html#bytewax.dataflow.Dataflow">Dataflow</a></code>
+constructor.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Helpers to let you quickly define epoch / batching semantics.
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Dataflow input sources.
 
-Use these to wrap an existing iterator which yields items.
+Bytewax provides pre-packaged output configuration options for common
+sources you might want to read dataflow input from.
+
+Use
+---
+
+Create an `InputConfig` subclass for the source you&#39;d like to read
+from. Then pass that config object to the `bytewax.dataflow.Dataflow`
+constructor.
 
 &#34;&#34;&#34;
 
-import datetime
-import heapq
-from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Tuple
-from .bytewax import AdvanceTo, Emit, KafkaInputConfig, ManualInputConfig, InputConfig
+from typing import Any, Iterable
+
+from .bytewax import InputConfig, KafkaInputConfig, ManualInputConfig  # noqa: F401
+
+
+def TestingInputConfig(it):
+    &#34;&#34;&#34;Produce input from this Python iterable. You only want to use this
+    for unit testing.
+
+    The iterable must be identical on all workers; this will
+    automatically distribute the items across workers and handle
+    recovery.
+
+    Args:
+
+        it: Iterable for input.
+
+    Returns:
+
+        Config object. Pass this to the `bytewax.dataflow.Dataflow`
+        constructor.
+
+    &#34;&#34;&#34;
+
+    def gen(worker_index, worker_count, resume_state):
+        resume_i = resume_state or 0
+        for i, x in enumerate(distribute(it, worker_index, worker_count)):
+            # FFWD to the resume item.
+            if i &lt; resume_i:
+                continue
+            # Store the index in this worker&#39;s partition as the resume
+            # state.
+            yield (i + 1, x)
+
+    return ManualInputConfig(gen)
 
 
 def distribute(elements: Iterable[Any], index: int, count: int) -&gt; Iterable[Any]:
@@ -84,309 +127,7 @@ def distribute(elements: Iterable[Any], index: int, count: int) -&gt; Iterable[A
     assert index &lt; count, f&#34;Highest index should only be {count - 1}; got {index}&#34;
     for i, x in enumerate(elements):
         if i % count == index:
-            yield x
-
-
-def yield_epochs(fn: Callable):
-    &#34;&#34;&#34;A decorator function to unwrap an iterator of [epoch, item]
-    into successive `AdvanceTo` and `Emit` classes with the
-    contents of the iterator.
-
-    Use this when you have an input_builder function that returns a
-    generator of (epoch, item) to be used with
-    `bytewax.cluster_main()` or `bytewax.spawn_cluster()`:
-
-    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
-    &gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered, ManualInputConfig
-    &gt;&gt;&gt; flow = Dataflow()
-    &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; @yield_epochs
-    ... def input_builder(i, n, re):
-    ...   return fully_ordered([&#34;a&#34;, &#34;b&#34;, &#34;c&#34;])
-    &gt;&gt;&gt; cluster_main(flow, ManualInputConfig(input_builder), lambda i, n: print, [], 0, 1)
-    (0, &#39;a&#39;)
-    (1, &#39;b&#39;)
-    (2, &#39;c&#39;)
-
-    &#34;&#34;&#34;
-
-    def inner_fn(worker_index, worker_count, resume_epoch):
-        gen = fn(worker_index, worker_count, resume_epoch)
-        for (epoch, item) in gen:
-            yield AdvanceTo(epoch)
-            yield Emit(item)
-
-    return inner_fn
-
-
-def single_batch(wrap_iter: Iterable) -&gt; Iterable[Tuple[int, Any]]:
-    &#34;&#34;&#34;All input items are part of the same epoch.
-
-    Use this for non-streaming-style batch processing.
-
-    &gt;&gt;&gt; from bytewax import Dataflow, run
-    &gt;&gt;&gt; flow = Dataflow()
-    &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; out = run(flow, single_batch([&#34;a&#34;, &#34;b&#34;, &#34;c&#34;]))
-    &gt;&gt;&gt; sorted(out)
-    [(0, &#39;a&#39;), (0, &#39;b&#39;), (0, &#39;c&#39;)]
-
-    Args:
-
-        wrap_iter: Existing input iterable of just items.
-
-    Yields:
-
-        Tuples of `(epoch, item)`.
-
-    &#34;&#34;&#34;
-    for item in wrap_iter:
-        yield (0, item)
-
-
-def tumbling_epoch(
-    wrap_iter: Iterable,
-    epoch_length: Any,
-    time_getter: Callable[[Any], Any] = lambda _: datetime.datetime.now(),
-    epoch_start_time: Any = None,
-    epoch_start: int = 0,
-) -&gt; Iterable[Tuple[int, Any]]:
-    &#34;&#34;&#34;All inputs within a tumbling window are part of the same epoch.
-
-    The time of the first item will be used as start of the 0
-    epoch. Out-of-order items will cause issues as Bytewax requires
-    inputs to dataflows to be in epoch order. See
-    `bytewax.inputs.fully_ordered()`.
-
-    &gt;&gt;&gt; from bytewax import Dataflow, run
-    &gt;&gt;&gt; items = [
-    ...     {
-    ...         &#34;timestamp&#34;: datetime.datetime(2022, 2, 22, 1, 2, 3),
-    ...         &#34;value&#34;: &#34;a&#34;,
-    ...     },
-    ...     {
-    ...         &#34;timestamp&#34;: datetime.datetime(2022, 2, 22, 1, 2, 4),
-    ...         &#34;value&#34;: &#34;b&#34;,
-    ...     },
-    ...     {
-    ...         &#34;timestamp&#34;: datetime.datetime(2022, 2, 22, 1, 2, 8),
-    ...         &#34;value&#34;: &#34;c&#34;,
-    ...     },
-    ... ]
-    &gt;&gt;&gt; flow = Dataflow()
-    &gt;&gt;&gt; flow.map(lambda item: item[&#34;value&#34;])
-    &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; out = run(flow, tumbling_epoch(
-    ...     items,
-    ...     datetime.timedelta(seconds=2),
-    ...     lambda item: item[&#34;timestamp&#34;],
-    ... ))
-    &gt;&gt;&gt; sorted(out)
-    [(0, &#39;a&#39;), (0, &#39;b&#39;), (2, &#39;c&#39;)]
-
-    By default, uses &#34;ingestion time&#34; and you don&#39;t need to specify a
-    way to access the timestamp in each item.
-
-    &gt;&gt;&gt; import pytest; pytest.skip(&#34;Figure out sleep in test.&#34;)
-    &gt;&gt;&gt; items = [
-    ...     &#34;a&#34;, # sleep(4)
-    ...     &#34;b&#34;, # sleep(1)
-    ...     &#34;c&#34;,
-    ... ]
-    &gt;&gt;&gt; list(tumbling_epoch(items, datetime.timedelta(seconds=2)))
-    [(0, &#39;a&#39;), (2, &#39;b&#39;), (2, &#39;c&#39;)]
-
-    Args:
-
-        wrap_iter: Existing input iterable of just items.
-
-        epoch_length: Length of each epoch window.
-
-        time_getter: Function that returns a timestamp given an
-            item. Defaults to current wall time.
-
-        epoch_start_time: The timestamp that should correspond to
-            the start of the 0th epoch. Otherwise defaults to the time
-            found on the first item.
-
-        epoch_start: The integer value to start counting epochs from.
-            This can be used for continuity during processing.
-
-    Yields:
-
-        Tuples of `(epoch, item)`.
-
-    &#34;&#34;&#34;
-    for item in wrap_iter:
-        time = time_getter(item)
-
-        if epoch_start_time is None:
-            epoch_start_time = time
-            epoch = epoch_start
-        else:
-            epoch = int((time - epoch_start_time) / epoch_length) + epoch_start
-
-        yield (epoch, item)
-
-
-def fully_ordered(wrap_iter: Iterable) -&gt; Iterable[Tuple[int, Any]]:
-    &#34;&#34;&#34;Each input item increments the epoch.
-
-    Be careful using this in high-volume streams with many workers, as
-    the worker overhead goes up with finely granulated epochs.
-
-    &gt;&gt;&gt; from bytewax import Dataflow, run
-    &gt;&gt;&gt; flow = Dataflow()
-    &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; out = run(flow, fully_ordered([&#34;a&#34;, &#34;b&#34;, &#34;c&#34;]))
-    &gt;&gt;&gt; sorted(out)
-    [(0, &#39;a&#39;), (1, &#39;b&#39;), (2, &#39;c&#39;)]
-
-    Args:
-
-        wrap_iter: Existing input iterable of just items.
-
-    Yields:
-
-        Tuples of `(epoch, item)`.
-
-    &#34;&#34;&#34;
-    epoch = 0
-    for item in wrap_iter:
-        yield (epoch, item)
-        epoch += 1
-
-
-@dataclass
-class _HeapItem:
-    &#34;&#34;&#34;Wrapper class which holds pairs of time and item for implementing
-    `sorted_window()`.
-
-    We need some class that has an ordering only based on the time.
-
-    &#34;&#34;&#34;
-
-    time: Any
-    item: Any
-
-    def __lt__(self, other):
-        &#34;&#34;&#34;Compare just by timestamp. Ignore the item.&#34;&#34;&#34;
-        return self.time &lt; other.time
-
-
-def sorted_window(
-    wrap_iter: Iterable,
-    window_length: Any,
-    time_getter: Callable[[Any], Any],
-    on_drop: Callable[[Any], None] = None,
-) -&gt; Iterable[Tuple[int, Any]]:
-    &#34;&#34;&#34;Sort a iterator to be increasing by some timestamp.
-
-    To support a possibly infinite iterator, store a limited sorted
-    buffer of items and only emit things downstream once a certain
-    window of time has passed, as indicated by the timestamp on new
-    items.
-
-    New input items which are older than those already emitted will be
-    dropped to maintain sorted output.
-
-    The window length needs to be tuned for how &#34;out of order&#34; your
-    input data is and how much data you&#39;re willing to drop: Already
-    perfectly ordered input data can have a window of &#34;0&#34; and nothing
-    will be dropped. Completely reversed input data needs a window
-    that is the difference between the oldest and youngest timestamp
-    to ensure nothing will be dropped.
-
-    &gt;&gt;&gt; from bytewax import Dataflow, run
-    &gt;&gt;&gt; items = [
-    ...     {
-    ...         &#34;timestamp&#34;: datetime.datetime(2022, 2, 22, 1, 2, 4),
-    ...         &#34;value&#34;: &#34;c&#34;,
-    ...     },
-    ...     {
-    ...         &#34;timestamp&#34;: datetime.datetime(2022, 2, 22, 1, 2, 3),
-    ...         &#34;value&#34;: &#34;b&#34;,
-    ...     },
-    ...     {
-    ...         &#34;timestamp&#34;: datetime.datetime(2022, 2, 22, 1, 2, 0),
-    ...         &#34;value&#34;: &#34;a&#34;,
-    ...     },
-    ... ]
-    &gt;&gt;&gt; sorted_items = list(
-    ...     sorted_window(
-    ...         items,
-    ...         datetime.timedelta(seconds=2),
-    ...         lambda item: item[&#34;timestamp&#34;],
-    ...     )
-    ... )
-    &gt;&gt;&gt; sorted_items
-    [{&#39;timestamp&#39;: datetime.datetime(2022, 2, 22, 1, 2, 3), &#39;value&#39;: &#39;b&#39;},
-    {&#39;timestamp&#39;: datetime.datetime(2022, 2, 22, 1, 2, 4), &#39;value&#39;: &#39;c&#39;}]
-
-    You could imagine using it with `tumbling_epoch()` to ensure you
-    get in-order, bucketed data into your dataflow.
-
-    &gt;&gt;&gt; flow = Dataflow()
-    &gt;&gt;&gt; flow.map(lambda item: item[&#34;value&#34;])
-    &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; out = run(flow, tumbling_epoch(
-    ...     sorted_items,
-    ...     datetime.timedelta(seconds=0.5),
-    ...     lambda item: item[&#34;timestamp&#34;],
-    ... ))
-    &gt;&gt;&gt; sorted(out)
-    [(0, &#39;b&#39;), (2, &#39;c&#39;)]
-
-    Args:
-
-        wrap_iter: Existing input iterable.
-
-        window_length: Buffering duration. Values will be emitted once
-            this amount of time has passed.
-
-        time_getter: Function to call to produce a timestamp for each
-            value.
-
-        on_drop: Function to call with each dropped item. E.g. log or
-            increment metrics on drop events to refine your window
-            length.
-
-    Yields:
-
-        Values in increasing timestamp order.
-
-    &#34;&#34;&#34;
-    sorted_buffer = []
-    newest_time = None
-    drop_older_than = None
-
-    def is_too_late(time):
-        return drop_older_than is not None and time &lt;= drop_older_than
-
-    def is_newest_item(time):
-        return newest_time is None or time &gt; newest_time
-
-    def emit_all(emit_older_than):
-        while len(sorted_buffer) &gt; 0 and sorted_buffer[0].time &lt;= emit_older_than:
-            sort_item = heapq.heappop(sorted_buffer)
-            yield sort_item.item
-
-    for item in wrap_iter:
-        time = time_getter(item)
-
-        if is_too_late(time):
-            if on_drop:
-                on_drop(item)
-        else:
-            heapq.heappush(sorted_buffer, _HeapItem(time, item))
-
-            if is_newest_item(time):
-                newest_time = time
-                drop_older_than = time - window_length
-
-                yield from emit_all(drop_older_than)
-
-    yield from emit_all(newest_time)</code></pre>
+            yield x</code></pre>
 </details>
 </section>
 <section>
@@ -396,6 +137,59 @@ def sorted_window(
 <section>
 <h2 class="api__article-subtitle" id="header-functions">Functions</h2>
 <dl>
+<dt id="bytewax.inputs.TestingInputConfig"><code class="language-python name flex">
+<span>def <span class="ident">TestingInputConfig</span></span>(<span>it)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Produce input from this Python iterable. You only want to use this
+for unit testing.</p>
+<p>The iterable must be identical on all workers; this will
+automatically distribute the items across workers and handle
+recovery.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>it</code></strong></dt>
+<dd>Iterable for input.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this to the <code><a title="bytewax.dataflow.Dataflow" href="dataflow.html#bytewax.dataflow.Dataflow">Dataflow</a></code>
+constructor.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def TestingInputConfig(it):
+    &#34;&#34;&#34;Produce input from this Python iterable. You only want to use this
+    for unit testing.
+
+    The iterable must be identical on all workers; this will
+    automatically distribute the items across workers and handle
+    recovery.
+
+    Args:
+
+        it: Iterable for input.
+
+    Returns:
+
+        Config object. Pass this to the `bytewax.dataflow.Dataflow`
+        constructor.
+
+    &#34;&#34;&#34;
+
+    def gen(worker_index, worker_count, resume_state):
+        resume_i = resume_state or 0
+        for i, x in enumerate(distribute(it, worker_index, worker_count)):
+            # FFWD to the resume item.
+            if i &lt; resume_i:
+                continue
+            # Store the index in this worker&#39;s partition as the resume
+            # state.
+            yield (i + 1, x)
+
+    return ManualInputConfig(gen)</code></pre>
+</details>
+</dd>
 <dt id="bytewax.inputs.distribute"><code class="language-python name flex">
 <span>def <span class="ident">distribute</span></span>(<span>elements: Iterable[Any], index: int, count: int) ‑> Iterable[Any]</span>
 </code></dt>
@@ -519,573 +313,17 @@ input.</p>
             yield x</code></pre>
 </details>
 </dd>
-<dt id="bytewax.inputs.fully_ordered"><code class="language-python name flex">
-<span>def <span class="ident">fully_ordered</span></span>(<span>wrap_iter: Iterable) ‑> Iterable[Tuple[int, Any]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Each input item increments the epoch.</p>
-<p>Be careful using this in high-volume streams with many workers, as
-the worker overhead goes up with finely granulated epochs.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, run
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.capture()
-&gt;&gt;&gt; out = run(flow, fully_ordered([&quot;a&quot;, &quot;b&quot;, &quot;c&quot;]))
-&gt;&gt;&gt; sorted(out)
-[(0, 'a'), (1, 'b'), (2, 'c')]
-</code></pre>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>wrap_iter</code></strong></dt>
-<dd>Existing input iterable of just items.</dd>
-</dl>
-<h2 id="yields">Yields</h2>
-<p>Tuples of <code>(epoch, item)</code>.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">def fully_ordered(wrap_iter: Iterable) -&gt; Iterable[Tuple[int, Any]]:
-    &#34;&#34;&#34;Each input item increments the epoch.
-
-    Be careful using this in high-volume streams with many workers, as
-    the worker overhead goes up with finely granulated epochs.
-
-    &gt;&gt;&gt; from bytewax import Dataflow, run
-    &gt;&gt;&gt; flow = Dataflow()
-    &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; out = run(flow, fully_ordered([&#34;a&#34;, &#34;b&#34;, &#34;c&#34;]))
-    &gt;&gt;&gt; sorted(out)
-    [(0, &#39;a&#39;), (1, &#39;b&#39;), (2, &#39;c&#39;)]
-
-    Args:
-
-        wrap_iter: Existing input iterable of just items.
-
-    Yields:
-
-        Tuples of `(epoch, item)`.
-
-    &#34;&#34;&#34;
-    epoch = 0
-    for item in wrap_iter:
-        yield (epoch, item)
-        epoch += 1</code></pre>
-</details>
-</dd>
-<dt id="bytewax.inputs.single_batch"><code class="language-python name flex">
-<span>def <span class="ident">single_batch</span></span>(<span>wrap_iter: Iterable) ‑> Iterable[Tuple[int, Any]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>All input items are part of the same epoch.</p>
-<p>Use this for non-streaming-style batch processing.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, run
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.capture()
-&gt;&gt;&gt; out = run(flow, single_batch([&quot;a&quot;, &quot;b&quot;, &quot;c&quot;]))
-&gt;&gt;&gt; sorted(out)
-[(0, 'a'), (0, 'b'), (0, 'c')]
-</code></pre>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>wrap_iter</code></strong></dt>
-<dd>Existing input iterable of just items.</dd>
-</dl>
-<h2 id="yields">Yields</h2>
-<p>Tuples of <code>(epoch, item)</code>.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">def single_batch(wrap_iter: Iterable) -&gt; Iterable[Tuple[int, Any]]:
-    &#34;&#34;&#34;All input items are part of the same epoch.
-
-    Use this for non-streaming-style batch processing.
-
-    &gt;&gt;&gt; from bytewax import Dataflow, run
-    &gt;&gt;&gt; flow = Dataflow()
-    &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; out = run(flow, single_batch([&#34;a&#34;, &#34;b&#34;, &#34;c&#34;]))
-    &gt;&gt;&gt; sorted(out)
-    [(0, &#39;a&#39;), (0, &#39;b&#39;), (0, &#39;c&#39;)]
-
-    Args:
-
-        wrap_iter: Existing input iterable of just items.
-
-    Yields:
-
-        Tuples of `(epoch, item)`.
-
-    &#34;&#34;&#34;
-    for item in wrap_iter:
-        yield (0, item)</code></pre>
-</details>
-</dd>
-<dt id="bytewax.inputs.sorted_window"><code class="language-python name flex">
-<span>def <span class="ident">sorted_window</span></span>(<span>wrap_iter: Iterable, window_length: Any, time_getter: Callable[[Any], Any], on_drop: Callable[[Any], None] = None) ‑> Iterable[Tuple[int, Any]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Sort a iterator to be increasing by some timestamp.</p>
-<p>To support a possibly infinite iterator, store a limited sorted
-buffer of items and only emit things downstream once a certain
-window of time has passed, as indicated by the timestamp on new
-items.</p>
-<p>New input items which are older than those already emitted will be
-dropped to maintain sorted output.</p>
-<p>The window length needs to be tuned for how "out of order" your
-input data is and how much data you're willing to drop: Already
-perfectly ordered input data can have a window of "0" and nothing
-will be dropped. Completely reversed input data needs a window
-that is the difference between the oldest and youngest timestamp
-to ensure nothing will be dropped.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, run
-&gt;&gt;&gt; items = [
-...     {
-...         &quot;timestamp&quot;: datetime.datetime(2022, 2, 22, 1, 2, 4),
-...         &quot;value&quot;: &quot;c&quot;,
-...     },
-...     {
-...         &quot;timestamp&quot;: datetime.datetime(2022, 2, 22, 1, 2, 3),
-...         &quot;value&quot;: &quot;b&quot;,
-...     },
-...     {
-...         &quot;timestamp&quot;: datetime.datetime(2022, 2, 22, 1, 2, 0),
-...         &quot;value&quot;: &quot;a&quot;,
-...     },
-... ]
-&gt;&gt;&gt; sorted_items = list(
-...     sorted_window(
-...         items,
-...         datetime.timedelta(seconds=2),
-...         lambda item: item[&quot;timestamp&quot;],
-...     )
-... )
-&gt;&gt;&gt; sorted_items
-[{'timestamp': datetime.datetime(2022, 2, 22, 1, 2, 3), 'value': 'b'},
-{'timestamp': datetime.datetime(2022, 2, 22, 1, 2, 4), 'value': 'c'}]
-</code></pre>
-<p>You could imagine using it with <code><a title="bytewax.inputs.tumbling_epoch" href="#bytewax.inputs.tumbling_epoch">tumbling_epoch()</a></code> to ensure you
-get in-order, bucketed data into your dataflow.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.map(lambda item: item[&quot;value&quot;])
-&gt;&gt;&gt; flow.capture()
-&gt;&gt;&gt; out = run(flow, tumbling_epoch(
-...     sorted_items,
-...     datetime.timedelta(seconds=0.5),
-...     lambda item: item[&quot;timestamp&quot;],
-... ))
-&gt;&gt;&gt; sorted(out)
-[(0, 'b'), (2, 'c')]
-</code></pre>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>wrap_iter</code></strong></dt>
-<dd>Existing input iterable.</dd>
-<dt><strong><code>window_length</code></strong></dt>
-<dd>Buffering duration. Values will be emitted once
-this amount of time has passed.</dd>
-<dt><strong><code>time_getter</code></strong></dt>
-<dd>Function to call to produce a timestamp for each
-value.</dd>
-<dt><strong><code>on_drop</code></strong></dt>
-<dd>Function to call with each dropped item. E.g. log or
-increment metrics on drop events to refine your window
-length.</dd>
-</dl>
-<h2 id="yields">Yields</h2>
-<p>Values in increasing timestamp order.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">def sorted_window(
-    wrap_iter: Iterable,
-    window_length: Any,
-    time_getter: Callable[[Any], Any],
-    on_drop: Callable[[Any], None] = None,
-) -&gt; Iterable[Tuple[int, Any]]:
-    &#34;&#34;&#34;Sort a iterator to be increasing by some timestamp.
-
-    To support a possibly infinite iterator, store a limited sorted
-    buffer of items and only emit things downstream once a certain
-    window of time has passed, as indicated by the timestamp on new
-    items.
-
-    New input items which are older than those already emitted will be
-    dropped to maintain sorted output.
-
-    The window length needs to be tuned for how &#34;out of order&#34; your
-    input data is and how much data you&#39;re willing to drop: Already
-    perfectly ordered input data can have a window of &#34;0&#34; and nothing
-    will be dropped. Completely reversed input data needs a window
-    that is the difference between the oldest and youngest timestamp
-    to ensure nothing will be dropped.
-
-    &gt;&gt;&gt; from bytewax import Dataflow, run
-    &gt;&gt;&gt; items = [
-    ...     {
-    ...         &#34;timestamp&#34;: datetime.datetime(2022, 2, 22, 1, 2, 4),
-    ...         &#34;value&#34;: &#34;c&#34;,
-    ...     },
-    ...     {
-    ...         &#34;timestamp&#34;: datetime.datetime(2022, 2, 22, 1, 2, 3),
-    ...         &#34;value&#34;: &#34;b&#34;,
-    ...     },
-    ...     {
-    ...         &#34;timestamp&#34;: datetime.datetime(2022, 2, 22, 1, 2, 0),
-    ...         &#34;value&#34;: &#34;a&#34;,
-    ...     },
-    ... ]
-    &gt;&gt;&gt; sorted_items = list(
-    ...     sorted_window(
-    ...         items,
-    ...         datetime.timedelta(seconds=2),
-    ...         lambda item: item[&#34;timestamp&#34;],
-    ...     )
-    ... )
-    &gt;&gt;&gt; sorted_items
-    [{&#39;timestamp&#39;: datetime.datetime(2022, 2, 22, 1, 2, 3), &#39;value&#39;: &#39;b&#39;},
-    {&#39;timestamp&#39;: datetime.datetime(2022, 2, 22, 1, 2, 4), &#39;value&#39;: &#39;c&#39;}]
-
-    You could imagine using it with `tumbling_epoch()` to ensure you
-    get in-order, bucketed data into your dataflow.
-
-    &gt;&gt;&gt; flow = Dataflow()
-    &gt;&gt;&gt; flow.map(lambda item: item[&#34;value&#34;])
-    &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; out = run(flow, tumbling_epoch(
-    ...     sorted_items,
-    ...     datetime.timedelta(seconds=0.5),
-    ...     lambda item: item[&#34;timestamp&#34;],
-    ... ))
-    &gt;&gt;&gt; sorted(out)
-    [(0, &#39;b&#39;), (2, &#39;c&#39;)]
-
-    Args:
-
-        wrap_iter: Existing input iterable.
-
-        window_length: Buffering duration. Values will be emitted once
-            this amount of time has passed.
-
-        time_getter: Function to call to produce a timestamp for each
-            value.
-
-        on_drop: Function to call with each dropped item. E.g. log or
-            increment metrics on drop events to refine your window
-            length.
-
-    Yields:
-
-        Values in increasing timestamp order.
-
-    &#34;&#34;&#34;
-    sorted_buffer = []
-    newest_time = None
-    drop_older_than = None
-
-    def is_too_late(time):
-        return drop_older_than is not None and time &lt;= drop_older_than
-
-    def is_newest_item(time):
-        return newest_time is None or time &gt; newest_time
-
-    def emit_all(emit_older_than):
-        while len(sorted_buffer) &gt; 0 and sorted_buffer[0].time &lt;= emit_older_than:
-            sort_item = heapq.heappop(sorted_buffer)
-            yield sort_item.item
-
-    for item in wrap_iter:
-        time = time_getter(item)
-
-        if is_too_late(time):
-            if on_drop:
-                on_drop(item)
-        else:
-            heapq.heappush(sorted_buffer, _HeapItem(time, item))
-
-            if is_newest_item(time):
-                newest_time = time
-                drop_older_than = time - window_length
-
-                yield from emit_all(drop_older_than)
-
-    yield from emit_all(newest_time)</code></pre>
-</details>
-</dd>
-<dt id="bytewax.inputs.tumbling_epoch"><code class="language-python name flex">
-<span>def <span class="ident">tumbling_epoch</span></span>(<span>wrap_iter: Iterable, epoch_length: Any, time_getter: Callable[[Any], Any] = &lt;function &lt;lambda&gt;&gt;, epoch_start_time: Any = None, epoch_start: int = 0) ‑> Iterable[Tuple[int, Any]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>All inputs within a tumbling window are part of the same epoch.</p>
-<p>The time of the first item will be used as start of the 0
-epoch. Out-of-order items will cause issues as Bytewax requires
-inputs to dataflows to be in epoch order. See
-<code><a title="bytewax.inputs.fully_ordered" href="#bytewax.inputs.fully_ordered">fully_ordered()</a></code>.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, run
-&gt;&gt;&gt; items = [
-...     {
-...         &quot;timestamp&quot;: datetime.datetime(2022, 2, 22, 1, 2, 3),
-...         &quot;value&quot;: &quot;a&quot;,
-...     },
-...     {
-...         &quot;timestamp&quot;: datetime.datetime(2022, 2, 22, 1, 2, 4),
-...         &quot;value&quot;: &quot;b&quot;,
-...     },
-...     {
-...         &quot;timestamp&quot;: datetime.datetime(2022, 2, 22, 1, 2, 8),
-...         &quot;value&quot;: &quot;c&quot;,
-...     },
-... ]
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.map(lambda item: item[&quot;value&quot;])
-&gt;&gt;&gt; flow.capture()
-&gt;&gt;&gt; out = run(flow, tumbling_epoch(
-...     items,
-...     datetime.timedelta(seconds=2),
-...     lambda item: item[&quot;timestamp&quot;],
-... ))
-&gt;&gt;&gt; sorted(out)
-[(0, 'a'), (0, 'b'), (2, 'c')]
-</code></pre>
-<p>By default, uses "ingestion time" and you don't need to specify a
-way to access the timestamp in each item.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; import pytest; pytest.skip(&quot;Figure out sleep in test.&quot;)
-&gt;&gt;&gt; items = [
-...     &quot;a&quot;, # sleep(4)
-...     &quot;b&quot;, # sleep(1)
-...     &quot;c&quot;,
-... ]
-&gt;&gt;&gt; list(tumbling_epoch(items, datetime.timedelta(seconds=2)))
-[(0, 'a'), (2, 'b'), (2, 'c')]
-</code></pre>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>wrap_iter</code></strong></dt>
-<dd>Existing input iterable of just items.</dd>
-<dt><strong><code>epoch_length</code></strong></dt>
-<dd>Length of each epoch window.</dd>
-<dt><strong><code>time_getter</code></strong></dt>
-<dd>Function that returns a timestamp given an
-item. Defaults to current wall time.</dd>
-<dt><strong><code>epoch_start_time</code></strong></dt>
-<dd>The timestamp that should correspond to
-the start of the 0th epoch. Otherwise defaults to the time
-found on the first item.</dd>
-<dt><strong><code>epoch_start</code></strong></dt>
-<dd>The integer value to start counting epochs from.
-This can be used for continuity during processing.</dd>
-</dl>
-<h2 id="yields">Yields</h2>
-<p>Tuples of <code>(epoch, item)</code>.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">def tumbling_epoch(
-    wrap_iter: Iterable,
-    epoch_length: Any,
-    time_getter: Callable[[Any], Any] = lambda _: datetime.datetime.now(),
-    epoch_start_time: Any = None,
-    epoch_start: int = 0,
-) -&gt; Iterable[Tuple[int, Any]]:
-    &#34;&#34;&#34;All inputs within a tumbling window are part of the same epoch.
-
-    The time of the first item will be used as start of the 0
-    epoch. Out-of-order items will cause issues as Bytewax requires
-    inputs to dataflows to be in epoch order. See
-    `bytewax.inputs.fully_ordered()`.
-
-    &gt;&gt;&gt; from bytewax import Dataflow, run
-    &gt;&gt;&gt; items = [
-    ...     {
-    ...         &#34;timestamp&#34;: datetime.datetime(2022, 2, 22, 1, 2, 3),
-    ...         &#34;value&#34;: &#34;a&#34;,
-    ...     },
-    ...     {
-    ...         &#34;timestamp&#34;: datetime.datetime(2022, 2, 22, 1, 2, 4),
-    ...         &#34;value&#34;: &#34;b&#34;,
-    ...     },
-    ...     {
-    ...         &#34;timestamp&#34;: datetime.datetime(2022, 2, 22, 1, 2, 8),
-    ...         &#34;value&#34;: &#34;c&#34;,
-    ...     },
-    ... ]
-    &gt;&gt;&gt; flow = Dataflow()
-    &gt;&gt;&gt; flow.map(lambda item: item[&#34;value&#34;])
-    &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; out = run(flow, tumbling_epoch(
-    ...     items,
-    ...     datetime.timedelta(seconds=2),
-    ...     lambda item: item[&#34;timestamp&#34;],
-    ... ))
-    &gt;&gt;&gt; sorted(out)
-    [(0, &#39;a&#39;), (0, &#39;b&#39;), (2, &#39;c&#39;)]
-
-    By default, uses &#34;ingestion time&#34; and you don&#39;t need to specify a
-    way to access the timestamp in each item.
-
-    &gt;&gt;&gt; import pytest; pytest.skip(&#34;Figure out sleep in test.&#34;)
-    &gt;&gt;&gt; items = [
-    ...     &#34;a&#34;, # sleep(4)
-    ...     &#34;b&#34;, # sleep(1)
-    ...     &#34;c&#34;,
-    ... ]
-    &gt;&gt;&gt; list(tumbling_epoch(items, datetime.timedelta(seconds=2)))
-    [(0, &#39;a&#39;), (2, &#39;b&#39;), (2, &#39;c&#39;)]
-
-    Args:
-
-        wrap_iter: Existing input iterable of just items.
-
-        epoch_length: Length of each epoch window.
-
-        time_getter: Function that returns a timestamp given an
-            item. Defaults to current wall time.
-
-        epoch_start_time: The timestamp that should correspond to
-            the start of the 0th epoch. Otherwise defaults to the time
-            found on the first item.
-
-        epoch_start: The integer value to start counting epochs from.
-            This can be used for continuity during processing.
-
-    Yields:
-
-        Tuples of `(epoch, item)`.
-
-    &#34;&#34;&#34;
-    for item in wrap_iter:
-        time = time_getter(item)
-
-        if epoch_start_time is None:
-            epoch_start_time = time
-            epoch = epoch_start
-        else:
-            epoch = int((time - epoch_start_time) / epoch_length) + epoch_start
-
-        yield (epoch, item)</code></pre>
-</details>
-</dd>
-<dt id="bytewax.inputs.yield_epochs"><code class="language-python name flex">
-<span>def <span class="ident">yield_epochs</span></span>(<span>fn: Callable)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>A decorator function to unwrap an iterator of [epoch, item]
-into successive <code><a title="bytewax.inputs.AdvanceTo" href="#bytewax.inputs.AdvanceTo">AdvanceTo</a></code> and <code><a title="bytewax.inputs.Emit" href="#bytewax.inputs.Emit">Emit</a></code> classes with the
-contents of the iterator.</p>
-<p>Use this when you have an input_builder function that returns a
-generator of (epoch, item) to be used with
-<code><a title="bytewax.cluster_main" href="index.html#bytewax.cluster_main">cluster_main()</a></code> or <code><a title="bytewax.spawn_cluster" href="index.html#bytewax.spawn_cluster">spawn_cluster()</a></code>:</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
-&gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered, ManualInputConfig
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.capture()
-&gt;&gt;&gt; @yield_epochs
-... def input_builder(i, n, re):
-...   return fully_ordered([&quot;a&quot;, &quot;b&quot;, &quot;c&quot;])
-&gt;&gt;&gt; cluster_main(flow, ManualInputConfig(input_builder), lambda i, n: print, [], 0, 1)
-(0, 'a')
-(1, 'b')
-(2, 'c')
-</code></pre></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">def yield_epochs(fn: Callable):
-    &#34;&#34;&#34;A decorator function to unwrap an iterator of [epoch, item]
-    into successive `AdvanceTo` and `Emit` classes with the
-    contents of the iterator.
-
-    Use this when you have an input_builder function that returns a
-    generator of (epoch, item) to be used with
-    `bytewax.cluster_main()` or `bytewax.spawn_cluster()`:
-
-    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
-    &gt;&gt;&gt; from bytewax.inputs import yield_epochs, fully_ordered, ManualInputConfig
-    &gt;&gt;&gt; flow = Dataflow()
-    &gt;&gt;&gt; flow.capture()
-    &gt;&gt;&gt; @yield_epochs
-    ... def input_builder(i, n, re):
-    ...   return fully_ordered([&#34;a&#34;, &#34;b&#34;, &#34;c&#34;])
-    &gt;&gt;&gt; cluster_main(flow, ManualInputConfig(input_builder), lambda i, n: print, [], 0, 1)
-    (0, &#39;a&#39;)
-    (1, &#39;b&#39;)
-    (2, &#39;c&#39;)
-
-    &#34;&#34;&#34;
-
-    def inner_fn(worker_index, worker_count, resume_epoch):
-        gen = fn(worker_index, worker_count, resume_epoch)
-        for (epoch, item) in gen:
-            yield AdvanceTo(epoch)
-            yield Emit(item)
-
-    return inner_fn</code></pre>
-</details>
-</dd>
 </dl>
 </section>
 <section>
 <h2 class="api__article-subtitle" id="header-classes">Classes</h2>
 <dl>
-<dt id="bytewax.inputs.AdvanceTo"><code class="language-python flex name class">
-<span>class <span class="ident">AdvanceTo</span></span>
-<span>(</span><span>epoch)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Advance to the supplied epoch.</p>
-<p>When providing input to a Dataflow, work cannot complete until
-there is no more data for a given epoch.</p>
-<p>AdvanceTo is the signal to a Dataflow that the frontier has moved
-beyond the current epoch, and that items with an epoch less than
-the epoch in AdvanceTo can be worked to completion.</p>
-<p>Using AdvanceTo and Emit is only necessary when using <code>spawn_cluster</code>
-and <code>cluster_main()</code> as <code>run()</code> and <code>run_cluster()</code> will yield AdvanceTo
-and Emit for you. Likewise, they are only required when using a
-manual input configuration.</p>
-<p>See also: <code>inputs.yield_epochs()</code></p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; def input_builder(worker_index, worker_count, resume_epoch):
-...     for i in range(10):
-...         yield AdvanceTo(i) # Advances the epoch to i
-...         yield Emit(i) # Adds the input i at epoch i
-</code></pre></div>
-<h3>Instance variables</h3>
-<dl>
-<dt id="bytewax.inputs.AdvanceTo.epoch"><code class="language-python name">var <span class="ident">epoch</span></code></dt>
-<dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
-</dd>
-</dl>
-</dd>
-<dt id="bytewax.inputs.Emit"><code class="language-python flex name class">
-<span>class <span class="ident">Emit</span></span>
-<span>(</span><span>item)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Emit the supplied item into the dataflow at the current epoch</p>
-<p>Emit is how we introduce input into a dataflow using a manual
-input configuration:</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; def input_builder(worker_index, worker_count, resume_epoch):
-...     for i in range(10):
-...         yield AdvanceTo(i) # Advances the epoch to i
-...         yield Emit(i) # Adds the input i at epoch i
-</code></pre></div>
-<h3>Instance variables</h3>
-<dl>
-<dt id="bytewax.inputs.Emit.item"><code class="language-python name">var <span class="ident">item</span></code></dt>
-<dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
-</dd>
-</dl>
-</dd>
 <dt id="bytewax.inputs.InputConfig"><code class="language-python flex name class">
 <span>class <span class="ident">InputConfig</span></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Base class for an input config.</p>
-<p>InputConfig defines how you will input data to your dataflow.</p>
+<p>These define how you will input data to your dataflow.</p>
 <p>Use a specific subclass of InputConfig for the kind of input
 source you are plan to use. See the subclasses in this module.</p></div>
 <h3>Subclasses</h3>
@@ -1096,69 +334,50 @@ source you are plan to use. See the subclasses in this module.</p></div>
 </dd>
 <dt id="bytewax.inputs.KafkaInputConfig"><code class="language-python flex name class">
 <span>class <span class="ident">KafkaInputConfig</span></span>
-<span>(</span><span>brokers, group_id, topics, offset_reset, auto_commit, messages_per_epoch)</span>
+<span>(</span><span>brokers, topic, tail, starting_offset)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Use <a href="https://kafka.apache.org">Kafka</a> as the input source. Currently
-does not support recovery. Kafka messages will be passed through the dataflow
-as byte two-tuples of Kafka key and payload.</p>
-<p>Currently Kafka input does not support recovery.</p>
+<div class="desc"><p>Use <a href="https://kafka.apache.org">Kafka</a> as the input
+source.</p>
+<p>Kafka messages will be passed through the dataflow as two-tuples
+of <code>(key_bytes, payload_bytes)</code>.</p>
 <h2 id="args">Args</h2>
 <dl>
-<dt><strong><code>brokers</code></strong></dt>
-<dd>Comma-separated of broker addresses.
-E.g. "localhost:9092,localhost:9093"</dd>
-<dt><strong><code>group_id</code></strong></dt>
-<dd>Group id as a string.</dd>
-<dt><strong><code>topic</code></strong></dt>
+<dt><strong><code>brokers</code></strong> :&ensp;<code>List[str]</code></dt>
+<dd>List of <code>host:port</code> strings of Kafka
+brokers.</dd>
+<dt><strong><code>topic</code></strong> :&ensp;<code>str</code></dt>
 <dd>Topic to which consumer will subscribe.</dd>
-<dt><strong><code>offset_reset</code></strong></dt>
-<dd>Can be "earliest" or "latest". Delegates where
-to resume if auto_commit is not enabled. Defaults to
-"earliest".</dd>
-<dt><strong><code>auto_commit</code></strong></dt>
-<dd>If true, commit offset of the last message handed
-to the application. This committed offset will be used
-when the process restarts to pick up where it left
-off. Defaults to false.</dd>
-<dt><strong><code>messages_per_epoch</code></strong></dt>
-<dd>(integer) Defines maximum number of
-messages per epoch.
-Defaults to <code>1</code>. If the consumer
-times out waiting, the system will increment to the next
-epoch, and fewer (or no) messages may be assigned to the
-preceding epoch.</dd>
+<dt><strong><code>tail</code></strong> :&ensp;<code>bool</code></dt>
+<dd>Wait for new data on this topic when the end is
+initially reached.</dd>
+<dt><strong><code>starting_offset</code></strong> :&ensp;<code>str</code></dt>
+<dd>Can be "beginning" or "end". Delegates
+where to resume if auto_commit is not enabled. Defaults to
+"beginning".</dd>
 </dl>
 <h2 id="returns">Returns</h2>
-<p>Config object. Pass this as the <code>input_config</code> argument to
-your execution entry point.</p></div>
+<p>Config object. Pass this as the <code>input_config</code> argument to the
+<code><a title="bytewax.dataflow.Dataflow.input" href="dataflow.html#bytewax.dataflow.Dataflow.input">Dataflow.input()</a></code>.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li><a title="bytewax.inputs.InputConfig" href="#bytewax.inputs.InputConfig">InputConfig</a></li>
 </ul>
 <h3>Instance variables</h3>
 <dl>
-<dt id="bytewax.inputs.KafkaInputConfig.auto_commit"><code class="language-python name">var <span class="ident">auto_commit</span></code></dt>
-<dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
-</dd>
 <dt id="bytewax.inputs.KafkaInputConfig.brokers"><code class="language-python name">var <span class="ident">brokers</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
-<dt id="bytewax.inputs.KafkaInputConfig.group_id"><code class="language-python name">var <span class="ident">group_id</span></code></dt>
+<dt id="bytewax.inputs.KafkaInputConfig.starting_offset"><code class="language-python name">var <span class="ident">starting_offset</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
-<dt id="bytewax.inputs.KafkaInputConfig.messages_per_epoch"><code class="language-python name">var <span class="ident">messages_per_epoch</span></code></dt>
+<dt id="bytewax.inputs.KafkaInputConfig.tail"><code class="language-python name">var <span class="ident">tail</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
-<dt id="bytewax.inputs.KafkaInputConfig.offset_reset"><code class="language-python name">var <span class="ident">offset_reset</span></code></dt>
-<dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
-</dd>
-<dt id="bytewax.inputs.KafkaInputConfig.topics"><code class="language-python name">var <span class="ident">topics</span></code></dt>
+<dt id="bytewax.inputs.KafkaInputConfig.topic"><code class="language-python name">var <span class="ident">topic</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
@@ -1169,25 +388,41 @@ your execution entry point.</p></div>
 <span>(</span><span>input_builder)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Use a user-defined function that returns an iterable as the input source.</p>
-<p>It is your responsibility to design your input handlers in such a
-way that it jumps to the point in the input that corresponds to
-the <code>resume_epoch</code> argument; if it can't (because the input is
-ephemeral) you can still recover the dataflow, but the lost input
-is unable to be replayed so the output will be different.</p>
+<div class="desc"><p>Use a user-defined function that returns an iterable as the input
+source.</p>
+<p>Because Bytewax's execution is cooperative, the resulting
+iterators <em>must not block</em> waiting for new data, otherwise pending
+execution of other steps in the dataflow will be delayed an
+throughput will be reduced. If you are using a generator and no
+data is ready yet, have it <code>yield None</code> or just <code>yield</code> to signal
+this.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>input_builder</code></strong></dt>
-<dd>An input_builder function that yields <code><a title="bytewax.inputs.AdvanceTo" href="#bytewax.inputs.AdvanceTo">AdvanceTo</a></code> or <code><a title="bytewax.inputs.Emit" href="#bytewax.inputs.Emit">Emit</a></code>
-with this worker's input. Must resume from the epoch specified.</dd>
+<dd><code>input_builder(worker_index: int, worker_count:
+int, resume_state: Option[Any]) =&gt; Iterator[Tuple[Any,
+Any]]</code> Builder function which returns an iterator of
+2-tuples of <code>(state, item)</code>. <code>item</code> is the input that
+worker should introduce into the dataflow. <code>state</code> is a
+snapshot of any internal state it will take to resume this
+input from its current position <em>after the current
+item</em>. Note that e.g. returning the same list from each
+worker will result in duplicate data in the dataflow.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
-<p>Config object. Pass this as the <code>input_config</code> argument to
-your execution entry point.</p></div>
+<p>Config object. Pass this as the <code>input_config</code> argument to the
+<code><a title="bytewax.dataflow.Dataflow.input" href="dataflow.html#bytewax.dataflow.Dataflow.input">Dataflow.input()</a></code>.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li><a title="bytewax.inputs.InputConfig" href="#bytewax.inputs.InputConfig">InputConfig</a></li>
 </ul>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.inputs.ManualInputConfig.input_builder"><code class="language-python name">var <span class="ident">input_builder</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+</dl>
 </dd>
 </dl>
 </section>
@@ -1212,45 +447,30 @@ bytewax
 <li class="api__sidebar-nav-item">
 <h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
 <ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.TestingInputConfig" href="#bytewax.inputs.TestingInputConfig">TestingInputConfig</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.distribute" href="#bytewax.inputs.distribute">distribute</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.fully_ordered" href="#bytewax.inputs.fully_ordered">fully_ordered</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.single_batch" href="#bytewax.inputs.single_batch">single_batch</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.sorted_window" href="#bytewax.inputs.sorted_window">sorted_window</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.tumbling_epoch" href="#bytewax.inputs.tumbling_epoch">tumbling_epoch</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.yield_epochs" href="#bytewax.inputs.yield_epochs">yield_epochs</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.AdvanceTo" href="#bytewax.inputs.AdvanceTo">AdvanceTo</a></h4>
-<ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.AdvanceTo.epoch" href="#bytewax.inputs.AdvanceTo.epoch">epoch</a></li>
-</ul>
-</li>
-<li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.Emit" href="#bytewax.inputs.Emit">Emit</a></h4>
-<ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.Emit.item" href="#bytewax.inputs.Emit.item">item</a></li>
-</ul>
-</li>
-<li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.InputConfig" href="#bytewax.inputs.InputConfig">InputConfig</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.KafkaInputConfig" href="#bytewax.inputs.KafkaInputConfig">KafkaInputConfig</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.auto_commit" href="#bytewax.inputs.KafkaInputConfig.auto_commit">auto_commit</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.brokers" href="#bytewax.inputs.KafkaInputConfig.brokers">brokers</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.group_id" href="#bytewax.inputs.KafkaInputConfig.group_id">group_id</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.messages_per_epoch" href="#bytewax.inputs.KafkaInputConfig.messages_per_epoch">messages_per_epoch</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.offset_reset" href="#bytewax.inputs.KafkaInputConfig.offset_reset">offset_reset</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.topics" href="#bytewax.inputs.KafkaInputConfig.topics">topics</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.starting_offset" href="#bytewax.inputs.KafkaInputConfig.starting_offset">starting_offset</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.tail" href="#bytewax.inputs.KafkaInputConfig.tail">tail</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.KafkaInputConfig.topic" href="#bytewax.inputs.KafkaInputConfig.topic">topic</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.ManualInputConfig" href="#bytewax.inputs.ManualInputConfig">ManualInputConfig</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.ManualInputConfig.input_builder" href="#bytewax.inputs.ManualInputConfig.input_builder">input_builder</a></li>
+</ul>
 </li>
 </ul>
 </li>

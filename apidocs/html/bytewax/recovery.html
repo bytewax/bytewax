@@ -4,7 +4,7 @@
 <h1 class="api__article-title">Module <strong>bytewax.recovery</strong></h1>
 </header>
 <section class="api__article-intro" id="section-intro">
-<p>Bytewax's state recovery machinery.</p>
+<p>Recovering from failures.</p>
 <p>Bytewax allows you to <strong>recover</strong> a stateful dataflow; it will let you
 resume processing and output due to a failure without re-processing
 all initial data to re-calculate all internal state.</p>
@@ -21,7 +21,7 @@ recovery store of your choosing.</p>
 </li>
 <li>
 <p>Pass that recovery config as the <code>recovery_config</code> argument to the
-entry point running your dataflow (e.g. <code><a title="bytewax.cluster_main" href="index.html#bytewax.cluster_main">cluster_main()</a></code>).</p>
+entry point running your dataflow (e.g. <code>bytewax.cluster_main()</code>).</p>
 </li>
 <li>
 <p>Run your dataflow! It will start backing up recovery data
@@ -35,7 +35,8 @@ depending on the recovery store. E.g. when using a
 <code><a title="bytewax.recovery.KafkaRecoveryConfig" href="#bytewax.recovery.KafkaRecoveryConfig">KafkaRecoveryConfig</a></code>, each dataflow must have a distinct topic
 prefix.</p>
 <p>The epoch is the unit of recovery: dataflows will only resume on epoch
-boundaries.</p>
+boundaries. Bytewax defaults to a new epoch every 10 seconds. See
+<code><a title="bytewax.execution.EpochConfig" href="execution.html#bytewax.execution.EpochConfig">EpochConfig</a></code> for more info.</p>
 <p>See comments on input configuration types in <code><a title="bytewax.inputs" href="inputs.html">bytewax.inputs</a></code> for any
 limitations each might have regarding recovery.</p>
 <p>It is possible that your output systems will see duplicate data during
@@ -60,7 +61,7 @@ you have for that storage type.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Bytewax&#39;s state recovery machinery.
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Recovering from failures.
 
 Bytewax allows you to **recover** a stateful dataflow; it will let you
 resume processing and output due to a failure without re-processing
@@ -94,7 +95,8 @@ depending on the recovery store. E.g. when using a
 prefix.
 
 The epoch is the unit of recovery: dataflows will only resume on epoch
-boundaries.
+boundaries. Bytewax defaults to a new epoch every 10 seconds. See
+`bytewax.execution.EpochConfig` for more info.
 
 See comments on input configuration types in `bytewax.inputs` for any
 limitations each might have regarding recovery.
@@ -125,7 +127,12 @@ delete the data in the recovery store using whatever operational tools
 you have for that storage type.
 
 &#34;&#34;&#34;
-from .bytewax import KafkaRecoveryConfig, RecoveryConfig, SqliteRecoveryConfig  # noqa</code></pre>
+
+from .bytewax import (  # noqa: F401
+    KafkaRecoveryConfig,
+    RecoveryConfig,
+    SqliteRecoveryConfig,
+)</code></pre>
 </details>
 </section>
 <section>
@@ -139,7 +146,7 @@ from .bytewax import KafkaRecoveryConfig, RecoveryConfig, SqliteRecoveryConfig  
 <dl>
 <dt id="bytewax.recovery.KafkaRecoveryConfig"><code class="language-python flex name class">
 <span>class <span class="ident">KafkaRecoveryConfig</span></span>
-<span>(</span><span>hosts, topic_prefix, create)</span>
+<span>(</span><span>brokers, topic_prefix)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Use <a href="https://kafka.apache.org/">Kafka</a> to store recovery data.</p>
@@ -149,22 +156,18 @@ log compaction so that topic size is proportional to state size,
 not epoch count.</p>
 <p>Use a distinct topic prefix per dataflow so recovery data is not
 mixed.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.capture()
-&gt;&gt;&gt; def input_builder(worker_index, worker_count, resume_epoch):
-...     for epoch, item in enumerate(range(resume_epoch, 3)):
-...         yield AdvanceTo(epoch)
-...         yield Emit(item)
-&gt;&gt;&gt; def output_builder(worker_index, worker_count):
-...     return print
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.execution import run_main
+&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
+&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.inp(&quot;inp&quot;, TestingInputConfig(range(3)))
+&gt;&gt;&gt; flow.capture(StdOutputConfig())
 &gt;&gt;&gt; recovery_config = KafkaRecoveryConfig(
 ...     [&quot;localhost:9092&quot;],
 ...     &quot;sample-dataflow&quot;,
 ... )
 &gt;&gt;&gt; run_main(
 ...     flow,
-...     ManualConfig(input_builder),
-...     output_builder,
 ...     recovery_config=recovery_config,
 ... )  # doctest: +ELLIPSIS
 (...)
@@ -174,12 +177,14 @@ created with the correct number of partitions and log compaction
 enabled</p>
 <h2 id="args">Args</h2>
 <dl>
-<dt><strong><code>hosts</code></strong></dt>
-<dd>List of <code>host:port</code> strings of Kafka brokers.</dd>
-<dt><strong><code>topic_prefix</code></strong></dt>
-<dd>Prefix used for naming topics. Must be distinct
-per-dataflow. Two topics will be created using this prefix
-<code>"topic_prefix-progress"</code> and <code>"topic_prefix-state"</code>.</dd>
+<dt><strong><code>brokers</code></strong> :&ensp;<code>List[str]</code></dt>
+<dd>List of <code>host:port</code> strings of Kafka
+brokers.</dd>
+<dt><strong><code>topic_prefix</code></strong> :&ensp;<code>str</code></dt>
+<dd>Prefix used for naming topics. Must be
+distinct per-dataflow. Two topics will be created using
+this prefix <code>"topic_prefix-progress"</code> and
+<code>"topic_prefix-state"</code>.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>recovery_config</code> argument to
@@ -190,7 +195,7 @@ your execution entry point.</p></div>
 </ul>
 <h3>Instance variables</h3>
 <dl>
-<dt id="bytewax.recovery.KafkaRecoveryConfig.hosts"><code class="language-python name">var <span class="ident">hosts</span></code></dt>
+<dt id="bytewax.recovery.KafkaRecoveryConfig.brokers"><code class="language-python name">var <span class="ident">brokers</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
@@ -226,20 +231,16 @@ data.</p>
 are used to allow workers to write without contention.</p>
 <p>Use a distinct directory per dataflow so recovery data is not
 mixed.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.capture()
-&gt;&gt;&gt; def input_builder(worker_index, worker_count, resume_epoch):
-...     for epoch, item in enumerate(range(resume_epoch, 3)):
-...         yield AdvanceTo(epoch)
-...         yield Emit(item)
-&gt;&gt;&gt; def output_builder(worker_index, worker_count):
-...     return print
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.execution import run_main
+&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
+&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
+&gt;&gt;&gt; flow.capture(StdOutputConfig())
 &gt;&gt;&gt; tmp_dir = TemporaryDirectory()  # We'll store this somewhere temporary for this test.
 &gt;&gt;&gt; recovery_config = SqliteRecoveryConfig(tmp_dir)
 &gt;&gt;&gt; run_main(
 ...     flow,
-...     ManualConfig(input_builder),
-...     output_builder,
 ...     recovery_config=recovery_config,
 ... )  # doctest: +ELLIPSIS
 (...)
@@ -248,11 +249,11 @@ mixed.</p>
 previous recovery data.</p>
 <h2 id="args">Args</h2>
 <dl>
-<dt><strong><code>db_dir</code></strong></dt>
-<dd>Existing directory to store per-worker DBs in. Must be
-distinct per-dataflow. DB files will have names like
-<code>"worker0.sqlite3"</code>. You can use <code>"."</code> for the current
-directory.</dd>
+<dt><strong><code>db_dir</code></strong> :&ensp;<code>Path</code></dt>
+<dd>Existing directory to store per-worker DBs
+in. Must be distinct per-dataflow. DB files will have
+names like <code>"worker0.sqlite3"</code>. You can use <code>"."</code> for the
+current directory.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>recovery_config</code> argument to
@@ -295,7 +296,7 @@ bytewax
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.recovery.KafkaRecoveryConfig" href="#bytewax.recovery.KafkaRecoveryConfig">KafkaRecoveryConfig</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.KafkaRecoveryConfig.hosts" href="#bytewax.recovery.KafkaRecoveryConfig.hosts">hosts</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.KafkaRecoveryConfig.brokers" href="#bytewax.recovery.KafkaRecoveryConfig.brokers">brokers</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.KafkaRecoveryConfig.topic_prefix" href="#bytewax.recovery.KafkaRecoveryConfig.topic_prefix">topic_prefix</a></li>
 </ul>
 </li>

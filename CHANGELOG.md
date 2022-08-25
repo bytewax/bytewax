@@ -5,6 +5,8 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## 0.11.0
+
 - Added the `fold_window` operator, works like `reduce_window` but allows
   the user to build the initial accumulator for each key in a `builder` function.
 
