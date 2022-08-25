@@ -29,13 +29,13 @@
 //! for how to create a [`periodic_epoch_source`].
 
 use crate::dataflow::{Dataflow, Step};
+use crate::StringResult;
 use crate::inputs::build_input_reader;
 use crate::inputs::InputReader;
 use crate::operators::*;
 use crate::outputs::build_output_writer;
 use crate::outputs::capture;
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny};
-use crate::recovery::CollectGarbage;
 use crate::recovery::StatefulUnary;
 use crate::recovery::WriteProgress;
 use crate::recovery::WriteState;
@@ -44,6 +44,7 @@ use crate::recovery::{
     build_state_loading_dataflow,
 };
 use crate::recovery::{default_recovery_config, ProgressWriter};
+use crate::recovery::{CollectGarbage, EpochData};
 use crate::recovery::{ProgressReader, StateCollector};
 use crate::recovery::{RecoveryConfig, StepId};
 use crate::recovery::{RecoveryStoreSummary, StateWriter};
@@ -227,17 +228,14 @@ pub(crate) fn default_epoch_config() -> Py<EpochConfig> {
 }
 
 /// Input source that increments the epoch after each item.
-pub(crate) fn testing_epoch_source<S, D: Data + Debug>(
+pub(crate) fn testing_epoch_source<S: Scope<Timestamp = u64>, D: Data + Debug>(
     scope: &S,
     step_id: StepId,
     key: StateKey,
     mut reader: Box<dyn InputReader<D>>,
     start_at: S::Timestamp,
     probe: &ProbeHandle<S::Timestamp>,
-) -> (Stream<S, D>, Stream<S, (StateKey, (StepId, StateUpdate))>)
-where
-    S: Scope<Timestamp = u64>,
-{
+) -> (Stream<S, D>, Stream<S, EpochData>) {
     let mut op_builder = OperatorBuilder::new(format!("{step_id}"), scope.clone());
 
     let (mut output_wrapper, output_stream) = op_builder.new_output();
@@ -312,7 +310,7 @@ pub(crate) fn periodic_epoch_source<S, D: Data + Debug>(
     start_at: S::Timestamp,
     probe: &ProbeHandle<S::Timestamp>,
     epoch_length: Duration,
-) -> (Stream<S, D>, Stream<S, (StateKey, (StepId, StateUpdate))>)
+) -> (Stream<S, D>, Stream<S, EpochData>)
 where
     S: Scope<Timestamp = u64>,
 {
@@ -408,13 +406,7 @@ fn build_source<S>(
     reader: Box<dyn InputReader<TdPyAny>>,
     start_at: S::Timestamp,
     probe: &ProbeHandle<S::Timestamp>,
-) -> Result<
-    (
-        Stream<S, TdPyAny>,
-        Stream<S, (StateKey, (StepId, StateUpdate))>,
-    ),
-    String,
->
+) -> StringResult<(Stream<S, TdPyAny>, Stream<S, EpochData>)>
 where
     S: Scope<Timestamp = u64>,
 {
@@ -468,7 +460,7 @@ fn build_production_dataflow<A: Allocate>(
     progress_writer: Box<dyn ProgressWriter<u64>>,
     state_writer: Box<dyn StateWriter<u64>>,
     state_collector: Box<dyn StateCollector<u64>>,
-) -> Result<ProbeHandle<u64>, String> {
+) -> StringResult<ProbeHandle<u64>> {
     let worker_index = worker.index();
     let worker_count = worker.peers();
 
@@ -534,7 +526,13 @@ fn build_production_dataflow<A: Allocate>(
                 Step::Filter { predicate } => {
                     stream = stream.filter(move |item| filter(&predicate, item));
                 }
-                Step::FoldWindow { step_id, clock_config, window_config, builder, folder } => {
+                Step::FoldWindow {
+                    step_id,
+                    clock_config,
+                    window_config,
+                    builder,
+                    folder,
+                } => {
                     let key_to_resume_state_bytes = step_to_key_to_resume_state_bytes
                         .remove(&step_id)
                         .unwrap_or_default();
@@ -710,7 +708,7 @@ fn build_and_run_resume_epoch_calc_dataflow<A: Allocate>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     progress_reader: Box<dyn ProgressReader<u64>>,
-) -> Result<u64, String> {
+) -> StringResult<u64> {
     let (resume_epoch_tx, resume_epoch_rx) = std::sync::mpsc::channel();
     let probe = build_resume_epoch_calc_dataflow(worker, progress_reader, resume_epoch_tx)?;
 
@@ -736,13 +734,10 @@ fn build_and_run_state_loading_dataflow<A: Allocate>(
     interrupt_flag: &AtomicBool,
     resume_epoch: u64,
     state_reader: Box<dyn StateReader<u64>>,
-) -> Result<
-    (
-        HashMap<StepId, HashMap<StateKey, StateBytes>>,
-        RecoveryStoreSummary<u64>,
-    ),
-    String,
-> {
+) -> StringResult<(
+    HashMap<StepId, HashMap<StateKey, StateBytes>>,
+    RecoveryStoreSummary<u64>,
+)> {
     let (step_to_key_to_resume_state_bytes_tx, step_to_key_to_resume_state_bytes_rx) =
         std::sync::mpsc::channel();
     let (recovery_store_summary_tx, recovery_store_summary_rx) = std::sync::mpsc::channel();
@@ -781,7 +776,7 @@ fn build_and_run_production_dataflow<A: Allocate>(
     progress_writer: Box<dyn ProgressWriter<u64>>,
     state_writer: Box<dyn StateWriter<u64>>,
     state_collector: Box<dyn StateCollector<u64>>,
-) -> Result<(), String> {
+) -> StringResult<()> {
     let probe = Python::with_gil(|py| {
         build_production_dataflow(
             py,
@@ -820,7 +815,7 @@ fn worker_main<A: Allocate>(
     flow: Py<Dataflow>,
     epoch_config: Option<Py<EpochConfig>>,
     recovery_config: Option<Py<RecoveryConfig>>,
-) -> Result<(), String> {
+) -> StringResult<()> {
     let epoch_config = epoch_config.unwrap_or_else(default_epoch_config);
     let recovery_config = recovery_config.unwrap_or_else(default_recovery_config);
 
@@ -1036,7 +1031,7 @@ pub(crate) fn cluster_main(
             let _ = std::panic::take_hook();
         }
 
-        let guards = timely::execute::execute_from::<_, Result<(), String>, _>(
+        let guards = timely::execute::execute_from::<_, StringResult<()>, _>(
             builders,
             other,
             timely::WorkerConfig::default(),

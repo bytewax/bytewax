@@ -18,8 +18,8 @@
 use std::ffi::CString;
 
 use crate::{
-    pyo3_extensions::{TdPyAny, TdPyCallable},
-    with_traceback,
+    unwrap_any,
+    pyo3_extensions::{TdPyAny, TdPyCallable}, StringResult,
 };
 use pyo3::ffi::PySys_WriteStdout;
 use pyo3::{exceptions::PyValueError, prelude::*};
@@ -221,7 +221,7 @@ pub(crate) fn build_output_writer(
     config: Py<OutputConfig>,
     worker_index: usize,
     worker_count: usize,
-) -> Result<Box<dyn OutputWriter<u64, TdPyAny>>, String> {
+) -> StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
     // See comment in [`crate::recovery::build_recovery_writers`]
     // about releasing the GIL during IO class building.
     let config = config.as_ref(py);
@@ -281,7 +281,7 @@ impl ManualOutput {
 
 impl OutputWriter<u64, TdPyAny> for ManualOutput {
     fn push(&mut self, _epoch: u64, item: TdPyAny) {
-        Python::with_gil(|py| with_traceback!(py, self.pyfunc.call1(py, (item,))));
+        Python::with_gil(|py| unwrap_any!(self.pyfunc.call1(py, (item,))));
     }
 }
 
@@ -311,7 +311,7 @@ impl OutputWriter<u64, TdPyAny> for ManualEpochOutput {
     fn push(&mut self, epoch: u64, item: TdPyAny) {
         Python::with_gil(|py| {
             let epoch_item_pytuple: Py<PyAny> = (epoch, item).into_py(py);
-            with_traceback!(py, self.pyfunc.call1(py, (epoch_item_pytuple,)))
+            unwrap_any!(self.pyfunc.call1(py, (epoch_item_pytuple,)))
         });
     }
 }

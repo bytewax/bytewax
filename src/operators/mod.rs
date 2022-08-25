@@ -9,13 +9,13 @@
 //!   [`crate::recovery::StatefulLogic`] and
 //!   [`crate::window::WindowLogic`].
 
-use crate::log_func;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 use crate::recovery::StateBytes;
 use crate::recovery::StateUpdate;
 use crate::recovery::StatefulLogic;
 use crate::window::WindowLogic;
-use crate::with_traceback;
+use crate::try_unwrap;
+use crate::{log_func, unwrap_any};
 use log::debug;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -24,12 +24,12 @@ use std::time::Duration;
 
 pub(crate) fn map(mapper: &TdPyCallable, item: TdPyAny) -> TdPyAny {
     debug!("{}, mapper:{:?}, item:{:?}", log_func!(), mapper, item);
-    Python::with_gil(|py| with_traceback!(py, mapper.call1(py, (item,))).into())
+    Python::with_gil(|py| unwrap_any!(mapper.call1(py, (item,))).into())
 }
 
 pub(crate) fn flat_map(mapper: &TdPyCallable, item: TdPyAny) -> TdPyIterator {
     debug!("{}, mapper:{:?}, item:{:?}", log_func!(), mapper, item);
-    Python::with_gil(|py| with_traceback!(py, mapper.call1(py, (item,))?.extract(py)))
+    Python::with_gil(|py| try_unwrap!(mapper.call1(py, (item,))?.extract(py)))
 }
 
 pub(crate) fn filter(predicate: &TdPyCallable, item: &TdPyAny) -> bool {
@@ -40,9 +40,14 @@ pub(crate) fn filter(predicate: &TdPyCallable, item: &TdPyAny) -> bool {
         item
     );
     Python::with_gil(|py| {
-        with_traceback!(py, {
+        try_unwrap!({
             let should_emit_pybool: TdPyAny = predicate.call1(py, (item,))?.into();
-            should_emit_pybool.extract(py).map_err(|_err| PyTypeError::new_err(format!("return value of `predicate` in filter operator must be a bool; got `{should_emit_pybool:?}` instead")))
+            should_emit_pybool.extract(py).map_err(|_err| {
+                PyTypeError::new_err(format!(
+                    "return value of `predicate` in filter \
+                operator must be a bool; got `{should_emit_pybool:?}` instead"
+                ))
+            })
         })
     })
 }
@@ -54,9 +59,7 @@ pub(crate) fn inspect(inspector: &TdPyCallable, item: &TdPyAny) {
         inspector,
         item
     );
-    Python::with_gil(|py| {
-        with_traceback!(py, inspector.call1(py, (item,)));
-    });
+    Python::with_gil(|py| unwrap_any!(inspector.call1(py, (item,))));
 }
 
 pub(crate) fn inspect_epoch(inspector: &TdPyCallable, epoch: &u64, item: &TdPyAny) {
@@ -66,9 +69,7 @@ pub(crate) fn inspect_epoch(inspector: &TdPyCallable, epoch: &u64, item: &TdPyAn
         inspector,
         item
     );
-    Python::with_gil(|py| {
-        with_traceback!(py, inspector.call1(py, (*epoch, item)));
-    });
+    Python::with_gil(|py| unwrap_any!(inspector.call1(py, (*epoch, item))));
 }
 
 /// Implements the reduce operator.
@@ -109,25 +110,38 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceLogic {
                     // the current value.
                     None => value,
                     Some(acc) => {
-                        let updated_acc = with_traceback!(
-                            py,
-                            self.reducer
-                                .call1(py, (acc.clone_ref(py), value.clone_ref(py)))
-                        )
+                        let updated_acc = unwrap_any!(self
+                            .reducer
+                            .call1(py, (acc.clone_ref(py), value.clone_ref(py))))
                         .into();
-                        debug!("reduce: reducer={:?}(acc={acc:?}, value={value:?}) -> updated_acc={updated_acc:?}", self.reducer);
+                        debug!(
+                            "reduce: reducer={:?}(acc={acc:?}, value={value:?}) \
+                            -> updated_acc={updated_acc:?}",
+                            self.reducer
+                        );
                         updated_acc
                     }
                 };
 
-                let should_emit_and_discard_acc: bool = with_traceback!(py, {
+                let should_emit_and_discard_acc: bool = try_unwrap!({
                     let should_emit_and_discard_acc_pybool: TdPyAny = self
                         .is_complete
                         .call1(py, (updated_acc.clone_ref(py),))?
                         .into();
-                    should_emit_and_discard_acc_pybool.extract(py).map_err(|_err| PyTypeError::new_err(format!("return value of `is_complete` in reduce operator must be a bool; got `{should_emit_and_discard_acc_pybool:?}` instead")))
+                    should_emit_and_discard_acc_pybool
+                        .extract(py)
+                        .map_err(|_err| {
+                            PyTypeError::new_err(format!(
+                                "return value of `is_complete` in reduce operator must be a bool; \
+                            got `{should_emit_and_discard_acc_pybool:?}` instead"
+                            ))
+                        })
                 });
-                debug!("reduce: is_complete={:?}(updated_acc={updated_acc:?}) -> should_emit_and_discard_acc={should_emit_and_discard_acc:?}", self.is_complete);
+                debug!(
+                    "reduce: is_complete={:?}(updated_acc={updated_acc:?}) \
+                    -> should_emit_and_discard_acc={should_emit_and_discard_acc:?}",
+                    self.is_complete
+                );
 
                 if should_emit_and_discard_acc {
                     self.acc = None;
@@ -173,8 +187,7 @@ impl StatefulMapLogic {
                     .map(|resume_state_bytes| resume_state_bytes.de())
                     .unwrap_or_else(|| {
                         Python::with_gil(|py| {
-                            let initial_state: TdPyAny =
-                                with_traceback!(py, builder.call1(py, ())).into();
+                            let initial_state: TdPyAny = unwrap_any!(builder.call1(py, ())).into();
                             debug!(
                                 "stateful_map: builder={:?}() -> initial_state{initial_state:?}",
                                 builder
@@ -198,26 +211,34 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for StatefulMapLogic {
         if let Poll::Ready(Some(value)) = next_value {
             Python::with_gil(|py| {
                 let state = self.state.get_or_insert_with(|| {
-                    let initial_state: TdPyAny =
-                        with_traceback!(py, self.builder.call1(py, ())).into();
+                    let initial_state: TdPyAny = unwrap_any!(self.builder.call1(py, ())).into();
                     debug!(
                         "stateful_map: builder={:?}() -> initial_state{initial_state:?}",
                         self.builder
                     );
                     initial_state
                 });
-                let (updated_state, updated_value): (Option<TdPyAny>, TdPyAny) = with_traceback!(
-                    py,
+                let (updated_state, updated_value): (Option<TdPyAny>, TdPyAny) = try_unwrap!(
                     {
                         let updated_state_value_pytuple: TdPyAny = self
                             .mapper
                             .call1(py, (state.clone_ref(py), value.clone_ref(py)))?
                             .into();
-                        updated_state_value_pytuple.extract(py)
-                        .map_err(|_err| PyTypeError::new_err(format!("return value of `mapper` in stateful map operator must be a 2-tuple of `(updated_state, updated_value)`; got `{updated_state_value_pytuple:?}` instead")))
+                        updated_state_value_pytuple
+                            .extract(py)
+                            .map_err(|_err|
+                                PyTypeError::new_err(
+                                    format!("return value of `mapper` in stateful map operator must be a 2-tuple of `(updated_state, updated_value)`; \
+                                        got `{updated_state_value_pytuple:?}` instead")
+                                )
+                            )
                     }
                 );
-                debug!("stateful_map: mapper={:?}(state={:?}, value={value:?}) -> (updated_state={updated_state:?}, updated_value={updated_value:?})", self.mapper, self.state);
+                debug!(
+                    "stateful_map: mapper={:?}(state={:?}, value={value:?}) -> \
+                    (updated_state={updated_state:?}, updated_value={updated_value:?})",
+                    self.mapper, self.state
+                );
 
                 self.state = updated_state;
 
@@ -267,11 +288,9 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceWindowLogic {
                         // use the current value.
                         None => value,
                         Some(acc) => {
-                            let updated_acc = with_traceback!(
-                                py,
-                                self.reducer
-                                    .call1(py, (acc.clone_ref(py), value.clone_ref(py)))
-                            )
+                            let updated_acc = unwrap_any!(self
+                                .reducer
+                                .call1(py, (acc.clone_ref(py), value.clone_ref(py))))
                             .into();
                             debug!("reduce_window: reducer={:?}(acc={acc:?}, value={value:?}) -> updated_acc={updated_acc:?}", self.reducer);
 
@@ -327,16 +346,15 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for FoldWindowLogic {
                 let acc: TdPyAny = self
                     .acc
                     .take()
-                    .unwrap_or_else(|| with_traceback!(py, self.builder.call1(py, ())).into());
+                    .unwrap_or_else(|| unwrap_any!(self.builder.call1(py, ())).into());
                 // Call the folder with the initialized accumulator
-                let updated_acc = with_traceback!(
-                    py,
-                    self.folder
-                        .call1(py, (acc.clone_ref(py), value.clone_ref(py)))
-                )
+                let updated_acc = unwrap_any!(self
+                    .folder
+                    .call1(py, (acc.clone_ref(py), value.clone_ref(py))))
                 .into();
                 debug!(
-                    "fold_window: builder={:?}, folder={:?}(acc={acc:?}, value={value:?}) -> updated_acc={updated_acc:?}",
+                    "fold_window: builder={:?}, folder={:?}(acc={acc:?}, value={value:?}) \
+                        -> updated_acc={updated_acc:?}",
                     self.builder, self.folder
                 );
                 self.acc = Some(updated_acc);

@@ -29,7 +29,8 @@
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
 
-use crate::recovery::{StateBytes, StateKey};
+use crate::StringResult;
+use crate::recovery::{EpochData, StateBytes, StateKey};
 use crate::recovery::{StateUpdate, StepId};
 use crate::recovery::{StatefulLogic, StatefulUnary};
 use chrono::{Duration, NaiveDateTime};
@@ -140,11 +141,7 @@ impl TestingClockConfig {
 
     /// Pickle as a tuple.
     fn __getstate__(&self) -> (&str, pyo3_chrono::Duration, pyo3_chrono::NaiveDateTime) {
-        (
-            "TestingClockConfig",
-            self.item_incr,
-            self.start_at,
-        )
+        ("TestingClockConfig", self.item_incr, self.start_at)
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -209,7 +206,7 @@ impl SystemClockConfig {
 pub(crate) fn build_clock_builder<V: 'static>(
     py: Python,
     clock_config: Py<ClockConfig>,
-) -> Result<Box<dyn Fn(Option<StateBytes>) -> Box<dyn Clock<V>>>, String> {
+) -> StringResult<Box<dyn Fn(Option<StateBytes>) -> Box<dyn Clock<V>>>> {
     let clock_config = clock_config.as_ref(py);
 
     if let Ok(testing_clock_config) = clock_config.downcast::<PyCell<TestingClockConfig>>() {
@@ -341,7 +338,7 @@ impl TumblingWindowConfig {
 pub(crate) fn build_windower_builder(
     py: Python,
     window_config: Py<WindowConfig>,
-) -> Result<Box<dyn Fn(Option<StateBytes>) -> Box<dyn Windower>>, String> {
+) -> StringResult<Box<dyn Fn(Option<StateBytes>) -> Box<dyn Windower>>> {
     let window_config = window_config.as_ref(py);
 
     if let Ok(tumbling_window_config) = window_config.downcast::<PyCell<TumblingWindowConfig>>() {
@@ -860,7 +857,7 @@ pub(crate) trait StatefulWindowUnary<S: Scope, V: ExchangeData> {
         resume_state: HashMap<StateKey, StateBytes>,
     ) -> (
         Stream<S, (StateKey, Result<R, WindowError<V>>)>,
-        Stream<S, (StateKey, (StepId, StateUpdate))>,
+        Stream<S, EpochData>,
     );
 }
 
@@ -884,7 +881,7 @@ where
         resume_state: HashMap<StateKey, StateBytes>,
     ) -> (
         Stream<S, (StateKey, Result<R, WindowError<V>>)>,
-        Stream<S, (StateKey, (StepId, StateUpdate))>,
+        Stream<S, EpochData>,
     ) {
         self.stateful_unary(
             step_id,
