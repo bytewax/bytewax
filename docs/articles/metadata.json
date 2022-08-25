@@ -54,5 +54,15 @@
         "filename": "waxctl"
       }
     ]
-  }
+  },
+  {
+    "category": "Reference",
+    "directory": "reference",
+    "articles": [
+      {
+        "title": "Changes in v0.11",
+        "filename": "changes-in-v11"
+      },
+    ]
+  },
 ]
