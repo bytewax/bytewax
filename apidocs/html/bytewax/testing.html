@@ -70,7 +70,7 @@ doctest_ctx.Manager = _Manager</code></pre>
 <dt id="bytewax.testing.doctest_ctx"><code class="language-python name">var <span class="ident">doctest_ctx</span></code></dt>
 <dd>
 <div class="desc"><p>Use this <code>multiprocessing</code> context when running in doctests.</p>
-<p>Pass to <code><a title="bytewax.spawn_cluster" href="index.html#bytewax.spawn_cluster">spawn_cluster()</a></code> and <code><a title="bytewax.run_cluster" href="index.html#bytewax.run_cluster">run_cluster()</a></code>.</p>
+<p>Pass to <code>bytewax.spawn_cluster()</code> and <code>bytewax.run_cluster()</code>.</p>
 <p>Spawning subprocesses is fraught in doctest contexts, so use this to
 demonstrate the API works, but not actually run via multiple
 processes. We have other normal <code>pytest</code> tests which actually test
