@@ -1,0 +1,320 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.window</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<p>Time-based windows.</p>
+<p>Bytewax provides some operators and pre-built configurations for
+easily grouping data into buckets called <strong>windows</strong> and running code
+on just the values in those windows.</p>
+<p>See the operator methods on <code><a title="bytewax.dataflow.Dataflow" href="dataflow.html#bytewax.dataflow.Dataflow">Dataflow</a></code> with <code>_window</code>
+in the name for simple example use cases of each.</p>
+<h2 id="use">Use</h2>
+<ol>
+<li>
+<p>Pick a clock and create a config for it. A <strong>clock</strong> determines the
+time of each element and the current time used for closing each
+window. E.g. use the current system time. See the docs for each
+subclass of <code><a title="bytewax.window.ClockConfig" href="#bytewax.window.ClockConfig">ClockConfig</a></code> for options.</p>
+</li>
+<li>
+<p>Pick a windower and create a config for it. A <strong>windower</strong> defines
+how to take the values and their times and bucket them into
+windows. E.g. have tumbling windows every 30 seconds. See the docs for
+each subclass of <code><a title="bytewax.window.WindowConfig" href="#bytewax.window.WindowConfig">WindowConfig</a></code> for options.</p>
+</li>
+<li>
+<p>Pick a <strong>key</strong> to route the values for the window and make sure the
+input to the windowing operator you choose is a 2-tuple of <code>(key: str,
+value)</code>. Windows are managed independently for each key. If you need
+all data to be processed into the same window state, you can use a
+constant key like <code>("ALL", value)</code> but this will reduce the
+parallelism possible in the dataflow. This is similar to all the other
+stateful operators, so you can read more on their methods on
+<code>bytewax.Dataflow</code>.</p>
+</li>
+<li>
+<p>Pass both these configs to the windowing operator of your
+choice. The <strong>windowing operators</strong> decide what kind of logic you
+should apply to values within a window and what should be the output
+of the window. E.g. <code>bytewax.Dataflow.reduce_window</code> combines all
+values in a window into a single output and sends that downstream.</p>
+</li>
+</ol>
+<p>You are allowed and encouraged to have as many different clocks and
+windowers as you need in a single dataflow. Just instantiate more of
+them and pass the ones you need for each situation to each windowing
+operator.</p>
+<h2 id="order">Order</h2>
+<p>Because Bytewax can be run as a distributed system with multiple
+worker processes and threads all reading relevant data simultaneously,
+you have to specifically collect and manually sort data that you need
+to process in strict time order.</p>
+<h2 id="recovery">Recovery</h2>
+<p>Bytewax's windowing system is built on top of its recovery system (see
+<code><a title="bytewax.recovery" href="recovery.html">bytewax.recovery</a></code> for more info), so failure in the middle of a
+window will be handled as gracefully as possible.</p>
+<p>Some clocks don't have a single correct answer on what to do during
+recovery. E.g. if you use <code><a title="bytewax.window.SystemClockConfig" href="#bytewax.window.SystemClockConfig">SystemClockConfig</a></code> with 10 minute windows,
+but then recover on a 15 minute mark, the system will immediately
+close out the half-completed window stored during recovery. See the
+docs for each <code><a title="bytewax.window.ClockConfig" href="#bytewax.window.ClockConfig">ClockConfig</a></code> subclass for specific notes on recovery.</p>
+<p>Recovery happens on the granularity of the <em>epochs</em> of the dataflow,
+not the windows. See <code><a title="bytewax.inputs" href="inputs.html">bytewax.inputs</a></code> for more information on ways to
+adjust epochs.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Time-based windows.
+
+Bytewax provides some operators and pre-built configurations for
+easily grouping data into buckets called **windows** and running code
+on just the values in those windows.
+
+See the operator methods on `bytewax.dataflow.Dataflow` with `_window`
+in the name for simple example use cases of each.
+
+Use
+---
+
+1. Pick a clock and create a config for it. A **clock** determines the
+time of each element and the current time used for closing each
+window. E.g. use the current system time. See the docs for each
+subclass of `ClockConfig` for options.
+
+2. Pick a windower and create a config for it. A **windower** defines
+how to take the values and their times and bucket them into
+windows. E.g. have tumbling windows every 30 seconds. See the docs for
+each subclass of `WindowConfig` for options.
+
+3. Pick a **key** to route the values for the window and make sure the
+input to the windowing operator you choose is a 2-tuple of `(key: str,
+value)`. Windows are managed independently for each key. If you need
+all data to be processed into the same window state, you can use a
+constant key like `(&#34;ALL&#34;, value)` but this will reduce the
+parallelism possible in the dataflow. This is similar to all the other
+stateful operators, so you can read more on their methods on
+`bytewax.Dataflow`.
+
+4. Pass both these configs to the windowing operator of your
+choice. The **windowing operators** decide what kind of logic you
+should apply to values within a window and what should be the output
+of the window. E.g. `bytewax.Dataflow.reduce_window` combines all
+values in a window into a single output and sends that downstream.
+
+You are allowed and encouraged to have as many different clocks and
+windowers as you need in a single dataflow. Just instantiate more of
+them and pass the ones you need for each situation to each windowing
+operator.
+
+Order
+-----
+
+Because Bytewax can be run as a distributed system with multiple
+worker processes and threads all reading relevant data simultaneously,
+you have to specifically collect and manually sort data that you need
+to process in strict time order.
+
+Recovery
+--------
+
+Bytewax&#39;s windowing system is built on top of its recovery system (see
+`bytewax.recovery` for more info), so failure in the middle of a
+window will be handled as gracefully as possible.
+
+Some clocks don&#39;t have a single correct answer on what to do during
+recovery. E.g. if you use `SystemClockConfig` with 10 minute windows,
+but then recover on a 15 minute mark, the system will immediately
+close out the half-completed window stored during recovery. See the
+docs for each `ClockConfig` subclass for specific notes on recovery.
+
+Recovery happens on the granularity of the _epochs_ of the dataflow,
+not the windows. See `bytewax.inputs` for more information on ways to
+adjust epochs.
+
+&#34;&#34;&#34;
+
+from .bytewax import (  # noqa: F401
+    ClockConfig,
+    SystemClockConfig,
+    TestingClockConfig,
+    TumblingWindowConfig,
+    WindowConfig,
+)</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
+<dl>
+<dt id="bytewax.window.ClockConfig"><code class="language-python flex name class">
+<span>class <span class="ident">ClockConfig</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for a clock config.</p>
+<p>This describes how a windowing operator should determine the
+current time and the time for each element.</p>
+<p>Use a specific subclass of this that matches the time definition
+you'd like to use.</p></div>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="bytewax.window.SystemClockConfig" href="#bytewax.window.SystemClockConfig">SystemClockConfig</a></li>
+<li><a title="bytewax.window.TestingClockConfig" href="#bytewax.window.TestingClockConfig">TestingClockConfig</a></li>
+</ul>
+</dd>
+<dt id="bytewax.window.SystemClockConfig"><code class="language-python flex name class">
+<span>class <span class="ident">SystemClockConfig</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use the system time inside the windowing operator to determine
+times.</p>
+<p>If the dataflow has no more input, all windows are closed.</p>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this as the <code>clock_config</code> parameter to
+your windowing operator.</p></div>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.window.ClockConfig" href="#bytewax.window.ClockConfig">ClockConfig</a></li>
+</ul>
+</dd>
+<dt id="bytewax.window.TestingClockConfig"><code class="language-python flex name class">
+<span>class <span class="ident">TestingClockConfig</span></span>
+<span>(</span><span>item_incr)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use to simulate system time in tests. Increment "now" after each
+item.</p>
+<p>If the dataflow has no more input, all windows are closed.</p>
+<p>The watermark uses the most recent "now".</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>item_incr</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
+<dd>Amount to increment "now"
+after each item.</dd>
+<dt><strong><code>start_at</code></strong> :&ensp;<code>datetime.datetime</code></dt>
+<dd>Initial "now" / time of first
+item. If you set this and use a window config</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this as the <code>clock_config</code> parameter to
+your windowing operator.</p></div>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.window.ClockConfig" href="#bytewax.window.ClockConfig">ClockConfig</a></li>
+</ul>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.window.TestingClockConfig.item_incr"><code class="language-python name">var <span class="ident">item_incr</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+<dt id="bytewax.window.TestingClockConfig.start_at"><code class="language-python name">var <span class="ident">start_at</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.window.TumblingWindowConfig"><code class="language-python flex name class">
+<span>class <span class="ident">TumblingWindowConfig</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Tumbling windows of fixed duration.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>length</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
+<dd>Length of window.</dd>
+<dt><strong><code>start_at</code></strong> :&ensp;<code>datetime.datetime</code></dt>
+<dd>Instant of the first window. You
+can use this to align all windows to an hour,
+e.g. Defaults to system time of dataflow start.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this as the <code>window_config</code> parameter to
+your windowing operator.</p></div>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.window.WindowConfig" href="#bytewax.window.WindowConfig">WindowConfig</a></li>
+</ul>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.window.TumblingWindowConfig.length"><code class="language-python name">var <span class="ident">length</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+<dt id="bytewax.window.TumblingWindowConfig.start_at"><code class="language-python name">var <span class="ident">start_at</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.window.WindowConfig"><code class="language-python flex name class">
+<span>class <span class="ident">WindowConfig</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for a windower config.</p>
+<p>This describes the type of windows you would like.</p>
+<p>Use a specific subclass of this that matches the window definition
+you'd like to use.</p></div>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="bytewax.window.TumblingWindowConfig" href="#bytewax.window.TumblingWindowConfig">TumblingWindowConfig</a></li>
+</ul>
+</dd>
+</dl>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a class="api__sidebar-nav-menu-link api-supermodule" href="/apidocs">
+bytewax
+</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
+<ul class="api__sidebar-nav-classes">
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.ClockConfig" href="#bytewax.window.ClockConfig">ClockConfig</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.SystemClockConfig" href="#bytewax.window.SystemClockConfig">SystemClockConfig</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.TestingClockConfig" href="#bytewax.window.TestingClockConfig">TestingClockConfig</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.TestingClockConfig.item_incr" href="#bytewax.window.TestingClockConfig.item_incr">item_incr</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.TestingClockConfig.start_at" href="#bytewax.window.TestingClockConfig.start_at">start_at</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.TumblingWindowConfig" href="#bytewax.window.TumblingWindowConfig">TumblingWindowConfig</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.TumblingWindowConfig.length" href="#bytewax.window.TumblingWindowConfig.length">length</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.TumblingWindowConfig.start_at" href="#bytewax.window.TumblingWindowConfig.start_at">start_at</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.WindowConfig" href="#bytewax.window.WindowConfig">WindowConfig</a></h4>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
