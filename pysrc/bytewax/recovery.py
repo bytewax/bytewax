@@ -64,6 +64,7 @@ delete the data in the recovery store using whatever operational tools
 you have for that storage type.
 
 """
+
 from .bytewax import (  # noqa: F401
     KafkaRecoveryConfig,
     RecoveryConfig,

@@ -1,0 +1,17 @@
+pandas
+pyarrow
+fake-web-events
+
+# orderbook
+websocket-client
+
+# translator
+tensorflow
+
+# wikistream
+sseclient-py
+urllib3
+
+# rp-events-stream
+river==0.10.1 
+pandas

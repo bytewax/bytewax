@@ -10,12 +10,16 @@ from bytewax.outputs import TestingOutputConfig
 
 
 def test_map():
+    flow = Dataflow()
+
+    inp = [0, 1, 2]
+    flow.input("inp", TestingInputConfig(inp))
+
     def add_one(item):
         return item + 1
 
-    inp = [0, 1, 2]
-    flow = Dataflow(TestingInputConfig(inp))
     flow.map(add_one)
+
     out = []
     flow.capture(TestingOutputConfig(out))
 
@@ -25,12 +29,16 @@ def test_map():
 
 
 def test_flat_map():
+    flow = Dataflow()
+
+    inp = ["split this"]
+    flow.input("inp", TestingInputConfig(inp))
+
     def split_into_words(sentence):
         return sentence.split()
 
-    inp = ["split this"]
-    flow = Dataflow(TestingInputConfig(inp))
     flow.flat_map(split_into_words)
+
     out = []
     flow.capture(TestingOutputConfig(out))
 
@@ -40,12 +48,16 @@ def test_flat_map():
 
 
 def test_filter():
+    flow = Dataflow()
+
+    inp = [1, 2, 3]
+    flow.input("inp", TestingInputConfig(inp))
+
     def is_odd(item):
         return item % 2 != 0
 
-    inp = [1, 2, 3]
-    flow = Dataflow(TestingInputConfig(inp))
     flow.filter(is_odd)
+
     out = []
     flow.capture(TestingOutputConfig(out))
 
@@ -55,10 +67,14 @@ def test_filter():
 
 
 def test_inspect():
+    flow = Dataflow()
+
     inp = ["a"]
-    flow = Dataflow(TestingInputConfig(inp))
+    flow.input("inp", TestingInputConfig(inp))
+
     seen = []
     flow.inspect(seen.append)
+
     out = []
     flow.capture(TestingOutputConfig(out))
 
@@ -70,10 +86,14 @@ def test_inspect():
 
 
 def test_inspect_epoch():
+    flow = Dataflow()
+
     inp = ["a"]
-    flow = Dataflow(TestingInputConfig(inp))
+    flow.input("inp", TestingInputConfig(inp))
+
     seen = []
     flow.inspect_epoch(lambda epoch, item: seen.append((epoch, item)))
+
     out = []
     flow.capture(TestingOutputConfig(out))
 
@@ -85,14 +105,7 @@ def test_inspect_epoch():
 
 
 def test_reduce():
-    def user_as_key(event):
-        return (event["user"], [event])
-
-    def extend_session(session, event):
-        return session + event
-
-    def session_complete(session):
-        return any(event["type"] == "logout" for event in session)
+    flow = Dataflow()
 
     inp = [
         {"user": "a", "type": "login"},
@@ -101,9 +114,21 @@ def test_reduce():
         {"user": "a", "type": "logout"},
         {"user": "b", "type": "logout"},
     ]
-    flow = Dataflow(TestingInputConfig(inp))
+    flow.input("inp", TestingInputConfig(inp))
+
+    def user_as_key(event):
+        return (event["user"], [event])
+
     flow.map(user_as_key)
+
+    def extend_session(session, event):
+        return session + event
+
+    def session_complete(session):
+        return any(event["type"] == "logout" for event in session)
+
     flow.reduce("sessionizer", extend_session, session_complete)
+
     out = []
     flow.capture(TestingOutputConfig(out))
 
@@ -131,11 +156,18 @@ def test_reduce():
 
 
 def test_stateful_map():
-    def build_seen(key):
-        return set()
+    flow = Dataflow()
+
+    inp = ["a", "a", "a", "b"]
+    flow.input("inp", TestingInputConfig(inp))
 
     def add_key(item):
         return item, item
+
+    flow.map(add_key)
+
+    def build_seen():
+        return set()
 
     def check(seen, value):
         if value in seen:
@@ -144,6 +176,8 @@ def test_stateful_map():
             seen.add(value)
             return seen, False
 
+    flow.stateful_map("build_seen", build_seen, check)
+
     def remove_seen(key__is_seen):
         key, is_seen = key__is_seen
         if not is_seen:
@@ -151,11 +185,8 @@ def test_stateful_map():
         else:
             return []
 
-    inp = ["a", "a", "a", "b"]
-    flow = Dataflow(TestingInputConfig(inp))
-    flow.map(add_key)
-    flow.stateful_map("build_seen", build_seen, check)
     flow.flat_map(remove_seen)
+
     out = []
     flow.capture(TestingOutputConfig(out))
 
@@ -165,10 +196,7 @@ def test_stateful_map():
 
 
 def test_stateful_map_error_on_non_kv_tuple():
-    def running_count(type_to_count, event):
-        type_to_count[event["type"]] += 1
-        current_count = type_to_count[event["type"]]
-        return type_to_count, [(event["type"], current_count)]
+    flow = Dataflow()
 
     inp = [
         {"user": "a", "type": "login"},
@@ -176,8 +204,15 @@ def test_stateful_map_error_on_non_kv_tuple():
         {"user": "b", "type": "login"},
         {"user": "b", "type": "post"},
     ]
-    flow = Dataflow(TestingInputConfig(inp))
-    flow.stateful_map("running_count", lambda key: defaultdict(int), running_count)
+    flow.input("inp", TestingInputConfig(inp))
+
+    def running_count(type_to_count, event):
+        type_to_count[event["type"]] += 1
+        current_count = type_to_count[event["type"]]
+        return type_to_count, [(event["type"], current_count)]
+
+    flow.stateful_map("running_count", lambda: defaultdict(int), running_count)
+
     out = []
     flow.capture(TestingOutputConfig(out))
 
@@ -191,15 +226,7 @@ def test_stateful_map_error_on_non_kv_tuple():
 
 
 def test_stateful_map_error_on_non_string_key():
-    def add_key(event):
-        # Note that event["user"] is an entire dict, but keys must be
-        # strings.
-        return event["user"], event
-
-    def running_count(type_to_count, event):
-        type_to_count[event["type"]] += 1
-        current_count = type_to_count[event["type"]]
-        return type_to_count, [(event["type"], current_count)]
+    flow = Dataflow()
 
     # Note that the resulting key will be an int.
     inp = [
@@ -208,16 +235,29 @@ def test_stateful_map_error_on_non_string_key():
         {"user": {"id": 2}, "type": "login"},
         {"user": {"id": 2}, "type": "post"},
     ]
-    flow = Dataflow(TestingInputConfig(inp))
+    flow.input("inp", TestingInputConfig(inp))
+
+    def add_key(event):
+        # Note that event["user"] is an entire dict, but keys must be
+        # strings.
+        return event["user"], event
+
     flow.map(add_key)
-    flow.stateful_map("running_count", lambda key: defaultdict(int), running_count)
+
+    def running_count(type_to_count, event):
+        type_to_count[event["type"]] += 1
+        current_count = type_to_count[event["type"]]
+        return type_to_count, [(event["type"], current_count)]
+
+    flow.stateful_map("running_count", lambda: defaultdict(int), running_count)
+
     out = []
     flow.capture(TestingOutputConfig(out))
 
     with raises(
         TypeError,
         match=re.escape(
-            "Stateful operators require string keys in `(key, value)`; "
+            "Stateful logic functions must return string keys in `(key, value)`; "
             "got `{'id': 1}` instead"
         ),
     ):

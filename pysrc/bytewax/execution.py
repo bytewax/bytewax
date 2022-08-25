@@ -3,6 +3,16 @@
 Run an instantiated `bytewax.dataflow.Dataflow` using one of the entry
 point functions in this module.
 
+
+Epoch Configs
+-------------
+
+Epochs define the granularity of recovery in a bytewax dataflow. By default, we
+snapshot recovery every 10 seconds. You should only need to set this if you are 
+testing the recovery system or are doing deep exactly-once integration work. Changing
+this does not change the semantics of any of the operators.
+
+
 """
 from typing import Any, Iterable, List, Optional, Tuple
 
@@ -43,18 +53,14 @@ def spawn_cluster(
     programs.
 
     >>> from bytewax.testing import doctest_ctx
+    >>> from bytewax.dataflow import Dataflow
+    >>> from bytewax.inputs import TestingInputConfig
+    >>> from bytewax.outputs import StdOutputConfig
     >>> flow = Dataflow()
-    >>> flow.capture()
-    >>> def input_builder(worker_index, worker_count, resume_epoch):
-    ...   for epoch, item in enumerate(range(resume_epoch, 3)):
-    ...     yield AdvanceTo(epoch)
-    ...     yield Emit(item)
-    >>> def output_builder(worker_index, worker_count):
-    ...     return print
+    >>> flow.input("inp", TestingInputConfig(range(3)))
+    >>> flow.capture(StdOutputConfig())
     >>> spawn_cluster(
     ...     flow,
-    ...     ManualInputConfig(input_builder),
-    ...     output_builder,
     ...     proc_count=2,
     ...     mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
     ... )  # doctest: +ELLIPSIS

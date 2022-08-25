@@ -1,11 +1,17 @@
 import random
 
-from bytewax import Dataflow, inputs, parse, run_cluster
+from bytewax.dataflow import Dataflow
+from bytewax.execution import spawn_cluster
+from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import ManualOutputConfig
 
 
-def random_datapoints():
-    for _ in range(20):
-        yield "QPS", random.randrange(0, 10)
+def input_builder(worker_index, worker_count, resume_state):
+    def random_datapoints():
+        for _ in range(20):
+            yield None, ("QPS", random.randrange(0, 10))
+
+    return random_datapoints()
 
 
 class ZTestDetector:
@@ -42,26 +48,32 @@ class ZTestDetector:
 
         self._push(value)
         self._recalc_stats()
+        print(self)
 
         return self, (value, self.mu, self.sigma, is_anomalous)
 
 
-def inspector(epoch, metric__value_mu_sigma_anomalous):
-    metric, (value, mu, sigma, is_anomalous) = metric__value_mu_sigma_anomalous
-    print(
-        f"{metric} @ {epoch}: value = {value}, mu = {mu:.2f}, sigma = {sigma:.2f}, {is_anomalous}"
-    )
+def output_builder(worker_index, worker_count):
+    def inspector(input):
+        metric, (value, mu, sigma, is_anomalous) = input
+        print(
+            f"{metric}: "
+            f"value = {value}, "
+            f"mu = {mu:.2f}, "
+            f"sigma = {sigma:.2f}, "
+            f"{is_anomalous}"
+        )
 
-
-flow = Dataflow()
-# ("metric", value)
-flow.stateful_map(lambda key: ZTestDetector(2.0), ZTestDetector.push)
-# ("metric", (value, mu, sigma, is_anomalous))
-flow.capture()
+    return inspector
 
 
 if __name__ == "__main__":
-    for epoch, item in run_cluster(
-        flow, inputs.fully_ordered(random_datapoints()), **parse.cluster_args()
-    ):
-        inspector(epoch, item)
+    flow = Dataflow()
+    flow.input("input", ManualInputConfig(input_builder))
+    # ("metric", value)
+    flow.stateful_map(
+        "AnomalyDetector", lambda: ZTestDetector(2.0), ZTestDetector.push
+    )
+    # ("metric", (value, mu, sigma, is_anomalous))
+    flow.capture(ManualOutputConfig(output_builder))
+    spawn_cluster(flow)

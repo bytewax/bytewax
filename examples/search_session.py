@@ -2,7 +2,10 @@ import operator
 from dataclasses import dataclass
 from typing import List
 
-from bytewax import Dataflow, parse, run_cluster
+from bytewax.dataflow import Dataflow
+from bytewax.execution import run_main
+from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import StdOutputConfig
 
 
 @dataclass
@@ -39,31 +42,36 @@ class Timeout:
 
 
 IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS = [
-    # epoch, event
-    (0, AppOpen(user=1)),
-    (1, Search(user=1, query="dogs")),
+    AppOpen(user=1),
+    Search(user=1, query="dogs"),
     # Eliding named args...
-    (2, Results(1, ["fido", "rover", "buddy"])),
-    (3, ClickResult(1, "rover")),
-    (4, Search(1, "cats")),
-    (5, Results(1, ["fluffy", "burrito", "kathy"])),
-    (6, ClickResult(1, "fluffy")),
-    (7, AppOpen(2)),
-    (8, ClickResult(1, "kathy")),
-    (9, Search(2, "fruit")),
-    (10, AppClose(1)),
-    (11, AppClose(2)),
+    Results(1, ["fido", "rover", "buddy"]),
+    ClickResult(1, "rover"),
+    Search(1, "cats"),
+    Results(1, ["fluffy", "burrito", "kathy"]),
+    ClickResult(1, "fluffy"),
+    AppOpen(2),
+    ClickResult(1, "kathy"),
+    Search(2, "fruit"),
+    AppClose(1),
+    AppClose(2),
 ]
 
 
-def group_by_user(event):
-    return event.user, [event]
+def input_builder(worker_index, worker_count, resume_state):
+    state = resume_state or None  # Not handling recovery
+    for line in IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS:
+        yield (state, line)
+
+
+def initial_session(event):
+    return str(event.user), [event]
 
 
 def session_has_closed(session):
     # isinstance does not work on objects sent through pickling, which
     # Bytewax does when there are multiple workers.
-    return any(type(event).__name__ == "AppClose" for event in session)
+    return type(session[-1]).__name__ == "AppClose"
 
 
 def is_search(event):
@@ -84,10 +92,10 @@ def split_into_searches(user_session):
     search_session = []
     for event in user_session:
         if is_search(event):
-            if len(search_session) > 0:
-                yield search_session
+            yield search_session
             search_session = []
         search_session.append(event)
+    yield search_session
 
 
 def calc_ctr(search_session):
@@ -98,25 +106,23 @@ def calc_ctr(search_session):
 
 
 flow = Dataflow()
+flow.input("input", ManualInputConfig(input_builder))
 # event
-flow.map(group_by_user)
+flow.map(initial_session)
 # (user, [event])
-flow.reduce(operator.add, session_has_closed)
+# TODO: reduce_window with clock so we can get the mean CTR per minute.
+flow.reduce("sessionizer", operator.add, session_has_closed)
 # (user, [event, ...])
 flow.map(remove_key)
 # [event, ...]
-flow.filter(has_search)
 # Take a user session and split it up into a search session, one per
 # search.
 flow.flat_map(split_into_searches)
+flow.filter(has_search)
 # Calculate search CTR per search.
 flow.map(calc_ctr)
-# TODO: Mix in a "clock" stream so we can get the mean CTR per minute.
-flow.capture()
+flow.capture(StdOutputConfig())
 
 
 if __name__ == "__main__":
-    for epoch, item in run_cluster(
-        flow, IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS, **parse.cluster_args()
-    ):
-        print(epoch, item)
+    run_main(flow)

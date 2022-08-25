@@ -13,12 +13,15 @@ notes on GitHub when we make a new release.__
   `bytewax.outputs` for more info.
 
 - Input is no longer specified on the execution entry point (like
-  `run_main`), it is instead on the `Dataflow` itself.
+  `run_main`), it is instead using the `Dataflow.input` operator.
 
 - Epochs are no longer user-facing as part of the input system. Any
   custom Python-based input components you write just need to be
   iterators and emit items. Recovery snapshots and backups now happen
   periodically, defaulting to every 10 seconds.
+
+- Recovery format has been changed for all recovery stores. You cannot
+  resume from recovery data written with an older version.
 
 - The `reduce_epoch` operator has been replaced with
   `reduce_window`. It takes a "clock" and a "windower" to define the

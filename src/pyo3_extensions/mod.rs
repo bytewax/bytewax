@@ -1,27 +1,16 @@
 //! Newtypes around PyO3 types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
 
-use crate::with_traceback;
+use crate::py_unwrap;
+use crate::unwrap_any;
+use crate::recovery::StateKey;
+use crate::try_unwrap;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use serde::ser::Error;
-use serde::Deserialize;
-use serde::Serialize;
-use sqlx::encode::IsNull;
-use sqlx::error::BoxDynError;
-use sqlx::sqlite::SqliteArgumentValue;
-use sqlx::sqlite::SqliteTypeInfo;
-use sqlx::sqlite::SqliteValueRef;
-use sqlx::Decode;
-use sqlx::Encode;
-use sqlx::Sqlite;
-use sqlx::Type;
-use std::borrow::Cow;
-use std::collections::hash_map::DefaultHasher;
 use std::fmt;
-use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::task::Poll;
 
@@ -174,13 +163,29 @@ fn test_serde() {
     pyo3::prepare_freethreaded_python();
 
     let pyobj: TdPyAny = Python::with_gil(|py| PyString::new(py, "hello").into());
-    // This does a round-trip.
-    assert_tokens(
-        &pyobj,
-        &[Token::Bytes(&[
+
+    // Python < 3.8 serializes strings differently than python >= 3.8.
+    // We get the current python version here so we can assert based on that.
+    let (major, minor) = Python::with_gil(|py| {
+        let sys = PyModule::import(py, "sys").unwrap();
+        let version = sys.getattr("version_info").unwrap();
+        let major: i32 = version.getattr("major").unwrap().extract().unwrap();
+        let minor: i32 = version.getattr("minor").unwrap().extract().unwrap();
+        (major, minor)
+    });
+
+    // We only support python 3...
+    assert_eq!(major, 3);
+
+    let expected = if minor < 8 {
+        Token::Bytes(&[128, 3, 88, 5, 0, 0, 0, 104, 101, 108, 108, 111, 113, 0, 46])
+    } else {
+        Token::Bytes(&[
             128, 4, 149, 9, 0, 0, 0, 0, 0, 0, 0, 140, 5, 104, 101, 108, 108, 111, 148, 46,
-        ])],
-    );
+        ])
+    };
+    // This does a round-trip.
+    assert_tokens(&pyobj, &[expected]);
 }
 
 /// Re-use Python's value semantics in Rust code.
@@ -191,73 +196,8 @@ impl PartialEq for TdPyAny {
             // pointer identity.
             let self_ = self.as_ref(py);
             let other = other.as_ref(py);
-            with_traceback!(py, self_.rich_compare(other, CompareOp::Eq)?.is_true())
+            try_unwrap!(self_.rich_compare(other, CompareOp::Eq)?.is_true())
         })
-    }
-}
-
-/// Newtype over a string representing the "routing key" for stateful
-/// operators.
-///
-/// We use a string here rather than wrapping any Python type because
-/// the routing key interfaces with a lot of Bytewax and Timely code
-/// which puts requirements on it: it has to be hashable, have
-/// equality, debug printable, and is serde-able and we can't
-/// guarantee those things are correct on any arbitrary Python type.
-///
-/// Yes, we lose a little bit of flexibility, but it makes usage more
-/// convenient.
-///
-/// You'll mostly interface with this via [`extract_state_pair`] and
-/// [`wrap_state_pair`].
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, FromPyObject,
-)]
-pub(crate) struct StateKey(String);
-
-impl StateKey {
-    /// Hash this key for Timely exchange routing.
-    pub(crate) fn route(&self) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
-        hasher.finish()
-    }
-}
-
-impl From<StateKey> for String {
-    fn from(key: StateKey) -> Self {
-        key.0
-    }
-}
-
-impl IntoPy<PyObject> for StateKey {
-    fn into_py(self, py: Python) -> Py<PyAny> {
-        PyString::new(py, &self.0).into()
-    }
-}
-
-impl Type<Sqlite> for StateKey {
-    fn type_info() -> SqliteTypeInfo {
-        <String as Type<Sqlite>>::type_info()
-    }
-}
-
-impl<'q> Encode<'q, Sqlite> for StateKey {
-    fn encode(self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
-        args.push(SqliteArgumentValue::Text(Cow::Owned(self.0)));
-        IsNull::No
-    }
-
-    fn encode_by_ref(&self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
-        args.push(SqliteArgumentValue::Text(Cow::Owned(self.0.clone())));
-        IsNull::No
-    }
-}
-
-impl<'r> Decode<'r, Sqlite> for StateKey {
-    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
-        let value = <String as Decode<Sqlite>>::decode(value)?;
-        Ok(Self(value))
     }
 }
 
@@ -265,15 +205,21 @@ impl<'r> Decode<'r, Sqlite> for StateKey {
 /// routing into Timely's stateful operators.
 pub(crate) fn extract_state_pair(key_value_pytuple: TdPyAny) -> (StateKey, TdPyAny) {
     Python::with_gil(|py| {
-        let (key, value): (TdPyAny, TdPyAny) = with_traceback!(py, key_value_pytuple.extract(py)
-            .map_err(|_err| PyTypeError::new_err(format!("Dataflow requires a `(key, value)` 2-tuple as input to every stateful operator; got `{key_value_pytuple:?}` instead"))));
-        let key: StateKey = with_traceback!(
-            py,
-            key.extract(py).map_err(|_err| PyTypeError::new_err(format!(
-                "Stateful operators require string keys in `(key, value)`; got `{key:?}` instead"
-            )))
+        let (key, value): (TdPyAny, TdPyAny) = py_unwrap!(
+            key_value_pytuple.extract(py),
+            format!(
+                "Dataflow requires a `(key, value)` 2-tuple as input to \
+                    every stateful operator; got `{key_value_pytuple:?}` instead"
+            )
         );
-        (key, value)
+        let key: String = py_unwrap!(
+            key.extract(py),
+            format!(
+                "Stateful logic functions must return string keys \
+                    in `(key, value)`; got `{key:?}` instead"
+            )
+        );
+        (StateKey::Hash(key), value)
     })
 }
 
@@ -306,7 +252,7 @@ impl Iterator for TdPyIterator {
     fn next(&mut self) -> Option<Self::Item> {
         Python::with_gil(|py| {
             let mut iter = self.0.as_ref(py);
-            iter.next().map(|r| with_traceback!(py, r).into())
+            iter.next().map(|r| unwrap_any!(r).into())
         })
     }
 }
@@ -331,7 +277,7 @@ impl TdPyCoroIterator {
         Python::with_gil(|py| {
             let mut iter = self.0.as_ref(py);
             match iter.next() {
-                Some(Err(err)) => with_traceback!(py, Err(err)),
+                Some(Err(err)) => unwrap_any!(Err(err)),
                 Some(Ok(item)) if item.is_none() => Poll::Pending,
                 Some(Ok(item)) => Poll::Ready(Some(item.into())),
                 None => Poll::Ready(None),
@@ -382,6 +328,10 @@ impl TdPyCallable {
     #[allow(dead_code)]
     pub(crate) fn pickle_new(py: Python) -> Self {
         Self(py.eval("print", None, None).unwrap().into())
+    }
+
+    pub(crate) fn clone_ref(&self, py: Python) -> Self {
+        Self(self.0.clone_ref(py))
     }
 
     pub(crate) fn call1(&self, py: Python, args: impl IntoPy<Py<PyTuple>>) -> PyResult<Py<PyAny>> {

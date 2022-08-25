@@ -13,12 +13,15 @@
 //! This system follows our standard pattern of having parallel Python
 //! config objects and Rust impl structs for each trait of behavior we
 //! want. E.g. [`StdOutputConfig`] represents a token in Python for
-//! how to create a [`StdOutputWriter`].
+//! how to create a [`StdOutput`].
+
+use std::ffi::CString;
 
 use crate::{
-    pyo3_extensions::{TdPyAny, TdPyCallable},
-    with_traceback,
+    unwrap_any,
+    pyo3_extensions::{TdPyAny, TdPyCallable}, StringResult,
 };
+use pyo3::ffi::PySys_WriteStdout;
 use pyo3::{exceptions::PyValueError, prelude::*};
 
 /// Base class for an output config.
@@ -67,17 +70,17 @@ impl OutputConfig {
 ///
 /// Args:
 ///
-///     output_builder: `output_builder(worker_index: int,
-///         worker_count: int) => output_handler(item: Any)` Builder
-///         function which returns a handler function for each worker
-///         thread, called with `item` whenever an item passes by this
-///         capture operator on this worker.
+///   output_builder: `output_builder(worker_index: int,
+///       worker_count: int) => output_handler(item: Any)` Builder
+///       function which returns a handler function for each worker
+///       thread, called with `item` whenever an item passes by this
+///       capture operator on this worker.
 ///
 /// Returns:
 ///
-///     Config object. Pass this to the
-///     `bytewax.dataflow.Dataflow.capture` operator.
-#[pyclass(module = "bytewax.outputs", extends = OutputConfig)]
+///   Config object. Pass this to the
+///   `bytewax.dataflow.Dataflow.capture` operator.
+#[pyclass(module = "bytewax.outputs", extends = OutputConfig, subclass)]
 #[pyo3(text_signature = "(output_builder)")]
 pub(crate) struct ManualOutputConfig {
     output_builder: TdPyCallable,
@@ -121,18 +124,18 @@ impl ManualOutputConfig {
 ///
 /// Args:
 ///
-///     output_builder: `output_builder(worker_index: int,
-///         worker_count: int) => output_handler(epoch_item:
-///         Tuple[int, Any])` Builder function which returns a handler
-///         function for each worker thread, called with `(epoch,
-///         item)` whenever an item passes by this capture operator on
-///         this worker.
+///   output_builder: `output_builder(worker_index: int,
+///       worker_count: int) => output_handler(epoch_item:
+///       Tuple[int, Any])` Builder function which returns a handler
+///       function for each worker thread, called with `(epoch,
+///       item)` whenever an item passes by this capture operator on
+///       this worker.
 ///
 /// Returns:
 ///
-///     Config object. Pass this to the
-///     `bytewax.dataflow.Dataflow.capture` operator.
-#[pyclass(module = "bytewax.outputs", extends = OutputConfig)]
+///   Config object. Pass this to the
+///   `bytewax.dataflow.Dataflow.capture` operator.
+#[pyclass(module = "bytewax.outputs", extends = OutputConfig, subclass)]
 #[pyo3(text_signature = "(output_builder)")]
 pub(crate) struct ManualEpochOutputConfig {
     output_builder: TdPyCallable,
@@ -176,8 +179,8 @@ impl ManualEpochOutputConfig {
 ///
 /// Returns:
 ///
-///     Config object. Pass this to the
-///     `bytewax.dataflow.Dataflow.capture` operator.
+///   Config object. Pass this to the
+///   `bytewax.dataflow.Dataflow.capture` operator.
 #[pyclass(module = "bytewax.outputs", extends = OutputConfig)]
 #[pyo3(text_signature = "()")]
 pub(crate) struct StdOutputConfig {}
@@ -218,7 +221,7 @@ pub(crate) fn build_output_writer(
     config: Py<OutputConfig>,
     worker_index: usize,
     worker_count: usize,
-) -> Result<Box<dyn OutputWriter<u64, TdPyAny>>, String> {
+) -> StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
     // See comment in [`crate::recovery::build_recovery_writers`]
     // about releasing the GIL during IO class building.
     let config = config.as_ref(py);
@@ -246,7 +249,7 @@ pub(crate) fn build_output_writer(
     } else if let Ok(config) = config.downcast::<PyCell<StdOutputConfig>>() {
         let _config = config.borrow();
 
-        let writer = py.allow_threads(|| StdOutput::new());
+        let writer = py.allow_threads(StdOutput::new);
 
         Ok(Box::new(writer))
     } else {
@@ -278,7 +281,7 @@ impl ManualOutput {
 
 impl OutputWriter<u64, TdPyAny> for ManualOutput {
     fn push(&mut self, _epoch: u64, item: TdPyAny) {
-        Python::with_gil(|py| with_traceback!(py, self.pyfunc.call1(py, (item,))));
+        Python::with_gil(|py| unwrap_any!(self.pyfunc.call1(py, (item,))));
     }
 }
 
@@ -308,7 +311,7 @@ impl OutputWriter<u64, TdPyAny> for ManualEpochOutput {
     fn push(&mut self, epoch: u64, item: TdPyAny) {
         Python::with_gil(|py| {
             let epoch_item_pytuple: Py<PyAny> = (epoch, item).into_py(py);
-            with_traceback!(py, self.pyfunc.call1(py, (epoch_item_pytuple,)))
+            unwrap_any!(self.pyfunc.call1(py, (epoch_item_pytuple,)))
         });
     }
 }
@@ -331,7 +334,11 @@ impl OutputWriter<u64, TdPyAny> for StdOutput {
                 .expect("Items written to std out need to implement `__str__`")
                 .extract()
                 .unwrap();
-            println!("{item_str}");
+            let output = CString::new(format!("{item_str}\n")).unwrap();
+            let stdout_str = output.as_ptr() as *const i8;
+            unsafe {
+                PySys_WriteStdout(stdout_str);
+            }
         });
     }
 }

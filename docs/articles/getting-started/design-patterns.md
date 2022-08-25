@@ -15,192 +15,134 @@ You can also use [lambdas](https://docs.python.org/3/tutorial/controlflow.html#l
 
 The following sets of examples are equivalent.
 
-For flat map:
+```python
+from bytewax.dataflow import Dataflow
+from bytewax.execution import run_main
+from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import StdOutputConfig
+from bytewax.window import SystemClockConfig, TumblingWindowConfig
+from datetime import timedelta, datetime
+
+# For all examples below
+def input_builder(worker_index, worker_count, resume_from):
+    resume_from = None # Ignore recovery logic
+    for e in data:
+        yield resume_from, e
+```
+
+### For flat map:
 
 ```python
-from bytewax import Dataflow, run
-
-
 def split_sentence(sentence):
     return sentence.split()
 
-
+data = ["hello world"]
 flow = Dataflow()
+flow.input("inp", ManualInputConfig(input_builder))
+
+# Operate on input
 flow.flat_map(split_sentence)
-flow.capture()
 
-
-inp = [(0, "hello world")]
-print(run(flow, inp))
+flow.capture(StdOutputConfig())
+run_main(flow)
 ```
 
 ```{testoutput}
-[(0, 'hello'), (0, 'world')]
-```
+hello
+world
+````
 
 ```python
+data = ["hello world"]
 flow = Dataflow()
+flow.input("inp", ManualInputConfig(input_builder))
+
+# Operate on input
 flow.flat_map(lambda s: s.split())
-flow.capture()
 
-
-inp = [(0, "hello world")]
-print(run(flow, inp))
+flow.capture(StdOutputConfig())
+run_main(flow)
 ```
 
 ```{testoutput}
-[(0, 'hello'), (0, 'world')]
+hello
+world
 ```
 
 ```python
+data = ["hello world"]
 flow = Dataflow()
+flow.input("inp", ManualInputConfig(input_builder))
+
+# Operate on input
 flow.flat_map(str.split)
-flow.capture()
 
-
-inp = [(0, "hello world")]
-print(run(flow, inp))
+flow.capture(StdOutputConfig())
+run_main(flow)
 ```
 
 ```{testoutput}
-[(0, 'hello'), (0, 'world')]
+hello
+world
 ```
 
-For inspect epoch:
-
-```python
-def log(epoch, item):
-    print(epoch, item)
-
-
-flow = Dataflow()
-flow.inspect_epoch(log)
-flow.capture()
-
-
-inp = [(0, "a"), (1, "b")]
-run(flow, inp)  # Note no print here.
-```
-
-```{testoutput}
-0 a
-1 b
-```
-
-```python
-flow = Dataflow()
-flow.inspect_epoch(lambda e, i: print(e, i))
-flow.capture()
-
-
-inp = [(0, "a"), (1, "b")]
-run(flow, inp)
-```
-
-```{testoutput}
-0 a
-1 b
-```
-
-```python
-flow = Dataflow()
-flow.inspect_epoch(print)
-flow.capture()
-
-
-inp = [(0, "a"), (1, "b")]
-run(flow, inp)
-```
-
-```{testoutput}
-0 a
-1 b
-```
-
-For reduce epoch:
+### For reduce window:
 
 ```python
 def add_to_list(l, items):
     l.extend(items)
     return l
 
+clock = SystemClockConfig()
+window = TumblingWindowConfig(length=timedelta(seconds=5))
 
+data = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
-flow.reduce_epoch(add_to_list)
-flow.capture()
+flow.input("inp", ManualInputConfig(input_builder))
 
+# Operate on input
+flow.reduce_window("reduce", clock, window, add_to_list)
+flow.capture(StdOutputConfig())
 
-inp = [(0, ("a", ["x"])), (0, ("a", ["y"]))]
-print(run(flow, inp))
+run_main(flow)
 ```
 
 ```{testoutput}
-[(0, ('a', ['x', 'y']))]
+('a', ['x', 'y'])
 ```
 
 ```python
+data = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
-flow.reduce_epoch(lambda l1, l2: l1 + l2)
-flow.capture()
+flow.input("inp", ManualInputConfig(input_builder))
 
+# Operate on input
+flow.reduce_window("reduce", clock, window, lambda l1, l2: l1 + l2)
+flow.capture(StdOutputConfig())
 
-inp = [(0, ("a", ["x"])), (0, ("a", ["y"]))]
-print(run(flow, inp))
+run_main(flow)
 ```
 
 ```{testoutput}
-[(0, ('a', ['x', 'y']))]
+('a', ['x', 'y'])
 ```
 
 ```python
 import operator
 
-
+data = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
-flow.reduce_epoch(operator.add)
-flow.capture()
+flow.input("inp", ManualInputConfig(input_builder))
 
+# Operate on input
+flow.reduce_window("reduce", clock, window, operator.add)
+flow.capture(StdOutputConfig())
 
-inp = [(0, ("a", ["x"])), (0, ("a", ["y"]))]
-print(run(flow, inp))
+run_main(flow)
 ```
 
 ```{testoutput}
-[(0, ('a', ['x', 'y']))]
-```
-
-For filter:
-
-```python
-def is_odd(item):
-    return item % 2 == 1
-
-
-flow = Dataflow()
-flow.filter(is_odd)
-flow.capture()
-
-
-inp = [(0, 5), (0, 9), (0, 2)]
-print(run(flow, inp))
-```
-
-```{testoutput}
-[(0, 5), (0, 9)]
-```
-
-```python
-flow = Dataflow()
-flow.filter(lambda x: x % 2 == 1)
-flow.capture()
-
-
-inp = [(0, 5), (0, 9), (0, 2)]
-print(run(flow, inp))
-```
-
-```{testoutput}
-[(0, 5), (0, 9)]
+('a', ['x', 'y'])
 ```
 
 ## Subflows
@@ -214,28 +156,29 @@ def user_reducer(all_events, new_events):
     return all_events + new_events
 
 
-def collect_user_events(flow):
+def collect_user_events(flow, clock, window):
     # event
-    flow.map(lambda e: (e["user_id"], [e]))
-    # (user_id, event)
-    flow.reduce_epoch(user_reducer)
+    flow.map(lambda e: (e["user_id"], [e["type"]]))
+    # (user_id, [event])
+    flow.reduce_window("reducer", clock, window, user_reducer)
     # (user_id, events_for_user)
-    flow.map(lambda u_es: u_es[1])
-    # events_for_user
+    flow.map(lambda e: {"user_id": e[0], "all_events": e[1]})
 
 
+clock = SystemClockConfig()
+window = TumblingWindowConfig(length=timedelta(seconds=5))
+
+data = [{"user_id": "1", "type": "login"}, {"user_id": "1", "type": "logout"}]
 flow = Dataflow()
-collect_user_events(flow)
-flow.capture()
+flow.input("inp", ManualInputConfig(input_builder))
 
+# Operate on input
+collect_user_events(flow, clock, window)
+flow.capture(StdOutputConfig())
 
-inp = [
-    (0, {"user_id": "1", "type": "login"}),
-    (0, {"user_id": "1", "type": "logout"}),
-]
-print(run(flow, inp))
+run_main(flow)
 ```
 
 ```{testoutput}
-[(0, [{'user_id': '1', 'type': 'login'}, {'user_id': '1', 'type': 'logout'}])]
+{'user_id': '1', 'all_events': ['login', 'logout']}
 ```

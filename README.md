@@ -44,17 +44,23 @@ pip install bytewax
 Here is an example of a simple dataflow program using Bytewax:
 
 ```python
-from bytewax import Dataflow, run
+from bytewax.dataflow import Dataflow
+from bytewax.execution import run_main
+from bytewax.inputs import ManualInputConfig
+from bytewax.outputs import StdOutputConfig
 
+def input_builder(worker_index, worker_count, resume_from):
+    resume_from = None # Ignore recovery logic
+    for e in range(10):
+        yield resume_from, e
 
 flow = Dataflow()
+flow.input("input", ManualInputConfig(input_builder))
 flow.map(lambda x: x * x)
-flow.capture()
-
+flow.capture(StdOutputConfig())
 
 if __name__ == "__main__":
-    for epoch, x in sorted(run(flow, enumerate(range(10)))):
-        print(x)
+    run_main(flow)
 ```
 
 Running the program prints the following output:

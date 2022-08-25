@@ -15,21 +15,24 @@ from bytewax.recovery import SqliteRecoveryConfig
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
-def input_builder(worker_index, worker_count):
-    pool = urllib3.PoolManager()
-    resp = pool.request(
-        "GET",
-        "https://stream.wikimedia.org/v2/stream/recentchange/",
-        preload_content=False,
-        headers={"Accept": "text/event-stream"},
-    )
-    client = sseclient.SSEClient(resp)
+def input_builder(worker_index, worker_count, resume_state):
+    # Multiple SSE connections will duplicate the streams, so only
+    # have the first worker generate input.
+    if worker_index == 0:
+        pool = urllib3.PoolManager()
+        resp = pool.request(
+            "GET",
+            "https://stream.wikimedia.org/v2/stream/recentchange/",
+            preload_content=False,
+            headers={"Accept": "text/event-stream"},
+        )
+        client = sseclient.SSEClient(resp)
 
-    # Since there is no way to replay missed SSE data, we're going to
-    # drop missed data. That's fine as long as we know to interpret
-    # the results with that in mind.
-    for event in client.events():
-        yield event.data
+        # Since there is no way to replay missed SSE data, we're going
+        # to drop missed data. That's fine as long as we know to
+        # interpret the results with that in mind.
+        for event in client.events():
+            yield (None, event.data)
 
 
 def initial_count(data_dict):
@@ -41,7 +44,8 @@ def keep_max(max_count, new_count):
     return new_max, new_max
 
 
-flow = Dataflow(ManualInputConfig(input_builder))
+flow = Dataflow()
+flow.input("inp", ManualInputConfig(input_builder))
 # "event_json"
 flow.map(json.loads)
 # {"server_name": "server.name", ...}
@@ -56,7 +60,7 @@ flow.reduce_window(
 # ("server.name", sum_per_window)
 flow.stateful_map(
     "keep_max",
-    lambda key: 0,
+    lambda: 0,
     keep_max,
 )
 # ("server.name", max_per_window)

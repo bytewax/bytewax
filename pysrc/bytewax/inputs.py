@@ -22,10 +22,8 @@ def TestingInputConfig(it):
     for unit testing.
 
     The iterable must be identical on all workers; this will
-    automatically distribute the items across workers.
-
-    The value `None` in the iterable will be ignored. See
-    `ManualInputConfig` for more info.
+    automatically distribute the items across workers and handle
+    recovery.
 
     Args:
 
@@ -37,7 +35,18 @@ def TestingInputConfig(it):
         constructor.
 
     """
-    return ManualInputConfig(lambda wi, wn: distribute(it, wi, wn))
+
+    def gen(worker_index, worker_count, resume_state):
+        resume_i = resume_state or 0
+        for i, x in enumerate(distribute(it, worker_index, worker_count)):
+            # FFWD to the resume item.
+            if i < resume_i:
+                continue
+            # Store the index in this worker's partition as the resume
+            # state.
+            yield (i + 1, x)
+
+    return ManualInputConfig(gen)
 
 
 def distribute(elements: Iterable[Any], index: int, count: int) -> Iterable[Any]:

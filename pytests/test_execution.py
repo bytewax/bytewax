@@ -42,8 +42,9 @@ def out(entry_point_name, request):
 
 
 def test_run(entry_point, out):
+    flow = Dataflow()
     inp = range(3)
-    flow = Dataflow(TestingInputConfig(inp))
+    flow.input("inp", TestingInputConfig(inp))
     flow.map(lambda x: x + 1)
     flow.capture(TestingOutputConfig(out))
 
@@ -59,8 +60,9 @@ def test_reraises_exception(entry_point, out, entry_point_name):
             " pool.join() to hang; it can be ctrl-c'd though"
         )
 
+    flow = Dataflow()
     inp = range(3)
-    flow = Dataflow(TestingInputConfig(inp))
+    flow.input("inp", TestingInputConfig(inp))
 
     def boom(item):
         if item == 0:
@@ -90,8 +92,9 @@ def test_can_be_ctrl_c(mp_ctx, entry_point):
         out = man.list()
 
         def proc_main():
+            flow = Dataflow()
             inp = range(1000)
-            flow = Dataflow(TestingInputConfig(inp))
+            flow.input("inp", TestingInputConfig(inp))
 
             def mapper(item):
                 is_running.set()
@@ -117,8 +120,9 @@ def test_can_be_ctrl_c(mp_ctx, entry_point):
 
 
 def test_requires_capture(entry_point):
+    flow = Dataflow()
     inp = range(3)
-    flow = Dataflow(TestingInputConfig(inp))
+    flow.input("inp", TestingInputConfig(inp))
 
     with raises(ValueError):
         entry_point(flow)
