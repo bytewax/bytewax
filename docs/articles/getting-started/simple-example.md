@@ -22,13 +22,14 @@ from bytewax.dataflow import Dataflow
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
 from bytewax.execution import run_main
-from bytewax.window import TestingClockConfig, TumblingWindowConfig
+from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
 def input_builder(worker_index, worker_count, resume_state):
-    state = None #ignore recovery
+    # resume_state is used for recovery, we can ignore it for now
+    resume_state = None
     for line in open("wordcount.txt"):
-        yield state, line
+        yield resume_state, line
 
 
 def lower(line):
@@ -46,16 +47,15 @@ def initial_count(word):
 def add(count1, count2):
     return count1 + count2
 
-start_at = datetime(2022, 1, 1)
-cc = TestingClockConfig(item_incr=timedelta(seconds=1), start_at=start_at)
-wc = TumblingWindowConfig(length=timedelta(seconds=5), start_at=start_at)
+clock_config = SystemClockConfig()
+window_config = TumblingWindowConfig(length=timedelta(seconds=5))
 
 flow = Dataflow()
 flow.input("input", ManualInputConfig(input_builder))
 flow.map(lower)
 flow.flat_map(tokenize)
 flow.map(initial_count)
-flow.reduce_window("sum", cc, wc, add)
+flow.reduce_window("sum", clock_config, window_config, add)
 flow.capture(StdOutputConfig())
 
 run_main(flow)
@@ -116,32 +116,37 @@ We'll start with how to get input we'll push through our dataflow.
 
 ```python
 def input_builder(worker_index, worker_count, resume_state):
-    state = None #ignore recovery
+    # resume_state is used for recovery, we can ignore it for now
+    resume_state = None
     for line in open("wordcount.txt"):
-        yield state, line
+        yield resume_state, line
+
+flow = Dataflow()
+flow.input("input", ManualInputConfig(input_builder))
 ```
 
 To receive input, our program needs an **input iterator**. We've defined a [Python generator](https://docs.python.org/3/glossary.html#term-generator) that will read our input file. There are also more advanced ways to provide input, which you can read about later when we talk about [execution modes](/getting-started/execution/).
 
-This generator yields two-tuples of `state` and a line from our file. The `state` in this example is significant, but we'll talk more about it when we discuss [recovery](/getting-started/recovery/).
+This generator yields two-tuples of `resume_state` and a line from our file. The `resume_state` in this example is significant, but we'll talk more about it when we discuss [recovery](/getting-started/recovery/).
 
-Let's define the steps that we want to execute for each line of input that we receive. We will add these steps to a **dataflow object**, `bytewax.Dataflow()`.
+We then initialize a `ManualInputConfig` with the `input_builder` function.
+Now we can introduce our first operator, [input](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.input), that will generate the data for the flow.
+
+Let's define the steps that we want to execute for each line of input that we receive. We will add these steps to a **dataflow object**, `bytewax.dataflow.Dataflow()`.
 
 ### Lowercase all characters in the line
 
-If you look closely at our input, we have instances of both `To` and `to`. Let's add a step to our dataflow that transforms each line into lowercase letters. At the same time, we'll introduce our first operator, [map](/apidocs#bytewax.Dataflow.map).
+If you look closely at our input, we have instances of both `To` and `to`. Let's add a step to our dataflow that transforms each line into lowercase letters. At the same time, we'll introduce the [map](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.map) operator.
 
 ```python
 def lower(line):
     return line.lower()
 
 
-flow = Dataflow()
-flow.input("input", ManualInputConfig(input_builder))
 flow.map(lower)
 ```
 
-For each item that our generator produces, the map operator will use the [built-in string function `lower()`](https://docs.python.org/3.8/library/stdtypes.html#str.lower) to emit downstream a copy of the string with all characters converted to lowercase.
+For each item that our generator produces, the map operator will use the [built-in string function `lower()`](https://docs.python.org/3/library/stdtypes.html#str.lower) to emit downstream a copy of the string with all characters converted to lowercase.
 
 ### Split the line into words
 
@@ -167,7 +172,7 @@ results in:
 ['To', 'be', 'or', 'not', 'to', 'be', 'that', 'is', 'the', 'question']
 ```
 
-To make use of `tokenize` function, we'll use the [flat map operator](/apidocs#bytewax.Dataflow.flat_map):
+To make use of `tokenize` function, we'll use the [flat map operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.flat_map):
 
 ```python
 flow.flat_map(tokenize)
@@ -179,7 +184,7 @@ The flat map operator defines a step which calls a function on each input item. 
 
 At this point in the dataflow, the items of data are the individual words.
 
-Let's skip ahead to the second operator here, [reduce window](/apidocs#bytewax.Dataflow.reduce_window).
+Let's skip ahead to the second operator here, [reduce window](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce_window).
 
 ```python
 def initial_count(word):
@@ -188,12 +193,13 @@ def initial_count(word):
     
 def add(count1, count2):
     return count1 + count2
+
+# Configuration for time based windows.
+clock_config = SystemClockConfig()
+window_config = TumblingWindowConfig(length=timedelta(seconds=5))
     
 flow.map(initial_count)
-start_at = datetime(2022, 1, 1)
-cc = TestingClockConfig(item_incr=timedelta(seconds=1), start_at=start_at)
-wc = TumblingWindowConfig(length=timedelta(seconds=5), start_at=start_at)
-flow.reduce_window("sum", cc, wc, add)
+flow.reduce_window("sum", clock_config, window_config, add)
 ```
 
 Its super power is that it can repeatedly combine together items into a single, aggregate value via a reducing function. Think about it like reducing a sauce while cooking: you are boiling all of the values down to something more concentrated.
@@ -206,6 +212,11 @@ That explains the previous map step in the dataflow with `initial_count()`.
 
 This map sets up the shape that reduce_window needs: two-tuples where the key is the word, and the value is something we can add together. In this case, since we have a copy of a word for each instance, it represents that we should add `1` to the total count, so label that here.
 
+How does reduce_window know **when** to emit combined items? That is what `clock_config` and `window_config` are for.
+[SystemClockConfig](/apidocs/bytewax.window#bytewax.window.SystemClockConfig) is used to synchronize the flow's clock to the system one.
+[TumblingWindowConfig](/apidocs/bytewax.window#bytewax.window.TumblingWindowConfig) instructs the flow to close windows every `length` period, 5 seconds in our case.
+
+
 ### Print out the counts
 
 The last part of our dataflow program will use the [capture operator](/apidocs#bytewax.Dataflow.capture) to mark the output of our reduction as the dataflow's final output.
@@ -214,11 +225,11 @@ The last part of our dataflow program will use the [capture operator](/apidocs#b
 flow.capture(StdOutputConfig())
 ```
 
-This means that whatever items are flowing through this point in the dataflow will be passed on as output. Output is routed in different ways depending on how the dataflow is run.
+This means that whatever items are flowing through this point in the dataflow will be passed on as output. We use [StdOutputConfig](/apidocs/bytewax.outputs#bytewax.outputs.StdOutputConfig) to route our output to the system's standard output.
 
 ### Running
 
-To run the example, we'll need to introduce one more function, `bytewax.run_main()`:
+To run the example, we'll need to introduce one more function, `bytewax.execution.run_main()`:
 
 ```python doctest:SORT_OUTPUT doctest:SORT_EXPECTED
 run_main(flow)

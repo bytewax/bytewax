@@ -10,7 +10,7 @@ See our API docs or docstrings for a detailed description of arguments to these 
 
 ## Single Worker Run
 
-The simplest entry point is `bytewax.run_main()`. It will run your dataflow on a single worker in the current process. It has a simple iterator-based API takes an **input iterator** of `(state, item)` tuples and collects all output into a list of `(state, item)` tuples and returns it.
+The simplest entry point is `bytewax.execution.run_main()`. It will run your dataflow on a single worker in the current process.
 
 `run_main()` blocks until all output has been collected.
 
@@ -44,25 +44,13 @@ run_main(flow)
 
 `run_main()` is best used for testing dataflows or doing prototyping in notebooks.
 
-Because it only uses a single worker, do not expect any speedup due to parallelism. `run_main()` collects all output into a list internally first, thus it will not support infinite, larger than memory datasets.
+Because it only uses a single worker, do not expect any speedup due to parallelism.
 
 ## Multiple Worker Spawn Cluster
 
-Our next entry point introduces a more complex API to allow for more performance. `bytewax.spawn_cluster()` will spawn a number of background processes and threads on the local machine to run your dataflow. Input and output are individual to each worker, so there is no need to pass all input and output through the calling process. `spawn_cluster()` will block until the dataflow is complete.
-
-### Input Configuration
-
-You can manually configure your dataflow's input with an input builder and a `ManualInputConfig` or use a Kafka stream with `KafkaInputConfig`. You'll configure these with the `Dataflow.input` operator.
-
-For a manual input source, you'll define an input **builder**, a function that is called on each worker and will produce the input for that worker. This input builder accepts three parameters: `worker_index, worker_count, resume_state`. The input builder function should return an iterable that yields a tuple of `(state, event)` and will be the `input_builder` parameter on the `ManualInputConfig` passed to the dataflow. The input builder must know how to skip ahead in its input data to start at that `resume_state`. The `resume_state` parameter allows you to configure recovery should a failure interrupt a stateful operation, such as `stateful_map`.
-
-A `KafkaInputConfig` accepts four parameters: a list of brokers, a topic, a tail boolean and a starting_offset. See our API docs for `bytewax.inputs` for more on a Kafka configuration.
+Our next entry point introduces a more complex API to allow for more performance. `bytewax.execution.spawn_cluster()` will spawn a number of background processes and threads on the local machine to run your dataflow. Input and output are individual to each worker. `spawn_cluster()` will block until the dataflow is complete.
 
 The per-worker input of `spawn_cluster()` has the extra requirement that the input data is not duplicated between workers. All data from each worker is introduced into the same dataflow. For example, if each worker reads the content of the same file, the input will be duplicated by the number of workers. Data sources like Apache Kafka or Redpanda can provide a partitioned stream of input which can be consumed by multiple workers in parallel without duplication, as each worker sees a unique partition.
-
-### Output
-
-Output is configured similarly to input, using a configuration and the `capture` operator. Akin to the `ManualInputConfig`, the `ManualOutputConfig` requires **builder** function that is called on each worker and will handle the output for that worker. However, the output builder function should return a callback **output handler** function that can be called with each item of output produced.
 
 `spawn_cluster()` blocks until all output has been collected.
 
@@ -74,8 +62,8 @@ from bytewax.outputs import ManualOutputConfig
 from bytewax.testing import doctest_ctx
 
 def input_builder(worker_index, worker_count, resume_state):
-    resume_state = 0 # Ignore recovery for the moment
-    for state, item in enumerate(range(resume_state, 3)):
+    state = 0  # Ignore recovery
+    for state, item in enumerate(range(state, 3)):
         yield(state, {"Worker": worker_index, "Item": item})
 
 def incr(item):
@@ -116,15 +104,39 @@ Note how we have "duplicate" data because every worker runs the same input code.
 
 This is best used when you have an input source that can be partitioned without coordination, like a Kafka topic or partitioned Parquet files or logs from individual servers, and need higher throughput as all steps (including input and output) are run in parallel.
 
+You can however partition the input in this example using the information passed to the input_builder: 
+
+```python doctest:SORT_OUTPUT
+def input_builder(worker_index, worker_count, resume_state):
+    # Ignore recovery for the moment
+    state = 0
+    for state, item in enumerate(range(state, 3)):
+        # Partition the input across workers
+        if (item % worker_count == worker_index):
+            yield(state, {"Worker": worker_index, "Item": item})
+
+flow = Dataflow()
+flow.input("inp", ManualInputConfig(input_builder))
+flow.map(incr)
+flow.capture(ManualOutputConfig(output_builder))
+spawn_cluster(
+    flow,
+    proc_count=2,
+    worker_count_per_proc=2,
+    mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
+)
+```
+
+```{testoutput}
+{'Worker': 0, 'Item': 1}
+{'Worker': 1, 'Item': 2}
+{'Worker': 2, 'Item': 3}
+```
 ## Multiple Workers Cluster Main
 
-The final entry point, `bytewax.cluster_main()` is the most flexible. It allows you to start up a single process within a cluster of processes that you are manually coordinating. The input and output API also use operators and associated [builders](#builders), but you have to pass in the network addresses of the other processes you have started up yourself and assign them each a unique ID.
+The final entry point, `bytewax.execution.cluster_main()` is the most flexible. It allows you to start up a single process within a cluster of processes that you are manually coordinating. The input and output API also use operators and associated [builders](#builders), but you have to pass in the network addresses of the other processes you have started up yourself and assign them each a unique ID.
 
 `cluster_main()` takes in a list of hostname and port of all workers (including itself). Each worker must be given a unique process ID.
-
-As in `spawn_cluster()`, the input builder function passed to a manual input configuration should return an iterable that yields `(state, item)` tuples. If you are using a `KafkaInputConfig`, state recovery will be managed for you.
-
-For a `ManualOutputConfig` passed to `capture`, the output builder function should return a callback function that can be called with each item of output produced.
 
 `cluster_main()` blocks until the dataflow is complete.
 
@@ -136,8 +148,8 @@ from bytewax.outputs import TestingOutputConfig, ManualOutputConfig
 from bytewax.testing import doctest_ctx
 
 def input_builder(worker_index, worker_count, resume_state):
-    resume_state = 0 # Ignore recovery for the moment
-    for state, item in enumerate(range(resume_state, 3)):
+    state = 0  # Ignore recovery for now
+    for state, item in enumerate(range(state, 3)):
         yield(state, {"Worker": worker_index, "Item": item})
 
 def incr(item):

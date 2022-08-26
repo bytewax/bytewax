@@ -16,12 +16,12 @@
         "filename": "simple-example"
       },
       {
-        "title": "Understanding epochs",
-        "filename": "epochs"
-      },
-      {
         "title": "Execution",
         "filename": "execution"
+      },
+      {
+        "title": "Inputs and Outputs",
+        "filename": "ins_and_outs"
       },
       {
         "title": "Operators",
