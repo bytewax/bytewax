@@ -104,7 +104,7 @@ Note how we have "duplicate" data because every worker runs the same input code.
 
 This is best used when you have an input source that can be partitioned without coordination, like a Kafka topic or partitioned Parquet files or logs from individual servers, and need higher throughput as all steps (including input and output) are run in parallel.
 
-In the case that your inputs are not partitioned without coordination, you could partition the input in this example using the information passed to the input_builder: 
+In the case that your inputs are not partitioned, you can partition the input in this example using the information passed to the input_builder: 
 
 ```python doctest:SORT_OUTPUT
 def input_builder(worker_index, worker_count, resume_state):
