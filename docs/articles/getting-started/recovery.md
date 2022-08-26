@@ -29,7 +29,7 @@ requirements:
 Your dataflow needs a few features to enable recovery on Bytewax:
 
 1. You must design your [input
-   builder](/getting-started/execution#builders) to be able to resume
+   builder](/getting-started/ins_and_outs) to be able to resume
    and replay all data from the `resume_state` onwards. Do not
    ignore this argument!
 

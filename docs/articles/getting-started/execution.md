@@ -134,7 +134,7 @@ spawn_cluster(
 ```
 ## Multiple Workers Cluster Main
 
-The final entry point, `bytewax.execution.cluster_main()` is the most flexible. It allows you to start up a single process within a cluster of processes that you are manually coordinating. The input and output API also use operators and associated [builders](#builders), but you have to pass in the network addresses of the other processes you have started up yourself and assign them each a unique ID.
+The final entry point, `bytewax.execution.cluster_main()` is the most flexible. It allows you to start up a single process within a cluster of processes that you are manually coordinating, but you have to pass in the network addresses of the other processes you have started up yourself and assign them each a unique ID.
 
 `cluster_main()` takes in a list of hostname and port of all workers (including itself). Each worker must be given a unique process ID.
 

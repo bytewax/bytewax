@@ -120,15 +120,14 @@ to:
 
 ```python doctest:SKIP
 def input_builder(worker_index, worker_count, resume_state):
-    # resume_state can be used to handle recovery, we ignore it here
-    state = None
+    state = None # ignore recovery
     for line in open("wordcount.txt"):
         yield state, line
 ```
 
-So instead of manually yielding the `epoch` in the input function, we can either ignore it (passing `None` as state), or handle the value to implement recovery (see the `recovery` chapter).
+So instead of manually yielding the `epoch` in the input function, we can either ignore it (passing `None` as state), or handle the value to implement recovery (see the [recovery chapter](/getting-started/recovery)).
 
-Then we need to wrap the `input_builder` with our `ManualInputConfig`, give it a name ("file_input" here) and pass it to the `input` operator (rather than the `run` function):
+Then we need to wrap the `input_builder` with `ManualInputConfig`, give it a name ("file_input" here) and pass it to the `input` operator (rather than the `run` function):
 
 ```python doctest:SKIP
 from bytewax.inputs import ManualInputConfig
@@ -140,7 +139,7 @@ flow.input("file_input", ManualInputConfig(input_builder))
 ### Operators
 
 Most of the operators are the same, but there is a notable change in the flow: where we used `reduce_epoch` we are now using `reduce_window`.
-Since the epochs concept is now considered an internal feature in bytewax, we need to define a way to let the `reduce` operator know when to close a specific window.
+Since the epochs concept is now considered an internal detail in bytewax, we need to define a way to let the `reduce` operator know when to close a specific window.
 Previously this was done everytime the `epoch` changed, while now it can be configured with a time window.
 We need two config objects to do this:
 - `clock_config`
@@ -209,10 +208,9 @@ from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
 def input_builder(worker_index, worker_count, resume_state):
-    # resume_state is used for recovery, we can ignore it for now
-    resume_state = None
+    state = None # ignore recovery
     for line in open("wordcount.txt"):
-        yield resume_state, line
+        yield state, line
 
 
 def lower(line):
