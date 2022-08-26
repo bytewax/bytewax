@@ -29,10 +29,10 @@
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
 
-use crate::StringResult;
 use crate::recovery::{EpochData, StateBytes, StateKey};
 use crate::recovery::{StateUpdate, StepId};
 use crate::recovery::{StatefulLogic, StatefulUnary};
+use crate::StringResult;
 use chrono::{Duration, NaiveDateTime};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -44,6 +44,14 @@ use std::rc::Rc;
 use std::task::Poll;
 use timely::dataflow::{Scope, Stream};
 use timely::{Data, ExchangeData};
+
+pub(crate) mod testing_clock;
+pub(crate) mod system_clock;
+pub(crate) mod tumbling_window;
+
+use self::system_clock::{SystemClock, SystemClockConfig};
+use self::testing_clock::{TestingClock, TestingClockConfig};
+use self::tumbling_window::{TumblingWindowConfig, TumblingWindower};
 
 /// Base class for a clock config.
 ///
@@ -83,121 +91,6 @@ impl ClockConfig {
         } else {
             Err(PyValueError::new_err(format!(
                 "bad pickle contents for ClockConfig: {state:?}"
-            )))
-        }
-    }
-}
-
-/// Use to simulate system time in tests. Increment "now" after each
-/// item.
-///
-/// If the dataflow has no more input, all windows are closed.
-///
-/// The watermark uses the most recent "now".
-///
-/// Args:
-///
-///   item_incr (datetime.timedelta): Amount to increment "now"
-///       after each item.
-///
-///   start_at (datetime.datetime): Initial "now" / time of first
-///       item. If you set this and use a window config
-///
-/// Returns:
-///
-///   Config object. Pass this as the `clock_config` parameter to
-///   your windowing operator.
-#[pyclass(module="bytewax.window", extends=ClockConfig)]
-#[pyo3(text_signature = "(item_incr)")]
-struct TestingClockConfig {
-    #[pyo3(get)]
-    item_incr: pyo3_chrono::Duration,
-    #[pyo3(get)]
-    start_at: pyo3_chrono::NaiveDateTime,
-}
-
-#[pymethods]
-impl TestingClockConfig {
-    /// Tell pytest to ignore this class, even though it starts with
-    /// the name "Test".
-    #[allow(non_upper_case_globals)]
-    #[classattr]
-    const __test__: bool = false;
-
-    #[new]
-    #[args(item_incr, start_at)]
-    fn new(
-        item_incr: pyo3_chrono::Duration,
-        start_at: pyo3_chrono::NaiveDateTime,
-    ) -> (Self, ClockConfig) {
-        (
-            Self {
-                item_incr,
-                start_at,
-            },
-            ClockConfig {},
-        )
-    }
-
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, pyo3_chrono::Duration, pyo3_chrono::NaiveDateTime) {
-        ("TestingClockConfig", self.item_incr, self.start_at)
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (pyo3_chrono::Duration, pyo3_chrono::NaiveDateTime) {
-        (
-            pyo3_chrono::Duration(Duration::zero()),
-            pyo3_chrono::NaiveDateTime(chrono::naive::MAX_DATETIME),
-        )
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("TestingClockConfig", item_incr, start_at)) = state.extract() {
-            self.item_incr = item_incr;
-            self.start_at = start_at;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for TestingClockConfig: {state:?}"
-            )))
-        }
-    }
-}
-
-/// Use the system time inside the windowing operator to determine
-/// times.
-///
-/// If the dataflow has no more input, all windows are closed.
-///
-/// Returns:
-///
-///   Config object. Pass this as the `clock_config` parameter to
-///   your windowing operator.
-#[pyclass(module="bytewax.window", extends=ClockConfig)]
-struct SystemClockConfig {}
-
-#[pymethods]
-impl SystemClockConfig {
-    #[new]
-    #[args()]
-    fn new() -> (Self, ClockConfig) {
-        (Self {}, ClockConfig {})
-    }
-
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("SystemClockConfig",)
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("SystemClockConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for SystemClockConfig: {state:?}"
             )))
         }
     }
@@ -272,69 +165,6 @@ impl WindowConfig {
     }
 }
 
-/// Tumbling windows of fixed duration.
-///
-/// Args:
-///
-///   length (datetime.timedelta): Length of window.
-///
-///   start_at (datetime.datetime): Instant of the first window. You
-///       can use this to align all windows to an hour,
-///       e.g. Defaults to system time of dataflow start.
-///
-/// Returns:
-///
-///   Config object. Pass this as the `window_config` parameter to
-///   your windowing operator.
-#[pyclass(module="bytewax.window", extends=WindowConfig)]
-struct TumblingWindowConfig {
-    #[pyo3(get)]
-    length: pyo3_chrono::Duration,
-    #[pyo3(get)]
-    start_at: Option<pyo3_chrono::NaiveDateTime>,
-}
-
-#[pymethods]
-impl TumblingWindowConfig {
-    #[new]
-    #[args(length, start_at = "None")]
-    fn new(
-        length: pyo3_chrono::Duration,
-        start_at: Option<pyo3_chrono::NaiveDateTime>,
-    ) -> (Self, WindowConfig) {
-        (Self { length, start_at }, WindowConfig {})
-    }
-
-    /// Pickle as a tuple.
-    fn __getstate__(
-        &self,
-    ) -> (
-        &str,
-        pyo3_chrono::Duration,
-        Option<pyo3_chrono::NaiveDateTime>,
-    ) {
-        ("TumblingWindowConfig", self.length, self.start_at)
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (pyo3_chrono::Duration, Option<pyo3_chrono::NaiveDateTime>) {
-        (pyo3_chrono::Duration(Duration::zero()), None)
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("TumblingWindowConfig", length, start_at)) = state.extract() {
-            self.length = length;
-            self.start_at = start_at;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for TumblingWindowConfig: {state:?}"
-            )))
-        }
-    }
-}
-
 pub(crate) fn build_windower_builder(
     py: Python,
     window_config: Py<WindowConfig>,
@@ -391,110 +221,6 @@ pub(crate) trait Clock<V> {
     fn snapshot(&self) -> StateBytes;
 }
 
-/// Simulate system time for tests. Increment "now" after each item.
-struct TestingClock {
-    item_incr: Duration,
-    current_time: NaiveDateTime,
-}
-
-impl TestingClock {
-    fn builder<V>(
-        item_incr: Duration,
-        start_at: NaiveDateTime,
-    ) -> impl Fn(Option<StateBytes>) -> Box<dyn Clock<V>> {
-        move |resume_state_bytes: Option<StateBytes>| {
-            let current_time = resume_state_bytes.map(StateBytes::de).unwrap_or(start_at);
-
-            Box::new(Self {
-                item_incr,
-                current_time,
-            })
-        }
-    }
-}
-
-impl<V> Clock<V> for TestingClock {
-    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> NaiveDateTime {
-        match next_value {
-            // If there will be no more values, close out all windows.
-            Poll::Ready(None) => chrono::naive::MAX_DATETIME,
-            _ => self.current_time,
-        }
-    }
-
-    fn time_for(&mut self, _item: &V) -> NaiveDateTime {
-        let item_time = self.current_time;
-        self.current_time += self.item_incr;
-        item_time
-    }
-
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser(&self.current_time)
-    }
-}
-
-#[test]
-fn test_testing_clock() {
-    use chrono::{NaiveDate, NaiveTime};
-
-    let mut clock = TestingClock {
-        item_incr: Duration::seconds(1),
-        current_time: NaiveDateTime::new(
-            NaiveDate::from_ymd(2022, 1, 1),
-            NaiveTime::from_hms_milli(0, 0, 0, 0),
-        ),
-    };
-    assert_eq!(
-        clock.time_for(&"x"),
-        NaiveDateTime::new(
-            NaiveDate::from_ymd(2022, 1, 1),
-            NaiveTime::from_hms_milli(0, 0, 0, 0)
-        )
-    );
-    assert_eq!(
-        clock.time_for(&"y"),
-        NaiveDateTime::new(
-            NaiveDate::from_ymd(2022, 1, 1),
-            NaiveTime::from_hms_milli(0, 0, 1, 0)
-        )
-    );
-    assert_eq!(
-        clock.time_for(&"z"),
-        NaiveDateTime::new(
-            NaiveDate::from_ymd(2022, 1, 1),
-            NaiveTime::from_hms_milli(0, 0, 2, 0)
-        )
-    );
-}
-
-/// Use the current system time.
-struct SystemClock {}
-
-impl SystemClock {
-    fn builder<V>() -> impl Fn(Option<StateBytes>) -> Box<dyn Clock<V>> {
-        move |_resume_state_bytes| Box::new(Self {})
-    }
-}
-
-impl<V> Clock<V> for SystemClock {
-    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> NaiveDateTime {
-        match next_value {
-            // If there will be no more values, close out all windows.
-            Poll::Ready(None) => chrono::naive::MAX_DATETIME,
-            _ => chrono::offset::Local::now().naive_local(),
-        }
-    }
-
-    fn time_for(&mut self, item: &V) -> NaiveDateTime {
-        let next_value = Poll::Ready(Some(item));
-        self.watermark(&next_value)
-    }
-
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser(&())
-    }
-}
-
 /// Unique ID for a window coming from a single [`Windower`] impl.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct WindowKey(i64);
@@ -548,80 +274,6 @@ pub(crate) trait Windower {
     fn snapshot(&self) -> StateBytes;
 }
 
-/// Use fixed-length tumbling windows aligned to a start time.
-struct TumblingWindower {
-    length: Duration,
-    start_at: NaiveDateTime,
-    close_times: HashMap<WindowKey, NaiveDateTime>,
-}
-
-impl TumblingWindower {
-    fn builder(
-        length: Duration,
-        start_at: NaiveDateTime,
-    ) -> impl Fn(Option<StateBytes>) -> Box<dyn Windower> {
-        move |resume_state_bytes| {
-            let close_times = resume_state_bytes.map(StateBytes::de).unwrap_or_default();
-
-            Box::new(Self {
-                length,
-                start_at,
-                close_times,
-            })
-        }
-    }
-}
-
-impl Windower for TumblingWindower {
-    fn insert(
-        &mut self,
-        watermark: &NaiveDateTime,
-        item_time: NaiveDateTime,
-    ) -> Vec<Result<WindowKey, InsertError>> {
-        let since_start_at = item_time - self.start_at;
-        let window_count = since_start_at.num_milliseconds() / self.length.num_milliseconds();
-
-        let key = WindowKey(window_count);
-        let close_at = self.start_at + self.length * (window_count as i32 + 1);
-
-        if &close_at < watermark {
-            vec![Err(InsertError::Late(key))]
-        } else {
-            self.close_times.insert(key, close_at);
-            vec![Ok(key)]
-        }
-    }
-
-    fn drain_closed(&mut self, watermark: &NaiveDateTime) -> Vec<WindowKey> {
-        // TODO: Gosh I really want [`HashMap::drain_filter`].
-        let mut future_close_times = HashMap::new();
-        let mut closed_ids = Vec::new();
-
-        for (id, close_at) in self.close_times.iter() {
-            if close_at < watermark {
-                closed_ids.push(*id);
-            } else {
-                future_close_times.insert(*id, *close_at);
-            }
-        }
-
-        self.close_times = future_close_times;
-        closed_ids
-    }
-
-    fn activate_after(&mut self, watermark: &NaiveDateTime) -> Option<Duration> {
-        let watermark = *watermark;
-        self.close_times
-            .values()
-            .cloned()
-            .map(|t| t - watermark)
-            .min()
-    }
-
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser(&self.close_times)
-    }
-}
 
 /// Possible errors emitted downstream from windowing operators.
 #[derive(Clone, Serialize, Deserialize)]

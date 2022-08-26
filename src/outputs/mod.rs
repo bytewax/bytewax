@@ -18,8 +18,8 @@
 use std::ffi::CString;
 
 use crate::{
-    unwrap_any,
-    pyo3_extensions::{TdPyAny, TdPyCallable}, StringResult,
+    pyo3_extensions::{TdPyAny, TdPyCallable},
+    unwrap_any, StringResult,
 };
 use pyo3::ffi::PySys_WriteStdout;
 use pyo3::{exceptions::PyValueError, prelude::*};

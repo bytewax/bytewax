@@ -29,9 +29,12 @@
 //! for how to create a [`periodic_epoch_source`].
 
 use crate::dataflow::{Dataflow, Step};
-use crate::StringResult;
 use crate::inputs::build_input_reader;
 use crate::inputs::InputReader;
+use crate::operators::fold_window::FoldWindowLogic;
+use crate::operators::reduce::ReduceLogic;
+use crate::operators::reduce_window::ReduceWindowLogic;
+use crate::operators::stateful_map::StatefulMapLogic;
 use crate::operators::*;
 use crate::outputs::build_output_writer;
 use crate::outputs::capture;
@@ -49,26 +52,29 @@ use crate::recovery::{ProgressReader, StateCollector};
 use crate::recovery::{RecoveryConfig, StepId};
 use crate::recovery::{RecoveryStoreSummary, StateWriter};
 use crate::recovery::{StateBytes, StateKey};
-use crate::recovery::{StateReader, StateUpdate};
+use crate::recovery::StateReader;
 use crate::window::{build_clock_builder, build_windower_builder, StatefulWindowUnary};
+use crate::StringResult;
 use log::debug;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use std::fmt::Debug;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::task::Poll;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use timely::communication::Allocate;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::{operators::*, Stream};
 use timely::dataflow::{ProbeHandle, Scope};
 use timely::progress::Timestamp;
 use timely::worker::Worker;
-use timely::Data;
+
+use self::periodic_epoch::{periodic_epoch_source, PeriodicEpochConfig};
+use self::testing_epoch::{testing_epoch_source, TestingEpochConfig};
+
+pub(crate) mod testing_epoch;
+pub(crate) mod periodic_epoch;
 
 /// Base class for an epoch config.
 ///
@@ -114,106 +120,6 @@ impl EpochConfig {
     }
 }
 
-/// Use for deterministic epochs in tests. Increment epoch by 1 after
-/// each item.
-///
-/// _This requires all workers to have exactly the same number of
-/// input items! Otherwise the dataflow will hang!_
-///
-/// You almost assuredly do not want to use this unless you are
-/// writing tests of the recovery system.
-///
-/// Returns:
-///
-///   Config object. Pass this as the `epoch_config` parameter of
-///   your execution entry point.
-#[pyclass(module="bytewax.execution", extends=EpochConfig)]
-#[pyo3(text_signature = "()")]
-struct TestingEpochConfig {}
-
-#[pymethods]
-impl TestingEpochConfig {
-    /// Tell pytest to ignore this class, even though it starts with
-    /// the name "Test".
-    #[allow(non_upper_case_globals)]
-    #[classattr]
-    const __test__: bool = false;
-
-    #[new]
-    #[args()]
-    fn new() -> (Self, EpochConfig) {
-        (Self {}, EpochConfig {})
-    }
-
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("TestingEpochConfig",)
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("TestingEpochConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for TestingEpochConfig: {state:?}"
-            )))
-        }
-    }
-}
-
-/// Increment epochs at regular system time intervals.
-///
-/// This is the default with 10 second epoch intervals if no
-/// `epoch_config` is passed to your execution entry point.
-///
-/// Args:
-///
-///   epoch_length (datetime.timedelta): System time length of each
-///       epoch.
-///
-/// Returns:
-///
-///   Config object. Pass this as the `epoch_config` parameter of
-///   your execution entry point.
-#[pyclass(module="bytewax.window", extends=EpochConfig)]
-#[pyo3(text_signature = "(epoch_length)")]
-struct PeriodicEpochConfig {
-    #[pyo3(get)]
-    epoch_length: pyo3_chrono::Duration,
-}
-
-#[pymethods]
-impl PeriodicEpochConfig {
-    #[new]
-    #[args(epoch_length)]
-    fn new(epoch_length: pyo3_chrono::Duration) -> (Self, EpochConfig) {
-        (Self { epoch_length }, EpochConfig {})
-    }
-
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, pyo3_chrono::Duration) {
-        ("PeriodicEpochConfig", self.epoch_length)
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (pyo3_chrono::Duration,) {
-        (pyo3_chrono::Duration(chrono::Duration::zero()),)
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("PeriodicEpochConfig", epoch_length)) = state.extract() {
-            self.epoch_length = epoch_length;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for PeriodicEpochConfig: {state:?}"
-            )))
-        }
-    }
-}
-
 /// Default to 10 second periodic epochs.
 pub(crate) fn default_epoch_config() -> Py<EpochConfig> {
     Python::with_gil(|py| {
@@ -225,162 +131,6 @@ pub(crate) fn default_epoch_config() -> Py<EpochConfig> {
         .extract()
         .unwrap()
     })
-}
-
-/// Input source that increments the epoch after each item.
-pub(crate) fn testing_epoch_source<S: Scope<Timestamp = u64>, D: Data + Debug>(
-    scope: &S,
-    step_id: StepId,
-    key: StateKey,
-    mut reader: Box<dyn InputReader<D>>,
-    start_at: S::Timestamp,
-    probe: &ProbeHandle<S::Timestamp>,
-) -> (Stream<S, D>, Stream<S, EpochData>) {
-    let mut op_builder = OperatorBuilder::new(format!("{step_id}"), scope.clone());
-
-    let (mut output_wrapper, output_stream) = op_builder.new_output();
-    let (mut state_update_wrapper, state_update_stream) = op_builder.new_output();
-
-    let probe = probe.clone();
-    let info = op_builder.operator_info();
-    let activator = scope.activator_for(&info.address[..]);
-
-    op_builder.build(move |mut init_caps| {
-        let mut state_update_cap = init_caps.pop().map(|cap| cap.delayed(&start_at));
-        let mut output_cap = init_caps.pop().map(|cap| cap.delayed(&start_at));
-
-        let mut eof = false;
-
-        move |_input_frontiers| {
-            if let (Some(output_cap), Some(state_update_cap)) =
-                (output_cap.as_mut(), state_update_cap.as_mut())
-            {
-                assert!(output_cap.time() == state_update_cap.time());
-                let epoch = output_cap.time();
-
-                if !probe.less_than(epoch) {
-                    match reader.next() {
-                        Poll::Pending => {}
-                        Poll::Ready(None) => {
-                            eof = true;
-                        }
-                        Poll::Ready(Some(item)) => {
-                            output_wrapper.activate().session(&output_cap).give(item);
-
-                            // Snapshot just before incrementing epoch
-                            // to get the "end of the epoch" state.
-                            let state_bytes = reader.snapshot();
-                            let update = (
-                                key.clone(),
-                                (step_id.clone(), StateUpdate::Upsert(state_bytes)),
-                            );
-                            state_update_wrapper
-                                .activate()
-                                .session(&state_update_cap)
-                                .give(update);
-
-                            let next_epoch = epoch + 1;
-
-                            output_cap.downgrade(&next_epoch);
-                            state_update_cap.downgrade(&next_epoch);
-                        }
-                    }
-                }
-            }
-
-            if eof {
-                output_cap = None;
-                state_update_cap = None;
-            } else {
-                activator.activate();
-            }
-        }
-    });
-
-    (output_stream, state_update_stream)
-}
-
-/// Input source that increments the epoch periodically by system
-/// time.
-pub(crate) fn periodic_epoch_source<S, D: Data + Debug>(
-    scope: &S,
-    step_id: StepId,
-    key: StateKey,
-    mut reader: Box<dyn InputReader<D>>,
-    start_at: S::Timestamp,
-    probe: &ProbeHandle<S::Timestamp>,
-    epoch_length: Duration,
-) -> (Stream<S, D>, Stream<S, EpochData>)
-where
-    S: Scope<Timestamp = u64>,
-{
-    let mut op_builder = OperatorBuilder::new(format!("{step_id}"), scope.clone());
-
-    let (mut output_wrapper, output_stream) = op_builder.new_output();
-    let (mut state_update_wrapper, state_update_stream) = op_builder.new_output();
-
-    let probe = probe.clone();
-    let info = op_builder.operator_info();
-    let activator = scope.activator_for(&info.address[..]);
-
-    op_builder.build(move |mut init_caps| {
-        let mut state_update_cap = init_caps.pop().map(|cap| cap.delayed(&start_at));
-        let mut output_cap = init_caps.pop().map(|cap| cap.delayed(&start_at));
-
-        let mut eof = false;
-        let mut epoch_started = Instant::now();
-
-        move |_input_frontiers| {
-            if let (Some(output_cap), Some(state_update_cap)) =
-                (output_cap.as_mut(), state_update_cap.as_mut())
-            {
-                assert!(output_cap.time() == state_update_cap.time());
-                let epoch = output_cap.time();
-
-                if !probe.less_than(epoch) {
-                    if epoch_started.elapsed() > epoch_length {
-                        // Snapshot just before incrementing epoch to
-                        // get the "end of the epoch state".
-                        let state_bytes = reader.snapshot();
-                        let update = (
-                            key.clone(),
-                            (step_id.clone(), StateUpdate::Upsert(state_bytes)),
-                        );
-                        state_update_wrapper
-                            .activate()
-                            .session(&state_update_cap)
-                            .give(update);
-
-                        let next_epoch = epoch + 1;
-
-                        output_cap.downgrade(&next_epoch);
-                        state_update_cap.downgrade(&next_epoch);
-
-                        epoch_started = Instant::now();
-                    }
-
-                    match reader.next() {
-                        Poll::Pending => {}
-                        Poll::Ready(None) => {
-                            eof = true;
-                        }
-                        Poll::Ready(Some(item)) => {
-                            output_wrapper.activate().session(&output_cap).give(item);
-                        }
-                    }
-                }
-            }
-
-            if eof {
-                output_cap = None;
-                state_update_cap = None;
-            } else {
-                activator.activate();
-            }
-        }
-    });
-
-    (output_stream, state_update_stream)
 }
 
 /// Generate the [`StateKey`] that represents this worker and

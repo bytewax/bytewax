@@ -2,9 +2,9 @@
 //! Timely or other Rust libraries we use.
 
 use crate::py_unwrap;
-use crate::unwrap_any;
 use crate::recovery::StateKey;
 use crate::try_unwrap;
+use crate::unwrap_any;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
