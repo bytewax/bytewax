@@ -17,9 +17,9 @@ from typing import Any, Iterable
 from .bytewax import InputConfig, KafkaInputConfig, ManualInputConfig  # noqa: F401
 
 
-def TestingInputConfig(it):
-    """Produce input from this Python iterable. You only want to use this
-    for unit testing.
+class TestingInputConfig(ManualInputConfig):
+    """Produce input from a Python iterable.
+    You only want to use this for unit testing.
 
     The iterable must be identical on all workers; this will
     automatically distribute the items across workers and handle
@@ -36,17 +36,21 @@ def TestingInputConfig(it):
 
     """
 
-    def gen(worker_index, worker_count, resume_state):
-        resume_i = resume_state or 0
-        for i, x in enumerate(distribute(it, worker_index, worker_count)):
-            # FFWD to the resume item.
-            if i < resume_i:
-                continue
-            # Store the index in this worker's partition as the resume
-            # state.
-            yield (i + 1, x)
+    # This is needed to avoid pytest trying to load this class as
+    # a test since its name starts with "Test"
+    __test__ = False
 
-    return ManualInputConfig(gen)
+    def __new__(cls, it):
+        def gen(worker_index, worker_count, resume_state):
+            resume_i = resume_state or 0
+            for i, x in enumerate(distribute(it, worker_index, worker_count)):
+                # FFWD to the resume item.
+                if i < resume_i:
+                    continue
+                # Store the index in this worker's partition as the resume
+                # state.
+                yield (i + 1, x)
+        return super().__new__(cls, gen)
 
 
 def distribute(elements: Iterable[Any], index: int, count: int) -> Iterable[Any]:
@@ -70,29 +74,46 @@ def distribute(elements: Iterable[Any], index: int, count: int) -> Iterable[Any]
     of your workers to handle reading a disjoint partition of your
     input.
 
-    >>> from bytewax import Dataflow, spawn_cluster
-    >>> from bytewax.inputs import ManualInputConfig
-    >>> def read_topics(topics):
-    ...     for topic in topics:
-    ...         for i in enumerate(3):
-    ...             yield f"topic:{topic} item:{i}"
-    >>> def input_builder(i, n):
-    ...    all_topics = ["red", "green", "blue"]
-    ...    this_workers_topics = distribute(listening_topics, i, n)
-    ...    for item in read_topics(this_workers_topics):
-    ...        yield Emit(f"worker_index:{worker_index}" + item)
-    >>> flow = Dataflow()
-    >>> flow.capture()
-    >>> spawn_cluster(flow, ManualInputConfig(input_builder), lambda i, n: print)
-    (0, 'worker_index:1 topic:red item:0')
-    (0, 'worker_index:1 topic:red item:1')
-    (0, 'worker_index:1 topic:red item:2')
-    (0, 'worker_index:1 topic:blue item:0')
-    (0, 'worker_index:1 topic:blue item:1')
-    (0, 'worker_index:1 topic:blue item:2')
-    (0, 'worker_index:2 topic:green item:0')
-    (0, 'worker_index:2 topic:green item:1')
-    (0, 'worker_index:2 topic:green item:2')
+    For example this code:
+
+    ```python
+    from bytewax.dataflow import Dataflow
+    from bytewax.execution import spawn_cluster
+    from bytewax.inputs import ManualInputConfig, distribute
+    from bytewax.outputs import StdOutputConfig
+
+    def read_topics(topics):
+       for topic in topics:
+            for i in range(3):
+                yield f"topic:{topic} item:{i}"
+
+    def input_builder(worker_index, workers_count, resume_state):
+        state = None
+        all_topics = ["red", "green", "blue"]
+        this_workers_topics = distribute(all_topics, worker_index, workers_count)
+        for item in read_topics(this_workers_topics):
+            yield (state, f"worker_index:{worker_index} {item}")
+
+    flow = Dataflow()
+    flow.input("input", ManualInputConfig(input_builder))
+    flow.capture(StdOutputConfig())
+    spawn_cluster(flow)
+    ```
+
+    Outputs (not in this order):
+
+    ```
+    worker_index:0 topic:red item:0
+    worker_index:0 topic:red item:1
+    worker_index:0 topic:red item:2
+    worker_index:0 topic:blue item:0
+    worker_index:0 topic:blue item:1
+    worker_index:0 topic:blue item:2
+    worker_index:1 topic:green item:0
+    worker_index:1 topic:green item:1
+    worker_index:1 topic:green item:2
+    ```
+
 
     Args:
 

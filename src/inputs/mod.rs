@@ -109,7 +109,7 @@ impl InputConfig {
 ///   Config object. Pass this as the `input_config` argument to the
 ///   `bytewax.dataflow.Dataflow.input`.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
-#[pyo3(text_signature = "(input_builder)")]
+#[pyo3(text_signature = "(input_builder)", subclass)]
 pub(crate) struct ManualInputConfig {
     #[pyo3(get)]
     input_builder: TdPyCallable,
