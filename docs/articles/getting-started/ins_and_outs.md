@@ -12,7 +12,7 @@ Bytewax offers two input configurations (more to come in the future):
 
 [ManualInputConfig](/apidocs/bytewax.inputs#bytewax.inputs.ManualInputConfig) allows you to define the input **builder** as a python function.  
 The input builder is a function that is called on each worker and will produce the input for that worker.  
-It accepts three parameters: `worker_index, worker_count, resume_state`. The input builder function should return an iterable that yields a tuple of `(state, event)`, and it must know how to skip ahead in its input data to start at that `resume_state`. The `resume_state` parameter allows you to configure recovery should a failure interrupt a stateful operation, such as `stateful_map`.  
+It accepts three parameters: `worker_index, worker_count, resume_state`. The input builder function should return an iterable that yields a tuple of `(state, event)`. If your dataflow is interrupted, the third argument passed to your input function can be used to reconstruct the state of your input at the last recovery snapshot, provided you write your input logic accordingly.
 You can use any existing python library to extract the data you need inside the builder function.  
 You then pass the builder to `ManualInputConfig` and the generator will be polled to retrieve new items.
 
