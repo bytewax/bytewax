@@ -48,7 +48,7 @@ Because it only uses a single worker, do not expect any speedup due to paralleli
 
 ## Multiple Worker Spawn Cluster
 
-Our next entry point introduces a more complex API to allow for more performance. `bytewax.execution.spawn_cluster()` will spawn a number of background processes and threads on the local machine to run your dataflow. Input and output are individual to each worker. `spawn_cluster()` will block until the dataflow is complete.
+The next entrypoint, `bytewax.execution.spawn_cluster()`, is a more complex API that can be used to boost performance. `bytewax.execution.spawn_cluster()` will spawn a number of background processes and threads on the local machine to run your dataflow. With `spawn_cluster()`, the input and output are individual to each worker and the call will block until the dataflow is complete.
 
 The per-worker input of `spawn_cluster()` has the extra requirement that the input data is not duplicated between workers. All data from each worker is introduced into the same dataflow. For example, if each worker reads the content of the same file, the input will be duplicated by the number of workers. Data sources like Apache Kafka or Redpanda can provide a partitioned stream of input which can be consumed by multiple workers in parallel without duplication, as each worker sees a unique partition.
 
@@ -104,7 +104,7 @@ Note how we have "duplicate" data because every worker runs the same input code.
 
 This is best used when you have an input source that can be partitioned without coordination, like a Kafka topic or partitioned Parquet files or logs from individual servers, and need higher throughput as all steps (including input and output) are run in parallel.
 
-You can however partition the input in this example using the information passed to the input_builder: 
+In the case that your inputs are not partitioned without coordination, you could partition the input in this example using the information passed to the input_builder: 
 
 ```python doctest:SORT_OUTPUT
 def input_builder(worker_index, worker_count, resume_state):
@@ -134,7 +134,7 @@ spawn_cluster(
 ```
 ## Multiple Workers Cluster Main
 
-The final entry point, `bytewax.execution.cluster_main()` is the most flexible. It allows you to start up a single process within a cluster of processes that you are manually coordinating, but you have to pass in the network addresses of the other processes you have started up yourself and assign them each a unique ID.
+The final entry point, `bytewax.execution.cluster_main()` is the most flexible. It allows you to start up a single process within a cluster of processes that you are manually coordinating, but you have to pass in the network addresses of the other processes you have started up yourself and assign them each a unique ID. We recommend you checkout the documentation on waxctl, our command line tool, which facilitates running a dataflow on kubernetes.
 
 `cluster_main()` takes in a list of hostname and port of all workers (including itself). Each worker must be given a unique process ID.
 
