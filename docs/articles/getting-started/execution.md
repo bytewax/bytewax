@@ -44,7 +44,7 @@ run_main(flow)
 
 `run_main()` is best used for testing dataflows or doing prototyping in notebooks.
 
-Because it only uses a single worker, do not expect any speedup due to parallelism.
+Because it only uses a single worker, do not expect any speedup from to parallelism.
 
 ## Multiple Worker Spawn Cluster
 
