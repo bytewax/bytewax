@@ -26,10 +26,9 @@ from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
 def input_builder(worker_index, worker_count, resume_state):
-    # resume_state is used for recovery, we can ignore it for now
-    resume_state = None
+    state = None # ignore recovery
     for line in open("wordcount.txt"):
-        yield resume_state, line
+        yield state, line
 
 
 def lower(line):
