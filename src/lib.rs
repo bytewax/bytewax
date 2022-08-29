@@ -12,7 +12,6 @@ pub(crate) mod operators;
 pub(crate) mod outputs;
 pub(crate) mod pyo3_extensions;
 pub(crate) mod recovery;
-pub(crate) mod webserver;
 pub(crate) mod window;
 
 #[macro_use]
