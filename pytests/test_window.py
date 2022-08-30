@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta, datetime, timezone
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
@@ -9,7 +9,7 @@ from bytewax.window import TestingClockConfig, TumblingWindowConfig
 
 
 def test_tumbling_window():
-    start_at = datetime(2022, 1, 1)
+    start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
     clock = TestingClock(start_at)
 
     flow = Dataflow()

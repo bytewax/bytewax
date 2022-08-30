@@ -1,6 +1,6 @@
 use std::task::Poll;
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use pyo3::prelude::*;
 use pyo3::{exceptions::PyValueError, PyResult};
 
@@ -55,15 +55,15 @@ impl SystemClock {
 }
 
 impl<V> Clock<V> for SystemClock {
-    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> NaiveDateTime {
+    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> DateTime<Utc> {
         match next_value {
             // If there will be no more values, close out all windows.
-            Poll::Ready(None) => chrono::naive::MAX_DATETIME,
-            _ => chrono::offset::Local::now().naive_local(),
+            Poll::Ready(None) => DateTime::<Utc>::MAX_UTC,
+            _ => Utc::now(),
         }
     }
 
-    fn time_for(&mut self, item: &V) -> NaiveDateTime {
+    fn time_for(&mut self, item: &V) -> DateTime<Utc> {
         let next_value = Poll::Ready(Some(item));
         self.watermark(&next_value)
     }

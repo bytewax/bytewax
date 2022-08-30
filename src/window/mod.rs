@@ -33,7 +33,7 @@ use crate::recovery::{EpochData, StateBytes, StateKey};
 use crate::recovery::{StateUpdate, StepId};
 use crate::recovery::{StatefulLogic, StatefulUnary};
 use crate::StringResult;
-use chrono::{Duration, NaiveDateTime};
+use chrono::{DateTime, Duration, Utc};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -173,11 +173,10 @@ pub(crate) fn build_windower_builder(
     if let Ok(tumbling_window_config) = window_config.downcast::<PyCell<TumblingWindowConfig>>() {
         let tumbling_window_config = tumbling_window_config.borrow();
 
-        let length = tumbling_window_config.length.0;
+        let length = tumbling_window_config.length;
         let start_at = tumbling_window_config
             .start_at
-            .map(|t| t.0)
-            .unwrap_or_else(|| chrono::offset::Local::now().naive_local());
+            .unwrap_or_else(Utc::now);
 
         let builder = TumblingWindower::builder(length, start_at);
         Ok(Box::new(builder))
@@ -203,13 +202,13 @@ pub(crate) trait Clock<V> {
     ///
     /// This can mutate the [`ClockState`] on every call to ensure
     /// future calls are accurate.
-    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> NaiveDateTime;
+    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> DateTime<Utc>;
 
     /// Get the time for an item.
     ///
     /// This can mutate the [`ClockState`] if noting that an item has
     /// arrived should advance the clock or something.
-    fn time_for(&mut self, value: &V) -> NaiveDateTime;
+    fn time_for(&mut self, value: &V) -> DateTime<Utc>;
 
     /// Snapshot the internal state of this clock.
     ///
@@ -248,13 +247,13 @@ pub(crate) trait Windower {
     /// This should update any internal state.
     fn insert(
         &mut self,
-        watermark: &NaiveDateTime,
-        item_time: NaiveDateTime,
+        watermark: &DateTime<Utc>,
+        item_time: DateTime<Utc>,
     ) -> Vec<Result<WindowKey, InsertError>>;
 
     /// Look at the current watermark, determine which windows are now
     /// closed, return them, and remove them from internal state.
-    fn drain_closed(&mut self, watermark: &NaiveDateTime) -> Vec<WindowKey>;
+    fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<WindowKey>;
 
     /// Return how much system time should pass before the windowing
     /// operator should be activated again, even if there is no
@@ -262,7 +261,7 @@ pub(crate) trait Windower {
     ///
     /// Use this to signal to Timely's execution when windows will be
     /// closing so we can close them without data.
-    fn activate_after(&mut self, watermark: &NaiveDateTime) -> Option<Duration>;
+    fn activate_after(&mut self, watermark: &DateTime<Utc>) -> Option<Duration>;
 
     /// Snapshot the internal state of this windower.
     ///
