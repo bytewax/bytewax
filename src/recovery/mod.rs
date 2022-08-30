@@ -209,46 +209,15 @@
 //! resume with the state from the end of the epoch just before
 //! failure, with the input resuming from beginning of the next epoch.
 
-use futures::stream::StreamExt;
 use log::debug;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
-use rdkafka::admin::AdminClient;
-use rdkafka::admin::AdminOptions;
-use rdkafka::admin::NewTopic;
-use rdkafka::admin::TopicReplication;
-use rdkafka::consumer::BaseConsumer;
-use rdkafka::consumer::Consumer;
-use rdkafka::error::KafkaError;
-use rdkafka::producer::BaseProducer;
-use rdkafka::producer::BaseRecord;
-use rdkafka::util::Timeout;
-use rdkafka::ClientConfig;
-use rdkafka::Message;
-use rdkafka::Offset;
-use rdkafka::TopicPartitionList;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
-use sqlx::encode::IsNull;
-use sqlx::error::BoxDynError;
-use sqlx::query;
-use sqlx::sqlite::SqliteArgumentValue;
-use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::sqlite::SqliteRow;
-use sqlx::sqlite::SqliteTypeInfo;
-use sqlx::sqlite::SqliteValueRef;
-use sqlx::Connection;
-use sqlx::Decode;
-use sqlx::Encode;
-use sqlx::Row;
-use sqlx::Sqlite;
-use sqlx::SqliteConnection;
-use sqlx::Type;
 use std::any::type_name;
-use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -256,9 +225,6 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::marker::PhantomData;
-use std::path::Path;
-use std::path::PathBuf;
 use std::task::Poll;
 use std::time::Duration;
 use std::time::Instant;
@@ -280,13 +246,25 @@ use timely::progress::Timestamp;
 use timely::worker::Worker;
 use timely::Data;
 use timely::ExchangeData;
-use tokio::runtime::Runtime;
 
 use crate::StringResult;
+
+use self::kafka::create_kafka_topic;
+use self::kafka::KafkaReader;
+use self::kafka::KafkaRecoveryConfig;
+use self::kafka::KafkaWriter;
+use self::sqlite::SqliteProgressReader;
+use self::sqlite::SqliteProgressWriter;
+use self::sqlite::SqliteRecoveryConfig;
+use self::sqlite::SqliteStateReader;
+use self::sqlite::SqliteStateWriter;
 
 /// Common data type used across the codebase
 pub(crate) type StreamStateKey<T> = (StateKey, T);
 pub(crate) type EpochData = StreamStateKey<(StepId, StateUpdate)>;
+
+pub(crate) mod kafka;
+pub(crate) mod sqlite;
 
 /// Base class for a recovery config.
 ///
@@ -370,216 +348,6 @@ pub(crate) fn default_recovery_config() -> Py<RecoveryConfig> {
             .extract()
             .unwrap()
     })
-}
-
-/// Use [SQLite](https://sqlite.org/index.html) to store recovery
-/// data.
-///
-/// Creates a SQLite DB per-worker in a given directory. Multiple DBs
-/// are used to allow workers to write without contention.
-///
-/// Use a distinct directory per dataflow so recovery data is not
-/// mixed.
-///
-/// >>> from bytewax.execution import run_main
-/// >>> from bytewax.inputs import TestingInputConfig
-/// >>> from bytewax.outputs import StdOutputConfig
-/// >>> flow = Dataflow()
-/// >>> flow.input("inp", TestingInputConfig(range(3)))
-/// >>> flow.capture(StdOutputConfig())
-/// >>> tmp_dir = TemporaryDirectory()  # We'll store this somewhere temporary for this test.
-/// >>> recovery_config = SqliteRecoveryConfig(tmp_dir)
-/// >>> run_main(
-/// ...     flow,
-/// ...     recovery_config=recovery_config,
-/// ... )  # doctest: +ELLIPSIS
-/// (...)
-///
-/// DB files and tables will automatically be created if there's no
-/// previous recovery data.
-///
-/// Args:
-///
-///   db_dir (Path): Existing directory to store per-worker DBs
-///       in. Must be distinct per-dataflow. DB files will have
-///       names like `"worker0.sqlite3"`. You can use `"."` for the
-///       current directory.
-///
-/// Returns:
-///
-///   Config object. Pass this as the `recovery_config` argument to
-///   your execution entry point.
-#[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
-#[pyo3(text_signature = "(db_dir)")]
-struct SqliteRecoveryConfig {
-    #[pyo3(get)]
-    db_dir: PathBuf,
-}
-
-#[pymethods]
-impl SqliteRecoveryConfig {
-    #[new]
-    #[args(db_dir)]
-    fn new(db_dir: PathBuf) -> (Self, RecoveryConfig) {
-        (Self { db_dir }, RecoveryConfig {})
-    }
-
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, PathBuf) {
-        ("SqliteRecoveryConfig", self.db_dir.clone())
-    }
-
-    /// Egregious hack because pickling assumes the type has "empty"
-    /// mutable objects.
-    ///
-    /// Pickle always calls `__new__(*__getnewargs__())` but notice we
-    /// don't have access to the pickled `db_file_path` yet, so we
-    /// have to pass in some dummy string value that will be
-    /// overwritten by `__setstate__()` shortly.
-    fn __getnewargs__(&self) -> (&str,) {
-        ("UNINIT_PICKLED_STRING",)
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("SqliteRecoveryConfig", db_dir)) = state.extract() {
-            self.db_dir = db_dir;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for SqliteRecoveryConfig: {state:?}"
-            )))
-        }
-    }
-}
-
-impl SqliteRecoveryConfig {
-    fn db_file(&self, worker_index: usize) -> PathBuf {
-        self.db_dir.join(format!("worker{worker_index}.sqlite3"))
-    }
-}
-
-/// Use [Kafka](https://kafka.apache.org/) to store recovery data.
-///
-/// Uses a "progress" topic and a "state" topic with a number of
-/// partitions equal to the number of workers. Will take advantage of
-/// log compaction so that topic size is proportional to state size,
-/// not epoch count.
-///
-/// Use a distinct topic prefix per dataflow so recovery data is not
-/// mixed.
-///
-/// >>> from bytewax.execution import run_main
-/// >>> from bytewax.inputs import TestingInputConfig
-/// >>> from bytewax.outputs import StdOutputConfig
-/// >>> flow = Dataflow()
-/// >>> flow.inp("inp", TestingInputConfig(range(3)))
-/// >>> flow.capture(StdOutputConfig())
-/// >>> recovery_config = KafkaRecoveryConfig(
-/// ...     ["localhost:9092"],
-/// ...     "sample-dataflow",
-/// ... )
-/// >>> run_main(
-/// ...     flow,
-/// ...     recovery_config=recovery_config,
-/// ... )  # doctest: +ELLIPSIS
-/// (...)
-///
-/// If there's no previous recovery data, topics will automatically be
-/// created with the correct number of partitions and log compaction
-/// enabled
-///
-/// Args:
-///
-///   brokers (List[str]): List of `host:port` strings of Kafka
-///       brokers.
-///
-///   topic_prefix (str): Prefix used for naming topics. Must be
-///       distinct per-dataflow. Two topics will be created using
-///       this prefix `"topic_prefix-progress"` and
-///       `"topic_prefix-state"`.
-///
-/// Returns:
-///
-///   Config object. Pass this as the `recovery_config` argument to
-///   your execution entry point.
-#[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
-#[pyo3(text_signature = "(brokers, topic_prefix)")]
-struct KafkaRecoveryConfig {
-    #[pyo3(get)]
-    brokers: Vec<String>,
-    #[pyo3(get)]
-    topic_prefix: String,
-}
-
-#[pymethods]
-impl KafkaRecoveryConfig {
-    #[new]
-    #[args(brokers, topic_prefix)]
-    fn new(brokers: Vec<String>, topic_prefix: String) -> (Self, RecoveryConfig) {
-        (
-            Self {
-                brokers,
-                topic_prefix,
-            },
-            RecoveryConfig {},
-        )
-    }
-
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, Vec<String>, &str) {
-        (
-            "KafkaRecoveryConfig",
-            self.brokers.clone(),
-            &self.topic_prefix,
-        )
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (Vec<String>, &str) {
-        (vec![], "UNINIT_PICKLED_STRING")
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("KafkaRecoveryConfig", hosts, topic_prefix)) = state.extract() {
-            self.brokers = hosts;
-            self.topic_prefix = topic_prefix;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for KafkaRecoveryConfig: {state:?}"
-            )))
-        }
-    }
-}
-
-impl KafkaRecoveryConfig {
-    fn progress_topic(&self) -> String {
-        format!("{}-progress", self.topic_prefix)
-    }
-
-    fn state_topic(&self) -> String {
-        format!("{}-state", self.topic_prefix)
-    }
-}
-
-// TODO: Find a way to not double-serialize StateUpdate. The recovery
-// system has operators sending opaque blobs of bytes, so could we not
-// serialize them again? The trouble is we need to distinguish between
-// [`StateUpdate::Reset`] and deletion of a [`RecoveryKey`] for each
-// data store.
-fn to_bytes<T: Serialize>(obj: &T) -> Vec<u8> {
-    // TODO: Figure out if there's a more robust-to-evolution way
-    // to serialize this key. If the serialization changes between
-    // versions, then recovery doesn't work. Or if we use an
-    // encoding that isn't deterministic.
-    bincode::serialize(obj).expect("Error serializing recovery data")
-}
-
-fn from_bytes<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> T {
-    let t_name = type_name::<T>();
-    bincode::deserialize(bytes).unwrap_or_else(|_| panic!("Error deserializing recovery {t_name})"))
 }
 
 // Here's our public facing recovery operator data model and trait.
@@ -935,6 +703,7 @@ pub(crate) fn build_state_loading_dataflow<A: Allocate>(
                             backups.swap(&mut tmp_backups);
 
                             epoch_to_backups_buffer
+
                                 .entry(*epoch)
                                 .or_insert_with(Vec::new)
                                 .append(&mut tmp_backups);
@@ -1875,495 +1644,6 @@ impl<T> ProgressReader<T> for NoopRecovery {
     }
 }
 
-struct SqliteStateWriter {
-    rt: Runtime,
-    conn: SqliteConnection,
-    table_name: String,
-}
-
-impl SqliteStateWriter {
-    fn new(db_file: &Path) -> Self {
-        let table_name = "state".to_string();
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-
-        let mut options = SqliteConnectOptions::new().filename(db_file);
-        options = options.create_if_missing(true);
-        let future = SqliteConnection::connect_with(&options);
-        let mut conn = rt.block_on(future).unwrap();
-        debug!("Opened Sqlite connection to {db_file:?}");
-
-        // TODO: SQLite doesn't let you bind to table names. Can
-        // we do this in a slightly safer way? I'm not as worried
-        // because this value is not from items in the dataflow
-        // stream, but from the config which should be under
-        // developer control.
-        let sql = format!("CREATE TABLE IF NOT EXISTS {table_name} (step_id, key, epoch INTEGER, state, PRIMARY KEY (step_id, key, epoch));");
-        let future = query(&sql).execute(&mut conn);
-        rt.block_on(future).unwrap();
-
-        Self {
-            rt,
-            conn,
-            table_name,
-        }
-    }
-}
-
-impl Type<Sqlite> for StepId {
-    fn type_info() -> SqliteTypeInfo {
-        <String as Type<Sqlite>>::type_info()
-    }
-}
-
-impl<'q> Encode<'q, Sqlite> for StepId {
-    fn encode(self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
-        args.push(SqliteArgumentValue::Text(Cow::Owned(self.0)));
-        IsNull::No
-    }
-
-    fn encode_by_ref(&self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
-        args.push(SqliteArgumentValue::Text(Cow::Owned(self.0.clone())));
-        IsNull::No
-    }
-}
-
-impl<'r> Decode<'r, Sqlite> for StepId {
-    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
-        let value = <String as Decode<Sqlite>>::decode(value)?;
-        Ok(Self(value))
-    }
-}
-
-impl Type<Sqlite> for StateKey {
-    fn type_info() -> SqliteTypeInfo {
-        <&[u8] as Type<Sqlite>>::type_info()
-    }
-}
-
-impl<'q> Encode<'q, Sqlite> for StateKey {
-    fn encode_by_ref(&self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
-        let bytes = to_bytes(self);
-        args.push(SqliteArgumentValue::Blob(Cow::Owned(bytes)));
-        IsNull::No
-    }
-}
-
-impl<'r> Decode<'r, Sqlite> for StateKey {
-    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
-        let value = <&[u8] as Decode<Sqlite>>::decode(value)?;
-        Ok(from_bytes(value))
-    }
-}
-
-impl Type<Sqlite> for StateUpdate {
-    fn type_info() -> SqliteTypeInfo {
-        <&[u8] as Type<Sqlite>>::type_info()
-    }
-}
-
-impl<'q> Encode<'q, Sqlite> for StateUpdate {
-    fn encode_by_ref(&self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
-        let bytes = to_bytes(self);
-        args.push(SqliteArgumentValue::Blob(Cow::Owned(bytes)));
-        IsNull::No
-    }
-}
-
-impl<'r> Decode<'r, Sqlite> for StateUpdate {
-    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
-        let value = <&[u8] as Decode<Sqlite>>::decode(value)?;
-        Ok(from_bytes(value))
-    }
-}
-
-impl<T> Type<Sqlite> for FrontierBackup<T> {
-    fn type_info() -> SqliteTypeInfo {
-        <&[u8] as Type<Sqlite>>::type_info()
-    }
-}
-
-impl<'q, T: Serialize> Encode<'q, Sqlite> for FrontierBackup<T> {
-    fn encode_by_ref(&self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
-        let bytes = to_bytes(self);
-        args.push(SqliteArgumentValue::Blob(Cow::Owned(bytes)));
-        IsNull::No
-    }
-}
-
-impl<'r, T: Deserialize<'r>> Decode<'r, Sqlite> for FrontierBackup<T> {
-    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
-        let value = <&[u8] as Decode<Sqlite>>::decode(value)?;
-        Ok(from_bytes(value))
-    }
-}
-
-impl StateWriter<u64> for SqliteStateWriter {
-    fn write(&mut self, backup: &StateBackup<u64>) {
-        let StateBackup(recovery_key, state_update) = backup;
-        let RecoveryKey(step_id, key, epoch) = recovery_key;
-        let sql = format!("INSERT INTO {} (step_id, key, epoch, state) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (step_id, key, epoch) DO UPDATE SET state = EXCLUDED.state", self.table_name);
-        let future = query(&sql)
-            .bind(step_id)
-            .bind(key)
-            .bind(<u64 as TryInto<i64>>::try_into(*epoch).expect("epoch can't fit into SQLite int"))
-            // Remember, reset state is stored as an explicit NULL in the
-            // DB.
-            .bind(state_update)
-            .execute(&mut self.conn);
-        self.rt.block_on(future).unwrap();
-
-        debug!("sqlite state write backup={backup:?}");
-    }
-}
-
-impl StateCollector<u64> for SqliteStateWriter {
-    fn delete(&mut self, recovery_key: &RecoveryKey<u64>) {
-        let RecoveryKey(step_id, key, epoch) = recovery_key;
-        let sql = format!(
-            "DELETE FROM {} WHERE step_id = ?1 AND key = ?2 AND epoch = ?3",
-            self.table_name
-        );
-        let future = query(&sql)
-            .bind(step_id)
-            .bind(key)
-            .bind(<u64 as TryInto<i64>>::try_into(*epoch).expect("epoch can't fit into SQLite int"))
-            .execute(&mut self.conn);
-        self.rt.block_on(future).unwrap();
-
-        debug!("sqlite state delete recovery_key={recovery_key:?}");
-    }
-}
-
-struct SqliteStateReader {
-    rt: Runtime,
-    rx: tokio::sync::mpsc::Receiver<StateBackup<u64>>,
-}
-
-impl SqliteStateReader {
-    fn new(db_file: &Path) -> Self {
-        let table_name = "state";
-
-        // Bootstrap off writer to get table creation.
-        let writer = SqliteStateWriter::new(db_file);
-        let rt = writer.rt;
-        let mut conn = writer.conn;
-
-        let (tx, rx) = tokio::sync::mpsc::channel(1);
-
-        rt.spawn(async move {
-            let sql =
-                format!("SELECT step_id, key, epoch, state FROM {table_name} ORDER BY epoch ASC");
-            let mut stream = query(&sql)
-                .map(|row: SqliteRow| {
-                    let recovery_key = RecoveryKey(
-                        row.get(0),
-                        row.get(1),
-                        row.get::<i64, _>(2)
-                            .try_into()
-                            .expect("SQLite int can't fit into epoch; might be negative"),
-                    );
-                    StateBackup(recovery_key, row.get(3))
-                })
-                .fetch(&mut conn)
-                .map(|result| result.expect("Error selecting from SQLite"));
-
-            while let Some(backup) = stream.next().await {
-                tx.send(backup).await.unwrap();
-            }
-        });
-
-        Self { rt, rx }
-    }
-}
-
-impl StateReader<u64> for SqliteStateReader {
-    fn read(&mut self) -> Option<StateBackup<u64>> {
-        self.rt.block_on(self.rx.recv())
-    }
-}
-
-struct SqliteProgressWriter {
-    rt: Runtime,
-    conn: SqliteConnection,
-    table_name: String,
-}
-
-impl SqliteProgressWriter {
-    fn new(db_file: &Path) -> Self {
-        let table_name = "progress".to_string();
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-
-        let mut options = SqliteConnectOptions::new().filename(db_file);
-        options = options.create_if_missing(true);
-        let future = SqliteConnection::connect_with(&options);
-        let mut conn = rt.block_on(future).unwrap();
-        debug!("Opened Sqlite connection to {db_file:?}");
-
-        let sql = format!("CREATE TABLE IF NOT EXISTS {table_name} (name PRIMARY KEY, antichain);");
-        let future = query(&sql).execute(&mut conn);
-        rt.block_on(future).unwrap();
-
-        Self {
-            rt,
-            conn,
-            table_name,
-        }
-    }
-}
-
-impl ProgressWriter<u64> for SqliteProgressWriter {
-    fn write(&mut self, backup: &FrontierBackup<u64>) {
-        let sql = format!("INSERT INTO {} (name, antichain) VALUES (?1, ?2) ON CONFLICT (name) DO UPDATE SET antichain = EXCLUDED.antichain", self.table_name);
-        let future = query(&sql)
-            .bind("worker_frontier")
-            .bind(backup)
-            .execute(&mut self.conn);
-        self.rt.block_on(future).unwrap();
-
-        debug!("sqlite frontier write backup={backup:?}");
-    }
-}
-
-struct SqliteProgressReader {
-    rt: Runtime,
-    rx: tokio::sync::mpsc::Receiver<FrontierBackup<u64>>,
-}
-
-impl SqliteProgressReader {
-    fn new(db_file: &Path) -> Self {
-        let table_name = "progress";
-
-        let writer = SqliteProgressWriter::new(db_file);
-        let rt = writer.rt;
-        let mut conn = writer.conn;
-
-        let (tx, rx) = tokio::sync::mpsc::channel(1);
-
-        rt.spawn(async move {
-            let sql =
-                format!("SELECT antichain FROM {table_name} WHERE name = \"worker_frontier\"");
-            let mut stream = query(&sql)
-                .map(|row: SqliteRow| row.get::<FrontierBackup<u64>, _>(0))
-                .fetch(&mut conn)
-                .map(|result| result.expect("Error selecting from SQLite"));
-
-            while let Some(backup) = stream.next().await {
-                debug!("sqlite frontier read backup={backup:?}");
-                tx.send(backup).await.unwrap();
-            }
-        });
-
-        Self { rt, rx }
-    }
-}
-
-impl ProgressReader<u64> for SqliteProgressReader {
-    fn read(&mut self) -> Option<FrontierBackup<u64>> {
-        self.rt.block_on(self.rx.recv())
-    }
-}
-
-fn create_kafka_topic(brokers: &[String], topic: &str, partitions: i32) {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-
-    let admin: AdminClient<_> = rt.block_on(async {
-        ClientConfig::new()
-            .set("bootstrap.servers", brokers.join(","))
-            .create()
-            .expect("Error building Kafka admin")
-    });
-    let admin_options = AdminOptions::new();
-
-    let new_topic = NewTopic {
-        name: topic,
-        num_partitions: partitions,
-        // I believe this chooses the default replication factor.
-        replication: TopicReplication::Fixed(-1),
-        config: vec![("cleanup.policy", "compact")],
-    };
-    let future = admin.create_topics(vec![&new_topic], &admin_options);
-    let result = rt
-        .block_on(future)
-        .expect("Error calling create Kafka topic on admin")
-        .pop()
-        .unwrap();
-    match result {
-        Ok(topic) => {
-            debug!("Created Kafka topic={topic:?}");
-        }
-        Err((topic, rdkafka::types::RDKafkaErrorCode::TopicAlreadyExists)) => {
-            debug!("Kafka topic={topic:?} already exists; continuing");
-        }
-        Err((topic, err_code)) => {
-            panic!("Error creating Kafka topic={topic:?}: {err_code:?}")
-        }
-    }
-}
-
-/// This is a generic wrapper around [`BaseProducer`] which adds
-/// serde and only writes to a single topic and partition.
-struct KafkaWriter<K, P> {
-    producer: BaseProducer,
-    topic: String,
-    partition: i32,
-    key_type: PhantomData<K>,
-    payload_type: PhantomData<P>,
-}
-
-impl<K: Serialize, P: Serialize> KafkaWriter<K, P> {
-    fn new(brokers: &[String], topic: String, partition: i32) -> Self {
-        debug!("Creating Kafka producer with brokers={brokers:?} topic={topic:?}");
-        let producer: BaseProducer = ClientConfig::new()
-            .set("bootstrap.servers", brokers.join(","))
-            .create()
-            .expect("Error building Kafka producer");
-
-        Self {
-            producer,
-            topic,
-            partition,
-            key_type: PhantomData,
-            payload_type: PhantomData,
-        }
-    }
-
-    fn write(&self, key: &K, payload: &P) {
-        let key_bytes = to_bytes(key);
-        let payload_bytes = to_bytes(payload);
-        let record = BaseRecord::to(&self.topic)
-            .key(&key_bytes)
-            .payload(&payload_bytes)
-            .partition(self.partition);
-
-        self.producer.send(record).expect("Error writing state");
-        self.producer.poll(Timeout::Never);
-    }
-
-    fn delete(&self, key: &K) {
-        let key_bytes = to_bytes(key);
-        let record = BaseRecord::<Vec<u8>, Vec<u8>>::to(&self.topic)
-            .key(&key_bytes)
-            .partition(self.partition);
-        // Explicitly no payload to mark as delete for key.
-
-        self.producer.send(record).expect("Error deleting state");
-        self.producer.poll(Timeout::Never);
-    }
-}
-
-impl<T: Serialize + Debug> StateWriter<T> for KafkaWriter<RecoveryKey<T>, StateUpdate> {
-    fn write(&mut self, backup: &StateBackup<T>) {
-        let StateBackup(recovery_key, state_update) = backup;
-        KafkaWriter::write(self, recovery_key, state_update);
-        debug!("kafka state write backup={backup:?}");
-    }
-}
-
-impl<T: Serialize + Debug> StateCollector<T> for KafkaWriter<RecoveryKey<T>, StateUpdate> {
-    fn delete(&mut self, recovery_key: &RecoveryKey<T>) {
-        KafkaWriter::delete(self, recovery_key);
-        debug!("kafka state delete recovery_key={recovery_key:?}");
-    }
-}
-
-/// This is a generic wrapper around [`BaseConsumer`] which adds
-/// serde and reads from only a single topic and partition.
-struct KafkaReader<K, P> {
-    consumer: BaseConsumer,
-    key_type: PhantomData<K>,
-    payload_type: PhantomData<P>,
-}
-
-impl<K: DeserializeOwned, P: DeserializeOwned> KafkaReader<K, P> {
-    fn new(brokers: &[String], topic: &str, partition: i32) -> Self {
-        debug!("Loading recovery data from brokers={brokers:?} topic={topic:?}");
-        let consumer: BaseConsumer = ClientConfig::new()
-            .set("bootstrap.servers", brokers.join(","))
-            // We don't want to use consumer groups because
-            // re-balancing makes no sense in the recovery
-            // context. librdkafka requires you to set a consumer
-            // group, though, but they say it is never used if you
-            // don't call
-            // `subscribe`. https://github.com/edenhill/librdkafka/issues/593#issuecomment-278954990
-            .set("group.id", "BYTEWAX_IGNORED")
-            .set("enable.auto.commit", "false")
-            .set("enable.partition.eof", "true")
-            .create()
-            .expect("Error building Kafka consumer");
-
-        let mut partitions = TopicPartitionList::new();
-        partitions
-            .add_partition_offset(topic, partition, Offset::Beginning)
-            .unwrap();
-        consumer
-            .assign(&partitions)
-            .expect("Error assigning Kafka recovery topic");
-
-        Self {
-            consumer,
-            key_type: PhantomData,
-            payload_type: PhantomData,
-        }
-    }
-
-    fn read(&mut self) -> Option<(Option<K>, Option<P>)> {
-        let msg_result = self.consumer.poll(Timeout::Never);
-        match msg_result {
-            Some(Ok(msg)) => Some((msg.key().map(from_bytes), msg.payload().map(from_bytes))),
-            Some(Err(KafkaError::PartitionEOF(_))) => None,
-            Some(Err(err)) => panic!("Error reading from Kafka topic: {err:?}"),
-            None => None,
-        }
-    }
-}
-
-impl<T: DeserializeOwned> StateReader<T> for KafkaReader<RecoveryKey<T>, StateUpdate> {
-    fn read(&mut self) -> Option<StateBackup<T>> {
-        loop {
-            match KafkaReader::read(self) {
-                // Skip deletions if they haven't been compacted.
-                Some((_, None)) => continue,
-                Some((Some(recovery_key), Some(state_update))) => {
-                    return Some(StateBackup(recovery_key, state_update));
-                }
-                Some((None, _)) => panic!("Missing key in reading state Kafka topic"),
-                None => return None,
-            }
-        }
-    }
-}
-
-impl<T: Serialize + Debug> ProgressWriter<T> for KafkaWriter<String, FrontierBackup<T>> {
-    fn write(&mut self, backup: &FrontierBackup<T>) {
-        KafkaWriter::write(self, &String::from("worker_frontier"), backup);
-        debug!("kafka frontier write backup={backup:?}");
-    }
-}
-
-impl<T: DeserializeOwned + Debug> ProgressReader<T> for KafkaReader<String, FrontierBackup<T>> {
-    fn read(&mut self) -> Option<FrontierBackup<T>> {
-        match KafkaReader::read(self) {
-            Some((Some(_), Some(backup))) => {
-                debug!("kafka frontier read backup={backup:?}");
-                Some(backup)
-            }
-            None => None,
-            _ => panic!("Missing payload in reading frontier Kafka topic"),
-        }
-    }
-}
-
 // The recovery store summary.
 
 /// The [`RecoveryStoreSummary`] doesn't need to retain full copies of
@@ -2382,6 +1662,24 @@ impl From<StateUpdate> for UpdateType {
             StateUpdate::Reset => Self::Reset,
         }
     }
+}
+
+// TODO: Find a way to not double-serialize StateUpdate. The recovery
+// system has operators sending opaque blobs of bytes, so could we not
+// serialize them again? The trouble is we need to distinguish between
+// [`StateUpdate::Reset`] and deletion of a [`RecoveryKey`] for each
+// data store.
+fn to_bytes<T: Serialize>(obj: &T) -> Vec<u8> {
+    // TODO: Figure out if there's a more robust-to-evolution way
+    // to serialize this key. If the serialization changes between
+    // versions, then recovery doesn't work. Or if we use an
+    // encoding that isn't deterministic.
+    bincode::serialize(obj).expect("Error serializing recovery data")
+}
+
+fn from_bytes<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> T {
+    let t_name = type_name::<T>();
+    bincode::deserialize(bytes).unwrap_or_else(|_| panic!("Error deserializing recovery {t_name})"))
 }
 
 /// In-memory summary of all keys this worker's recovery store knows
