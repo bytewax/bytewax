@@ -1,10 +1,11 @@
-use crate::pyo3_extensions::TdPyAny;
-use pyo3::{exceptions::PyValueError, prelude::*};
+use crate::{pyo3_extensions::TdPyAny, unwrap_any, try_unwrap};
+use pyo3::{exceptions::{PyValueError, PyTypeError}, prelude::*, types::PyBytes};
 use rdkafka::{
     producer::{BaseProducer, BaseRecord, Producer},
     ClientConfig,
 };
 use std::time::Duration;
+use crate::py_unwrap;
 
 use super::{OutputConfig, OutputWriter};
 /// Use [Kafka](https://kafka.apache.org) as the output.
@@ -87,21 +88,26 @@ impl KafkaOutput {
 }
 
 impl OutputWriter<u64, TdPyAny> for KafkaOutput {
-    fn push(&mut self, _epoch: u64, item: TdPyAny) {
-        let item_string = item.to_string();
-        self.producer
-            .send(
-                BaseRecord::to(&self.topic)
-                    .payload(&item_string)
-                    // TODO configure key
-                    .key("and this is a key"),
-            )
-            .expect("Failed to enqueue");
+    fn push(&mut self, _epoch: u64, key_payload: TdPyAny) {
+        Python::with_gil(|py| {
+            let (key, payload): (&PyBytes, &PyBytes) = py_unwrap!(
+                key_payload.extract(py),
+                format!(
+                    "KafkaOutput requires a `(key, payload)` 2-tuple of bytes \
+                    as input to producer; got `{key_payload:?}` instead"
+                )
+            );
+
+            self.producer
+                .send(
+                    BaseRecord::to(&self.topic)
+                        .payload(payload.as_bytes())
+                        .key(key.as_bytes()),
+                )
+                .expect("Failed to enqueue");
+        });
 
         // Poll to process all the asynchronous delivery events.
         self.producer.poll(Duration::from_millis(0));
-
-        // And/or flush the producer before dropping it.
-        self.producer.flush(Duration::from_secs(1));
     }
 }
