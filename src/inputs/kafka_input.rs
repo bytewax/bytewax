@@ -127,18 +127,13 @@ fn get_kafka_partition_count(brokers: &[String], topic: &str) -> i32 {
 
     let timeout = Some(Duration::from_secs(5));
 
-    println!("Attempting to fetch metadata from {}", topic);
+    log::debug!("Attempting to fetch metadata from {}", topic);
     let metadata = consumer
         .fetch_metadata(Some(topic), timeout)
         .map_err(|e| e.to_string())
         .expect("Unable to fetch topic metadata for {topic}");
 
     let user_topic = &metadata.topics()[0];
-    
-    if user_topic.partitions().len() == 0 {
-        panic!("Topic does not exist, please create first");
-    }
-
     user_topic
         .partitions()
         .len()
@@ -207,6 +202,9 @@ impl KafkaInput {
             .expect("Error building input Kafka consumer");
 
         let partition_count = get_kafka_partition_count(brokers, topic);
+        if partition_count == 0 {
+            panic!("Topic does not exist, please create first");
+        }
         let mut partitions = TopicPartitionList::new();
         for partition in distribute(0..partition_count, worker_index, worker_count) {
             let partition = KafkaPartition(partition);
