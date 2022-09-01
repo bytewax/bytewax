@@ -8,7 +8,7 @@ use pyo3::types::PyBytes;
 
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::base_consumer::BaseConsumer;
-use rdkafka::consumer::{Consumer, DefaultConsumerContext};
+use rdkafka::consumer::{Consumer};
 use rdkafka::error::KafkaError;
 use rdkafka::message::Message;
 use rdkafka::{Offset, TopicPartitionList};
@@ -119,20 +119,18 @@ impl KafkaInputConfig {
 // Using an rdkafka::admin::AdminClient did not always return partition counts
 // for a topic, so create a BaseConsumer to fetch the metadata for a topic instead.
 // Inspired by https://github.com/fede1024/rust-rdkafka/blob/5d23e82a675d9df1bf343aedcaa35be864787dab/tests/test_admin.rs#L33
-fn get_kafka_partition_count(brokers: &[String], topic: &str) -> i32 {
-    let consumer: BaseConsumer<DefaultConsumerContext> = ClientConfig::new()
-        .set("bootstrap.servers", brokers.join(","))
-        .create()
-        .expect("creating consumer failed");
-
+fn get_kafka_partition_count(consumer: &BaseConsumer, topic: &str) -> i32 {
     let timeout = Some(Duration::from_secs(5));
 
+    log::debug!("Attempting to fetch metadata from {}", topic);
+    
     let metadata = consumer
         .fetch_metadata(Some(topic), timeout)
         .map_err(|e| e.to_string())
         .expect("Unable to fetch topic metadata for {topic}");
-    let topic = &metadata.topics()[0];
-    topic
+
+    let user_topic = &metadata.topics()[0];
+    user_topic
         .partitions()
         .len()
         .try_into()
@@ -199,7 +197,10 @@ impl KafkaInput {
             .create()
             .expect("Error building input Kafka consumer");
 
-        let partition_count = get_kafka_partition_count(brokers, topic);
+        let partition_count = get_kafka_partition_count(&consumer, topic);
+        if partition_count == 0 {
+            panic!("Topic {} does not exist, please create first", topic);
+        }
         let mut partitions = TopicPartitionList::new();
         for partition in distribute(0..partition_count, worker_index, worker_count) {
             let partition = KafkaPartition(partition);
