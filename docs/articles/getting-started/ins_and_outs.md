@@ -31,3 +31,7 @@ Bytewax offers three output configurations:
 [ManualOutputConfig](/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig) is the most flexible output configuration. It requires a **builder** function that is called on each worker and will handle the output for that worker. The output builder function should return a callback **output handler** function that can be called with each item of output produced. This can be used with any existing Python library to connect with various downstream systems. Pay attention to whether the downstream system can accept concurrent writes in the case of parallelism.
 
 [StdOutputConfig](/apidocs/bytewax.outputs#bytewax.outputs.StdOutputConfig) simply prints all of the output to standard out, and it does not require any other configuration.
+
+[KafkaOutputConfig](/apidocs/bytewax.inputs#bytewax.outputs.KafkaOutputConfig) is a specific output configuration tailored for Apache Kafka (and kafka-api compatible platforms, like Redpanda).  
+This output generator is provided by the Rust Bytewax library. `KafkaOutputConfig` presently accepts only two parameters: a list of brokers and
+a topic.
