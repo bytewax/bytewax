@@ -118,9 +118,15 @@ pub(crate) fn build_output_writer(
 
         let brokers = &config.brokers;
         let topic = &config.topic;
+        let additional_configs = &&config.additional_configs;
 
-        let writer =
-            py.allow_threads(|| SendWrapper::new(KafkaOutput::new(brokers, topic.to_string())));
+        let writer = py.allow_threads(|| {
+            SendWrapper::new(KafkaOutput::new(
+                brokers,
+                topic.to_string(),
+                additional_configs,
+            ))
+        });
 
         Ok(Box::new(writer.take()))
     } else {

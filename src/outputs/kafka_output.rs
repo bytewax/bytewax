@@ -9,14 +9,14 @@ use rdkafka::{
     producer::{BaseProducer, BaseRecord},
     ClientConfig,
 };
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use super::{OutputConfig, OutputWriter};
 /// Use [Kafka](https://kafka.apache.org) as the output.
 ///
 /// A `capture` using KafkaOutput expects to receive data
 /// structured as two-tuples of (key, payload) to form a Kafka
-/// record.
+/// record. Key may be `None`.
 ///
 /// Args:
 ///
@@ -25,46 +25,64 @@ use super::{OutputConfig, OutputWriter};
 ///
 ///   topic (str): Topic to which producer will send records.
 ///
+/// Additional configuration can be passed as kwargs. See
+/// https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
+/// 
 /// Returns:
 ///
 ///   Config object. Pass this as the `output_config` argument to the
 ///   `bytewax.dataflow.Dataflow.output`.
 #[pyclass(module = "bytewax.outputs", extends = OutputConfig)]
-#[pyo3(text_signature = "(brokers, topic)")]
+#[pyo3(text_signature = "(brokers, topic, additional_configs='**')")]
 pub(crate) struct KafkaOutputConfig {
     #[pyo3(get)]
     pub(crate) brokers: Vec<String>,
     #[pyo3(get)]
     pub(crate) topic: String,
+    #[pyo3(get)]
+    pub(crate) additional_configs: Option<HashMap<String, String>>,
 }
 
 #[pymethods]
 impl KafkaOutputConfig {
     #[new]
-    #[args(brokers, topic)]
-    fn new(brokers: Vec<String>, topic: String) -> (Self, OutputConfig) {
-        (Self { brokers, topic }, OutputConfig {})
+    #[args(brokers, topic, additional_configs)]
+    fn new(
+        brokers: Vec<String>,
+        topic: String,
+        additional_configs: Option<HashMap<String, String>>,
+    ) -> (Self, OutputConfig) {
+        (
+            Self {
+                brokers,
+                topic,
+                additional_configs,
+            },
+            OutputConfig {},
+        )
     }
 
-    fn __getstate__(&self) -> (&str, Vec<String>, String) {
+    fn __getstate__(&self) -> (&str, Vec<String>, String, Option<HashMap<String, String>>) {
         (
             "KafkaOutputConfig",
             self.brokers.clone(),
             self.topic.clone(),
+            self.additional_configs.clone(),
         )
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (Vec<String>, &str) {
+    fn __getnewargs__(&self) -> (Vec<String>, &str, Option<HashMap<String, String>>) {
         let s = "UNINIT_PICKLED_STRING";
-        (Vec::new(), s)
+        (Vec::new(), s, None)
     }
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("KafkaOutputConfig", brokers, topic)) = state.extract() {
+        if let Ok(("KafkaOutputConfig", brokers, topic, additional_configs)) = state.extract() {
             self.brokers = brokers;
             self.topic = topic;
+            self.additional_configs = additional_configs;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -81,11 +99,21 @@ pub(crate) struct KafkaOutput {
 }
 
 impl KafkaOutput {
-    pub(crate) fn new(brokers: &[String], topic: String) -> Self {
-        let producer: BaseProducer = ClientConfig::new()
-            .set("bootstrap.servers", brokers.join(","))
-            .create()
-            .expect("Producer creation error");
+    pub(crate) fn new(
+        brokers: &[String],
+        topic: String,
+        additional_configs: &Option<HashMap<String, String>>,
+    ) -> Self {
+        let mut config = ClientConfig::new();
+        config.set("bootstrap.servers", brokers.join(","));
+
+        if let Some(args) = additional_configs {
+            for (key, value) in args.iter() {
+                config.set(key, value);
+            }
+        }
+
+        let producer: BaseProducer = config.create().expect("Producer creation error");
 
         Self { producer, topic }
     }
