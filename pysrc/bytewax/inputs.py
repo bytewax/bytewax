@@ -1,6 +1,6 @@
 """Dataflow input sources.
 
-Bytewax provides pre-packaged output configuration options for common
+Bytewax provides pre-packaged input configuration options for common
 sources you might want to read dataflow input from.
 
 Use
