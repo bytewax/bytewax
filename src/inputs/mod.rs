@@ -145,6 +145,7 @@ pub(crate) fn build_input_reader(
                 "starting_offset should be either `\"beginning\"` or `\"end\"`; got `{unk:?}`"
             )),
         }?;
+        let additional_configs = &config.additional_configs;
 
         let reader = py.allow_threads(|| {
             SendWrapper::new(KafkaInput::new(
@@ -152,6 +153,7 @@ pub(crate) fn build_input_reader(
                 topic,
                 tail,
                 starting_offset,
+                additional_configs,
                 worker_index,
                 worker_count,
                 resume_state_bytes,
