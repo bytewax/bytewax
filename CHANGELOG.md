@@ -9,6 +9,9 @@ notes on GitHub when we make a new release.__
   parameters can be passed as keyword args. See 
   `bytewax.inputs.KafkaInputConfig`.
 
+- Preliminary support for a pre-built Kafka output component. See
+  `bytewax.outputs.KafkaOutputConfig`.
+
 ## 0.11.0
 
 - Added the `fold_window` operator, works like `reduce_window` but allows
