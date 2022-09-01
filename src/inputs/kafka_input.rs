@@ -40,9 +40,10 @@ use super::{distribute, InputConfig, InputReader};
 ///       where to resume if auto_commit is not enabled. Defaults to
 ///       "beginning".
 /// 
-///   additional_configs (Dict): Any additional configuration properties 
-///   that can be set at the consumer level. 
-///   Reference https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
+/// Any additional configuration properties can be passed as kwargs. Note
+/// that consumer group settings will be ignored.
+/// See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
+/// for more options.
 ///
 /// Returns:
 ///
