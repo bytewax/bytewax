@@ -1,11 +1,15 @@
-use crate::{pyo3_extensions::TdPyAny, unwrap_any, try_unwrap};
-use pyo3::{exceptions::{PyValueError, PyTypeError}, prelude::*, types::PyBytes};
+use crate::py_unwrap;
+use crate::pyo3_extensions::TdPyAny;
+use pyo3::{
+    exceptions::{PyTypeError, PyValueError},
+    prelude::*,
+    types::PyBytes,
+};
 use rdkafka::{
-    producer::{BaseProducer, BaseRecord, Producer},
+    producer::{BaseProducer, BaseRecord},
     ClientConfig,
 };
 use std::time::Duration;
-use crate::py_unwrap;
 
 use super::{OutputConfig, OutputWriter};
 /// Use [Kafka](https://kafka.apache.org) as the output.
@@ -90,21 +94,42 @@ impl KafkaOutput {
 impl OutputWriter<u64, TdPyAny> for KafkaOutput {
     fn push(&mut self, _epoch: u64, key_payload: TdPyAny) {
         Python::with_gil(|py| {
-            let (key, payload): (&PyBytes, &PyBytes) = py_unwrap!(
+            let (key, payload): (Option<TdPyAny>, TdPyAny) = py_unwrap!(
                 key_payload.extract(py),
                 format!(
-                    "KafkaOutput requires a `(key, payload)` 2-tuple of bytes \
-                    as input to producer; got `{key_payload:?}` instead"
+                    "KafkaOutput requires a `(key, payload)` 2-tuple \
+                    as message to producer; got `{key_payload:?}` instead"
                 )
             );
 
-            self.producer
-                .send(
-                    BaseRecord::to(&self.topic)
-                        .payload(payload.as_bytes())
-                        .key(key.as_bytes()),
+            let p: &PyBytes = py_unwrap!(
+                payload.extract(py),
+                format!(
+                    "KafkaOutput requires message payload be in bytes. Got \
+                    `{payload:?}` instead"
                 )
-                .expect("Failed to enqueue");
+            );
+
+            if let Some(k) = key {
+                let record_key: &PyBytes = py_unwrap!(
+                    k.extract(py),
+                    format!(
+                        "KafkaOutput requires message key be in bytes. Got \
+                        `{k:?}` instead"
+                    )
+                );
+
+                let record = BaseRecord::to(&self.topic)
+                    .payload(p.as_bytes())
+                    .key(record_key.as_bytes());
+
+                self.producer.send(record).expect("Failed to enqueue");
+            } else {
+                let record: BaseRecord<[u8], [u8]> =
+                    BaseRecord::to(&self.topic).payload(p.as_bytes());
+
+                self.producer.send(record).expect("Failed to enqueue");
+            };
         });
 
         // Poll to process all the asynchronous delivery events.
