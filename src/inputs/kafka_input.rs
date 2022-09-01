@@ -60,7 +60,7 @@ pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
     pub(crate) starting_offset: String,
     #[pyo3(get)]
-    pub(crate) additional_configs: HashMap<String, String>,
+    pub(crate) additional_configs: Option<HashMap<String, String>>,
 }
 
 #[pymethods]
@@ -71,14 +71,14 @@ impl KafkaInputConfig {
         topic,
         tail = true,
         starting_offset = "\"beginning\".to_string()",
-        additional_configs = "HashMap::new()",
+        additional_configs = "**"
     )]
     fn new(
         brokers: Vec<String>,
         topic: String,
         tail: bool,
         starting_offset: String,
-        additional_configs: HashMap<String, String>,
+        additional_configs: Option<HashMap<String, String>>,
     ) -> (Self, InputConfig) {
         (
             Self {
@@ -92,7 +92,7 @@ impl KafkaInputConfig {
         )
     }
 
-    fn __getstate__(&self) -> (&str, Vec<String>, String, bool, String, HashMap<String, String>) {
+    fn __getstate__(&self) -> (&str, Vec<String>, String, bool, String, Option<HashMap<String, String>>) {
         (
             "KafkaInputConfig",
             self.brokers.clone(),
@@ -192,7 +192,7 @@ impl KafkaInput {
         topic: &str,
         tail: bool,
         starting_offset: Offset,
-        additional_configs: &HashMap<String, String>,
+        additional_configs: &Option<HashMap<String, String>>,
         worker_index: usize,
         worker_count: usize,
         resume_state_bytes: Option<StateBytes>,
@@ -211,8 +211,10 @@ impl KafkaInput {
             .set("bootstrap.servers", brokers.join(","))
             .set("enable.partition.eof", format!("{eof}"));
 
-        for (key, value) in additional_configs.iter() {
-            config.set(key, value);
+        if let Some(args) = additional_configs {
+            for (key, value) in args.iter() {
+                config.set(key, value);
+            }
         }
 
         let consumer: BaseConsumer = config

@@ -12,6 +12,7 @@ flow.input(
     KafkaInputConfig(
         brokers=["localhost:9092"],
         topic="input_topic",
+        **{"batch.num.messages": "10"}
     ),
 )
 
