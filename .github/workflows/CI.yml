@@ -38,6 +38,7 @@ jobs:
       with:
         rust-toolchain: 1.61
         manylinux: auto
+        container: off
         command: build
         args: --release -o dist --interpreter python${{ matrix.python-version }}
     - name: Run tests
