@@ -63,7 +63,7 @@ jobs:
     - uses: actions/checkout@v2
     - name: Install system dependencies
       run: |
-        choco install -y -v microsoft-visual-cpp-build-tools
+        choco install -y -v --force --trace microsoft-visual-cpp-build-tools
     - uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
