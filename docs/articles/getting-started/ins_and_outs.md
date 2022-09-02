@@ -18,7 +18,7 @@ You then pass the builder to `ManualInputConfig` and the generator will be polle
 
 [KafkaInputConfig](/apidocs/bytewax.inputs#bytewax.inputs.KafkaInputConfig) is a specific input configuration tailored for Apache Kafka (and kafka-api compatible platforms, like Redpanda).  
 This input generator is provided by the Rust Bytewax library, and while you can build a custom Kafka input using the `ManualInputConfig` and any python library to connect to Kafka, using the `KafkaInputConfig` is the recommended approach since it also automatically handles recovery.  
-`KafkaInputConfig` accepts four parameters: a list of brokers, a topic, a tail boolean and a starting_offset. See our API docs for `bytewax.inputs` for more on a Kafka configuration.
+`KafkaInputConfig` accepts four parameters: a list of brokers, a topic, a tail boolean and a starting_offset. Additional configuration can be passed as keyword arguments. See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md. See our API docs for `bytewax.inputs` for more on a Kafka configuration.
 
 ## Output
 
@@ -27,11 +27,11 @@ Output, similarly to input, is configurable and this is accomplished with the `c
 Bytewax offers three output configurations:
 - ManualOutputConfig
 - StdOutputConfig
+- KafkaOutputConfig
 
 [ManualOutputConfig](/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig) is the most flexible output configuration. It requires a **builder** function that is called on each worker and will handle the output for that worker. The output builder function should return a callback **output handler** function that can be called with each item of output produced. This can be used with any existing Python library to connect with various downstream systems. Pay attention to whether the downstream system can accept concurrent writes in the case of parallelism.
 
 [StdOutputConfig](/apidocs/bytewax.outputs#bytewax.outputs.StdOutputConfig) simply prints all of the output to standard out, and it does not require any other configuration.
 
 [KafkaOutputConfig](/apidocs/bytewax.inputs#bytewax.outputs.KafkaOutputConfig) is a specific output configuration tailored for Apache Kafka (and kafka-api compatible platforms, like Redpanda).  
-This output generator is provided by the Rust Bytewax library. `KafkaOutputConfig` presently accepts only two parameters: a list of brokers and
-a topic.
+This output generator is provided by the Rust Bytewax library. `KafkaOutputConfig` expects only two parameters: a list of brokers and a topic. Additional configuration can be passed as keyword arguments. See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md. See our API docs for `bytewax.outputs` for more on a Kafka configuration.
