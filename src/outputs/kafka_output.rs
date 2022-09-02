@@ -33,30 +33,30 @@ use super::{OutputConfig, OutputWriter};
 ///   Config object. Pass this as the `output_config` argument to the
 ///   `bytewax.dataflow.Dataflow.output`.
 #[pyclass(module = "bytewax.outputs", extends = OutputConfig)]
-#[pyo3(text_signature = "(brokers, topic, additional_configs='**')")]
+#[pyo3(text_signature = "(brokers, topic, kwargs='**')")]
 pub(crate) struct KafkaOutputConfig {
     #[pyo3(get)]
     pub(crate) brokers: Vec<String>,
     #[pyo3(get)]
     pub(crate) topic: String,
     #[pyo3(get)]
-    pub(crate) additional_configs: Option<HashMap<String, String>>,
+    pub(crate) kwargs: Option<HashMap<String, String>>,
 }
 
 #[pymethods]
 impl KafkaOutputConfig {
     #[new]
-    #[args(brokers, topic, additional_configs)]
+    #[args(brokers, topic, kwargs)]
     fn new(
         brokers: Vec<String>,
         topic: String,
-        additional_configs: Option<HashMap<String, String>>,
+        kwargs: Option<HashMap<String, String>>,
     ) -> (Self, OutputConfig) {
         (
             Self {
                 brokers,
                 topic,
-                additional_configs,
+                kwargs,
             },
             OutputConfig {},
         )
@@ -67,7 +67,7 @@ impl KafkaOutputConfig {
             "KafkaOutputConfig",
             self.brokers.clone(),
             self.topic.clone(),
-            self.additional_configs.clone(),
+            self.kwargs.clone(),
         )
     }
 
@@ -79,10 +79,10 @@ impl KafkaOutputConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("KafkaOutputConfig", brokers, topic, additional_configs)) = state.extract() {
+        if let Ok(("KafkaOutputConfig", brokers, topic, kwargs)) = state.extract() {
             self.brokers = brokers;
             self.topic = topic;
-            self.additional_configs = additional_configs;
+            self.kwargs = kwargs;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -102,12 +102,12 @@ impl KafkaOutput {
     pub(crate) fn new(
         brokers: &[String],
         topic: String,
-        additional_configs: &Option<HashMap<String, String>>,
+        kwargs: &Option<HashMap<String, String>>,
     ) -> Self {
         let mut config = ClientConfig::new();
         config.set("bootstrap.servers", brokers.join(","));
 
-        if let Some(args) = additional_configs {
+        if let Some(args) = kwargs {
             for (key, value) in args.iter() {
                 config.set(key, value);
             }

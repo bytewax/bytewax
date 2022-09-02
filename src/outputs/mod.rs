@@ -118,7 +118,7 @@ pub(crate) fn build_output_writer(
 
         let brokers = &config.brokers;
         let topic = &config.topic;
-        let additional_configs = &&config.additional_configs;
+        let additional_configs = &config.kwargs;
 
         let writer = py.allow_threads(|| {
             SendWrapper::new(KafkaOutput::new(
