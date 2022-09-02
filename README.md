@@ -39,6 +39,16 @@ Install the [latest release](https://github.com/bytewax/bytewax/releases/latest)
 pip install bytewax
 ```
 
+### Building From Source
+
+To build a specific branch, you will need to use Maturin and have Rust installed on your machine. Once those have been installed run
+
+```shell
+maturin develop
+```
+
+And you will be able to import bytewax in your python file.
+
 ## Example
 
 Here is an example of a simple dataflow program using Bytewax:
