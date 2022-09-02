@@ -18,7 +18,7 @@ log = { version = "0.4" }
 pyo3 = { version = "0.17.1" }
 pyo3-chrono = { version = "0.5.0" }
 pyo3-log = { version = "0.7.0" }
-rdkafka = { version = "0.28.0", features = [ "cmake-build" ] }
+rdkafka = { version = "0.28.0", features = [ "cmake-build", "gssapi" ] }
 scopeguard = { version = "1.1.0" }
 send_wrapper = { version = "0.6.0" }
 serde = { version = "1.0.134" }
