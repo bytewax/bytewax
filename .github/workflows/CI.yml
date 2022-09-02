@@ -64,6 +64,7 @@ jobs:
     - name: Install system dependencies
       run: |
         choco install -y openssl
+        set OPENSSL_DIR="C:\Program Files\OpenSSL-Win64"
     - uses: ilammy/msvc-dev-cmd@v1
     - uses: actions/setup-python@v2
       with:
