@@ -5,6 +5,10 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- KafkaInputConfig now accepts additional configuration options. Those
+  parameters can be passed as keyword args. See 
+  `bytewax.inputs.KafkaInputConfig`.
+
 ## 0.11.0
 
 - Added the `fold_window` operator, works like `reduce_window` but allows
