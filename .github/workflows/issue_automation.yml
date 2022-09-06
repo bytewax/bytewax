@@ -11,5 +11,5 @@ jobs:
       - name: initial labeling
         uses: andymckay/labeler@1.0.4
         with:
-          add-labels: "needs-triage"
+          add-labels: "needs triage"
           ignore-if-assigned: true
