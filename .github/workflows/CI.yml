@@ -65,6 +65,7 @@ jobs:
       run: |
         brew update
         brew install openssl cyrus-sasl
+        echo "OPENSSL_ROOT_DIR"=/usr/local/opt/openssl@1.1 >> $GITHUB_ENV
     - uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
