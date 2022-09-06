@@ -59,6 +59,8 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.7', '3.8', '3.9', '3.10']
+    env:
+      OPENSSL_ROOT_DIR: /usr/local/opt/openssl@1.1
     steps:
     - uses: actions/checkout@v2
     - name: Install system dependencies
@@ -66,7 +68,6 @@ jobs:
         brew update
         brew install cyrus-sasl
         NO_INSTALL_CLEANUP=1 brew reinstall openssl@1.1
-        echo "OPENSSL_ROOT_DIR"=/usr/local/opt/openssl@1.1 >> $GITHUB_ENV
     - uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
