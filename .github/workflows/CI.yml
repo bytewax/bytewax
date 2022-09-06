@@ -14,6 +14,15 @@ jobs:
         python-version: ['3.7', '3.8', '3.9', '3.10']
     steps:
     - uses: actions/checkout@v2
+    - uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Install system dependencies
       run: |
         sudo apt update
@@ -61,11 +70,20 @@ jobs:
         python-version: ['3.7', '3.8', '3.9', '3.10']
     steps:
     - uses: actions/checkout@v2
+    - uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Install system dependencies
       run: |
         brew update
-        brew install cyrus-sasl
-        NO_INSTALL_CLEANUP=1 brew reinstall openssl@1.1
+        HOMEBREW_NO_INSTALL_CLEANUP=1 brew install cyrus-sasl
+        HOMEBREW_NO_INSTALL_CLEANUP=1 brew reinstall openssl@1.1
         echo "OPENSSL_ROOT_DIR"=/usr/local/opt/openssl@1.1 >> $GITHUB_ENV
         echo "SASL2_DIR"=/usr/local/opt/cyrus_sasl >> $GITHUB_ENV
     - uses: actions/setup-python@v2
