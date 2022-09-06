@@ -77,6 +77,10 @@ jobs:
       with:
         command: test
         args: --no-default-features
+    - name: Cargo clean
+      shell: bash
+      run:
+        cargo clean
     - uses: messense/maturin-action@v1
       with:
         rust-toolchain: 1.61
