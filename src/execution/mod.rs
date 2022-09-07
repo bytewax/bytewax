@@ -39,6 +39,7 @@ use crate::operators::*;
 use crate::outputs::build_output_writer;
 use crate::outputs::capture;
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny};
+use crate::recovery::StateReader;
 use crate::recovery::StatefulUnary;
 use crate::recovery::WriteProgress;
 use crate::recovery::WriteState;
@@ -52,7 +53,6 @@ use crate::recovery::{ProgressReader, StateCollector};
 use crate::recovery::{RecoveryConfig, StepId};
 use crate::recovery::{RecoveryStoreSummary, StateWriter};
 use crate::recovery::{StateBytes, StateKey};
-use crate::recovery::StateReader;
 use crate::window::{build_clock_builder, build_windower_builder, StatefulWindowUnary};
 use crate::StringResult;
 use log::debug;
@@ -73,8 +73,8 @@ use timely::worker::Worker;
 use self::periodic_epoch::{periodic_epoch_source, PeriodicEpochConfig};
 use self::testing_epoch::{testing_epoch_source, TestingEpochConfig};
 
-pub(crate) mod testing_epoch;
 pub(crate) mod periodic_epoch;
+pub(crate) mod testing_epoch;
 
 /// Base class for an epoch config.
 ///

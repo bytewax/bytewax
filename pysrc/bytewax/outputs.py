@@ -12,6 +12,7 @@ operator.
 """
 
 from .bytewax import (  # noqa: F401
+    KafkaOutputConfig,
     ManualEpochOutputConfig,
     ManualOutputConfig,
     OutputConfig,

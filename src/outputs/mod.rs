@@ -15,14 +15,19 @@
 //! want. E.g. [`StdOutputConfig`] represents a token in Python for
 //! how to create a [`StdOutput`].
 
-use std::ffi::CString;
-
-use crate::{
-    pyo3_extensions::{TdPyAny, TdPyCallable},
-    unwrap_any, StringResult,
-};
-use pyo3::ffi::PySys_WriteStdout;
+use crate::{pyo3_extensions::TdPyAny, StringResult};
 use pyo3::{exceptions::PyValueError, prelude::*};
+use send_wrapper::SendWrapper;
+
+pub(crate) mod kafka_output;
+pub(crate) mod manual_epoch_output;
+pub(crate) mod manual_output;
+pub(crate) mod std_output;
+
+pub(crate) use self::kafka_output::{KafkaOutput, KafkaOutputConfig};
+pub(crate) use self::manual_epoch_output::{ManualEpochOutput, ManualEpochOutputConfig};
+pub(crate) use self::manual_output::{ManualOutput, ManualOutputConfig};
+pub(crate) use self::std_output::{StdOutput, StdOutputConfig};
 
 /// Base class for an output config.
 ///
@@ -61,150 +66,6 @@ impl OutputConfig {
         } else {
             Err(PyValueError::new_err(format!(
                 "bad pickle contents for OutputConfig: {state:?}"
-            )))
-        }
-    }
-}
-
-/// Call a Python callback function with each output item.
-///
-/// Args:
-///
-///   output_builder: `output_builder(worker_index: int,
-///       worker_count: int) => output_handler(item: Any)` Builder
-///       function which returns a handler function for each worker
-///       thread, called with `item` whenever an item passes by this
-///       capture operator on this worker.
-///
-/// Returns:
-///
-///   Config object. Pass this to the
-///   `bytewax.dataflow.Dataflow.capture` operator.
-#[pyclass(module = "bytewax.outputs", extends = OutputConfig, subclass)]
-#[pyo3(text_signature = "(output_builder)")]
-pub(crate) struct ManualOutputConfig {
-    output_builder: TdPyCallable,
-}
-
-#[pymethods]
-impl ManualOutputConfig {
-    #[new]
-    #[args(output_builder)]
-    fn new(output_builder: TdPyCallable) -> (Self, OutputConfig) {
-        (Self { output_builder }, OutputConfig {})
-    }
-
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, TdPyCallable) {
-        ("ManualOutputConfig", self.output_builder.clone())
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self, py: Python) -> (TdPyCallable,) {
-        (TdPyCallable::pickle_new(py),)
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("ManualOutputConfig", output_builder)) = state.extract() {
-            self.output_builder = output_builder;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for ManualOutputConfig: {state:?}"
-            )))
-        }
-    }
-}
-
-/// Call a Python callback function with each output epoch and item.
-///
-/// You probably want to use `ManualOutputConfig` unless you know you
-/// need specific epoch assignments for deep integration work.
-///
-/// Args:
-///
-///   output_builder: `output_builder(worker_index: int,
-///       worker_count: int) => output_handler(epoch_item:
-///       Tuple[int, Any])` Builder function which returns a handler
-///       function for each worker thread, called with `(epoch,
-///       item)` whenever an item passes by this capture operator on
-///       this worker.
-///
-/// Returns:
-///
-///   Config object. Pass this to the
-///   `bytewax.dataflow.Dataflow.capture` operator.
-#[pyclass(module = "bytewax.outputs", extends = OutputConfig, subclass)]
-#[pyo3(text_signature = "(output_builder)")]
-pub(crate) struct ManualEpochOutputConfig {
-    output_builder: TdPyCallable,
-}
-
-#[pymethods]
-impl ManualEpochOutputConfig {
-    #[new]
-    #[args(output_builder)]
-    fn new(output_builder: TdPyCallable) -> (Self, OutputConfig) {
-        (Self { output_builder }, OutputConfig {})
-    }
-
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, TdPyCallable) {
-        ("ManualEpochOutputConfig", self.output_builder.clone())
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self, py: Python) -> (TdPyCallable,) {
-        (TdPyCallable::pickle_new(py),)
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("ManualEpochOutputConfig", output_builder)) = state.extract() {
-            self.output_builder = output_builder;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for ManualEpochOutputConfig: {state:?}"
-            )))
-        }
-    }
-}
-
-/// Write the output items to standard out.
-///
-/// Items must have a valid `__str__`. If not, map the items into a
-/// string before capture.
-///
-/// Returns:
-///
-///   Config object. Pass this to the
-///   `bytewax.dataflow.Dataflow.capture` operator.
-#[pyclass(module = "bytewax.outputs", extends = OutputConfig)]
-#[pyo3(text_signature = "()")]
-pub(crate) struct StdOutputConfig {}
-
-#[pymethods]
-impl StdOutputConfig {
-    #[new]
-    #[args()]
-    fn new() -> (Self, OutputConfig) {
-        (Self {}, OutputConfig {})
-    }
-
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("StdOutputConfig",)
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("StdOutputConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for StdOutputConfig: {state:?}"
             )))
         }
     }
@@ -252,94 +113,25 @@ pub(crate) fn build_output_writer(
         let writer = py.allow_threads(StdOutput::new);
 
         Ok(Box::new(writer))
+    } else if let Ok(config) = config.downcast::<PyCell<KafkaOutputConfig>>() {
+        let config = config.borrow();
+
+        let brokers = &config.brokers;
+        let topic = &config.topic;
+        let additional_properties = &config.additional_properties;
+
+        let writer = py.allow_threads(|| {
+            SendWrapper::new(KafkaOutput::new(
+                brokers,
+                topic.to_string(),
+                additional_properties,
+            ))
+        });
+
+        Ok(Box::new(writer.take()))
     } else {
         let pytype = config.get_type();
         Err(format!("Unknown output_config type: {pytype}"))
-    }
-}
-
-/// Call a Python callback function on each item of output.
-struct ManualOutput {
-    pyfunc: TdPyCallable,
-}
-
-impl ManualOutput {
-    fn new(
-        py: Python,
-        output_builder: TdPyCallable,
-        worker_index: usize,
-        worker_count: usize,
-    ) -> Self {
-        let pyfunc: TdPyCallable = output_builder
-            .call1(py, (worker_index, worker_count))
-            .unwrap()
-            .extract(py)
-            .unwrap();
-        Self { pyfunc }
-    }
-}
-
-impl OutputWriter<u64, TdPyAny> for ManualOutput {
-    fn push(&mut self, _epoch: u64, item: TdPyAny) {
-        Python::with_gil(|py| unwrap_any!(self.pyfunc.call1(py, (item,))));
-    }
-}
-
-/// Call a Python callback function on each item of output with its
-/// epoch.
-struct ManualEpochOutput {
-    pyfunc: TdPyCallable,
-}
-
-impl ManualEpochOutput {
-    fn new(
-        py: Python,
-        output_builder: TdPyCallable,
-        worker_index: usize,
-        worker_count: usize,
-    ) -> Self {
-        let pyfunc: TdPyCallable = output_builder
-            .call1(py, (worker_index, worker_count))
-            .unwrap()
-            .extract(py)
-            .unwrap();
-        Self { pyfunc }
-    }
-}
-
-impl OutputWriter<u64, TdPyAny> for ManualEpochOutput {
-    fn push(&mut self, epoch: u64, item: TdPyAny) {
-        Python::with_gil(|py| {
-            let epoch_item_pytuple: Py<PyAny> = (epoch, item).into_py(py);
-            unwrap_any!(self.pyfunc.call1(py, (epoch_item_pytuple,)))
-        });
-    }
-}
-
-/// Print output to standard out.
-struct StdOutput {}
-
-impl StdOutput {
-    fn new() -> Self {
-        Self {}
-    }
-}
-
-impl OutputWriter<u64, TdPyAny> for StdOutput {
-    fn push(&mut self, _epoch: u64, item: TdPyAny) {
-        Python::with_gil(|py| {
-            let item = item.as_ref(py);
-            let item_str: &str = item
-                .str()
-                .expect("Items written to std out need to implement `__str__`")
-                .extract()
-                .unwrap();
-            let output = CString::new(format!("{item_str}\n")).unwrap();
-            let stdout_str = output.as_ptr() as *const i8;
-            unsafe {
-                PySys_WriteStdout(stdout_str);
-            }
-        });
     }
 }
 
@@ -356,5 +148,6 @@ pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ManualOutputConfig>()?;
     m.add_class::<ManualEpochOutputConfig>()?;
     m.add_class::<StdOutputConfig>()?;
+    m.add_class::<KafkaOutputConfig>()?;
     Ok(())
 }

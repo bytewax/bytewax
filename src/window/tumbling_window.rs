@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 
-use pyo3::{exceptions::PyValueError, prelude::*};
 use chrono::{Duration, NaiveDateTime};
+use pyo3::{exceptions::PyValueError, prelude::*};
 
 use crate::recovery::StateBytes;
 
 use super::{InsertError, WindowConfig, WindowKey, Windower};
-
 
 /// Tumbling windows of fixed duration.
 ///

@@ -8,7 +8,7 @@ use pyo3::types::PyBytes;
 
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::base_consumer::BaseConsumer;
-use rdkafka::consumer::{Consumer};
+use rdkafka::consumer::Consumer;
 use rdkafka::error::KafkaError;
 use rdkafka::message::Message;
 use rdkafka::{Offset, TopicPartitionList};
@@ -39,18 +39,18 @@ use super::{distribute, InputConfig, InputReader};
 ///   starting_offset (str): Can be "beginning" or "end". Delegates
 ///       where to resume if auto_commit is not enabled. Defaults to
 ///       "beginning".
-/// 
-/// Any additional configuration properties can be passed as kwargs. Note
-/// that consumer group settings will be ignored.
-/// See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
-/// for more options.
+///
+///   additional_properties (dict): Any additional configuration properties.
+///       Note that consumer group settings will be ignored.
+///       See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
+///       for more options.
 ///
 /// Returns:
 ///
 ///   Config object. Pass this as the `input_config` argument to the
 ///   `bytewax.dataflow.Dataflow.input`.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
-#[pyo3(text_signature = "(brokers, topic, tail, starting_offset, additional_configs='**')")]
+#[pyo3(text_signature = "(brokers, topic, tail, starting_offset, additional_properties)")]
 pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
     pub(crate) brokers: Vec<String>,
@@ -61,7 +61,7 @@ pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
     pub(crate) starting_offset: String,
     #[pyo3(get)]
-    pub(crate) additional_configs: Option<HashMap<String, String>>,
+    pub(crate) additional_properties: Option<HashMap<String, String>>,
 }
 
 #[pymethods]
@@ -72,14 +72,14 @@ impl KafkaInputConfig {
         topic,
         tail = true,
         starting_offset = "\"beginning\".to_string()",
-        additional_configs = "**"
+        additional_properties = "None"
     )]
     fn new(
         brokers: Vec<String>,
         topic: String,
         tail: bool,
         starting_offset: String,
-        additional_configs: Option<HashMap<String, String>>,
+        additional_properties: Option<HashMap<String, String>>,
     ) -> (Self, InputConfig) {
         (
             Self {
@@ -87,20 +87,29 @@ impl KafkaInputConfig {
                 topic,
                 tail,
                 starting_offset,
-                additional_configs
+                additional_properties,
             },
             InputConfig {},
         )
     }
 
-    fn __getstate__(&self) -> (&str, Vec<String>, String, bool, String, Option<HashMap<String, String>>) {
+    fn __getstate__(
+        &self,
+    ) -> (
+        &str,
+        Vec<String>,
+        String,
+        bool,
+        String,
+        Option<HashMap<String, String>>,
+    ) {
         (
             "KafkaInputConfig",
             self.brokers.clone(),
             self.topic.clone(),
             self.tail,
             self.starting_offset.clone(),
-            self.additional_configs.clone(),
+            self.additional_properties.clone(),
         )
     }
 
@@ -112,12 +121,20 @@ impl KafkaInputConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("KafkaInputConfig", brokers, topic, tail, starting_offset, additional_configs)) = state.extract() {
+        if let Ok((
+            "KafkaInputConfig",
+            brokers,
+            topic,
+            tail,
+            starting_offset,
+            additional_properties,
+        )) = state.extract()
+        {
             self.brokers = brokers;
             self.topic = topic;
             self.tail = tail;
             self.starting_offset = starting_offset;
-            self.additional_configs = additional_configs;
+            self.additional_properties = additional_properties;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -135,7 +152,7 @@ fn get_kafka_partition_count(consumer: &BaseConsumer, topic: &str) -> i32 {
     let timeout = Some(Duration::from_secs(5));
 
     log::debug!("Attempting to fetch metadata from {}", topic);
-    
+
     let metadata = consumer
         .fetch_metadata(Some(topic), timeout)
         .map_err(|e| e.to_string())
@@ -191,7 +208,7 @@ impl KafkaInput {
         topic: &str,
         tail: bool,
         starting_offset: Offset,
-        additional_configs: &Option<HashMap<String, String>>,
+        additional_properties: &Option<HashMap<String, String>>,
         worker_index: usize,
         worker_count: usize,
         resume_state_bytes: Option<StateBytes>,
@@ -200,17 +217,17 @@ impl KafkaInput {
             .map(|resume_state_bytes| resume_state_bytes.de())
             .unwrap_or_default();
 
-        let eof = !tail; 
-        
+        let eof = !tail;
+
         let mut config = ClientConfig::new();
-        
+
         config
             .set("group.id", "BYTEWAX_IGNORED")
             .set("enable.auto.commit", "false")
             .set("bootstrap.servers", brokers.join(","))
             .set("enable.partition.eof", format!("{eof}"));
 
-        if let Some(args) = additional_configs {
+        if let Some(args) = additional_properties {
             for (key, value) in args.iter() {
                 config.set(key, value);
             }
