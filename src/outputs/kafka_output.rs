@@ -25,38 +25,40 @@ use super::{OutputConfig, OutputWriter};
 ///
 ///   topic (str): Topic to which producer will send records.
 ///
-/// Additional configuration can be passed as kwargs. See
-/// https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
-/// 
+///   additional_properties (dict): Any additional configuration properties.
+///       Note that consumer group settings will be ignored.
+///       See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
+///       for more options.
+///
 /// Returns:
 ///
 ///   Config object. Pass this as the `output_config` argument to the
 ///   `bytewax.dataflow.Dataflow.output`.
 #[pyclass(module = "bytewax.outputs", extends = OutputConfig)]
-#[pyo3(text_signature = "(brokers, topic, kwargs='**')")]
+#[pyo3(text_signature = "(brokers, topic, additional_properties)")]
 pub(crate) struct KafkaOutputConfig {
     #[pyo3(get)]
     pub(crate) brokers: Vec<String>,
     #[pyo3(get)]
     pub(crate) topic: String,
     #[pyo3(get)]
-    pub(crate) kwargs: Option<HashMap<String, String>>,
+    pub(crate) additional_properties: Option<HashMap<String, String>>,
 }
 
 #[pymethods]
 impl KafkaOutputConfig {
     #[new]
-    #[args(brokers, topic, kwargs)]
+    #[args(brokers, topic, additional_properties = "None")]
     fn new(
         brokers: Vec<String>,
         topic: String,
-        kwargs: Option<HashMap<String, String>>,
+        additional_properties: Option<HashMap<String, String>>,
     ) -> (Self, OutputConfig) {
         (
             Self {
                 brokers,
                 topic,
-                kwargs,
+                additional_properties,
             },
             OutputConfig {},
         )
@@ -67,7 +69,7 @@ impl KafkaOutputConfig {
             "KafkaOutputConfig",
             self.brokers.clone(),
             self.topic.clone(),
-            self.kwargs.clone(),
+            self.additional_properties.clone(),
         )
     }
 
@@ -79,10 +81,10 @@ impl KafkaOutputConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("KafkaOutputConfig", brokers, topic, kwargs)) = state.extract() {
+        if let Ok(("KafkaOutputConfig", brokers, topic, additional_properties)) = state.extract() {
             self.brokers = brokers;
             self.topic = topic;
-            self.kwargs = kwargs;
+            self.additional_properties = additional_properties;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -102,12 +104,12 @@ impl KafkaOutput {
     pub(crate) fn new(
         brokers: &[String],
         topic: String,
-        kwargs: &Option<HashMap<String, String>>,
+        additional_properties: &Option<HashMap<String, String>>,
     ) -> Self {
         let mut config = ClientConfig::new();
         config.set("bootstrap.servers", brokers.join(","));
 
-        if let Some(args) = kwargs {
+        if let Some(args) = additional_properties {
             for (key, value) in args.iter() {
                 config.set(key, value);
             }
