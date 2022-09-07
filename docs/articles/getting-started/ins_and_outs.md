@@ -18,7 +18,7 @@ You then pass the builder to `ManualInputConfig` and the generator will be polle
 
 [KafkaInputConfig](/apidocs/bytewax.inputs#bytewax.inputs.KafkaInputConfig) is a specific input configuration tailored for Apache Kafka (and kafka-api compatible platforms, like Redpanda).  
 This input generator is provided by the Rust Bytewax library, and while you can build a custom Kafka input using the `ManualInputConfig` and any python library to connect to Kafka, using the `KafkaInputConfig` is the recommended approach since it also automatically handles recovery.  
-`KafkaInputConfig` accepts four parameters: a list of brokers, a topic, a tail boolean and a starting_offset. Additional configuration can be passed as keyword arguments. See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md. See our API docs for `bytewax.inputs` for more on a Kafka configuration.
+`KafkaInputConfig` accepts four parameters: a list of brokers, a topic, a tail boolean and a starting_offset. Additional configuration can be passed as a dictionary with the keyword `additional_properties`. See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md. See our API docs for `bytewax.inputs` for more on a Kafka configuration.
 
 ## Output
 
@@ -34,4 +34,4 @@ Bytewax offers three output configurations:
 [StdOutputConfig](/apidocs/bytewax.outputs#bytewax.outputs.StdOutputConfig) simply prints all of the output to standard out, and it does not require any other configuration.
 
 [KafkaOutputConfig](/apidocs/bytewax.inputs#bytewax.outputs.KafkaOutputConfig) is a specific output configuration tailored for Apache Kafka (and kafka-api compatible platforms, like Redpanda).  
-This output generator is provided by the Rust Bytewax library. `KafkaOutputConfig` expects only two parameters: a list of brokers and a topic. Its input must take the form of a two-tuple of bytes, where the second element is the payload and the first is an optional key. Additional configuration can be passed as keyword arguments. See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md. See our API docs for `bytewax.outputs` for more on a Kafka configuration.
+This output generator is provided by the Rust Bytewax library. `KafkaOutputConfig` expects only two parameters: a list of brokers and a topic. Its input must take the form of a two-tuple of bytes, where the second element is the payload and the first is an optional key. Additional configuration can be passed as a dictionary with the keyword `additional_properties`. See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md. See our API docs for `bytewax.outputs` for more on a Kafka configuration.

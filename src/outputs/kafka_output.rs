@@ -16,7 +16,7 @@ use super::{OutputConfig, OutputWriter};
 /// Use [Kafka](https://kafka.apache.org) as the output.
 ///
 /// A `capture` using KafkaOutput expects to receive data
-/// structured as two-tuples of (key, payload) to form a Kafka
+/// structured as two-tuples of bytes (key, payload) to form a Kafka
 /// record. Key may be `None`.
 ///
 /// Args:
