@@ -1,12 +1,13 @@
 use crate::py_unwrap;
 use crate::pyo3_extensions::TdPyAny;
+use log::debug;
 use pyo3::{
     exceptions::{PyTypeError, PyValueError},
     prelude::*,
     types::PyBytes,
 };
 use rdkafka::{
-    producer::{BaseProducer, BaseRecord},
+    producer::{BaseProducer, BaseRecord, Producer},
     ClientConfig,
 };
 use std::{collections::HashMap, time::Duration};
@@ -118,6 +119,13 @@ impl KafkaOutput {
         let producer: BaseProducer = config.create().expect("Producer creation error");
 
         Self { producer, topic }
+    }
+}
+
+impl Drop for KafkaOutput {
+    fn drop(&mut self) {
+        debug!("Flushing producer queue");
+        self.producer.flush(Duration::from_secs(5));
     }
 }
 
