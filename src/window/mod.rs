@@ -45,8 +45,8 @@ use std::task::Poll;
 use timely::dataflow::{Scope, Stream};
 use timely::{Data, ExchangeData};
 
-pub(crate) mod testing_clock;
 pub(crate) mod system_clock;
+pub(crate) mod testing_clock;
 pub(crate) mod tumbling_window;
 
 use self::system_clock::{SystemClock, SystemClockConfig};
@@ -273,7 +273,6 @@ pub(crate) trait Windower {
     /// `logic_builder`.
     fn snapshot(&self) -> StateBytes;
 }
-
 
 /// Possible errors emitted downstream from windowing operators.
 #[derive(Clone, Serialize, Deserialize)]

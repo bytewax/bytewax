@@ -1,11 +1,17 @@
-use std::task::Poll;
 use std::fmt::Debug;
+use std::task::Poll;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use timely::{Data, dataflow::{ProbeHandle, Scope, Stream, operators::generic::builder_rc::OperatorBuilder}};
+use timely::{
+    dataflow::{operators::generic::builder_rc::OperatorBuilder, ProbeHandle, Scope, Stream},
+    Data,
+};
 
-use crate::{inputs::InputReader, recovery::{EpochData, StateKey, StateUpdate, StepId}};
+use crate::{
+    inputs::InputReader,
+    recovery::{EpochData, StateKey, StateUpdate, StepId},
+};
 
 use super::EpochConfig;
 
@@ -129,4 +135,3 @@ pub(crate) fn testing_epoch_source<S: Scope<Timestamp = u64>, D: Data + Debug>(
 
     (output_stream, state_update_stream)
 }
-

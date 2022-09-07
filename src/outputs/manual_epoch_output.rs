@@ -1,5 +1,3 @@
-
-
 use crate::{
     pyo3_extensions::{TdPyAny, TdPyCallable},
     unwrap_any,
@@ -62,7 +60,6 @@ impl ManualEpochOutputConfig {
         }
     }
 }
-
 
 /// Call a Python callback function on each item of output with its
 /// epoch.

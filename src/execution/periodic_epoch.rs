@@ -1,15 +1,15 @@
 use std::fmt::Debug;
 use std::task::Poll;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::PyResult;
-use timely::Data;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
+use timely::Data;
 
 use crate::inputs::InputReader;
 use crate::recovery::EpochData;
