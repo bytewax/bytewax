@@ -5,8 +5,7 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
-- KafkaInputConfig now accepts additional configuration options. Those
-  parameters can be passed as keyword args. See 
+- KafkaInputConfig now accepts additional properties. See
   `bytewax.inputs.KafkaInputConfig`.
 
 - Support for a pre-built Kafka output component. See
