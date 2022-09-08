@@ -30,7 +30,7 @@ If you spot a problem with Bytewax, search if an issue already exists. If a rela
 
 #### Solve an issue
 
-Scan through our [existing issues](https://github.com/bytewax/bytewax/issues) to find one that interests you. You can narrow down the search using `labels` as filters. As a general rule, we don’t assign issues to anyone. If you find an issue to work on, you are welcome to open a PR with a fix.
+Scan through our [existing issues](https://github.com/bytewax/bytewax/issues) to find one that interests you. You can narrow down the search using `labels` as filters. By default, we won't assign issues to any contributors that are not maintainers. If you find an issue to work on, you are welcome to open a PR with a fix.
 
 Important Labels:
 **Good First Issue** - These are a good entry point for contributing to Bytewax.
