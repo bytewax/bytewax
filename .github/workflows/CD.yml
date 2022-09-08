@@ -105,12 +105,16 @@ jobs:
           hosts: localhost
           tasks:
           - name: Loop
-            shell: "pip install bytewax=={{ bytewax_version }}"
+            shell: "pip install bytewax=={{ bytewax_version }} -v"
             register: pip_result
             retries: 60
             until: pip_result.rc == 0
             delay: 10
         EOF
+    - name: Upgrade pip version
+      run: |
+        pip --version
+        pip install --upgrade pip
     - name: Check PyPI index before building docker images
       run: |
         ansible-playbook ./pip_task.yaml -e bytewax_version=${{ needs.release.outputs.bytewax-version }} -vvv
