@@ -18,7 +18,7 @@ To get an overview of the project, read the [README](README.md). Here are some r
 
 ## Getting started
 
-Bytewax is a Python library backed by Rust code. The codebase is split between Python code in [`pysrc/bytewax`](https://github.com/bytewax/bytewax/tree/main/pysrc/bytewax) and Rust code in [`src`](https://github.com/bytewax/bytewax/tree/main/src). PyO3 is used as the interface between the two. Bytewax operators and the execution of dataflows are handled at the Rust layer, the inputs and outputs can be written in either Rust or in Python.
+Bytewax is a Python library backed by Rust code. The codebase is split between Python code in [`pysrc/bytewax`](https://github.com/bytewax/bytewax/tree/main/pysrc/bytewax) and Rust code in [`src`](https://github.com/bytewax/bytewax/tree/main/src). PyO3 is used as the interface between the two. Bytewax operators and the execution of dataflows are handled at the Rust layer. The inputs and outputs can be written in either Rust or in Python.
 
 To develop with Bytewax locally you will need to install Rust and use [Maturin](https://github.com/PyO3/maturin) to build the code into a Python module locally. 
 
