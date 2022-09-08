@@ -1,6 +1,6 @@
 # Welcome to Bytewax contributing guide
 
-Thank you for investing your time in contributing to our project! Any contribution you make will be reflected in Bytewax :sparkles:. 
+Thank you for investing your time in contributing to our project! Any contribution you make will be included in future Bytewax releases :sparkles:. 
 
 Read our [Code of Conduct](CODE_OF_CONDUCT.md) to keep our community approachable and respectable.
 
