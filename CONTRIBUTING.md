@@ -26,7 +26,7 @@ To develop with Bytewax locally you will need to install Rust and use [Maturin](
 
 #### Create a new issue
 
-If you spot a problem with Bytewax, search if an issue already exists. If a related issue doesn't exist, you can open a new issue using a relevant [issue templat](https://github.com/bytewax/bytewax/issues/new/choose). 
+If you spot a problem with Bytewax, search if an issue already exists. If a related issue doesn't exist, you can open a new issue using a relevant [issue template](https://github.com/bytewax/bytewax/issues/new/choose). 
 
 #### Solve an issue
 
