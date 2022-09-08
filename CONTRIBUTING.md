@@ -41,12 +41,12 @@ Important Labels:
 #### Make changes locally
 
 2. Fork the repository.
-3. Install Rust (check version)
-4. Install Maturin `pip install maturin` ([check version](https://github.com/bytewax/bytewax/blob/main/pyproject.toml))
+3. Install Rust (check version). We recommend using [rustup](https://rustup.rs/) to manage your installation.
+4. Install Maturin `pip install maturin` ([please check the version](https://github.com/bytewax/bytewax/blob/main/pyproject.toml))
 5. Install dev requirements `pip install -r dev.requirements.txt`
 5. Run `Maturin Develop`
 6. Test your changes locally.
-7. If possible, add a test that will run with CI.
+7. If possible, add a test that will run with CI. :bow:
 
 ### Commit your update
 
