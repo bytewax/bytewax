@@ -3,6 +3,7 @@ use std::task::Poll;
 use chrono::{DateTime, Utc};
 use pyo3::{exceptions::PyValueError, prelude::*};
 
+use super::{Builder, ClockBuilder};
 use super::{Clock, ClockConfig};
 use crate::recovery::StateBytes;
 
@@ -94,9 +95,35 @@ impl PyTestingClock {
 ///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=ClockConfig)]
 #[pyo3(text_signature = "(clock)")]
+#[derive(Clone)]
 pub(crate) struct TestingClockConfig {
     #[pyo3(get)]
     pub(crate) clock: Py<PyTestingClock>,
+}
+
+impl IntoPy<Py<PyAny>> for TestingClockConfig {
+    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
+        ("TestingClockConfig", self.clock).into_py(py)
+    }
+}
+
+impl<V> ClockBuilder<V> for TestingClockConfig {
+    fn builder(self) -> Builder<V> {
+        Box::new(move |resume_state_bytes: Option<StateBytes>| {
+            // All instances of this [`TestingClock`] will reference
+            // the same [`PyTestingClock`] so modifications increment
+            // all windows' times.
+            let py_clock = self.clock.clone();
+
+            if let Some(now) = resume_state_bytes.map(StateBytes::de::<DateTime<Utc>>) {
+                Python::with_gil(|py| {
+                    py_clock.borrow_mut(py).now = now;
+                })
+            }
+
+            Box::new(TestingClock::new(py_clock))
+        })
+    }
 }
 
 #[pymethods]
@@ -143,23 +170,8 @@ pub(crate) struct TestingClock {
 }
 
 impl TestingClock {
-    pub(crate) fn builder<V>(
-        py_clock: Py<PyTestingClock>,
-    ) -> impl Fn(Option<StateBytes>) -> Box<dyn Clock<V>> {
-        move |resume_state_bytes: Option<StateBytes>| {
-            // All instances of this [`TestingClock`] will reference
-            // the same [`PyTestingClock`] so modifications increment
-            // all windows' times.
-            let py_clock = py_clock.clone();
-
-            if let Some(now) = resume_state_bytes.map(StateBytes::de::<DateTime<Utc>>) {
-                Python::with_gil(|py| {
-                    py_clock.borrow_mut(py).now = now;
-                })
-            }
-
-            Box::new(Self { py_clock })
-        }
+    pub(crate) fn new(py_clock: Py<PyTestingClock>) -> Self {
+        Self { py_clock }
     }
 }
 

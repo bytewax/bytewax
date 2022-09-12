@@ -38,6 +38,12 @@ impl Deref for TdPyAny {
     }
 }
 
+impl ToPyObject for TdPyAny {
+    fn to_object(&self, py: Python<'_>) -> PyObject {
+        self.0.to_object(py)
+    }
+}
+
 impl IntoPy<PyObject> for TdPyAny {
     fn into_py(self, _py: Python) -> Py<PyAny> {
         self.0
