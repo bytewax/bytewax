@@ -220,7 +220,9 @@ use serde::Serialize;
 use std::any::type_name;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::hash_map::Entry;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -1186,20 +1188,21 @@ where
             // have new data; pull out of here in epoch order to
             // process. This spans activations and will have epochs
             // removed from it as the input frontier progresses.
-            let mut incoming_epoch_to_key_values_buffer = HashMap::new();
+            let mut incoming_epoch_to_key_values_buffer: HashMap<S::Timestamp, Vec<(StateKey, V)>> =
+                HashMap::new();
 
-            // Temp list of epochs that need processing. This is
-            // filled from buffered data and drained and re-used each
-            // activation of this operator.
-            let mut activate_epochs_buffer: Vec<S::Timestamp> = Vec::new();
+            // Temp ordered set of epochs that need processing. This
+            // is filled from buffered data and drained and re-used
+            // each activation of this operator.
+            let mut activate_epochs_buffer: BTreeSet<S::Timestamp> = BTreeSet::new();
             // Temp list of `(StateKey, Poll<Option<V>>)` to pass to
             // the operator logic within each epoch. This is drained
             // and re-used.
-            let mut key_values_buffer = Vec::new();
-            // Temp list to build up a copy of all the keys when we've
+            let mut key_values_buffer: Vec<(StateKey, Poll<Option<V>>)> = Vec::new();
+            // Temp set of all the keys we know about when we've
             // reached EOF to signal that. This is drained and
             // re-used.
-            let mut keys_buffer = Vec::new();
+            let mut keys_buffer = HashSet::new();
 
             // Persistent across activations buffer of when each key
             // needs to be awoken next. As activations occur due to
@@ -1210,7 +1213,7 @@ where
             // snapshot state of keys that could have resulted in
             // state modifications. Epochs will be removed from this
             // as the frontier progresses.
-            let mut activated_epoch_to_keys_buffer: HashMap<S::Timestamp, Vec<StateKey>> =
+            let mut activated_epoch_to_keys_buffer: HashMap<S::Timestamp, HashSet<StateKey>> =
                 HashMap::new();
 
             move |input_frontiers| {
@@ -1276,15 +1279,10 @@ where
                             .filter(is_closed),
                     );
                     // Eagerly execute the frontier.
-                    activate_epochs_buffer.push(frontier_epoch);
-                    activate_epochs_buffer.dedup();
-                    // We promise to execute epochs in order so the
-                    // state is deterministic.
-                    activate_epochs_buffer.sort();
+                    activate_epochs_buffer.insert(frontier_epoch);
 
-                    // Drain to re-use buffer. For each epoch in
-                    // order:
-                    for epoch in activate_epochs_buffer.drain(..) {
+                    // For each epoch in order:
+                    for epoch in activate_epochs_buffer.iter() {
                         // Since the frontier has advanced to at least
                         // this epoch (because we're going through
                         // them in order), say that we'll not be
@@ -1324,10 +1322,9 @@ where
                             // (otherwise we'd have to retain data for
                             // all keys ever seen).
                             keys_buffer.extend(key_to_next_activate_at_buffer.keys().cloned());
-                            keys_buffer.dedup();
                             // Drain to re-use allocation.
                             key_values_buffer
-                                .extend(keys_buffer.drain(..).map(|k| (k, Poll::Ready(None))));
+                                .extend(keys_buffer.drain().map(|k| (k, Poll::Ready(None))));
                         } else {
                             // Otherwise, wake up any keys
                             // that are past their requested
@@ -1340,8 +1337,9 @@ where
                             );
                         }
 
-                        let activated_keys =
-                            activated_epoch_to_keys_buffer.entry(epoch).or_default();
+                        let activated_keys = activated_epoch_to_keys_buffer
+                            .entry(epoch.clone())
+                            .or_default();
 
                         let mut output_session = output_handle.session(&output_cap);
                         let mut state_update_session =
@@ -1384,7 +1382,7 @@ where
                                     .or_insert(activate_at);
                             }
 
-                            activated_keys.push(key);
+                            activated_keys.insert(key);
                         }
 
                         // Snapshot and output state at the end of the
@@ -1407,6 +1405,9 @@ where
                             }
                         }
                     }
+                    // Clear to re-use buffer.
+                    // TODO: One day I hope BTreeSet has drain.
+                    activate_epochs_buffer.clear();
 
                     // Schedule an activation at the next requested
                     // wake up time.
