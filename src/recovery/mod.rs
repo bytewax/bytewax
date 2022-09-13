@@ -1281,8 +1281,7 @@ where
                     // Eagerly execute the frontier.
                     activate_epochs_buffer.insert(frontier_epoch);
 
-                    // Drain to re-use buffer. For each epoch in
-                    // order:
+                    // For each epoch in order:
                     for epoch in activate_epochs_buffer.iter() {
                         // Since the frontier has advanced to at least
                         // this epoch (because we're going through
@@ -1406,6 +1405,7 @@ where
                             }
                         }
                     }
+                    // Clear to re-use buffer.
                     // TODO: One day I hope BTreeSet has drain.
                     activate_epochs_buffer.clear();
 
