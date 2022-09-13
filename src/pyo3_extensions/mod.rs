@@ -115,13 +115,18 @@ impl serde::Serialize for TdPyAny {
     where
         S: serde::Serializer,
     {
-        let bytes: Result<Vec<u8>, PyErr> = Python::with_gil(|py| {
+        Python::with_gil(|py| {
             let x = self.as_ref(py);
-            let pickle = py.import("dill")?;
-            let bytes = pickle.call_method1("dumps", (x,))?.extract()?;
-            Ok(bytes)
-        });
-        serializer.serialize_bytes(bytes.map_err(S::Error::custom)?.as_slice())
+            let pickle = py.import("dill").map_err(S::Error::custom)?;
+            let bytes = pickle
+                .call_method1("dumps", (x,))
+                .map_err(S::Error::custom)?
+                .downcast::<PyBytes>()
+                .map_err(S::Error::custom)?;
+            serializer
+                .serialize_bytes(bytes.as_bytes())
+                .map_err(S::Error::custom)
+        })
     }
 }
 
