@@ -506,6 +506,7 @@ pub(crate) trait StatefulWindowUnary<S: Scope, V: ExchangeData> {
         windower_builder: WB,
         logic_builder: LB,
         resume_state: HashMap<StateKey, StateBytes>,
+        take_snapshot: bool,
     ) -> (
         Stream<S, (StateKey, Result<R, WindowError<V>>)>,
         Stream<S, EpochData>,
@@ -530,6 +531,7 @@ where
         windower_builder: WB,
         logic_builder: LB,
         resume_state: HashMap<StateKey, StateBytes>,
+        take_snapshot: bool,
     ) -> (
         Stream<S, (StateKey, Result<R, WindowError<V>>)>,
         Stream<S, EpochData>,
@@ -538,6 +540,7 @@ where
             step_id,
             WindowStatefulLogic::builder(clock_builder, windower_builder, logic_builder),
             resume_state,
+            take_snapshot,
         )
     }
 }

@@ -1088,7 +1088,9 @@ pub(crate) trait StatefulUnary<S: Scope, V: ExchangeData> {
     /// This is the core Timely operator that all Bytewax stateful
     /// operators are implemented in terms of. It is awkwardly generic
     /// because of that. We do this so we only have to implement the
-    /// very tricky recovery system interop once.
+    /// very tricky recovery system interop once. That said, setting
+    /// `take_snapshot` to false will prevent unnecessary serialization
+    /// in the case that the dataflow opts out of recovery.
     ///
     /// # Input
     ///
@@ -1124,6 +1126,7 @@ pub(crate) trait StatefulUnary<S: Scope, V: ExchangeData> {
         step_id: StepId,
         logic_builder: LB,
         resume_state: HashMap<StateKey, StateBytes>,
+        take_snapshot: bool,
     ) -> (Stream<S, (StateKey, R)>, Stream<S, EpochData>)
     where
         S::Timestamp: Hash + Eq;
@@ -1143,6 +1146,7 @@ where
         step_id: StepId,
         logic_builder: LB,
         mut key_to_resume_state_bytes: HashMap<StateKey, StateBytes>,
+        take_snapshot: bool,
     ) -> (
         Stream<S, (StateKey, R)>,
         Stream<S, (StateKey, (StepId, StateUpdate))>,
@@ -1392,16 +1396,18 @@ where
                         // the buffer.
                         if is_closed(&epoch) {
                             if let Some(keys) = activated_epoch_to_keys_buffer.remove(&epoch) {
-                                for key in keys {
-                                    if let Some(logic) = logic_cache.remove(&key) {
-                                        let state_bytes = logic.snapshot();
-                                        // Retain logic if not a
-                                        // reset.
-                                        if let StateUpdate::Upsert(_) = state_bytes {
-                                            logic_cache.insert(key.clone(), logic);
+                                if take_snapshot {
+                                    for key in keys {
+                                        if let Some(logic) = logic_cache.remove(&key) {
+                                            let state_bytes = logic.snapshot();
+                                            // Retain logic if not a
+                                            // reset.
+                                            if let StateUpdate::Upsert(_) = state_bytes {
+                                                logic_cache.insert(key.clone(), logic);
+                                            }
+                                            let update = (key, (step_id.clone(), state_bytes));
+                                            state_update_session.give(update);
                                         }
-                                        let update = (key, (step_id.clone(), state_bytes));
-                                        state_update_session.give(update);
                                     }
                                 }
                             }
@@ -1600,6 +1606,16 @@ pub(crate) fn build_recovery_readers(
             recovery_config.get_type(),
         ))
     }
+}
+
+pub(crate) fn determine_take_snapshot(py: Python, recovery_config: Py<RecoveryConfig>) -> bool {
+    let recovery_config = recovery_config.as_ref(py);
+    let mut take_snapshot = true;
+
+    if let Ok(_noop_recovery_config) = recovery_config.downcast::<PyCell<NoopRecoveryConfig>>() {
+        take_snapshot = false;
+    };
+    take_snapshot
 }
 
 /// Implements all the recovery traits Bytewax needs, but does not

@@ -40,7 +40,6 @@ use crate::outputs::build_output_writer;
 use crate::outputs::capture;
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny};
 use crate::recovery::StateReader;
-use crate::recovery::StatefulUnary;
 use crate::recovery::WriteProgress;
 use crate::recovery::WriteState;
 use crate::recovery::{
@@ -48,6 +47,7 @@ use crate::recovery::{
     build_state_loading_dataflow,
 };
 use crate::recovery::{default_recovery_config, ProgressWriter};
+use crate::recovery::{determine_take_snapshot, StatefulUnary};
 use crate::recovery::{CollectGarbage, EpochData};
 use crate::recovery::{ProgressReader, StateCollector};
 use crate::recovery::{RecoveryConfig, StepId};
@@ -210,6 +210,7 @@ fn build_production_dataflow<A: Allocate>(
     progress_writer: Box<dyn ProgressWriter<u64>>,
     state_writer: Box<dyn StateWriter<u64>>,
     state_collector: Box<dyn StateCollector<u64>>,
+    take_snapshot: bool,
 ) -> StringResult<ProbeHandle<u64>> {
     let worker_index = worker.index();
     let worker_count = worker.peers();
@@ -297,6 +298,7 @@ fn build_production_dataflow<A: Allocate>(
                             windower_builder,
                             FoldWindowLogic::new(builder, folder),
                             key_to_resume_state_bytes,
+                            take_snapshot,
                         );
 
                     stream = downstream
@@ -332,6 +334,7 @@ fn build_production_dataflow<A: Allocate>(
                             step_id,
                             ReduceLogic::builder(reducer, is_complete),
                             key_to_resume_state_bytes,
+                            take_snapshot,
                         );
                     stream = downstream.map(wrap_state_pair);
                     state_update_streams.push(update_stream);
@@ -356,6 +359,7 @@ fn build_production_dataflow<A: Allocate>(
                             windower_builder,
                             ReduceWindowLogic::builder(reducer),
                             key_to_resume_state_bytes,
+                            take_snapshot,
                         );
 
                     stream = downstream
@@ -384,6 +388,7 @@ fn build_production_dataflow<A: Allocate>(
                             step_id,
                             StatefulMapLogic::builder(builder, mapper),
                             key_to_resume_state_bytes,
+                            take_snapshot,
                         );
                     stream = downstream.map(wrap_state_pair);
                     state_update_streams.push(update_stream);
@@ -526,6 +531,7 @@ fn build_and_run_production_dataflow<A: Allocate>(
     progress_writer: Box<dyn ProgressWriter<u64>>,
     state_writer: Box<dyn StateWriter<u64>>,
     state_collector: Box<dyn StateCollector<u64>>,
+    take_snapshot: bool,
 ) -> StringResult<()> {
     let probe = Python::with_gil(|py| {
         build_production_dataflow(
@@ -539,6 +545,7 @@ fn build_and_run_production_dataflow<A: Allocate>(
             progress_writer,
             state_writer,
             state_collector,
+            take_snapshot,
         )
     })?;
 
@@ -572,6 +579,7 @@ fn worker_main<A: Allocate>(
     let worker_index = worker.index();
     let worker_count = worker.peers();
 
+    let take_snapshot = Python::with_gil(|py| determine_take_snapshot(py, recovery_config.clone()));
     let (progress_reader, state_reader) = Python::with_gil(|py| {
         build_recovery_readers(py, worker_index, worker_count, recovery_config.clone())
     })?;
@@ -596,6 +604,7 @@ fn worker_main<A: Allocate>(
         progress_writer,
         state_writer,
         state_collector,
+        take_snapshot,
     )?;
 
     shutdown_worker(worker);
