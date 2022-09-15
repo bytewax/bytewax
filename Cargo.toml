@@ -33,6 +33,3 @@ pyo3 = { version = "0.17.1", default-features = false }
 [features]
 extension-module = ["pyo3/extension-module"]
 default = ["extension-module"]
-
-[profile.release]
-debug = 1
