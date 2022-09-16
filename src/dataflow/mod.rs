@@ -399,7 +399,7 @@ impl Dataflow {
     /// ...     ]
     /// >>> def extract_id(event):
     /// ...     return (event["user"], event)
-    /// >>> def build(key):
+    /// >>> def build():
     /// ...     return defaultdict(lambda: 0)
     /// >>> def count(results, event):
     /// ...     results[event["type"]] += 1
