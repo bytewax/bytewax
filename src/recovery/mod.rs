@@ -209,6 +209,8 @@
 //! resume with the state from the end of the epoch just before
 //! failure, with the input resuming from beginning of the next epoch.
 
+use chrono::DateTime;
+use chrono::Utc;
 use log::debug;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
@@ -229,7 +231,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::task::Poll;
 use std::time::Duration;
-use std::time::Instant;
 use timely::communication::Allocate;
 use timely::dataflow::channels::pact;
 use timely::dataflow::channels::pact::ParallelizationContract;
@@ -472,12 +473,30 @@ impl StateBytes {
 
 /// The two kinds of actions that logic in a stateful operator can do
 /// to each [`StateKey`].
+///
+/// These are the manifestations of the options in [`LogicFate`] for
+/// the recovery system.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) enum StateUpdate {
-    /// Save an updated state snapshot.
+    /// The logic was retained and this is the snapshot of the current state.
     Upsert(StateBytes),
-    /// Note that the state for this key was reset to empty.
-    Reset,
+    /// The logic was discarded. No need to keep the latest snapshot
+    /// of the state.
+    Discard,
+}
+
+/// If a [`StatefulLogic`] for a key should be retained by
+/// [`StatefulUnary::stateful_unary`].
+///
+/// See [`StatefulLogic::fate`].
+pub(crate) enum LogicFate {
+    /// This logic for this key should be retained and used again
+    /// whenever new data for this key comes in.
+    Retain,
+    /// The logic for this key is "complete" and should be
+    /// discarded. It will be built again if the key is encountered
+    /// again.
+    Discard,
 }
 
 /// Impl this trait to create an operator which maintains recoverable
@@ -487,7 +506,11 @@ pub(crate) enum StateUpdate {
 /// create the Timely operator. A separate instance of this will be
 /// created for each key in the input stream. There is no way to
 /// interact across keys.
-pub(crate) trait StatefulLogic<V, R, I: IntoIterator<Item = R>> {
+pub(crate) trait StatefulLogic<V, R, I>
+where
+    V: Data,
+    I: IntoIterator<Item = R>,
+{
     /// Logic to run when this operator is awoken.
     ///
     /// `next_value` has the same semantics as
@@ -501,16 +524,21 @@ pub(crate) trait StatefulLogic<V, R, I: IntoIterator<Item = R>> {
     /// - [`Poll::Ready`] with a [`None`]: the stream has ended and
     ///   logic will not be called again.
     ///
-    /// This must return a 2-tuple of:
+    /// This must return values to be emitted downstream.
+    fn on_awake(&mut self, next_value: Poll<Option<V>>) -> I;
+
+    /// Called when [`StatefulUnary::stateful_unary`] is deciding if
+    /// the logic for this key is still relevant.
     ///
-    /// - Values to be emitted downstream.
+    /// Since [`StatefulUnary::stateful_unary`] owns this logic, we
+    /// need a way to communicate back up wheither it should be
+    /// retained.
     ///
-    /// - Timeout delay to be awoken after with [`Poll::Pending`] as
-    /// the value. It's possible the logic will be awoken for this key
-    /// earlier if new data comes in. Timeouts are not buffered across
-    /// calls to logic, so you should always specify the delay to the
-    /// next time you should be woken up every time.
-    fn exec(&mut self, next_value: Poll<Option<V>>) -> (I, Option<Duration>);
+    /// This will be called at the end of each epoch.
+    fn fate(&self) -> LogicFate;
+
+    /// Return the next system time this operator should be awoken at.
+    fn next_awake(&self) -> Option<DateTime<Utc>>;
 
     /// Snapshot the internal state of this operator.
     ///
@@ -518,12 +546,8 @@ pub(crate) trait StatefulLogic<V, R, I: IntoIterator<Item = R>> {
     /// operator exactly how it currently is in the
     /// [`StatefulUnary::stateful_unary`]'s `logic_builder`.
     ///
-    /// Return [`StateUpdate::Reset`] whenever this logic for this key
-    /// is "complete" and should be discarded. It will be built again
-    /// if the key is encountered again.
-    ///
     /// This will be called at the end of each epoch.
-    fn snapshot(&self) -> StateUpdate;
+    fn snapshot(&self) -> StateBytes;
 }
 
 // Here's our recovery data model.
@@ -769,7 +793,7 @@ pub(crate) fn build_state_loading_dataflow<A: Allocate>(
 
                                 match update {
                                     StateUpdate::Upsert(state) => resume_state.insert(key, state),
-                                    StateUpdate::Reset => resume_state.remove(&key),
+                                    StateUpdate::Discard => resume_state.remove(&key),
                                 };
                             }
                         }
@@ -1075,7 +1099,11 @@ impl<S: Scope> CollectGarbage<S> for Stream<S, StateBackup<S::Timestamp>> {
 /// Extension trait for [`Stream`].
 // Based on the good work in
 // https://github.com/TimelyDataflow/timely-dataflow/blob/0d0d84885672d6369a78cd9aff7beb2048390d3b/timely/src/dataflow/operators/aggregation/state_machine.rs#L57
-pub(crate) trait StatefulUnary<S: Scope, V: ExchangeData> {
+pub(crate) trait StatefulUnary<S, V>
+where
+    S: Scope,
+    V: ExchangeData,
+{
     /// Create a new generic stateful operator.
     ///
     /// This is the core Timely operator that all Bytewax stateful
@@ -1105,7 +1133,7 @@ pub(crate) trait StatefulUnary<S: Scope, V: ExchangeData> {
     /// # Output
     ///
     /// The output will be a stream of `(key, value)` 2-tuples. Values
-    /// emitted by [`StatefulLogic::exec`] will be automatically
+    /// emitted by [`StatefulLogic::awake_with`] will be automatically
     /// paired with the key in the output stream.
     fn stateful_unary<
         R: Data,                                   // Output item type
@@ -1122,9 +1150,10 @@ pub(crate) trait StatefulUnary<S: Scope, V: ExchangeData> {
         S::Timestamp: Hash + Eq;
 }
 
-impl<S: Scope, V: ExchangeData> StatefulUnary<S, V> for Stream<S, (StateKey, V)>
+impl<S, V> StatefulUnary<S, V> for Stream<S, (StateKey, V)>
 where
     S: Scope<Timestamp = u64>,
+    V: ExchangeData,
 {
     fn stateful_unary<
         R: Data,                                   // Output item type
@@ -1161,6 +1190,11 @@ where
         let activator = self.scope().activator_for(&info.address[..]);
 
         op_builder.build(move |mut init_caps| {
+            // Logic struct for each key. There is only a single logic
+            // for each key representing the state at the frontier
+            // epoch; we only modify state carefully in epoch order
+            // once we know we won't be getting any input on closed
+            // epochs.
             let mut logic_cache: HashMap<StateKey, L> = key_to_resume_state_bytes
                 .into_iter()
                 .map(|(key, logic_resume_state_bytes)| {
@@ -1178,7 +1212,7 @@ where
 
             // Timely requires us to swap incoming data into a buffer
             // we own. This is drained and re-used each activation.
-            let mut tmp_key_values = Vec::new();
+            let mut tmp_key_values: Vec<(StateKey, V)> = Vec::new();
             // Persistent across activations buffer keeping track of
             // out-of-order inputs. Push in here when Timely says we
             // have new data; pull out of here in epoch order to
@@ -1187,30 +1221,26 @@ where
             let mut incoming_epoch_to_key_values_buffer: HashMap<S::Timestamp, Vec<(StateKey, V)>> =
                 HashMap::new();
 
-            // Temp ordered set of epochs that need processing. This
-            // is filled from buffered data and drained and re-used
-            // each activation of this operator.
-            let mut activate_epochs_buffer: BTreeSet<S::Timestamp> = BTreeSet::new();
+            // Temp ordered set of epochs that can be processed
+            // because all their input has been finalized or it's the
+            // frontier epoch. This is filled from buffered data and
+            // drained and re-used each activation of this operator.
+            let mut closed_epochs_buffer: BTreeSet<S::Timestamp> = BTreeSet::new();
             // Temp list of `(StateKey, Poll<Option<V>>)` to pass to
             // the operator logic within each epoch. This is drained
             // and re-used.
             let mut key_values_buffer: Vec<(StateKey, Poll<Option<V>>)> = Vec::new();
-            // Temp set of all the keys we know about when we've
-            // reached EOF to signal that. This is drained and
-            // re-used.
-            let mut keys_buffer = HashSet::new();
 
-            // Persistent across activations buffer of when each key
-            // needs to be awoken next. As activations occur due to
-            // data or timeout, we'll remove pending activations here.
-            let mut key_to_next_activate_at_buffer: HashMap<StateKey, Instant> = HashMap::new();
             // Persistent across activations buffer of what keys were
-            // activated during each epoch. This is used to only
-            // snapshot state of keys that could have resulted in
-            // state modifications. Epochs will be removed from this
-            // as the frontier progresses.
-            let mut activated_epoch_to_keys_buffer: HashMap<S::Timestamp, HashSet<StateKey>> =
-                HashMap::new();
+            // awoken during the most recent epoch. This is used to
+            // only snapshot state of keys that could have resulted in
+            // state modifications. This is drained after each epoch
+            // is processed.
+            let mut awoken_keys_buffer = HashSet::new();
+            // Persistent across activations buffer of when each key
+            // needs to be awoken next. As activations occur, we'll
+            // remove keys whose timeout has passed.
+            let mut key_to_next_awake_buffer: HashMap<StateKey, DateTime<Utc>> = HashMap::new();
 
             move |input_frontiers| {
                 // Will there be no more data?
@@ -1223,6 +1253,8 @@ where
                     assert!(output_cap.time() == state_update_cap.time());
                     let mut output_handle = output_wrapper.activate();
                     let mut state_update_handle = state_update_wrapper.activate();
+
+                    let now = chrono::offset::Utc::now();
 
                     // Buffer the inputs so we can apply them to the
                     // state cache in epoch order.
@@ -1250,35 +1282,32 @@ where
 
                     // Now let's find out which epochs we should wake
                     // up the logic for.
-                    assert!(activate_epochs_buffer.is_empty());
+                    assert!(closed_epochs_buffer.is_empty());
 
-                    // Try to process all the epochs we have data for.
-                    // Filter out epochs that are ahead of the
-                    // frontier. The state at the beginning of those
-                    // epochs are not truly known yet, so we can't
-                    // apply input in those epochs yet.
-                    activate_epochs_buffer.extend(
+                    // On the last activation, we eagerly executed the
+                    // frontier at that time (which may or may not
+                    // still be the frontier), even though it wasn't
+                    // closed. Thus, we haven't run the "epoch closed"
+                    // code yet. Make sure that close code is run if
+                    // that epoch is now closed on this activation.
+                    closed_epochs_buffer.extend(Some(output_cap.time().clone()).filter(is_closed));
+                    // Try to process all the epochs we have input
+                    // for. Filter out epochs that are not closed; the
+                    // state at the beginning of those epochs are not
+                    // truly known yet, so we can't apply input in
+                    // those epochs yet.
+                    closed_epochs_buffer.extend(
                         incoming_epoch_to_key_values_buffer
                             .keys()
                             .cloned()
                             .filter(is_closed),
                     );
-                    // Even if we don't have input data from an epoch,
-                    // we might have some output data from the
-                    // previous activation we need to output and the
-                    // frontier might have already progressed and it
-                    // would be stranded.
-                    activate_epochs_buffer.extend(
-                        activated_epoch_to_keys_buffer
-                            .keys()
-                            .cloned()
-                            .filter(is_closed),
-                    );
-                    // Eagerly execute the frontier.
-                    activate_epochs_buffer.insert(frontier_epoch);
+                    // Eagerly execute the current frontier (even
+                    // though it's not closed).
+                    closed_epochs_buffer.insert(frontier_epoch);
 
                     // For each epoch in order:
-                    for epoch in activate_epochs_buffer.iter() {
+                    for epoch in closed_epochs_buffer.iter() {
                         // Since the frontier has advanced to at least
                         // this epoch (because we're going through
                         // them in order), say that we'll not be
@@ -1292,7 +1321,7 @@ where
                             incoming_epoch_to_key_values_buffer.remove(&epoch);
 
                         // Now let's find all the key-value pairs to
-                        // wake up the logic with.
+                        // awaken logic with.
                         assert!(key_values_buffer.is_empty());
 
                         // Include all the incoming data.
@@ -1306,36 +1335,38 @@ where
                         // Then extend the values with any "awake"
                         // activations after the input.
                         if eof {
-                            // If this is the last activation,
-                            // signal that all keys have
-                            // terminated.
-                            assert!(keys_buffer.is_empty());
+                            // If this is the last activation, signal
+                            // that all keys have
+                            // terminated. Repurpose
+                            // [`awoken_keys_buffer`] because it
+                            // contains outstanding keys from the last
+                            // activation. It's ok that we drain it
+                            // because those keys will be re-inserted
+                            // due to the EOF items.
+
                             // First all "new" keys in this input.
-                            keys_buffer.extend(key_values_buffer.iter().map(|(k, _v)| k).cloned());
+                            awoken_keys_buffer
+                                .extend(key_values_buffer.iter().map(|(k, _v)| k).cloned());
                             // Then all keys that are still waiting on
-                            // wakeup. Keys that do not have a pending
-                            // activation will not see EOF messages
-                            // (otherwise we'd have to retain data for
-                            // all keys ever seen).
-                            keys_buffer.extend(key_to_next_activate_at_buffer.keys().cloned());
-                            // Drain to re-use allocation.
+                            // awakening. Keys that do not have a
+                            // pending awakening will not see EOF
+                            // messages (otherwise we'd have to retain
+                            // data for all keys ever seen).
+                            awoken_keys_buffer.extend(key_to_next_awake_buffer.keys().cloned());
+                            // Since this is EOF, we will never
+                            // activate this operator again.
                             key_values_buffer
-                                .extend(keys_buffer.drain().map(|k| (k, Poll::Ready(None))));
+                                .extend(awoken_keys_buffer.drain().map(|k| (k, Poll::Ready(None))));
                         } else {
-                            // Otherwise, wake up any keys
-                            // that are past their requested
-                            // activation time.
+                            // Otherwise, wake up any keys that are
+                            // past their requested awakening time.
                             key_values_buffer.extend(
-                                key_to_next_activate_at_buffer
+                                key_to_next_awake_buffer
                                     .iter()
-                                    .filter(|(_k, a)| a.elapsed() >= Duration::ZERO)
+                                    .filter(|(_k, a)| a <= &&now)
                                     .map(|(k, _a)| (k.clone(), Poll::Pending)),
                             );
                         }
-
-                        let activated_keys = activated_epoch_to_keys_buffer
-                            .entry(epoch.clone())
-                            .or_default();
 
                         let mut output_session = output_handle.session(&output_cap);
                         let mut state_update_session =
@@ -1343,76 +1374,96 @@ where
 
                         // Drain to re-use allocation.
                         for (key, next_value) in key_values_buffer.drain(..) {
-                            // Remove any activation times
-                            // this current one will satisfy.
-                            if let Entry::Occupied(next_activate_at_entry) =
-                                key_to_next_activate_at_buffer.entry(key.clone())
+                            // Remove any scheduled awake times this
+                            // current one will satisfy.
+                            if let Entry::Occupied(next_awake_at_entry) =
+                                key_to_next_awake_buffer.entry(key.clone())
                             {
-                                if next_activate_at_entry.get().elapsed() >= Duration::ZERO {
-                                    next_activate_at_entry.remove();
+                                if next_awake_at_entry.get() <= &now {
+                                    next_awake_at_entry.remove();
                                 }
                             }
 
                             let logic = logic_cache
                                 .entry(key.clone())
                                 .or_insert_with(|| logic_builder(None));
-                            let (output, activate_after) = logic.exec(next_value);
-
+                            let output = logic.on_awake(next_value);
                             output_session
                                 .give_iterator(output.into_iter().map(|item| (key.clone(), item)));
 
-                            if let Some(activate_after) = activate_after {
-                                let activate_at = Instant::now() + activate_after;
-                                key_to_next_activate_at_buffer
-                                    .entry(key.clone())
-                                    .and_modify(|next_activate_at: &mut Instant| {
-                                        // Only keep the soonest
-                                        // activation.
-                                        if activate_at < *next_activate_at {
-                                            *next_activate_at = activate_at;
-                                        }
-                                    })
-                                    .or_insert(activate_at);
-                            }
-
-                            activated_keys.insert(key);
+                            awoken_keys_buffer.insert(key);
                         }
 
-                        // Snapshot and output state at the end of the
-                        // epoch. Remove will ensure we slowly drain
+                        // Determine the fate of each key's logic at
+                        // the end of each epoch. If a key wasn't
+                        // awoken, then there's no state change so
+                        // ignore it here. Snapshot and output state
+                        // changes. Remove will ensure we slowly drain
                         // the buffer.
                         if is_closed(&epoch) {
-                            if let Some(keys) = activated_epoch_to_keys_buffer.remove(&epoch) {
-                                for key in keys {
-                                    let logic = logic_cache
-                                        .remove(&key)
-                                        .expect("No logic for activated key");
+                            for key in awoken_keys_buffer.drain() {
+                                let logic = logic_cache
+                                    .remove(&key)
+                                    .expect("No logic for activated key");
 
-                                    let state_bytes = logic.snapshot();
-                                    // Retain logic if not a
-                                    // reset.
-                                    if let StateUpdate::Upsert(_) = state_bytes {
-                                        logic_cache.insert(key.clone(), logic);
+                                let update = match logic.fate() {
+                                    LogicFate::Discard => {
+                                        // If the logic for this key
+                                        // is discarded, remove any
+                                        // scheduled wakeup.
+                                        key_to_next_awake_buffer.remove(&key);
+
+                                        (key, (step_id.clone(), StateUpdate::Discard))
                                     }
-                                    let update = (key, (step_id.clone(), state_bytes));
-                                    state_update_session.give(update);
-                                }
+                                    LogicFate::Retain => {
+                                        // We only want to awake on
+                                        // this key again if the logic
+                                        // is going to be retained.
+                                        if let Some(next_awake) = logic.next_awake() {
+                                            key_to_next_awake_buffer
+                                                .entry(key.clone())
+                                                .and_modify(|old_next_awake: &mut DateTime<Utc>| {
+                                                    // Only keep the
+                                                    // soonest
+                                                    // scheduled
+                                                    // wakeup.
+                                                    if &next_awake < old_next_awake {
+                                                        *old_next_awake = next_awake;
+                                                    }
+                                                })
+                                                .or_insert(next_awake);
+                                        }
+
+                                        let state_bytes = logic.snapshot();
+
+                                        logic_cache.insert(key.clone(), logic);
+
+                                        // TODO: We need to persist
+                                        // awake at times! Otherwise
+                                        // we might die when a key is
+                                        // scheduled to be awoken and
+                                        // then resume and it'll never
+                                        // wake up, resulting in
+                                        // incorrect behavior.
+                                        (key, (step_id.clone(), StateUpdate::Upsert(state_bytes)))
+                                    }
+                                };
+                                state_update_session.give(update);
                             }
                         }
                     }
                     // Clear to re-use buffer.
                     // TODO: One day I hope BTreeSet has drain.
-                    activate_epochs_buffer.clear();
+                    closed_epochs_buffer.clear();
 
-                    // Schedule an activation at the next requested
-                    // wake up time.
-                    let now = Instant::now();
-                    if let Some(delay) = key_to_next_activate_at_buffer
+                    // Schedule operator activation at the soonest
+                    // requested logic awake time for any key.
+                    if let Some(delay) = key_to_next_awake_buffer
                         .values()
-                        .map(|a| a.duration_since(now))
+                        .map(|a| a.clone() - now)
                         .min()
                     {
-                        activator.activate_after(delay);
+                        activator.activate_after(delay.to_std().unwrap_or(Duration::ZERO));
                     }
                 }
 
@@ -1648,14 +1699,14 @@ impl<T> ProgressReader<T> for NoopRecovery {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum UpdateType {
     Upsert,
-    Reset,
+    Discard,
 }
 
 impl From<StateUpdate> for UpdateType {
     fn from(update: StateUpdate) -> Self {
         match update {
             StateUpdate::Upsert(..) => Self::Upsert,
-            StateUpdate::Reset => Self::Reset,
+            StateUpdate::Discard => Self::Discard,
         }
     }
 }

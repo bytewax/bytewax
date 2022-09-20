@@ -1,4 +1,6 @@
-from datetime import timedelta, datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+from pytest import mark
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
@@ -8,6 +10,10 @@ from bytewax.testing import TestingClock
 from bytewax.window import TestingClockConfig, TumblingWindowConfig
 
 
+@mark.skip(
+    "This test will not work with system time consistently until we mock the awaken "
+    "times in StatefulUnary."
+)
 def test_tumbling_window():
     start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
     clock = TestingClock(start_at)

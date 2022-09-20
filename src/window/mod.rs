@@ -29,11 +29,11 @@
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
 
-use crate::recovery::{EpochData, StateBytes, StateKey};
-use crate::recovery::{StateUpdate, StepId};
+use crate::recovery::StepId;
+use crate::recovery::{EpochData, LogicFate, StateBytes, StateKey};
 use crate::recovery::{StatefulLogic, StatefulUnary};
 use crate::StringResult;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -174,9 +174,7 @@ pub(crate) fn build_windower_builder(
         let tumbling_window_config = tumbling_window_config.borrow();
 
         let length = tumbling_window_config.length;
-        let start_at = tumbling_window_config
-            .start_at
-            .unwrap_or_else(Utc::now);
+        let start_at = tumbling_window_config.start_at.unwrap_or_else(Utc::now);
 
         let builder = TumblingWindower::builder(length, start_at);
         Ok(Box::new(builder))
@@ -255,13 +253,12 @@ pub(crate) trait Windower {
     /// closed, return them, and remove them from internal state.
     fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<WindowKey>;
 
-    /// Return how much system time should pass before the windowing
-    /// operator should be activated again, even if there is no
-    /// incoming values.
-    ///
-    /// Use this to signal to Timely's execution when windows will be
-    /// closing so we can close them without data.
-    fn activate_after(&mut self, watermark: &DateTime<Utc>) -> Option<Duration>;
+    /// Is this windower currently tracking any windows?
+    fn is_empty(&self) -> bool;
+
+    /// Return the system time estimate of the next window close, if
+    /// any.
+    fn next_close(&self) -> Option<DateTime<Utc>>;
 
     /// Snapshot the internal state of this windower.
     ///
@@ -284,7 +281,11 @@ pub(crate) enum WindowError<V> {
 /// A separate instance of this will be create for each window a
 /// [`Windower`] creates. There is no way to interact across windows
 /// or keys.
-pub(crate) trait WindowLogic<V, R, I: IntoIterator<Item = R>> {
+pub(crate) trait WindowLogic<V, R, I>
+where
+    V: Data,
+    I: IntoIterator<Item = R>,
+{
     /// Logic to run when this the window sees a new value.
     ///
     /// `next_value` has the same semantics as
@@ -296,7 +297,7 @@ pub(crate) trait WindowLogic<V, R, I: IntoIterator<Item = R>> {
     /// [`None`], signaling the window has closed, but you might want
     /// something more generic. They will be automatically paired with
     /// the key in the output stream.
-    fn exec(&mut self, next_value: Option<V>) -> I;
+    fn with_next(&mut self, next_value: Option<V>) -> I;
 
     /// Snapshot the internal state of this logic.
     ///
@@ -312,6 +313,7 @@ pub(crate) trait WindowLogic<V, R, I: IntoIterator<Item = R>> {
 /// operator.
 struct WindowStatefulLogic<V, R, I, L, LB>
 where
+    V: Data,
     I: IntoIterator<Item = R>,
     L: WindowLogic<V, R, I>,
     LB: Fn(Option<StateBytes>) -> L,
@@ -328,6 +330,7 @@ where
 
 impl<V, R, I, L, LB> WindowStatefulLogic<V, R, I, L, LB>
 where
+    V: Data,
     I: IntoIterator<Item = R>,
     L: WindowLogic<V, R, I>,
     LB: Fn(Option<StateBytes>) -> L,
@@ -378,18 +381,15 @@ where
     }
 }
 
-impl<V: Clone, R, I, L, LB>
-    StatefulLogic<V, Result<R, WindowError<V>>, Vec<Result<R, WindowError<V>>>>
+impl<V, R, I, L, LB> StatefulLogic<V, Result<R, WindowError<V>>, Vec<Result<R, WindowError<V>>>>
     for WindowStatefulLogic<V, R, I, L, LB>
 where
+    V: Data,
     I: IntoIterator<Item = R>,
     L: WindowLogic<V, R, I>,
     LB: Fn(Option<StateBytes>) -> L,
 {
-    fn exec(
-        &mut self,
-        next_value: Poll<Option<V>>,
-    ) -> (Vec<Result<R, WindowError<V>>>, Option<std::time::Duration>) {
+    fn on_awake(&mut self, next_value: Poll<Option<V>>) -> Vec<Result<R, WindowError<V>>> {
         let mut output = Vec::new();
 
         let watermark = self.clock.watermark(&next_value);
@@ -408,7 +408,7 @@ where
                             .logic_cache
                             .entry(window_key)
                             .or_insert_with(|| (self.logic_builder)(None));
-                        let window_output = logic.exec(Some(value));
+                        let window_output = logic.with_next(Some(value));
                         output.extend(window_output.into_iter().map(Ok));
                     }
                 }
@@ -421,25 +421,26 @@ where
                 .remove(&window_key)
                 .expect("No logic for closed window");
 
-            let window_output = logic.exec(None);
+            let window_output = logic.with_next(None);
             output.extend(window_output.into_iter().map(Ok));
         }
 
-        let activate_after = self
-            .windower
-            .activate_after(&watermark)
-            // [`chrono::Duration`] supports negative
-            // durations but [`std::time::Duration`] does not,
-            // so clamp to 0.
-            .map(|d| d.to_std().unwrap_or(std::time::Duration::ZERO));
-
-        (output, activate_after)
+        output
     }
 
-    // TODO: Set a timeout on destroying window state per key?
-    /// Note that we never return [`StateUpdate::Reset`] so once a key
-    /// is seen, we permanently allocate state for the window system.
-    fn snapshot(&self) -> StateUpdate {
+    fn fate(&self) -> LogicFate {
+        if self.windower.is_empty() {
+            LogicFate::Discard
+        } else {
+            LogicFate::Retain
+        }
+    }
+
+    fn next_awake(&self) -> Option<DateTime<Utc>> {
+        self.windower.next_close()
+    }
+
+    fn snapshot(&self) -> StateBytes {
         let window_to_logic_resume_state_bytes: HashMap<WindowKey, StateBytes> = self
             .logic_cache
             .iter()
@@ -450,11 +451,7 @@ where
             self.windower.snapshot(),
             window_to_logic_resume_state_bytes,
         );
-        StateUpdate::Upsert(StateBytes::ser::<(
-            StateBytes,
-            StateBytes,
-            HashMap<WindowKey, StateBytes>,
-        )>(&state))
+        StateBytes::ser::<(StateBytes, StateBytes, HashMap<WindowKey, StateBytes>)>(&state)
     }
 }
 

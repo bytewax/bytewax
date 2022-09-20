@@ -32,7 +32,7 @@ impl ReduceWindowLogic {
 }
 
 impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceWindowLogic {
-    fn exec(&mut self, next_value: Option<TdPyAny>) -> Option<TdPyAny> {
+    fn with_next(&mut self, next_value: Option<TdPyAny>) -> Option<TdPyAny> {
         match next_value {
             Some(value) => {
                 Python::with_gil(|py| {
