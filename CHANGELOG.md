@@ -5,6 +5,15 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## 0.11.2
+
+- Performance improvements.
+
+- Support SASL and SSL for `bytewax.inputs.KafkaInputConfig`.
+
+
+## 0.11.1
+
 - KafkaInputConfig now accepts additional properties. See
   `bytewax.inputs.KafkaInputConfig`.
 
