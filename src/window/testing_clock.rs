@@ -11,12 +11,12 @@ use crate::recovery::StateBytes;
 ///
 /// Args:
 ///
-///     init_datetime (datetime.datetime): Initial "now".
+///   init_datetime (datetime.datetime): Initial "now".
 ///
 /// Returns:
 ///
-///     Testing clock object. Pass this as the `clock` parameter to
-///     `bytewax.window.TestingClockConfig`.
+///   Testing clock object. Pass this as the `clock` parameter to
+///   `bytewax.window.TestingClockConfig`.
 #[pyclass(module = "bytewax.testing", name = "TestingClock")]
 #[pyo3(text_signature = "(init_datetime)")]
 pub(crate) struct PyTestingClock {
