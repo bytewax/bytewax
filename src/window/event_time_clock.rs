@@ -1,6 +1,6 @@
 use std::task::Poll;
 
-use chrono::{Utc, DateTime};
+use chrono::{DateTime, Utc};
 use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult, Python, ToPyObject};
 
 use crate::{
@@ -46,15 +46,22 @@ pub(crate) struct EventClockConfig {
 impl ClockBuilder<TdPyAny> for EventClockConfig {
     fn builder(self) -> Builder<TdPyAny> {
         Box::new(move |resume_state_bytes: Option<StateBytes>| {
-            let (latest_event_time, system_time_of_last_event, watermark) = resume_state_bytes
-                .map(StateBytes::de)
-                .unwrap_or_else(|| (None, None, Utc::now()));
+            let (latest_event_time, system_time_of_last_event, late_time, watermark) =
+                resume_state_bytes.map(StateBytes::de).unwrap_or_else(|| {
+                    (
+                        None,
+                        Utc::now(),
+                        DateTime::<Utc>::MIN_UTC,
+                        DateTime::<Utc>::MIN_UTC,
+                    )
+                });
 
             Box::new(EventClock::new(
                 self.dt_getter.clone(),
                 self.late_after_system_duration,
-                system_time_of_last_event,
                 latest_event_time,
+                late_time,
+                system_time_of_last_event,
                 watermark,
                 self.system_clock_config
                     .map(InternalClock::test)
@@ -146,6 +153,13 @@ impl InternalClock {
             Self::System(clock) => clock.time_for(&()),
         }
     }
+
+    pub(crate) fn snapshot<V>(&self) -> StateBytes {
+        match self {
+            Self::Testing(clock) => <TestingClock as Clock<V>>::snapshot(clock),
+            Self::System(clock) => <SystemClock as Clock<V>>::snapshot(clock),
+        }
+    }
 }
 
 pub(crate) struct EventClock {
@@ -153,8 +167,9 @@ pub(crate) struct EventClock {
     late: chrono::Duration,
     clock: InternalClock,
     // State
+    late_time: DateTime<Utc>,
     latest_event_time: Option<DateTime<Utc>>,
-    system_time_of_last_event: Option<DateTime<Utc>>,
+    system_time_of_last_event: DateTime<Utc>,
     watermark: DateTime<Utc>,
 }
 
@@ -163,7 +178,8 @@ impl EventClock {
         dt_getter: TdPyCallable,
         late: chrono::Duration,
         latest_event_time: Option<DateTime<Utc>>,
-        system_time_of_last_event: Option<DateTime<Utc>>,
+        late_time: DateTime<Utc>,
+        system_time_of_last_event: DateTime<Utc>,
         watermark: DateTime<Utc>,
         clock: InternalClock,
     ) -> Self {
@@ -171,6 +187,7 @@ impl EventClock {
             dt_getter,
             late,
             latest_event_time,
+            late_time,
             system_time_of_last_event,
             watermark,
             clock,
@@ -181,70 +198,37 @@ impl EventClock {
         Python::with_gil(|py| {
             self.dt_getter
                 // Call the event time getter function with the event as parameter
-                .call1(py, (event.to_object(py),))
+                .call1(py, (event.clone_ref(py),))
                 .unwrap()
                 // Convert to DateTime<Utc>
                 .extract(py)
                 .unwrap()
         })
     }
-
-    fn advance_watermark_by_event_time(&mut self, event_time: DateTime<Utc>) {
-        // Get the latest_event_time:
-        // max between self.latest_event_time and event_time
-        // if self.latest_event_time is some, otherwise just event_time.
-        let latest_event_time = self
-            .latest_event_time
-            .map(|latest_event_time| latest_event_time.max(event_time))
-            .unwrap_or(event_time);
-        // Assign it to self.latest_event_time
-        self.latest_event_time = Some(latest_event_time);
-
-        // Get current clock's time
-        let now = self.clock.time();
-        // Get watermark
-        let watermark = now
-            .checked_add_signed(now - latest_event_time)
-            // Panic if the watermark overflowed
-            .expect("watermark in date range (overflowed)")
-            .checked_sub_signed(self.late)
-            // Panic if the watermark underflowed
-            .expect("watermark in date range (underflowed)");
-        // But only assign it to self.watermark if it's after the current
-        // one, since it can be advanced by system time too.
-        self.watermark = watermark.max(self.watermark);
-
-        // Also update self.system_time_of_last_event
-        self.system_time_of_last_event = Some(now);
-    }
-
-    fn advance_watermark_by_system_time(&mut self) {
-        let now = self.clock.time();
-        let elapsed = now - self.system_time_of_last_event.unwrap_or(self.watermark);
-        self.watermark = self
-            .watermark
-            .checked_add_signed(elapsed)
-            .expect("watermark in date range (overflowed)");
-    }
 }
 
 impl Clock<TdPyAny> for EventClock {
     fn watermark(&mut self, next_value: &Poll<Option<TdPyAny>>) -> DateTime<Utc> {
+        let now = Utc::now();
         match next_value {
-            // If there will be no more values, close out all windows.
-            Poll::Ready(None) => DateTime::<Utc>::MAX_UTC,
-            // If we received an event, set the new watermark and return it
             Poll::Ready(Some(event)) => {
-                self.advance_watermark_by_event_time(self.get_event_time(event));
-                self.watermark
+                let event_late_time = self.time_for(event) - self.late;
+                if event_late_time > self.late_time {
+                    self.late_time = event_late_time;
+                    self.system_time_of_last_event = now;
+                }
             }
-            // Advance the watermark by system time since
-            // system_time_of_last_event, then return it
-            _ => {
-                self.advance_watermark_by_system_time();
-                self.watermark
+            Poll::Ready(None) => {
+                self.late_time = DateTime::<Utc>::MAX_UTC;
+                self.system_time_of_last_event = now;
             }
+            Poll::Pending => {}
         }
+        let system_duration_since_last_event = now - self.system_time_of_last_event;
+        // This is the watermark
+        self.late_time
+            .checked_add_signed(system_duration_since_last_event)
+            .unwrap_or(DateTime::<Utc>::MAX_UTC)
     }
 
     fn time_for(&mut self, event: &TdPyAny) -> DateTime<Utc> {
@@ -252,26 +236,11 @@ impl Clock<TdPyAny> for EventClock {
     }
 
     fn snapshot(&self) -> StateBytes {
-        // Manually implement snapshotting here, because we'd have to
-        // serialize the state two times if we used Clock::snapshot:
-        // StateBytes::ser(&(
-        //     self.latest_event_time,
-        //     self.watermark,
-        //     // This would already be serialized
-        //     clock.snapshot()
-        // ))
-        match &self.clock {
-            InternalClock::System(_) => StateBytes::ser(&(
-                self.latest_event_time,
-                self.system_time_of_last_event,
-                self.watermark,
-            )),
-            InternalClock::Testing(clock) => StateBytes::ser(&(
-                self.latest_event_time,
-                self.system_time_of_last_event,
-                self.watermark,
-                clock.current_time(),
-            )),
-        }
+        StateBytes::ser(&(
+            self.latest_event_time,
+            self.system_time_of_last_event,
+            self.watermark,
+            self.clock.snapshot::<TdPyAny>(),
+        ))
     }
 }
