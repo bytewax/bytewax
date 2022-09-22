@@ -323,7 +323,6 @@ where
     /// This has to be an [`Rc`] because multiple keys all need to use
     /// the same builder and we don't know how many there'll be.
     logic_builder: Rc<LB>,
-    key_to_resume_state_bytes: HashMap<WindowKey, StateBytes>,
     out_pdata: PhantomData<R>,
     out_iter_pdata: PhantomData<I>,
 }
@@ -358,16 +357,20 @@ where
 
             let clock = clock_builder(clock_resume_state_bytes);
             let windower = windower_builder(windower_resume_state_bytes);
-            let logic_cache = HashMap::new();
+            let logic_cache = key_to_resume_state_bytes
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(window_key, logic_resume_state_bytes)| {
+                    (window_key, logic_builder(Some(logic_resume_state_bytes)))
+                })
+                .collect();
             let logic_builder = logic_builder.clone();
-            let key_to_resume_state_bytes = key_to_resume_state_bytes.unwrap_or_default();
 
             Self {
                 clock,
                 windower,
                 logic_cache,
                 logic_builder,
-                key_to_resume_state_bytes,
                 out_pdata: PhantomData,
                 out_iter_pdata: PhantomData,
             }
@@ -404,12 +407,7 @@ where
                         let logic = self
                             .logic_cache
                             .entry(window_key)
-                            .or_insert_with_key(|key| {
-                                // Remove so we only use the resume
-                                // state once.
-                                let resume_state_bytes = self.key_to_resume_state_bytes.remove(key);
-                                (self.logic_builder)(resume_state_bytes)
-                            });
+                            .or_insert_with(|| (self.logic_builder)(None));
                         let window_output = logic.exec(Some(value));
                         output.extend(window_output.into_iter().map(Ok));
                     }
@@ -418,10 +416,13 @@ where
         }
 
         for window_key in self.windower.drain_closed(&watermark) {
-            if let Some(mut logic) = self.logic_cache.remove(&window_key) {
-                let window_output = logic.exec(None);
-                output.extend(window_output.into_iter().map(Ok));
-            }
+            let mut logic = self
+                .logic_cache
+                .remove(&window_key)
+                .expect("No logic for closed window");
+
+            let window_output = logic.exec(None);
+            output.extend(window_output.into_iter().map(Ok));
         }
 
         let activate_after = self
