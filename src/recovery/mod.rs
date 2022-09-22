@@ -1144,7 +1144,7 @@ where
         &self,
         step_id: StepId,
         logic_builder: LB,
-        mut key_to_resume_state_bytes: HashMap<StateKey, StateBytes>,
+        key_to_resume_state_bytes: HashMap<StateKey, StateBytes>,
     ) -> (
         Stream<S, (StateKey, R)>,
         Stream<S, (StateKey, (StepId, StateUpdate))>,
@@ -1170,7 +1170,12 @@ where
         let activator = self.scope().activator_for(&info.address[..]);
 
         op_builder.build(move |mut init_caps| {
-            let mut logic_cache = HashMap::new();
+            let mut logic_cache: HashMap<StateKey, L> = key_to_resume_state_bytes
+                .into_iter()
+                .map(|(key, logic_resume_state_bytes)| {
+                    (key, logic_builder(Some(logic_resume_state_bytes)))
+                })
+                .collect();
 
             // We have to retain separate capabilities
             // per-output. This seems to be only documented in
@@ -1357,12 +1362,9 @@ where
                                 }
                             }
 
-                            let logic = logic_cache.entry(key.clone()).or_insert_with_key(|key| {
-                                // Remove so we only use the resume
-                                // state once.
-                                let resume_state_bytes = key_to_resume_state_bytes.remove(key);
-                                logic_builder(resume_state_bytes)
-                            });
+                            let logic = logic_cache
+                                .entry(key.clone())
+                                .or_insert_with(|| logic_builder(None));
                             let (output, activate_after) = logic.exec(next_value);
 
                             output_session
@@ -1391,16 +1393,18 @@ where
                         if is_closed(&epoch) {
                             if let Some(keys) = activated_epoch_to_keys_buffer.remove(&epoch) {
                                 for key in keys {
-                                    if let Some(logic) = logic_cache.remove(&key) {
-                                        let state_bytes = logic.snapshot();
-                                        // Retain logic if not a
-                                        // reset.
-                                        if let StateUpdate::Upsert(_) = state_bytes {
-                                            logic_cache.insert(key.clone(), logic);
-                                        }
-                                        let update = (key, (step_id.clone(), state_bytes));
-                                        state_update_session.give(update);
+                                    let logic = logic_cache
+                                        .remove(&key)
+                                        .expect("No logic for activated key");
+
+                                    let state_bytes = logic.snapshot();
+                                    // Retain logic if not a
+                                    // reset.
+                                    if let StateUpdate::Upsert(_) = state_bytes {
+                                        logic_cache.insert(key.clone(), logic);
                                     }
+                                    let update = (key, (step_id.clone(), state_bytes));
+                                    state_update_session.give(update);
                                 }
                             }
                         }
