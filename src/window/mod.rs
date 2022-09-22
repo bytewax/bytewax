@@ -50,7 +50,7 @@ pub(crate) mod testing_clock;
 pub(crate) mod tumbling_window;
 
 use self::system_clock::{SystemClock, SystemClockConfig};
-use self::testing_clock::{TestingClock, TestingClockConfig};
+use self::testing_clock::{PyTestingClock, TestingClock, TestingClockConfig};
 use self::tumbling_window::{TumblingWindowConfig, TumblingWindower};
 
 /// Base class for a clock config.
@@ -105,10 +105,9 @@ pub(crate) fn build_clock_builder<V: 'static>(
     if let Ok(testing_clock_config) = clock_config.downcast::<PyCell<TestingClockConfig>>() {
         let testing_clock_config = testing_clock_config.borrow();
 
-        let item_incr = testing_clock_config.item_incr.0;
-        let start_at = testing_clock_config.start_at.0;
+        let clock = testing_clock_config.clock.clone_ref(py);
 
-        let builder = TestingClock::builder(item_incr, start_at);
+        let builder = TestingClock::builder(clock);
         Ok(Box::new(builder))
     } else if let Ok(system_clock_config) = clock_config.downcast::<PyCell<SystemClockConfig>>() {
         let _system_clock_config = system_clock_config.borrow();
@@ -545,6 +544,7 @@ where
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ClockConfig>()?;
     m.add_class::<TestingClockConfig>()?;
+    m.add_class::<PyTestingClock>()?;
     m.add_class::<SystemClockConfig>()?;
     m.add_class::<WindowConfig>()?;
     m.add_class::<TumblingWindowConfig>()?;

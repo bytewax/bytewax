@@ -164,7 +164,7 @@ impl<'de> serde::Deserialize<'de> for TdPyAny {
 // well under pyenv-virtualenv. This test executes under the global pyenv
 // version, instead of the configured virtual environment.
 // Disabling this test for aarch64, as it fails in CI.
-#[cfg(not(target_arch="aarch64"))]
+#[cfg(not(target_arch = "aarch64"))]
 #[test]
 fn test_serde() {
     use serde_test::assert_tokens;
