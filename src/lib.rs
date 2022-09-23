@@ -37,7 +37,7 @@ fn sleep_release_gil(py: Python, secs: u64) {
 #[pymodule]
 #[pyo3(name = "bytewax")]
 fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
-    // pyo3_log::init();
+    pyo3_log::init();
 
     dataflow::register(py, m)?;
     execution::register(py, m)?;
