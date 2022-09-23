@@ -27,17 +27,17 @@ def test_event_time_processing():
         # This too should be processed in the first window
         clock.now = start_at + timedelta(seconds=6)
         yield None, {"type": "temp", "time": start_at + s(2), "value": 2}
-        # This should be processed in the second window
-        clock.now = start_at + timedelta(seconds=10.1)
-        yield None, {"type": "temp", "time": start_at + s(7), "value": 200}
-        # This should be processed in the third window
-        clock.now = start_at + timedelta(seconds=11.1)
-        yield None, {"type": "temp", "time": start_at + s(12), "value": 17}
         # This should be dropped, because its event_time is before
         # the latest event time, and it arrives `late` seconds after
         # the closing of the window + the delay of the latest received item.
         clock.now = start_at + timedelta(seconds=19.1)
         yield None, {"type": "temp", "time": start_at + s(1), "value": 200}
+        # This should be processed in the second window
+        clock.now += timedelta(seconds=1)
+        yield None, {"type": "temp", "time": start_at + s(7), "value": 200}
+        # This should be processed in the third window
+        clock.now += timedelta(seconds=1)
+        yield None, {"type": "temp", "time": start_at + s(12), "value": 17}
 
     def extract_sensor_type(event):
         return event["type"], event
