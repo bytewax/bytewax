@@ -20,10 +20,11 @@ use crate::recovery::StateBytes;
 ///   `bytewax.window.TestingClockConfig`.
 #[pyclass(module = "bytewax.testing", name = "TestingClock")]
 #[pyo3(text_signature = "(init_datetime)")]
+#[derive(Clone)]
 pub(crate) struct PyTestingClock {
     /// Modify this to change the current "now".
     #[pyo3(get, set)]
-    now: DateTime<Utc>,
+    pub(crate) now: DateTime<Utc>,
 }
 
 impl PyTestingClock {

@@ -1,67 +1,67 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import ManualInputConfig
 from bytewax.window import TumblingWindowConfig, EventClockConfig, TestingClockConfig
 from bytewax.outputs import TestingOutputConfig
+from bytewax.testing import TestingClock
 
 
 def test_event_time_processing():
     """
     Test used to validate the EventClockConfig workings.
     """
-    start_at = datetime.now()
+    start_at = datetime(2022, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    clock = TestingClock(start_at)
     late = timedelta(seconds=10)
     window_length = timedelta(seconds=5)
 
-    # Utility functions to generate "temp" events
-    def temp(val, seconds):
-        time = start_at + timedelta(seconds=seconds)
-        return None, {"type": "temp", "time": time, "value": val}
-
-    # Utility functions to generate wait events (used for advancing the clock)
-    def wait():
-        return None, {"type": "temp", "time": start_at}
+    def s(val):
+        return timedelta(seconds=val)
 
     def input_builder(worker_index, worker_count, state):
-        # Each yield advances the clock by 1 second
+        clock.now = start_at + timedelta(seconds=2)
         # This should be processed in the first window
-        yield temp(1, 1)
+        yield None, {"type": "temp", "time": start_at, "value": 1}
         # This too should be processed in the first window
-        yield temp(2, 2)
-        # Wait 10 seconds
-        for _ in range(10):
-            yield wait()
-        # This should be dropped, because its received is after start_at + late
-        yield temp(200, 1)
+        clock.now = start_at + timedelta(seconds=6)
+        yield None, {"type": "temp", "time": start_at + s(2), "value": 2}
         # This should be processed in the second window
-        yield temp(200, 7)
+        clock.now = start_at + timedelta(seconds=10.1)
+        yield None, {"type": "temp", "time": start_at + s(7), "value": 200}
         # This should be processed in the third window
-        yield temp(17, 12)
+        clock.now = start_at + timedelta(seconds=11.1)
+        yield None, {"type": "temp", "time": start_at + s(12), "value": 17}
+        # This should be dropped, because its received "late".
+        # Calling "x" the time between latest_event_time (start_at + 2s) and
+        # the time we received the event at (start_at + 4s), events for the
+        # first window are late after:
+        # late + windows_length + x = 19 seconds
+        # ^      ^                ^
+        # 5s     10s              4s
+        clock.now = start_at + timedelta(seconds=19.1)
+        yield None, {"type": "temp", "time": start_at + s(1), "value": 200}
 
     def extract_sensor_type(event):
         return event["type"], event
 
     def acc_values(acc, event):
-        if "value" in event:
-            acc.append(event["value"])
+        acc.append(event["value"])
         return acc
 
     cc = EventClockConfig(
         lambda event: event["time"],
         late_after_system_duration=late,
-        system_clock_config=TestingClockConfig(start_at=start_at, item_incr=timedelta(seconds=1))
+        system_clock=clock
     )
     wc = TumblingWindowConfig(start_at=start_at, length=window_length)
 
     flow = Dataflow()
     flow.input("input", ManualInputConfig(input_builder))
-
     flow.map(extract_sensor_type)
     flow.fold_window("running_average", cc, wc, list, acc_values)
     flow.map(lambda x: {f"{x[0]}_avg": sum(x[1]) / len(x[1])})
-
     out = []
     flow.capture(TestingOutputConfig(out))
     run_main(flow)

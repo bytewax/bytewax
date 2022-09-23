@@ -1,7 +1,7 @@
 use std::task::Poll;
 
 use chrono::{DateTime, Utc};
-use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult, Python, ToPyObject};
+use pyo3::{exceptions::PyValueError, pyclass, pymethods, Py, PyAny, PyResult, Python};
 
 use crate::{
     pyo3_extensions::{TdPyAny, TdPyCallable},
@@ -11,7 +11,7 @@ use crate::{
 
 use super::{
     system_clock::SystemClock,
-    testing_clock::{TestingClock, TestingClockConfig},
+    testing_clock::{PyTestingClock, TestingClock, TestingClockConfig},
     Builder, Clock, ClockBuilder,
 };
 
@@ -40,7 +40,7 @@ pub(crate) struct EventClockConfig {
     #[pyo3(get)]
     pub(crate) late_after_system_duration: chrono::Duration,
     #[pyo3(get)]
-    pub(crate) system_clock_config: Option<TestingClockConfig>,
+    pub(crate) system_clock: Option<Py<PyTestingClock>>,
 }
 
 impl ClockBuilder<TdPyAny> for EventClockConfig {
@@ -50,7 +50,10 @@ impl ClockBuilder<TdPyAny> for EventClockConfig {
                 resume_state_bytes.map(StateBytes::de).unwrap_or_else(|| {
                     (
                         None,
-                        Utc::now(),
+                        self.system_clock
+                            .clone()
+                            .map(|clock| Python::with_gil(|py| clock.borrow_mut(py).now))
+                            .unwrap_or_else(Utc::now),
                         DateTime::<Utc>::MIN_UTC,
                         DateTime::<Utc>::MIN_UTC,
                     )
@@ -63,7 +66,9 @@ impl ClockBuilder<TdPyAny> for EventClockConfig {
                 late_time,
                 system_time_of_last_event,
                 watermark,
-                self.system_clock_config
+                self.system_clock
+                    .as_ref()
+                    .cloned()
                     .map(InternalClock::test)
                     .unwrap_or_else(InternalClock::system),
             ))
@@ -78,13 +83,13 @@ impl EventClockConfig {
     fn new(
         dt_getter: TdPyCallable,
         late_after_system_duration: chrono::Duration,
-        system_clock_config: Option<TestingClockConfig>,
+        system_clock: Option<Py<PyTestingClock>>,
     ) -> (Self, ClockConfig) {
         (
             Self {
                 dt_getter,
                 late_after_system_duration,
-                system_clock_config,
+                system_clock,
             },
             ClockConfig {},
         )
@@ -97,13 +102,13 @@ impl EventClockConfig {
         &str,
         TdPyCallable,
         chrono::Duration,
-        Option<TestingClockConfig>,
+        Option<Py<PyTestingClock>>,
     ) {
         (
             "EventClockConfig",
             self.dt_getter.clone(),
             self.late_after_system_duration,
-            self.system_clock_config,
+            self.system_clock.clone(),
         )
     }
 
@@ -118,10 +123,10 @@ impl EventClockConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("EventClockConfig", dt_getter, late, test)) = state.extract() {
+        if let Ok(("EventClockConfig", dt_getter, late, test_clock)) = state.extract() {
             self.dt_getter = dt_getter;
             self.late_after_system_duration = late;
-            self.system_clock_config = test;
+            self.system_clock = test_clock;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
@@ -137,8 +142,8 @@ enum InternalClock {
 }
 
 impl InternalClock {
-    pub(crate) fn test(config: TestingClockConfig) -> Self {
-        Self::Testing(TestingClock::new(config.item_incr, config.start_at))
+    pub(crate) fn test(py_clock: Py<PyTestingClock>) -> Self {
+        Self::Testing(TestingClock::new(py_clock))
     }
 
     pub(crate) fn system() -> Self {
@@ -209,7 +214,7 @@ impl EventClock {
 
 impl Clock<TdPyAny> for EventClock {
     fn watermark(&mut self, next_value: &Poll<Option<TdPyAny>>) -> DateTime<Utc> {
-        let now = Utc::now();
+        let now = self.clock.time();
         match next_value {
             Poll::Ready(Some(event)) => {
                 let event_late_time = self.time_for(event) - self.late;
@@ -224,11 +229,14 @@ impl Clock<TdPyAny> for EventClock {
             }
             Poll::Pending => {}
         }
-        let system_duration_since_last_event = now - self.system_time_of_last_event;
+        let system_duration_since_last_event =
+            now.signed_duration_since(self.system_time_of_last_event);
         // This is the watermark
-        self.late_time
+        let watermark = self
+            .late_time
             .checked_add_signed(system_duration_since_last_event)
-            .unwrap_or(DateTime::<Utc>::MAX_UTC)
+            .unwrap_or(DateTime::<Utc>::MAX_UTC);
+        watermark
     }
 
     fn time_for(&mut self, event: &TdPyAny) -> DateTime<Utc> {
