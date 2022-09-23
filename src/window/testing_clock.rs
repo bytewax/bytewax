@@ -170,7 +170,7 @@ impl<V> Clock<V> for TestingClock {
             Poll::Ready(None) => DateTime::<Utc>::MAX_UTC,
             _ => Python::with_gil(|py| {
                 let py_clock = self.py_clock.borrow(py);
-                py_clock.now.clone()
+                py_clock.now
             }),
         }
     }
