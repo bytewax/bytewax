@@ -48,7 +48,7 @@ def test_event_time_processing():
 
     cc = EventClockConfig(
         lambda event: event["time"],
-        late_after_system_duration=late,
+        wait_for_system_duration=late,
         system_clock=clock
     )
     wc = TumblingWindowConfig(start_at=start_at, length=window_length)

@@ -18,7 +18,7 @@ use super::{Clock, ClockBuilder, ClockConfig, Builder};
 ///   Config object. Pass this as the `clock_config` parameter to
 ///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=ClockConfig)]
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct SystemClockConfig {}
 
 impl<V> ClockBuilder<V> for SystemClockConfig {

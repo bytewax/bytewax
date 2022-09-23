@@ -54,7 +54,6 @@ impl ClockBuilder<TdPyAny> for EventClockConfig {
             // Here we deserialize data if a snapshot existed
             let (latest_event_time, system_time_of_last_event, late_time, watermark, clock) =
                 resume_state_bytes.map(StateBytes::de).unwrap_or_else(|| {
-                    // Default values
                     (
                         None,
                         // Get the `now` value of the system_clock, if present, or utcnow
@@ -199,7 +198,7 @@ impl InternalClock {
 pub(crate) struct EventClock {
     dt_getter: TdPyCallable,
     late: chrono::Duration,
-    clock: InternalClock,
+    system_clock: InternalClock,
     // State
     late_time: DateTime<Utc>,
     latest_event_time: Option<DateTime<Utc>>,
@@ -224,26 +223,14 @@ impl EventClock {
             late_time,
             system_time_of_last_event,
             watermark,
-            clock,
+            system_clock: clock,
         }
-    }
-
-    fn get_event_time(&self, event: &TdPyAny) -> DateTime<Utc> {
-        Python::with_gil(|py| {
-            self.dt_getter
-                // Call the event time getter function with the event as parameter
-                .call1(py, (event.clone_ref(py),))
-                .unwrap()
-                // Convert to DateTime<Utc>
-                .extract(py)
-                .unwrap()
-        })
     }
 }
 
 impl Clock<TdPyAny> for EventClock {
     fn watermark(&mut self, next_value: &Poll<Option<TdPyAny>>) -> DateTime<Utc> {
-        let now = self.clock.time();
+        let now = self.system_clock.time();
         match next_value {
             Poll::Ready(Some(event)) => {
                 let event_late_time = self.time_for(event) - self.late;
@@ -269,7 +256,15 @@ impl Clock<TdPyAny> for EventClock {
     }
 
     fn time_for(&mut self, event: &TdPyAny) -> DateTime<Utc> {
-        self.get_event_time(event)
+        Python::with_gil(|py| {
+            self.dt_getter
+                // Call the event time getter function with the event as parameter
+                .call1(py, (event.clone_ref(py),))
+                .unwrap()
+                // Convert to DateTime<Utc>
+                .extract(py)
+                .unwrap()
+        })
     }
 
     fn snapshot(&self) -> StateBytes {
@@ -278,7 +273,7 @@ impl Clock<TdPyAny> for EventClock {
             self.system_time_of_last_event,
             self.late_time,
             self.watermark,
-            self.clock.snapshot::<TdPyAny>(),
+            self.system_clock.snapshot::<TdPyAny>(),
         ))
     }
 }

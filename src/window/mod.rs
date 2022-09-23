@@ -108,8 +108,10 @@ pub(crate) trait ClockBuilder<V> {
 }
 
 pub(crate) fn build_clock_builder(
-    clock_config: &PyCell<ClockConfig>,
+    py: Python,
+    clock_config: Py<ClockConfig>,
 ) -> StringResult<Builder<TdPyAny>> {
+    let clock_config = clock_config.as_ref(py);
     // System clock
     if let Ok(conf) = clock_config.extract::<SystemClockConfig>() {
         Ok(conf.builder())

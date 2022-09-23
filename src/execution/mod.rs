@@ -286,7 +286,7 @@ fn build_production_dataflow<A: Allocate>(
                         .remove(&step_id)
                         .unwrap_or_default();
 
-                    let clock_builder = build_clock_builder(clock_config.as_ref(py))?;
+                    let clock_builder = build_clock_builder(py, clock_config)?;
                     let windower_builder = build_windower_builder(py, window_config)?;
 
                     let (downstream, update_stream) =
@@ -345,7 +345,7 @@ fn build_production_dataflow<A: Allocate>(
                         .remove(&step_id)
                         .unwrap_or_default();
 
-                    let clock_builder = build_clock_builder(clock_config.as_ref(py))?;
+                    let clock_builder = build_clock_builder(py, clock_config)?;
                     let windower_builder = build_windower_builder(py, window_config)?;
 
                     let (downstream, update_stream) =
