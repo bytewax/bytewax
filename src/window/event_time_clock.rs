@@ -54,23 +54,22 @@ impl ClockBuilder<TdPyAny> for EventClockConfig {
             // Here we deserialize data if a snapshot existed
             let (latest_event_time, system_time_of_last_event, late_time, watermark, clock) =
                 resume_state_bytes.map(StateBytes::de).unwrap_or_else(|| {
+                    // Extract `now` from the pytestingclock if present
+                    let now_opt = self
+                        .system_clock
+                        .clone()
+                        .map(|clock| Python::with_gil(|py| clock.borrow_mut(py).now));
+                    // Defaults values
                     (
                         None,
-                        // Get the `now` value of the system_clock, if present, or utcnow
-                        self.system_clock
-                            .clone()
-                            .map(|clock| Python::with_gil(|py| clock.borrow_mut(py).now))
-                            .unwrap_or_else(Utc::now),
+                        // Use the `now` value of the pytestingclock, if present, or utcnow
+                        now_opt.unwrap_or_else(Utc::now),
                         DateTime::<Utc>::MIN_UTC,
                         DateTime::<Utc>::MIN_UTC,
                         // Since we serialized the serialized state of the internal clock,
                         // here we need to return a serialized version of the defaults...
-                        self.system_clock
-                            .clone()
-                            .map(|clock| {
-                                let now = Python::with_gil(|py| clock.borrow(py).now);
-                                StateBytes::ser::<DateTime<Utc>>(&now)
-                            })
+                        now_opt
+                            .map(|now| StateBytes::ser::<DateTime<Utc>>(&now))
                             .unwrap_or_else(|| StateBytes::ser(&())),
                     )
                 });
