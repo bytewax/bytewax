@@ -404,7 +404,6 @@ where
             let item_time = self.clock.time_for(&value);
 
             for window_result in self.windower.insert(&watermark, item_time) {
-                println!("{:?}", window_result);
                 let value = value.clone();
                 match window_result {
                     Err(InsertError::Late(_window_key)) => {
