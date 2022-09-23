@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import ManualInputConfig
-from bytewax.window import TumblingWindowConfig, EventClockConfig, TestingClockConfig
+from bytewax.window import TumblingWindowConfig, EventClockConfig
 from bytewax.outputs import TestingOutputConfig
 from bytewax.testing import TestingClock
 
@@ -33,13 +33,9 @@ def test_event_time_processing():
         # This should be processed in the third window
         clock.now = start_at + timedelta(seconds=11.1)
         yield None, {"type": "temp", "time": start_at + s(12), "value": 17}
-        # This should be dropped, because its received "late".
-        # Calling "x" the time between latest_event_time (start_at + 2s) and
-        # the time we received the event at (start_at + 4s), events for the
-        # first window are late after:
-        # late + windows_length + x = 19 seconds
-        # ^      ^                ^
-        # 5s     10s              4s
+        # This should be dropped, because its event_time is before
+        # the latest event time, and it arrives `late` seconds after
+        # the closing of the window + the delay of the latest received item.
         clock.now = start_at + timedelta(seconds=19.1)
         yield None, {"type": "temp", "time": start_at + s(1), "value": 200}
 

@@ -20,25 +20,29 @@ use super::{
 /// If the dataflow has no more input, all windows are closed.
 ///
 /// The watermark is the system time since the last element
-/// plus the value of `late`. It is updated every time an event
-/// with a newer datetime is processed.
+/// plus the value of `late` plus the delay of the latest received element.
+/// It is updated every time an event with a newer datetime is processed.
 ///
 /// Args:
-///   getter: Python function to get a datetime from an event.
-///   late_after_system_duration: How much (system) time to wait before considering an event late.
-///   system_clock_config: TODO
+///
+///   dt_getter: Python function to get a datetime from an event.
+///
+///   wait_for_system_duration: How much (system) time to wait before considering an event late.
+///
+///   system_clock: Optional configuration to use a PyTestingClock as the internal system_clock,
+///                 only used for testing purposes right now.
 ///
 /// Returns:
 ///   Config object. Pass this as the `clock_config` parameter to your
 ///   windowing operator.
 #[pyclass(module="bytewax.window", extends=ClockConfig)]
-#[pyo3(text_signature = "(getter, late_after_system_duration, system_clock_config)")]
+#[pyo3(text_signature = "(dt_getter, wait_for_system_duration, system_clock)")]
 #[derive(Clone)]
 pub(crate) struct EventClockConfig {
     #[pyo3(get)]
     pub(crate) dt_getter: TdPyCallable,
     #[pyo3(get)]
-    pub(crate) late_after_system_duration: chrono::Duration,
+    pub(crate) wait_for_system_duration: chrono::Duration,
     #[pyo3(get)]
     pub(crate) system_clock: Option<Py<PyTestingClock>>,
 }
@@ -46,31 +50,56 @@ pub(crate) struct EventClockConfig {
 impl ClockBuilder<TdPyAny> for EventClockConfig {
     fn builder(self) -> Builder<TdPyAny> {
         Box::new(move |resume_state_bytes: Option<StateBytes>| {
-            let (latest_event_time, system_time_of_last_event, late_time, watermark) =
+            // This is slightly complicated.
+            // Here we deserialize data if a snapshot existed
+            let (latest_event_time, system_time_of_last_event, late_time, watermark, clock) =
                 resume_state_bytes.map(StateBytes::de).unwrap_or_else(|| {
+                    // Default values
                     (
                         None,
+                        // Get the `now` value of the system_clock, if present, or utcnow
                         self.system_clock
                             .clone()
                             .map(|clock| Python::with_gil(|py| clock.borrow_mut(py).now))
                             .unwrap_or_else(Utc::now),
                         DateTime::<Utc>::MIN_UTC,
                         DateTime::<Utc>::MIN_UTC,
+                        // Since we serialized the serialized state of the internal clock,
+                        // here we need to return a serialized version of the defaults...
+                        self.system_clock
+                            .clone()
+                            .map(|clock| {
+                                let now = Python::with_gil(|py| clock.borrow(py).now);
+                                StateBytes::ser::<DateTime<Utc>>(&now)
+                            })
+                            .unwrap_or_else(|| StateBytes::ser(&())),
                     )
                 });
 
+            // Now, we only care about deserialization if we have a testing clock,
+            // since the system clock has no state.
+            let clock = self
+                .system_clock
+                .to_owned()
+                .map(|py_clock| {
+                    // So if we had a testing clock, we set its `now` value
+                    // to deserialized `clock`, which is either the serialized state,
+                    // or the serialized default.
+                    Python::with_gil(|py| {
+                        py_clock.borrow_mut(py).now = StateBytes::de(clock);
+                    });
+                    InternalClock::test(py_clock)
+                })
+                .unwrap_or_else(InternalClock::system);
+
             Box::new(EventClock::new(
                 self.dt_getter.clone(),
-                self.late_after_system_duration,
+                self.wait_for_system_duration,
                 latest_event_time,
                 late_time,
                 system_time_of_last_event,
                 watermark,
-                self.system_clock
-                    .as_ref()
-                    .cloned()
-                    .map(InternalClock::test)
-                    .unwrap_or_else(InternalClock::system),
+                clock,
             ))
         })
     }
@@ -82,13 +111,13 @@ impl EventClockConfig {
     #[args(dt_getter, late, test)]
     fn new(
         dt_getter: TdPyCallable,
-        late_after_system_duration: chrono::Duration,
+        wait_for_system_duration: chrono::Duration,
         system_clock: Option<Py<PyTestingClock>>,
     ) -> (Self, ClockConfig) {
         (
             Self {
                 dt_getter,
-                late_after_system_duration,
+                wait_for_system_duration,
                 system_clock,
             },
             ClockConfig {},
@@ -107,7 +136,7 @@ impl EventClockConfig {
         (
             "EventClockConfig",
             self.dt_getter.clone(),
-            self.late_after_system_duration,
+            self.wait_for_system_duration,
             self.system_clock.clone(),
         )
     }
@@ -125,7 +154,7 @@ impl EventClockConfig {
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         if let Ok(("EventClockConfig", dt_getter, late, test_clock)) = state.extract() {
             self.dt_getter = dt_getter;
-            self.late_after_system_duration = late;
+            self.wait_for_system_duration = late;
             self.system_clock = test_clock;
             Ok(())
         } else {
@@ -247,8 +276,59 @@ impl Clock<TdPyAny> for EventClock {
         StateBytes::ser(&(
             self.latest_event_time,
             self.system_time_of_last_event,
+            self.late_time,
             self.watermark,
             self.clock.snapshot::<TdPyAny>(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_event_time_clock_serialization() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let dt_getter: TdPyCallable = TdPyCallable::pickle_new(py);
+            let dt_getter_clone: TdPyCallable = dt_getter.clone_ref(py);
+            let late = chrono::Duration::zero();
+            let latest_event_time = Some(Utc::now());
+            let late_time = Utc::now();
+            let system_time_of_last_event = Utc::now();
+            let watermark = Utc::now();
+            let py_clock_now = Utc::now();
+            let py_clock = Py::new(py, PyTestingClock { now: py_clock_now }).unwrap();
+            let py_clock_clone = py_clock.clone_ref(py);
+            let clock = InternalClock::test(py_clock);
+            let mut event_clock = EventClock::new(
+                dt_getter,
+                late,
+                latest_event_time,
+                late_time,
+                system_time_of_last_event,
+                watermark,
+                clock,
+            );
+            // Save the current watermark to check it doesn't change after
+            // the roundtrip of serialization
+            let watermark = event_clock.watermark(&Poll::Pending);
+
+            // Take a snapshot
+            let snapshot = event_clock.snapshot();
+
+            // Rebuild an EventClock from the snapshot
+            let config = EventClockConfig {
+                dt_getter: dt_getter_clone,
+                wait_for_system_duration: late,
+                system_clock: Some(py_clock_clone),
+            };
+            let mut deserialized = config.builder()(Some(snapshot));
+
+            // If everything was correctly serialized/deserialized, the
+            // watermark shouldn't have changed:
+            assert_eq!(deserialized.watermark(&Poll::Pending), watermark);
+        });
     }
 }
