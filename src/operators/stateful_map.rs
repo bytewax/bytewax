@@ -29,7 +29,7 @@ impl StatefulMapLogic {
         move |resume_state_bytes| {
             let state = Some(
                 resume_state_bytes
-                    .map(|resume_state_bytes| resume_state_bytes.de())
+                    .map(StateBytes::de::<TdPyAny>)
                     .unwrap_or_else(|| {
                         Python::with_gil(|py| {
                             let initial_state: TdPyAny = unwrap_any!(builder.call1(py, ())).into();
@@ -94,7 +94,7 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for StatefulMapLogic {
 
     fn snapshot(&self) -> StateUpdate {
         match &self.state {
-            Some(state) => StateUpdate::Upsert(StateBytes::ser(state)),
+            Some(state) => StateUpdate::Upsert(StateBytes::ser::<TdPyAny>(state)),
             None => StateUpdate::Reset,
         }
     }

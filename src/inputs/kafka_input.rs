@@ -213,8 +213,8 @@ impl KafkaInput {
         worker_count: usize,
         resume_state_bytes: Option<StateBytes>,
     ) -> Self {
-        let mut positions: HashMap<KafkaPartition, KafkaPosition> = resume_state_bytes
-            .map(|resume_state_bytes| resume_state_bytes.de())
+        let mut positions = resume_state_bytes
+            .map(StateBytes::de::<HashMap<KafkaPartition, KafkaPosition>>)
             .unwrap_or_default();
 
         let eof = !tail;
@@ -310,6 +310,6 @@ impl InputReader<TdPyAny> for KafkaInput {
     }
 
     fn snapshot(&self) -> StateBytes {
-        StateBytes::ser(&self.positions)
+        StateBytes::ser::<HashMap<KafkaPartition, KafkaPosition>>(&self.positions)
     }
 }

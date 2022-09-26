@@ -480,15 +480,6 @@ pub(crate) enum StateUpdate {
     Reset,
 }
 
-impl<T: Serialize> From<Option<T>> for StateUpdate {
-    fn from(updated_state: Option<T>) -> Self {
-        match updated_state {
-            Some(state) => Self::Upsert(StateBytes::ser(&state)),
-            None => Self::Reset,
-        }
-    }
-}
-
 /// Impl this trait to create an operator which maintains recoverable
 /// state.
 ///
