@@ -319,6 +319,7 @@ impl Dataflow {
     /// - Collection into a list
     /// - Summarizing data
     ///
+    /// >>> from bytewax.dataflow import Dataflow
     /// >>> from bytewax.inputs import TestingInputConfig
     /// >>> from bytewax.outputs import StdOutputConfig
     /// >>> from bytewax.execution import run_main
@@ -332,7 +333,7 @@ impl Dataflow {
     /// ... ]
     /// >>> flow.input("inp", TestingInputConfig(inp))
     /// >>> def user_as_key(event):
-    /// ...     return event["user"], [event["type"]]
+    /// ...     return event["user"], [event]
     /// >>> flow.map(user_as_key)
     /// >>> def extend_session(session, events):
     /// ...     session.extend(events)
@@ -404,7 +405,7 @@ impl Dataflow {
     /// >>> def count(results, event):
     /// ...     results[event["type"]] += 1
     /// ...     return results
-    /// >>> clock_config = TestingClockConfig(item_incr=timedelta(seconds=4))
+    /// >>> clock_config = TestingClockConfig(start_at=datetime(2022, 1, 1, 13), item_incr=timedelta(seconds=4))
     /// >>> window_config = TumblingWindowConfig(length=timedelta(seconds=10))
     /// >>> out = []
     /// >>> flow = Dataflow(TestingInputConfig(gen()))
