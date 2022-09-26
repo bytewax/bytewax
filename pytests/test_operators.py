@@ -1,12 +1,25 @@
 import re
 from collections import defaultdict
+from datetime import datetime, timedelta
+from threading import Event
 
-from pytest import raises
+from pytest import fixture, raises
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
-from bytewax.inputs import TestingInputConfig
+from bytewax.execution import run_main, TestingEpochConfig
+from bytewax.inputs import TestingBuilderInputConfig, TestingInputConfig
 from bytewax.outputs import TestingOutputConfig
+from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.testing import TestingClock
+from bytewax.window import TestingClockConfig, TumblingWindowConfig
+
+# Stateful operators must test recovery to ensure serde works.
+epoch_config = TestingEpochConfig()
+
+
+@fixture
+def recovery_config(tmp_path):
+    yield SqliteRecoveryConfig(str(tmp_path))
 
 
 def test_map():
@@ -104,17 +117,32 @@ def test_inspect_epoch():
     assert seen == sorted([(0, "a")])
 
 
-def test_reduce():
+def test_reduce(recovery_config):
     flow = Dataflow()
 
     inp = [
         {"user": "a", "type": "login"},
         {"user": "a", "type": "post"},
+        "BOOM",
         {"user": "b", "type": "login"},
         {"user": "a", "type": "logout"},
         {"user": "b", "type": "logout"},
     ]
     flow.input("inp", TestingInputConfig(inp))
+
+    armed = Event()
+    armed.set()
+
+    def trigger(item):
+        if item == "BOOM":
+            if armed.is_set():
+                raise RuntimeError("BOOM")
+            else:
+                return []
+        else:
+            return [item]
+
+    flow.flat_map(trigger)
 
     def user_as_key(event):
         return (event["user"], [event])
@@ -132,7 +160,17 @@ def test_reduce():
     out = []
     flow.capture(TestingOutputConfig(out))
 
-    run_main(flow)
+    with raises(RuntimeError):
+        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+
+    assert sorted(out) == sorted([])
+
+    # Disable bomb.
+    armed.clear()
+    out.clear()
+
+    # Recover
+    run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
     assert sorted(out) == sorted(
         [
@@ -155,11 +193,31 @@ def test_reduce():
     )
 
 
-def test_stateful_map():
+def test_stateful_map(recovery_config):
     flow = Dataflow()
 
-    inp = ["a", "a", "a", "b"]
+    inp = [
+        "a",
+        "b",
+        "BOOM",
+        "b",
+        "c",
+    ]
     flow.input("inp", TestingInputConfig(inp))
+
+    armed = Event()
+    armed.set()
+
+    def trigger(item):
+        if item == "BOOM":
+            if armed.is_set():
+                raise RuntimeError("BOOM")
+            else:
+                return []
+        else:
+            return [item]
+
+    flow.flat_map(trigger)
 
     def add_key(item):
         return item, item
@@ -190,9 +248,28 @@ def test_stateful_map():
     out = []
     flow.capture(TestingOutputConfig(out))
 
-    run_main(flow)
+    with raises(RuntimeError):
+        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
-    assert sorted(out) == sorted(["a", "b"])
+    assert sorted(out) == sorted(
+        [
+            "a",
+            "b",
+        ]
+    )
+
+    # Disable bomb
+    armed.clear()
+    out.clear()
+
+    # Recover
+    run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+
+    assert sorted(out) == sorted(
+        [
+            "c",
+        ]
+    )
 
 
 def test_stateful_map_error_on_non_kv_tuple():
@@ -262,3 +339,151 @@ def test_stateful_map_error_on_non_string_key():
         ),
     ):
         run_main(flow)
+
+
+def test_reduce_window(recovery_config):
+    start_at = datetime(2022, 1, 1)
+    clock = TestingClock(start_at)
+
+    flow = Dataflow()
+
+    def gen():
+        clock.now = start_at  # +0 sec; reset on recover
+        yield ("ALL", 1)
+        clock.now += timedelta(seconds=4)  # +4 sec
+        yield ("ALL", 1)
+        clock.now += timedelta(seconds=4)  # +8 sec
+        yield "BOOM"
+        yield ("ALL", 1)
+        clock.now += timedelta(seconds=4)  # +12 sec
+        yield ("ALL", 1)
+        clock.now += timedelta(seconds=4)  # +16 sec
+
+    flow.input("inp", TestingBuilderInputConfig(gen))
+
+    armed = Event()
+    armed.set()
+
+    def trigger(item):
+        if item == "BOOM":
+            if armed.is_set():
+                raise RuntimeError("BOOM")
+            else:
+                return []
+        else:
+            return [item]
+
+    flow.flat_map(trigger)
+
+    clock_config = TestingClockConfig(clock)
+    window_config = TumblingWindowConfig(
+        length=timedelta(seconds=10), start_at=start_at
+    )
+
+    def add(acc, x):
+        return acc + x
+
+    flow.reduce_window("add", clock_config, window_config, add)
+
+    out = []
+    flow.capture(TestingOutputConfig(out))
+
+    with raises(RuntimeError):
+        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+
+    # No windows yet after epoch 2.
+    assert sorted(out) == sorted([])
+
+    # Disable bomb
+    armed.clear()
+    out.clear()
+
+    # Recover
+    run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+
+    # But it remembers the first two items in the first window.
+    assert sorted(out) == sorted([("ALL", 3), ("ALL", 1)])
+
+
+def test_fold_window(recovery_config):
+    start_at = datetime(2022, 1, 1)
+    clock = TestingClock(start_at)
+
+    flow = Dataflow()
+
+    def gen():
+        clock.now = start_at  # +0 sec; reset on recover
+        yield {"user": "a", "type": "login"}
+        clock.now += timedelta(seconds=4)  # +4 sec
+        yield {"user": "a", "type": "post"}
+        clock.now += timedelta(seconds=4)  # +8 sec
+        yield {"user": "a", "type": "post"}
+        clock.now += timedelta(seconds=4)  # +12 sec
+        # First 10 sec window closes during processing this input.
+        yield {"user": "b", "type": "login"}
+        yield "BOOM"
+        clock.now += timedelta(seconds=4)  # +16 sec
+        yield {"user": "a", "type": "post"}
+        clock.now += timedelta(seconds=4)  # +20 sec
+        # Second 10 sec window closes during processing this input.
+        yield {"user": "b", "type": "post"}
+        clock.now += timedelta(seconds=4)  # +24 sec
+        yield {"user": "b", "type": "post"}
+        clock.now += timedelta(seconds=4)  # +28 sec
+
+    flow.input("inp", TestingBuilderInputConfig(gen))
+
+    armed = Event()
+    armed.set()
+
+    def trigger(item):
+        if item == "BOOM":
+            if armed.is_set():
+                raise RuntimeError("BOOM")
+            else:
+                return []
+        else:
+            return [item]
+
+    flow.flat_map(trigger)
+
+    def key_off_user(event):
+        return (event["user"], event["type"])
+
+    flow.map(key_off_user)
+
+    clock_config = TestingClockConfig(clock)
+    window_config = TumblingWindowConfig(
+        length=timedelta(seconds=10), start_at=start_at
+    )
+
+    def count(counts, typ):
+        if typ not in counts:
+            counts[typ] = 0
+        counts[typ] += 1
+        return counts
+
+    flow.fold_window("sum", clock_config, window_config, dict, count)
+
+    out = []
+    flow.capture(TestingOutputConfig(out))
+
+    with raises(RuntimeError):
+        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+
+    assert out == [
+        ("a", {"login": 1, "post": 2}),
+    ]
+
+    # Disable bomb
+    armed.clear()
+    out.clear()
+
+    # Recover
+    run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+
+    assert out == [
+        ("b", {"login": 1}),
+        ("a", {"post": 1}),
+        ("b", {"post": 2}),
+    ]

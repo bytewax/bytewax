@@ -7,19 +7,19 @@ Use
 ---
 
 Create an `InputConfig` subclass for the source you'd like to read
-from. Then pass that config object to the `bytewax.dataflow.Dataflow`
-constructor.
+from. Then pass that config object as the `input_config` argument of
+the `bytewax.dataflow.Dataflow.input` operator.
 
 """
 
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from .bytewax import InputConfig, KafkaInputConfig, ManualInputConfig  # noqa: F401
 
 
-class TestingInputConfig(ManualInputConfig):
-    """Produce input from a Python iterable.
-    You only want to use this for unit testing.
+class TestingBuilderInputConfig(ManualInputConfig):
+    """Produce input from a builder of a Python iterable. You only want to
+    use this for unit testing.
 
     The iterable must be identical on all workers; this will
     automatically distribute the items across workers and handle
@@ -27,12 +27,13 @@ class TestingInputConfig(ManualInputConfig):
 
     Args:
 
-        it: Iterable for input.
+        builder: Called upon dataflow startup which returns an
+            iterable for input.
 
     Returns:
 
-        Config object. Pass this to the `bytewax.dataflow.Dataflow`
-        constructor.
+        Config object. Pass this as the `input_config` argument of the
+        `bytewax.dataflow.Dataflow.input` operator.
 
     """
 
@@ -40,8 +41,9 @@ class TestingInputConfig(ManualInputConfig):
     # a test since its name starts with "Test"
     __test__ = False
 
-    def __new__(cls, it):
+    def __new__(cls, builder: Callable[[], Iterable[Any]]):
         def gen(worker_index, worker_count, resume_state):
+            it = builder()
             resume_i = resume_state or 0
             for i, x in enumerate(distribute(it, worker_index, worker_count)):
                 # FFWD to the resume item.
@@ -50,7 +52,36 @@ class TestingInputConfig(ManualInputConfig):
                 # Store the index in this worker's partition as the resume
                 # state.
                 yield (i + 1, x)
+
         return super().__new__(cls, gen)
+
+
+class TestingInputConfig(TestingBuilderInputConfig):
+    """Produce input from a Python iterable. You only want to use this for
+    unit testing.
+
+    The iterable must be identical on all workers; this will
+    automatically distribute the items across workers and handle
+    recovery.
+
+    Be careful using a generator as the iterable; if you fail and
+    attempt to resume the dataflow without rebuilding it, the
+    half-consumed generator will be re-used on recovery and unexpected
+    input will be used. See `TestingBuilderInputConfig`.
+
+    Args:
+
+        it: Iterable for input.
+
+    Returns:
+
+        Config object. Pass this as the `input_config` argument of the
+        `bytewax.dataflow.Dataflow.input` operator.
+
+    """
+
+    def __new__(cls, it: Iterable[Any]):
+        return super().__new__(cls, lambda: it)
 
 
 def distribute(elements: Iterable[Any], index: int, count: int) -> Iterable[Any]:
