@@ -47,8 +47,8 @@ use super::{distribute, InputConfig, InputReader};
 ///
 /// Returns:
 ///
-///   Config object. Pass this as the `input_config` argument to the
-///   `bytewax.dataflow.Dataflow.input`.
+///   Config object. Pass this as the `input_config` argument of the
+///   `bytewax.dataflow.Dataflow.input` operator.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
 #[pyo3(text_signature = "(brokers, topic, tail, starting_offset, additional_properties)")]
 pub(crate) struct KafkaInputConfig {
