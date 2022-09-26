@@ -69,6 +69,6 @@ impl<V> Clock<V> for SystemClock {
     }
 
     fn snapshot(&self) -> StateBytes {
-        StateBytes::ser(&())
+        StateBytes::ser::<()>(&())
     }
 }

@@ -348,7 +348,8 @@ where
                 StateBytes,
                 StateBytes,
                 HashMap<WindowKey, StateBytes>,
-            )> = resume_state_bytes.map(|state_bytes| state_bytes.de());
+            )> = resume_state_bytes
+                .map(StateBytes::de::<(StateBytes, StateBytes, HashMap<WindowKey, StateBytes>)>);
             let (clock_resume_state_bytes, windower_resume_state_bytes, key_to_resume_state_bytes) =
                 match resume_state_bytes {
                     Some((c, w, l)) => (Some(c), Some(w), Some(l)),
@@ -450,7 +451,11 @@ where
             self.windower.snapshot(),
             window_to_logic_resume_state_bytes,
         );
-        StateUpdate::Upsert(StateBytes::ser(&state))
+        StateUpdate::Upsert(StateBytes::ser::<(
+            StateBytes,
+            StateBytes,
+            HashMap<WindowKey, StateBytes>,
+        )>(&state))
     }
 }
 

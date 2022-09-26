@@ -24,7 +24,7 @@ impl ManualInput {
         resume_state_bytes: Option<StateBytes>,
     ) -> Self {
         let resume_state: TdPyAny = resume_state_bytes
-            .map(|resume_state_bytes| resume_state_bytes.de())
+            .map(StateBytes::de::<TdPyAny>)
             .unwrap_or_else(|| py.None().into());
 
         let pyiter: TdPyCoroIterator = try_unwrap!(input_builder
@@ -60,7 +60,7 @@ impl InputReader<TdPyAny> for ManualInput {
     }
 
     fn snapshot(&self) -> StateBytes {
-        StateBytes::ser(&self.last_state)
+        StateBytes::ser::<TdPyAny>(&self.last_state)
     }
 }
 

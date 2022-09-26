@@ -28,7 +28,7 @@ impl ReduceLogic {
         is_complete: TdPyCallable,
     ) -> impl Fn(Option<StateBytes>) -> Self {
         move |resume_acc_bytes| {
-            let acc = resume_acc_bytes.map(|resume_acc_bytes| resume_acc_bytes.de());
+            let acc = resume_acc_bytes.map(StateBytes::de::<TdPyAny>);
             Python::with_gil(|py| Self {
                 reducer: reducer.clone_ref(py),
                 is_complete: is_complete.clone_ref(py),
@@ -95,7 +95,7 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceLogic {
 
     fn snapshot(&self) -> StateUpdate {
         match &self.acc {
-            Some(acc) => StateUpdate::Upsert(StateBytes::ser(acc)),
+            Some(acc) => StateUpdate::Upsert(StateBytes::ser::<TdPyAny>(acc)),
             None => StateUpdate::Reset,
         }
     }
