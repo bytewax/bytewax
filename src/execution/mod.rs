@@ -123,13 +123,10 @@ impl EpochConfig {
 /// Default to 10 second periodic epochs.
 pub(crate) fn default_epoch_config() -> Py<EpochConfig> {
     Python::with_gil(|py| {
-        PyCell::new(
-            py,
-            PeriodicEpochConfig::new(chrono::Duration::seconds(10)),
-        )
-        .unwrap()
-        .extract()
-        .unwrap()
+        PyCell::new(py, PeriodicEpochConfig::new(chrono::Duration::seconds(10)))
+            .unwrap()
+            .extract()
+            .unwrap()
     })
 }
 

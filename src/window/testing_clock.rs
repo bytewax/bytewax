@@ -6,8 +6,9 @@ use pyo3::{exceptions::PyValueError, prelude::*};
 use super::{Clock, ClockConfig};
 use crate::recovery::StateBytes;
 
-/// Encapsulates and allows modifyingt the "now" when using
-/// `bytewax.window.TestingClockConfig`.
+/// Encapsulates and allows modifying the "now" when using
+/// `bytewax.window.TestingClockConfig`. You only want to use this for
+/// unit testing.
 ///
 /// Args:
 ///
@@ -77,7 +78,12 @@ impl PyTestingClock {
     }
 }
 
-/// Use to simulate system time in tests.
+/// Use to simulate system time in unit tests. You only want to use
+/// this for unit testing.
+///
+/// You should use this with
+/// `bytewax.inputs.TestingBuilderInputConfig` and a generator which
+/// modifies the `TestingClock` provided.
 ///
 /// If the dataflow has no more input, all windows are closed.
 ///
@@ -146,17 +152,11 @@ impl TestingClock {
     pub(crate) fn builder<V>(
         py_clock: Py<PyTestingClock>,
     ) -> impl Fn(Option<StateBytes>) -> Box<dyn Clock<V>> {
-        move |resume_state_bytes: Option<StateBytes>| {
+        move |_resume_state_bytes: Option<StateBytes>| {
             // All instances of this [`TestingClock`] will reference
             // the same [`PyTestingClock`] so modifications increment
             // all windows' times.
             let py_clock = py_clock.clone();
-
-            if let Some(now) = resume_state_bytes.map(StateBytes::de::<DateTime<Utc>>) {
-                Python::with_gil(|py| {
-                    py_clock.borrow_mut(py).now = now;
-                })
-            }
 
             Box::new(Self { py_clock })
         }
@@ -179,8 +179,13 @@ impl<V> Clock<V> for TestingClock {
         self.watermark(&Poll::Ready(Some(item)))
     }
 
+    /// Does not store state since state is per-key but the testing
+    /// clock is referencing a single global "system time".
+    ///
+    /// Instead you should re-perform your modifications to the
+    /// [`PyTestingClock`] on the Python side as part of input
+    /// recovery.
     fn snapshot(&self) -> StateBytes {
-        let now = Python::with_gil(|py| self.py_clock.borrow(py).now);
-        StateBytes::ser::<DateTime<Utc>>(&now)
+        StateBytes::ser::<()>(&())
     }
 }

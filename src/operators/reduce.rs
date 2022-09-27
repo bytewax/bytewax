@@ -1,11 +1,12 @@
-use std::{task::Poll, time::Duration};
+use std::task::Poll;
 
+use chrono::{DateTime, Utc};
 use log::debug;
 use pyo3::{exceptions::PyTypeError, prelude::*};
 
 use crate::{
     pyo3_extensions::{TdPyAny, TdPyCallable},
-    recovery::{StateBytes, StateUpdate, StatefulLogic},
+    recovery::{LogicFate, StateBytes, StatefulLogic},
     try_unwrap, unwrap_any,
 };
 
@@ -28,7 +29,9 @@ impl ReduceLogic {
         is_complete: TdPyCallable,
     ) -> impl Fn(Option<StateBytes>) -> Self {
         move |resume_acc_bytes| {
-            let acc = resume_acc_bytes.map(StateBytes::de::<TdPyAny>);
+            let acc = resume_acc_bytes
+                .map(StateBytes::de::<Option<TdPyAny>>)
+                .flatten();
             Python::with_gil(|py| Self {
                 reducer: reducer.clone_ref(py),
                 is_complete: is_complete.clone_ref(py),
@@ -39,7 +42,7 @@ impl ReduceLogic {
 }
 
 impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceLogic {
-    fn exec(&mut self, next_value: Poll<Option<TdPyAny>>) -> (Option<TdPyAny>, Option<Duration>) {
+    fn on_awake(&mut self, next_value: Poll<Option<TdPyAny>>) -> Option<TdPyAny> {
         if let Poll::Ready(Some(value)) = next_value {
             Python::with_gil(|py| {
                 let updated_acc: TdPyAny = match &self.acc {
@@ -82,21 +85,30 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceLogic {
 
                 if should_emit_and_discard_acc {
                     self.acc = None;
-                    (Some(updated_acc), None)
+                    Some(updated_acc)
                 } else {
                     self.acc = Some(updated_acc);
-                    (None, None)
+                    None
                 }
             })
         } else {
-            (None, None)
+            None
         }
     }
 
-    fn snapshot(&self) -> StateUpdate {
-        match &self.acc {
-            Some(acc) => StateUpdate::Upsert(StateBytes::ser::<TdPyAny>(acc)),
-            None => StateUpdate::Reset,
+    fn fate(&self) -> LogicFate {
+        if self.acc.is_none() {
+            LogicFate::Discard
+        } else {
+            LogicFate::Retain
         }
+    }
+
+    fn next_awake(&self) -> Option<DateTime<Utc>> {
+        None
+    }
+
+    fn snapshot(&self) -> StateBytes {
+        StateBytes::ser::<Option<TdPyAny>>(&self.acc)
     }
 }

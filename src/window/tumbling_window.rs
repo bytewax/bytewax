@@ -107,7 +107,15 @@ impl Windower for TumblingWindower {
         if &close_at < watermark {
             vec![Err(InsertError::Late(key))]
         } else {
-            self.close_times.insert(key, close_at);
+            self.close_times
+                .entry(key)
+                .and_modify(|existing_close_at| {
+                    assert!(
+                        existing_close_at == &close_at,
+                        "Tumbling windower is not generating consistent boundaries"
+                    )
+                })
+                .or_insert(close_at);
             vec![Ok(key)]
         }
     }
@@ -129,11 +137,12 @@ impl Windower for TumblingWindower {
         closed_ids
     }
 
-    fn activate_after(&mut self, watermark: &DateTime<Utc>) -> Option<Duration> {
-        self.close_times
-            .values()
-            .map(|t| t.signed_duration_since(*watermark))
-            .min()
+    fn is_empty(&self) -> bool {
+        self.close_times.is_empty()
+    }
+
+    fn next_close(&self) -> Option<DateTime<Utc>> {
+        self.close_times.values().cloned().min()
     }
 
     fn snapshot(&self) -> StateBytes {
