@@ -77,7 +77,7 @@ impl TumblingWindower {
     ) -> impl Fn(Option<StateBytes>) -> Box<dyn Windower> {
         move |resume_state_bytes| {
             let close_times = resume_state_bytes
-                .map(StateBytes::de::<HashMap<WindowKey, NaiveDateTime>>)
+                .map(StateBytes::de::<HashMap<WindowKey, DateTime<Utc>>>)
                 .unwrap_or_default();
 
             Box::new(Self {
@@ -137,6 +137,6 @@ impl Windower for TumblingWindower {
     }
 
     fn snapshot(&self) -> StateBytes {
-        StateBytes::ser::<HashMap<WindowKey, NaiveDateTime>>(&self.close_times)
+        StateBytes::ser::<HashMap<WindowKey, DateTime<Utc>>>(&self.close_times)
     }
 }
