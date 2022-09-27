@@ -37,25 +37,25 @@ use super::EpochConfig;
 #[pyo3(text_signature = "(epoch_length)")]
 pub(crate) struct PeriodicEpochConfig {
     #[pyo3(get)]
-    pub(crate) epoch_length: pyo3_chrono::Duration,
+    pub(crate) epoch_length: chrono::Duration,
 }
 
 #[pymethods]
 impl PeriodicEpochConfig {
     #[new]
     #[args(epoch_length)]
-    pub(crate) fn new(epoch_length: pyo3_chrono::Duration) -> (Self, EpochConfig) {
+    pub(crate) fn new(epoch_length: chrono::Duration) -> (Self, EpochConfig) {
         (Self { epoch_length }, EpochConfig {})
     }
 
     /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, pyo3_chrono::Duration) {
+    fn __getstate__(&self) -> (&str, chrono::Duration) {
         ("PeriodicEpochConfig", self.epoch_length)
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (pyo3_chrono::Duration,) {
-        (pyo3_chrono::Duration(chrono::Duration::zero()),)
+    fn __getnewargs__(&self) -> (chrono::Duration,) {
+        (chrono::Duration::zero(),)
     }
 
     /// Unpickle from tuple of arguments.

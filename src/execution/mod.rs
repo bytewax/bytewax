@@ -125,7 +125,7 @@ pub(crate) fn default_epoch_config() -> Py<EpochConfig> {
     Python::with_gil(|py| {
         PyCell::new(
             py,
-            PeriodicEpochConfig::new(pyo3_chrono::Duration(chrono::Duration::seconds(10))),
+            PeriodicEpochConfig::new(chrono::Duration::seconds(10)),
         )
         .unwrap()
         .extract()
@@ -173,7 +173,6 @@ where
 
         let epoch_length = periodic_config
             .epoch_length
-            .0
             .to_std()
             .map_err(|err| format!("Invalid epoch length: {err:?}"))?;
 

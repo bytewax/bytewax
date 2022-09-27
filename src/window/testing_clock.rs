@@ -1,6 +1,6 @@
 use std::task::Poll;
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use pyo3::{exceptions::PyValueError, prelude::*};
 
 use super::{Clock, ClockConfig};
@@ -22,7 +22,7 @@ use crate::recovery::StateBytes;
 pub(crate) struct PyTestingClock {
     /// Modify this to change the current "now".
     #[pyo3(get, set)]
-    now: pyo3_chrono::NaiveDateTime,
+    now: DateTime<Utc>,
 }
 
 impl PyTestingClock {
@@ -32,7 +32,7 @@ impl PyTestingClock {
         PyCell::new(
             py,
             PyTestingClock {
-                now: pyo3_chrono::NaiveDateTime(chrono::naive::MIN_DATETIME),
+                now: DateTime::<Utc>::MIN_UTC,
             },
         )
         .unwrap()
@@ -50,18 +50,18 @@ impl PyTestingClock {
 
     #[new]
     #[args(init_datetime)]
-    fn new(init_datetime: pyo3_chrono::NaiveDateTime) -> Self {
+    fn new(init_datetime: DateTime<Utc>) -> Self {
         Self { now: init_datetime }
     }
 
     /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, pyo3_chrono::NaiveDateTime) {
+    fn __getstate__(&self) -> (&str, DateTime<Utc>) {
         ("TestingClock", self.now)
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (pyo3_chrono::NaiveDateTime,) {
-        (pyo3_chrono::NaiveDateTime(chrono::naive::MIN_DATETIME),)
+    fn __getnewargs__(&self) -> (DateTime<Utc>,) {
+        (DateTime::<Utc>::MIN_UTC,)
     }
 
     /// Unpickle from tuple of arguments.
@@ -152,9 +152,9 @@ impl TestingClock {
             // all windows' times.
             let py_clock = py_clock.clone();
 
-            if let Some(now) = resume_state_bytes.map(StateBytes::de::<NaiveDateTime>) {
+            if let Some(now) = resume_state_bytes.map(StateBytes::de::<DateTime<Utc>>) {
                 Python::with_gil(|py| {
-                    py_clock.borrow_mut(py).now = pyo3_chrono::NaiveDateTime(now);
+                    py_clock.borrow_mut(py).now = now;
                 })
             }
 
@@ -164,23 +164,23 @@ impl TestingClock {
 }
 
 impl<V> Clock<V> for TestingClock {
-    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> NaiveDateTime {
+    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> DateTime<Utc> {
         match next_value {
             // If there will be no more values, close out all windows.
-            Poll::Ready(None) => chrono::naive::MAX_DATETIME,
+            Poll::Ready(None) => DateTime::<Utc>::MAX_UTC,
             _ => Python::with_gil(|py| {
                 let py_clock = self.py_clock.borrow(py);
-                py_clock.now.0.clone()
+                py_clock.now
             }),
         }
     }
 
-    fn time_for(&mut self, item: &V) -> NaiveDateTime {
+    fn time_for(&mut self, item: &V) -> DateTime<Utc> {
         self.watermark(&Poll::Ready(Some(item)))
     }
 
     fn snapshot(&self) -> StateBytes {
-        let now = Python::with_gil(|py| self.py_clock.borrow(py).now.0);
-        StateBytes::ser::<NaiveDateTime>(&now)
+        let now = Python::with_gil(|py| self.py_clock.borrow(py).now);
+        StateBytes::ser::<DateTime<Utc>>(&now)
     }
 }

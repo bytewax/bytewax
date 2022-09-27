@@ -1,6 +1,6 @@
 import re
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from threading import Event
 
 from pytest import fixture, raises
@@ -342,7 +342,7 @@ def test_stateful_map_error_on_non_string_key():
 
 
 def test_reduce_window(recovery_config):
-    start_at = datetime(2022, 1, 1)
+    start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
     clock = TestingClock(start_at)
 
     flow = Dataflow()
@@ -406,7 +406,7 @@ def test_reduce_window(recovery_config):
 
 
 def test_fold_window(recovery_config):
-    start_at = datetime(2022, 1, 1)
+    start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
     clock = TestingClock(start_at)
 
     flow = Dataflow()
