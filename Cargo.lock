@@ -40,6 +40,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "983cd8b9d4b02a6dc6ffa557262eb5858a27a0038ffffe21a0f133eaa819a164"
+
+[[package]]
 name = "atoi"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -111,6 +117,7 @@ dependencies = [
  "futures",
  "log",
  "pyo3",
+ "pyo3-log",
  "rdkafka",
  "scopeguard",
  "send_wrapper",
@@ -901,14 +908,14 @@ dependencies = [
 [[package]]
 name = "pyo3"
 version = "0.17.1"
-source = "git+https://github.com/psykopear/pyo3?branch=chrono#161d67ac2bfafaa4373d0d3cfaece635563a3394"
+source = "git+https://github.com/pyo3/pyo3?rev=86ce4d1a1#86ce4d1a137d6d62df84c7be2935078e08e46750"
 dependencies = [
  "cfg-if",
  "chrono",
  "indoc",
  "libc",
  "memoffset",
- "parking_lot 0.12.1",
+ "parking_lot 0.11.2",
  "pyo3-build-config",
  "pyo3-ffi",
  "pyo3-macros",
@@ -918,7 +925,7 @@ dependencies = [
 [[package]]
 name = "pyo3-build-config"
 version = "0.17.1"
-source = "git+https://github.com/psykopear/pyo3?branch=chrono#161d67ac2bfafaa4373d0d3cfaece635563a3394"
+source = "git+https://github.com/pyo3/pyo3?rev=86ce4d1a1#86ce4d1a137d6d62df84c7be2935078e08e46750"
 dependencies = [
  "once_cell",
  "target-lexicon",
@@ -927,16 +934,26 @@ dependencies = [
 [[package]]
 name = "pyo3-ffi"
 version = "0.17.1"
-source = "git+https://github.com/psykopear/pyo3?branch=chrono#161d67ac2bfafaa4373d0d3cfaece635563a3394"
+source = "git+https://github.com/pyo3/pyo3?rev=86ce4d1a1#86ce4d1a137d6d62df84c7be2935078e08e46750"
 dependencies = [
  "libc",
  "pyo3-build-config",
 ]
 
 [[package]]
+name = "pyo3-log"
+version = "0.7.0"
+source = "git+https://github.com/psykopear/pyo3-log?rev=802b6f4#802b6f4e139c04d5b5c0f54581914efa2f4e08be"
+dependencies = [
+ "arc-swap",
+ "log",
+ "pyo3",
+]
+
+[[package]]
 name = "pyo3-macros"
 version = "0.17.1"
-source = "git+https://github.com/psykopear/pyo3?branch=chrono#161d67ac2bfafaa4373d0d3cfaece635563a3394"
+source = "git+https://github.com/pyo3/pyo3?rev=86ce4d1a1#86ce4d1a137d6d62df84c7be2935078e08e46750"
 dependencies = [
  "proc-macro2",
  "pyo3-macros-backend",
@@ -947,7 +964,7 @@ dependencies = [
 [[package]]
 name = "pyo3-macros-backend"
 version = "0.17.1"
-source = "git+https://github.com/psykopear/pyo3?branch=chrono#161d67ac2bfafaa4373d0d3cfaece635563a3394"
+source = "git+https://github.com/pyo3/pyo3?rev=86ce4d1a1#86ce4d1a137d6d62df84c7be2935078e08e46750"
 dependencies = [
  "proc-macro2",
  "quote",
