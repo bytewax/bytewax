@@ -12,6 +12,7 @@ operator.
 """
 
 from .bytewax import (  # noqa: F401
+    DynamoDBOutputConfig,
     KafkaOutputConfig,
     ManualEpochOutputConfig,
     ManualOutputConfig,
@@ -39,6 +40,7 @@ class TestingEpochOutputConfig(ManualEpochOutputConfig):
         Pass this to the `bytewax.dataflow.Dataflow.capture` operator.
 
     """
+
     # This is needed to avoid pytest trying to load this class as
     # a test since its name starts with "Test"
     __test__ = False
@@ -69,6 +71,7 @@ class TestingOutputConfig(ManualOutputConfig):
         Pass this to the `bytewax.dataflow.Dataflow.capture` operator.
 
     """
+
     # This is needed to avoid pytest trying to load this class as
     # a test since its name starts with "Test"
     __test__ = False

@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 python-source = "pysrc"
 
 [dependencies]
+anyhow = "1.0"
 bincode = { version = "1.3.3" }
 chrono = { version = "0.4", features = [ "serde" ] }
 futures = { version = "0.3.21" }
@@ -31,6 +32,9 @@ serde_test = { version = "1.0.134" }
 sqlx = { version = "0.6.1", features = [ "runtime-tokio-rustls", "postgres", "sqlite" ] }
 timely = { version = "0.12.0", features = [ "bincode" ] }
 tokio = { version = "1.20.1", features = [ "full" ] }
+aws-config = "0.49.0"
+aws-sdk-kinesis = "0.19.0"
+aws-sdk-dynamodb = "0.19.0"
 
 # For macos, use vendored gssapi
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -45,6 +49,7 @@ rdkafka = { version = "0.28.0", features = [ "cmake-build", "gssapi", "ssl" ] }
 #       Change to version "0.17.2" as soon as it is released
 # pyo3 = { version = "0.17.2", default-features = false, features = ["macros", "chrono"] }
 pyo3 = { git = "https://github.com/pyo3/pyo3", rev = "86ce4d1a1", version = "0.17", default-features = false, features = ["macros", "chrono"] }
+proptest = "1.0.0"
 
 [features]
 extension-module = ["pyo3/extension-module"]

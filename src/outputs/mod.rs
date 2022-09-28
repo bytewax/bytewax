@@ -19,11 +19,13 @@ use crate::{pyo3_extensions::TdPyAny, StringResult};
 use pyo3::{exceptions::PyValueError, prelude::*};
 use send_wrapper::SendWrapper;
 
+pub(crate) mod dynamodb_output;
 pub(crate) mod kafka_output;
 pub(crate) mod manual_epoch_output;
 pub(crate) mod manual_output;
 pub(crate) mod std_output;
 
+pub(crate) use self::dynamodb_output::{DynamoDBOutput, DynamoDBOutputConfig};
 pub(crate) use self::kafka_output::{KafkaOutput, KafkaOutputConfig};
 pub(crate) use self::manual_epoch_output::{ManualEpochOutput, ManualEpochOutputConfig};
 pub(crate) use self::manual_output::{ManualOutput, ManualOutputConfig};
@@ -129,6 +131,18 @@ pub(crate) fn build_output_writer(
         });
 
         Ok(Box::new(writer.take()))
+    } else if let Ok(config) = config.downcast::<PyCell<DynamoDBOutputConfig>>() {
+        let config = config.borrow();
+        let table = &config.table;
+        let primary_key = &config.primary_key;
+        let writer = py.allow_threads(|| {
+            SendWrapper::new(DynamoDBOutput::new(
+                table.to_string(),
+                primary_key.to_string(),
+            ))
+        });
+
+        Ok(Box::new(writer.take()))
     } else {
         let pytype = config.get_type();
         Err(format!("Unknown output_config type: {pytype}"))
@@ -149,5 +163,6 @@ pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ManualEpochOutputConfig>()?;
     m.add_class::<StdOutputConfig>()?;
     m.add_class::<KafkaOutputConfig>()?;
+    m.add_class::<DynamoDBOutputConfig>()?;
     Ok(())
 }
