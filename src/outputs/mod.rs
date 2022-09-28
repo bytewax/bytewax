@@ -15,6 +15,7 @@
 //! want. E.g. [`StdOutputConfig`] represents a token in Python for
 //! how to create a [`StdOutput`].
 
+use crate::execution::WorkerIndex;
 use crate::{pyo3_extensions::TdPyAny, StringResult};
 use pyo3::{exceptions::PyValueError, prelude::*};
 use send_wrapper::SendWrapper;
@@ -80,7 +81,7 @@ pub(crate) trait OutputWriter<T, D> {
 pub(crate) fn build_output_writer(
     py: Python,
     config: Py<OutputConfig>,
-    worker_index: usize,
+    worker_index: WorkerIndex,
     worker_count: usize,
 ) -> StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
     // See comment in [`crate::recovery::build_recovery_writers`]

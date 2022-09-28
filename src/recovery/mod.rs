@@ -24,49 +24,67 @@
 //! end of each epoch, and that state durably saved in the recovery
 //! store.
 //!
-//! Backup Architecture
-//! -------------------
+//! Stateful Inputs
+//! ---------------
+//!
+//! Input components use a different system, since they need to
+//! interplay with the `source` epoch generating system. In general,
+//! create a new **input reader** [`crate::inputs::InputReader`] and
+//! make sure to snapshot all relevant state.
+//!
+//! Architecture
+//! ------------
 //!
 //! Recovery is based around snapshotting the state of each stateful
 //! operator in worker at the end of each epoch and recording that
-//! worker's progress information. Each worker's recovery data is
+//! worker's progress information. The history of state changes across
+//! epochs is stored so that we can recover to a consistent point in
+//! time (the beginning of an epoch). Each worker's recovery data is
 //! stored separately so that we can discern the exact state of each
 //! worker at the point of failure.
 //!
 //! The **worker frontier** represents the oldest epoch on a given
 //! worker for which items are still in the process of being output or
-//! state updates are being backed up.
+//! recovery updates are being written.
 //!
 //! We model the recovery store for each worker as a key-value
 //! database with two "tables" for each worker: a **state table** and
-//! a **progress table**. The state table backs up state snapshots,
-//! while the progress table backs up changes to the worker frontier.
+//! a **progress table**. Stateful operators emit CDC-like change
+//! updates downstream and the other recovery operators actually
+//! perform those changes to the recovery store's tables.
 //!
-//! The data model for state table is represented in the structs
-//! [`RecoveryKey`] and [`StateBackup`] for the key and value
-//! respectively.
+//! The state table backs up all state related to each user-determined
+//! [`StateKey`] in each operator. A change to this table is
+//! represented by [`StateUpdate`], with [`StateRecoveryKey`] and
+//! [`StateOp`] representing the key and operation performed on the
+//! value (update, delete) respectively.
 //!
-//! The recovery machinery works only on [`StateBytes`], not on actual
-//! live objects. We do this so we can interleave multiple concrete
-//! state types from different stateful operators together through the
-//! same parts of the recovery dataflow.
+//! The progress table backs up changes to the worker frontier. Each
+//! modification to this table is represented by [`ProgressUpdate`],
+//! with [`ProgressRecoveryKey`] and [`ProgressOp`] representing the
+//! key and operation performed on the value repectively.
 //!
-//! Note that backing up the fact that state was deleted
-//! ([`StateUpdate::Reset`]) is not the same as GCing the state. We
-//! need to explicitly save the history of all deletions in case we
-//! need to recover right after a deletion; that state value should
-//! not be recovered. Separately, once we know some backup state is no
-//! longer needed and we'll never need to recover there do we actually
-//! delete the state from the recovery store.
+//! The state within each logic is snapshotted as generic
+//! [`StateBytes`], not typed data. We do this so we can interleave
+//! multiple different concrete kinds of state information from
+//! different stateful operators together through the same parts of
+//! the recovery dataflow without Rust type gymnastics.
+//!
+//! Note that backing up the fact that the logic for a [`StateKey`]
+//! was deleted ([`StateOp::Discard`]) is not the same as GCing
+//! unneeded recovery state. We need to explicitly save the history of
+//! all deletions over epochs in case we need to recover right after a
+//! deletion; that logic should not be recovered. Separately, once we
+//! know and we'll never need to recover before a certain epoch do we
+//! actually GC those old writes from the recovery store.
 //!
 //! There are 5 traits which provides an interface to the abstract
-//! idea of a KVDB that the dataflow operators use to save data to the
-//! recovery store: [`ProgressReader`], [`ProgressWriter`],
-//! [`StateReader`], [`StateWriter`], and [`StateCollector`]. To
-//! implement a new backing recovery store, create a new impl of
-//! that. Because each worker's data needs to be kept separate, they
-//! are parameterized on creation by worker index and count to ensure
-//! data is routed appropriately for each worker.
+//! idea of a KVDB that is the recovery store: [`ProgressReader`],
+//! [`ProgressWriter`], [`StateReader`], [`StateWriter`], and
+//! [`StateCollector`]. To implement a new backing recovery store,
+//! create a new impl of those. Because each worker's data needs to be
+//! kept separate, they are parameterized on creation by worker index
+//! and count to ensure data is routed appropriately for each worker.
 //!
 //! The recovery system uses a few custom utility operators
 //! ([`WriteState`],
@@ -84,26 +102,32 @@
 //!
 //! ```mermaid
 //! graph TD
-//! subgraph "Resume Calc Dataflow"
-//! LI{{Progress Input}} -- frontier update --> LWM{{Accumulate}} -- worker frontier --> LB{{Broadcast}} -- worker frontier --> LCM{{Accumulate}} -- cluster frontier --> LS{{Channel}}
-//! LI -. probe .-> LS
+//! subgraph "Resume Epoch Calc Dataflow"
+//! EI{{progress_source}} -- ProgressUpdate --> EAG{{Aggregate}} -- worker frontier --> LB{{Broadcast}} -- Progress --> EAC{{Accumulate}} -- cluster frontier --> EM{{Map}}
+//! EI -. probe .-> EM
 //! end
 //!
-//! LS == resume epoch ==> I & SI
+//! EM == resume epoch ==> I & SI
+//!
+//! subgraph "State Loading Dataflow"
+//! SI{{state_source}} -. probe .-> SSUF & SCUF
+//! SI -- StateUpdate --> SSUF{{Unary Frontier}}
+//! SI -- StateUpdate --> SCUF{{Unary Frontier}}
+//! end
+//!
+//! SSUF == RecoveryStoreSummary ==> GC
+//! SCUF == recovery state ==> SOX & SOY
 //!
 //! subgraph "Production Dataflow"
-//! SI{{State Input}} -. probe .-> GC
-//! SI -- "(step id, key, epoch): state bytes" --> SFX{{Filter}} -- "(step id, key, epoch): state bytes" --> SOXD{{Map}} -- "('step x', key, epoch): state" --> SOX
-//! SI -- "(step id, key, epoch): state bytes" --> SFY{{Filter}} -- "(step id, key, epoch): state bytes" --> SOYD{{Map}} -- "('step y', key, epoch): state" --> SOY
-//! I(Input) -- items --> XX1([...]) -- "(key, value)" --> SOX(Stateful Operator X) & SOY(Stateful Operator Y)
+//! I(Input) -- items --> XX1([...]) -- "(key, value)" --> SOX(StatefulUnary X) & SOY(StatefulUnary Y)
 //! SOX & SOY -- "(key, value)" --> XX2([...]) -- items --> O1(Output 1) & O2(Output 2)
+//!
 //! O1 & O2 -- items --> OM{{Map}}
-//! SOX -- "('step x', key, epoch): state" --> SOXS{{Map}} -- "('step x', key, epoch): state bytes" --> SOC
-//! SOY -- "('step y', key, epoch): state" --> SOYS{{Map}} -- "('step x', key, epoch): state bytes" --> SOC
-//! SOC{{Concat}} -- "(step id, key, epoch): state" --> SB{{State Backup}}
-//! SB -- "(step id, key, epoch): state bytes" --> BM{{Map}}
-//! OM & BM -- heartbeats --> DFC{{Concat}} -- heartbeats / worker frontier --> FB{{Progress Backup}} -- heartbeats / worker frontier --> DFB{{Broadcast}} -- heartbeats / dataflow frontier --> GC
-//! SB & SI -- "(step id, key, epoch): state bytes" --> GCC{{Concat}} -- "(step id, key, epoch): state bytes" --> GC{{Garbage Collector}}
+//! I & SOX & SOY -- StateUpdate --> SOC
+//! SOC{{Concat}} -- StateUpdate --> SB{{WriteState}}
+//! SB -- StateUpdate --> BM{{Map}}
+//! OM & BM -- heartbeats --> DFC{{Concat}} -- heartbeats / worker frontier --> FB{{WriteProgress}} -- ProgressUpdate / dataflow frontier --> DFB{{Broadcast}} -- ProgressUpdate / dataflow frontier --> GC
+//! SB -- StateUpdate --> GC{{CollectGarbage}}
 //! I -. probe .-> GC
 //! end
 //! ```
@@ -111,44 +135,51 @@
 //! On Backup
 //! ---------
 //!
-//! The (private) function `build_production_dataflow` in [`crate::execution`]
-//! builds the parts of the dataflow for backup.
-//! Look there for what is described below.
+//! [`crate::execution::build_production_dataflow`] builds the parts
+//! of the dataflow for backup. Look there for what is described
+//! below.
 //!
 //! We currently have a few user-facing stateful operators
 //! (e.g. [`crate::dataflow::Dataflow::reduce`],
-//! [`crate::dataflow::Dataflow::stateful_map`]). But they are both implemented
-//! on top of a general underlying one:
+//! [`crate::dataflow::Dataflow::stateful_map`]). But they are all
+//! implemented on top of a general underlying one:
 //! [`crate::recovery::StatefulUnary`]. This means all in-operator
 //! recovery-related code is only written once.
 //!
-//! Stateful unary does not backup itself. Instead, each stateful
-//! operator generates a second **state backup stream** output. These
-//! are then connected to the rest of the recovery components, after
-//! serializing / deserializing the state so that the recovery streams
-//! are all backups of bytes.
+//! Stateful unary does not modify the recovery store itself. Instead,
+//! each stateful operator generates a second **state update stream**
+//! of state changes over time as an output of [`StateUpdate`]s. These
+//! are then connected to the rest of the recovery components.
 //!
-//! All state backups from all stateful operators are concatenated
-//! into the [`WriteState`] operator, which actually
-//! performs the writes via the [`StateWriter`]. It emits the backups
-//! after writing downstream so progress can be monitored.
+//! Stateful inputs (as opposed to stateful operators) don't use
+//! [`StatefulUnary`] because they need to generate their own
+//! epochs. Instead the
+//! [`crate::execution::periodic_epoch::periodic_epoch_source`]
+//! operator asks [`crate::input::InputReader`] to snapshot its state
+//! and similarly produces a stream of [`StateUpdates`]s.
 //!
-//! The [`WriteProgress`] operator then looks at the
-//! **worker frontier**, the combined stream of written backups and
-//! all captures. This will be written via the [`ProgressWriter`]. It
-//! emits heartbeats.
+//! All state updates from all stateful operators are routed to the
+//! [`WriteState`] operator, which actually performs the writes to the
+//! recovery store via the [`StateWriter`]. It emits the updates after
+//! writing downstream so progress can be monitored.
 //!
-//! These worker frontier heartbeats are then broadcast so operators
-//! listening to this stream will see progress of the entire dataflow
-//! cluster, the **dataflow frontier**.
+//! The [`WriteProgress`] operator then looks at the **worker
+//! frontier**, the combined stream of written updates and all
+//! captures. This will be written via the [`ProgressWriter`] and
+//! emits these per-worker [`ProgressUpdate`]s downstream.
 //!
-//! The dataflow frontier heartbeat stream and completed state backups
-//! are then fed into the [`crate::recovery::CollectGarbage`]
-//! operator. It uses the dataflow frontier to detect when some state
-//! is no longer necessary for recovery and issues deletes via the
-//! [`StateCollector`]. GC keeps an in-memory summary of the keys and
-//! epochs that are currently in the recovery store so reads are not
-//! necessary. It writes out heartbeats of progress as well.
+//! These worker frontier [`ProgressUpdate`]s are then broadcast so
+//! operators listening to this stream will see progress of the entire
+//! dataflow cluster, the **dataflow frontier**.
+//!
+//! The dataflow frontier and completed state backups are then fed
+//! into the [`crate::recovery::CollectGarbage`] operator. It uses the
+//! dataflow frontier to detect when some state is no longer necessary
+//! for recovery and issues deletes via the [`StateCollector`]. GC
+//! keeps an in-memory summary of the keys and epochs that are
+//! currently in the recovery store so reads are not necessary. It
+//! writes out heartbeats of progress so the worker can probe
+//! execution progress.
 //!
 //! The progress of GC is what is probed to rate-limit execution, not
 //! just captures, so we don't queue up too much recovery work.
@@ -156,62 +187,49 @@
 //! On Resume
 //! ---------
 //!
-//! The (private) function `worker_main` in [`crate::execution`]
-//! is where loading starts.
-//! It's broken into two dataflows, built in
+//! The function [`crate::execution::worker_main`] is where loading
+//! starts. It's broken into three dataflows, built in
 //! [`build_resume_epoch_calc_dataflow`],
-//! [`build_state_loading_dataflow`].
+//! [`build_state_loading_dataflow`], and
+//! [`build_production_dataflow`].
 //!
-//! First, the resume epoch must be calculated from the progress data
-//! actually written to the recovery store. This can't be
-//! pre-calculated during backup because that write might fail.
+//! First, the resume epoch must be calculated from the
+//! [`ProgressUpdate`]s actually written to the recovery store. This
+//! can't be pre-calculated during backup because that write might
+//! fail.
 //!
-//! This is done in a first separate dataflow because it needs a unique epoch
-//! definition: we need to know when we're done reading all recovery
-//! data, which would be impossible if we re-used the epoch definition
-//! from the backed up dataflow (because that would mean it
+//! This is done in a separate dataflow because it needs a unique
+//! epoch definition: we need to know when we're done reading all
+//! recovery data, which would be impossible if we re-used the epoch
+//! definition from the backed up dataflow (because that would mean it
 //! completed).
-//!
-//! Each resume cluster worker is assigned to read the entire progress
-//! data from some failed cluster worker.
-//!
-//! 1. Find the oldest frontier for the worker since we want to know
-//! how far it got. (That's the first accumulate).
-//!
-//! 2. Broadcast all our oldest per-worker frontiers.
-//!
-//! 3. Find the earliest worker frontier since we want to resume from
-//! the last epoch fully completed by all workers in the
-//! cluster. (That's the second accumulate).
-//!
-//! 4. Cough and turn the frontier back into a singular resume epoch.
-//!
-//! 5. Send the resume epoch out of the dataflow via a channel.
 //!
 //! Once we have the resume epoch, we know what previously backed up
 //! data is relevant (and not too new) and can start loading that onto
 //! each worker.
 //!
 //! A second separate dataflow does this loading. Each resume worker
-//! is assigned to read all state _before_ the resume epoch. This
-//! state is loaded into maps by [`StepId`] and [`StateKey`] so that
-//! the production dataflow's operators can deserialize the relevant
-//! state when running. This state data also is used to produce a
-//! [`RecoveryStoreSummary`] so that the [`CollectGarbage`] operator
-//! has a correct cache of all previously-written state keys.
+//! is assigned to read all state _before_ the resume epoch. We read
+//! all [`StateUpdate`]s for each worker and the final update is
+//! loaded into maps by [`StepId`] and [`StateKey`]. This state data
+//! also is used to produce a [`RecoveryStoreSummary`] so that the
+//! [`CollectGarbage`] operator has a correct cache of all
+//! previously-written [`RecoveryStateKey`]s.
 //!
 //! Once the state loading is complete, the resulting **resume state**
 //! is handed off to the production dataflow. It is routed to the
-//! correct stateful operators by [`StepId`], then kept around until a
-//! key is encountered and deserialized to build the relevant logic.
+//! correct stateful operators by [`StepId`], then deserialized to
+//! produce the final relevant state with [`StatefulUnary`] for each
+//! [`StateKey`].
 //!
-//! If the underlying data or bug has been fixed, then things should
-//! resume with the state from the end of the epoch just before
-//! failure, with the input resuming from beginning of the next epoch.
+//! If the underlying data or bug has been fixed, then the production
+//! dataflow should resume with the state from the end of the epoch
+//! just before failure, with the input resuming from beginning of the
+//! next epoch.
 
 use chrono::DateTime;
 use chrono::Utc;
-use log::debug;
+use log::trace;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -250,6 +268,7 @@ use timely::worker::Worker;
 use timely::Data;
 use timely::ExchangeData;
 
+use crate::execution::WorkerIndex;
 use crate::StringResult;
 
 use self::kafka::create_kafka_topic;
@@ -261,10 +280,6 @@ use self::sqlite::SqliteProgressWriter;
 use self::sqlite::SqliteRecoveryConfig;
 use self::sqlite::SqliteStateReader;
 use self::sqlite::SqliteStateWriter;
-
-/// Common data type used across the codebase
-pub(crate) type StreamStateKey<T> = (StateKey, T);
-pub(crate) type EpochData = StreamStateKey<(StepId, StateUpdate)>;
 
 pub(crate) mod kafka;
 pub(crate) mod sqlite;
@@ -395,7 +410,7 @@ pub(crate) enum StateKey {
     /// An arbitrary string key.
     Hash(String),
     /// Route to a specific worker.
-    Worker(usize),
+    Worker(WorkerIndex),
 }
 
 impl StateKey {
@@ -410,11 +425,7 @@ impl StateKey {
                 key.hash(&mut hasher);
                 hasher.finish()
             }
-            // My read of
-            // https://github.com/TimelyDataflow/timely-dataflow/blob/v0.12.0/timely/src/dataflow/channels/pushers/exchange.rs#L61-L90
-            // says that if you return the worker index, it'll be
-            // routed to that worker.
-            Self::Worker(index) => *index as u64,
+            Self::Worker(index) => index.route_to(),
         }
     }
 }
@@ -424,7 +435,7 @@ impl<'source> FromPyObject<'source> for StateKey {
         if let Ok(py_string) = ob.cast_as::<PyString>() {
             Ok(Self::Hash(py_string.to_str()?.into()))
         } else if let Ok(py_int) = ob.cast_as::<PyLong>() {
-            Ok(Self::Worker(py_int.extract()?))
+            Ok(Self::Worker(WorkerIndex(py_int.extract()?)))
         } else {
             Err(PyTypeError::new_err("Can only make StateKey out of either str (route to worker by hash) or int (route to worker by index)"))
         }
@@ -435,7 +446,7 @@ impl IntoPy<PyObject> for StateKey {
     fn into_py(self, py: Python) -> Py<PyAny> {
         match self {
             Self::Hash(key) => key.into_py(py),
-            Self::Worker(index) => index.into_py(py),
+            Self::Worker(index) => index.0.into_py(py),
         }
     }
 }
@@ -458,7 +469,7 @@ impl StateBytes {
         let t_name = type_name::<T>();
         Self(
             bincode::serialize(obj)
-                .unwrap_or_else(|_| panic!("Error serializing recovery {t_name})")),
+                .unwrap_or_else(|_| panic!("Error serializing recovery state type {t_name})")),
         )
     }
 
@@ -467,23 +478,654 @@ impl StateBytes {
     pub(crate) fn de<T: DeserializeOwned>(self) -> T {
         let t_name = type_name::<T>();
         bincode::deserialize(&self.0)
-            .unwrap_or_else(|_| panic!("Error deserializing recovery state {t_name})"))
+            .unwrap_or_else(|_| panic!("Error deserializing recovery state type {t_name})"))
     }
 }
 
-/// The two kinds of actions that logic in a stateful operator can do
-/// to each [`StateKey`].
+// Here's our recovery data model.
+
+/// Key used to address progress data within a recovery store.
 ///
-/// These are the manifestations of the options in [`LogicFate`] for
-/// the recovery system.
+/// Progress data is key'd per-worker so we can combine together all
+/// [`ProgressUpdate`]s for a cluster and determine each worker's
+/// position.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub(crate) struct ProgressRecoveryKey {
+    worker_index: WorkerIndex,
+}
+
+impl ProgressRecoveryKey {
+    /// Route all progress updates for a given worker to the same
+    /// location.
+    fn route_by_worker(&self) -> u64 {
+        self.worker_index.route_to()
+    }
+}
+
+/// A snapshot of progress data for a worker.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) enum StateUpdate {
-    /// The logic was retained and this is the snapshot of the current state.
-    Upsert(StateBytes),
-    /// The logic was discarded. No need to keep the latest snapshot
-    /// of the state.
+pub(crate) struct Progress<T> {
+    /// Worker's frontier.
+    frontier: T,
+}
+
+/// Possible modification operations that can be performed for each
+/// [`ProgressRecoveryKey`].
+///
+/// Since progress can't be "deleted", we only allow upserts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) enum ProgressOp<T> {
+    /// Snapshot of new progress data.
+    Upsert(Progress<T>),
+}
+
+/// An update to the progress table of the recovery store.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct ProgressUpdate<T>(pub(crate) ProgressRecoveryKey, pub(crate) ProgressOp<T>);
+
+/// Key used to address state data within a recovery store.
+///
+/// Remember, this isn't the same as [`StateKey`], as the "address
+/// space" of that key is just within a single operator. This type
+/// includes the operator name and epoch too, so we can address state
+/// in an entire dataflow and across time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct StateRecoveryKey<T> {
+    pub(crate) step_id: StepId,
+    pub(crate) state_key: StateKey,
+    pub(crate) epoch: T,
+}
+
+/// Snapshot of state data.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct State {
+    pub(crate) state_bytes: StateBytes,
+    pub(crate) next_awake: Option<DateTime<Utc>>,
+}
+
+/// Possible modification operations that can be performed for each
+/// [`StateKey`], and thus each [`StateRecoveryKey`].
+///
+/// This is related to [`LogicFate`], as that is the final result of
+/// what should happen to the info for each [`StateKey`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) enum StateOp {
+    /// Snapshot of new state data.
+    Upsert(State),
+    /// This [`StateKey`] was deleted. Mark that the data is deleted.
     Discard,
 }
+
+/// An update to the state table of the recovery store.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct StateUpdate<T>(pub(crate) StateRecoveryKey<T>, pub(crate) StateOp);
+
+impl<T: Timestamp> StateUpdate<T> {
+    /// Route in Timely just by the state key to ensure that all
+    /// relevant data ends up on the correct worker.
+    fn pact_for_state_key() -> impl ParallelizationContract<T, StateUpdate<T>> {
+        pact::Exchange::new(|StateUpdate(StateRecoveryKey { state_key, .. }, ..)| state_key.route())
+    }
+}
+
+// Here's our core traits for recovery that allow us to swap out
+// underlying storage.
+
+pub(crate) trait ProgressWriter<T> {
+    fn write(&mut self, update: &ProgressUpdate<T>);
+}
+
+pub(crate) trait ProgressReader<T> {
+    /// Has the same semantics as [`std::iter::Iterator::next`]:
+    /// return [`None`] to signal EOF.
+    fn read(&mut self) -> Option<ProgressUpdate<T>>;
+}
+
+pub(crate) trait StateWriter<T> {
+    fn write(&mut self, update: &StateUpdate<T>);
+}
+
+pub(crate) trait StateCollector<T> {
+    fn delete(&mut self, key: &StateRecoveryKey<T>);
+}
+
+pub(crate) trait StateReader<T> {
+    /// Has the same semantics as [`std::iter::Iterator::next`]:
+    /// return [`None`] to signal EOF.
+    fn read(&mut self) -> Option<StateUpdate<T>>;
+}
+
+// Here are our loading dataflows.
+
+/// Compile a dataflow which reads the progress data from the previous
+/// execution and calculates the resume epoch.
+///
+/// Each resume cluster worker is assigned to read the entire progress
+/// data from some failed cluster worker.
+///
+/// 1. Find the oldest frontier for the worker since we want to know
+/// how far it got. (That's the first accumulate).
+///
+/// 2. Broadcast all our oldest per-worker frontiers.
+///
+/// 3. Find the earliest worker frontier since we want to resume from
+/// the last epoch fully completed by all workers in the
+/// cluster. (That's the second accumulate).
+///
+/// 4. Send the resume epoch out of the dataflow via a channel.
+///
+/// Once the progress input is done, this dataflow will send the
+/// resume epoch through a channel. The main function should consume
+/// from that channel to pass on to the other loading and production
+/// dataflows.
+pub(crate) fn build_resume_epoch_calc_dataflow<A, T>(
+    timely_worker: &mut Worker<A>,
+    // TODO: Allow multiple (or none) FrontierReaders so you can recover a
+    // different-sized cluster.
+    progress_reader: Box<dyn ProgressReader<T>>,
+    resume_epoch_tx: std::sync::mpsc::Sender<T>,
+) -> StringResult<ProbeHandle<()>>
+where
+    A: Allocate,
+    T: Timestamp,
+{
+    timely_worker.dataflow(|scope| {
+        let mut probe = ProbeHandle::new();
+
+        progress_source(scope, progress_reader, &probe)
+            .map(|ProgressUpdate(key, op)| (key, op))
+            .aggregate(
+                |_key, op, worker_frontier_acc: &mut Option<T>| {
+                    let worker_frontier = worker_frontier_acc.get_or_insert(T::minimum());
+                    // For each worker in the failed cluster, find the
+                    // latest frontier.
+                    match op {
+                        ProgressOp::Upsert(progress) => {
+                            if &progress.frontier > worker_frontier {
+                                *worker_frontier = progress.frontier;
+                            }
+                        }
+                    }
+                },
+                |key, worker_frontier_acc| {
+                    (
+                        key.worker_index,
+                        worker_frontier_acc
+                            .expect("Did not update worker_frontier_acc in aggregation"),
+                    )
+                },
+                ProgressRecoveryKey::route_by_worker,
+            )
+            // Each worker in the recovery cluster reads only some of
+            // the progress data of workers in the failed
+            // cluster. Broadcast to ensure all recovery cluster
+            // workers can calculate the dataflow frontier.
+            .broadcast()
+            .accumulate(None, |dataflow_frontier_acc, worker_frontiers| {
+                for (_worker_index, worker_frontier) in worker_frontiers.iter() {
+                    let dataflow_frontier =
+                        dataflow_frontier_acc.get_or_insert(worker_frontier.clone());
+                    // The slowest of the workers in the failed
+                    // cluster is the resume epoch.
+                    if worker_frontier < dataflow_frontier {
+                        *dataflow_frontier = worker_frontier.clone();
+                    }
+                }
+            })
+            .map(move |resume_epoch| {
+                resume_epoch_tx
+                    .send(resume_epoch.expect("Did not update dataflow_frontier_acc in accumulate"))
+                    .unwrap()
+            })
+            .probe_with(&mut probe);
+
+        Ok(probe)
+    })
+}
+
+/// Compile a dataflow which reads state data from the previous
+/// execution and loads state into hash maps per step ID and key, and
+/// prepares the recovery store summary.
+///
+/// Once the state input is done, this dataflow will send the
+/// collected recovery data through these channels. The main function
+/// should consume from the channels to pass on to the production
+/// dataflow.
+pub(crate) fn build_state_loading_dataflow<A>(
+    timely_worker: &mut Worker<A>,
+    state_reader: Box<dyn StateReader<u64>>,
+    resume_epoch: u64,
+    step_to_key_to_resume_state_tx: std::sync::mpsc::Sender<(StepId, HashMap<StateKey, State>)>,
+    recovery_store_summary_tx: std::sync::mpsc::Sender<RecoveryStoreSummary<u64>>,
+) -> StringResult<ProbeHandle<u64>>
+where
+    A: Allocate,
+{
+    timely_worker.dataflow(|scope| {
+        let mut probe = ProbeHandle::new();
+
+        let source = state_source(scope, state_reader, resume_epoch, &probe);
+
+        source
+            .unary_frontier(
+                StateUpdate::pact_for_state_key(),
+                "RecoveryStoreSummaryCalc",
+                |_init_cap, _info| {
+                    let mut fncater = FrontierNotificator::new();
+
+                    let mut tmp_updates = Vec::new();
+                    let mut epoch_to_updates_buffer = HashMap::new();
+                    let mut recovery_store_summary = Some(RecoveryStoreSummary::new());
+
+                    move |input, output| {
+                        input.for_each(|cap, updates| {
+                            let epoch = cap.time();
+                            updates.swap(&mut tmp_updates);
+
+                            epoch_to_updates_buffer
+                                .entry(*epoch)
+                                .or_insert_with(Vec::new)
+                                .append(&mut tmp_updates);
+
+                            fncater.notify_at(cap.retain());
+                        });
+
+                        fncater.for_each(&[input.frontier()], |cap, _ncater| {
+                            let epoch = cap.time();
+                            if let Some(updates) = epoch_to_updates_buffer.remove(epoch) {
+                                let recovery_store_summary = recovery_store_summary
+                                    .as_mut()
+                                    .expect(
+                                    "More input after recovery store calc input frontier was empty",
+                                );
+                                for update in &updates {
+                                    recovery_store_summary.insert(update);
+                                }
+                            }
+
+                            // Emit heartbeats so we can monitor progress
+                            // at the probe.
+                            output.session(&cap).give(());
+                        });
+
+                        if input.frontier().is_empty() {
+                            if let Some(recovery_store_summary) = recovery_store_summary.take() {
+                                recovery_store_summary_tx
+                                    .send(recovery_store_summary)
+                                    .unwrap();
+                            }
+                        }
+                    }
+                },
+            )
+            .probe_with(&mut probe);
+
+        source
+            .unary_frontier(StateUpdate::pact_for_state_key(), "StateCacheCalc", |_init_cap, _info| {
+                let mut fncater = FrontierNotificator::new();
+
+                let mut tmp_updates = Vec::new();
+                let mut epoch_to_updates_buffer = HashMap::new();
+                let mut step_to_state_key_to_resume_state: Option<HashMap<StepId, HashMap<StateKey, State>>> =
+                    Some(HashMap::new());
+
+                move |input, output| {
+                    input.for_each(|cap, updates| {
+                        let epoch = cap.time();
+                        updates.swap(&mut tmp_updates);
+
+                        epoch_to_updates_buffer
+                            .entry(*epoch)
+                            .or_insert_with(Vec::new)
+                            .append(&mut tmp_updates);
+
+                        fncater.notify_at(cap.retain());
+                    });
+
+                    fncater.for_each(&[input.frontier()], |cap, _ncater| {
+                        let epoch = cap.time();
+                        if let Some(updates) = epoch_to_updates_buffer.remove(epoch) {
+                            for StateUpdate(recovery_key, op) in updates {
+                                let StateRecoveryKey { step_id, state_key, epoch: found_epoch } = recovery_key;
+                                assert!(&found_epoch == epoch);
+
+                                let resume_state =
+                                    step_to_state_key_to_resume_state
+                                    .as_mut()
+                                    .expect("More input after resume state calc input frontier was empty")
+                                    .entry(step_id)
+                                    .or_default();
+
+                                match op {
+                                    StateOp::Upsert(state) => {
+                                        resume_state.insert(state_key.clone(), state);
+                                    },
+                                    StateOp::Discard => {
+                                        resume_state.remove(&state_key);
+                                    },
+                                };
+                            }
+                        }
+
+                        // Emit heartbeats so we can monitor progress
+                        // at the probe.
+                        output.session(&cap).give(());
+                    });
+
+                    if input.frontier().is_empty() {
+                        for step_to_state_key_to_resume_state in step_to_state_key_to_resume_state.take().expect("More input after resume state calc input frontier was empty") {
+                            step_to_key_to_resume_state_tx.send(step_to_state_key_to_resume_state).unwrap();
+                        }
+                    }
+                }
+            })
+            .probe_with(&mut probe);
+
+        Ok(probe)
+    })
+}
+
+// Here's operators related to recovery.
+
+/// Build a source which loads previously backed up progress data as
+/// separate items.
+///
+/// The resulting stream only has the zeroth epoch.
+///
+/// Note that this pretty meta! This new _loading_ dataflow will only
+/// have the zeroth epoch, but you can observe what progress was made
+/// on the _previous_ dataflow.
+pub(crate) fn progress_source<S, T>(
+    scope: &S,
+    mut reader: Box<dyn ProgressReader<T>>,
+    probe: &ProbeHandle<S::Timestamp>,
+) -> Stream<S, ProgressUpdate<T>>
+where
+    S: Scope,
+    T: Timestamp + Data,
+    S::Timestamp: TotalOrder,
+{
+    iterator_source(
+        scope,
+        "ProgressSource",
+        move |last_cap| {
+            reader.read().map(|update| IteratorSourceInput {
+                lower_bound: S::Timestamp::minimum(),
+                // An iterator of (timestamp, iterator of
+                // items). Nested [`IntoIterator`]s.
+                data: Some((S::Timestamp::minimum(), Some(update))),
+                target: last_cap.clone(),
+            })
+        },
+        probe.clone(),
+    )
+}
+
+/// Build a source which loads previously backed up state data.
+///
+/// The resulting stream has each state update in its original epoch.
+///
+/// State must be stored in epoch order. [`WriteState`] does that.
+pub(crate) fn state_source<S>(
+    scope: &S,
+    mut reader: Box<dyn StateReader<S::Timestamp>>,
+    stop_at: S::Timestamp,
+    probe: &ProbeHandle<S::Timestamp>,
+) -> Stream<S, StateUpdate<S::Timestamp>>
+where
+    S: Scope,
+    S::Timestamp: TotalOrder,
+{
+    iterator_source(
+        scope,
+        "StateSource",
+        move |last_cap| match reader.read() {
+            Some(update) => {
+                let StateUpdate(key, _op) = &update;
+                let StateRecoveryKey { epoch, .. } = key;
+                let epoch = epoch.clone();
+
+                if epoch < stop_at {
+                    Some(IteratorSourceInput {
+                        lower_bound: S::Timestamp::minimum(),
+                        // An iterator of (timestamp, iterator of
+                        // items). Nested [`IntoIterators`].
+                        data: Some((epoch, Some(update))),
+                        target: last_cap.clone(),
+                    })
+                } else {
+                    None
+                }
+            }
+            None => None,
+        },
+        probe.clone(),
+    )
+}
+
+/// Extension trait for [`Stream`].
+pub(crate) trait WriteState<S>
+where
+    S: Scope,
+{
+    /// Writes state backups in timestamp order.
+    fn write_state_with(
+        &self,
+        writer: Box<dyn StateWriter<S::Timestamp>>,
+    ) -> Stream<S, StateUpdate<S::Timestamp>>;
+}
+
+impl<S> WriteState<S> for Stream<S, StateUpdate<S::Timestamp>>
+where
+    S: Scope,
+{
+    fn write_state_with(
+        &self,
+        mut writer: Box<dyn StateWriter<S::Timestamp>>,
+    ) -> Stream<S, StateUpdate<S::Timestamp>> {
+        self.unary_notify(pact::Pipeline, "WriteState", None, {
+            let mut tmp_updates = Vec::new();
+            let mut epoch_to_updates_buffer = HashMap::new();
+
+            move |input, output, ncater| {
+                input.for_each(|cap, updates| {
+                    let epoch = cap.time();
+                    updates.swap(&mut tmp_updates);
+
+                    epoch_to_updates_buffer
+                        .entry(epoch.clone())
+                        .or_insert_with(Vec::new)
+                        .append(&mut tmp_updates);
+
+                    ncater.notify_at(cap.retain());
+                });
+
+                // Use the notificator to ensure state is written in
+                // epoch order.
+                ncater.for_each(|cap, _count, _ncater| {
+                    let epoch = cap.time();
+                    if let Some(updates) = epoch_to_updates_buffer.remove(epoch) {
+                        for update in updates {
+                            writer.write(&update);
+                            output.session(&cap).give(update);
+                        }
+                    }
+                });
+            }
+        })
+    }
+}
+
+/// Extension trait for [`Stream`].
+pub(crate) trait WriteProgress<S, D>
+where
+    S: Scope,
+    D: Data,
+{
+    /// Write out the current frontier of the output this is connected
+    /// to whenever it changes.
+    fn write_progress_with(
+        &self,
+        writer: Box<dyn ProgressWriter<S::Timestamp>>,
+    ) -> Stream<S, ProgressUpdate<S::Timestamp>>;
+}
+
+impl<S, D> WriteProgress<S, D> for Stream<S, D>
+where
+    S: Scope,
+    D: Data,
+{
+    fn write_progress_with(
+        &self,
+        mut writer: Box<dyn ProgressWriter<S::Timestamp>>,
+    ) -> Stream<S, ProgressUpdate<S::Timestamp>> {
+        self.unary_notify(pact::Pipeline, "WriteProgress", None, {
+            let worker_index = WorkerIndex(self.scope().index());
+
+            let mut tmp_data = Vec::new();
+
+            move |input, output, ncater| {
+                input.for_each(|cap, data| {
+                    data.swap(&mut tmp_data);
+
+                    ncater.notify_at(cap.retain());
+                });
+
+                ncater.for_each(|cap, _count, ncater| {
+                    // 0 is our singular input.
+                    let frontier = ncater.frontier(0).to_owned();
+
+                    // Don't write out the last "empty" frontier to
+                    // allow restarting from the end of the dataflow.
+                    if !frontier.elements().is_empty() {
+                        // TODO: Is this the right way to transform a frontier
+                        // back into a recovery epoch?
+                        let frontier = frontier
+                            .elements()
+                            .iter()
+                            .cloned()
+                            .min()
+                            .unwrap_or_else(S::Timestamp::minimum);
+                        let progress = Progress { frontier };
+                        let key = ProgressRecoveryKey { worker_index };
+                        let op = ProgressOp::Upsert(progress);
+                        let update = ProgressUpdate(key, op);
+                        writer.write(&update);
+                        output.session(&cap).give(update);
+                    }
+                });
+            }
+        })
+    }
+}
+
+/// Extension trait for [`Stream`].
+pub(crate) trait CollectGarbage<S>
+where
+    S: Scope,
+{
+    /// Run the recovery garbage collector.
+    ///
+    /// This will be instantiated on stream of already written state
+    /// and will observe the dataflow's frontier and then decide what
+    /// is garbage and delete it.
+    ///
+    /// It needs a separate handle to write to the state store so that
+    /// there's not contention between it and [`WriteState`].
+    fn collect_garbage(
+        &self,
+        recovery_store_summary: RecoveryStoreSummary<S::Timestamp>,
+        state_collector: Box<dyn StateCollector<S::Timestamp>>,
+        dataflow_frontier: Stream<S, ProgressUpdate<S::Timestamp>>,
+    ) -> Stream<S, ()>;
+}
+
+impl<S> CollectGarbage<S> for Stream<S, StateUpdate<S::Timestamp>>
+where
+    S: Scope,
+{
+    fn collect_garbage(
+        &self,
+        mut recovery_store_summary: RecoveryStoreSummary<S::Timestamp>,
+        mut state_collector: Box<dyn StateCollector<S::Timestamp>>,
+        dataflow_frontier: Stream<S, ProgressUpdate<S::Timestamp>>,
+    ) -> Stream<S, ()> {
+        let mut op_builder = OperatorBuilder::new("CollectGarbage".to_string(), self.scope());
+
+        let mut state_input = op_builder.new_input(self, pact::Pipeline);
+        let mut dataflow_frontier_input = op_builder.new_input(&dataflow_frontier, pact::Pipeline);
+
+        let (mut output_wrapper, stream) = op_builder.new_output();
+
+        let mut fncater = FrontierNotificator::new();
+        op_builder.build(move |_init_capabilities| {
+            let mut tmp_state_backups = Vec::new();
+            let mut tmp_frontier_backups = Vec::new();
+
+            move |input_frontiers| {
+                let mut state_input =
+                    FrontieredInputHandle::new(&mut state_input, &input_frontiers[0]);
+                let mut dataflow_frontier_input =
+                    FrontieredInputHandle::new(&mut dataflow_frontier_input, &input_frontiers[1]);
+
+                let mut output_handle = output_wrapper.activate();
+
+                // Update our internal cache of the state store's
+                // keys.
+                state_input.for_each(|_cap, state_backups| {
+                    state_backups.swap(&mut tmp_state_backups);
+
+                    // Drain items so we don't have to re-allocate.
+                    for state_backup in tmp_state_backups.drain(..) {
+                        recovery_store_summary.insert(&state_backup);
+                    }
+                });
+
+                // Tell the notificator to trigger on dataflow
+                // frontier advance.
+                dataflow_frontier_input.for_each(|cap, data| {
+                    // Drain the dataflow frontier input so the
+                    // frontier advances.
+                    data.swap(&mut tmp_frontier_backups);
+                    tmp_frontier_backups.drain(..);
+
+                    fncater.notify_at(cap.retain());
+                });
+
+                // Collect garbage.
+                fncater.for_each(
+                    &[state_input.frontier(), dataflow_frontier_input.frontier()],
+                    |cap, _ncater| {
+                        // If the dataflow frontier has passed a
+                        // notificator-retained epoch, it means it is
+                        // fully output and backed up.
+                        let finalized_epoch = cap.time();
+
+                        // Now remove all dead items from the state
+                        // store and the local cache.
+                        for recovery_key in recovery_store_summary.remove_garbage(finalized_epoch) {
+                            state_collector.delete(&recovery_key);
+                        }
+
+                        // Note progress on the output stream.
+                        output_handle.session(&cap);
+                    },
+                );
+
+                // NOTE: We won't call this GC code when the dataflow
+                // frontier closes / input is complete. This makes
+                // sense to me: It's not correct to say last_epoch+1
+                // has been "finalized" as it never happened. And it
+                // supports the use case of "continuing" a completed
+                // dataflow by starting back up at that epoch.
+            }
+        });
+
+        stream
+    }
+}
+
+// Here's the main recovery operator.
 
 /// If a [`StatefulLogic`] for a key should be retained by
 /// [`StatefulUnary::stateful_unary`].
@@ -550,552 +1192,6 @@ where
     fn snapshot(&self) -> StateBytes;
 }
 
-// Here's our recovery data model.
-
-/// A message noting that the frontier at an input changed.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct FrontierBackup<T>(
-    /// Worker index.
-    pub(crate) usize,
-    /// Worker frontier.
-    pub(crate) Antichain<T>,
-);
-
-/// A message noting the state for a key in a stateful operator
-/// changed.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct StateBackup<T>(pub(crate) RecoveryKey<T>, pub(crate) StateUpdate);
-
-impl<T: Timestamp> StateBackup<T> {
-    /// Route in Timely just by the state key to ensure that all
-    /// relevant data ends up on the correct worker.
-    fn pact() -> impl ParallelizationContract<T, StateBackup<T>> {
-        pact::Exchange::new(|StateBackup(RecoveryKey(_step_id, key, _epoch), _update)| key.route())
-    }
-}
-
-/// Key used to address data within a recovery store.
-///
-/// Remember, this isn't the same as [`StateKey`], as the "address
-/// space" of that key is just within a single operator. This type
-/// includes the operator name and epoch too, so we can address state
-/// in an entire dataflow and across time.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct RecoveryKey<T>(pub(crate) StepId, pub(crate) StateKey, pub(crate) T);
-
-// Here's our core traits for recovery that allow us to swap out
-// underlying storage.
-
-pub(crate) trait ProgressWriter<T> {
-    fn write(&mut self, frontier_backup: &FrontierBackup<T>);
-}
-
-pub(crate) trait ProgressReader<T> {
-    /// Has the same semantics as [`std::iter::Iterator::next`]:
-    /// return [`None`] to signal EOF.
-    fn read(&mut self) -> Option<FrontierBackup<T>>;
-}
-
-pub(crate) trait StateWriter<T> {
-    fn write(&mut self, state_backup: &StateBackup<T>);
-}
-
-pub(crate) trait StateCollector<T> {
-    fn delete(&mut self, recovery_key: &RecoveryKey<T>);
-}
-
-pub(crate) trait StateReader<T> {
-    /// Has the same semantics as [`std::iter::Iterator::next`]:
-    /// return [`None`] to signal EOF.
-    fn read(&mut self) -> Option<StateBackup<T>>;
-}
-
-// Here are our loading dataflows.
-
-/// Compile a dataflow which reads the progress data from the previous
-/// execution and calculates the resume epoch.
-///
-/// Once the progress input is done, this dataflow will send the
-/// resume epoch through a channel. The main function should consume
-/// from that channel to pass on to the other loading and production
-/// dataflows.
-pub(crate) fn build_resume_epoch_calc_dataflow<A: Allocate, T: Timestamp>(
-    timely_worker: &mut Worker<A>,
-    // TODO: Allow multiple (or none) FrontierReaders so you can recover a
-    // different-sized cluster.
-    progress_reader: Box<dyn ProgressReader<T>>,
-    resume_epoch_tx: std::sync::mpsc::Sender<T>,
-) -> StringResult<ProbeHandle<()>> {
-    timely_worker.dataflow(|scope| {
-        let mut probe = ProbeHandle::new();
-
-        progress_source(scope, progress_reader, &probe)
-            .map(|FrontierBackup(worker_index, antichain)| (worker_index, antichain))
-            .aggregate(
-                |_worker_index, antichain, worker_frontier_acc: &mut Option<Antichain<T>>| {
-                    let worker_frontier =
-                    // A frontier of [0], not the empty frontier, is
-                    // the "earliest". (Empty is "complete" or "last",
-                    // which is used below).
-                        worker_frontier_acc.get_or_insert(Antichain::from_elem(T::minimum()));
-                    // For each worker in the failed cluster, find the
-                    // latest frontier.
-                    if timely::PartialOrder::less_than(worker_frontier, &antichain) {
-                        *worker_frontier = antichain;
-                    }
-                },
-                |_worker_index, worker_frontier_acc| {
-                    // Drop worker index because next step looks at
-                    // all workers.
-                    worker_frontier_acc.expect("Did not update worker_frontier_acc in aggregation")
-                },
-                |worker_index| *worker_index as u64,
-            )
-            // Each worker in the recovery cluster reads only some of
-            // the frontier data of workers in the failed cluster.
-            .broadcast()
-            .accumulate(Antichain::new(), |dataflow_frontier, worker_frontiers| {
-                for worker_frontier in worker_frontiers.iter() {
-                    // The slowest of the workers in the failed
-                    // cluster is the resume epoch.
-                    if timely::PartialOrder::less_than(worker_frontier, dataflow_frontier) {
-                        *dataflow_frontier = worker_frontier.clone();
-                    }
-                }
-            })
-            .map(|dataflow_frontier| {
-                // TODO: Is this the right way to transform a frontier
-                // back into a recovery epoch?
-                dataflow_frontier
-                    .elements()
-                    .iter()
-                    .cloned()
-                    .min()
-                    .unwrap_or_else(T::minimum)
-            })
-            .map(move |resume_epoch| resume_epoch_tx.send(resume_epoch).unwrap())
-            .probe_with(&mut probe);
-
-        Ok(probe)
-    })
-}
-
-/// Compile a dataflow which reads state data from the previous
-/// execution and loads state into hash maps per step ID and key, and
-/// prepares the recovery store summary.
-///
-/// Once the state input is done, this dataflow will send the
-/// collected recovery data through these channels. The main function
-/// should consume from the channels to pass on to the production
-/// dataflow.
-pub(crate) fn build_state_loading_dataflow<A: Allocate>(
-    timely_worker: &mut Worker<A>,
-    state_reader: Box<dyn StateReader<u64>>,
-    resume_epoch: u64,
-    step_to_key_to_resume_state_bytes_tx: std::sync::mpsc::Sender<(
-        StepId,
-        HashMap<StateKey, StateBytes>,
-    )>,
-    recovery_store_summary_tx: std::sync::mpsc::Sender<RecoveryStoreSummary<u64>>,
-) -> StringResult<ProbeHandle<u64>> {
-    timely_worker.dataflow(|scope| {
-        let mut probe = ProbeHandle::new();
-
-        let source = state_source(scope, state_reader, resume_epoch, &probe);
-
-        source
-            .unary_frontier(
-                StateBackup::pact(),
-                "RecoveryStoreSummaryCalc",
-                |_init_cap, _info| {
-                    let mut fncater = FrontierNotificator::new();
-
-                    let mut tmp_backups = Vec::new();
-                    let mut epoch_to_backups_buffer = HashMap::new();
-                    let mut recovery_store_summary = Some(RecoveryStoreSummary::new());
-
-                    move |input, output| {
-                        input.for_each(|cap, backups| {
-                            let epoch = cap.time();
-                            backups.swap(&mut tmp_backups);
-
-                            epoch_to_backups_buffer
-
-                                .entry(*epoch)
-                                .or_insert_with(Vec::new)
-                                .append(&mut tmp_backups);
-
-                            fncater.notify_at(cap.retain());
-                        });
-
-                        fncater.for_each(&[input.frontier()], |cap, _ncater| {
-                            let epoch = cap.time();
-                            if let Some(backups) = epoch_to_backups_buffer.remove(epoch) {
-                                let recovery_store_summary = recovery_store_summary
-                                    .as_mut()
-                                    .expect(
-                                    "More input after recovery store calc input frontier was empty",
-                                );
-                                for backup in backups {
-                                    recovery_store_summary.insert(backup);
-                                }
-                            }
-
-                            // Emit heartbeats so we can monitor progress
-                            // at the probe.
-                            output.session(&cap).give(());
-                        });
-
-                        if input.frontier().is_empty() {
-                            if let Some(recovery_store_summary) = recovery_store_summary.take() {
-                                recovery_store_summary_tx
-                                    .send(recovery_store_summary)
-                                    .unwrap();
-                            }
-                        }
-                    }
-                },
-            )
-            .probe_with(&mut probe);
-
-        source
-            .unary_frontier(StateBackup::pact(), "StateCacheCalc", |_init_cap, _info| {
-                let mut fncater = FrontierNotificator::new();
-
-                let mut tmp_backups = Vec::new();
-                let mut epoch_to_backups_buffer = HashMap::new();
-                let mut step_to_key_to_resume_state_bytes: Option<HashMap<StepId, HashMap<StateKey, StateBytes>>> =
-                    Some(HashMap::new());
-
-                move |input, output| {
-                    input.for_each(|cap, backups| {
-                        let epoch = cap.time();
-                        backups.swap(&mut tmp_backups);
-
-                        epoch_to_backups_buffer
-                            .entry(*epoch)
-                            .or_insert_with(Vec::new)
-                            .append(&mut tmp_backups);
-
-                        fncater.notify_at(cap.retain());
-                    });
-
-                    fncater.for_each(&[input.frontier()], |cap, _ncater| {
-                        let epoch = cap.time();
-                        if let Some(backups) = epoch_to_backups_buffer.remove(epoch) {
-                            for StateBackup(RecoveryKey(step_id, key, _epoch), update) in backups {
-                                let resume_state =
-                                    step_to_key_to_resume_state_bytes
-                                    .as_mut()
-                                    .expect("More input after resume state calc input frontier was empty")
-                                    .entry(step_id)
-                                    .or_default();
-
-                                match update {
-                                    StateUpdate::Upsert(state) => resume_state.insert(key, state),
-                                    StateUpdate::Discard => resume_state.remove(&key),
-                                };
-                            }
-                        }
-
-                        // Emit heartbeats so we can monitor progress
-                        // at the probe.
-                        output.session(&cap).give(());
-                    });
-
-                    if input.frontier().is_empty() {
-                        if let Some(step_to_key_to_resume_state_bytes) = step_to_key_to_resume_state_bytes.take() {
-                            for step_key_resume_state_bytes in step_to_key_to_resume_state_bytes {
-                                step_to_key_to_resume_state_bytes_tx.send(step_key_resume_state_bytes).unwrap();
-                            }
-                        }
-                    }
-                }
-            })
-            .probe_with(&mut probe);
-
-        Ok(probe)
-    })
-}
-
-// Here's operators related to recovery.
-
-/// Build a source which loads previously backed up progress data as
-/// separate items.
-///
-/// The resulting stream only has the zeroth epoch.
-///
-/// Note that this pretty meta! This new _loading_ dataflow will only
-/// have the zeroth epoch, but you can observe what progress was made
-/// on the _previous_ dataflow.
-pub(crate) fn progress_source<S: Scope, T: Data>(
-    scope: &S,
-    mut reader: Box<dyn ProgressReader<T>>,
-    probe: &ProbeHandle<S::Timestamp>,
-) -> Stream<S, FrontierBackup<T>>
-where
-    S::Timestamp: TotalOrder,
-{
-    iterator_source(
-        scope,
-        "ProgressSource",
-        move |last_cap| {
-            reader.read().map(|backup| IteratorSourceInput {
-                lower_bound: S::Timestamp::minimum(),
-                // An iterator of (timestamp, iterator of
-                // items). Nested [`IntoIterator`]s.
-                data: Some((S::Timestamp::minimum(), Some(backup))),
-                target: last_cap.clone(),
-            })
-        },
-        probe.clone(),
-    )
-}
-
-/// Build a source which loads previously backed up state data.
-///
-/// The resulting stream has each state update in its original epoch.
-///
-/// State must be stored in epoch order. [`WriteState`] does that.
-pub(crate) fn state_source<S: Scope>(
-    scope: &S,
-    mut reader: Box<dyn StateReader<S::Timestamp>>,
-    stop_at: S::Timestamp,
-    probe: &ProbeHandle<S::Timestamp>,
-) -> Stream<S, StateBackup<S::Timestamp>>
-where
-    S::Timestamp: TotalOrder,
-{
-    iterator_source(
-        scope,
-        "StateSource",
-        move |last_cap| match reader.read() {
-            Some(backup) => {
-                let StateBackup(RecoveryKey(_step_id, _key, epoch), _update) = &backup;
-                let epoch = epoch.clone();
-
-                if epoch < stop_at {
-                    Some(IteratorSourceInput {
-                        lower_bound: S::Timestamp::minimum(),
-                        // An iterator of (timestamp, iterator of
-                        // items). Nested [`IntoIterators`].
-                        data: Some((epoch, Some(backup))),
-                        target: last_cap.clone(),
-                    })
-                } else {
-                    None
-                }
-            }
-            None => None,
-        },
-        probe.clone(),
-    )
-}
-
-/// Extension trait for [`Stream`].
-pub(crate) trait WriteState<S: Scope> {
-    /// Writes state backups in timestamp order.
-    fn write_state_with(
-        &self,
-        state_writer: Box<dyn StateWriter<S::Timestamp>>,
-    ) -> Stream<S, StateBackup<S::Timestamp>>;
-}
-
-impl<S: Scope> WriteState<S> for Stream<S, (StateKey, (StepId, StateUpdate))> {
-    fn write_state_with(
-        &self,
-        mut state_writer: Box<dyn StateWriter<S::Timestamp>>,
-    ) -> Stream<S, StateBackup<S::Timestamp>> {
-        self.unary_notify(pact::Pipeline, "WriteState", None, {
-            // TODO: Store worker_index in the backup so we know if we
-            // crossed the worker backup streams?
-
-            // let worker_index = self.scope().index();
-
-            let mut tmp_backups = Vec::new();
-            let mut epoch_to_backups_buffer = HashMap::new();
-
-            move |input, output, ncater| {
-                input.for_each(|cap, backups| {
-                    let epoch = cap.time();
-                    backups.swap(&mut tmp_backups);
-
-                    epoch_to_backups_buffer
-                        .entry(epoch.clone())
-                        .or_insert_with(Vec::new)
-                        .append(&mut tmp_backups);
-
-                    ncater.notify_at(cap.retain());
-                });
-
-                // Use the notificator to ensure state is written in
-                // epoch order.
-                ncater.for_each(|cap, _count, _ncater| {
-                    let epoch = cap.time();
-                    if let Some(updates) = epoch_to_backups_buffer.remove(epoch) {
-                        for (key, (step_id, update)) in updates {
-                            let backup =
-                                StateBackup(RecoveryKey(step_id, key, epoch.clone()), update);
-
-                            state_writer.write(&backup);
-
-                            output.session(&cap).give(backup);
-                        }
-                    }
-                });
-            }
-        })
-    }
-}
-
-/// Extension trait for [`Stream`].
-pub(crate) trait WriteProgress<S: Scope, D: Data> {
-    /// Write out the current frontier of the output this is connected
-    /// to whenever it changes.
-    fn write_progress_with(
-        &self,
-        frontier_writer: Box<dyn ProgressWriter<S::Timestamp>>,
-    ) -> Stream<S, FrontierBackup<S::Timestamp>>;
-}
-
-impl<S: Scope, D: Data> WriteProgress<S, D> for Stream<S, D> {
-    fn write_progress_with(
-        &self,
-        mut frontier_writer: Box<dyn ProgressWriter<S::Timestamp>>,
-    ) -> Stream<S, FrontierBackup<S::Timestamp>> {
-        self.unary_notify(pact::Pipeline, "WriteProgress", None, {
-            let worker_index = self.scope().index();
-
-            let mut tmp_data = Vec::new();
-
-            move |input, output, ncater| {
-                input.for_each(|cap, data| {
-                    data.swap(&mut tmp_data);
-
-                    ncater.notify_at(cap.retain());
-                });
-
-                ncater.for_each(|cap, _count, ncater| {
-                    // 0 is our singular input.
-                    let frontier = ncater.frontier(0).to_owned();
-
-                    // Don't write out the last "empty" frontier to
-                    // allow restarting from the end of the dataflow.
-                    if !frontier.elements().is_empty() {
-                        let backup = FrontierBackup(worker_index, frontier);
-
-                        frontier_writer.write(&backup);
-
-                        output.session(&cap).give(backup);
-                    }
-                });
-            }
-        })
-    }
-}
-
-/// Extension trait for [`Stream`].
-pub(crate) trait CollectGarbage<S: Scope> {
-    /// Run the recovery garbage collector.
-    ///
-    /// This will be instantiated on stream of already written state
-    /// and will observe the dataflow's frontier and then decide what
-    /// is garbage and delete it.
-    ///
-    /// It needs a separate handle to write to the state store so that
-    /// there's not contention between it and [`WriteState`].
-    fn collect_garbage(
-        &self,
-        recovery_store_summary: RecoveryStoreSummary<S::Timestamp>,
-        state_collector: Box<dyn StateCollector<S::Timestamp>>,
-        dataflow_frontier: Stream<S, FrontierBackup<S::Timestamp>>,
-    ) -> Stream<S, ()>;
-}
-
-impl<S: Scope> CollectGarbage<S> for Stream<S, StateBackup<S::Timestamp>> {
-    fn collect_garbage(
-        &self,
-        mut recovery_store_summary: RecoveryStoreSummary<S::Timestamp>,
-        mut state_collector: Box<dyn StateCollector<S::Timestamp>>,
-        dataflow_frontier: Stream<S, FrontierBackup<S::Timestamp>>,
-    ) -> Stream<S, ()> {
-        let mut op_builder = OperatorBuilder::new("CollectGarbage".to_string(), self.scope());
-
-        let mut state_input = op_builder.new_input(self, pact::Pipeline);
-        let mut dataflow_frontier_input = op_builder.new_input(&dataflow_frontier, pact::Pipeline);
-
-        let (mut output_wrapper, stream) = op_builder.new_output();
-
-        let mut fncater = FrontierNotificator::new();
-        op_builder.build(move |_init_capabilities| {
-            let mut tmp_state_backups = Vec::new();
-            let mut tmp_frontier_backups = Vec::new();
-
-            move |input_frontiers| {
-                let mut state_input =
-                    FrontieredInputHandle::new(&mut state_input, &input_frontiers[0]);
-                let mut dataflow_frontier_input =
-                    FrontieredInputHandle::new(&mut dataflow_frontier_input, &input_frontiers[1]);
-
-                let mut output_handle = output_wrapper.activate();
-
-                // Update our internal cache of the state store's
-                // keys.
-                state_input.for_each(|_cap, state_backups| {
-                    state_backups.swap(&mut tmp_state_backups);
-
-                    // Drain items so we don't have to re-allocate.
-                    for state_backup in tmp_state_backups.drain(..) {
-                        recovery_store_summary.insert(state_backup);
-                    }
-                });
-
-                // Tell the notificator to trigger on dataflow
-                // frontier advance.
-                dataflow_frontier_input.for_each(|cap, data| {
-                    // Drain the dataflow frontier input so the
-                    // frontier advances.
-                    data.swap(&mut tmp_frontier_backups);
-                    tmp_frontier_backups.drain(..);
-
-                    fncater.notify_at(cap.retain());
-                });
-
-                // Collect garbage.
-                fncater.for_each(
-                    &[state_input.frontier(), dataflow_frontier_input.frontier()],
-                    |cap, _ncater| {
-                        // If the dataflow frontier has passed a
-                        // notificator-retained epoch, it means it is
-                        // fully output and backed up.
-                        let finalized_epoch = cap.time();
-
-                        // Now remove all dead items from the state
-                        // store and the local cache.
-                        for recovery_key in recovery_store_summary.remove_garbage(finalized_epoch) {
-                            state_collector.delete(&recovery_key);
-                        }
-
-                        // Note progress on the output stream.
-                        output_handle.session(&cap);
-                    },
-                );
-
-                // NOTE: We won't call this GC code when the dataflow
-                // frontier closes / input is complete. This makes
-                // sense to me: It's not correct to say last_epoch+1
-                // has been "finalized" as it never happened. And it
-                // supports the use case of "continuing" a completed
-                // dataflow by starting back up at that epoch.
-            }
-        });
-
-        stream
-    }
-}
-
-// Here's the main recovery operator.
-
 /// Extension trait for [`Stream`].
 // Based on the good work in
 // https://github.com/TimelyDataflow/timely-dataflow/blob/0d0d84885672d6369a78cd9aff7beb2048390d3b/timely/src/dataflow/operators/aggregation/state_machine.rs#L57
@@ -1135,44 +1231,47 @@ where
     /// The output will be a stream of `(key, value)` 2-tuples. Values
     /// emitted by [`StatefulLogic::awake_with`] will be automatically
     /// paired with the key in the output stream.
-    fn stateful_unary<
-        R: Data,                                   // Output item type
-        I: IntoIterator<Item = R>,                 // Iterator of output items
-        L: StatefulLogic<V, R, I> + 'static,       // Logic
-        LB: Fn(Option<StateBytes>) -> L + 'static, // Logic builder
-    >(
+    fn stateful_unary<R, I, L, LB>(
         &self,
         step_id: StepId,
         logic_builder: LB,
-        resume_state: HashMap<StateKey, StateBytes>,
-    ) -> (Stream<S, (StateKey, R)>, Stream<S, EpochData>)
+        key_to_resume_state: HashMap<StateKey, State>,
+    ) -> (
+        Stream<S, (StateKey, R)>,
+        Stream<S, StateUpdate<S::Timestamp>>,
+    )
     where
-        S::Timestamp: Hash + Eq;
+        R: Data,                                   // Output value type
+        I: IntoIterator<Item = R>,                 // Iterator of output values
+        L: StatefulLogic<V, R, I> + 'static,       // Logic
+        LB: Fn(Option<StateBytes>) -> L + 'static  // Logic builder
+    ;
 }
 
 impl<S, V> StatefulUnary<S, V> for Stream<S, (StateKey, V)>
 where
     S: Scope<Timestamp = u64>,
-    V: ExchangeData,
+    V: ExchangeData, // Input value type
 {
-    fn stateful_unary<
-        R: Data,                                   // Output item type
-        I: IntoIterator<Item = R>,                 // Iterator of output items
-        L: StatefulLogic<V, R, I> + 'static,       // Logic
-        LB: Fn(Option<StateBytes>) -> L + 'static, // Logic builder
-    >(
+    fn stateful_unary<R, I, L, LB>(
         &self,
         step_id: StepId,
         logic_builder: LB,
-        key_to_resume_state_bytes: HashMap<StateKey, StateBytes>,
+        state_key_to_resume_state: HashMap<StateKey, State>,
     ) -> (
         Stream<S, (StateKey, R)>,
-        Stream<S, (StateKey, (StepId, StateUpdate))>,
-    ) {
+        Stream<S, StateUpdate<S::Timestamp>>,
+    )
+    where
+        R: Data,                                   // Output value type
+        I: IntoIterator<Item = R>,                 // Iterator of output values
+        L: StatefulLogic<V, R, I> + 'static,       // Logic
+        LB: Fn(Option<StateBytes>) -> L + 'static, // Logic builder
+    {
         let mut op_builder = OperatorBuilder::new(format!("{step_id}"), self.scope());
 
         let (mut output_wrapper, output_stream) = op_builder.new_output();
-        let (mut state_update_wrapper, state_update_stream) = op_builder.new_output();
+        let (mut state_backup_wrapper, state_update_stream) = op_builder.new_output();
 
         let mut input_handle = op_builder.new_input_connection(
             self,
@@ -1195,12 +1294,28 @@ where
             // epoch; we only modify state carefully in epoch order
             // once we know we won't be getting any input on closed
             // epochs.
-            let mut logic_cache: HashMap<StateKey, L> = key_to_resume_state_bytes
-                .into_iter()
-                .map(|(key, logic_resume_state_bytes)| {
-                    (key, logic_builder(Some(logic_resume_state_bytes)))
-                })
-                .collect();
+            let mut key_to_logic: HashMap<StateKey, L> = HashMap::new();
+            //
+            let mut key_to_next_awake: HashMap<StateKey, DateTime<Utc>> = HashMap::new();
+
+            for (
+                key,
+                State {
+                    state_bytes,
+                    next_awake,
+                },
+            ) in state_key_to_resume_state
+            {
+                key_to_logic.insert(key.clone(), logic_builder(Some(state_bytes)));
+                match next_awake {
+                    Some(next_awake) => {
+                        key_to_next_awake.insert(key.clone(), next_awake);
+                    }
+                    None => {
+                        key_to_next_awake.remove(&key);
+                    }
+                }
+            }
 
             // We have to retain separate capabilities
             // per-output. This seems to be only documented in
@@ -1236,11 +1351,7 @@ where
             // only snapshot state of keys that could have resulted in
             // state modifications. This is drained after each epoch
             // is processed.
-            let mut awoken_keys_buffer = HashSet::new();
-            // Persistent across activations buffer of when each key
-            // needs to be awoken next. As activations occur, we'll
-            // remove keys whose timeout has passed.
-            let mut key_to_next_awake_buffer: HashMap<StateKey, DateTime<Utc>> = HashMap::new();
+            let mut awoken_keys_buffer: HashSet<StateKey> = HashSet::new();
 
             move |input_frontiers| {
                 // Will there be no more data?
@@ -1251,17 +1362,15 @@ where
                     (output_cap.as_mut(), state_update_cap.as_mut())
                 {
                     assert!(output_cap.time() == state_update_cap.time());
-                    let mut output_handle = output_wrapper.activate();
-                    let mut state_update_handle = state_update_wrapper.activate();
 
                     let now = chrono::offset::Utc::now();
 
                     // Buffer the inputs so we can apply them to the
                     // state cache in epoch order.
-                    input_handle.for_each(|cap, key_values| {
+                    input_handle.for_each(|cap, state_key_values| {
                         let epoch = cap.time();
                         assert!(tmp_key_values.is_empty());
-                        key_values.swap(&mut tmp_key_values);
+                        state_key_values.swap(&mut tmp_key_values);
 
                         incoming_epoch_to_key_values_buffer
                             .entry(*epoch)
@@ -1317,7 +1426,7 @@ where
                         output_cap.downgrade(&epoch);
                         state_update_cap.downgrade(&epoch);
 
-                        let incoming_key_values =
+                        let incoming_state_key_values =
                             incoming_epoch_to_key_values_buffer.remove(&epoch);
 
                         // Now let's find all the key-value pairs to
@@ -1326,10 +1435,10 @@ where
 
                         // Include all the incoming data.
                         key_values_buffer.extend(
-                            incoming_key_values
+                            incoming_state_key_values
                                 .unwrap_or_default()
                                 .into_iter()
-                                .map(|(k, v)| (k, Poll::Ready(Some(v)))),
+                                .map(|(state_key, value)| (state_key, Poll::Ready(Some(value)))),
                         );
 
                         // Then extend the values with any "awake"
@@ -1345,29 +1454,40 @@ where
                             // due to the EOF items.
 
                             // First all "new" keys in this input.
-                            awoken_keys_buffer
-                                .extend(key_values_buffer.iter().map(|(k, _v)| k).cloned());
+                            awoken_keys_buffer.extend(
+                                key_values_buffer
+                                    .iter()
+                                    .map(|(state_key, _value)| state_key)
+                                    .cloned(),
+                            );
                             // Then all keys that are still waiting on
                             // awakening. Keys that do not have a
                             // pending awakening will not see EOF
                             // messages (otherwise we'd have to retain
                             // data for all keys ever seen).
-                            awoken_keys_buffer.extend(key_to_next_awake_buffer.keys().cloned());
+                            awoken_keys_buffer.extend(key_to_next_awake.keys().cloned());
                             // Since this is EOF, we will never
                             // activate this operator again.
-                            key_values_buffer
-                                .extend(awoken_keys_buffer.drain().map(|k| (k, Poll::Ready(None))));
+                            key_values_buffer.extend(
+                                awoken_keys_buffer
+                                    .drain()
+                                    .map(|state_key| (state_key, Poll::Ready(None))),
+                            );
                         } else {
                             // Otherwise, wake up any keys that are
                             // past their requested awakening time.
                             key_values_buffer.extend(
-                                key_to_next_awake_buffer
+                                key_to_next_awake
                                     .iter()
-                                    .filter(|(_k, a)| a <= &&now)
-                                    .map(|(k, _a)| (k.clone(), Poll::Pending)),
+                                    .filter(|(_state_key, next_awake)| next_awake <= &&now)
+                                    .map(|(state_key, _next_awake)| {
+                                        (state_key.clone(), Poll::Pending)
+                                    }),
                             );
                         }
 
+                        let mut output_handle = output_wrapper.activate();
+                        let mut state_update_handle = state_backup_wrapper.activate();
                         let mut output_session = output_handle.session(&output_cap);
                         let mut state_update_session =
                             state_update_handle.session(&state_update_cap);
@@ -1377,14 +1497,14 @@ where
                             // Remove any scheduled awake times this
                             // current one will satisfy.
                             if let Entry::Occupied(next_awake_at_entry) =
-                                key_to_next_awake_buffer.entry(key.clone())
+                                key_to_next_awake.entry(key.clone())
                             {
                                 if next_awake_at_entry.get() <= &now {
                                     next_awake_at_entry.remove();
                                 }
                             }
 
-                            let logic = logic_cache
+                            let logic = key_to_logic
                                 .entry(key.clone())
                                 .or_insert_with(|| logic_builder(None));
                             let output = logic.on_awake(next_value);
@@ -1401,53 +1521,47 @@ where
                         // changes. Remove will ensure we slowly drain
                         // the buffer.
                         if is_closed(&epoch) {
-                            for key in awoken_keys_buffer.drain() {
-                                let logic = logic_cache
-                                    .remove(&key)
+                            for state_key in awoken_keys_buffer.drain() {
+                                let logic = key_to_logic
+                                    .remove(&state_key)
                                     .expect("No logic for activated key");
 
-                                let update = match logic.fate() {
+                                let op = match logic.fate() {
                                     LogicFate::Discard => {
-                                        // If the logic for this key
-                                        // is discarded, remove any
-                                        // scheduled wakeup.
-                                        key_to_next_awake_buffer.remove(&key);
+                                        // Do not re-insert the
+                                        // logic. It'll be dropped.
+                                        key_to_next_awake.remove(&state_key);
 
-                                        (key, (step_id.clone(), StateUpdate::Discard))
+                                        StateOp::Discard
                                     }
                                     LogicFate::Retain => {
-                                        // We only want to awake on
-                                        // this key again if the logic
-                                        // is going to be retained.
-                                        if let Some(next_awake) = logic.next_awake() {
-                                            key_to_next_awake_buffer
-                                                .entry(key.clone())
-                                                .and_modify(|old_next_awake: &mut DateTime<Utc>| {
-                                                    // Only keep the
-                                                    // soonest
-                                                    // scheduled
-                                                    // wakeup.
-                                                    if &next_awake < old_next_awake {
-                                                        *old_next_awake = next_awake;
-                                                    }
-                                                })
-                                                .or_insert(next_awake);
+                                        let state_bytes = logic.snapshot();
+                                        let next_awake = logic.next_awake();
+
+                                        key_to_logic.insert(state_key.clone(), logic);
+                                        match next_awake {
+                                            Some(next_awake) => {
+                                                key_to_next_awake
+                                                    .insert(state_key.clone(), next_awake);
+                                            }
+                                            None => {
+                                                key_to_next_awake.remove(&state_key);
+                                            }
                                         }
 
-                                        let state_bytes = logic.snapshot();
-
-                                        logic_cache.insert(key.clone(), logic);
-
-                                        // TODO: We need to persist
-                                        // awake at times! Otherwise
-                                        // we might die when a key is
-                                        // scheduled to be awoken and
-                                        // then resume and it'll never
-                                        // wake up, resulting in
-                                        // incorrect behavior.
-                                        (key, (step_id.clone(), StateUpdate::Upsert(state_bytes)))
+                                        StateOp::Upsert(State {
+                                            state_bytes,
+                                            next_awake,
+                                        })
                                     }
                                 };
+
+                                let recovery_key = StateRecoveryKey {
+                                    step_id: step_id.clone(),
+                                    state_key,
+                                    epoch: epoch.clone(),
+                                };
+                                let update = StateUpdate(recovery_key, op);
                                 state_update_session.give(update);
                             }
                         }
@@ -1458,9 +1572,9 @@ where
 
                     // Schedule operator activation at the soonest
                     // requested logic awake time for any key.
-                    if let Some(delay) = key_to_next_awake_buffer
+                    if let Some(delay) = key_to_next_awake
                         .values()
-                        .map(|a| a.clone() - now)
+                        .map(|next_awake| next_awake.clone() - now)
                         .min()
                     {
                         activator.activate_after(delay.to_std().unwrap_or(Duration::ZERO));
@@ -1549,9 +1663,9 @@ pub(crate) fn build_recovery_writers(
         let create_partitions = worker_count.try_into().unwrap();
 
         let (progress_writer, state_writer, state_collector): (
-            KafkaWriter<String, FrontierBackup<u64>>,
-            KafkaWriter<RecoveryKey<u64>, StateUpdate>,
-            KafkaWriter<RecoveryKey<u64>, StateUpdate>,
+            KafkaWriter<ProgressRecoveryKey, ProgressOp<u64>>,
+            KafkaWriter<StateRecoveryKey<u64>, StateOp>,
+            KafkaWriter<StateRecoveryKey<u64>, StateOp>,
         ) = py.allow_threads(|| {
             create_kafka_topic(hosts, &progress_topic, create_partitions);
             create_kafka_topic(hosts, &state_topic, create_partitions);
@@ -1659,34 +1773,41 @@ impl NoopRecovery {
     }
 }
 
-impl<T: Debug> StateWriter<T> for NoopRecovery {
-    fn write(&mut self, backup: &StateBackup<T>) {
-        debug!("noop state write backup={backup:?}");
+impl<T> StateWriter<T> for NoopRecovery
+where
+    T: Debug,
+{
+    fn write(&mut self, update: &StateUpdate<T>) {
+        trace!("Noop wrote state update {update:?}");
     }
 }
 
-impl<T: Debug> StateCollector<T> for NoopRecovery {
-    fn delete(&mut self, recovery_key: &RecoveryKey<T>) {
-        debug!("noop state delete recovery_key={recovery_key:?}");
+impl<T> StateCollector<T> for NoopRecovery
+where
+    T: Debug,
+{
+    fn delete(&mut self, key: &StateRecoveryKey<T>) {
+        trace!("Noop deleted state for {key:?}");
     }
 }
 
 impl<T> StateReader<T> for NoopRecovery {
-    fn read(&mut self) -> Option<StateBackup<T>> {
-        debug!("noop state read");
+    fn read(&mut self) -> Option<StateUpdate<T>> {
         None
     }
 }
 
-impl<T: Debug> ProgressWriter<T> for NoopRecovery {
-    fn write(&mut self, frontier_update: &FrontierBackup<T>) {
-        debug!("noop frontier write frontier_update={frontier_update:?}");
+impl<T> ProgressWriter<T> for NoopRecovery
+where
+    T: Debug,
+{
+    fn write(&mut self, update: &ProgressUpdate<T>) {
+        trace!("Noop wrote progress update {update:?}");
     }
 }
 
 impl<T> ProgressReader<T> for NoopRecovery {
-    fn read(&mut self) -> Option<FrontierBackup<T>> {
-        debug!("noop frontier read");
+    fn read(&mut self) -> Option<ProgressUpdate<T>> {
         None
     }
 }
@@ -1697,36 +1818,18 @@ impl<T> ProgressReader<T> for NoopRecovery {
 /// state to determine what is garbage (just that there was a reset or
 /// an update), so have a little enum here to represent that.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum UpdateType {
+enum OpType {
     Upsert,
     Discard,
 }
 
-impl From<StateUpdate> for UpdateType {
-    fn from(update: StateUpdate) -> Self {
-        match update {
-            StateUpdate::Upsert(..) => Self::Upsert,
-            StateUpdate::Discard => Self::Discard,
+impl From<&StateOp> for OpType {
+    fn from(op: &StateOp) -> Self {
+        match op {
+            StateOp::Upsert { .. } => Self::Upsert,
+            StateOp::Discard => Self::Discard,
         }
     }
-}
-
-// TODO: Find a way to not double-serialize StateUpdate. The recovery
-// system has operators sending opaque blobs of bytes, so could we not
-// serialize them again? The trouble is we need to distinguish between
-// [`StateUpdate::Reset`] and deletion of a [`RecoveryKey`] for each
-// data store.
-fn to_bytes<T: Serialize>(obj: &T) -> Vec<u8> {
-    // TODO: Figure out if there's a more robust-to-evolution way
-    // to serialize this key. If the serialization changes between
-    // versions, then recovery doesn't work. Or if we use an
-    // encoding that isn't deterministic.
-    bincode::serialize(obj).expect("Error serializing recovery data")
-}
-
-fn from_bytes<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> T {
-    let t_name = type_name::<T>();
-    bincode::deserialize(bytes).unwrap_or_else(|_| panic!("Error deserializing recovery {t_name})"))
 }
 
 /// In-memory summary of all keys this worker's recovery store knows
@@ -1735,24 +1838,31 @@ fn from_bytes<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> T {
 /// This is used to quickly find garbage state without needing to
 /// query the recovery store itself.
 pub(crate) struct RecoveryStoreSummary<T> {
-    db: HashMap<(StepId, StateKey), HashMap<T, UpdateType>>,
+    db: HashMap<(StepId, StateKey), HashMap<T, OpType>>,
 }
 
-impl<T: Timestamp> RecoveryStoreSummary<T> {
+impl<T> RecoveryStoreSummary<T>
+where
+    T: Timestamp,
+{
     pub(crate) fn new() -> Self {
         Self { db: HashMap::new() }
     }
 
     /// Mark that state for this step ID, key, and epoch was backed
     /// up.
-    // TODO: Find a way to not clone update data just to insert.
-    pub(crate) fn insert(&mut self, backup: StateBackup<T>) {
-        let StateBackup(RecoveryKey(step_id, key, epoch), update) = backup;
-        let update_type = update.into();
+    pub(crate) fn insert(&mut self, update: &StateUpdate<T>) {
+        let StateUpdate(recovery_key, op) = update;
+        let StateRecoveryKey {
+            step_id,
+            state_key,
+            epoch,
+        } = recovery_key;
+        let op_type = op.into();
         self.db
-            .entry((step_id, key))
+            .entry((step_id.clone(), state_key.clone()))
             .or_default()
-            .insert(epoch, update_type);
+            .insert(epoch.clone(), op_type);
     }
 
     /// Find and remove all garbage given a finalized epoch.
@@ -1760,42 +1870,46 @@ impl<T: Timestamp> RecoveryStoreSummary<T> {
     /// Garbage is any state data before or during a finalized epoch,
     /// other than the last upsert for a key (since that's still
     /// relevant since it hasn't been overwritten yet).
-    pub(crate) fn remove_garbage(&mut self, finalized_epoch: &T) -> Vec<RecoveryKey<T>> {
+    pub(crate) fn remove_garbage(&mut self, finalized_epoch: &T) -> Vec<StateRecoveryKey<T>> {
         let mut garbage = Vec::new();
 
         let mut empty_map_keys = Vec::new();
-        for (map_key, epoch_updates) in self.db.iter_mut() {
-            let (step_id, key) = map_key;
+        for (map_key, epoch_ops) in self.db.iter_mut() {
+            let (step_id, state_key) = map_key;
 
             // TODO: The following becomes way cleaner once
             // [`std::collections::BTreeMap::drain_filter`] and
             // [`std::collections::BTreeMap::first_entry`] hits
             // stable.
 
-            let (mut map_key_garbage, mut map_key_non_garbage): (Vec<_>, Vec<_>) = epoch_updates
+            let (mut map_key_garbage, mut map_key_non_garbage): (Vec<_>, Vec<_>) = epoch_ops
                 .drain()
                 .partition(|(epoch, _update_type)| epoch <= finalized_epoch);
             map_key_garbage.sort();
 
             // If the final bit of "garbage" is an upsert, keep it,
             // since it's the state we'd use to recover.
-            if let Some(epoch_update) = map_key_garbage.pop() {
-                let (_epoch, update_type) = &epoch_update;
-                if update_type == &UpdateType::Upsert {
-                    map_key_non_garbage.push(epoch_update);
+            if let Some(epoch_op) = map_key_garbage.pop() {
+                let (_epoch, op_type) = &epoch_op;
+                if op_type == &OpType::Upsert {
+                    map_key_non_garbage.push(epoch_op);
                 } else {
-                    map_key_garbage.push(epoch_update);
+                    map_key_garbage.push(epoch_op);
                 }
             }
 
-            for (epoch, _update_type) in map_key_garbage {
-                garbage.push(RecoveryKey(step_id.clone(), key.clone(), epoch));
+            for (epoch, _op_type) in map_key_garbage {
+                garbage.push(StateRecoveryKey {
+                    step_id: step_id.clone(),
+                    state_key: state_key.clone(),
+                    epoch,
+                });
             }
 
             // Non-garbage should remain in the in-mem DB.
-            *epoch_updates = map_key_non_garbage.into_iter().collect::<HashMap<_, _>>();
+            *epoch_ops = map_key_non_garbage.into_iter().collect::<HashMap<_, _>>();
 
-            if epoch_updates.is_empty() {
+            if epoch_ops.is_empty() {
                 empty_map_keys.push(map_key.clone());
             }
         }

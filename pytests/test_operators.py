@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from threading import Event
 
-from pytest import fixture, mark, raises
+from pytest import fixture, raises
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main, TestingEpochConfig
@@ -341,10 +341,6 @@ def test_stateful_map_error_on_non_string_key():
         run_main(flow)
 
 
-@mark.skip(
-    "This test will not work with system time consistently until we mock the awaken "
-    "times in StatefulUnary."
-)
 def test_reduce_window(recovery_config):
     start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
     clock = TestingClock(start_at)
@@ -409,10 +405,6 @@ def test_reduce_window(recovery_config):
     assert sorted(out) == sorted([("ALL", 3), ("ALL", 1)])
 
 
-@mark.skip(
-    "This test will not work with system time consistently until we mock the awaken "
-    "times in StatefulUnary."
-)
 def test_fold_window(recovery_config):
     start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
     clock = TestingClock(start_at)
@@ -421,22 +413,22 @@ def test_fold_window(recovery_config):
 
     def gen():
         clock.now = start_at  # +0 sec; reset on recover
-        yield {"user": "a", "type": "login"}
+        yield {"user": "a", "type": "login"}  # Epoch 0
         clock.now += timedelta(seconds=4)  # +4 sec
-        yield {"user": "a", "type": "post"}
+        yield {"user": "a", "type": "post"}  # Epoch 1
         clock.now += timedelta(seconds=4)  # +8 sec
-        yield {"user": "a", "type": "post"}
+        yield {"user": "a", "type": "post"}  # Epoch 2
         clock.now += timedelta(seconds=4)  # +12 sec
         # First 10 sec window closes during processing this input.
-        yield {"user": "b", "type": "login"}
-        yield "BOOM"
+        yield {"user": "b", "type": "login"}  # Epoch 3
+        yield "BOOM"  # Epoch 4
         clock.now += timedelta(seconds=4)  # +16 sec
-        yield {"user": "a", "type": "post"}
+        yield {"user": "a", "type": "post"}  # Epoch 5
         clock.now += timedelta(seconds=4)  # +20 sec
         # Second 10 sec window closes during processing this input.
-        yield {"user": "b", "type": "post"}
+        yield {"user": "b", "type": "post"}  # Epoch 6
         clock.now += timedelta(seconds=4)  # +24 sec
-        yield {"user": "b", "type": "post"}
+        yield {"user": "b", "type": "post"}  # Epoch 7
         clock.now += timedelta(seconds=4)  # +28 sec
 
     flow.input("inp", TestingBuilderInputConfig(gen))
@@ -491,6 +483,13 @@ def test_fold_window(recovery_config):
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
     assert out == [
+        # Output from epoch 3 is duplicated because the epoch would
+        # only be closed and snapshotted for recovery on epoch 4, but
+        # the exception during epoch 4 happens before the fold_window
+        # operator gets to run. This is the best we can do in this
+        # situation without figuring out a transactional exactly-once
+        # kind of thing.
+        ("a", {"login": 1, "post": 2}),
         ("b", {"login": 1}),
         ("a", {"post": 1}),
         ("b", {"post": 2}),

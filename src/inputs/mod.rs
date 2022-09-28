@@ -20,6 +20,7 @@
 //! want. E.g. [`KafkaInputConfig`] represents a token in Python for
 //! how to create a [`KafkaInput`].
 
+use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::StateBytes;
 use crate::StringResult;
@@ -108,7 +109,7 @@ pub(crate) trait InputReader<D> {
 pub(crate) fn build_input_reader(
     py: Python,
     config: Py<InputConfig>,
-    worker_index: usize,
+    worker_index: WorkerIndex,
     worker_count: usize,
     resume_state_bytes: Option<StateBytes>,
 ) -> StringResult<Box<dyn InputReader<TdPyAny>>> {

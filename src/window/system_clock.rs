@@ -6,7 +6,7 @@ use pyo3::{exceptions::PyValueError, PyResult};
 
 use crate::recovery::StateBytes;
 
-use super::{Clock, ClockBuilder, ClockConfig, Builder};
+use super::{Builder, Clock, ClockBuilder, ClockConfig};
 
 /// Use the system time inside the windowing operator to determine
 /// times.

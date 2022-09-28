@@ -15,6 +15,7 @@ use rdkafka::{Offset, TopicPartitionList};
 
 use serde::{Deserialize, Serialize};
 
+use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::StateBytes;
 
@@ -209,7 +210,7 @@ impl KafkaInput {
         tail: bool,
         starting_offset: Offset,
         additional_properties: &Option<HashMap<String, String>>,
-        worker_index: usize,
+        worker_index: WorkerIndex,
         worker_count: usize,
         resume_state_bytes: Option<StateBytes>,
     ) -> Self {
@@ -243,7 +244,7 @@ impl KafkaInput {
         }
 
         let mut partitions = TopicPartitionList::new();
-        for partition in distribute(0..partition_count, worker_index, worker_count) {
+        for partition in distribute(0..partition_count, worker_index.0, worker_count) {
             let partition = KafkaPartition(partition);
             let resume_offset: Option<Offset> =
                 (*positions.entry(partition).or_insert(KafkaPosition::Default)).into();

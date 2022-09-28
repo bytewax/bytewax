@@ -1,5 +1,6 @@
 use std::task::Poll;
 
+use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyCoroIterator};
 use crate::recovery::StateBytes;
 use crate::{py_unwrap, try_unwrap};
@@ -83,7 +84,7 @@ impl ManualInput {
     pub(crate) fn new(
         py: Python,
         input_builder: TdPyCallable,
-        worker_index: usize,
+        worker_index: WorkerIndex,
         worker_count: usize,
         resume_state_bytes: Option<StateBytes>,
     ) -> Self {
