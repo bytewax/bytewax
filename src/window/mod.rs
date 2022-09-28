@@ -28,7 +28,7 @@
 //! config objects and Rust impl structs for each trait of behavior we
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
-
+use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::StepId;
 use crate::recovery::{EpochData, LogicFate, StateBytes, StateKey};
 use crate::recovery::{StatefulLogic, StatefulUnary};
@@ -45,12 +45,14 @@ use std::task::Poll;
 use timely::dataflow::{Scope, Stream};
 use timely::{Data, ExchangeData};
 
+pub(crate) mod event_time_clock;
 pub(crate) mod system_clock;
 pub(crate) mod testing_clock;
 pub(crate) mod tumbling_window;
 
-use self::system_clock::{SystemClock, SystemClockConfig};
-use self::testing_clock::{PyTestingClock, TestingClock, TestingClockConfig};
+use self::event_time_clock::EventClockConfig;
+use self::system_clock::SystemClockConfig;
+use self::testing_clock::{PyTestingClock, TestingClockConfig};
 use self::tumbling_window::{TumblingWindowConfig, TumblingWindower};
 
 /// Base class for a clock config.
@@ -96,28 +98,34 @@ impl ClockConfig {
     }
 }
 
-pub(crate) fn build_clock_builder<V: 'static>(
+/// A type representing a function that takes an optional serialized
+/// state and returns a Clock.
+type Builder<V> = Box<dyn Fn(Option<StateBytes>) -> Box<dyn Clock<V>>>;
+
+/// The `builder` function consumes a ClockConfig to build a Clock.
+pub(crate) trait ClockBuilder<V> {
+    fn builder(self) -> Builder<V>;
+}
+
+pub(crate) fn build_clock_builder(
     py: Python,
     clock_config: Py<ClockConfig>,
-) -> StringResult<Box<dyn Fn(Option<StateBytes>) -> Box<dyn Clock<V>>>> {
+) -> StringResult<Builder<TdPyAny>> {
     let clock_config = clock_config.as_ref(py);
-
-    if let Ok(testing_clock_config) = clock_config.downcast::<PyCell<TestingClockConfig>>() {
-        let testing_clock_config = testing_clock_config.borrow();
-
-        let clock = testing_clock_config.clock.clone_ref(py);
-
-        let builder = TestingClock::builder(clock);
-        Ok(Box::new(builder))
-    } else if let Ok(system_clock_config) = clock_config.downcast::<PyCell<SystemClockConfig>>() {
-        let _system_clock_config = system_clock_config.borrow();
-
-        let builder = SystemClock::builder();
-        Ok(Box::new(builder))
+    // System clock
+    if let Ok(conf) = clock_config.extract::<SystemClockConfig>() {
+        Ok(conf.builder())
+    // Testing clock
+    } else if let Ok(conf) = clock_config.extract::<TestingClockConfig>() {
+        Ok(conf.builder())
+    // Event clock
+    } else if let Ok(conf) = clock_config.extract::<EventClockConfig>() {
+        Ok(conf.builder())
+    // Anything else
     } else {
         Err(format!(
             "Unknown clock_config type: {}",
-            clock_config.get_type(),
+            clock_config.get_type()
         ))
     }
 }
@@ -545,6 +553,7 @@ where
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ClockConfig>()?;
+    m.add_class::<EventClockConfig>()?;
     m.add_class::<TestingClockConfig>()?;
     m.add_class::<PyTestingClock>()?;
     m.add_class::<SystemClockConfig>()?;

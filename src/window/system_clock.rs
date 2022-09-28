@@ -6,7 +6,7 @@ use pyo3::{exceptions::PyValueError, PyResult};
 
 use crate::recovery::StateBytes;
 
-use super::{Clock, ClockConfig};
+use super::{Clock, ClockBuilder, ClockConfig, Builder};
 
 /// Use the system time inside the windowing operator to determine
 /// times.
@@ -18,7 +18,14 @@ use super::{Clock, ClockConfig};
 ///   Config object. Pass this as the `clock_config` parameter to
 ///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=ClockConfig)]
+#[derive(Clone)]
 pub(crate) struct SystemClockConfig {}
+
+impl<V> ClockBuilder<V> for SystemClockConfig {
+    fn builder(self) -> Builder<V> {
+        Box::new(move |_resume_state_bytes| Box::new(SystemClock::new()))
+    }
+}
 
 #[pymethods]
 impl SystemClockConfig {
@@ -49,8 +56,8 @@ impl SystemClockConfig {
 pub(crate) struct SystemClock {}
 
 impl SystemClock {
-    pub(crate) fn builder<V>() -> impl Fn(Option<StateBytes>) -> Box<dyn Clock<V>> {
-        move |_resume_state_bytes| Box::new(Self {})
+    pub(crate) fn new() -> Self {
+        Self {}
     }
 }
 
@@ -63,9 +70,8 @@ impl<V> Clock<V> for SystemClock {
         }
     }
 
-    fn time_for(&mut self, item: &V) -> DateTime<Utc> {
-        let next_value = Poll::Ready(Some(item));
-        self.watermark(&next_value)
+    fn time_for(&mut self, _item: &V) -> DateTime<Utc> {
+        Utc::now()
     }
 
     fn snapshot(&self) -> StateBytes {
