@@ -469,8 +469,8 @@ def test_fold_window(recovery_config):
         # Second 10 sec window closes during processing this input.
         yield {"time": start_at + timedelta(seconds=20), "user": "b", "type": "post"}
         yield {"time": start_at + timedelta(seconds=24), "user": "b", "type": "post"}
-        # XXX: This is the event. When the bug is fixed, the previous window
-        # XXX: should be emitted even without this event
+        # XXX: When the bug is fixed, the previous window should be emitted even
+        # XXX: if we move this before the "BOOM" (it makes the test fail right now).
         yield {"time": start_at + timedelta(seconds=18), "user": "a", "type": "post"}
 
     flow.input("inp", TestingBuilderInputConfig(gen))
@@ -539,5 +539,4 @@ def test_fold_window(recovery_config):
     # ]
     assert ("b", {"login": 1}) in out
     assert ("b", {"post": 2}) in out
-    # XXX: Why is this event lost?
     assert ("a", {"post": 2}) in out
