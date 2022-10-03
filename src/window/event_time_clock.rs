@@ -218,9 +218,9 @@ mod tests {
                 system_time_of_last_event,
                 watermark,
             );
-            // Save the current watermark to check it doesn't change after
-            // the roundtrip of serialization
-            let watermark = event_clock.watermark(&Poll::Pending);
+            // Call the `watermark` function with None event, so that the watermark
+            // becomes MAX_UTC
+            event_clock.watermark(&Poll::Ready(None));
 
             // Take a snapshot
             let snapshot = event_clock.snapshot();
@@ -231,17 +231,13 @@ mod tests {
                 wait_for_system_duration: late,
             };
             let mut deserialized = config.builder()(Some(snapshot));
-            let de_watermark = deserialized.watermark(&Poll::Pending);
-            let now = Utc::now();
 
-            // IF everything is (de)serialized correctly, the difference between
-            // the previous watermark and the new one should be minimal, less than the
-            // time it took to run everything since we instantiated the first watermark.
-            // I (de)serialization didn't work, `late_time` would be initialized to
-            // the minimum possible date, and time elapsed since then would be huge.
-            assert!(
-                watermark.signed_duration_since(de_watermark)
-                    < watermark.signed_duration_since(now)
+            // If everything is (de)serialized correctly, the watermark should be exactly
+            // MAX_UTC. If something didn't work with (de)serialization, it would be slightly
+            // after MIN_UTC.
+            assert_eq!(
+                deserialized.watermark(&Poll::Pending),
+                DateTime::<Utc>::MAX_UTC
             );
         });
     }
