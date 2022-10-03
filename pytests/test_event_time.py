@@ -5,7 +5,6 @@ from bytewax.execution import run_main
 from bytewax.inputs import ManualInputConfig
 from bytewax.window import TumblingWindowConfig, EventClockConfig
 from bytewax.outputs import TestingOutputConfig
-from bytewax.testing import TestingClock
 
 
 def test_event_time_processing():
@@ -13,31 +12,22 @@ def test_event_time_processing():
     Test used to validate the EventClockConfig workings.
     """
     start_at = datetime(2022, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    clock = TestingClock(start_at)
-    late = timedelta(seconds=10)
     window_length = timedelta(seconds=5)
 
     def s(val):
         return timedelta(seconds=val)
 
     def input_builder(worker_index, worker_count, state):
-        clock.now = start_at + timedelta(seconds=2)
         # This should be processed in the first window
         yield None, {"type": "temp", "time": start_at, "value": 1}
         # This too should be processed in the first window
-        clock.now = start_at + timedelta(seconds=6)
         yield None, {"type": "temp", "time": start_at + s(2), "value": 2}
-        # This should be dropped, because its event_time is before
-        # the latest event time, and it arrives `late` seconds after
-        # the closing of the window + the delay of the latest received item.
-        clock.now = start_at + timedelta(seconds=19.1)
-        yield None, {"type": "temp", "time": start_at + s(1), "value": 200}
         # This should be processed in the second window
-        clock.now += timedelta(seconds=1)
         yield None, {"type": "temp", "time": start_at + s(7), "value": 200}
         # This should be processed in the third window
-        clock.now += timedelta(seconds=1)
         yield None, {"type": "temp", "time": start_at + s(12), "value": 17}
+        # This should be dropped, because the first window already closed.
+        yield None, {"type": "temp", "time": start_at + s(1), "value": 200}
 
     def extract_sensor_type(event):
         return event["type"], event
@@ -48,8 +38,7 @@ def test_event_time_processing():
 
     cc = EventClockConfig(
         lambda event: event["time"],
-        wait_for_system_duration=late,
-        system_clock=clock
+        wait_for_system_duration=timedelta(seconds=0)
     )
     wc = TumblingWindowConfig(start_at=start_at, length=window_length)
 
