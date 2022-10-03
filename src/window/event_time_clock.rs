@@ -240,7 +240,7 @@ mod tests {
             // the minimum possible date, and time elapsed since then would be huge.
             assert!(
                 watermark.signed_duration_since(deserialized.watermark(&Poll::Pending))
-                    < watermark.signed_duration_since(now)
+                    <= watermark.signed_duration_since(now)
             );
         });
     }
