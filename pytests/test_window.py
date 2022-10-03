@@ -18,7 +18,7 @@ def test_tumbling_window():
         yield ("ALL", {"time": start_at + timedelta(seconds=8), "val": 1})
         # First 10 second window should close just before processing this item.
         yield ("ALL", {"time": start_at + timedelta(seconds=12), "val": 1})
-        yield ("ALL", {"time": start_at + timedelta(seconds=16), "val": 0})
+        yield ("ALL", {"time": start_at + timedelta(seconds=16), "val": 1})
 
     flow.input("inp", TestingBuilderInputConfig(gen))
 
@@ -40,4 +40,4 @@ def test_tumbling_window():
 
     run_main(flow)
 
-    assert sorted(out) == sorted([("ALL", 3), ("ALL", 1)])
+    assert sorted(out) == sorted([("ALL", 3), ("ALL", 2)])
