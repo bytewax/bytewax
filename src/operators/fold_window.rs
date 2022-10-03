@@ -42,13 +42,11 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for FoldWindowLogic {
                     .acc
                     .take()
                     .unwrap_or_else(|| unwrap_any!(self.builder.call1(py, ())).into());
-                println!("Next value {:?}", &acc);
                 // Call the folder with the initialized accumulator.
                 let updated_acc = unwrap_any!(self
                     .folder
                     .call1(py, (acc.clone_ref(py), value.clone_ref(py))))
                 .into();
-                println!("Next value updated {:?}", &updated_acc);
                 debug!(
                     "fold_window: builder={:?}, folder={:?}(acc={acc:?}, value={value:?}) \
                         -> updated_acc={updated_acc:?}",
@@ -63,7 +61,6 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for FoldWindowLogic {
     }
 
     fn snapshot(&self) -> StateBytes {
-        println!("Snapshot {:?}", &self.acc);
         StateBytes::ser::<Option<TdPyAny>>(&self.acc)
     }
 }
