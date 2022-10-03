@@ -231,6 +231,7 @@ mod tests {
                 wait_for_system_duration: late,
             };
             let mut deserialized = config.builder()(Some(snapshot));
+            let de_watermark = deserialized.watermark(&Poll::Pending);
             let now = Utc::now();
 
             // IF everything is (de)serialized correctly, the difference between
@@ -239,8 +240,8 @@ mod tests {
             // I (de)serialization didn't work, `late_time` would be initialized to
             // the minimum possible date, and time elapsed since then would be huge.
             assert!(
-                watermark.signed_duration_since(deserialized.watermark(&Poll::Pending))
-                    <= watermark.signed_duration_since(now)
+                watermark.signed_duration_since(de_watermark)
+                    < watermark.signed_duration_since(now)
             );
         });
     }
