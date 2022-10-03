@@ -8,16 +8,12 @@ use super::{Clock, ClockConfig};
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable};
 use crate::recovery::StateBytes;
 
-/// Use to simulate system time in unit tests. You only want to use
-/// this for unit testing.
-///
-/// You should use this with
-/// `bytewax.inputs.TestingBuilderInputConfig` and a generator which
-/// modifies the `TestingClock` provided.
+/// In tests, we only allow the use of event time, to avoid
+/// either mocking or relying on system time.
 ///
 /// If the dataflow has no more input, all windows are closed.
-///
-/// The watermark uses the most recent "now".
+/// If wait_until_end is False, windows are closed as soon as an event
+/// of a later window is received.
 ///
 /// Args:
 ///
