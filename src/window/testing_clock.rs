@@ -21,6 +21,10 @@ use crate::recovery::StateBytes;
 ///
 /// Args:
 ///
+///  dt_getter: function used to retrieve a UTC datetime from each event.
+///
+///  wait_until_end: wether to wait for all data to be collected, or
+///                  not wait at all for late events.
 ///
 /// Returns:
 ///
