@@ -695,7 +695,7 @@ pub(crate) fn build_state_loading_dataflow<A>(
     timely_worker: &mut Worker<A>,
     state_reader: Box<dyn StateReader<u64>>,
     resume_epoch: u64,
-    step_to_key_to_resume_state_tx: std::sync::mpsc::Sender<(StepId, HashMap<StateKey, State>)>,
+    resume_state_tx: std::sync::mpsc::Sender<(StepId, HashMap<StateKey, State>)>,
     recovery_store_summary_tx: std::sync::mpsc::Sender<RecoveryStoreSummary<u64>>,
 ) -> StringResult<ProbeHandle<u64>>
 where
@@ -713,26 +713,27 @@ where
                 |_init_cap, _info| {
                     let mut fncater = FrontierNotificator::new();
 
-                    let mut tmp_updates = Vec::new();
-                    let mut epoch_to_updates_buffer = HashMap::new();
+                    let mut tmp_incoming = Vec::new();
+                    let mut resume_state_buffer = HashMap::new();
                     let mut recovery_store_summary = Some(RecoveryStoreSummary::new());
 
                     move |input, output| {
-                        input.for_each(|cap, updates| {
+                        input.for_each(|cap, incoming| {
                             let epoch = cap.time();
-                            updates.swap(&mut tmp_updates);
+                            assert!(tmp_incoming.is_empty());
+                            incoming.swap(&mut tmp_incoming);
 
-                            epoch_to_updates_buffer
+                            resume_state_buffer
                                 .entry(*epoch)
                                 .or_insert_with(Vec::new)
-                                .append(&mut tmp_updates);
+                                .append(&mut tmp_incoming);
 
                             fncater.notify_at(cap.retain());
                         });
 
                         fncater.for_each(&[input.frontier()], |cap, _ncater| {
                             let epoch = cap.time();
-                            if let Some(updates) = epoch_to_updates_buffer.remove(epoch) {
+                            if let Some(updates) = resume_state_buffer.remove(epoch) {
                                 let recovery_store_summary = recovery_store_summary
                                     .as_mut()
                                     .expect(
@@ -764,33 +765,34 @@ where
             .unary_frontier(StateUpdate::pact_for_state_key(), "StateCacheCalc", |_init_cap, _info| {
                 let mut fncater = FrontierNotificator::new();
 
-                let mut tmp_updates = Vec::new();
-                let mut epoch_to_updates_buffer = HashMap::new();
-                let mut step_to_state_key_to_resume_state: Option<HashMap<StepId, HashMap<StateKey, State>>> =
+                let mut tmp_incoming = Vec::new();
+                let mut resume_state_buffer = HashMap::new();
+                let mut resume_state: Option<HashMap<StepId, HashMap<StateKey, State>>> =
                     Some(HashMap::new());
 
                 move |input, output| {
-                    input.for_each(|cap, updates| {
+                    input.for_each(|cap, incoming| {
                         let epoch = cap.time();
-                        updates.swap(&mut tmp_updates);
+                        assert!(tmp_incoming.is_empty());
+                        incoming.swap(&mut tmp_incoming);
 
-                        epoch_to_updates_buffer
+                        resume_state_buffer
                             .entry(*epoch)
                             .or_insert_with(Vec::new)
-                            .append(&mut tmp_updates);
+                            .append(&mut tmp_incoming);
 
                         fncater.notify_at(cap.retain());
                     });
 
                     fncater.for_each(&[input.frontier()], |cap, _ncater| {
                         let epoch = cap.time();
-                        if let Some(updates) = epoch_to_updates_buffer.remove(epoch) {
+                        if let Some(updates) = resume_state_buffer.remove(epoch) {
                             for StateUpdate(recovery_key, op) in updates {
                                 let StateRecoveryKey { step_id, state_key, epoch: found_epoch } = recovery_key;
                                 assert!(&found_epoch == epoch);
 
                                 let resume_state =
-                                    step_to_state_key_to_resume_state
+                                    resume_state
                                     .as_mut()
                                     .expect("More input after resume state calc input frontier was empty")
                                     .entry(step_id)
@@ -813,8 +815,8 @@ where
                     });
 
                     if input.frontier().is_empty() {
-                        for step_to_state_key_to_resume_state in step_to_state_key_to_resume_state.take().expect("More input after resume state calc input frontier was empty") {
-                            step_to_key_to_resume_state_tx.send(step_to_state_key_to_resume_state).unwrap();
+                        for resume_state in resume_state.take().expect("More input after resume state calc input frontier was empty") {
+                            resume_state_tx.send(resume_state).unwrap();
                         }
                     }
                 }
@@ -924,18 +926,19 @@ where
         mut writer: Box<dyn StateWriter<S::Timestamp>>,
     ) -> Stream<S, StateUpdate<S::Timestamp>> {
         self.unary_notify(pact::Pipeline, "WriteState", None, {
-            let mut tmp_updates = Vec::new();
-            let mut epoch_to_updates_buffer = HashMap::new();
+            let mut tmp_incoming = Vec::new();
+            let mut incoming_buffer = HashMap::new();
 
             move |input, output, ncater| {
-                input.for_each(|cap, updates| {
+                input.for_each(|cap, incoming| {
                     let epoch = cap.time();
-                    updates.swap(&mut tmp_updates);
+                    assert!(tmp_incoming.is_empty());
+                    incoming.swap(&mut tmp_incoming);
 
-                    epoch_to_updates_buffer
+                    incoming_buffer
                         .entry(epoch.clone())
                         .or_insert_with(Vec::new)
-                        .append(&mut tmp_updates);
+                        .append(&mut tmp_incoming);
 
                     ncater.notify_at(cap.retain());
                 });
@@ -944,7 +947,7 @@ where
                 // epoch order.
                 ncater.for_each(|cap, _count, _ncater| {
                     let epoch = cap.time();
-                    if let Some(updates) = epoch_to_updates_buffer.remove(epoch) {
+                    if let Some(updates) = incoming_buffer.remove(epoch) {
                         for update in updates {
                             writer.write(&update);
                             output.session(&cap).give(update);
@@ -982,11 +985,13 @@ where
         self.unary_notify(pact::Pipeline, "WriteProgress", None, {
             let worker_index = WorkerIndex(self.scope().index());
 
-            let mut tmp_data = Vec::new();
+            let mut tmp_incoming = Vec::new();
 
             move |input, output, ncater| {
-                input.for_each(|cap, data| {
-                    data.swap(&mut tmp_data);
+                input.for_each(|cap, incoming| {
+                    // We drop the old data in tmp_incoming since we
+                    // don't care about the items.
+                    incoming.swap(&mut tmp_incoming);
 
                     ncater.notify_at(cap.retain());
                 });
@@ -1059,8 +1064,8 @@ where
 
         let mut fncater = FrontierNotificator::new();
         op_builder.build(move |_init_capabilities| {
-            let mut tmp_state_backups = Vec::new();
-            let mut tmp_frontier_backups = Vec::new();
+            let mut tmp_incoming_state = Vec::new();
+            let mut tmp_incoming_frontier = Vec::new();
 
             move |input_frontiers| {
                 let mut state_input =
@@ -1072,22 +1077,24 @@ where
 
                 // Update our internal cache of the state store's
                 // keys.
-                state_input.for_each(|_cap, state_backups| {
-                    state_backups.swap(&mut tmp_state_backups);
+                state_input.for_each(|_cap, incoming| {
+                    assert!(tmp_incoming_state.is_empty());
+                    incoming.swap(&mut tmp_incoming_state);
 
                     // Drain items so we don't have to re-allocate.
-                    for state_backup in tmp_state_backups.drain(..) {
+                    for state_backup in tmp_incoming_state.drain(..) {
                         recovery_store_summary.insert(&state_backup);
                     }
                 });
 
                 // Tell the notificator to trigger on dataflow
                 // frontier advance.
-                dataflow_frontier_input.for_each(|cap, data| {
+                dataflow_frontier_input.for_each(|cap, incomfing| {
+                    assert!(tmp_incoming_frontier.is_empty());
                     // Drain the dataflow frontier input so the
                     // frontier advances.
-                    data.swap(&mut tmp_frontier_backups);
-                    tmp_frontier_backups.drain(..);
+                    incomfing.swap(&mut tmp_incoming_frontier);
+                    tmp_incoming_frontier.drain(..);
 
                     fncater.notify_at(cap.retain());
                 });
@@ -1257,7 +1264,7 @@ where
         &self,
         step_id: StepId,
         logic_builder: LB,
-        state_key_to_resume_state: HashMap<StateKey, State>,
+        resume_state: HashMap<StateKey, State>,
     ) -> (
         Stream<S, (StateKey, R)>,
         Stream<S, StateUpdate<S::Timestamp>>,
@@ -1294,25 +1301,27 @@ where
             // epoch; we only modify state carefully in epoch order
             // once we know we won't be getting any input on closed
             // epochs.
-            let mut key_to_logic: HashMap<StateKey, L> = HashMap::new();
-            //
-            let mut key_to_next_awake: HashMap<StateKey, DateTime<Utc>> = HashMap::new();
+            let mut current_state: HashMap<StateKey, L> = HashMap::new();
+            // Next awaken timestamp for each key. There is only a
+            // single awake time for each key, representing the next
+            // awake time.
+            let mut current_next_awake: HashMap<StateKey, DateTime<Utc>> = HashMap::new();
 
             for (
                 key,
                 State {
-                    state_bytes,
+                    state_bytes: key_resume_state,
                     next_awake,
                 },
-            ) in state_key_to_resume_state
+            ) in resume_state
             {
-                key_to_logic.insert(key.clone(), logic_builder(Some(state_bytes)));
+                current_state.insert(key.clone(), logic_builder(Some(key_resume_state)));
                 match next_awake {
                     Some(next_awake) => {
-                        key_to_next_awake.insert(key.clone(), next_awake);
+                        current_next_awake.insert(key.clone(), next_awake);
                     }
                     None => {
-                        key_to_next_awake.remove(&key);
+                        current_next_awake.remove(&key);
                     }
                 }
             }
@@ -1325,33 +1334,38 @@ where
             let mut state_update_cap = init_caps.pop();
             let mut output_cap = init_caps.pop();
 
-            // Timely requires us to swap incoming data into a buffer
-            // we own. This is drained and re-used each activation.
-            let mut tmp_key_values: Vec<(StateKey, V)> = Vec::new();
+            // Here we have "buffers" that store items across
+            // activations.
+
             // Persistent across activations buffer keeping track of
             // out-of-order inputs. Push in here when Timely says we
             // have new data; pull out of here in epoch order to
             // process. This spans activations and will have epochs
             // removed from it as the input frontier progresses.
-            let mut incoming_epoch_to_key_values_buffer: HashMap<S::Timestamp, Vec<(StateKey, V)>> =
-                HashMap::new();
-
-            // Temp ordered set of epochs that can be processed
-            // because all their input has been finalized or it's the
-            // frontier epoch. This is filled from buffered data and
-            // drained and re-used each activation of this operator.
-            let mut closed_epochs_buffer: BTreeSet<S::Timestamp> = BTreeSet::new();
-            // Temp list of `(StateKey, Poll<Option<V>>)` to pass to
-            // the operator logic within each epoch. This is drained
-            // and re-used.
-            let mut key_values_buffer: Vec<(StateKey, Poll<Option<V>>)> = Vec::new();
-
+            let mut incoming_buffer: HashMap<S::Timestamp, Vec<(StateKey, V)>> = HashMap::new();
             // Persistent across activations buffer of what keys were
             // awoken during the most recent epoch. This is used to
             // only snapshot state of keys that could have resulted in
             // state modifications. This is drained after each epoch
             // is processed.
             let mut awoken_keys_buffer: HashSet<StateKey> = HashSet::new();
+
+            // Here are some temporary working sets that we allocate
+            // once, then drain and re-use each activation of this
+            // operator.
+
+            // Timely requires us to swap incoming data into a buffer
+            // we own. This is drained and re-used each activation.
+            let mut tmp_incoming: Vec<(StateKey, V)> = Vec::new();
+            // Temp ordered set of epochs that can be processed
+            // because all their input has been finalized or it's the
+            // frontier epoch. This is filled from buffered data and
+            // drained and re-used each activation of this operator.
+            let mut tmp_closed_epochs: BTreeSet<S::Timestamp> = BTreeSet::new();
+            // Temp list of `(StateKey, Poll<Option<V>>)` to awake the
+            // operator logic within each epoch. This is drained and
+            // re-used each activation of this operator.
+            let mut tmp_awake_logic_with: Vec<(StateKey, Poll<Option<V>>)> = Vec::new();
 
             move |input_frontiers| {
                 // Will there be no more data?
@@ -1362,20 +1376,22 @@ where
                     (output_cap.as_mut(), state_update_cap.as_mut())
                 {
                     assert!(output_cap.time() == state_update_cap.time());
+                    assert!(tmp_closed_epochs.is_empty());
+                    assert!(tmp_awake_logic_with.is_empty());
 
                     let now = chrono::offset::Utc::now();
 
                     // Buffer the inputs so we can apply them to the
                     // state cache in epoch order.
-                    input_handle.for_each(|cap, state_key_values| {
+                    input_handle.for_each(|cap, incoming| {
                         let epoch = cap.time();
-                        assert!(tmp_key_values.is_empty());
-                        state_key_values.swap(&mut tmp_key_values);
+                        assert!(tmp_incoming.is_empty());
+                        incoming.swap(&mut tmp_incoming);
 
-                        incoming_epoch_to_key_values_buffer
+                        incoming_buffer
                             .entry(*epoch)
                             .or_insert_with(Vec::new)
-                            .append(&mut tmp_key_values);
+                            .append(&mut tmp_incoming);
                     });
 
                     // TODO: Is this the right way to get the epoch
@@ -1391,7 +1407,6 @@ where
 
                     // Now let's find out which epochs we should wake
                     // up the logic for.
-                    assert!(closed_epochs_buffer.is_empty());
 
                     // On the last activation, we eagerly executed the
                     // frontier at that time (which may or may not
@@ -1399,24 +1414,19 @@ where
                     // closed. Thus, we haven't run the "epoch closed"
                     // code yet. Make sure that close code is run if
                     // that epoch is now closed on this activation.
-                    closed_epochs_buffer.extend(Some(output_cap.time().clone()).filter(is_closed));
+                    tmp_closed_epochs.extend(Some(output_cap.time().clone()).filter(is_closed));
                     // Try to process all the epochs we have input
                     // for. Filter out epochs that are not closed; the
                     // state at the beginning of those epochs are not
                     // truly known yet, so we can't apply input in
                     // those epochs yet.
-                    closed_epochs_buffer.extend(
-                        incoming_epoch_to_key_values_buffer
-                            .keys()
-                            .cloned()
-                            .filter(is_closed),
-                    );
+                    tmp_closed_epochs.extend(incoming_buffer.keys().cloned().filter(is_closed));
                     // Eagerly execute the current frontier (even
                     // though it's not closed).
-                    closed_epochs_buffer.insert(frontier_epoch);
+                    tmp_closed_epochs.insert(frontier_epoch);
 
                     // For each epoch in order:
-                    for epoch in closed_epochs_buffer.iter() {
+                    for epoch in tmp_closed_epochs.iter() {
                         // Since the frontier has advanced to at least
                         // this epoch (because we're going through
                         // them in order), say that we'll not be
@@ -1426,15 +1436,13 @@ where
                         output_cap.downgrade(&epoch);
                         state_update_cap.downgrade(&epoch);
 
-                        let incoming_state_key_values =
-                            incoming_epoch_to_key_values_buffer.remove(&epoch);
+                        let incoming_state_key_values = incoming_buffer.remove(&epoch);
 
                         // Now let's find all the key-value pairs to
                         // awaken logic with.
-                        assert!(key_values_buffer.is_empty());
 
                         // Include all the incoming data.
-                        key_values_buffer.extend(
+                        tmp_awake_logic_with.extend(
                             incoming_state_key_values
                                 .unwrap_or_default()
                                 .into_iter()
@@ -1455,7 +1463,7 @@ where
 
                             // First all "new" keys in this input.
                             awoken_keys_buffer.extend(
-                                key_values_buffer
+                                tmp_awake_logic_with
                                     .iter()
                                     .map(|(state_key, _value)| state_key)
                                     .cloned(),
@@ -1465,10 +1473,10 @@ where
                             // pending awakening will not see EOF
                             // messages (otherwise we'd have to retain
                             // data for all keys ever seen).
-                            awoken_keys_buffer.extend(key_to_next_awake.keys().cloned());
+                            awoken_keys_buffer.extend(current_next_awake.keys().cloned());
                             // Since this is EOF, we will never
                             // activate this operator again.
-                            key_values_buffer.extend(
+                            tmp_awake_logic_with.extend(
                                 awoken_keys_buffer
                                     .drain()
                                     .map(|state_key| (state_key, Poll::Ready(None))),
@@ -1476,8 +1484,8 @@ where
                         } else {
                             // Otherwise, wake up any keys that are
                             // past their requested awakening time.
-                            key_values_buffer.extend(
-                                key_to_next_awake
+                            tmp_awake_logic_with.extend(
+                                current_next_awake
                                     .iter()
                                     .filter(|(_state_key, next_awake)| next_awake <= &&now)
                                     .map(|(state_key, _next_awake)| {
@@ -1493,18 +1501,18 @@ where
                             state_update_handle.session(&state_update_cap);
 
                         // Drain to re-use allocation.
-                        for (key, next_value) in key_values_buffer.drain(..) {
+                        for (key, next_value) in tmp_awake_logic_with.drain(..) {
                             // Remove any scheduled awake times this
                             // current one will satisfy.
                             if let Entry::Occupied(next_awake_at_entry) =
-                                key_to_next_awake.entry(key.clone())
+                                current_next_awake.entry(key.clone())
                             {
                                 if next_awake_at_entry.get() <= &now {
                                     next_awake_at_entry.remove();
                                 }
                             }
 
-                            let logic = key_to_logic
+                            let logic = current_state
                                 .entry(key.clone())
                                 .or_insert_with(|| logic_builder(None));
                             let output = logic.on_awake(next_value);
@@ -1522,7 +1530,7 @@ where
                         // the buffer.
                         if is_closed(&epoch) {
                             for state_key in awoken_keys_buffer.drain() {
-                                let logic = key_to_logic
+                                let logic = current_state
                                     .remove(&state_key)
                                     .expect("No logic for activated key");
 
@@ -1530,7 +1538,7 @@ where
                                     LogicFate::Discard => {
                                         // Do not re-insert the
                                         // logic. It'll be dropped.
-                                        key_to_next_awake.remove(&state_key);
+                                        current_next_awake.remove(&state_key);
 
                                         StateOp::Discard
                                     }
@@ -1538,14 +1546,14 @@ where
                                         let state_bytes = logic.snapshot();
                                         let next_awake = logic.next_awake();
 
-                                        key_to_logic.insert(state_key.clone(), logic);
+                                        current_state.insert(state_key.clone(), logic);
                                         match next_awake {
                                             Some(next_awake) => {
-                                                key_to_next_awake
+                                                current_next_awake
                                                     .insert(state_key.clone(), next_awake);
                                             }
                                             None => {
-                                                key_to_next_awake.remove(&state_key);
+                                                current_next_awake.remove(&state_key);
                                             }
                                         }
 
@@ -1568,16 +1576,17 @@ where
                     }
                     // Clear to re-use buffer.
                     // TODO: One day I hope BTreeSet has drain.
-                    closed_epochs_buffer.clear();
+                    tmp_closed_epochs.clear();
 
                     // Schedule operator activation at the soonest
                     // requested logic awake time for any key.
-                    if let Some(delay) = key_to_next_awake
+                    if let Some(soonest_next_awake) = current_next_awake
                         .values()
                         .map(|next_awake| next_awake.clone() - now)
                         .min()
                     {
-                        activator.activate_after(delay.to_std().unwrap_or(Duration::ZERO));
+                        activator
+                            .activate_after(soonest_next_awake.to_std().unwrap_or(Duration::ZERO));
                     }
                 }
 

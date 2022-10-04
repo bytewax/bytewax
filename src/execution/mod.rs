@@ -224,7 +224,7 @@ fn build_production_dataflow<A: Allocate>(
     worker: &mut Worker<A>,
     epoch_config: Py<EpochConfig>,
     resume_epoch: u64,
-    mut step_to_key_to_resume_state: HashMap<StepId, HashMap<StateKey, State>>,
+    mut resume_state: HashMap<StepId, HashMap<StateKey, State>>,
     recovery_store_summary: RecoveryStoreSummary<u64>,
     flow: Py<Dataflow>,
     progress_writer: Box<dyn ProgressWriter<u64>>,
@@ -258,11 +258,9 @@ fn build_production_dataflow<A: Allocate>(
                     step_id,
                     input_config,
                 } => {
-                    let (resume_state, recovery_key) = resume_input_state(
+                    let (step_resume_state, recovery_key) = resume_input_state(
                         worker_index,
-                        step_to_key_to_resume_state
-                            .remove(&step_id)
-                            .unwrap_or_default(),
+                        resume_state.remove(&step_id).unwrap_or_default(),
                     );
 
                     let input_reader = build_input_reader(
@@ -270,7 +268,7 @@ fn build_production_dataflow<A: Allocate>(
                         input_config,
                         worker_index,
                         worker_count,
-                        resume_state,
+                        step_resume_state,
                     )?;
                     let (downstream, update_stream) = build_source(
                         py,
@@ -302,9 +300,7 @@ fn build_production_dataflow<A: Allocate>(
                     builder,
                     folder,
                 } => {
-                    let key_to_resume_state = step_to_key_to_resume_state
-                        .remove(&step_id)
-                        .unwrap_or_default();
+                    let step_resume_state = resume_state.remove(&step_id).unwrap_or_default();
 
                     let clock_builder = build_clock_builder(py, clock_config)?;
                     let windower_builder = build_windower_builder(py, window_config)?;
@@ -315,7 +311,7 @@ fn build_production_dataflow<A: Allocate>(
                             clock_builder,
                             windower_builder,
                             FoldWindowLogic::new(builder, folder),
-                            key_to_resume_state,
+                            step_resume_state,
                         );
 
                     stream = downstream
@@ -342,15 +338,13 @@ fn build_production_dataflow<A: Allocate>(
                     reducer,
                     is_complete,
                 } => {
-                    let key_to_resume_state_bytes = step_to_key_to_resume_state
-                        .remove(&step_id)
-                        .unwrap_or_default();
+                    let step_resume_state = resume_state.remove(&step_id).unwrap_or_default();
 
                     let (downstream, update_stream) =
                         stream.map(extract_state_pair).stateful_unary(
                             step_id,
                             ReduceLogic::builder(reducer, is_complete),
-                            key_to_resume_state_bytes,
+                            step_resume_state,
                         );
                     stream = downstream.map(wrap_state_pair);
                     state_update_streams.push(update_stream);
@@ -361,9 +355,7 @@ fn build_production_dataflow<A: Allocate>(
                     window_config,
                     reducer,
                 } => {
-                    let key_to_resume_state_bytes = step_to_key_to_resume_state
-                        .remove(&step_id)
-                        .unwrap_or_default();
+                    let step_resume_state = resume_state.remove(&step_id).unwrap_or_default();
 
                     let clock_builder = build_clock_builder(py, clock_config)?;
                     let windower_builder = build_windower_builder(py, window_config)?;
@@ -374,7 +366,7 @@ fn build_production_dataflow<A: Allocate>(
                             clock_builder,
                             windower_builder,
                             ReduceWindowLogic::builder(reducer),
-                            key_to_resume_state_bytes,
+                            step_resume_state,
                         );
 
                     stream = downstream
@@ -394,15 +386,13 @@ fn build_production_dataflow<A: Allocate>(
                     builder,
                     mapper,
                 } => {
-                    let key_to_resume_state_bytes = step_to_key_to_resume_state
-                        .remove(&step_id)
-                        .unwrap_or_default();
+                    let step_resume_state = resume_state.remove(&step_id).unwrap_or_default();
 
                     let (downstream, update_stream) =
                         stream.map(extract_state_pair).stateful_unary(
                             step_id,
                             StatefulMapLogic::builder(builder, mapper),
-                            key_to_resume_state_bytes,
+                            step_resume_state,
                         );
                     stream = downstream.map(wrap_state_pair);
                     state_update_streams.push(update_stream);
@@ -426,10 +416,10 @@ fn build_production_dataflow<A: Allocate>(
         if capture_streams.is_empty() {
             return Err("Dataflow needs to contain at least one capture".to_string());
         }
-        if !step_to_key_to_resume_state.is_empty() {
+        if !resume_state.is_empty() {
             return Err(format!(
                 "Recovery data had unknown step IDs: {:?}",
-                step_to_key_to_resume_state.keys(),
+                resume_state.keys(),
             ));
         }
 
@@ -507,26 +497,25 @@ fn build_and_run_state_loading_dataflow<A: Allocate>(
     HashMap<StepId, HashMap<StateKey, State>>,
     RecoveryStoreSummary<u64>,
 )> {
-    let (step_to_key_to_resume_state_tx, step_to_key_to_resume_state_rx) =
-        std::sync::mpsc::channel();
+    let (resume_state_tx, resume_state_rx) = std::sync::mpsc::channel();
     let (recovery_store_summary_tx, recovery_store_summary_rx) = std::sync::mpsc::channel();
 
     let probe = build_state_loading_dataflow(
         worker,
         state_reader,
         resume_epoch,
-        step_to_key_to_resume_state_tx,
+        resume_state_tx,
         recovery_store_summary_tx,
     )?;
 
     run_until_done(worker, interrupt_flag, probe);
 
-    let step_to_key_to_resume_state = step_to_key_to_resume_state_rx.into_iter().collect();
+    let resume_state = resume_state_rx.into_iter().collect();
     let recovery_store_summary = recovery_store_summary_rx
         .recv()
         .expect("Recovery store summary not returned from loading dataflow");
 
-    Ok((step_to_key_to_resume_state, recovery_store_summary))
+    Ok((resume_state, recovery_store_summary))
 }
 
 fn build_and_run_production_dataflow<A: Allocate>(
@@ -535,7 +524,7 @@ fn build_and_run_production_dataflow<A: Allocate>(
     flow: Py<Dataflow>,
     epoch_config: Py<EpochConfig>,
     resume_epoch: u64,
-    step_to_key_to_resume_state: HashMap<StepId, HashMap<StateKey, State>>,
+    resume_state: HashMap<StepId, HashMap<StateKey, State>>,
     recovery_store_summary: RecoveryStoreSummary<u64>,
     progress_writer: Box<dyn ProgressWriter<u64>>,
     state_writer: Box<dyn StateWriter<u64>>,
@@ -547,7 +536,7 @@ fn build_and_run_production_dataflow<A: Allocate>(
             worker,
             epoch_config,
             resume_epoch,
-            step_to_key_to_resume_state,
+            resume_state,
             recovery_store_summary,
             flow,
             progress_writer,

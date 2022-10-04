@@ -19,8 +19,8 @@ pub(crate) struct ReduceWindowLogic {
 
 impl ReduceWindowLogic {
     pub(crate) fn builder(reducer: TdPyCallable) -> impl Fn(Option<StateBytes>) -> Self {
-        move |resume_acc_bytes| {
-            let acc = resume_acc_bytes
+        move |resume_state| {
+            let acc = resume_state
                 .map(StateBytes::de::<Option<TdPyAny>>)
                 .flatten();
             Python::with_gil(|py| Self {
