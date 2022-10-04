@@ -6,9 +6,13 @@ from threading import Event
 from pytest import fixture, raises
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main, TestingEpochConfig
-from bytewax.inputs import TestingBuilderInputConfig, TestingInputConfig
-from bytewax.outputs import TestingOutputConfig
+from bytewax.execution import run_main, spawn_cluster, TestingEpochConfig
+from bytewax.inputs import (
+    ManualInputConfig,
+    TestingBuilderInputConfig,
+    TestingInputConfig,
+)
+from bytewax.outputs import ManualOutputConfig, TestingOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
 from bytewax.testing import TestingClock
 from bytewax.window import TestingClockConfig, TumblingWindowConfig
@@ -193,6 +197,49 @@ def test_reduce(recovery_config):
     )
 
 
+def test_integer_state_key_routes_to_worker(mp_ctx):
+    with mp_ctx.Manager() as man:
+        proc_count = 3
+        worker_count_per_proc = 2
+        worker_count = proc_count * worker_count_per_proc
+
+        flow = Dataflow()
+
+        # Every worker emits the entire range of (worker_index, 1)
+        def input_builder(worker_index, worker_count, resume_state):
+            assert resume_state is None
+            for i in range(worker_count):
+                yield None, (i, 1)
+
+        flow.input("inp", ManualInputConfig(input_builder))
+
+        flow.reduce("count", lambda x, s: s + x, lambda s: s >= worker_count)
+
+        out = man.dict()
+        for worker_index in range(worker_count):
+            out[worker_index] = man.list()
+
+        def output_builder(worker_index, worker_count):
+            def output_handler(item):
+                out[worker_index].append(item)
+
+            return output_handler
+
+        flow.capture(ManualOutputConfig(output_builder))
+
+        spawn_cluster(
+            flow, proc_count=proc_count, worker_count_per_proc=worker_count_per_proc
+        )
+
+        # Every worker should add up to the total number of
+        # workers. We have to turn the manager versions of the data
+        # structure back into the comparable versions.
+        assert {k: list(v) for k, v in out.items()} == {
+            worker_index: [(worker_index, worker_count)]
+            for worker_index in range(worker_count)
+        }
+
+
 def test_stateful_map(recovery_config):
     flow = Dataflow()
 
@@ -295,7 +342,7 @@ def test_stateful_map_error_on_non_kv_tuple():
 
     expect = (
         "Dataflow requires a `(key, value)` 2-tuple as input to every stateful "
-        "operator; got `{'user': 'a', 'type': 'login'}` instead"
+        "operator for routing; got `{'user': 'a', 'type': 'login'}` instead"
     )
 
     with raises(TypeError, match=re.escape(expect)):
@@ -334,8 +381,8 @@ def test_stateful_map_error_on_non_string_key():
     with raises(
         TypeError,
         match=re.escape(
-            "Stateful logic functions must return string keys in `(key, value)`; "
-            "got `{'id': 1}` instead"
+            "Stateful logic functions must return string or integer keys in "
+            "`(key, value)`; got `{'id': 1}` instead"
         ),
     ):
         run_main(flow)
