@@ -260,6 +260,7 @@ use timely::dataflow::operators::generic::FrontieredInputHandle;
 use timely::dataflow::operators::*;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
+use timely::dataflow::ScopeParent;
 use timely::dataflow::Stream;
 use timely::order::TotalOrder;
 use timely::progress::Antichain;
@@ -451,6 +452,10 @@ impl IntoPy<PyObject> for StateKey {
     }
 }
 
+/// Dataflow streams that go into stateful operators are routed by
+/// state key.
+pub(crate) type StatefulStream<S, V> = Stream<S, (StateKey, V)>;
+
 /// A serialized snapshot of operator state.
 ///
 /// The recovery system only deals in bytes so each operator can store
@@ -523,6 +528,9 @@ pub(crate) enum ProgressOp<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ProgressUpdate<T>(pub(crate) ProgressRecoveryKey, pub(crate) ProgressOp<T>);
 
+/// Timely stream containing progress changes for the recovery system.
+pub(crate) type ProgressUpdateStream<S> = Stream<S, ProgressUpdate<<S as ScopeParent>::Timestamp>>;
+
 /// Key used to address state data within a recovery store.
 ///
 /// Remember, this isn't the same as [`StateKey`], as the "address
@@ -567,6 +575,9 @@ impl<T: Timestamp> StateUpdate<T> {
         pact::Exchange::new(|StateUpdate(StateRecoveryKey { state_key, .. }, ..)| state_key.route())
     }
 }
+
+/// Timely stream containing state changes for the recovery system.
+pub(crate) type StateUpdateStream<S> = Stream<S, StateUpdate<<S as ScopeParent>::Timestamp>>;
 
 // Here's our core traits for recovery that allow us to swap out
 // underlying storage.
@@ -832,6 +843,10 @@ where
 /// Build a source which loads previously backed up progress data as
 /// separate items.
 ///
+/// Note that [`T`] is the epoch of the previous, failed dataflow that
+/// is being read. [`S::Timestamp`] is the timestamp used in the
+/// recovery epoch calculation dataflow.
+///
 /// The resulting stream only has the zeroth epoch.
 ///
 /// Note that this pretty meta! This new _loading_ dataflow will only
@@ -873,7 +888,7 @@ pub(crate) fn state_source<S>(
     mut reader: Box<dyn StateReader<S::Timestamp>>,
     stop_at: S::Timestamp,
     probe: &ProbeHandle<S::Timestamp>,
-) -> Stream<S, StateUpdate<S::Timestamp>>
+) -> StateUpdateStream<S>
 where
     S: Scope,
     S::Timestamp: TotalOrder,
@@ -911,20 +926,17 @@ where
     S: Scope,
 {
     /// Writes state backups in timestamp order.
-    fn write_state_with(
-        &self,
-        writer: Box<dyn StateWriter<S::Timestamp>>,
-    ) -> Stream<S, StateUpdate<S::Timestamp>>;
+    fn write_state_with(&self, writer: Box<dyn StateWriter<S::Timestamp>>) -> StateUpdateStream<S>;
 }
 
-impl<S> WriteState<S> for Stream<S, StateUpdate<S::Timestamp>>
+impl<S> WriteState<S> for StateUpdateStream<S>
 where
     S: Scope,
 {
     fn write_state_with(
         &self,
         mut writer: Box<dyn StateWriter<S::Timestamp>>,
-    ) -> Stream<S, StateUpdate<S::Timestamp>> {
+    ) -> StateUpdateStream<S> {
         self.unary_notify(pact::Pipeline, "WriteState", None, {
             let mut tmp_incoming = Vec::new();
             let mut incoming_buffer = HashMap::new();
@@ -970,7 +982,7 @@ where
     fn write_progress_with(
         &self,
         writer: Box<dyn ProgressWriter<S::Timestamp>>,
-    ) -> Stream<S, ProgressUpdate<S::Timestamp>>;
+    ) -> ProgressUpdateStream<S>;
 }
 
 impl<S, D> WriteProgress<S, D> for Stream<S, D>
@@ -981,7 +993,7 @@ where
     fn write_progress_with(
         &self,
         mut writer: Box<dyn ProgressWriter<S::Timestamp>>,
-    ) -> Stream<S, ProgressUpdate<S::Timestamp>> {
+    ) -> ProgressUpdateStream<S> {
         self.unary_notify(pact::Pipeline, "WriteProgress", None, {
             let worker_index = WorkerIndex(self.scope().index());
 
@@ -1041,11 +1053,11 @@ where
         &self,
         recovery_store_summary: RecoveryStoreSummary<S::Timestamp>,
         state_collector: Box<dyn StateCollector<S::Timestamp>>,
-        dataflow_frontier: Stream<S, ProgressUpdate<S::Timestamp>>,
+        dataflow_frontier: ProgressUpdateStream<S>,
     ) -> Stream<S, ()>;
 }
 
-impl<S> CollectGarbage<S> for Stream<S, StateUpdate<S::Timestamp>>
+impl<S> CollectGarbage<S> for StateUpdateStream<S>
 where
     S: Scope,
 {
@@ -1053,7 +1065,7 @@ where
         &self,
         mut recovery_store_summary: RecoveryStoreSummary<S::Timestamp>,
         mut state_collector: Box<dyn StateCollector<S::Timestamp>>,
-        dataflow_frontier: Stream<S, ProgressUpdate<S::Timestamp>>,
+        dataflow_frontier: ProgressUpdateStream<S>,
     ) -> Stream<S, ()> {
         let mut op_builder = OperatorBuilder::new("CollectGarbage".to_string(), self.scope());
 
@@ -1243,10 +1255,7 @@ where
         step_id: StepId,
         logic_builder: LB,
         key_to_resume_state: HashMap<StateKey, State>,
-    ) -> (
-        Stream<S, (StateKey, R)>,
-        Stream<S, StateUpdate<S::Timestamp>>,
-    )
+    ) -> (StatefulStream<S, R>, StateUpdateStream<S>)
     where
         R: Data,                                   // Output value type
         I: IntoIterator<Item = R>,                 // Iterator of output values
@@ -1255,7 +1264,7 @@ where
     ;
 }
 
-impl<S, V> StatefulUnary<S, V> for Stream<S, (StateKey, V)>
+impl<S, V> StatefulUnary<S, V> for StatefulStream<S, V>
 where
     S: Scope<Timestamp = u64>,
     V: ExchangeData, // Input value type
@@ -1265,10 +1274,7 @@ where
         step_id: StepId,
         logic_builder: LB,
         resume_state: HashMap<StateKey, State>,
-    ) -> (
-        Stream<S, (StateKey, R)>,
-        Stream<S, StateUpdate<S::Timestamp>>,
-    )
+    ) -> (StatefulStream<S, R>, StateUpdateStream<S>)
     where
         R: Data,                                   // Output value type
         I: IntoIterator<Item = R>,                 // Iterator of output values

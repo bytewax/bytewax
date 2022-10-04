@@ -12,9 +12,9 @@ use timely::dataflow::Stream;
 use timely::Data;
 
 use crate::inputs::InputReader;
-use crate::recovery::StateRecoveryKey;
 use crate::recovery::{State, StateOp, StepId};
 use crate::recovery::{StateKey, StateUpdate};
+use crate::recovery::{StateRecoveryKey, StateUpdateStream};
 
 use super::EpochConfig;
 
@@ -80,7 +80,7 @@ pub(crate) fn periodic_epoch_source<S, D>(
     start_at: S::Timestamp,
     probe: &ProbeHandle<S::Timestamp>,
     epoch_length: Duration,
-) -> (Stream<S, D>, Stream<S, StateUpdate<S::Timestamp>>)
+) -> (Stream<S, D>, StateUpdateStream<S>)
 where
     S: Scope<Timestamp = u64>,
     D: Data + Debug,

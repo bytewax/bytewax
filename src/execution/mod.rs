@@ -39,7 +39,7 @@ use crate::operators::*;
 use crate::outputs::build_output_writer;
 use crate::outputs::capture;
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny};
-use crate::recovery::StatefulUnary;
+use crate::recovery::StateReader;
 use crate::recovery::WriteProgress;
 use crate::recovery::WriteState;
 use crate::recovery::{
@@ -52,7 +52,7 @@ use crate::recovery::{ProgressReader, StateCollector};
 use crate::recovery::{RecoveryConfig, StepId};
 use crate::recovery::{RecoveryStoreSummary, StateWriter};
 use crate::recovery::{StateBytes, StateKey};
-use crate::recovery::{StateReader, StateUpdate};
+use crate::recovery::{StateUpdateStream, StatefulUnary};
 use crate::window::{build_clock_builder, build_windower_builder, StatefulWindowUnary};
 use crate::StringResult;
 use log::debug;
@@ -177,7 +177,7 @@ fn build_source<S>(
     reader: Box<dyn InputReader<TdPyAny>>,
     start_at: S::Timestamp,
     probe: &ProbeHandle<S::Timestamp>,
-) -> StringResult<(Stream<S, TdPyAny>, Stream<S, StateUpdate<S::Timestamp>>)>
+) -> StringResult<(Stream<S, TdPyAny>, StateUpdateStream<S>)>
 where
     S: Scope<Timestamp = u64>,
 {

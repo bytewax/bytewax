@@ -10,7 +10,9 @@ use timely::{
 
 use crate::{
     inputs::InputReader,
-    recovery::{State, StateKey, StateOp, StateRecoveryKey, StateUpdate, StepId},
+    recovery::{
+        State, StateKey, StateOp, StateRecoveryKey, StateUpdate, StateUpdateStream, StepId,
+    },
 };
 
 use super::EpochConfig;
@@ -71,7 +73,7 @@ pub(crate) fn testing_epoch_source<S, D>(
     mut reader: Box<dyn InputReader<D>>,
     start_at: S::Timestamp,
     probe: &ProbeHandle<S::Timestamp>,
-) -> (Stream<S, D>, Stream<S, StateUpdate<S::Timestamp>>)
+) -> (Stream<S, D>, StateUpdateStream<S>)
 where
     S: Scope<Timestamp = u64>,
     D: Data + Debug,

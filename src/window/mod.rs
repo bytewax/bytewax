@@ -29,7 +29,7 @@
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
 use crate::pyo3_extensions::TdPyAny;
-use crate::recovery::{LogicFate, State, StateBytes, StateKey};
+use crate::recovery::{LogicFate, State, StateBytes, StateKey, StatefulStream};
 use crate::recovery::{StateUpdate, StepId};
 use crate::recovery::{StatefulLogic, StatefulUnary};
 use crate::StringResult;
@@ -511,7 +511,7 @@ where
         logic_builder: LB,
         resume_state: HashMap<StateKey, State>,
     ) -> (
-        Stream<S, (StateKey, Result<R, WindowError<V>>)>,
+        StatefulStream<S, Result<R, WindowError<V>>>,
         Stream<S, StateUpdate<S::Timestamp>>,
     )
     where
@@ -524,7 +524,7 @@ where
     ;
 }
 
-impl<S, V> StatefulWindowUnary<S, V> for Stream<S, (StateKey, V)>
+impl<S, V> StatefulWindowUnary<S, V> for StatefulStream<S, V>
 where
     S: Scope<Timestamp = u64>,
     V: ExchangeData + Debug,
@@ -537,7 +537,7 @@ where
         logic_builder: LB,
         resume_state: HashMap<StateKey, State>,
     ) -> (
-        Stream<S, (StateKey, Result<R, WindowError<V>>)>,
+        StatefulStream<S, Result<R, WindowError<V>>>,
         Stream<S, StateUpdate<S::Timestamp>>,
     )
     where
