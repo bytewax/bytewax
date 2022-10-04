@@ -156,7 +156,6 @@ impl IntoPy<PyObject> for WorkerIndex {
 /// determine if there's any resume state.
 fn resume_input_state(
     worker_index: WorkerIndex,
-    _worker_count: usize,
     mut key_to_resume_state: HashMap<StateKey, State>,
 ) -> (Option<StateBytes>, StateKey) {
     let key = StateKey::Worker(worker_index);
@@ -261,7 +260,6 @@ fn build_production_dataflow<A: Allocate>(
                 } => {
                     let (resume_state, recovery_key) = resume_input_state(
                         worker_index,
-                        worker_count,
                         step_to_key_to_resume_state
                             .remove(&step_id)
                             .unwrap_or_default(),
