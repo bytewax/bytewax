@@ -523,11 +523,7 @@ fn build_and_run_state_loading_dataflow<A: Allocate>(
 
     run_until_done(worker, interrupt_flag, probe);
 
-    let mut step_to_key_to_resume_state = HashMap::new();
-    while let Ok((step_id, key_to_resume_state_bytes)) = step_to_key_to_resume_state_rx.recv() {
-        step_to_key_to_resume_state.insert(step_id, key_to_resume_state_bytes);
-    }
-
+    let step_to_key_to_resume_state = step_to_key_to_resume_state_rx.into_iter().collect();
     let recovery_store_summary = recovery_store_summary_rx
         .recv()
         .expect("Recovery store summary not returned from loading dataflow");
