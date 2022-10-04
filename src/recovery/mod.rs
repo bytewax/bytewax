@@ -547,7 +547,7 @@ pub(crate) struct StateRecoveryKey<T> {
 /// Snapshot of state data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct State {
-    pub(crate) state_bytes: StateBytes,
+    pub(crate) snapshot: StateBytes,
     pub(crate) next_awake: Option<DateTime<Utc>>,
 }
 
@@ -1307,7 +1307,7 @@ where
             // epoch; we only modify state carefully in epoch order
             // once we know we won't be getting any input on closed
             // epochs.
-            let mut current_state: HashMap<StateKey, L> = HashMap::new();
+            let mut current_logic: HashMap<StateKey, L> = HashMap::new();
             // Next awaken timestamp for each key. There is only a
             // single awake time for each key, representing the next
             // awake time.
@@ -1316,12 +1316,12 @@ where
             for (
                 key,
                 State {
-                    state_bytes: key_resume_state,
+                    snapshot,
                     next_awake,
                 },
             ) in resume_state
             {
-                current_state.insert(key.clone(), logic_builder(Some(key_resume_state)));
+                current_logic.insert(key.clone(), logic_builder(Some(snapshot)));
                 match next_awake {
                     Some(next_awake) => {
                         current_next_awake.insert(key.clone(), next_awake);
@@ -1518,7 +1518,7 @@ where
                                 }
                             }
 
-                            let logic = current_state
+                            let logic = current_logic
                                 .entry(key.clone())
                                 .or_insert_with(|| logic_builder(None));
                             let output = logic.on_awake(next_value);
@@ -1536,7 +1536,7 @@ where
                         // the buffer.
                         if is_closed(&epoch) {
                             for state_key in awoken_keys_buffer.drain() {
-                                let logic = current_state
+                                let logic = current_logic
                                     .remove(&state_key)
                                     .expect("No logic for activated key");
 
@@ -1549,10 +1549,10 @@ where
                                         StateOp::Discard
                                     }
                                     LogicFate::Retain => {
-                                        let state_bytes = logic.snapshot();
+                                        let snapshot = logic.snapshot();
                                         let next_awake = logic.next_awake();
 
-                                        current_state.insert(state_key.clone(), logic);
+                                        current_logic.insert(state_key.clone(), logic);
                                         match next_awake {
                                             Some(next_awake) => {
                                                 current_next_awake
@@ -1564,7 +1564,7 @@ where
                                         }
 
                                         StateOp::Upsert(State {
-                                            state_bytes,
+                                            snapshot,
                                             next_awake,
                                         })
                                     }

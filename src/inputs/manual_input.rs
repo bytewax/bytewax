@@ -86,9 +86,9 @@ impl ManualInput {
         input_builder: TdPyCallable,
         worker_index: WorkerIndex,
         worker_count: usize,
-        resume_state_bytes: Option<StateBytes>,
+        resume_snapshot: Option<StateBytes>,
     ) -> Self {
-        let resume_state: TdPyAny = resume_state_bytes
+        let resume_state: TdPyAny = resume_snapshot
             .map(StateBytes::de::<TdPyAny>)
             .unwrap_or_else(|| py.None().into());
 

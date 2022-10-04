@@ -23,8 +23,8 @@ impl FoldWindowLogic {
         builder: TdPyCallable,
         folder: TdPyCallable,
     ) -> impl Fn(Option<StateBytes>) -> Self {
-        move |resume_state| {
-            let acc = resume_state
+        move |resume_snapshot| {
+            let acc = resume_snapshot
                 .map(StateBytes::de::<Option<TdPyAny>>)
                 .flatten();
             Python::with_gil(|py| Self {

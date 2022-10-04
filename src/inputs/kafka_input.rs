@@ -212,9 +212,9 @@ impl KafkaInput {
         additional_properties: &Option<HashMap<String, String>>,
         worker_index: WorkerIndex,
         worker_count: usize,
-        resume_state_bytes: Option<StateBytes>,
+        resume_snapshot: Option<StateBytes>,
     ) -> Self {
-        let mut positions = resume_state_bytes
+        let mut positions = resume_snapshot
             .map(StateBytes::de::<HashMap<KafkaPartition, KafkaPosition>>)
             .unwrap_or_default();
 

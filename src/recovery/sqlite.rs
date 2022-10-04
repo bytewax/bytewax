@@ -158,7 +158,7 @@ impl SqliteStateWriter {
         // because this value is not from items in the dataflow
         // stream, but from the config which should be under
         // developer control.
-        let sql = format!("CREATE TABLE IF NOT EXISTS {table_name} (step_id TEXT, state_key TEXT, epoch INTEGER, state_bytes BLOB, next_awake TEXT, PRIMARY KEY (step_id, state_key, epoch));");
+        let sql = format!("CREATE TABLE IF NOT EXISTS {table_name} (step_id TEXT, state_key TEXT, epoch INTEGER, snapshot BLOB, next_awake TEXT, PRIMARY KEY (step_id, state_key, epoch));");
         let future = query(&sql).execute(&mut conn);
         rt.block_on(future).unwrap();
 
@@ -292,22 +292,22 @@ impl StateWriter<u64> for SqliteStateWriter {
             state_key,
             epoch,
         } = recovery_key;
-        let (state_bytes, next_awake) = match op {
+        let (snapshot, next_awake) = match op {
             StateOp::Upsert(State {
-                state_bytes,
+                snapshot,
                 next_awake,
-            }) => (Some(state_bytes), next_awake.as_ref()),
+            }) => (Some(snapshot), next_awake.as_ref()),
             StateOp::Discard => (None, None),
         };
 
-        let sql = format!("INSERT INTO {} (step_id, state_key, epoch, state_bytes, next_awake) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (step_id, state_key, epoch) DO UPDATE SET state_bytes = EXCLUDED.state_bytes, next_awake = EXCLUDED.next_awake", self.table_name);
+        let sql = format!("INSERT INTO {} (step_id, state_key, epoch, snapshot, next_awake) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (step_id, state_key, epoch) DO UPDATE SET snapshot = EXCLUDED.snapshot, next_awake = EXCLUDED.next_awake", self.table_name);
         let future = query(&sql)
             .bind(step_id)
             .bind(state_key)
             .bind(<u64 as TryInto<i64>>::try_into(*epoch).expect("epoch can't fit into SQLite int"))
             // Remember, reset state is stored as an explicit NULL in the
             // DB.
-            .bind(state_bytes)
+            .bind(snapshot)
             .bind(next_awake)
             .execute(&mut self.conn);
         self.rt.block_on(future).unwrap();
@@ -356,7 +356,7 @@ impl SqliteStateReader {
 
         rt.spawn(async move {
             let sql = format!(
-                "SELECT step_id, state_key, epoch, state_bytes, next_awake FROM {table_name} ORDER BY epoch ASC"
+                "SELECT step_id, state_key, epoch, snapshot, next_awake FROM {table_name} ORDER BY epoch ASC"
             );
             let mut stream = query(&sql)
                 .map(|row: SqliteRow| {
@@ -369,8 +369,8 @@ impl SqliteStateReader {
                             .expect("SQLite int can't fit into epoch; might be negative"),
                     };
                     let op = match (row.get(3), row.get(4)) {
-                        (None, Some(_)) => panic!("Missing state_bytes in reading state SQLite table"),
-                        (Some(state_bytes), next_awake) => StateOp::Upsert(State { state_bytes, next_awake }),
+                        (None, Some(_)) => panic!("Missing snapshot in reading state SQLite table"),
+                        (Some(snapshot), next_awake) => StateOp::Upsert(State { snapshot, next_awake }),
                         (None, None) => StateOp::Discard,
                     };
                     StateUpdate(recovery_key, op)

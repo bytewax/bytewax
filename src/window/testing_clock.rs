@@ -112,7 +112,7 @@ impl<V> ClockBuilder<V> for TestingClockConfig {
     fn builder(self) -> Builder<V> {
         // Do not restore state here since we don't store anything.
         // See note in the `snapshot` method implementation for TestingClock.
-        Box::new(move |_resume_state_bytes: Option<StateBytes>| {
+        Box::new(move |_resume_snapshot: Option<StateBytes>| {
             // All instances of this [`TestingClock`] will reference
             // the same [`PyTestingClock`] so modifications increment
             // all windows' times.

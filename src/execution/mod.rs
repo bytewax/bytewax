@@ -156,16 +156,16 @@ impl IntoPy<PyObject> for WorkerIndex {
 /// determine if there's any resume state.
 fn resume_input_state(
     worker_index: WorkerIndex,
-    mut key_to_resume_state: HashMap<StateKey, State>,
+    mut resume_state: HashMap<StateKey, State>,
 ) -> (Option<StateBytes>, StateKey) {
     let key = StateKey::Worker(worker_index);
 
-    let resume_state_bytes = key_to_resume_state
+    let resume_snapshot = resume_state
         .remove(&key)
         // Input operators do not care about next awake time.
-        .map(|state| state.state_bytes);
+        .map(|state| state.snapshot);
 
-    (resume_state_bytes, key)
+    (resume_snapshot, key)
 }
 
 fn build_source<S>(
@@ -585,7 +585,7 @@ fn worker_main<A: Allocate>(
     let resume_epoch =
         build_and_run_resume_epoch_calc_dataflow(worker, interrupt_flag, progress_reader)?;
 
-    let (step_to_key_to_resume_state_bytes, recovery_store_summary) =
+    let (resume_state, recovery_store_summary) =
         build_and_run_state_loading_dataflow(worker, interrupt_flag, resume_epoch, state_reader)?;
 
     build_and_run_production_dataflow(
@@ -594,7 +594,7 @@ fn worker_main<A: Allocate>(
         flow,
         epoch_config,
         resume_epoch,
-        step_to_key_to_resume_state_bytes,
+        resume_state,
         recovery_store_summary,
         progress_writer,
         state_writer,

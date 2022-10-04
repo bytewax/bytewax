@@ -353,25 +353,22 @@ where
     ) -> impl Fn(Option<StateBytes>) -> Self {
         let logic_builder = Rc::new(logic_builder);
 
-        move |resume_state| {
-            let resume_state: Option<(StateBytes, StateBytes, HashMap<WindowKey, StateBytes>)> =
-                resume_state.map(
-                    StateBytes::de::<(StateBytes, StateBytes, HashMap<WindowKey, StateBytes>)>,
-                );
-            let (clock_resume_state, windower_resume_state, logic_resume_state) = match resume_state
-            {
-                Some((c, w, l)) => (Some(c), Some(w), Some(l)),
-                None => (None, None, None),
-            };
+        move |resume_snapshot| {
+            let resume_snapshot: Option<(StateBytes, StateBytes, HashMap<WindowKey, StateBytes>)> =
+                resume_snapshot
+                    .map(StateBytes::de::<(StateBytes, StateBytes, HashMap<WindowKey, StateBytes>)>);
+            let (clock_resume_snapshot, windower_resume_snapshot, logic_resume_snapshot) =
+                match resume_snapshot {
+                    Some((c, w, l)) => (Some(c), Some(w), Some(l)),
+                    None => (None, None, None),
+                };
 
-            let clock = clock_builder(clock_resume_state);
-            let windower = windower_builder(windower_resume_state);
-            let current_state = logic_resume_state
+            let clock = clock_builder(clock_resume_snapshot);
+            let windower = windower_builder(windower_resume_snapshot);
+            let current_state = logic_resume_snapshot
                 .unwrap_or_default()
                 .into_iter()
-                .map(|(window_key, window_resume_state)| {
-                    (window_key, logic_builder(Some(window_resume_state)))
-                })
+                .map(|(key, resume_snapshot)| (key, logic_builder(Some(resume_snapshot))))
                 .collect();
             let logic_builder = logic_builder.clone();
 

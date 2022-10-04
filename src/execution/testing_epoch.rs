@@ -111,14 +111,14 @@ where
 
                             // Snapshot just before incrementing epoch
                             // to get the "end of the epoch" state.
-                            let state_bytes = reader.snapshot();
+                            let snapshot = reader.snapshot();
                             let recovery_key = StateRecoveryKey {
                                 step_id: step_id.clone(),
                                 state_key: state_key.clone(),
                                 epoch: epoch.clone(),
                             };
                             let op = StateOp::Upsert(State {
-                                state_bytes,
+                                snapshot,
                                 next_awake: None,
                             });
                             let update = StateUpdate(recovery_key, op);

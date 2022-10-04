@@ -111,7 +111,7 @@ pub(crate) fn build_input_reader(
     config: Py<InputConfig>,
     worker_index: WorkerIndex,
     worker_count: usize,
-    resume_state_bytes: Option<StateBytes>,
+    resume_snapshot: Option<StateBytes>,
 ) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
     // See comment in [`crate::recovery::build_recovery_writers`]
     // about releasing the GIL during IO class building.
@@ -129,7 +129,7 @@ pub(crate) fn build_input_reader(
             input_builder,
             worker_index,
             worker_count,
-            resume_state_bytes,
+            resume_snapshot,
         );
 
         Ok(Box::new(reader))
@@ -157,7 +157,7 @@ pub(crate) fn build_input_reader(
                 additional_properties,
                 worker_index,
                 worker_count,
-                resume_state_bytes,
+                resume_snapshot,
             ))
         });
 
