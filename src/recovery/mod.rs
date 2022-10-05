@@ -1254,7 +1254,7 @@ where
         &self,
         step_id: StepId,
         logic_builder: LB,
-        key_to_resume_state: HashMap<StateKey, State>,
+        resume_state: HashMap<StateKey, State>,
     ) -> (StatefulStream<S, R>, StateUpdateStream<S>)
     where
         R: Data,                                   // Output value type
