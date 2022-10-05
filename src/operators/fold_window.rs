@@ -24,9 +24,7 @@ impl FoldWindowLogic {
         folder: TdPyCallable,
     ) -> impl Fn(Option<StateBytes>) -> Self {
         move |resume_snapshot| {
-            let acc = resume_snapshot
-                .map(StateBytes::de::<Option<TdPyAny>>)
-                .flatten();
+            let acc = resume_snapshot.and_then(StateBytes::de::<Option<TdPyAny>>);
             Python::with_gil(|py| Self {
                 builder: builder.clone_ref(py),
                 folder: folder.clone_ref(py),
