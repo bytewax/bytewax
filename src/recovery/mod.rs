@@ -1313,22 +1313,16 @@ where
             // awake time.
             let mut current_next_awake: HashMap<StateKey, DateTime<Utc>> = HashMap::new();
 
-            for (
-                key,
-                State {
+            for (key, state) in resume_state {
+                let State {
                     snapshot,
                     next_awake,
-                },
-            ) in resume_state
-            {
+                } = state;
                 current_logic.insert(key.clone(), logic_builder(Some(snapshot)));
-                match next_awake {
-                    Some(next_awake) => {
-                        current_next_awake.insert(key.clone(), next_awake);
-                    }
-                    None => {
-                        current_next_awake.remove(&key);
-                    }
+                if let Some(next_awake) = next_awake {
+                    current_next_awake.insert(key.clone(), next_awake);
+                } else {
+                    current_next_awake.remove(&key);
                 }
             }
 
@@ -1552,16 +1546,14 @@ where
                                         let snapshot = logic.snapshot();
                                         let next_awake = logic.next_awake();
 
-                                        current_logic.insert(state_key.clone(), logic);
-                                        match next_awake {
-                                            Some(next_awake) => {
-                                                current_next_awake
-                                                    .insert(state_key.clone(), next_awake);
-                                            }
-                                            None => {
-                                                current_next_awake.remove(&state_key);
-                                            }
+                                        if let Some(next_awake) = next_awake {
+                                            current_next_awake
+                                                .insert(state_key.clone(), next_awake);
+                                        } else {
+                                            current_next_awake.remove(&state_key);
                                         }
+
+                                        current_logic.insert(state_key.clone(), logic);
 
                                         StateOp::Upsert(State {
                                             snapshot,
