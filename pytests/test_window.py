@@ -4,7 +4,7 @@ from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import TestingBuilderInputConfig
 from bytewax.outputs import TestingOutputConfig
-from bytewax.window import TestingClockConfig, TumblingWindowConfig
+from bytewax.window import EventClockConfig, TumblingWindowConfig
 
 
 def test_tumbling_window():
@@ -22,7 +22,9 @@ def test_tumbling_window():
 
     flow.input("inp", TestingBuilderInputConfig(gen))
 
-    clock_config = TestingClockConfig(lambda e: e["time"], wait_until_end=True)
+    clock_config = EventClockConfig(
+        lambda e: e["time"], wait_for_system_duration=timedelta(0)
+    )
     window_config = TumblingWindowConfig(
         length=timedelta(seconds=10), start_at=start_at
     )

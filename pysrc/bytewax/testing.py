@@ -4,6 +4,8 @@ import multiprocessing.dummy
 from contextlib import contextmanager
 from threading import Lock
 
+from .bytewax import TestingClock  # noqa: F401
+
 _print_lock = Lock()
 
 

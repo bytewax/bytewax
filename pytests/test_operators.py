@@ -14,7 +14,7 @@ from bytewax.inputs import (
 )
 from bytewax.outputs import ManualOutputConfig, TestingOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
-from bytewax.window import TestingClockConfig, TumblingWindowConfig
+from bytewax.window import EventClockConfig, TumblingWindowConfig
 
 # Stateful operators must test recovery to ensure serde works.
 epoch_config = TestingEpochConfig()
@@ -415,7 +415,9 @@ def test_reduce_window(recovery_config):
 
     flow.flat_map(trigger)
 
-    clock_config = TestingClockConfig(lambda e: e["time"], wait_until_end=False)
+    clock_config = EventClockConfig(
+        lambda e: e["time"], wait_for_system_duration=timedelta(0)
+    )
     window_config = TumblingWindowConfig(
         length=timedelta(seconds=10), start_at=start_at
     )
@@ -494,7 +496,9 @@ def test_fold_window(recovery_config):
 
     flow.map(key_off_user)
 
-    clock_config = TestingClockConfig(lambda e: e["time"], wait_until_end=False)
+    clock_config = EventClockConfig(
+        lambda e: e["time"], wait_for_system_duration=timedelta(0)
+    )
     window_config = TumblingWindowConfig(
         length=timedelta(seconds=10), start_at=start_at
     )
