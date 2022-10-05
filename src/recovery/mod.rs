@@ -1101,11 +1101,11 @@ where
 
                 // Tell the notificator to trigger on dataflow
                 // frontier advance.
-                dataflow_frontier_input.for_each(|cap, incomfing| {
+                dataflow_frontier_input.for_each(|cap, incoming| {
                     assert!(tmp_incoming_frontier.is_empty());
                     // Drain the dataflow frontier input so the
                     // frontier advances.
-                    incomfing.swap(&mut tmp_incoming_frontier);
+                    incoming.swap(&mut tmp_incoming_frontier);
                     tmp_incoming_frontier.drain(..);
 
                     fncater.notify_at(cap.retain());
