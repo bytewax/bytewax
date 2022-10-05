@@ -224,17 +224,17 @@ pub(crate) fn extract_state_pair(key_value_pytuple: TdPyAny) -> (StateKey, TdPyA
             key_value_pytuple.extract(py),
             format!(
                 "Dataflow requires a `(key, value)` 2-tuple as input to \
-                    every stateful operator; got `{key_value_pytuple:?}` instead"
+                    every stateful operator for routing; got `{key_value_pytuple:?}` instead"
             )
         );
-        let key: String = py_unwrap!(
+        let key: StateKey = py_unwrap!(
             key.extract(py),
             format!(
-                "Stateful logic functions must return string keys \
+                "Stateful logic functions must return string or integer keys \
                     in `(key, value)`; got `{key:?}` instead"
             )
         );
-        (StateKey::Hash(key), value)
+        (key, value)
     })
 }
 

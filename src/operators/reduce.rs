@@ -28,10 +28,8 @@ impl ReduceLogic {
         reducer: TdPyCallable,
         is_complete: TdPyCallable,
     ) -> impl Fn(Option<StateBytes>) -> Self {
-        move |resume_acc_bytes| {
-            let acc = resume_acc_bytes
-                .map(StateBytes::de::<Option<TdPyAny>>)
-                .flatten();
+        move |resume_snapshot| {
+            let acc = resume_snapshot.and_then(StateBytes::de::<Option<TdPyAny>>);
             Python::with_gil(|py| Self {
                 reducer: reducer.clone_ref(py),
                 is_complete: is_complete.clone_ref(py),

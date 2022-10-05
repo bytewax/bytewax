@@ -75,8 +75,8 @@ impl TumblingWindower {
         length: Duration,
         start_at: DateTime<Utc>,
     ) -> impl Fn(Option<StateBytes>) -> Box<dyn Windower> {
-        move |resume_state_bytes| {
-            let close_times = resume_state_bytes
+        move |resume_snapshot| {
+            let close_times = resume_snapshot
                 .map(StateBytes::de::<HashMap<WindowKey, DateTime<Utc>>>)
                 .unwrap_or_default();
 

@@ -3,12 +3,16 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from threading import Event
 
-from pytest import fixture, mark, raises
+from pytest import fixture, raises
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main, TestingEpochConfig
-from bytewax.inputs import TestingBuilderInputConfig, TestingInputConfig
-from bytewax.outputs import TestingOutputConfig
+from bytewax.execution import run_main, spawn_cluster, TestingEpochConfig
+from bytewax.inputs import (
+    ManualInputConfig,
+    TestingBuilderInputConfig,
+    TestingInputConfig,
+)
+from bytewax.outputs import ManualOutputConfig, TestingOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
 from bytewax.testing import TestingClock
 from bytewax.window import TestingClockConfig, TumblingWindowConfig
@@ -193,6 +197,49 @@ def test_reduce(recovery_config):
     )
 
 
+def test_integer_state_key_routes_to_worker(mp_ctx):
+    with mp_ctx.Manager() as man:
+        proc_count = 3
+        worker_count_per_proc = 2
+        worker_count = proc_count * worker_count_per_proc
+
+        flow = Dataflow()
+
+        # Every worker emits the entire range of (worker_index, 1)
+        def input_builder(worker_index, worker_count, resume_state):
+            assert resume_state is None
+            for i in range(worker_count):
+                yield None, (i, 1)
+
+        flow.input("inp", ManualInputConfig(input_builder))
+
+        flow.reduce("count", lambda x, s: s + x, lambda s: s >= worker_count)
+
+        out = man.dict()
+        for worker_index in range(worker_count):
+            out[worker_index] = man.list()
+
+        def output_builder(worker_index, worker_count):
+            def output_handler(item):
+                out[worker_index].append(item)
+
+            return output_handler
+
+        flow.capture(ManualOutputConfig(output_builder))
+
+        spawn_cluster(
+            flow, proc_count=proc_count, worker_count_per_proc=worker_count_per_proc
+        )
+
+        # Every worker should add up to the total number of
+        # workers. We have to turn the manager versions of the data
+        # structure back into the comparable versions.
+        assert {k: list(v) for k, v in out.items()} == {
+            worker_index: [(worker_index, worker_count)]
+            for worker_index in range(worker_count)
+        }
+
+
 def test_stateful_map(recovery_config):
     flow = Dataflow()
 
@@ -295,7 +342,7 @@ def test_stateful_map_error_on_non_kv_tuple():
 
     expect = (
         "Dataflow requires a `(key, value)` 2-tuple as input to every stateful "
-        "operator; got `{'user': 'a', 'type': 'login'}` instead"
+        "operator for routing; got `{'user': 'a', 'type': 'login'}` instead"
     )
 
     with raises(TypeError, match=re.escape(expect)):
@@ -334,17 +381,13 @@ def test_stateful_map_error_on_non_string_key():
     with raises(
         TypeError,
         match=re.escape(
-            "Stateful logic functions must return string keys in `(key, value)`; "
-            "got `{'id': 1}` instead"
+            "Stateful logic functions must return string or integer keys in "
+            "`(key, value)`; got `{'id': 1}` instead"
         ),
     ):
         run_main(flow)
 
 
-@mark.skip(
-    "This test will not work with system time consistently until we mock the awaken "
-    "times in StatefulUnary."
-)
 def test_reduce_window(recovery_config):
     start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
     clock = TestingClock(start_at)
@@ -409,10 +452,6 @@ def test_reduce_window(recovery_config):
     assert sorted(out) == sorted([("ALL", 3), ("ALL", 1)])
 
 
-@mark.skip(
-    "This test will not work with system time consistently until we mock the awaken "
-    "times in StatefulUnary."
-)
 def test_fold_window(recovery_config):
     start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
     clock = TestingClock(start_at)
@@ -421,22 +460,22 @@ def test_fold_window(recovery_config):
 
     def gen():
         clock.now = start_at  # +0 sec; reset on recover
-        yield {"user": "a", "type": "login"}
+        yield {"user": "a", "type": "login"}  # Epoch 0
         clock.now += timedelta(seconds=4)  # +4 sec
-        yield {"user": "a", "type": "post"}
+        yield {"user": "a", "type": "post"}  # Epoch 1
         clock.now += timedelta(seconds=4)  # +8 sec
-        yield {"user": "a", "type": "post"}
+        yield {"user": "a", "type": "post"}  # Epoch 2
         clock.now += timedelta(seconds=4)  # +12 sec
         # First 10 sec window closes during processing this input.
-        yield {"user": "b", "type": "login"}
-        yield "BOOM"
+        yield {"user": "b", "type": "login"}  # Epoch 3
+        yield "BOOM"  # Epoch 4
         clock.now += timedelta(seconds=4)  # +16 sec
-        yield {"user": "a", "type": "post"}
+        yield {"user": "a", "type": "post"}  # Epoch 5
         clock.now += timedelta(seconds=4)  # +20 sec
         # Second 10 sec window closes during processing this input.
-        yield {"user": "b", "type": "post"}
+        yield {"user": "b", "type": "post"}  # Epoch 6
         clock.now += timedelta(seconds=4)  # +24 sec
-        yield {"user": "b", "type": "post"}
+        yield {"user": "b", "type": "post"}  # Epoch 7
         clock.now += timedelta(seconds=4)  # +28 sec
 
     flow.input("inp", TestingBuilderInputConfig(gen))
@@ -491,6 +530,13 @@ def test_fold_window(recovery_config):
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
     assert out == [
+        # Output from epoch 3 is duplicated because the epoch would
+        # only be closed and snapshotted for recovery on epoch 4, but
+        # the exception during epoch 4 happens before the fold_window
+        # operator gets to run. This is the best we can do in this
+        # situation without figuring out a transactional exactly-once
+        # kind of thing.
+        ("a", {"login": 1, "post": 2}),
         ("b", {"login": 1}),
         ("a", {"post": 1}),
         ("b", {"post": 2}),

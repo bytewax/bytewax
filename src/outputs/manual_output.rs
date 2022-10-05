@@ -1,6 +1,7 @@
 use pyo3::{exceptions::PyValueError, prelude::*};
 
 use crate::{
+    execution::WorkerIndex,
     pyo3_extensions::{TdPyAny, TdPyCallable},
     unwrap_any,
 };
@@ -68,7 +69,7 @@ impl ManualOutput {
     pub(crate) fn new(
         py: Python,
         output_builder: TdPyCallable,
-        worker_index: usize,
+        worker_index: WorkerIndex,
         worker_count: usize,
     ) -> Self {
         let pyfunc: TdPyCallable = output_builder

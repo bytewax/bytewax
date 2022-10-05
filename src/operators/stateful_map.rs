@@ -27,8 +27,8 @@ impl StatefulMapLogic {
         builder: TdPyCallable,
         mapper: TdPyCallable,
     ) -> impl Fn(Option<StateBytes>) -> Self {
-        move |resume_state_bytes| {
-            let state = resume_state_bytes
+        move |resume_snapshot| {
+            let state = resume_snapshot
                 .map(StateBytes::de::<Option<TdPyAny>>)
                 .unwrap_or_else(|| {
                     Python::with_gil(|py| {

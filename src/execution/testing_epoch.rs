@@ -10,7 +10,9 @@ use timely::{
 
 use crate::{
     inputs::InputReader,
-    recovery::{EpochData, StateKey, StateUpdate, StepId},
+    recovery::{
+        State, StateKey, StateOp, StateRecoveryKey, StateUpdate, StateUpdateStream, StepId,
+    },
 };
 
 use super::EpochConfig;
@@ -64,14 +66,18 @@ impl TestingEpochConfig {
 }
 
 /// Input source that increments the epoch after each item.
-pub(crate) fn testing_epoch_source<S: Scope<Timestamp = u64>, D: Data + Debug>(
+pub(crate) fn testing_epoch_source<S, D>(
     scope: &S,
     step_id: StepId,
-    key: StateKey,
+    state_key: StateKey,
     mut reader: Box<dyn InputReader<D>>,
     start_at: S::Timestamp,
     probe: &ProbeHandle<S::Timestamp>,
-) -> (Stream<S, D>, Stream<S, EpochData>) {
+) -> (Stream<S, D>, StateUpdateStream<S>)
+where
+    S: Scope<Timestamp = u64>,
+    D: Data + Debug,
+{
     let mut op_builder = OperatorBuilder::new(format!("{step_id}"), scope.clone());
 
     let (mut output_wrapper, output_stream) = op_builder.new_output();
@@ -105,11 +111,17 @@ pub(crate) fn testing_epoch_source<S: Scope<Timestamp = u64>, D: Data + Debug>(
 
                             // Snapshot just before incrementing epoch
                             // to get the "end of the epoch" state.
-                            let state_bytes = reader.snapshot();
-                            let update = (
-                                key.clone(),
-                                (step_id.clone(), StateUpdate::Upsert(state_bytes)),
-                            );
+                            let snapshot = reader.snapshot();
+                            let recovery_key = StateRecoveryKey {
+                                step_id: step_id.clone(),
+                                state_key: state_key.clone(),
+                                epoch: epoch.clone(),
+                            };
+                            let op = StateOp::Upsert(State {
+                                snapshot,
+                                next_awake: None,
+                            });
+                            let update = StateUpdate(recovery_key, op);
                             state_update_wrapper
                                 .activate()
                                 .session(&state_update_cap)

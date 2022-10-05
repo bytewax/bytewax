@@ -49,7 +49,7 @@ pub(crate) struct EventClockConfig {
 
 impl ClockBuilder<TdPyAny> for EventClockConfig {
     fn builder(self) -> Builder<TdPyAny> {
-        Box::new(move |resume_state_bytes: Option<StateBytes>| {
+        Box::new(move |resume_snapshot: Option<StateBytes>| {
             // Make the clock an InternalClock now, so we can retrieve
             // it's `time` to use as the default value.
             let mut clock = self
@@ -60,7 +60,7 @@ impl ClockBuilder<TdPyAny> for EventClockConfig {
 
             // Deserialize data if a snapshot existed
             let (latest_event_time, system_time_of_last_event, late_time, watermark) =
-                resume_state_bytes.map(StateBytes::de).unwrap_or_else(|| {
+                resume_snapshot.map(StateBytes::de).unwrap_or_else(|| {
                     // Defaults values
                     (
                         None,
