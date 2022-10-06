@@ -118,7 +118,7 @@ def output_builder(worker_index, worker_count):
 flow.capture(ManualOutputConfig(output_builder))
 ```
 
-Bytewax comes with a few different execution models. They are used to run dataflows in different manners, like running across a cluster of worker processes or running on a single worker process and single worker thread on a local machine. Below is an example of running using a clustered approach, but with only one worker process and two worker threads.
+Bytewax dataflows can be executed on a single host with multiple Python processes, or on multiple hosts. Below is an example of running bytewax across multiple hosts. When processing data in a distributed fashion, Bytewax will ensure that all items with the same key are routed to the same host.
 
 ```python
 if __name__ == "__main__":
