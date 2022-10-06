@@ -526,18 +526,6 @@ def test_fold_window(recovery_config):
     # Recover
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
-    # assert out == [
-    #     # Output from epoch 3 is duplicated because the epoch would
-    #     # only be closed and snapshotted for recovery on epoch 4, but
-    #     # the exception during epoch 4 happens before the fold_window
-    #     # operator gets to run. This is the best we can do in this
-    #     # situation without figuring out a transactional exactly-once
-    #     # kind of thing.
-    #     ("a", {"login": 1, "post": 2}),
-    #     ("b", {"login": 1}),
-    #     ("a", {"post": 1}),
-    #     ("b", {"post": 2}),
-    # ]
     assert len(out) == 3
     assert ("b", {"login": 1}) in out
     assert ("b", {"post": 2}) in out
