@@ -9,11 +9,16 @@
   <img alt="Bytewax">
 </picture>
 
+## Python Stateful Stream Processing Framework
+
+Bytewax is a Python framework that simplifies event and stream processing. Because Bytewax couples the stream & event processing capabilities of Flink, Spark, and Kafka Streams with the friendly and familiar interface of Python, you can re-use the Python libraries you already know and love.
+
+![Diagram]()
 
 
-## Modern distributed processing framework for bounded and unbounded streams. 
+### How it all works
 
-Bytewax is a Python framework and Rust distributed processing engine that uses a dataflow computational model to provide parallelizable stream processing and event processing capabilities similar to Flink, Spark, and Kafka Streams. You can use Bytewax for a variety of workloads from moving data à la Kafka Connect style all the way to advanced online machine learning workloads. Bytewax is not limited to streaming applications but excels anywhere that data can be distributed at the input and output. 
+Bytewax is a Python framework and Rust distributed processing engine that uses a dataflow computational model to provide parallelizable stream processing and event processing capabilities similar to Flink, Spark, and Kafka Streams. You can use Bytewax for a variety of workloads from moving data à la Kafka Connect style all the way to advanced online machine learning workloads. Bytewax is not limited to streaming applications but excels anywhere that data can be distributed at the input and output.
 
 Bytewax has an accompanying command line interface, [waxctl](https://docs.bytewax.io/deployment/waxctl/), which supports the deployment of dataflows on cloud vms or kuberentes. You can download it [here](https://docs.bytewax.io/downloads/).
 
@@ -37,7 +42,7 @@ from bytewax.outputs import ManualOutputConfig
 # but you can also create your own with the ManualOutputConfig.
 ```
 
-At a high-level, dataflow programming is a programming paradigm where program execution is conceptualized as data flowing through a series of operator-based steps. Operators like `map` and `filter` are the processing primitives of bytewax. Each of them gives you a “shape” of data transformation, and you give them regular Python functions to customize them to a specific task you need. See the documentation for a list of the [available operators](https://docs.bytewax.io/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow)
+At a high-level, the dataflow compute model is one in which a program execution is conceptualized as data flowing through a series of operator-based steps. Operators like `map` and `filter` are the processing primitives of bytewax. Each of them gives you a “shape” of data transformation, and you give them regular Python functions to customize them to a specific task you need. See the documentation for a list of the [available operators](https://docs.bytewax.io/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow)
 
 ```python
 import json
@@ -63,7 +68,7 @@ flow.map(anonymize_email)
 flow.filter(remove_bytewax)
 ```
 
-Bytewax is a stateful stream processor, which means that you can do things like aggregations and windowing. With Bytewax, state is stored in memory on the workers by default and can is also persisted with different [state recovery mechanisms](https://docs.bytewax.io/apidocs/bytewax.recovery). There are different stateful operators available like `reduce`, `stateful_map` and `fold_window`. The complete list can be found in the [API documentation for all operators](https://docs.bytewax.io/apidocs/bytewax.dataflow). Below we use the `fold_window` operator with a tumbling window based on system time to gather events and calculate the number of times different events happen per user.
+Bytewax is a stateful stream processor, which means that you can do things like aggregations and windowing. With Bytewax, state is stored in memory on the workers by default and is also persisted with different [state recovery mechanisms](https://docs.bytewax.io/apidocs/bytewax.recovery). There are different stateful operators available like `reduce`, `stateful_map` and `fold_window`. The complete list can be found in the [API documentation for all operators](https://docs.bytewax.io/apidocs/bytewax.dataflow). Below we use the `fold_window` operator with a tumbling window based on system time to gather events and calculate the number of times different events happen per user.
 
 ```python
 import datetime
@@ -84,7 +89,7 @@ def count_events(results, event):
 flow.fold_window("session_state_recovery", cc, wc, build, count_events)
 ```
 
-Output mechanisms in Bytewax are managed in the [capture operator](https://docs.bytewax.io/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture). There are a number of helpers that allow you to easily connect and write to other systems ([output docs](https://docs.bytewax.io/apidocs/bytewax.outputs)). If there isn’t a helper built, it is easy to build a custom version. Like the input, Bytewax output can be parallelized and will occur on the worker.
+Output mechanisms in Bytewax are managed in the [capture operator](https://docs.bytewax.io/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture). There are a number of helpers that allow you to easily connect and write to other systems ([output docs](https://docs.bytewax.io/apidocs/bytewax.outputs)). If there isn’t a helper built, it is easy to build a custom version, which we will do below. Similar the input, Bytewax output can be parallelized and the client connection will occur on the worker.
 
 ```python
 import json
@@ -111,7 +116,7 @@ def output_builder(worker_index, worker_count):
 flow.capture(ManualOutputConfig(output_builder))
 ```
 
-Bytewax comes with a few different execution models. They are used to run dataflows in different manners, like running across a cluster or running on a local machine. Below is an example of running on across a manual managed cluster
+Bytewax comes with a few different execution models. They are used to run dataflows in different manners, like running across a cluster of worker processes or running on a single worker process and single worker thread on a local machine. Below is an example of running using a clustered approach, but with only one worker process and two worker threads.
 
 ```python
 if __name__ == "__main__":
@@ -137,7 +142,8 @@ python my_dataflow.py
 It can also be run in a docker container as described further in the [documentation](https://docs.bytewax.io/deployment/container).
 
 #### Kubernetes
-The recommended way to run dataflows at scale is to leverage the [kubernetes ecosystem](https://docs.bytewax.io/deployment/k8s-ecosystem). To help manage deployment, we built [wactl](https://docs.bytewax.io/deployment/waxctl), which allows you to easily deploy dataflows that will run at huge scale across pods. 
+
+The recommended way to run dataflows at scale is to leverage the [kubernetes ecosystem](https://docs.bytewax.io/deployment/k8s-ecosystem). To help manage deployment, we built [waxctl](https://docs.bytewax.io/deployment/waxctl), which allows you to easily deploy dataflows that will run at huge scale across multiple compute nodes.
 
 ```sh
 waxctl df deploy my_dataflow.py --name my-dataflow
