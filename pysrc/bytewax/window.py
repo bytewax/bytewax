@@ -71,7 +71,6 @@ from .bytewax import (  # noqa: F401
     ClockConfig,
     EventClockConfig,
     SystemClockConfig,
-    TestingClockConfig,
     TumblingWindowConfig,
     WindowConfig,
 )

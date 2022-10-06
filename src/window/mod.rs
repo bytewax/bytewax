@@ -47,12 +47,10 @@ use timely::{Data, ExchangeData};
 
 pub(crate) mod event_time_clock;
 pub(crate) mod system_clock;
-pub(crate) mod testing_clock;
 pub(crate) mod tumbling_window;
 
 use self::event_time_clock::EventClockConfig;
 use self::system_clock::SystemClockConfig;
-use self::testing_clock::{PyTestingClock, TestingClockConfig};
 use self::tumbling_window::{TumblingWindowConfig, TumblingWindower};
 
 /// Base class for a clock config.
@@ -114,9 +112,6 @@ pub(crate) fn build_clock_builder(
     let clock_config = clock_config.as_ref(py);
     // System clock
     if let Ok(conf) = clock_config.extract::<SystemClockConfig>() {
-        Ok(conf.builder())
-    // Testing clock
-    } else if let Ok(conf) = clock_config.extract::<TestingClockConfig>() {
         Ok(conf.builder())
     // Event clock
     } else if let Ok(conf) = clock_config.extract::<EventClockConfig>() {
@@ -556,8 +551,6 @@ where
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ClockConfig>()?;
     m.add_class::<EventClockConfig>()?;
-    m.add_class::<TestingClockConfig>()?;
-    m.add_class::<PyTestingClock>()?;
     m.add_class::<SystemClockConfig>()?;
     m.add_class::<WindowConfig>()?;
     m.add_class::<TumblingWindowConfig>()?;
