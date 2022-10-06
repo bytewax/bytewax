@@ -5,7 +5,7 @@ Check `kubectl` documentation [here](https://kubernetes.io/docs/tasks/tools/#kub
 
 ## Installation
 
-Installing `waxctl` is very simple. You just need to download the binary corresponding to your operating system and architecture [here](https://bytewax.io/downloads).
+Installing `waxctl` is very simple. You just need to download the binary corresponding to your operating system and architecture [here](/downloads/).
 
 ## Dataflow Lifecycle
 
