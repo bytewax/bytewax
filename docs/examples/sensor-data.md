@@ -70,7 +70,7 @@ start_at = datetime.now(timezone.utc)
 wc = TumblingWindowConfig(start_at=start_at, length=timedelta(seconds=5))
 ```
 
-Our stateful window operator, `fold_window` takes two functions in it's list of arguments, a builder and a folder. The builder function is called when a new key is encountered for a window, and the folder is called on every item in the window.
+Our stateful window operator, `fold_window` takes two functions in its list of arguments: a builder and a folder. The builder function is called when a new key is encountered for a window, and the folder is called on every item in the window.
 
 In our case, the folder function and the builder function are simple. We would like to accumulate all of the events for a sensor into a single list. Our builder function can be the built-in Python function `list`, and our folder can just call `append` on that list with every event within a window.
 
