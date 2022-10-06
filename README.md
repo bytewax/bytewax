@@ -68,7 +68,9 @@ flow.map(anonymize_email)
 flow.filter(remove_bytewax)
 ```
 
-Bytewax is a stateful stream processor, which means that you can do things like aggregations and windowing. With Bytewax, state is stored in memory on the workers by default and is also persisted with different [state recovery mechanisms](https://docs.bytewax.io/apidocs/bytewax.recovery). There are different stateful operators available like `reduce`, `stateful_map` and `fold_window`. The complete list can be found in the [API documentation for all operators](https://docs.bytewax.io/apidocs/bytewax.dataflow). Below we use the `fold_window` operator with a tumbling window based on system time to gather events and calculate the number of times different events happen per user.
+Bytewax is a stateful stream processing framework, which means that some operations remember information across multiple events.  Windows and aggregations are also stateful, and can be reconstructed in the event of failure. Bytewax can be configured with different [state recovery mechanisms](https://docs.bytewax.io/apidocs/bytewax.recovery) to durably persist state in order to recover from failure.
+
+There are multiple stateful operators available like `reduce`, `stateful_map` and `fold_window`. The complete list can be found in the [API documentation for all operators](https://docs.bytewax.io/apidocs/bytewax.dataflow). Below we use the `fold_window` operator with a tumbling window based on system time to gather events and calculate the number of times events have occurred on a per-user basis.
 
 ```python
 import datetime
