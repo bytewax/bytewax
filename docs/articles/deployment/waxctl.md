@@ -221,7 +221,7 @@ Dataflow my-dataflow deleted.
 
 `waxctl` uses a compiled-in [Bytewax helm chart](https://github.com/bytewax/helm-charts) to generate all the manifests except the Namespace and ConfigMap which are created by making calls to Kubernetes API directly. 
 
-You can check the entire architecture that `waxctl` deploys in our [Bytewax Ecosystem on Kubernetes](/deployment/k8s-ecosystem/) section.
+You can check the entire architecture that `waxctl` deploys in our [Bytewax Ecosystem on Kubernetes](/docs/deployment/k8s-ecosystem/) section.
 
 ## More Examples
 
@@ -276,7 +276,7 @@ And if you need to apply the output manifests to Kubernetes you could run the fo
 
 ### Using a Custom Image from a Private Registry
 
-In our [Including Custom Dependencies in an Image](/deployment/container/#including-custom-dependencies-in-an-image) section we describe how to create your own Docker image using a Bytewax image as base.
+In our [Including Custom Dependencies in an Image](/docs/deployment/container#including-custom-dependencies-in-an-image) section we describe how to create your own Docker image using a Bytewax image as base.
 
 Let's assume you created a custom image that you pushed to a private image registry in GitLab. In our example the image URL is:
 

@@ -29,7 +29,7 @@ requirements:
 Your dataflow needs a few features to enable recovery on Bytewax:
 
 1. You must design your [input
-   builder](/getting-started/ins_and_outs) to be able to resume
+   builder](/docs/getting-started/ins_and_outs) to be able to resume
    and replay all data from the `resume_state` onwards. Do not
    ignore this argument!
 
@@ -39,7 +39,7 @@ Your dataflow needs a few features to enable recovery on Bytewax:
    on our supported options.
 
 3. Pass the recovery config as the `recovery_config` argument to
-   whatever execution [entry point](/getting-started/execution)
+   whatever execution [entry point](/docs/getting-started/execution/)
    (e.g. `cluster_main()`) you are using.
 
 4. Run the dataflow! Bytewax will automatically snapshots of state and
