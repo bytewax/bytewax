@@ -5,7 +5,7 @@ In this example, we will walk through processing sensor data from IOT devices us
 
 In this scenario, IOT devices are streaming real-time data that is being written to Kafka. Our goals are to:
 * Read data from Kafka
-* Build up a window of events from each sensor, based on it's id
+* Build up a window of events from each sensor, based on its id
 * Write those updated windows to DynamoDB every 5 seconds
 
 Let's start by setting up Bytewax to read from Kafka. We'll begin by importing some dependencies and instantiating our Bytewax Dataflow.
