@@ -42,7 +42,13 @@ def get_event_time(event):
     return datetime.fromisoformat(event["time"])
 ```
 
-There are two important considerations when using event times to construct windows. The first is that we can't guarantee that sensor events will be read from Kafka in order, and the second is that we can't guarantee that we will have received all of the events that we should consider in a timely fashion. Some sensors could lose their connection to the Internet and send data well after it was recorded. In this way, event time processing is a tradeoff between latency and correctness.
+There are two important considerations when using event times to construct windows:
+
+ Event Orderliness: We cannot guarantee that sensor events will be read from Kafka in order.
+ 
+ Event Lateness: We can't guarantee that we will have received all of the events that we should consider in a timely fashion, since sensors could lose their connection to the Internet and send data well after it was recorded. 
+ 
+ In this way, event time processing is a tradeoff between latency and correctness.
 
 We need a way to tell our window operator how long we are willing to wait for all of the data to arrive before returning windows. To do that, we create an `EventClockConfiguration` that uses our time getting function, and defines how long we are willing to wait, in system time.
 
