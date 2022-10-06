@@ -31,7 +31,7 @@ def deserialize(key_bytes__payload_bytes):
 flow.map(deserialize)
 ```
 
-The goal of our example Dataflow is to accumulate sensor data over a defined period of time to produce an average reading. To do that, we'll use one of Bytewax's stateful windowing fold_window`.
+The goal of our example Dataflow is to accumulate sensor data over a defined period of time to produce an average reading. To do that, we'll use one of Bytewax's stateful windowing operators, `fold_window`.
 
 In this example, we want our sensor readings to be grouped together based on the timestamp that the sensor recorded when the data was produced. To do that, we need to define a function that will read that time from the sensor event and convert it to UTC.
 
