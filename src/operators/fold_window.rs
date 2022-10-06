@@ -23,8 +23,8 @@ impl FoldWindowLogic {
         builder: TdPyCallable,
         folder: TdPyCallable,
     ) -> impl Fn(Option<StateBytes>) -> Self {
-        move |resume_acc_bytes| {
-            let acc = resume_acc_bytes.map(|resume_acc_bytes| resume_acc_bytes.de());
+        move |resume_snapshot| {
+            let acc = resume_snapshot.and_then(StateBytes::de::<Option<TdPyAny>>);
             Python::with_gil(|py| Self {
                 builder: builder.clone_ref(py),
                 folder: folder.clone_ref(py),
@@ -35,14 +35,14 @@ impl FoldWindowLogic {
 }
 
 impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for FoldWindowLogic {
-    fn exec(&mut self, next_value: Option<TdPyAny>) -> Option<TdPyAny> {
+    fn with_next(&mut self, next_value: Option<TdPyAny>) -> Option<TdPyAny> {
         match next_value {
             Some(value) => Python::with_gil(|py| {
                 let acc: TdPyAny = self
                     .acc
                     .take()
                     .unwrap_or_else(|| unwrap_any!(self.builder.call1(py, ())).into());
-                // Call the folder with the initialized accumulator
+                // Call the folder with the initialized accumulator.
                 let updated_acc = unwrap_any!(self
                     .folder
                     .call1(py, (acc.clone_ref(py), value.clone_ref(py))))
@@ -61,6 +61,6 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for FoldWindowLogic {
     }
 
     fn snapshot(&self) -> StateBytes {
-        StateBytes::ser(&self.acc)
+        StateBytes::ser::<Option<TdPyAny>>(&self.acc)
     }
 }

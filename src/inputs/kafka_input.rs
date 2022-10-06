@@ -15,6 +15,7 @@ use rdkafka::{Offset, TopicPartitionList};
 
 use serde::{Deserialize, Serialize};
 
+use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::StateBytes;
 
@@ -47,8 +48,8 @@ use super::{distribute, InputConfig, InputReader};
 ///
 /// Returns:
 ///
-///   Config object. Pass this as the `input_config` argument to the
-///   `bytewax.dataflow.Dataflow.input`.
+///   Config object. Pass this as the `input_config` argument of the
+///   `bytewax.dataflow.Dataflow.input` operator.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
 #[pyo3(text_signature = "(brokers, topic, tail, starting_offset, additional_properties)")]
 pub(crate) struct KafkaInputConfig {
@@ -209,12 +210,12 @@ impl KafkaInput {
         tail: bool,
         starting_offset: Offset,
         additional_properties: &Option<HashMap<String, String>>,
-        worker_index: usize,
+        worker_index: WorkerIndex,
         worker_count: usize,
-        resume_state_bytes: Option<StateBytes>,
+        resume_snapshot: Option<StateBytes>,
     ) -> Self {
-        let mut positions: HashMap<KafkaPartition, KafkaPosition> = resume_state_bytes
-            .map(|resume_state_bytes| resume_state_bytes.de())
+        let mut positions = resume_snapshot
+            .map(StateBytes::de::<HashMap<KafkaPartition, KafkaPosition>>)
             .unwrap_or_default();
 
         let eof = !tail;
@@ -243,7 +244,7 @@ impl KafkaInput {
         }
 
         let mut partitions = TopicPartitionList::new();
-        for partition in distribute(0..partition_count, worker_index, worker_count) {
+        for partition in distribute(0..partition_count, worker_index.0, worker_count) {
             let partition = KafkaPartition(partition);
             let resume_offset: Option<Offset> =
                 (*positions.entry(partition).or_insert(KafkaPosition::Default)).into();
@@ -310,6 +311,6 @@ impl InputReader<TdPyAny> for KafkaInput {
     }
 
     fn snapshot(&self) -> StateBytes {
-        StateBytes::ser(&self.positions)
+        StateBytes::ser::<HashMap<KafkaPartition, KafkaPosition>>(&self.positions)
     }
 }

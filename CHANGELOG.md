@@ -5,6 +5,23 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes bug where window is never closed if recovery occurs after last
+  item but before window close.
+
+- Recovery logging is reduced.
+
+- Recovery format has been changed for all recovery stores. You cannot
+  resume from recovery data written with an older version.
+
+## 0.11.2
+
+- Performance improvements.
+
+- Support SASL and SSL for `bytewax.inputs.KafkaInputConfig`.
+
+
+## 0.11.1
+
 - KafkaInputConfig now accepts additional properties. See
   `bytewax.inputs.KafkaInputConfig`.
 

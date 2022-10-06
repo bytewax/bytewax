@@ -113,7 +113,7 @@ class TestingOutputConfig(ManualOutputConfig):
 <dd>
 <div class="desc"><p>Use <a href="https://kafka.apache.org">Kafka</a> as the output.</p>
 <p>A <code>capture</code> using KafkaOutput expects to receive data
-structured as two-tuples of (key, payload) to form a Kafka
+structured as two-tuples of bytes (key, payload) to form a Kafka
 record. Key may be <code>None</code>.</p>
 <h2 id="args">Args</h2>
 <dl>

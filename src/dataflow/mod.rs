@@ -287,7 +287,7 @@ impl Dataflow {
 
     /// Reduce lets you combine items for a key into an accumulator.
     ///
-    /// It is a stateful operator. It requires the the input stream
+    /// It is a stateful operator. It requires the input stream
     /// has items that are `(key: str, value)` tuples so we can ensure
     /// that all relevant values are routed to the relevant state. It
     /// also requires a step ID to recover the correct state.
@@ -319,6 +319,7 @@ impl Dataflow {
     /// - Collection into a list
     /// - Summarizing data
     ///
+    /// >>> from bytewax.dataflow import Dataflow
     /// >>> from bytewax.inputs import TestingInputConfig
     /// >>> from bytewax.outputs import StdOutputConfig
     /// >>> from bytewax.execution import run_main
@@ -332,7 +333,7 @@ impl Dataflow {
     /// ... ]
     /// >>> flow.input("inp", TestingInputConfig(inp))
     /// >>> def user_as_key(event):
-    /// ...     return event["user"], [event["type"]]
+    /// ...     return event["user"], [event]
     /// >>> flow.map(user_as_key)
     /// >>> def extend_session(session, events):
     /// ...     session.extend(events)
@@ -369,7 +370,7 @@ impl Dataflow {
     /// It is like `bytewax.Dataflow.reduce_window()` but uses a function to
     /// build the initial value.
     ///
-    /// It is a stateful operator. It requires the the input stream
+    /// It is a stateful operator. It requires the input stream
     /// has items that are `(key: str, value)` tuples so we can ensure
     /// that all relevant values are routed to the relevant state. It
     /// also requires a step ID to recover the correct state.
@@ -399,12 +400,12 @@ impl Dataflow {
     /// ...     ]
     /// >>> def extract_id(event):
     /// ...     return (event["user"], event)
-    /// >>> def build(key):
+    /// >>> def build():
     /// ...     return defaultdict(lambda: 0)
     /// >>> def count(results, event):
     /// ...     results[event["type"]] += 1
     /// ...     return results
-    /// >>> clock_config = TestingClockConfig(item_incr=timedelta(seconds=4))
+    /// >>> clock_config = TestingClockConfig(start_at=datetime(2022, 1, 1, 13), item_incr=timedelta(seconds=4))
     /// >>> window_config = TumblingWindowConfig(length=timedelta(seconds=10))
     /// >>> out = []
     /// >>> flow = Dataflow(TestingInputConfig(gen()))
@@ -453,7 +454,7 @@ impl Dataflow {
     /// accumulator as complete automatically at the end of each
     /// window.
     ///
-    /// It is a stateful operator. It requires the the input stream
+    /// It is a stateful operator. It requires the input stream
     /// has items that are `(key: str, value)` tuples so we can ensure
     /// that all relevant values are routed to the relevant state. It
     /// also requires a step ID to recover the correct state.
@@ -541,7 +542,7 @@ impl Dataflow {
     /// allows you to reference a persistent state for each key when
     /// doing the transformation.
     ///
-    /// It is a stateful operator. It requires the the input stream
+    /// It is a stateful operator. It requires the input stream
     /// has items that are `(key: str, value)` tuples so we can ensure
     /// that all relevant values are routed to the relevant state. It
     /// also requires a step ID to recover the correct state.

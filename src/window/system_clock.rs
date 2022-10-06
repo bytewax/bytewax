@@ -1,12 +1,12 @@
 use std::task::Poll;
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use pyo3::prelude::*;
 use pyo3::{exceptions::PyValueError, PyResult};
 
 use crate::recovery::StateBytes;
 
-use super::{Clock, ClockConfig};
+use super::{Builder, Clock, ClockBuilder, ClockConfig};
 
 /// Use the system time inside the windowing operator to determine
 /// times.
@@ -18,7 +18,14 @@ use super::{Clock, ClockConfig};
 ///   Config object. Pass this as the `clock_config` parameter to
 ///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=ClockConfig)]
+#[derive(Clone)]
 pub(crate) struct SystemClockConfig {}
+
+impl<V> ClockBuilder<V> for SystemClockConfig {
+    fn builder(self) -> Builder<V> {
+        Box::new(move |_resume_snapshot| Box::new(SystemClock::new()))
+    }
+}
 
 #[pymethods]
 impl SystemClockConfig {
@@ -49,26 +56,25 @@ impl SystemClockConfig {
 pub(crate) struct SystemClock {}
 
 impl SystemClock {
-    pub(crate) fn builder<V>() -> impl Fn(Option<StateBytes>) -> Box<dyn Clock<V>> {
-        move |_resume_state_bytes| Box::new(Self {})
+    pub(crate) fn new() -> Self {
+        Self {}
     }
 }
 
 impl<V> Clock<V> for SystemClock {
-    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> NaiveDateTime {
+    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> DateTime<Utc> {
         match next_value {
             // If there will be no more values, close out all windows.
-            Poll::Ready(None) => chrono::naive::MAX_DATETIME,
-            _ => chrono::offset::Local::now().naive_local(),
+            Poll::Ready(None) => DateTime::<Utc>::MAX_UTC,
+            _ => Utc::now(),
         }
     }
 
-    fn time_for(&mut self, item: &V) -> NaiveDateTime {
-        let next_value = Poll::Ready(Some(item));
-        self.watermark(&next_value)
+    fn time_for(&mut self, _item: &V) -> DateTime<Utc> {
+        Utc::now()
     }
 
     fn snapshot(&self) -> StateBytes {
-        StateBytes::ser(&())
+        StateBytes::ser::<()>(&())
     }
 }

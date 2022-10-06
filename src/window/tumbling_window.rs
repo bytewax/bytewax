@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
-use chrono::{Duration, NaiveDateTime};
+use chrono::{DateTime, Duration, Utc};
 use pyo3::{exceptions::PyValueError, prelude::*};
 
-use crate::recovery::StateBytes;
-
 use super::{InsertError, WindowConfig, WindowKey, Windower};
+use crate::recovery::StateBytes;
 
 /// Tumbling windows of fixed duration.
 ///
@@ -24,9 +23,9 @@ use super::{InsertError, WindowConfig, WindowKey, Windower};
 #[pyclass(module="bytewax.window", extends=WindowConfig)]
 pub(crate) struct TumblingWindowConfig {
     #[pyo3(get)]
-    pub(crate) length: pyo3_chrono::Duration,
+    pub(crate) length: chrono::Duration,
     #[pyo3(get)]
-    pub(crate) start_at: Option<pyo3_chrono::NaiveDateTime>,
+    pub(crate) start_at: Option<DateTime<Utc>>,
 }
 
 #[pymethods]
@@ -34,26 +33,20 @@ impl TumblingWindowConfig {
     #[new]
     #[args(length, start_at = "None")]
     pub(crate) fn new(
-        length: pyo3_chrono::Duration,
-        start_at: Option<pyo3_chrono::NaiveDateTime>,
+        length: chrono::Duration,
+        start_at: Option<DateTime<Utc>>,
     ) -> (Self, WindowConfig) {
         (Self { length, start_at }, WindowConfig {})
     }
 
     /// Pickle as a tuple.
-    fn __getstate__(
-        &self,
-    ) -> (
-        &str,
-        pyo3_chrono::Duration,
-        Option<pyo3_chrono::NaiveDateTime>,
-    ) {
+    fn __getstate__(&self) -> (&str, chrono::Duration, Option<DateTime<Utc>>) {
         ("TumblingWindowConfig", self.length, self.start_at)
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (pyo3_chrono::Duration, Option<pyo3_chrono::NaiveDateTime>) {
-        (pyo3_chrono::Duration(Duration::zero()), None)
+    fn __getnewargs__(&self) -> (chrono::Duration, Option<DateTime<Utc>>) {
+        (chrono::Duration::zero(), None)
     }
 
     /// Unpickle from tuple of arguments.
@@ -73,17 +66,19 @@ impl TumblingWindowConfig {
 /// Use fixed-length tumbling windows aligned to a start time.
 pub(crate) struct TumblingWindower {
     length: Duration,
-    start_at: NaiveDateTime,
-    close_times: HashMap<WindowKey, NaiveDateTime>,
+    start_at: DateTime<Utc>,
+    close_times: HashMap<WindowKey, DateTime<Utc>>,
 }
 
 impl TumblingWindower {
     pub(crate) fn builder(
         length: Duration,
-        start_at: NaiveDateTime,
+        start_at: DateTime<Utc>,
     ) -> impl Fn(Option<StateBytes>) -> Box<dyn Windower> {
-        move |resume_state_bytes| {
-            let close_times = resume_state_bytes.map(StateBytes::de).unwrap_or_default();
+        move |resume_snapshot| {
+            let close_times = resume_snapshot
+                .map(StateBytes::de::<HashMap<WindowKey, DateTime<Utc>>>)
+                .unwrap_or_default();
 
             Box::new(Self {
                 length,
@@ -97,24 +92,35 @@ impl TumblingWindower {
 impl Windower for TumblingWindower {
     fn insert(
         &mut self,
-        watermark: &NaiveDateTime,
-        item_time: NaiveDateTime,
+        watermark: &DateTime<Utc>,
+        item_time: DateTime<Utc>,
     ) -> Vec<Result<WindowKey, InsertError>> {
         let since_start_at = item_time - self.start_at;
         let window_count = since_start_at.num_milliseconds() / self.length.num_milliseconds();
 
         let key = WindowKey(window_count);
-        let close_at = self.start_at + self.length * (window_count as i32 + 1);
+        let close_at = self
+            .start_at
+            .checked_add_signed(self.length * (window_count as i32 + 1))
+            .unwrap_or(DateTime::<Utc>::MAX_UTC);
 
         if &close_at < watermark {
             vec![Err(InsertError::Late(key))]
         } else {
-            self.close_times.insert(key, close_at);
+            self.close_times
+                .entry(key)
+                .and_modify(|existing_close_at| {
+                    assert!(
+                        existing_close_at == &close_at,
+                        "Tumbling windower is not generating consistent boundaries"
+                    )
+                })
+                .or_insert(close_at);
             vec![Ok(key)]
         }
     }
 
-    fn drain_closed(&mut self, watermark: &NaiveDateTime) -> Vec<WindowKey> {
+    fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<WindowKey> {
         // TODO: Gosh I really want [`HashMap::drain_filter`].
         let mut future_close_times = HashMap::new();
         let mut closed_ids = Vec::new();
@@ -131,16 +137,15 @@ impl Windower for TumblingWindower {
         closed_ids
     }
 
-    fn activate_after(&mut self, watermark: &NaiveDateTime) -> Option<Duration> {
-        let watermark = *watermark;
-        self.close_times
-            .values()
-            .cloned()
-            .map(|t| t - watermark)
-            .min()
+    fn is_empty(&self) -> bool {
+        self.close_times.is_empty()
+    }
+
+    fn next_close(&self) -> Option<DateTime<Utc>> {
+        self.close_times.values().cloned().min()
     }
 
     fn snapshot(&self) -> StateBytes {
-        StateBytes::ser(&self.close_times)
+        StateBytes::ser::<HashMap<WindowKey, DateTime<Utc>>>(&self.close_times)
     }
 }

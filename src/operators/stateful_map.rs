@@ -1,11 +1,12 @@
-use std::{task::Poll, time::Duration};
+use std::task::Poll;
 
+use chrono::{DateTime, Utc};
 use log::debug;
 use pyo3::{exceptions::PyTypeError, prelude::*};
 
 use crate::{
     pyo3_extensions::{TdPyAny, TdPyCallable},
-    recovery::{StateBytes, StateUpdate, StatefulLogic},
+    recovery::{LogicFate, StateBytes, StatefulLogic},
     try_unwrap, unwrap_any,
 };
 
@@ -26,21 +27,19 @@ impl StatefulMapLogic {
         builder: TdPyCallable,
         mapper: TdPyCallable,
     ) -> impl Fn(Option<StateBytes>) -> Self {
-        move |resume_state_bytes| {
-            let state = Some(
-                resume_state_bytes
-                    .map(|resume_state_bytes| resume_state_bytes.de())
-                    .unwrap_or_else(|| {
-                        Python::with_gil(|py| {
-                            let initial_state: TdPyAny = unwrap_any!(builder.call1(py, ())).into();
-                            debug!(
-                                "stateful_map: builder={:?}() -> initial_state{initial_state:?}",
-                                builder
-                            );
-                            initial_state
-                        })
-                    }),
-            );
+        move |resume_snapshot| {
+            let state = resume_snapshot
+                .map(StateBytes::de::<Option<TdPyAny>>)
+                .unwrap_or_else(|| {
+                    Python::with_gil(|py| {
+                        let initial_state: TdPyAny = unwrap_any!(builder.call1(py, ())).into();
+                        debug!(
+                            "stateful_map: builder={:?}() -> initial_state{initial_state:?}",
+                            builder
+                        );
+                        Some(initial_state)
+                    })
+                });
 
             Python::with_gil(|py| Self {
                 builder: builder.clone_ref(py),
@@ -52,7 +51,7 @@ impl StatefulMapLogic {
 }
 
 impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for StatefulMapLogic {
-    fn exec(&mut self, next_value: Poll<Option<TdPyAny>>) -> (Option<TdPyAny>, Option<Duration>) {
+    fn on_awake(&mut self, next_value: Poll<Option<TdPyAny>>) -> Option<TdPyAny> {
         if let Poll::Ready(Some(value)) = next_value {
             Python::with_gil(|py| {
                 let state = self.state.get_or_insert_with(|| {
@@ -85,17 +84,26 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for StatefulMapLogic {
 
                 self.state = updated_state;
 
-                (Some(updated_value), None)
+                Some(updated_value)
             })
         } else {
-            (None, None)
+            None
         }
     }
 
-    fn snapshot(&self) -> StateUpdate {
-        match &self.state {
-            Some(state) => StateUpdate::Upsert(StateBytes::ser(state)),
-            None => StateUpdate::Reset,
+    fn fate(&self) -> LogicFate {
+        if self.state.is_none() {
+            LogicFate::Discard
+        } else {
+            LogicFate::Retain
         }
+    }
+
+    fn next_awake(&self) -> Option<DateTime<Utc>> {
+        None
+    }
+
+    fn snapshot(&self) -> StateBytes {
+        StateBytes::ser::<Option<TdPyAny>>(&self.state)
     }
 }

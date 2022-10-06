@@ -4,11 +4,10 @@ use std::path::PathBuf;
 
 use futures::StreamExt;
 use log::debug;
+use log::trace;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use serde::Deserialize;
-use serde::Serialize;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::query;
@@ -26,18 +25,25 @@ use sqlx::SqliteConnection;
 use sqlx::Type;
 use tokio::runtime::Runtime;
 
-use super::FrontierBackup;
+use crate::recovery::Progress;
+use crate::recovery::ProgressOp;
+use crate::recovery::ProgressRecoveryKey;
+use crate::recovery::State;
+use crate::recovery::StateOp;
+
 use super::ProgressReader;
+use super::ProgressUpdate;
 use super::ProgressWriter;
 use super::RecoveryConfig;
-use super::StateBackup;
+use super::StateBytes;
 use super::StateCollector;
 use super::StateKey;
 use super::StateReader;
+use super::StateRecoveryKey;
 use super::StateUpdate;
 use super::StateWriter;
 use super::StepId;
-use super::{from_bytes, to_bytes, RecoveryKey};
+use super::WorkerIndex;
 
 /// Use [SQLite](https://sqlite.org/index.html) to store recovery
 /// data.
@@ -152,7 +158,7 @@ impl SqliteStateWriter {
         // because this value is not from items in the dataflow
         // stream, but from the config which should be under
         // developer control.
-        let sql = format!("CREATE TABLE IF NOT EXISTS {table_name} (step_id, key, epoch INTEGER, state, PRIMARY KEY (step_id, key, epoch));");
+        let sql = format!("CREATE TABLE IF NOT EXISTS {table_name} (step_id TEXT, state_key TEXT, epoch INTEGER, snapshot BLOB, next_awake TEXT, PRIMARY KEY (step_id, state_key, epoch));");
         let future = query(&sql).execute(&mut conn);
         rt.block_on(future).unwrap();
 
@@ -191,107 +197,150 @@ impl<'r> Decode<'r, Sqlite> for StepId {
 
 impl Type<Sqlite> for StateKey {
     fn type_info() -> SqliteTypeInfo {
-        <&[u8] as Type<Sqlite>>::type_info()
+        <String as Type<Sqlite>>::type_info()
     }
 }
 
+/// sqlx doesn't support the fact that SQLite lets you have weakly
+/// typed columns, so we can't store an int when it's worker index
+/// (for input component state) and a string when it's a generic
+/// hash. Instead do a light "encoding" of the type. We could break
+/// out full serde JSON for this, but it seems like overkill and would
+/// make querying the table via SQL harder.
 impl<'q> Encode<'q, Sqlite> for StateKey {
     fn encode_by_ref(&self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
-        let bytes = to_bytes(self);
-        args.push(SqliteArgumentValue::Blob(Cow::Owned(bytes)));
+        let value = match self {
+            Self::Hash(string) => {
+                format!("H:{string}")
+            }
+            Self::Worker(worker_index) => {
+                format!("W:{}", worker_index.0)
+            }
+        };
+        args.push(SqliteArgumentValue::Text(Cow::Owned(value)));
         IsNull::No
     }
 }
 
 impl<'r> Decode<'r, Sqlite> for StateKey {
     fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
-        let value = <&[u8] as Decode<Sqlite>>::decode(value)?;
-        Ok(from_bytes(value))
+        let value = <String as Decode<Sqlite>>::decode(value)?;
+        if let Some(string) = value.strip_prefix("H:") {
+            Ok(Self::Hash(string.to_string()))
+        } else if let Some(worker_index_str) = value.strip_prefix("W:") {
+            Ok(Self::Worker(WorkerIndex(worker_index_str.parse()?)))
+        } else {
+            panic!("Un-parseable state_key: {value:?}");
+        }
     }
 }
 
-impl Type<Sqlite> for StateUpdate {
+impl Type<Sqlite> for StateBytes {
     fn type_info() -> SqliteTypeInfo {
-        <&[u8] as Type<Sqlite>>::type_info()
+        <Vec<u8> as Type<Sqlite>>::type_info()
     }
 }
 
-impl<'q> Encode<'q, Sqlite> for StateUpdate {
+impl<'q> Encode<'q, Sqlite> for StateBytes {
+    fn encode(self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
+        args.push(SqliteArgumentValue::Blob(Cow::Owned(self.0)));
+        IsNull::No
+    }
+
     fn encode_by_ref(&self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
-        let bytes = to_bytes(self);
-        args.push(SqliteArgumentValue::Blob(Cow::Owned(bytes)));
+        args.push(SqliteArgumentValue::Blob(Cow::Owned(self.0.clone())));
         IsNull::No
     }
 }
 
-impl<'r> Decode<'r, Sqlite> for StateUpdate {
+impl<'r> Decode<'r, Sqlite> for StateBytes {
     fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
-        let value = <&[u8] as Decode<Sqlite>>::decode(value)?;
-        Ok(from_bytes(value))
+        let value = <Vec<u8> as Decode<Sqlite>>::decode(value)?;
+        Ok(Self(value))
     }
 }
 
-impl<T> Type<Sqlite> for FrontierBackup<T> {
+impl Type<Sqlite> for WorkerIndex {
     fn type_info() -> SqliteTypeInfo {
-        <&[u8] as Type<Sqlite>>::type_info()
+        // For some reason this does not like using i64 /
+        // SqliteArgumentValue::Int64. We get a similar error to
+        // https://github.com/launchbadge/sqlx/issues/2093. Maybe
+        // SQLite bug?
+        <i32 as Type<Sqlite>>::type_info()
     }
 }
 
-impl<'q, T: Serialize> Encode<'q, Sqlite> for FrontierBackup<T> {
+impl<'q> Encode<'q, Sqlite> for WorkerIndex {
     fn encode_by_ref(&self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
-        let bytes = to_bytes(self);
-        args.push(SqliteArgumentValue::Blob(Cow::Owned(bytes)));
+        args.push(SqliteArgumentValue::Int(self.0 as i32));
         IsNull::No
     }
 }
 
-impl<'r, T: Deserialize<'r>> Decode<'r, Sqlite> for FrontierBackup<T> {
+impl<'r> Decode<'r, Sqlite> for WorkerIndex {
     fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
-        let value = <&[u8] as Decode<Sqlite>>::decode(value)?;
-        Ok(from_bytes(value))
+        let value = <i32 as Decode<Sqlite>>::decode(value)?;
+        Ok(Self(value as usize))
     }
 }
 
 impl StateWriter<u64> for SqliteStateWriter {
-    fn write(&mut self, backup: &StateBackup<u64>) {
-        let StateBackup(recovery_key, state_update) = backup;
-        let RecoveryKey(step_id, key, epoch) = recovery_key;
-        let sql = format!("INSERT INTO {} (step_id, key, epoch, state) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (step_id, key, epoch) DO UPDATE SET state = EXCLUDED.state", self.table_name);
+    fn write(&mut self, update: &StateUpdate<u64>) {
+        let StateUpdate(recovery_key, op) = update;
+        let StateRecoveryKey {
+            step_id,
+            state_key,
+            epoch,
+        } = recovery_key;
+        let (snapshot, next_awake) = match op {
+            StateOp::Upsert(State {
+                snapshot,
+                next_awake,
+            }) => (Some(snapshot), next_awake.as_ref()),
+            StateOp::Discard => (None, None),
+        };
+
+        let sql = format!("INSERT INTO {} (step_id, state_key, epoch, snapshot, next_awake) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (step_id, state_key, epoch) DO UPDATE SET snapshot = EXCLUDED.snapshot, next_awake = EXCLUDED.next_awake", self.table_name);
         let future = query(&sql)
             .bind(step_id)
-            .bind(key)
+            .bind(state_key)
             .bind(<u64 as TryInto<i64>>::try_into(*epoch).expect("epoch can't fit into SQLite int"))
             // Remember, reset state is stored as an explicit NULL in the
             // DB.
-            .bind(state_update)
+            .bind(snapshot)
+            .bind(next_awake)
             .execute(&mut self.conn);
         self.rt.block_on(future).unwrap();
 
-        debug!("sqlite state write backup={backup:?}");
+        trace!("Wrote state update {update:?}");
     }
 }
 
 impl StateCollector<u64> for SqliteStateWriter {
-    fn delete(&mut self, recovery_key: &RecoveryKey<u64>) {
-        let RecoveryKey(step_id, key, epoch) = recovery_key;
+    fn delete(&mut self, recovery_key: &StateRecoveryKey<u64>) {
+        let StateRecoveryKey {
+            step_id,
+            state_key,
+            epoch,
+        } = recovery_key;
         let sql = format!(
-            "DELETE FROM {} WHERE step_id = ?1 AND key = ?2 AND epoch = ?3",
+            "DELETE FROM {} WHERE step_id = ?1 AND state_key = ?2 AND epoch = ?3",
             self.table_name
         );
         let future = query(&sql)
             .bind(step_id)
-            .bind(key)
+            .bind(state_key)
             .bind(<u64 as TryInto<i64>>::try_into(*epoch).expect("epoch can't fit into SQLite int"))
             .execute(&mut self.conn);
         self.rt.block_on(future).unwrap();
 
-        debug!("sqlite state delete recovery_key={recovery_key:?}");
+        trace!("Deleted state for {recovery_key:?}");
     }
 }
 
 pub(crate) struct SqliteStateReader {
     rt: Runtime,
-    rx: tokio::sync::mpsc::Receiver<StateBackup<u64>>,
+    rx: tokio::sync::mpsc::Receiver<StateUpdate<u64>>,
 }
 
 impl SqliteStateReader {
@@ -306,24 +355,32 @@ impl SqliteStateReader {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
 
         rt.spawn(async move {
-            let sql =
-                format!("SELECT step_id, key, epoch, state FROM {table_name} ORDER BY epoch ASC");
+            let sql = format!(
+                "SELECT step_id, state_key, epoch, snapshot, next_awake FROM {table_name} ORDER BY epoch ASC"
+            );
             let mut stream = query(&sql)
                 .map(|row: SqliteRow| {
-                    let recovery_key = RecoveryKey(
-                        row.get(0),
-                        row.get(1),
-                        row.get::<i64, _>(2)
+                    let recovery_key = StateRecoveryKey {
+                        step_id: row.get(0),
+                        state_key: row.get(1),
+                        epoch: row
+                            .get::<i64, _>(2)
                             .try_into()
                             .expect("SQLite int can't fit into epoch; might be negative"),
-                    );
-                    StateBackup(recovery_key, row.get(3))
+                    };
+                    let op = match (row.get(3), row.get(4)) {
+                        (None, Some(_)) => panic!("Missing snapshot in reading state SQLite table"),
+                        (Some(snapshot), next_awake) => StateOp::Upsert(State { snapshot, next_awake }),
+                        (None, None) => StateOp::Discard,
+                    };
+                    StateUpdate(recovery_key, op)
                 })
                 .fetch(&mut conn)
                 .map(|result| result.expect("Error selecting from SQLite"));
 
-            while let Some(backup) = stream.next().await {
-                tx.send(backup).await.unwrap();
+            while let Some(update) = stream.next().await {
+                trace!("Read state update {update:?}");
+                tx.send(update).await.unwrap();
             }
         });
 
@@ -332,7 +389,7 @@ impl SqliteStateReader {
 }
 
 impl StateReader<u64> for SqliteStateReader {
-    fn read(&mut self) -> Option<StateBackup<u64>> {
+    fn read(&mut self) -> Option<StateUpdate<u64>> {
         self.rt.block_on(self.rx.recv())
     }
 }
@@ -358,7 +415,9 @@ impl SqliteProgressWriter {
         let mut conn = rt.block_on(future).unwrap();
         debug!("Opened Sqlite connection to {db_file:?}");
 
-        let sql = format!("CREATE TABLE IF NOT EXISTS {table_name} (name PRIMARY KEY, antichain);");
+        let sql = format!(
+            "CREATE TABLE IF NOT EXISTS {table_name} (worker_index INTEGER PRIMARY KEY, frontier INTEGER);"
+        );
         let future = query(&sql).execute(&mut conn);
         rt.block_on(future).unwrap();
 
@@ -371,21 +430,27 @@ impl SqliteProgressWriter {
 }
 
 impl ProgressWriter<u64> for SqliteProgressWriter {
-    fn write(&mut self, backup: &FrontierBackup<u64>) {
-        let sql = format!("INSERT INTO {} (name, antichain) VALUES (?1, ?2) ON CONFLICT (name) DO UPDATE SET antichain = EXCLUDED.antichain", self.table_name);
+    fn write(&mut self, update: &ProgressUpdate<u64>) {
+        let ProgressUpdate(key, op) = update;
+        let ProgressRecoveryKey { worker_index } = key;
+        let ProgressOp::Upsert(Progress { frontier }) = op;
+        let sql = format!("INSERT INTO {} (worker_index, frontier) VALUES (?1, ?2) ON CONFLICT (worker_index) DO UPDATE SET frontier = EXCLUDED.frontier", self.table_name);
         let future = query(&sql)
-            .bind("worker_frontier")
-            .bind(backup)
+            .bind(worker_index)
+            .bind(
+                <u64 as TryInto<i64>>::try_into(*frontier)
+                    .expect("frontier can't fit into SQLite int"),
+            )
             .execute(&mut self.conn);
         self.rt.block_on(future).unwrap();
 
-        debug!("sqlite frontier write backup={backup:?}");
+        trace!("Wrote progress update {update:?}");
     }
 }
 
 pub(crate) struct SqliteProgressReader {
     rt: Runtime,
-    rx: tokio::sync::mpsc::Receiver<FrontierBackup<u64>>,
+    rx: tokio::sync::mpsc::Receiver<ProgressUpdate<u64>>,
 }
 
 impl SqliteProgressReader {
@@ -399,16 +464,26 @@ impl SqliteProgressReader {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
 
         rt.spawn(async move {
-            let sql =
-                format!("SELECT antichain FROM {table_name} WHERE name = \"worker_frontier\"");
+            let sql = format!("SELECT worker_index, frontier FROM {table_name}");
             let mut stream = query(&sql)
-                .map(|row: SqliteRow| row.get::<FrontierBackup<u64>, _>(0))
+                .map(|row: SqliteRow| {
+                    let key = ProgressRecoveryKey {
+                        worker_index: row.get(0),
+                    };
+                    let op = ProgressOp::Upsert(Progress {
+                        frontier: row
+                            .get::<i64, _>(1)
+                            .try_into()
+                            .expect("SQLite int can't fit into frontier; might be negative"),
+                    });
+                    ProgressUpdate(key, op)
+                })
                 .fetch(&mut conn)
                 .map(|result| result.expect("Error selecting from SQLite"));
 
-            while let Some(backup) = stream.next().await {
-                debug!("sqlite frontier read backup={backup:?}");
-                tx.send(backup).await.unwrap();
+            while let Some(update) = stream.next().await {
+                trace!("Read progress update {update:?}");
+                tx.send(update).await.unwrap();
             }
         });
 
@@ -417,7 +492,7 @@ impl SqliteProgressReader {
 }
 
 impl ProgressReader<u64> for SqliteProgressReader {
-    fn read(&mut self) -> Option<FrontierBackup<u64>> {
+    fn read(&mut self) -> Option<ProgressUpdate<u64>> {
         self.rt.block_on(self.rx.recv())
     }
 }

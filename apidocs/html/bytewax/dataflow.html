@@ -144,7 +144,7 @@ world
 window into an accumulator, using a function to build its initial value.</p>
 <p>It is like <code>bytewax.Dataflow.reduce_window()</code> but uses a function to
 build the initial value.</p>
-<p>It is a stateful operator. It requires the the input stream
+<p>It is a stateful operator. It requires the input stream
 has items that are <code>(key: str, value)</code> tuples so we can ensure
 that all relevant values are routed to the relevant state. It
 also requires a step ID to recover the correct state.</p>
@@ -179,7 +179,7 @@ is defined within a window.</p>
 &gt;&gt;&gt; def count(results, event):
 ...     results[event[&quot;type&quot;]] += 1
 ...     return results
-&gt;&gt;&gt; clock_config = TestingClockConfig(item_incr=timedelta(seconds=4))
+&gt;&gt;&gt; clock_config = TestingClockConfig(start_at=datetime(2022, 1, 1, 13), item_incr=timedelta(seconds=4))
 &gt;&gt;&gt; window_config = TumblingWindowConfig(length=timedelta(seconds=10))
 &gt;&gt;&gt; out = []
 &gt;&gt;&gt; flow = Dataflow(TestingInputConfig(gen()))
@@ -332,7 +332,7 @@ Saw 2 @ 2
 </code></dt>
 <dd>
 <div class="desc"><p>Reduce lets you combine items for a key into an accumulator.</p>
-<p>It is a stateful operator. It requires the the input stream
+<p>It is a stateful operator. It requires the input stream
 has items that are <code>(key: str, value)</code> tuples so we can ensure
 that all relevant values are routed to the relevant state. It
 also requires a step ID to recover the correct state.</p>
@@ -364,7 +364,8 @@ sort, then use this operator.</p>
 <li>Collection into a list</li>
 <li>Summarizing data</li>
 </ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.dataflow import Dataflow
+&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
 &gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
 &gt;&gt;&gt; from bytewax.execution import run_main
 &gt;&gt;&gt; flow = Dataflow()
@@ -377,7 +378,7 @@ sort, then use this operator.</p>
 ... ]
 &gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(inp))
 &gt;&gt;&gt; def user_as_key(event):
-...     return event[&quot;user&quot;], [event[&quot;type&quot;]]
+...     return event[&quot;user&quot;], [event]
 &gt;&gt;&gt; flow.map(user_as_key)
 &gt;&gt;&gt; def extend_session(session, events):
 ...     session.extend(events)
@@ -411,7 +412,7 @@ window into an accumulator.</p>
 <p>It is like <code>bytewax.Dataflow.reduce()</code> but marks the
 accumulator as complete automatically at the end of each
 window.</p>
-<p>It is a stateful operator. It requires the the input stream
+<p>It is a stateful operator. It requires the input stream
 has items that are <code>(key: str, value)</code> tuples so we can ensure
 that all relevant values are routed to the relevant state. It
 also requires a step ID to recover the correct state.</p>
@@ -484,7 +485,7 @@ updated_accumulator: Any</code></dd>
 <div class="desc"><p>Stateful map is a one-to-one transformation of values, but
 allows you to reference a persistent state for each key when
 doing the transformation.</p>
-<p>It is a stateful operator. It requires the the input stream
+<p>It is a stateful operator. It requires the input stream
 has items that are <code>(key: str, value)</code> tuples so we can ensure
 that all relevant values are routed to the relevant state. It
 also requires a step ID to recover the correct state.</p>

@@ -2,6 +2,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use log::debug;
+use log::trace;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rdkafka::admin::AdminClient;
@@ -17,11 +18,13 @@ use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use rdkafka::{Message, Offset, TopicPartitionList};
 use serde::de::DeserializeOwned;
+use serde::Deserialize;
 use serde::Serialize;
 
+use super::ProgressRecoveryKey;
 use super::{
-    from_bytes, to_bytes, FrontierBackup, ProgressReader, ProgressWriter, RecoveryConfig,
-    RecoveryKey, StateBackup, StateCollector, StateReader, StateUpdate, StateWriter,
+    ProgressOp, ProgressReader, ProgressUpdate, ProgressWriter, RecoveryConfig, StateCollector,
+    StateOp, StateReader, StateRecoveryKey, StateUpdate, StateWriter,
 };
 
 /// Use [Kafka](https://kafka.apache.org/) to store recovery data.
@@ -169,6 +172,26 @@ pub(crate) fn create_kafka_topic(brokers: &[String], topic: &str, partitions: i3
     }
 }
 
+fn to_bytes<T>(obj: &T) -> Vec<u8>
+where
+    T: Serialize,
+{
+    // TODO: Figure out if there's a more robust-to-evolution way
+    // to serialize this key. If the serialization changes between
+    // versions, then recovery doesn't work. Or if we use an
+    // encoding that isn't deterministic.
+    bincode::serialize(obj).expect("Error serializing Kafka recovery data")
+}
+
+fn from_bytes<'a, T>(bytes: &'a [u8]) -> T
+where
+    T: Deserialize<'a>,
+{
+    let t_name = std::any::type_name::<T>();
+    bincode::deserialize(bytes)
+        .unwrap_or_else(|_| panic!("Error deserializing Kafka recovery data {t_name})"))
+}
+
 /// This is a generic wrapper around [`BaseProducer`] which adds
 /// serde and only writes to a single topic and partition.
 pub(crate) struct KafkaWriter<K, P> {
@@ -220,18 +243,24 @@ impl<K: Serialize, P: Serialize> KafkaWriter<K, P> {
     }
 }
 
-impl<T: Serialize + Debug> StateWriter<T> for KafkaWriter<RecoveryKey<T>, StateUpdate> {
-    fn write(&mut self, backup: &StateBackup<T>) {
-        let StateBackup(recovery_key, state_update) = backup;
-        KafkaWriter::write(self, recovery_key, state_update);
-        debug!("kafka state write backup={backup:?}");
+impl<T> StateWriter<T> for KafkaWriter<StateRecoveryKey<T>, StateOp>
+where
+    T: Serialize + Debug,
+{
+    fn write(&mut self, update: &StateUpdate<T>) {
+        let StateUpdate(key, op) = update;
+        KafkaWriter::write(self, key, op);
+        trace!("Wrote state update {update:?}");
     }
 }
 
-impl<T: Serialize + Debug> StateCollector<T> for KafkaWriter<RecoveryKey<T>, StateUpdate> {
-    fn delete(&mut self, recovery_key: &RecoveryKey<T>) {
-        KafkaWriter::delete(self, recovery_key);
-        debug!("kafka state delete recovery_key={recovery_key:?}");
+impl<T> StateCollector<T> for KafkaWriter<StateRecoveryKey<T>, StateOp>
+where
+    T: Serialize + Debug,
+{
+    fn delete(&mut self, key: &StateRecoveryKey<T>) {
+        KafkaWriter::delete(self, key);
+        trace!("Deleted state for {key:?}");
     }
 }
 
@@ -286,14 +315,19 @@ impl<K: DeserializeOwned, P: DeserializeOwned> KafkaReader<K, P> {
     }
 }
 
-impl<T: DeserializeOwned> StateReader<T> for KafkaReader<RecoveryKey<T>, StateUpdate> {
-    fn read(&mut self) -> Option<StateBackup<T>> {
+impl<T> StateReader<T> for KafkaReader<StateRecoveryKey<T>, StateOp>
+where
+    T: DeserializeOwned + Debug,
+{
+    fn read(&mut self) -> Option<StateUpdate<T>> {
         loop {
             match KafkaReader::read(self) {
                 // Skip deletions if they haven't been compacted.
                 Some((_, None)) => continue,
-                Some((Some(recovery_key), Some(state_update))) => {
-                    return Some(StateBackup(recovery_key, state_update));
+                Some((Some(key), Some(op))) => {
+                    let update = StateUpdate(key, op);
+                    trace!("Read state update {update:?}");
+                    return Some(update);
                 }
                 Some((None, _)) => panic!("Missing key in reading state Kafka topic"),
                 None => return None,
@@ -302,22 +336,30 @@ impl<T: DeserializeOwned> StateReader<T> for KafkaReader<RecoveryKey<T>, StateUp
     }
 }
 
-impl<T: Serialize + Debug> ProgressWriter<T> for KafkaWriter<String, FrontierBackup<T>> {
-    fn write(&mut self, backup: &FrontierBackup<T>) {
-        KafkaWriter::write(self, &String::from("worker_frontier"), backup);
-        debug!("kafka frontier write backup={backup:?}");
+impl<T> ProgressWriter<T> for KafkaWriter<ProgressRecoveryKey, ProgressOp<T>>
+where
+    T: Serialize + Debug,
+{
+    fn write(&mut self, update: &ProgressUpdate<T>) {
+        let ProgressUpdate(key, op) = update;
+        KafkaWriter::write(self, key, op);
+        trace!("Wrote progress update {update:?}");
     }
 }
 
-impl<T: DeserializeOwned + Debug> ProgressReader<T> for KafkaReader<String, FrontierBackup<T>> {
-    fn read(&mut self) -> Option<FrontierBackup<T>> {
+impl<T> ProgressReader<T> for KafkaReader<ProgressRecoveryKey, ProgressOp<T>>
+where
+    T: DeserializeOwned + Debug,
+{
+    fn read(&mut self) -> Option<ProgressUpdate<T>> {
         match KafkaReader::read(self) {
-            Some((Some(_), Some(backup))) => {
-                debug!("kafka frontier read backup={backup:?}");
-                Some(backup)
+            Some((Some(key), Some(op))) => {
+                let update = ProgressUpdate(key, op);
+                trace!("Read progress update {update:?}");
+                Some(update)
             }
             None => None,
-            _ => panic!("Missing payload in reading frontier Kafka topic"),
+            _ => panic!("Missing key or value in reading recovery progress Kafka topic"),
         }
     }
 }

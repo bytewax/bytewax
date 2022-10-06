@@ -1,5 +1,6 @@
 use std::task::Poll;
 
+use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyCoroIterator};
 use crate::recovery::StateBytes;
 use crate::{py_unwrap, try_unwrap};
@@ -7,62 +8,6 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 
 use super::{InputConfig, InputReader};
-
-/// Construct a Python iterator for each worker from a builder
-/// function.
-pub(crate) struct ManualInput {
-    pyiter: TdPyCoroIterator,
-    last_state: TdPyAny,
-}
-
-impl ManualInput {
-    pub(crate) fn new(
-        py: Python,
-        input_builder: TdPyCallable,
-        worker_index: usize,
-        worker_count: usize,
-        resume_state_bytes: Option<StateBytes>,
-    ) -> Self {
-        let resume_state: TdPyAny = resume_state_bytes
-            .map(|resume_state_bytes| resume_state_bytes.de())
-            .unwrap_or_else(|| py.None().into());
-
-        let pyiter: TdPyCoroIterator = try_unwrap!(input_builder
-            .call1(py, (worker_index, worker_count, resume_state.clone_ref(py)))?
-            .extract(py));
-
-        Self {
-            pyiter,
-            last_state: resume_state,
-        }
-    }
-}
-
-impl InputReader<TdPyAny> for ManualInput {
-    fn next(&mut self) -> Poll<Option<TdPyAny>> {
-        self.pyiter.next().map(|poll| {
-            poll.map(|state_item_pytuple| {
-                Python::with_gil(|py| {
-                    let (updated_state, item): (TdPyAny, TdPyAny) = py_unwrap!(
-                        state_item_pytuple.extract(py),
-                        format!(
-                            "Manual input builders must yield `(state, item)` \
-                                two-tuples; got `{state_item_pytuple:?}` instead"
-                        )
-                    );
-
-                    self.last_state = updated_state;
-
-                    item
-                })
-            })
-        })
-    }
-
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser(&self.last_state)
-    }
-}
 
 /// Use a user-defined function that returns an iterable as the input
 /// source.
@@ -88,8 +33,8 @@ impl InputReader<TdPyAny> for ManualInput {
 ///
 /// Returns:
 ///
-///   Config object. Pass this as the `input_config` argument to the
-///   `bytewax.dataflow.Dataflow.input`.
+///   Config object. Pass this as the `input_config` argument of the
+///   `bytewax.dataflow.Dataflow.input` operator.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
 #[pyo3(text_signature = "(input_builder)", subclass)]
 pub(crate) struct ManualInputConfig {
@@ -125,5 +70,61 @@ impl ManualInputConfig {
                 "bad pickle contents for ManualInputConfig: {state:?}"
             )))
         }
+    }
+}
+
+/// Construct a Python iterator for each worker from a builder
+/// function.
+pub(crate) struct ManualInput {
+    pyiter: TdPyCoroIterator,
+    last_state: TdPyAny,
+}
+
+impl ManualInput {
+    pub(crate) fn new(
+        py: Python,
+        input_builder: TdPyCallable,
+        worker_index: WorkerIndex,
+        worker_count: usize,
+        resume_snapshot: Option<StateBytes>,
+    ) -> Self {
+        let resume_state: TdPyAny = resume_snapshot
+            .map(StateBytes::de::<TdPyAny>)
+            .unwrap_or_else(|| py.None().into());
+
+        let pyiter: TdPyCoroIterator = try_unwrap!(input_builder
+            .call1(py, (worker_index, worker_count, resume_state.clone_ref(py)))?
+            .extract(py));
+
+        Self {
+            pyiter,
+            last_state: resume_state,
+        }
+    }
+}
+
+impl InputReader<TdPyAny> for ManualInput {
+    fn next(&mut self) -> Poll<Option<TdPyAny>> {
+        self.pyiter.next().map(|poll| {
+            poll.map(|state_item_pytuple| {
+                Python::with_gil(|py| {
+                    let (updated_state, item): (TdPyAny, TdPyAny) = py_unwrap!(
+                        state_item_pytuple.extract(py),
+                        format!(
+                            "Manual input builders must yield `(state, item)` \
+                                two-tuples; got `{state_item_pytuple:?}` instead"
+                        )
+                    );
+
+                    self.last_state = updated_state;
+
+                    item
+                })
+            })
+        })
+    }
+
+    fn snapshot(&self) -> StateBytes {
+        StateBytes::ser::<TdPyAny>(&self.last_state)
     }
 }
