@@ -66,7 +66,8 @@ With some data loaded and our infrastructure running. We can move onto the fun p
 
 Every dataflow will contain, at the very least an input and an output. In this example the data input source will be a kafka topic and the output sink will be another kafka topic. Between the input and output lies the code used to transform the data. This is illustrated by the diagram below.
 
-![dataflow diagram]()
+<img width="600" alt="dataflow diagram" src="https://user-images.githubusercontent.com/6073079/194627909-9f5d7b52-7fbb-4137-8b0e-1163469a9c75.png">
+
 
 Let's walk through constructing the input, the transformation code and the output.
 
