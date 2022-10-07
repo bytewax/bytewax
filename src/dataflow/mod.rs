@@ -391,11 +391,17 @@ impl Dataflow {
     /// >>> def gen():
     /// ...     yield from [
     /// ...         {"user": "a", "type": "login"},
+    /// ...         sleep(4)
     /// ...         {"user": "a", "type": "post"},
+    /// ...         sleep(4)
     /// ...         {"user": "a", "type": "post"},
+    /// ...         sleep(4)
     /// ...         {"user": "b", "type": "login"},
+    /// ...         sleep(4)
     /// ...         {"user": "a", "type": "post"},
+    /// ...         sleep(4)
     /// ...         {"user": "b", "type": "post"},
+    /// ...         sleep(4)
     /// ...         {"user": "b", "type": "post"},
     /// ...     ]
     /// >>> def extract_id(event):
@@ -405,7 +411,7 @@ impl Dataflow {
     /// >>> def count(results, event):
     /// ...     results[event["type"]] += 1
     /// ...     return results
-    /// >>> clock_config = TestingClockConfig(start_at=datetime(2022, 1, 1, 13), item_incr=timedelta(seconds=4))
+    /// >>> clock_config = SystemClockConfig()
     /// >>> window_config = TumblingWindowConfig(length=timedelta(seconds=10))
     /// >>> out = []
     /// >>> flow = Dataflow(TestingInputConfig(gen()))

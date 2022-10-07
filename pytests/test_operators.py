@@ -14,8 +14,7 @@ from bytewax.inputs import (
 )
 from bytewax.outputs import ManualOutputConfig, TestingOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
-from bytewax.testing import TestingClock
-from bytewax.window import TestingClockConfig, TumblingWindowConfig
+from bytewax.window import EventClockConfig, TumblingWindowConfig
 
 # Stateful operators must test recovery to ensure serde works.
 epoch_config = TestingEpochConfig()
@@ -390,21 +389,15 @@ def test_stateful_map_error_on_non_string_key():
 
 def test_reduce_window(recovery_config):
     start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
-    clock = TestingClock(start_at)
-
     flow = Dataflow()
 
     def gen():
-        clock.now = start_at  # +0 sec; reset on recover
-        yield ("ALL", 1)
-        clock.now += timedelta(seconds=4)  # +4 sec
-        yield ("ALL", 1)
-        clock.now += timedelta(seconds=4)  # +8 sec
+        yield ("ALL", {"time": start_at, "val": 1})
+        yield ("ALL", {"time": start_at + timedelta(seconds=4), "val": 1})
+        yield ("ALL", {"time": start_at + timedelta(seconds=8), "val": 1})
+        yield ("ALL", {"time": start_at + timedelta(seconds=12), "val": 1})
         yield "BOOM"
-        yield ("ALL", 1)
-        clock.now += timedelta(seconds=4)  # +12 sec
-        yield ("ALL", 1)
-        clock.now += timedelta(seconds=4)  # +16 sec
+        yield ("ALL", {"time": start_at + timedelta(seconds=13), "val": 1})
 
     flow.input("inp", TestingBuilderInputConfig(gen))
 
@@ -422,15 +415,24 @@ def test_reduce_window(recovery_config):
 
     flow.flat_map(trigger)
 
-    clock_config = TestingClockConfig(clock)
+    clock_config = EventClockConfig(
+        lambda e: e["time"], wait_for_system_duration=timedelta(0)
+    )
     window_config = TumblingWindowConfig(
         length=timedelta(seconds=10), start_at=start_at
     )
 
     def add(acc, x):
-        return acc + x
+        acc["val"] += x["val"]
+        return acc
 
     flow.reduce_window("add", clock_config, window_config, add)
+
+    def extract_val(key__event):
+        key, event = key__event
+        return (key, event["val"])
+
+    flow.map(extract_val)
 
     out = []
     flow.capture(TestingOutputConfig(out))
@@ -438,8 +440,8 @@ def test_reduce_window(recovery_config):
     with raises(RuntimeError):
         run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
-    # No windows yet after epoch 2.
-    assert sorted(out) == sorted([])
+    # Only the first window closed here
+    assert sorted(out) == sorted([("ALL", 3)])
 
     # Disable bomb
     armed.clear()
@@ -448,35 +450,27 @@ def test_reduce_window(recovery_config):
     # Recover
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
-    # But it remembers the first two items in the first window.
-    assert sorted(out) == sorted([("ALL", 3), ("ALL", 1)])
+    # But it remembers the first item of the second window.
+    assert sorted(out) == sorted([("ALL", 2)])
 
 
 def test_fold_window(recovery_config):
     start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
-    clock = TestingClock(start_at)
-
     flow = Dataflow()
 
     def gen():
-        clock.now = start_at  # +0 sec; reset on recover
-        yield {"user": "a", "type": "login"}  # Epoch 0
-        clock.now += timedelta(seconds=4)  # +4 sec
-        yield {"user": "a", "type": "post"}  # Epoch 1
-        clock.now += timedelta(seconds=4)  # +8 sec
-        yield {"user": "a", "type": "post"}  # Epoch 2
-        clock.now += timedelta(seconds=4)  # +12 sec
+        yield {"time": start_at, "user": "a", "type": "login"}
+        yield {"time": start_at + timedelta(seconds=4), "user": "a", "type": "post"}
+        yield {"time": start_at + timedelta(seconds=8), "user": "a", "type": "post"}
         # First 10 sec window closes during processing this input.
-        yield {"user": "b", "type": "login"}  # Epoch 3
-        yield "BOOM"  # Epoch 4
-        clock.now += timedelta(seconds=4)  # +16 sec
-        yield {"user": "a", "type": "post"}  # Epoch 5
-        clock.now += timedelta(seconds=4)  # +20 sec
+        yield {"time": start_at + timedelta(seconds=12), "user": "b", "type": "login"}
+        yield {"time": start_at + timedelta(seconds=16), "user": "a", "type": "post"}
+        # Crash before closing the window.
+        # It will be emitted during the second run.
+        yield "BOOM"
         # Second 10 sec window closes during processing this input.
-        yield {"user": "b", "type": "post"}  # Epoch 6
-        clock.now += timedelta(seconds=4)  # +24 sec
-        yield {"user": "b", "type": "post"}  # Epoch 7
-        clock.now += timedelta(seconds=4)  # +28 sec
+        yield {"time": start_at + timedelta(seconds=20), "user": "b", "type": "post"}
+        yield {"time": start_at + timedelta(seconds=24), "user": "b", "type": "post"}
 
     flow.input("inp", TestingBuilderInputConfig(gen))
 
@@ -495,16 +489,19 @@ def test_fold_window(recovery_config):
     flow.flat_map(trigger)
 
     def key_off_user(event):
-        return (event["user"], event["type"])
+        return (event["user"], event)
 
     flow.map(key_off_user)
 
-    clock_config = TestingClockConfig(clock)
+    clock_config = EventClockConfig(
+        lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
+    )
     window_config = TumblingWindowConfig(
         length=timedelta(seconds=10), start_at=start_at
     )
 
-    def count(counts, typ):
+    def count(counts, event):
+        typ = event["type"]
         if typ not in counts:
             counts[typ] = 0
         counts[typ] += 1
@@ -529,15 +526,7 @@ def test_fold_window(recovery_config):
     # Recover
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
-    assert out == [
-        # Output from epoch 3 is duplicated because the epoch would
-        # only be closed and snapshotted for recovery on epoch 4, but
-        # the exception during epoch 4 happens before the fold_window
-        # operator gets to run. This is the best we can do in this
-        # situation without figuring out a transactional exactly-once
-        # kind of thing.
-        ("a", {"login": 1, "post": 2}),
-        ("b", {"login": 1}),
-        ("a", {"post": 1}),
-        ("b", {"post": 2}),
-    ]
+    assert len(out) == 3
+    assert ("b", {"login": 1}) in out
+    assert ("b", {"post": 2}) in out
+    assert ("a", {"post": 1}) in out
