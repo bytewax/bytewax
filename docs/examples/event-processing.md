@@ -127,7 +127,7 @@ flow.map(anonymize_email)
 flow.filter(remove_bytewax)
 ```
 
-Bytewax is a stateful stream processor, which means that you can do things like aggregations and windowing. With Bytewax, state is stored in memory on the workers by default and can also be persisted with different [state recovery mechanisms](https://docs.bytewax.io/apidocs/bytewax.recovery). There are different stateful operators available like `reduce`, `stateful_map` and `fold_window`. The complete list can be found in the [API documentation for all operators](https://docs.bytewax.io/apidocs/bytewax.dataflow). Below we use the `fold_window` operator with a tumbling window based on system time to gather events and calculate the number of times different events happen per user.
+Bytewax is a stateful stream processor, which means that you can do things like aggregations and windowing. With Bytewax, state is stored in memory on the workers by default, but can also be persisted with different [state recovery mechanisms](https://docs.bytewax.io/apidocs/bytewax.recovery) for failure recovery. There are different stateful operators available like `reduce`, `stateful_map` and `fold_window`. The complete list can be found in the [API documentation for all operators](https://docs.bytewax.io/apidocs/bytewax.dataflow). Below we use the `fold_window` operator with a tumbling window based on system time to gather events and calculate the number of times different events happen per user.
 
 ```python doctest:SKIP
 import datetime
@@ -194,7 +194,7 @@ if __name__ == "__main__":
 **Deploying and Scaling**
 --------
 
-Bytewax can be run as a single worker thread, single worker process on a local machine, or remote machine with multiple worker threads and worker processes just like a regular python script.
+Bytewax can be run like a regular python script using a single worker thread and process. Alternatively it could be scaled up to multiple worker threads and processes.
 
 ```sh doctest:SKIP
 python my_dataflow.py
