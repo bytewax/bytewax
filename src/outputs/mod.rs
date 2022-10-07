@@ -134,13 +134,7 @@ pub(crate) fn build_output_writer(
     } else if let Ok(config) = config.downcast::<PyCell<DynamoDBOutputConfig>>() {
         let config = config.borrow();
         let table = &config.table;
-        let primary_key = &config.primary_key;
-        let writer = py.allow_threads(|| {
-            SendWrapper::new(DynamoDBOutput::new(
-                table.to_string(),
-                primary_key.to_string(),
-            ))
-        });
+        let writer = py.allow_threads(|| SendWrapper::new(DynamoDBOutput::new(table.to_string())));
 
         Ok(Box::new(writer.take()))
     } else {
