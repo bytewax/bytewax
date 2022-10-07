@@ -2,18 +2,17 @@
 [![PyPI](https://img.shields.io/pypi/v/bytewax.svg?style=flat-square)](https://pypi.org/project/bytewax/)
 [![Bytewax User Guide](https://img.shields.io/badge/user-guide-brightgreen?style=flat-square)](https://docs.bytewax.io/)
 
-
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://user-images.githubusercontent.com/6073079/190717414-1cb12001-95be-453e-a5a0-15d2be938053.svg" width="350">
-  <source media="(prefers-color-scheme: light)" srcset="https://user-images.githubusercontent.com/6073079/157465283-c106c4e5-301a-4e7a-a26e-586229356fdd.svg" width="350">
+  <source media="(prefers-color-scheme: dark)" srcset="https://user-images.githubusercontent.com/6073079/194626717-6c4ecbfe-afa9-408e-b8bb-91552842762c.png" width="350">
+  <source media="(prefers-color-scheme: light)" srcset="https://user-images.githubusercontent.com/6073079/194626697-425ade3d-3d72-4b4c-928e-47bad174a376.png" width="350">
   <img alt="Bytewax">
 </picture>
 
 ## Python Stateful Stream Processing Framework
 
-Bytewax is a Python framework that simplifies event and stream processing. Because Bytewax couples the stream & event processing capabilities of Flink, Spark, and Kafka Streams with the friendly and familiar interface of Python, you can re-use the Python libraries you already know and love.
+Bytewax is a Python framework that simplifies event and stream processing. Because Bytewax couples the stream & event processing capabilities of Flink, Spark, and Kafka Streams with the friendly and familiar interface of Python, you can re-use the Python libraries you already know and love. Connect data sources, run stateful transformations and write to various different downstream systems with built-in connectors or existing Python libraries. 
 
-![Diagram]()
+<img width="1303" alt="Screen Shot 2022-10-07 at 2 22 49 PM" src="https://user-images.githubusercontent.com/6073079/194624582-c16df8d6-d501-46b2-bdbc-78dbed67902e.png">
 
 
 ### How it all works
