@@ -82,6 +82,7 @@ impl ManualOutput {
 }
 
 impl OutputWriter<u64, TdPyAny> for ManualOutput {
+    #[tracing::instrument(name = "ManualOutput.push", level = "trace", skip_all)]
     fn push(&mut self, _epoch: u64, item: TdPyAny) {
         Python::with_gil(|py| unwrap_any!(self.pyfunc.call1(py, (item,))));
     }

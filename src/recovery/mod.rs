@@ -229,7 +229,6 @@
 
 use chrono::DateTime;
 use chrono::Utc;
-use log::trace;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -1785,7 +1784,7 @@ where
     T: Debug,
 {
     fn write(&mut self, update: &StateUpdate<T>) {
-        trace!("Noop wrote state update {update:?}");
+        tracing::trace!("Noop wrote state update {update:?}");
     }
 }
 
@@ -1794,7 +1793,7 @@ where
     T: Debug,
 {
     fn delete(&mut self, key: &StateRecoveryKey<T>) {
-        trace!("Noop deleted state for {key:?}");
+        tracing::trace!("Noop deleted state for {key:?}");
     }
 }
 
@@ -1809,7 +1808,7 @@ where
     T: Debug,
 {
     fn write(&mut self, update: &ProgressUpdate<T>) {
-        trace!("Noop wrote progress update {update:?}");
+        tracing::trace!("Noop wrote progress update {update:?}");
     }
 }
 

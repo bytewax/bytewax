@@ -12,6 +12,7 @@ pub(crate) mod operators;
 pub(crate) mod outputs;
 pub(crate) mod pyo3_extensions;
 pub(crate) mod recovery;
+pub(crate) mod tracing;
 pub(crate) mod window;
 
 #[macro_use]
@@ -37,14 +38,13 @@ fn sleep_release_gil(py: Python, secs: u64) {
 #[pymodule]
 #[pyo3(name = "bytewax")]
 fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
-    pyo3_log::init();
-
     dataflow::register(py, m)?;
     execution::register(py, m)?;
     inputs::register(py, m)?;
     outputs::register(py, m)?;
     recovery::register(py, m)?;
     window::register(py, m)?;
+    tracing::register(py, m)?;
 
     m.add_function(wrap_pyfunction!(sleep_keep_gil, m)?)?;
     m.add_function(wrap_pyfunction!(sleep_release_gil, m)?)?;

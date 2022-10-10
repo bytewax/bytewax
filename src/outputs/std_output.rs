@@ -53,6 +53,7 @@ impl StdOutput {
 }
 
 impl OutputWriter<u64, TdPyAny> for StdOutput {
+    #[tracing::instrument(name = "StdOutput.push", level = "trace", skip_all)]
     fn push(&mut self, _epoch: u64, item: TdPyAny) {
         Python::with_gil(|py| {
             let item = item.as_ref(py);

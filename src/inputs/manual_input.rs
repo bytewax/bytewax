@@ -104,18 +104,21 @@ impl ManualInput {
 }
 
 impl InputReader<TdPyAny> for ManualInput {
+    #[tracing::instrument(name = "manual_input", level = "trace", skip_all)]
     fn next(&mut self) -> Poll<Option<TdPyAny>> {
         self.pyiter.next().map(|poll| {
             poll.map(|state_item_pytuple| {
                 Python::with_gil(|py| {
-                    let (updated_state, item): (TdPyAny, TdPyAny) = py_unwrap!(
-                        state_item_pytuple.extract(py),
-                        format!(
-                            "Manual input builders must yield `(state, item)` \
+                    let (updated_state, item): (TdPyAny, TdPyAny) =
+                        tracing::trace_span!("Python input").in_scope(|| {
+                            py_unwrap!(
+                                state_item_pytuple.extract(py),
+                                format!(
+                                    "Manual input builders must yield `(state, item)` \
                                 two-tuples; got `{state_item_pytuple:?}` instead"
-                        )
-                    );
-
+                                )
+                            )
+                        });
                     self.last_state = updated_state;
 
                     item
@@ -124,6 +127,7 @@ impl InputReader<TdPyAny> for ManualInput {
         })
     }
 
+    #[tracing::instrument(name = "manual_input_snapshot", level = "trace", skip_all)]
     fn snapshot(&self) -> StateBytes {
         StateBytes::ser::<TdPyAny>(&self.last_state)
     }

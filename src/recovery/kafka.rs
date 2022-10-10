@@ -1,8 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use log::debug;
-use log::trace;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rdkafka::admin::AdminClient;
@@ -161,10 +159,10 @@ pub(crate) fn create_kafka_topic(brokers: &[String], topic: &str, partitions: i3
         .unwrap();
     match result {
         Ok(topic) => {
-            debug!("Created Kafka topic={topic:?}");
+            tracing::debug!("Created Kafka topic={topic:?}");
         }
         Err((topic, rdkafka::types::RDKafkaErrorCode::TopicAlreadyExists)) => {
-            debug!("Kafka topic={topic:?} already exists; continuing");
+            tracing::debug!("Kafka topic={topic:?} already exists; continuing");
         }
         Err((topic, err_code)) => {
             panic!("Error creating Kafka topic={topic:?}: {err_code:?}")
@@ -204,7 +202,7 @@ pub(crate) struct KafkaWriter<K, P> {
 
 impl<K: Serialize, P: Serialize> KafkaWriter<K, P> {
     pub(crate) fn new(brokers: &[String], topic: String, partition: i32) -> Self {
-        debug!("Creating Kafka producer with brokers={brokers:?} topic={topic:?}");
+        tracing::debug!("Creating Kafka producer with brokers={brokers:?} topic={topic:?}");
         let producer: BaseProducer = ClientConfig::new()
             .set("bootstrap.servers", brokers.join(","))
             .create()
@@ -247,10 +245,11 @@ impl<T> StateWriter<T> for KafkaWriter<StateRecoveryKey<T>, StateOp>
 where
     T: Serialize + Debug,
 {
+    #[tracing::instrument(name = "KafkaStateWriter.write", level = "trace", skip_all)]
     fn write(&mut self, update: &StateUpdate<T>) {
         let StateUpdate(key, op) = update;
         KafkaWriter::write(self, key, op);
-        trace!("Wrote state update {update:?}");
+        tracing::trace!("Wrote state update {update:?}");
     }
 }
 
@@ -258,9 +257,10 @@ impl<T> StateCollector<T> for KafkaWriter<StateRecoveryKey<T>, StateOp>
 where
     T: Serialize + Debug,
 {
+    #[tracing::instrument(name = "KafkaStateWriter.delete", level = "trace", skip_all)]
     fn delete(&mut self, key: &StateRecoveryKey<T>) {
         KafkaWriter::delete(self, key);
-        trace!("Deleted state for {key:?}");
+        tracing::trace!("Deleted state for {key:?}");
     }
 }
 
@@ -274,7 +274,7 @@ pub(crate) struct KafkaReader<K, P> {
 
 impl<K: DeserializeOwned, P: DeserializeOwned> KafkaReader<K, P> {
     pub(crate) fn new(brokers: &[String], topic: &str, partition: i32) -> Self {
-        debug!("Loading recovery data from brokers={brokers:?} topic={topic:?}");
+        tracing::debug!("Loading recovery data from brokers={brokers:?} topic={topic:?}");
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", brokers.join(","))
             // We don't want to use consumer groups because
@@ -319,6 +319,7 @@ impl<T> StateReader<T> for KafkaReader<StateRecoveryKey<T>, StateOp>
 where
     T: DeserializeOwned + Debug,
 {
+    #[tracing::instrument(name = "KafkaStateReader.read", level = "trace", skip_all)]
     fn read(&mut self) -> Option<StateUpdate<T>> {
         loop {
             match KafkaReader::read(self) {
@@ -326,7 +327,7 @@ where
                 Some((_, None)) => continue,
                 Some((Some(key), Some(op))) => {
                     let update = StateUpdate(key, op);
-                    trace!("Read state update {update:?}");
+                    tracing::trace!("Read state update {update:?}");
                     return Some(update);
                 }
                 Some((None, _)) => panic!("Missing key in reading state Kafka topic"),
@@ -340,10 +341,11 @@ impl<T> ProgressWriter<T> for KafkaWriter<ProgressRecoveryKey, ProgressOp<T>>
 where
     T: Serialize + Debug,
 {
+    #[tracing::instrument(name = "KafkaProgressWriter.write", level = "trace", skip_all)]
     fn write(&mut self, update: &ProgressUpdate<T>) {
         let ProgressUpdate(key, op) = update;
         KafkaWriter::write(self, key, op);
-        trace!("Wrote progress update {update:?}");
+        tracing::trace!("Wrote progress update {update:?}");
     }
 }
 
@@ -351,11 +353,12 @@ impl<T> ProgressReader<T> for KafkaReader<ProgressRecoveryKey, ProgressOp<T>>
 where
     T: DeserializeOwned + Debug,
 {
+    #[tracing::instrument(name = "KafkaProgressReader.read", level = "trace", skip_all)]
     fn read(&mut self) -> Option<ProgressUpdate<T>> {
         match KafkaReader::read(self) {
             Some((Some(key), Some(op))) => {
                 let update = ProgressUpdate(key, op);
-                trace!("Read progress update {update:?}");
+                tracing::trace!("Read progress update {update:?}");
                 Some(update)
             }
             None => None,

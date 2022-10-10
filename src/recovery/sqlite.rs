@@ -3,8 +3,6 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use futures::StreamExt;
-use log::debug;
-use log::trace;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -151,7 +149,7 @@ impl SqliteStateWriter {
         options = options.create_if_missing(true);
         let future = SqliteConnection::connect_with(&options);
         let mut conn = rt.block_on(future).unwrap();
-        debug!("Opened Sqlite connection to {db_file:?}");
+        tracing::debug!("Opened Sqlite connection to {db_file:?}");
 
         // TODO: SQLite doesn't let you bind to table names. Can
         // we do this in a slightly safer way? I'm not as worried
@@ -285,6 +283,7 @@ impl<'r> Decode<'r, Sqlite> for WorkerIndex {
 }
 
 impl StateWriter<u64> for SqliteStateWriter {
+    #[tracing::instrument(name = "SqliteStateWriter.write", level = "trace", skip_all)]
     fn write(&mut self, update: &StateUpdate<u64>) {
         let StateUpdate(recovery_key, op) = update;
         let StateRecoveryKey {
@@ -312,11 +311,12 @@ impl StateWriter<u64> for SqliteStateWriter {
             .execute(&mut self.conn);
         self.rt.block_on(future).unwrap();
 
-        trace!("Wrote state update {update:?}");
+        tracing::trace!("Wrote state update {update:?}");
     }
 }
 
 impl StateCollector<u64> for SqliteStateWriter {
+    #[tracing::instrument(name = "SqliteStateWriter.delete", level = "trace", skip_all)]
     fn delete(&mut self, recovery_key: &StateRecoveryKey<u64>) {
         let StateRecoveryKey {
             step_id,
@@ -334,7 +334,7 @@ impl StateCollector<u64> for SqliteStateWriter {
             .execute(&mut self.conn);
         self.rt.block_on(future).unwrap();
 
-        trace!("Deleted state for {recovery_key:?}");
+        tracing::trace!("Deleted state for {recovery_key:?}");
     }
 }
 
@@ -379,7 +379,7 @@ impl SqliteStateReader {
                 .map(|result| result.expect("Error selecting from SQLite"));
 
             while let Some(update) = stream.next().await {
-                trace!("Read state update {update:?}");
+                tracing::trace!("Read state update {update:?}");
                 tx.send(update).await.unwrap();
             }
         });
@@ -389,6 +389,7 @@ impl SqliteStateReader {
 }
 
 impl StateReader<u64> for SqliteStateReader {
+    #[tracing::instrument(name = "SqliteStateReader.read", level = "trace", skip_all)]
     fn read(&mut self) -> Option<StateUpdate<u64>> {
         self.rt.block_on(self.rx.recv())
     }
@@ -413,7 +414,7 @@ impl SqliteProgressWriter {
         options = options.create_if_missing(true);
         let future = SqliteConnection::connect_with(&options);
         let mut conn = rt.block_on(future).unwrap();
-        debug!("Opened Sqlite connection to {db_file:?}");
+        tracing::debug!("Opened Sqlite connection to {db_file:?}");
 
         let sql = format!(
             "CREATE TABLE IF NOT EXISTS {table_name} (worker_index INTEGER PRIMARY KEY, frontier INTEGER);"
@@ -430,6 +431,7 @@ impl SqliteProgressWriter {
 }
 
 impl ProgressWriter<u64> for SqliteProgressWriter {
+    #[tracing::instrument(name = "SqliteProgressWriter.write", level = "trace", skip_all)]
     fn write(&mut self, update: &ProgressUpdate<u64>) {
         let ProgressUpdate(key, op) = update;
         let ProgressRecoveryKey { worker_index } = key;
@@ -444,7 +446,7 @@ impl ProgressWriter<u64> for SqliteProgressWriter {
             .execute(&mut self.conn);
         self.rt.block_on(future).unwrap();
 
-        trace!("Wrote progress update {update:?}");
+        tracing::trace!("Wrote progress update {update:?}");
     }
 }
 
@@ -482,7 +484,7 @@ impl SqliteProgressReader {
                 .map(|result| result.expect("Error selecting from SQLite"));
 
             while let Some(update) = stream.next().await {
-                trace!("Read progress update {update:?}");
+                tracing::trace!("Read progress update {update:?}");
                 tx.send(update).await.unwrap();
             }
         });
@@ -492,6 +494,7 @@ impl SqliteProgressReader {
 }
 
 impl ProgressReader<u64> for SqliteProgressReader {
+    #[tracing::instrument(name = "SqliteProgressReader.read", level = "trace", skip_all)]
     fn read(&mut self) -> Option<ProgressUpdate<u64>> {
         self.rt.block_on(self.rx.recv())
     }

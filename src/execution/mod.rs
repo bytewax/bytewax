@@ -53,18 +53,20 @@ use crate::recovery::{RecoveryConfig, StepId};
 use crate::recovery::{RecoveryStoreSummary, StateWriter};
 use crate::recovery::{StateBytes, StateKey};
 use crate::recovery::{StateUpdateStream, StatefulUnary};
+use crate::tracing::{BytewaxTracer, StdOutTracingConfig, TracingConfig};
 use crate::window::{build_clock_builder, build_windower_builder, StatefulWindowUnary};
 use crate::StringResult;
-use log::debug;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
+use tracing::span::EnteredSpan;
+// use tracing::log::LevelFilter;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use timely::communication::Allocate;
 use timely::dataflow::{operators::*, Stream};
 use timely::dataflow::{ProbeHandle, Scope};
@@ -452,14 +454,47 @@ fn build_production_dataflow<A: Allocate>(
     })
 }
 
+// Struct used to handle a span that is closed and reopened periodically.
+struct PeriodicSpan {
+    span: Option<EnteredSpan>,
+    length: Duration,
+    // State
+    last_open: Instant,
+    counter: u64,
+}
+
+impl PeriodicSpan {
+    pub fn new(length: Duration) -> Self {
+        Self {
+            span: Some(tracing::trace_span!("Periodic", counter = 0).entered()),
+            length,
+            last_open: Instant::now(),
+            counter: 0,
+        }
+    }
+
+    pub fn update(&mut self) {
+        if self.last_open.elapsed() > self.length {
+            if let Some(span) = self.span.take() {
+                span.exit();
+            }
+            self.counter += 1;
+            self.span = Some(tracing::trace_span!("Periodic", counter = self.counter).entered());
+            self.last_open = Instant::now();
+        }
+    }
+}
+
 /// Run a dataflow which uses sources until complete.
 fn run_until_done<A: Allocate, T: Timestamp>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     probe: ProbeHandle<T>,
 ) {
+    let mut span = PeriodicSpan::new(Duration::from_secs(10));
     while !interrupt_flag.load(Ordering::Relaxed) && !probe.done() {
         worker.step();
+        span.update();
     }
 }
 
@@ -475,12 +510,12 @@ fn build_and_run_resume_epoch_calc_dataflow<A: Allocate>(
 
     let resume_epoch = match resume_epoch_rx.recv() {
         Ok(resume_epoch) => {
-            debug!("Loaded resume epoch {resume_epoch}");
+            tracing::debug!("Loaded resume epoch {resume_epoch}");
             resume_epoch
         }
         Err(_) => {
             let default_epoch = <u64 as Timestamp>::minimum();
-            debug!("No resume epoch calculated; probably empty recovery store; starting at minimum epoch {default_epoch}");
+            tracing::debug!("No resume epoch calculated; probably empty recovery store; starting at minimum epoch {default_epoch}");
             default_epoch
         }
     };
@@ -530,6 +565,7 @@ fn build_and_run_production_dataflow<A: Allocate>(
     state_writer: Box<dyn StateWriter<u64>>,
     state_collector: Box<dyn StateCollector<u64>>,
 ) -> StringResult<()> {
+    let span = tracing::trace_span!("Building dataflow").entered();
     let probe = Python::with_gil(|py| {
         build_production_dataflow(
             py,
@@ -544,6 +580,7 @@ fn build_and_run_production_dataflow<A: Allocate>(
             state_collector,
         )
     })?;
+    span.exit();
 
     run_until_done(worker, interrupt_flag, probe);
 
@@ -561,6 +598,15 @@ fn shutdown_worker<A: Allocate>(worker: &mut Worker<A>) {
     }
 }
 
+pub(crate) fn default_tracing_config() -> Py<TracingConfig> {
+    Python::with_gil(|py| {
+        PyCell::new(py, StdOutTracingConfig::py_new())
+            .unwrap()
+            .extract()
+            .unwrap()
+    })
+}
+
 /// What a worker thread should do during its lifetime.
 fn worker_main<A: Allocate>(
     worker: &mut Worker<A>,
@@ -568,9 +614,15 @@ fn worker_main<A: Allocate>(
     flow: Py<Dataflow>,
     epoch_config: Option<Py<EpochConfig>>,
     recovery_config: Option<Py<RecoveryConfig>>,
+    tracing_config: Option<Py<TracingConfig>>,
 ) -> StringResult<()> {
     let epoch_config = epoch_config.unwrap_or_else(default_epoch_config);
     let recovery_config = recovery_config.unwrap_or_else(default_recovery_config);
+    let tracing_config = tracing_config.unwrap_or_else(default_tracing_config);
+
+    // TRACING
+    let tracer = BytewaxTracer::new();
+    let _ = tracer.setup(tracing_config);
 
     let worker_index = worker.index();
     let worker_count = worker.peers();
@@ -582,11 +634,15 @@ fn worker_main<A: Allocate>(
         build_recovery_writers(py, worker_index, worker_count, recovery_config)
     })?;
 
+    let span = tracing::trace_span!("Resume epoch").entered();
     let resume_epoch =
         build_and_run_resume_epoch_calc_dataflow(worker, interrupt_flag, progress_reader)?;
+    span.exit();
 
+    let span = tracing::trace_span!("State loading").entered();
     let (resume_state, recovery_store_summary) =
         build_and_run_state_loading_dataflow(worker, interrupt_flag, resume_epoch, state_reader)?;
+    span.exit();
 
     build_and_run_production_dataflow(
         worker,
@@ -640,13 +696,20 @@ fn worker_main<A: Allocate>(
 ///       `bytewax.recovery`. If `None`, state will not be
 ///       persisted.
 ///
-#[pyfunction(flow, "*", epoch_length = "None", recovery_config = "None")]
-#[pyo3(text_signature = "(flow, *, epoch_config, recovery_config)")]
+#[pyfunction(
+    flow,
+    "*",
+    epoch_config = "None",
+    recovery_config = "None",
+    tracing_config = "None"
+)]
+#[pyo3(text_signature = "(flow, *, epoch_config, recovery_config, tracing_config)")]
 pub(crate) fn run_main(
     py: Python,
     flow: Py<Dataflow>,
     epoch_config: Option<Py<EpochConfig>>,
     recovery_config: Option<Py<RecoveryConfig>>,
+    tracing_config: Option<Py<TracingConfig>>,
 ) -> PyResult<()> {
     let result = py.allow_threads(move || {
         std::panic::catch_unwind(|| {
@@ -656,8 +719,14 @@ pub(crate) fn run_main(
             // panic recast issue below.
             timely::execute::execute_directly::<Result<(), String>, _>(move |worker| {
                 let interrupt_flag = AtomicBool::new(false);
-
-                worker_main(worker, &interrupt_flag, flow, epoch_config, recovery_config)
+                worker_main(
+                    worker,
+                    &interrupt_flag,
+                    flow,
+                    epoch_config,
+                    recovery_config,
+                    tracing_config,
+                )
             })
         })
     });
@@ -729,10 +798,11 @@ pub(crate) fn run_main(
     "*",
     epoch_config = "None",
     recovery_config = "None",
+    tracing_config = "None",
     worker_count_per_proc = "1"
 )]
 #[pyo3(
-    text_signature = "(flow, addresses, proc_id, *, epoch_config, recovery_config, worker_count_per_proc)"
+    text_signature = "(flow, addresses, proc_id, *, epoch_config, recovery_config, tracing_config, worker_count_per_proc)"
 )]
 pub(crate) fn cluster_main(
     py: Python,
@@ -741,6 +811,7 @@ pub(crate) fn cluster_main(
     proc_id: usize,
     epoch_config: Option<Py<EpochConfig>>,
     recovery_config: Option<Py<RecoveryConfig>>,
+    tracing_config: Option<Py<TracingConfig>>,
     worker_count_per_proc: usize,
 ) -> PyResult<()> {
     py.allow_threads(move || {
@@ -795,6 +866,7 @@ pub(crate) fn cluster_main(
                     flow.clone(),
                     epoch_config.clone(),
                     recovery_config.clone(),
+                    tracing_config.clone(),
                 )
             },
         )

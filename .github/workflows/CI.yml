@@ -17,7 +17,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt update
-        sudo apt install libssl-dev libsasl2-dev pkg-config openssl
+        sudo apt install libssl-dev libsasl2-dev pkg-config openssl protobuf-compiler
     - uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
