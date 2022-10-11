@@ -7,9 +7,11 @@ Prerequisites
 ---------
 
 **Kafka/Redpanda**
+
 To get started you will need a Kafka ([Docker setup](https://developer.confluent.io/quickstart/kafka-docker/)) or Redpanda ([Docker setup](https://docs.redpanda.com/docs/quickstart/quick-start-docker/)) cluster running.
 
 **Postgres**
+
 Follow the correct installation guide for your OS from those listed on the [wiki](https://wiki.postgresql.org/wiki/Detailed_installation_guides). Once you have completed the installation, you will need to create a db and a table with the correct schema.
 
 ```sql doctest:SKIP
@@ -24,6 +26,7 @@ CREATE TABLE events (
 ```
 
 **Python Modules**
+
 You should also have the following installed:
 
 ```bash
@@ -31,6 +34,7 @@ pip install bytewax==0.11.1 psycopg2==2.9.4 kafka-python==2.0.2
 ```
 
 **Data**
+
 To get started with some data we will use the code below to generate some web events in our topic for processing in the dataflow we are going to write. Create a new file named `fake_events.py` with the code below included.
 
 ```python doctest:SKIP
