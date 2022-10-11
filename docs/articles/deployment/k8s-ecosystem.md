@@ -1,4 +1,4 @@
-As we mentioned in our [Execution section](https://docs.bytewax.io/getting-started/execution/#multiple-workers-manual-cluster). Bytewax allows you to run a dataflow program in a coordinated set of processes if you use the `bytewax.cluster_main()` entry point.
+As we mentioned in our [Execution section](/docs/getting-started/execution#multiple-workers-manual-cluster). Bytewax allows you to run a dataflow program in a coordinated set of processes if you use the `bytewax.cluster_main()` entry point.
 
 That entry point requires the addresses of all the processes and assign them each a unique ID.
 
@@ -81,7 +81,7 @@ In the above diagram, the application container has these environment variables:
           value: my-dataflow
 ```
 
-Some of those were already covered in the [How Bytewax Image Works](/deployment/container/#how-the-bytewax-image-works) section.
+Some of those were already covered in the [How Bytewax Image Works](/docs/deployment/container/#how-the-bytewax-image-works) section.
 
 The environment variables can be grouped into two groups: 
 
@@ -136,7 +136,7 @@ We use this Kubernetes object to give access to the Registry Credentials Secrets
 
 ## Next Steps
 
-If you want to deploy this stack in your Kubernetes cluster we invite you to read our [next section](/deployment/waxctl) where we use the Bytewax CLI, `waxctl`, to do that.
+If you want to deploy this stack in your Kubernetes cluster we invite you to read our [next section](/docs/deployment/waxctl) where we use the Bytewax CLI, `waxctl`, to do that.
 
 ## Example Manifests
 

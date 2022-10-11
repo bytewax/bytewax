@@ -172,7 +172,7 @@ future!
 ## Recovery Prep
 
 Following our checklist in [Bytewax's documentation on
-recovery](/getting-started/recovery/) we need to enhance our input
+recovery](/docs/getting-started/recovery/) we need to enhance our input
 builder with a few things.
 
 First, we need the ability to resume our input from where we left off.

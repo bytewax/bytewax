@@ -128,7 +128,7 @@ Now that we have a Dataflow, and some input, we can add a series of **steps**
 to the dataflow. Steps are made up of **operators**, that provide a "shape"
 of transformation, and **logic functions**, that you supply to do your specific
 transformation. [You can read more about all the operators in our
-documentation.](/getting-started/operators)
+documentation.](/docs/getting-started/operators/)
 
 Our first task is to make sure to group incoming events by user since
 no session deals with multiple users.
@@ -274,7 +274,7 @@ Execution
 ---------
 
 [Bytewax provides a few different entry points for executing your
-dataflow](/getting-started/execution/), but because we're focusing on the dataflow in
+dataflow](/docs/getting-started/execution/), but because we're focusing on the dataflow in
 this example, we're going to use `bytewax.execution.run_main` which is the most basic
 execution mode.
 

@@ -124,9 +124,9 @@ flow = Dataflow()
 flow.input("input", ManualInputConfig(input_builder))
 ```
 
-To receive input, our program needs an **input iterator**. We've defined a [Python generator](https://docs.python.org/3/glossary.html#term-generator) that will read our input file. There are also more advanced ways to provide input, which you can read about later when we talk about [execution modes](/getting-started/execution/).
+To receive input, our program needs an **input iterator**. We've defined a [Python generator](https://docs.python.org/3/glossary.html#term-generator) that will read our input file. There are also more advanced ways to provide input, which you can read about later when we talk about [execution modes](/docs/getting-started/execution/).
 
-This generator yields two-tuples of `resume_state` and a line from our file. The `resume_state` in this example is significant, but we'll talk more about it when we discuss [recovery](/getting-started/recovery/).
+This generator yields two-tuples of `resume_state` and a line from our file. The `resume_state` in this example is significant, but we'll talk more about it when we discuss [recovery](/docs/getting-started/recovery/).
 
 We then initialize a `ManualInputConfig` with the `input_builder` function.
 Now we can introduce our first operator, [input](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.input), that will generate the data for the flow.
@@ -272,4 +272,4 @@ Here is the complete output when running the example:
 ('fortune', 1)
 ```
 
-To learn more about possible modes of execution, [read our page on execution](/getting-started/execution/).
+To learn more about possible modes of execution, [read our page on execution](/docs/getting-started/execution/).
