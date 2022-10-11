@@ -6,7 +6,7 @@ use pyo3::{exceptions::PyValueError, PyResult};
 
 use crate::recovery::StateBytes;
 
-use super::{Clock, ClockBuilder, ClockConfig, Builder};
+use super::{Builder, Clock, ClockBuilder, ClockConfig};
 
 /// Use the system time inside the windowing operator to determine
 /// times.
@@ -23,7 +23,7 @@ pub(crate) struct SystemClockConfig {}
 
 impl<V> ClockBuilder<V> for SystemClockConfig {
     fn builder(self) -> Builder<V> {
-        Box::new(move |_resume_state_bytes| Box::new(SystemClock::new()))
+        Box::new(move |_resume_snapshot| Box::new(SystemClock::new()))
     }
 }
 

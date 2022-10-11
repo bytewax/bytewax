@@ -40,7 +40,6 @@ use crate::outputs::build_output_writer;
 use crate::outputs::capture;
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny};
 use crate::recovery::StateReader;
-use crate::recovery::StatefulUnary;
 use crate::recovery::WriteProgress;
 use crate::recovery::WriteState;
 use crate::recovery::{
@@ -48,16 +47,18 @@ use crate::recovery::{
     build_state_loading_dataflow,
 };
 use crate::recovery::{default_recovery_config, ProgressWriter};
-use crate::recovery::{CollectGarbage, EpochData};
+use crate::recovery::{CollectGarbage, State};
 use crate::recovery::{ProgressReader, StateCollector};
 use crate::recovery::{RecoveryConfig, StepId};
 use crate::recovery::{RecoveryStoreSummary, StateWriter};
 use crate::recovery::{StateBytes, StateKey};
+use crate::recovery::{StateUpdateStream, StatefulUnary};
 use crate::window::{build_clock_builder, build_windower_builder, StatefulWindowUnary};
 use crate::StringResult;
 use log::debug;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -130,18 +131,41 @@ pub(crate) fn default_epoch_config() -> Py<EpochConfig> {
     })
 }
 
+/// Integer representing the index of a worker in a cluster.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub(crate) struct WorkerIndex(pub(crate) usize);
+
+impl WorkerIndex {
+    /// Tell Timely to route to this worker.
+    // My read of
+    // https://github.com/TimelyDataflow/timely-dataflow/blob/v0.12.0/timely/src/dataflow/channels/pushers/exchange.rs#L61-L90
+    // says that if you return the worker index, it'll be
+    // routed to that worker.
+    pub(crate) fn route_to(&self) -> u64 {
+        self.0 as u64
+    }
+}
+
+impl IntoPy<PyObject> for WorkerIndex {
+    fn into_py(self, py: Python) -> Py<PyAny> {
+        self.0.into_py(py)
+    }
+}
+
 /// Generate the [`StateKey`] that represents this worker and
 /// determine if there's any resume state.
 fn resume_input_state(
-    worker_index: usize,
-    _worker_count: usize,
-    mut step_to_resume_state_bytes: HashMap<StateKey, StateBytes>,
+    worker_index: WorkerIndex,
+    mut resume_state: HashMap<StateKey, State>,
 ) -> (Option<StateBytes>, StateKey) {
     let key = StateKey::Worker(worker_index);
 
-    let resume_state_bytes = step_to_resume_state_bytes.remove(&key);
+    let resume_snapshot = resume_state
+        .remove(&key)
+        // Input operators do not care about next awake time.
+        .map(|state| state.snapshot);
 
-    (resume_state_bytes, key)
+    (resume_snapshot, key)
 }
 
 fn build_source<S>(
@@ -153,7 +177,7 @@ fn build_source<S>(
     reader: Box<dyn InputReader<TdPyAny>>,
     start_at: S::Timestamp,
     probe: &ProbeHandle<S::Timestamp>,
-) -> StringResult<(Stream<S, TdPyAny>, Stream<S, EpochData>)>
+) -> StringResult<(Stream<S, TdPyAny>, StateUpdateStream<S>)>
 where
     S: Scope<Timestamp = u64>,
 {
@@ -200,14 +224,14 @@ fn build_production_dataflow<A: Allocate>(
     worker: &mut Worker<A>,
     epoch_config: Py<EpochConfig>,
     resume_epoch: u64,
-    mut step_to_key_to_resume_state_bytes: HashMap<StepId, HashMap<StateKey, StateBytes>>,
+    mut resume_state: HashMap<StepId, HashMap<StateKey, State>>,
     recovery_store_summary: RecoveryStoreSummary<u64>,
     flow: Py<Dataflow>,
     progress_writer: Box<dyn ProgressWriter<u64>>,
     state_writer: Box<dyn StateWriter<u64>>,
     state_collector: Box<dyn StateCollector<u64>>,
 ) -> StringResult<ProbeHandle<u64>> {
-    let worker_index = worker.index();
+    let worker_index = WorkerIndex(worker.index());
     let worker_count = worker.peers();
 
     worker.dataflow(|scope| {
@@ -234,12 +258,9 @@ fn build_production_dataflow<A: Allocate>(
                     step_id,
                     input_config,
                 } => {
-                    let (resume_state_bytes, recovery_key) = resume_input_state(
+                    let (step_resume_state, recovery_key) = resume_input_state(
                         worker_index,
-                        worker_count,
-                        step_to_key_to_resume_state_bytes
-                            .remove(&step_id)
-                            .unwrap_or_default(),
+                        resume_state.remove(&step_id).unwrap_or_default(),
                     );
 
                     let input_reader = build_input_reader(
@@ -247,7 +268,7 @@ fn build_production_dataflow<A: Allocate>(
                         input_config,
                         worker_index,
                         worker_count,
-                        resume_state_bytes,
+                        step_resume_state,
                     )?;
                     let (downstream, update_stream) = build_source(
                         py,
@@ -279,9 +300,7 @@ fn build_production_dataflow<A: Allocate>(
                     builder,
                     folder,
                 } => {
-                    let key_to_resume_state_bytes = step_to_key_to_resume_state_bytes
-                        .remove(&step_id)
-                        .unwrap_or_default();
+                    let step_resume_state = resume_state.remove(&step_id).unwrap_or_default();
 
                     let clock_builder = build_clock_builder(py, clock_config)?;
                     let windower_builder = build_windower_builder(py, window_config)?;
@@ -292,7 +311,7 @@ fn build_production_dataflow<A: Allocate>(
                             clock_builder,
                             windower_builder,
                             FoldWindowLogic::new(builder, folder),
-                            key_to_resume_state_bytes,
+                            step_resume_state,
                         );
 
                     stream = downstream
@@ -319,15 +338,13 @@ fn build_production_dataflow<A: Allocate>(
                     reducer,
                     is_complete,
                 } => {
-                    let key_to_resume_state_bytes = step_to_key_to_resume_state_bytes
-                        .remove(&step_id)
-                        .unwrap_or_default();
+                    let step_resume_state = resume_state.remove(&step_id).unwrap_or_default();
 
                     let (downstream, update_stream) =
                         stream.map(extract_state_pair).stateful_unary(
                             step_id,
                             ReduceLogic::builder(reducer, is_complete),
-                            key_to_resume_state_bytes,
+                            step_resume_state,
                         );
                     stream = downstream.map(wrap_state_pair);
                     state_update_streams.push(update_stream);
@@ -338,9 +355,7 @@ fn build_production_dataflow<A: Allocate>(
                     window_config,
                     reducer,
                 } => {
-                    let key_to_resume_state_bytes = step_to_key_to_resume_state_bytes
-                        .remove(&step_id)
-                        .unwrap_or_default();
+                    let step_resume_state = resume_state.remove(&step_id).unwrap_or_default();
 
                     let clock_builder = build_clock_builder(py, clock_config)?;
                     let windower_builder = build_windower_builder(py, window_config)?;
@@ -351,7 +366,7 @@ fn build_production_dataflow<A: Allocate>(
                             clock_builder,
                             windower_builder,
                             ReduceWindowLogic::builder(reducer),
-                            key_to_resume_state_bytes,
+                            step_resume_state,
                         );
 
                     stream = downstream
@@ -371,15 +386,13 @@ fn build_production_dataflow<A: Allocate>(
                     builder,
                     mapper,
                 } => {
-                    let key_to_resume_state_bytes = step_to_key_to_resume_state_bytes
-                        .remove(&step_id)
-                        .unwrap_or_default();
+                    let step_resume_state = resume_state.remove(&step_id).unwrap_or_default();
 
                     let (downstream, update_stream) =
                         stream.map(extract_state_pair).stateful_unary(
                             step_id,
                             StatefulMapLogic::builder(builder, mapper),
-                            key_to_resume_state_bytes,
+                            step_resume_state,
                         );
                     stream = downstream.map(wrap_state_pair);
                     state_update_streams.push(update_stream);
@@ -403,35 +416,35 @@ fn build_production_dataflow<A: Allocate>(
         if capture_streams.is_empty() {
             return Err("Dataflow needs to contain at least one capture".to_string());
         }
-        if !step_to_key_to_resume_state_bytes.is_empty() {
+        if !resume_state.is_empty() {
             return Err(format!(
                 "Recovery data had unknown step IDs: {:?}",
-                step_to_key_to_resume_state_bytes.keys(),
+                resume_state.keys(),
             ));
         }
 
-        let state_backup_stream = scope
+        let state_update_stream = scope
             .concatenate(state_update_streams)
             .write_state_with(state_writer);
 
         let capture_stream = scope.concatenate(capture_streams);
 
-        let dataflow_frontier_backup_stream = capture_stream
+        let dataflow_progress_update_stream = capture_stream
             // TODO: Can we only downstream progress messages? Doing this
             // flat_map trick results in nothing (not even progress)
             // downstream.
             //.flat_map(|_| Option::<()>::None)
-            //.concat(&state_backup_stream.flat_map(|_| Option::<()>::None))
+            //.concat(&state_update_stream.flat_map(|_| Option::<()>::None))
             .map(|_| ())
-            .concat(&state_backup_stream.map(|_| ()))
+            .concat(&state_update_stream.map(|_| ()))
             .write_progress_with(progress_writer)
             .broadcast();
 
-        state_backup_stream
+        state_update_stream
             .collect_garbage(
                 recovery_store_summary,
                 state_collector,
-                dataflow_frontier_backup_stream,
+                dataflow_progress_update_stream,
             )
             .probe_with(&mut probe);
 
@@ -481,34 +494,28 @@ fn build_and_run_state_loading_dataflow<A: Allocate>(
     resume_epoch: u64,
     state_reader: Box<dyn StateReader<u64>>,
 ) -> StringResult<(
-    HashMap<StepId, HashMap<StateKey, StateBytes>>,
+    HashMap<StepId, HashMap<StateKey, State>>,
     RecoveryStoreSummary<u64>,
 )> {
-    let (step_to_key_to_resume_state_bytes_tx, step_to_key_to_resume_state_bytes_rx) =
-        std::sync::mpsc::channel();
+    let (resume_state_tx, resume_state_rx) = std::sync::mpsc::channel();
     let (recovery_store_summary_tx, recovery_store_summary_rx) = std::sync::mpsc::channel();
 
     let probe = build_state_loading_dataflow(
         worker,
         state_reader,
         resume_epoch,
-        step_to_key_to_resume_state_bytes_tx,
+        resume_state_tx,
         recovery_store_summary_tx,
     )?;
 
     run_until_done(worker, interrupt_flag, probe);
 
-    let mut step_to_key_to_resume_state_bytes = HashMap::new();
-    while let Ok((step_id, key_to_resume_state_bytes)) = step_to_key_to_resume_state_bytes_rx.recv()
-    {
-        step_to_key_to_resume_state_bytes.insert(step_id, key_to_resume_state_bytes);
-    }
-
+    let resume_state = resume_state_rx.into_iter().collect();
     let recovery_store_summary = recovery_store_summary_rx
         .recv()
         .expect("Recovery store summary not returned from loading dataflow");
 
-    Ok((step_to_key_to_resume_state_bytes, recovery_store_summary))
+    Ok((resume_state, recovery_store_summary))
 }
 
 fn build_and_run_production_dataflow<A: Allocate>(
@@ -517,7 +524,7 @@ fn build_and_run_production_dataflow<A: Allocate>(
     flow: Py<Dataflow>,
     epoch_config: Py<EpochConfig>,
     resume_epoch: u64,
-    step_to_key_to_resume_state_bytes: HashMap<StepId, HashMap<StateKey, StateBytes>>,
+    resume_state: HashMap<StepId, HashMap<StateKey, State>>,
     recovery_store_summary: RecoveryStoreSummary<u64>,
     progress_writer: Box<dyn ProgressWriter<u64>>,
     state_writer: Box<dyn StateWriter<u64>>,
@@ -529,7 +536,7 @@ fn build_and_run_production_dataflow<A: Allocate>(
             worker,
             epoch_config,
             resume_epoch,
-            step_to_key_to_resume_state_bytes,
+            resume_state,
             recovery_store_summary,
             flow,
             progress_writer,
@@ -578,7 +585,7 @@ fn worker_main<A: Allocate>(
     let resume_epoch =
         build_and_run_resume_epoch_calc_dataflow(worker, interrupt_flag, progress_reader)?;
 
-    let (step_to_key_to_resume_state_bytes, recovery_store_summary) =
+    let (resume_state, recovery_store_summary) =
         build_and_run_state_loading_dataflow(worker, interrupt_flag, resume_epoch, state_reader)?;
 
     build_and_run_production_dataflow(
@@ -587,7 +594,7 @@ fn worker_main<A: Allocate>(
         flow,
         epoch_config,
         resume_epoch,
-        step_to_key_to_resume_state_bytes,
+        resume_state,
         recovery_store_summary,
         progress_writer,
         state_writer,
