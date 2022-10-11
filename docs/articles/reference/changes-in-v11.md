@@ -125,7 +125,7 @@ def input_builder(worker_index, worker_count, resume_state):
         yield state, line
 ```
 
-So instead of manually yielding the `epoch` in the input function, we can either ignore it (passing `None` as state), or handle the value to implement recovery (see the [recovery chapter](/getting-started/recovery)).
+So instead of manually yielding the `epoch` in the input function, we can either ignore it (passing `None` as state), or handle the value to implement recovery (see the [recovery chapter](/docs/getting-started/recovery)).
 
 Then we need to wrap the `input_builder` with `ManualInputConfig`, give it a name ("file_input" here) and pass it to the `input` operator (rather than the `run` function):
 
