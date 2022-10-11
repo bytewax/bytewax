@@ -11,6 +11,7 @@ Prerequisites
 To get started you will need a Kafka ([Docker setup](https://developer.confluent.io/quickstart/kafka-docker/)) or Redpanda ([Docker setup](https://docs.redpanda.com/docs/quickstart/quick-start-docker/)) cluster running.
 
 **Python Modules**
+
 You should also have the following installed:
 
 pip install bytewax==0.11.1 requests==2.28.0 kafka-python==2.0.2
