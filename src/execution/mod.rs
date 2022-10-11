@@ -35,31 +35,25 @@ use crate::operators::fold_window::FoldWindowLogic;
 use crate::operators::reduce::ReduceLogic;
 use crate::operators::reduce_window::ReduceWindowLogic;
 use crate::operators::stateful_map::StatefulMapLogic;
+use crate::operators::stateful_unary::StatefulUnary;
 use crate::operators::*;
 use crate::outputs::build_output_writer;
 use crate::outputs::capture;
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny};
-use crate::recovery::StateReader;
-use crate::recovery::WriteProgress;
-use crate::recovery::WriteState;
-use crate::recovery::{
-    build_recovery_readers, build_recovery_writers, build_resume_epoch_calc_dataflow,
-    build_state_loading_dataflow,
-};
-use crate::recovery::{default_recovery_config, ProgressWriter};
-use crate::recovery::{CollectGarbage, State};
-use crate::recovery::{ProgressReader, StateCollector};
-use crate::recovery::{RecoveryConfig, StepId};
-use crate::recovery::{RecoveryStoreSummary, StateWriter};
-use crate::recovery::{StateBytes, StateKey};
-use crate::recovery::{StateUpdateStream, StatefulUnary};
+use crate::recovery::dataflows::*;
+use crate::recovery::model::*;
+use crate::recovery::operators::FlowChangeStream;
+use crate::recovery::python::*;
+use crate::recovery::store::in_mem::StoreSummary;
 use crate::window::{build_clock_builder, build_windower_builder, StatefulWindowUnary};
 use crate::StringResult;
-use log::debug;
+use log::{debug, warn};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::fmt::Debug;
+use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -68,6 +62,8 @@ use std::time::Duration;
 use timely::communication::Allocate;
 use timely::dataflow::{operators::*, Stream};
 use timely::dataflow::{ProbeHandle, Scope};
+use timely::order::TotalOrder;
+use timely::progress::timestamp::Refines;
 use timely::progress::Timestamp;
 use timely::worker::Worker;
 
@@ -135,17 +131,6 @@ pub(crate) fn default_epoch_config() -> Py<EpochConfig> {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) struct WorkerIndex(pub(crate) usize);
 
-impl WorkerIndex {
-    /// Tell Timely to route to this worker.
-    // My read of
-    // https://github.com/TimelyDataflow/timely-dataflow/blob/v0.12.0/timely/src/dataflow/channels/pushers/exchange.rs#L61-L90
-    // says that if you return the worker index, it'll be
-    // routed to that worker.
-    pub(crate) fn route_to(&self) -> u64 {
-        self.0 as u64
-    }
-}
-
 impl IntoPy<PyObject> for WorkerIndex {
     fn into_py(self, py: Python) -> Py<PyAny> {
         self.0.into_py(py)
@@ -156,43 +141,38 @@ impl IntoPy<PyObject> for WorkerIndex {
 /// determine if there's any resume state.
 fn resume_input_state(
     worker_index: WorkerIndex,
-    mut resume_state: HashMap<StateKey, State>,
+    mut resume_state: StepStateBytes,
 ) -> (Option<StateBytes>, StateKey) {
     let key = StateKey::Worker(worker_index);
 
-    let resume_snapshot = resume_state
-        .remove(&key)
-        // Input operators do not care about next awake time.
-        .map(|state| state.snapshot);
+    let resume_snapshot = resume_state.remove(&key);
 
     (resume_snapshot, key)
 }
 
-fn build_source<S>(
+pub(crate) fn build_source<S>(
     py: Python,
-    epoch_config: Py<EpochConfig>,
+    config: Py<EpochConfig>,
     scope: &S,
     step_id: StepId,
     key: StateKey,
     reader: Box<dyn InputReader<TdPyAny>>,
     start_at: S::Timestamp,
     probe: &ProbeHandle<S::Timestamp>,
-) -> StringResult<(Stream<S, TdPyAny>, StateUpdateStream<S>)>
+) -> StringResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)>
 where
     S: Scope<Timestamp = u64>,
 {
-    let epoch_config = epoch_config.as_ref(py);
+    let config = config.as_ref(py);
 
-    if let Ok(testing_config) = epoch_config.downcast::<PyCell<TestingEpochConfig>>() {
-        let _testing_config = testing_config.borrow();
-
+    if let Ok(_config) = config.downcast::<PyCell<TestingEpochConfig>>() {
         Ok(testing_epoch_source(
             scope, step_id, key, reader, start_at, probe,
         ))
-    } else if let Ok(periodic_config) = epoch_config.downcast::<PyCell<PeriodicEpochConfig>>() {
-        let periodic_config = periodic_config.borrow();
+    } else if let Ok(config) = config.downcast::<PyCell<PeriodicEpochConfig>>() {
+        let config = config.borrow();
 
-        let epoch_length = periodic_config
+        let epoch_length = config
             .epoch_length
             .to_std()
             .map_err(|err| format!("Invalid epoch length: {err:?}"))?;
@@ -207,7 +187,7 @@ where
             epoch_length,
         ))
     } else {
-        let pytype = epoch_config.get_type();
+        let pytype = config.get_type();
         Err(format!("Unknown epoch_config type: {pytype}"))
     }
 }
@@ -219,29 +199,35 @@ where
 /// concepts to Timely, as we are using Timely as a basis to implement
 /// more-complicated Bytewax features like input builders and
 /// recovery.
-fn build_production_dataflow<A: Allocate>(
+fn build_production_dataflow<A, PW, SW>(
     py: Python,
     worker: &mut Worker<A>,
+    flow: Py<Dataflow>,
     epoch_config: Py<EpochConfig>,
     resume_epoch: u64,
-    mut resume_state: HashMap<StepId, HashMap<StateKey, State>>,
-    recovery_store_summary: RecoveryStoreSummary<u64>,
-    flow: Py<Dataflow>,
-    progress_writer: Box<dyn ProgressWriter<u64>>,
-    state_writer: Box<dyn StateWriter<u64>>,
-    state_collector: Box<dyn StateCollector<u64>>,
-) -> StringResult<ProbeHandle<u64>> {
+    mut resume_state: FlowStateBytes,
+    store_summary: StoreSummary<u64>,
+    progress_writer: PW,
+    state_writer: Rc<RefCell<SW>>,
+) -> StringResult<ProbeHandle<u64>>
+where
+    A: Allocate,
+    PW: ProgressWriter<u64> + 'static,
+    SW: StateWriter<u64> + ?Sized + 'static,
+{
     let worker_index = WorkerIndex(worker.index());
     let worker_count = worker.peers();
+
+    let worker_key = WorkerKey(worker_index);
 
     worker.dataflow(|scope| {
         let flow = flow.as_ref(py).borrow();
 
         let mut probe = ProbeHandle::new();
 
-        let mut input_streams = Vec::new();
-        let mut state_update_streams = Vec::new();
-        let mut capture_streams = Vec::new();
+        let mut inputs = Vec::new();
+        let mut step_changes = Vec::new();
+        let mut capture_clocks = Vec::new();
 
         // Start with an "empty" stream. We might overwrite it with
         // input later.
@@ -258,10 +244,8 @@ fn build_production_dataflow<A: Allocate>(
                     step_id,
                     input_config,
                 } => {
-                    let (step_resume_state, recovery_key) = resume_input_state(
-                        worker_index,
-                        resume_state.remove(&step_id).unwrap_or_default(),
-                    );
+                    let (step_resume_state, store_key) =
+                        resume_input_state(worker_index, resume_state.remove(&step_id));
 
                     let input_reader = build_input_reader(
                         py,
@@ -270,19 +254,19 @@ fn build_production_dataflow<A: Allocate>(
                         worker_count,
                         step_resume_state,
                     )?;
-                    let (downstream, update_stream) = build_source(
+                    let (output, changes) = build_source(
                         py,
                         epoch_config.clone_ref(py),
                         scope,
                         step_id,
-                        recovery_key,
+                        store_key,
                         input_reader,
                         resume_epoch,
                         &probe,
                     )?;
-                    input_streams.push(downstream.clone());
-                    stream = downstream;
-                    state_update_streams.push(update_stream);
+                    inputs.push(output.clone());
+                    stream = output;
+                    step_changes.push(changes);
                 }
                 Step::Map { mapper } => {
                     stream = stream.map(move |item| map(&mapper, item));
@@ -300,21 +284,20 @@ fn build_production_dataflow<A: Allocate>(
                     builder,
                     folder,
                 } => {
-                    let step_resume_state = resume_state.remove(&step_id).unwrap_or_default();
+                    let step_resume_state = resume_state.remove(&step_id);
 
                     let clock_builder = build_clock_builder(py, clock_config)?;
                     let windower_builder = build_windower_builder(py, window_config)?;
 
-                    let (downstream, update_stream) =
-                        stream.map(extract_state_pair).stateful_window_unary(
-                            step_id,
-                            clock_builder,
-                            windower_builder,
-                            FoldWindowLogic::new(builder, folder),
-                            step_resume_state,
-                        );
+                    let (output, changes) = stream.map(extract_state_pair).stateful_window_unary(
+                        step_id,
+                        clock_builder,
+                        windower_builder,
+                        FoldWindowLogic::new(builder, folder),
+                        step_resume_state,
+                    );
 
-                    stream = downstream
+                    stream = output
                         .map(|(key, result)| {
                             result
                                 .map(|value| (key.clone(), value))
@@ -324,7 +307,7 @@ fn build_production_dataflow<A: Allocate>(
                         // ignore late values.
                         .ok()
                         .map(wrap_state_pair);
-                    state_update_streams.push(update_stream);
+                    step_changes.push(changes);
                 }
                 Step::Inspect { inspector } => {
                     stream = stream.inspect(move |item| inspect(&inspector, item));
@@ -338,16 +321,15 @@ fn build_production_dataflow<A: Allocate>(
                     reducer,
                     is_complete,
                 } => {
-                    let step_resume_state = resume_state.remove(&step_id).unwrap_or_default();
+                    let step_resume_state = resume_state.remove(&step_id);
 
-                    let (downstream, update_stream) =
-                        stream.map(extract_state_pair).stateful_unary(
-                            step_id,
-                            ReduceLogic::builder(reducer, is_complete),
-                            step_resume_state,
-                        );
-                    stream = downstream.map(wrap_state_pair);
-                    state_update_streams.push(update_stream);
+                    let (output, changes) = stream.map(extract_state_pair).stateful_unary(
+                        step_id,
+                        ReduceLogic::builder(reducer, is_complete),
+                        step_resume_state,
+                    );
+                    stream = output.map(wrap_state_pair);
+                    step_changes.push(changes);
                 }
                 Step::ReduceWindow {
                     step_id,
@@ -355,21 +337,20 @@ fn build_production_dataflow<A: Allocate>(
                     window_config,
                     reducer,
                 } => {
-                    let step_resume_state = resume_state.remove(&step_id).unwrap_or_default();
+                    let step_resume_state = resume_state.remove(&step_id);
 
                     let clock_builder = build_clock_builder(py, clock_config)?;
                     let windower_builder = build_windower_builder(py, window_config)?;
 
-                    let (downstream, update_stream) =
-                        stream.map(extract_state_pair).stateful_window_unary(
-                            step_id,
-                            clock_builder,
-                            windower_builder,
-                            ReduceWindowLogic::builder(reducer),
-                            step_resume_state,
-                        );
+                    let (output, changes) = stream.map(extract_state_pair).stateful_window_unary(
+                        step_id,
+                        clock_builder,
+                        windower_builder,
+                        ReduceWindowLogic::builder(reducer),
+                        step_resume_state,
+                    );
 
-                    stream = downstream
+                    stream = output
                         .map(|(key, result)| {
                             result
                                 .map(|value| (key.clone(), value))
@@ -379,74 +360,60 @@ fn build_production_dataflow<A: Allocate>(
                         // ignore late values.
                         .ok()
                         .map(wrap_state_pair);
-                    state_update_streams.push(update_stream);
+                    step_changes.push(changes);
                 }
                 Step::StatefulMap {
                     step_id,
                     builder,
                     mapper,
                 } => {
-                    let step_resume_state = resume_state.remove(&step_id).unwrap_or_default();
+                    let step_resume_state = resume_state.remove(&step_id);
 
-                    let (downstream, update_stream) =
-                        stream.map(extract_state_pair).stateful_unary(
-                            step_id,
-                            StatefulMapLogic::builder(builder, mapper),
-                            step_resume_state,
-                        );
-                    stream = downstream.map(wrap_state_pair);
-                    state_update_streams.push(update_stream);
+                    let (output, changes) = stream.map(extract_state_pair).stateful_unary(
+                        step_id,
+                        StatefulMapLogic::builder(builder, mapper),
+                        step_resume_state,
+                    );
+                    stream = output.map(wrap_state_pair);
+                    step_changes.push(changes);
                 }
                 Step::Capture { output_config } => {
                     let mut writer =
                         build_output_writer(py, output_config, worker_index, worker_count)?;
 
+                    // TODO: Should capture itself emit a clock
+                    // stream?
                     let capture =
                         stream.inspect_time(move |epoch, item| capture(&mut writer, epoch, item));
 
-                    capture_streams.push(capture.clone());
+                    capture_clocks.push(capture.map(|_| ()));
                     stream = capture;
                 }
             }
         }
 
-        if input_streams.is_empty() {
+        if inputs.is_empty() {
             return Err("Dataflow needs to contain at least one input".to_string());
         }
-        if capture_streams.is_empty() {
+        if capture_clocks.is_empty() {
             return Err("Dataflow needs to contain at least one capture".to_string());
         }
         if !resume_state.is_empty() {
-            return Err(format!(
-                "Recovery data had unknown step IDs: {:?}",
+            warn!(
+                "Resume state exists for unknown steps {:?}; this is concerning unless you're removing a step from this dataflow and do not want to migrate its state",
                 resume_state.keys(),
-            ));
+            );
         }
 
-        let state_update_stream = scope
-            .concatenate(state_update_streams)
-            .write_state_with(state_writer);
-
-        let capture_stream = scope.concatenate(capture_streams);
-
-        let dataflow_progress_update_stream = capture_stream
-            // TODO: Can we only downstream progress messages? Doing this
-            // flat_map trick results in nothing (not even progress)
-            // downstream.
-            //.flat_map(|_| Option::<()>::None)
-            //.concat(&state_update_stream.flat_map(|_| Option::<()>::None))
-            .map(|_| ())
-            .concat(&state_update_stream.map(|_| ()))
-            .write_progress_with(progress_writer)
-            .broadcast();
-
-        state_update_stream
-            .collect_garbage(
-                recovery_store_summary,
-                state_collector,
-                dataflow_progress_update_stream,
-            )
-            .probe_with(&mut probe);
+        attach_recovery_to_dataflow(
+            &mut probe,
+            worker_key,
+            store_summary,
+            progress_writer,
+            state_writer,
+            scope.concatenate(step_changes),
+            scope.concatenate(capture_clocks),
+        );
 
         Ok(probe)
     })
@@ -463,85 +430,82 @@ fn run_until_done<A: Allocate, T: Timestamp>(
     }
 }
 
-fn build_and_run_resume_epoch_calc_dataflow<A: Allocate>(
+fn build_and_run_resume_epoch_calc_dataflow<A, T, R>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
-    progress_reader: Box<dyn ProgressReader<u64>>,
-) -> StringResult<u64> {
-    let (resume_epoch_tx, resume_epoch_rx) = std::sync::mpsc::channel();
-    let probe = build_resume_epoch_calc_dataflow(worker, progress_reader, resume_epoch_tx)?;
+    progress_reader: R,
+) -> StringResult<T>
+where
+    A: Allocate,
+    T: Timestamp + Debug,
+    R: ProgressReader<T> + 'static,
+{
+    let (probe, cluster_progress) = build_resume_epoch_calc_dataflow(worker, progress_reader)?;
 
     run_until_done(worker, interrupt_flag, probe);
 
-    let resume_epoch = match resume_epoch_rx.recv() {
-        Ok(resume_epoch) => {
-            debug!("Loaded resume epoch {resume_epoch}");
-            resume_epoch
-        }
-        Err(_) => {
-            let default_epoch = <u64 as Timestamp>::minimum();
-            debug!("No resume epoch calculated; probably empty recovery store; starting at minimum epoch {default_epoch}");
-            default_epoch
-        }
-    };
+    let resume_epoch = Rc::try_unwrap(cluster_progress)
+        .expect("Resume epoch dataflow still has reference to cluster_progress")
+        .into_inner()
+        .frontier();
+    debug!("Calculated resume epoch {resume_epoch:?}");
 
     Ok(resume_epoch)
 }
 
-fn build_and_run_state_loading_dataflow<A: Allocate>(
+fn build_and_run_state_loading_dataflow<A, T, R>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
-    resume_epoch: u64,
-    state_reader: Box<dyn StateReader<u64>>,
-) -> StringResult<(
-    HashMap<StepId, HashMap<StateKey, State>>,
-    RecoveryStoreSummary<u64>,
-)> {
-    let (resume_state_tx, resume_state_rx) = std::sync::mpsc::channel();
-    let (recovery_store_summary_tx, recovery_store_summary_rx) = std::sync::mpsc::channel();
-
-    let probe = build_state_loading_dataflow(
-        worker,
-        state_reader,
-        resume_epoch,
-        resume_state_tx,
-        recovery_store_summary_tx,
-    )?;
+    resume_epoch: T,
+    state_reader: R,
+) -> StringResult<(FlowStateBytes, StoreSummary<T>)>
+where
+    A: Allocate,
+    T: Timestamp + Refines<()> + TotalOrder,
+    R: StateReader<T> + 'static,
+{
+    let (probe, resume_state, summary) =
+        build_state_loading_dataflow(worker, state_reader, resume_epoch)?;
 
     run_until_done(worker, interrupt_flag, probe);
 
-    let resume_state = resume_state_rx.into_iter().collect();
-    let recovery_store_summary = recovery_store_summary_rx
-        .recv()
-        .expect("Recovery store summary not returned from loading dataflow");
-
-    Ok((resume_state, recovery_store_summary))
+    Ok((
+        Rc::try_unwrap(resume_state)
+            .expect("State loading dataflow still has reference to resume_state")
+            .into_inner(),
+        Rc::try_unwrap(summary)
+            .expect("State loading dataflow still has reference to summary")
+            .into_inner(),
+    ))
 }
 
-fn build_and_run_production_dataflow<A: Allocate>(
+fn build_and_run_production_dataflow<A, PW, SW>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     flow: Py<Dataflow>,
     epoch_config: Py<EpochConfig>,
     resume_epoch: u64,
-    resume_state: HashMap<StepId, HashMap<StateKey, State>>,
-    recovery_store_summary: RecoveryStoreSummary<u64>,
-    progress_writer: Box<dyn ProgressWriter<u64>>,
-    state_writer: Box<dyn StateWriter<u64>>,
-    state_collector: Box<dyn StateCollector<u64>>,
-) -> StringResult<()> {
+    resume_state: FlowStateBytes,
+    store_summary: StoreSummary<u64>,
+    progress_writer: PW,
+    state_writer: Rc<RefCell<SW>>,
+) -> StringResult<()>
+where
+    A: Allocate,
+    PW: ProgressWriter<u64> + 'static,
+    SW: StateWriter<u64> + ?Sized + 'static,
+{
     let probe = Python::with_gil(|py| {
         build_production_dataflow(
             py,
             worker,
+            flow,
             epoch_config,
             resume_epoch,
             resume_state,
-            recovery_store_summary,
-            flow,
+            store_summary,
             progress_writer,
             state_writer,
-            state_collector,
         )
     })?;
 
@@ -578,14 +542,14 @@ fn worker_main<A: Allocate>(
     let (progress_reader, state_reader) = Python::with_gil(|py| {
         build_recovery_readers(py, worker_index, worker_count, recovery_config.clone())
     })?;
-    let (progress_writer, state_writer, state_collector) = Python::with_gil(|py| {
+    let (progress_writer, state_writer) = Python::with_gil(|py| {
         build_recovery_writers(py, worker_index, worker_count, recovery_config)
     })?;
 
     let resume_epoch =
         build_and_run_resume_epoch_calc_dataflow(worker, interrupt_flag, progress_reader)?;
 
-    let (resume_state, recovery_store_summary) =
+    let (resume_state, store_summary) =
         build_and_run_state_loading_dataflow(worker, interrupt_flag, resume_epoch, state_reader)?;
 
     build_and_run_production_dataflow(
@@ -595,10 +559,9 @@ fn worker_main<A: Allocate>(
         epoch_config,
         resume_epoch,
         resume_state,
-        recovery_store_summary,
+        store_summary,
         progress_writer,
         state_writer,
-        state_collector,
     )?;
 
     shutdown_worker(worker);

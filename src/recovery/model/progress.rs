@@ -1,34 +1,41 @@
-/// Key used to address progress data within a recovery store.
+//! Data model representing progress in the dataflow and the recovery
+//! system.
+//!
+//! A progress store is a K-V mapping from [`WorkerKey`] to a frontier
+//! epoch `T`.
+
+use super::change::*;
+use serde::Deserialize;
+use serde::Serialize;
+
+pub(crate) use crate::execution::WorkerIndex;
+
+/// Timely uses the unit type to represent a "tick" or "heartbeat" on
+/// a clock stream, a dataflow stream that you only care about the
+/// progress messages.
+pub(crate) type Tick = ();
+
+/// Unique ID for a worker.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct WorkerKey(pub(crate) WorkerIndex);
+
+/// A change to the progress store.
 ///
-/// Progress data is key'd per-worker so we can combine together all
-/// [`ProgressUpdate`]s for a cluster and determine each worker's
-/// position.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub(crate) struct ProgressRecoveryKey {
-    worker_index: WorkerIndex,
-}
+/// Notes that a worker's frontier changed.
+pub(crate) type ProgressChange<T> = KChange<WorkerKey, T>;
 
-impl ProgressRecoveryKey {
-    /// Route all progress updates for a given worker to the same
-    /// location.
-    fn route_by_worker(&self) -> u64 {
-        self.worker_index.route_to()
-    }
-}
+/// All progress stores have to implement this writer.
+///
+/// Since trait aliases don't work in stable, don't actually `impl`
+/// this, but it's used for bounds.
+pub(crate) trait ProgressWriter<T>: KWriter<WorkerKey, T> {}
 
-/// A snapshot of progress data for a worker.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct Progress<T> {
-    /// Worker's frontier.
-    frontier: T,
-}
+impl<T, P> ProgressWriter<T> for Box<P> where P: ProgressWriter<T> + ?Sized {}
 
-pub(crate) trait ProgressWriter<T> {
-    fn write(&mut self, update: &ProgressUpdate<T>);
-}
+/// All progress stores have to implement this reader.
+///
+/// Since trait aliases don't work in stable, don't actually `impl`
+/// this, but it's used for bounds.
+pub(crate) trait ProgressReader<T>: KReader<WorkerKey, T> {}
 
-pub(crate) trait ProgressReader<T> {
-    /// Has the same semantics as [`std::iter::Iterator::next`]:
-    /// return [`None`] to signal EOF.
-    fn read(&mut self) -> Option<ProgressUpdate<T>>;
-}
+impl<T, P> ProgressReader<T> for Box<P> where P: ProgressReader<T> + ?Sized {}

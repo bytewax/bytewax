@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::TdPyAny;
-use crate::recovery::StateBytes;
+use crate::recovery::model::StateBytes;
 
 use super::{distribute, InputConfig, InputReader};
 

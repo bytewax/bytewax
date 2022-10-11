@@ -12,7 +12,7 @@
 use crate::inputs::InputConfig;
 use crate::outputs::OutputConfig;
 use crate::pyo3_extensions::TdPyCallable;
-use crate::recovery::StepId;
+use crate::recovery::model::StepId;
 use crate::window::ClockConfig;
 use crate::window::WindowConfig;
 use pyo3::exceptions::PyValueError;

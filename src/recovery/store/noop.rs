@@ -1,48 +1,35 @@
-/// Implements all the recovery traits Bytewax needs, but does not
-/// load or backup any data.
-pub struct NoopRecovery;
+//! State and progress stores which do nothing.
 
-impl NoopRecovery {
+use crate::recovery::model::*;
+use log::trace;
+use std::fmt::Debug;
+
+/// Writes are dropped and reads are the same as an empty store.
+pub(crate) struct NoOpStore;
+
+impl NoOpStore {
     pub fn new() -> Self {
-        NoopRecovery {}
+        NoOpStore {}
     }
 }
 
-impl<T> StateWriter<T> for NoopRecovery
+impl<K, V> KWriter<K, V> for NoOpStore
 where
-    T: Debug,
+    K: Debug,
+    V: Debug,
 {
-    fn write(&mut self, update: &StateUpdate<T>) {
-        trace!("Noop wrote state update {update:?}");
+    fn write(&mut self, kchange: KChange<K, V>) {
+        trace!("No-op change {kchange:?}");
     }
 }
 
-impl<T> StateCollector<T> for NoopRecovery
-where
-    T: Debug,
-{
-    fn delete(&mut self, key: &StateRecoveryKey<T>) {
-        trace!("Noop deleted state for {key:?}");
-    }
-}
-
-impl<T> StateReader<T> for NoopRecovery {
-    fn read(&mut self) -> Option<StateUpdate<T>> {
+impl<K, V> KReader<K, V> for NoOpStore {
+    fn read(&mut self) -> Option<KChange<K, V>> {
         None
     }
 }
 
-impl<T> ProgressWriter<T> for NoopRecovery
-where
-    T: Debug,
-{
-    fn write(&mut self, update: &ProgressUpdate<T>) {
-        trace!("Noop wrote progress update {update:?}");
-    }
-}
-
-impl<T> ProgressReader<T> for NoopRecovery {
-    fn read(&mut self) -> Option<ProgressUpdate<T>> {
-        None
-    }
-}
+impl<T> StateWriter<T> for NoOpStore where T: Debug {}
+impl<T> StateReader<T> for NoOpStore {}
+impl<T> ProgressWriter<T> for NoOpStore where T: Debug {}
+impl<T> ProgressReader<T> for NoOpStore {}

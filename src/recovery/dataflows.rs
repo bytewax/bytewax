@@ -1,231 +1,169 @@
-// Here are our loading dataflows.
+//! Timely dataflows and parts of dataflows used for recovery.
+//!
+//! See [`super::operators`] for semantics and details of Timely
+//! operators here.
+//!
+//! [![Block diagram of recovery
+//! system.](https://mermaid.ink/img/pako:eNqNVF2LozAU_SshD0sLbaF9LMzA1n4gzGDRWXSofUj1tpVqIjGZoQT_-yZatzpj2Xkp9X6ce87xXhWOWAx4jk-c5Gf0tgxpIQ_1Q4hdKGQGaJWz6IwskkZoSQQ5puwzxCFd2UpxIHFZovEE5ZwdAE3Gz2jlmxwaj9GWsxOHorDOhJ5AR3RyodSCMxJHpBCms7_KV8rniYCyDCnQOKQa0kdPT8imr5A1HTrwjBY7n_ELcPRKEro3NbymDRVtU2KjX8izDUhLnCeIAPSiqST01BHmPRDm-a4B8j1TYph7gnFo0fbWSq2TVACvlX3Lu0q5ELGPpmCtJ7bzvtvS_WCGp5Qns4zw621I_dCB8b7bp4PGmwru1lJ5s7FMzjU5w6Z2xSR-7xYySWPzemIZiYTRfybtayTI79WVxU5Q_b5_cboHwdhsD2yaSzE0IjTXrKjIB8F0sJtMJvsqHuLBBa4j9EFSCcMQ1_qcYFBNPsr0DzVCgmE9-Ev4fai1NaQewgXBrDXxzsSZDhwpNEM0NfDOrHmcaVhnWoVMx1sSXeoGSymL0YgI43vHkZ6Xve5Ur62-fTDHQqKLzB_sU_tMHKtazg4jvzWjk9gq1RzRwyPc3tG7vT9q_tGdV8u36JO2sf6_56Z7oxVuCD-QE1gsTSES_VZtrLZXdvewdfJ2J3iEM-AZSWL9TVQhRXplxBkyCPFc_40Jv5jVLXWdzGO9a6s40ZPwXHAJI0ykYN6VRnh-JGkBTdEyIfoWslu0_AvgJcen?type=png)](https://mermaid.live/edit#pako:eNqNVF2LozAU_SshD0sLbaF9LMzA1n4gzGDRWXSofUj1tpVqIjGZoQT_-yZatzpj2Xkp9X6ce87xXhWOWAx4jk-c5Gf0tgxpIQ_1Q4hdKGQGaJWz6IwskkZoSQQ5puwzxCFd2UpxIHFZovEE5ZwdAE3Gz2jlmxwaj9GWsxOHorDOhJ5AR3RyodSCMxJHpBCms7_KV8rniYCyDCnQOKQa0kdPT8imr5A1HTrwjBY7n_ELcPRKEro3NbymDRVtU2KjX8izDUhLnCeIAPSiqST01BHmPRDm-a4B8j1TYph7gnFo0fbWSq2TVACvlX3Lu0q5ELGPpmCtJ7bzvtvS_WCGp5Qns4zw621I_dCB8b7bp4PGmwru1lJ5s7FMzjU5w6Z2xSR-7xYySWPzemIZiYTRfybtayTI79WVxU5Q_b5_cboHwdhsD2yaSzE0IjTXrKjIB8F0sJtMJvsqHuLBBa4j9EFSCcMQ1_qcYFBNPsr0DzVCgmE9-Ev4fai1NaQewgXBrDXxzsSZDhwpNEM0NfDOrHmcaVhnWoVMx1sSXeoGSymL0YgI43vHkZ6Xve5Ur62-fTDHQqKLzB_sU_tMHKtazg4jvzWjk9gq1RzRwyPc3tG7vT9q_tGdV8u36JO2sf6_56Z7oxVuCD-QE1gsTSES_VZtrLZXdvewdfJ2J3iEM-AZSWL9TVQhRXplxBkyCPFc_40Jv5jVLXWdzGO9a6s40ZPwXHAJI0ykYN6VRnh-JGkBTdEyIfoWslu0_AvgJcen)
+//!
+//! ```mermaid
+//! graph TD
+//! subgraph "Resume Epoch Calc Dataflow"
+//! EI{{read}} -. probe .-> EW
+//! EI -- ProgressChange --> EB{{Broadcast}} -- ProgressChange --> EW{{Write}}
+//! end
+//!
+//! EW == InMemProgress ==> B[Worker Main] == resume epoch ==> I & SI
+//!
+//! subgraph "State Loading Dataflow"
+//! SI{{read}} -. probe .-> SWR & SWS
+//! SI -- StoreChange --> SF{{Filter}} -- StoreChange --> SR{{Recover}} -- FlowChange --> SWR{{Write}}
+//! SI -- StoreChange --> SS{{Summary}} -- SummaryChange --> SWS{{Write}}
+//! end
+//!
+//! SWS == StoreSummary ==> GC
+//! SWR == FlowState ==> A[Build Production Dataflow] == StepState ==> I & SOX & SOY
+//!
+//! subgraph "Production Dataflow"
+//! I(Input) -- items --> XX1([...]) -- "(key, value)" --> SOX(StatefulUnary X) & SOY(StatefulUnary Y)
+//! SOX & SOY -- "(key, value)" --> XX2([...]) -- items --> O1(Output 1) & O2(Output 2)
+//! O1 & O2 -- Tick --> OC{{Concat}}
+//! I & SOX & SOY -- FlowChange --> FC{{Concat}}
+//! FC -- FlowChange --> SB{{Backup}} -- StoreChange --> SW{{Write}}
+//! OC & SW -- Tick --> WC{{Concat}} -- Tick --> P{{Progress}} -- ProgressChange --> PW{{Write}} -- Tick --> PP{{Progress}} -- ProgressChange --> PB{{Broadcast}} -- ProgressChange --> GC
+//! SB -- StoreChange --> GCS{{Summary}} -- SummaryChange --> GC
+//! GC{{GarbageCollect}} -- StoreChange --> GCW{{Write}}
+//! I -. probe .-> GCW
+//! end
+//! ```
 
-/// Compile a dataflow which reads the progress data from the previous
-/// execution and calculates the resume epoch.
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use timely::dataflow::{operators::*, Scope};
+use timely::order::TotalOrder;
+use timely::progress::timestamp::Refines;
+use timely::{communication::Allocate, dataflow::ProbeHandle, progress::Timestamp, worker::Worker};
+
+use super::model::*;
+use super::operators::*;
+use super::store::in_mem::*;
+use crate::StringResult;
+
+/// Add in the recovery machinery to the production dataflow.
+///
+/// In overview: Convert all step state changes in the dataflow into
+/// writes to the recovery store. Write those. Calculate the dataflow
+/// frontier by looking at the combined clock stream of output and
+/// state writes. Write that progress. Calculate GC deletes based on
+/// calculating the resume epoch if we were to resume right this
+/// instant.
+pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
+    probe: &mut ProbeHandle<S::Timestamp>,
+    worker_key: WorkerKey,
+    store_summary: StoreSummary<S::Timestamp>,
+    progress_writer: PW,
+    state_writer: Rc<RefCell<SW>>,
+    step_changes: FlowChangeStream<S>,
+    capture_clock: ClockStream<S>,
+) where
+    S: Scope,
+    S::Timestamp: TotalOrder,
+    PW: ProgressWriter<S::Timestamp> + 'static,
+    SW: StateWriter<S::Timestamp> + ?Sized + 'static,
+{
+    let store_changes = step_changes.backup();
+    let backup_clock = store_changes.write(state_writer.clone());
+    let worker_clock = backup_clock.concat(&capture_clock);
+    let progress_clock = worker_clock
+        .progress(worker_key.clone())
+        .write(progress_writer);
+    // GC works on a progress stream. But we don't want to GC state
+    // until the progress messages are written, thus we need to view
+    // the progress of the "writing the progress" clock stream.
+    let cluster_progress = progress_clock.progress(worker_key).broadcast();
+    let gc_clock = store_changes
+        .summary()
+        .garbage_collect(cluster_progress, store_summary)
+        .write(state_writer);
+    // Rate limit the whole dataflow on GC, not just on main
+    // execution.
+    gc_clock.probe_with(probe);
+}
+
+/// Compile a dataflow which loads the progress data from the previous
+/// cluster.
 ///
 /// Each resume cluster worker is assigned to read the entire progress
-/// data from some failed cluster worker.
+/// data from some previous cluster worker.
 ///
-/// 1. Find the oldest frontier for the worker since we want to know
-/// how far it got. (That's the first accumulate).
-///
-/// 2. Broadcast all our oldest per-worker frontiers.
-///
-/// 3. Find the earliest worker frontier since we want to resume from
-/// the last epoch fully completed by all workers in the
-/// cluster. (That's the second accumulate).
-///
-/// 4. Send the resume epoch out of the dataflow via a channel.
-///
-/// Once the progress input is done, this dataflow will send the
-/// resume epoch through a channel. The main function should consume
-/// from that channel to pass on to the other loading and production
-/// dataflows.
-pub(crate) fn build_resume_epoch_calc_dataflow<A, T>(
+/// Read state out of the cell once the probe is done. Each resume
+/// cluster worker will have the progress info of all workers in the
+/// previous cluster.
+pub(crate) fn build_resume_epoch_calc_dataflow<A, T, R>(
     timely_worker: &mut Worker<A>,
     // TODO: Allow multiple (or none) FrontierReaders so you can recover a
     // different-sized cluster.
-    progress_reader: Box<dyn ProgressReader<T>>,
-    resume_epoch_tx: std::sync::mpsc::Sender<T>,
-) -> StringResult<ProbeHandle<()>>
+    reader: R,
+) -> StringResult<(ProbeHandle<()>, Rc<RefCell<InMemProgress<T>>>)>
 where
     A: Allocate,
     T: Timestamp,
+    R: ProgressReader<T> + 'static,
 {
     timely_worker.dataflow(|scope| {
         let mut probe = ProbeHandle::new();
+        let cluster_progress = Rc::new(RefCell::new(InMemProgress::new()));
 
-        progress_source(scope, progress_reader, &probe)
-            .map(|ProgressUpdate(key, op)| (key, op))
-            .aggregate(
-                |_key, op, worker_frontier_acc: &mut Option<T>| {
-                    let worker_frontier = worker_frontier_acc.get_or_insert(T::minimum());
-                    // For each worker in the failed cluster, find the
-                    // latest frontier.
-                    match op {
-                        ProgressOp::Upsert(progress) => {
-                            if &progress.frontier > worker_frontier {
-                                *worker_frontier = progress.frontier;
-                            }
-                        }
-                    }
-                },
-                |key, worker_frontier_acc| {
-                    (
-                        key.worker_index,
-                        worker_frontier_acc
-                            .expect("Did not update worker_frontier_acc in aggregation"),
-                    )
-                },
-                ProgressRecoveryKey::route_by_worker,
-            )
-            // Each worker in the recovery cluster reads only some of
-            // the progress data of workers in the failed
-            // cluster. Broadcast to ensure all recovery cluster
-            // workers can calculate the dataflow frontier.
+        read(scope, reader, &probe)
             .broadcast()
-            .accumulate(None, |dataflow_frontier_acc, worker_frontiers| {
-                for (_worker_index, worker_frontier) in worker_frontiers.iter() {
-                    let dataflow_frontier =
-                        dataflow_frontier_acc.get_or_insert(worker_frontier.clone());
-                    // The slowest of the workers in the failed
-                    // cluster is the resume epoch.
-                    if worker_frontier < dataflow_frontier {
-                        *dataflow_frontier = worker_frontier.clone();
-                    }
-                }
-            })
-            .map(move |resume_epoch| {
-                resume_epoch_tx
-                    .send(resume_epoch.expect("Did not update dataflow_frontier_acc in accumulate"))
-                    .unwrap()
-            })
+            .write(cluster_progress.clone())
             .probe_with(&mut probe);
 
-        Ok(probe)
+        Ok((probe, cluster_progress))
     })
 }
 
-/// Compile a dataflow which reads state data from the previous
-/// execution and loads state into hash maps per step ID and key, and
-/// prepares the recovery store summary.
+/// Compile a dataflow which loads state data from the previous
+/// cluster.
 ///
-/// Once the state input is done, this dataflow will send the
-/// collected recovery data through these channels. The main function
-/// should consume from the channels to pass on to the production
-/// dataflow.
-pub(crate) fn build_state_loading_dataflow<A>(
+/// Loads up to, but not including, the resume epoch, since the resume
+/// epoch is where input will begin during this recovered cluster.
+///
+/// Read state out of the cells once the probe is done.
+pub(crate) fn build_state_loading_dataflow<A, T, R>(
     timely_worker: &mut Worker<A>,
-    state_reader: Box<dyn StateReader<u64>>,
-    resume_epoch: u64,
-    resume_state_tx: std::sync::mpsc::Sender<(StepId, HashMap<StateKey, State>)>,
-    recovery_store_summary_tx: std::sync::mpsc::Sender<RecoveryStoreSummary<u64>>,
-) -> StringResult<ProbeHandle<u64>>
+    reader: R,
+    resume_epoch: T,
+) -> StringResult<(
+    ProbeHandle<T>,
+    Rc<RefCell<FlowStateBytes>>,
+    Rc<RefCell<StoreSummary<T>>>,
+)>
 where
     A: Allocate,
+    T: Timestamp + Refines<()> + TotalOrder,
+    R: StateReader<T> + 'static,
 {
     timely_worker.dataflow(|scope| {
         let mut probe = ProbeHandle::new();
+        let resume_state = Rc::new(RefCell::new(FlowStateBytes::new()));
+        let summary = Rc::new(RefCell::new(InMemStore::new()));
 
-        let source = state_source(scope, state_reader, resume_epoch, &probe);
+        let store_change_stream = read(scope, reader, &probe);
 
-        source
-            .unary_frontier(
-                StateUpdate::pact_for_state_key(),
-                "RecoveryStoreSummaryCalc",
-                |_init_cap, _info| {
-                    let mut fncater = FrontierNotificator::new();
-
-                    let mut tmp_incoming = Vec::new();
-                    let mut resume_state_buffer = HashMap::new();
-                    let mut recovery_store_summary = Some(RecoveryStoreSummary::new());
-
-                    move |input, output| {
-                        input.for_each(|cap, incoming| {
-                            let epoch = cap.time();
-                            assert!(tmp_incoming.is_empty());
-                            incoming.swap(&mut tmp_incoming);
-
-                            resume_state_buffer
-                                .entry(*epoch)
-                                .or_insert_with(Vec::new)
-                                .append(&mut tmp_incoming);
-
-                            fncater.notify_at(cap.retain());
-                        });
-
-                        fncater.for_each(&[input.frontier()], |cap, _ncater| {
-                            let epoch = cap.time();
-                            if let Some(updates) = resume_state_buffer.remove(epoch) {
-                                let recovery_store_summary = recovery_store_summary
-                                    .as_mut()
-                                    .expect(
-                                    "More input after recovery store calc input frontier was empty",
-                                );
-                                for update in &updates {
-                                    recovery_store_summary.insert(update);
-                                }
-                            }
-
-                            // Emit heartbeats so we can monitor progress
-                            // at the probe.
-                            output.session(&cap).give(());
-                        });
-
-                        if input.frontier().is_empty() {
-                            if let Some(recovery_store_summary) = recovery_store_summary.take() {
-                                recovery_store_summary_tx
-                                    .send(recovery_store_summary)
-                                    .unwrap();
-                            }
-                        }
-                    }
-                },
-            )
+        store_change_stream
+            // Not <=.
+            .filter(move |KChange(StoreKey(epoch, _flow_key), _change)| epoch < &resume_epoch)
+            .recover()
+            .write(resume_state.clone())
             .probe_with(&mut probe);
 
-        source
-            .unary_frontier(StateUpdate::pact_for_state_key(), "StateCacheCalc", |_init_cap, _info| {
-                let mut fncater = FrontierNotificator::new();
-
-                let mut tmp_incoming = Vec::new();
-                let mut resume_state_buffer = HashMap::new();
-                let mut resume_state: Option<HashMap<StepId, HashMap<StateKey, State>>> =
-                    Some(HashMap::new());
-
-                move |input, output| {
-                    input.for_each(|cap, incoming| {
-                        let epoch = cap.time();
-                        assert!(tmp_incoming.is_empty());
-                        incoming.swap(&mut tmp_incoming);
-
-                        resume_state_buffer
-                            .entry(*epoch)
-                            .or_insert_with(Vec::new)
-                            .append(&mut tmp_incoming);
-
-                        fncater.notify_at(cap.retain());
-                    });
-
-                    fncater.for_each(&[input.frontier()], |cap, _ncater| {
-                        let epoch = cap.time();
-                        if let Some(updates) = resume_state_buffer.remove(epoch) {
-                            for StateUpdate(recovery_key, op) in updates {
-                                let StateRecoveryKey { step_id, state_key, epoch: found_epoch } = recovery_key;
-                                assert!(&found_epoch == epoch);
-
-                                let resume_state =
-                                    resume_state
-                                    .as_mut()
-                                    .expect("More input after resume state calc input frontier was empty")
-                                    .entry(step_id)
-                                    .or_default();
-
-                                match op {
-                                    StateOp::Upsert(state) => {
-                                        resume_state.insert(state_key.clone(), state);
-                                    },
-                                    StateOp::Discard => {
-                                        resume_state.remove(&state_key);
-                                    },
-                                };
-                            }
-                        }
-
-                        // Emit heartbeats so we can monitor progress
-                        // at the probe.
-                        output.session(&cap).give(());
-                    });
-
-                    if input.frontier().is_empty() {
-                        for resume_state in resume_state.take().expect("More input after resume state calc input frontier was empty") {
-                            resume_state_tx.send(resume_state).unwrap();
-                        }
-                    }
-                }
-            })
+        store_change_stream
+            .summary()
+            .write(summary.clone())
             .probe_with(&mut probe);
 
-        Ok(probe)
+        Ok((probe, resume_state, summary))
     })
 }

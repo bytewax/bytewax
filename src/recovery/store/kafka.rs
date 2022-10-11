@@ -1,10 +1,13 @@
+//! Kafka implementation of state and progress stores.
+//!
+//! Generics are used to generate concrete versions of the reader and
+//! writer for the relevant schema.
+
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use log::debug;
 use log::trace;
-use pyo3::exceptions::PyValueError;
-use pyo3::prelude::*;
 use rdkafka::admin::AdminClient;
 use rdkafka::admin::AdminOptions;
 use rdkafka::admin::NewTopic;
@@ -14,6 +17,7 @@ use rdkafka::consumer::Consumer;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::BaseProducer;
 use rdkafka::producer::BaseRecord;
+use rdkafka::types::RDKafkaErrorCode;
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use rdkafka::{Message, Offset, TopicPartitionList};
@@ -21,11 +25,7 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::ProgressRecoveryKey;
-use super::{
-    ProgressOp, ProgressReader, ProgressUpdate, ProgressWriter, RecoveryConfig, StateCollector,
-    StateOp, StateReader, StateRecoveryKey, StateUpdate, StateWriter,
-};
+use crate::recovery::model::*;
 
 pub(crate) fn create_kafka_topic(brokers: &[String], topic: &str, partitions: i32) {
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -49,16 +49,15 @@ pub(crate) fn create_kafka_topic(brokers: &[String], topic: &str, partitions: i3
         config: vec![("cleanup.policy", "compact")],
     };
     let future = admin.create_topics(vec![&new_topic], &admin_options);
+    debug!("Creating Kafka topic={topic:?}");
     let result = rt
         .block_on(future)
         .expect("Error calling create Kafka topic on admin")
         .pop()
         .unwrap();
     match result {
-        Ok(topic) => {
-            debug!("Created Kafka topic={topic:?}");
-        }
-        Err((topic, rdkafka::types::RDKafkaErrorCode::TopicAlreadyExists)) => {
+        Ok(_topic) => {}
+        Err((topic, RDKafkaErrorCode::TopicAlreadyExists)) => {
             debug!("Kafka topic={topic:?} already exists; continuing");
         }
         Err((topic, err_code)) => {
@@ -97,8 +96,8 @@ pub(crate) struct KafkaWriter<K, P> {
     payload_type: PhantomData<P>,
 }
 
-impl<K: Serialize, P: Serialize> KafkaWriter<K, P> {
-    pub(crate) fn new(brokers: &[String], topic: String, partition: i32) -> Self {
+impl<K, P> KafkaWriter<K, P> {
+    pub fn new(brokers: &[String], topic: String, partition: i32) -> Self {
         debug!("Creating Kafka producer with brokers={brokers:?} topic={topic:?}");
         let producer: BaseProducer = ClientConfig::new()
             .set("bootstrap.servers", brokers.join(","))
@@ -113,49 +112,33 @@ impl<K: Serialize, P: Serialize> KafkaWriter<K, P> {
             payload_type: PhantomData,
         }
     }
+}
 
-    fn write(&self, key: &K, payload: &P) {
-        let key_bytes = to_bytes(key);
-        let payload_bytes = to_bytes(payload);
-        let record = BaseRecord::to(&self.topic)
+impl<K, V> KWriter<K, V> for KafkaWriter<K, V>
+where
+    K: Serialize + Debug,
+    V: Serialize + Debug,
+{
+    fn write(&mut self, kchange: KChange<K, V>) {
+        trace!("Writing change {kchange:?}");
+        let KChange(key, change) = kchange;
+
+        let key_bytes = to_bytes(&key);
+        let mut record = BaseRecord::to(&self.topic)
             .key(&key_bytes)
-            .payload(&payload_bytes)
             .partition(self.partition);
+
+        let payload = match change {
+            Change::Upsert(value) => {
+                let payload_bytes = to_bytes(&value);
+                Some(payload_bytes)
+            }
+            Change::Discard => None,
+        };
+        record.payload = payload.as_ref();
 
         self.producer.send(record).expect("Error writing state");
         self.producer.poll(Timeout::Never);
-    }
-
-    fn delete(&self, key: &K) {
-        let key_bytes = to_bytes(key);
-        let record = BaseRecord::<Vec<u8>, Vec<u8>>::to(&self.topic)
-            .key(&key_bytes)
-            .partition(self.partition);
-        // Explicitly no payload to mark as delete for key.
-
-        self.producer.send(record).expect("Error deleting state");
-        self.producer.poll(Timeout::Never);
-    }
-}
-
-impl<T> StateWriter<T> for KafkaWriter<StateRecoveryKey<T>, StateOp>
-where
-    T: Serialize + Debug,
-{
-    fn write(&mut self, update: &StateUpdate<T>) {
-        let StateUpdate(key, op) = update;
-        KafkaWriter::write(self, key, op);
-        trace!("Wrote state update {update:?}");
-    }
-}
-
-impl<T> StateCollector<T> for KafkaWriter<StateRecoveryKey<T>, StateOp>
-where
-    T: Serialize + Debug,
-{
-    fn delete(&mut self, key: &StateRecoveryKey<T>) {
-        KafkaWriter::delete(self, key);
-        trace!("Deleted state for {key:?}");
     }
 }
 
@@ -167,9 +150,9 @@ pub(crate) struct KafkaReader<K, P> {
     payload_type: PhantomData<P>,
 }
 
-impl<K: DeserializeOwned, P: DeserializeOwned> KafkaReader<K, P> {
+impl<K, P> KafkaReader<K, P> {
     pub(crate) fn new(brokers: &[String], topic: &str, partition: i32) -> Self {
-        debug!("Loading recovery data from brokers={brokers:?} topic={topic:?}");
+        debug!("Creating Kafka consumer with brokers={brokers:?} topic={topic:?}");
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", brokers.join(","))
             // We don't want to use consumer groups because
@@ -198,11 +181,30 @@ impl<K: DeserializeOwned, P: DeserializeOwned> KafkaReader<K, P> {
             payload_type: PhantomData,
         }
     }
+}
 
-    fn read(&mut self) -> Option<(Option<K>, Option<P>)> {
+impl<K, V> KReader<K, V> for KafkaReader<K, V>
+where
+    K: DeserializeOwned + Debug,
+    V: DeserializeOwned + Debug,
+{
+    fn read(&mut self) -> Option<KChange<K, V>> {
         let msg_result = self.consumer.poll(Timeout::Never);
         match msg_result {
-            Some(Ok(msg)) => Some((msg.key().map(from_bytes), msg.payload().map(from_bytes))),
+            Some(Ok(msg)) => {
+                let key = msg
+                    .key()
+                    .map(from_bytes)
+                    .expect("Kafka recovery message did not have key");
+                let change = if let Some(value) = msg.payload().map(from_bytes) {
+                    Change::Upsert(value)
+                } else {
+                    Change::Discard
+                };
+                let kchange = KChange(key, change);
+                trace!("Reading change {kchange:?}");
+                Some(kchange)
+            }
             Some(Err(KafkaError::PartitionEOF(_))) => None,
             Some(Err(err)) => panic!("Error reading from Kafka topic: {err:?}"),
             None => None,
@@ -210,51 +212,10 @@ impl<K: DeserializeOwned, P: DeserializeOwned> KafkaReader<K, P> {
     }
 }
 
-impl<T> StateReader<T> for KafkaReader<StateRecoveryKey<T>, StateOp>
-where
-    T: DeserializeOwned + Debug,
+impl<T> StateWriter<T> for KafkaWriter<StoreKey<T>, Change<StateBytes>> where T: Serialize + Debug {}
+impl<T> StateReader<T> for KafkaReader<StoreKey<T>, Change<StateBytes>> where
+    T: DeserializeOwned + Debug
 {
-    fn read(&mut self) -> Option<StateUpdate<T>> {
-        loop {
-            match KafkaReader::read(self) {
-                // Skip deletions if they haven't been compacted.
-                Some((_, None)) => continue,
-                Some((Some(key), Some(op))) => {
-                    let update = StateUpdate(key, op);
-                    trace!("Read state update {update:?}");
-                    return Some(update);
-                }
-                Some((None, _)) => panic!("Missing key in reading state Kafka topic"),
-                None => return None,
-            }
-        }
-    }
 }
-
-impl<T> ProgressWriter<T> for KafkaWriter<ProgressRecoveryKey, ProgressOp<T>>
-where
-    T: Serialize + Debug,
-{
-    fn write(&mut self, update: &ProgressUpdate<T>) {
-        let ProgressUpdate(key, op) = update;
-        KafkaWriter::write(self, key, op);
-        trace!("Wrote progress update {update:?}");
-    }
-}
-
-impl<T> ProgressReader<T> for KafkaReader<ProgressRecoveryKey, ProgressOp<T>>
-where
-    T: DeserializeOwned + Debug,
-{
-    fn read(&mut self) -> Option<ProgressUpdate<T>> {
-        match KafkaReader::read(self) {
-            Some((Some(key), Some(op))) => {
-                let update = ProgressUpdate(key, op);
-                trace!("Read progress update {update:?}");
-                Some(update)
-            }
-            None => None,
-            _ => panic!("Missing key or value in reading recovery progress Kafka topic"),
-        }
-    }
-}
+impl<T> ProgressWriter<T> for KafkaWriter<WorkerKey, T> where T: Serialize + Debug {}
+impl<T> ProgressReader<T> for KafkaReader<WorkerKey, T> where T: DeserializeOwned + Debug {}

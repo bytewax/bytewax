@@ -3,9 +3,8 @@ use pyo3::prelude::*;
 
 use crate::{
     pyo3_extensions::{TdPyAny, TdPyCallable},
-    recovery::StateBytes,
     unwrap_any,
-    window::WindowLogic,
+    window::*,
 };
 
 /// Implements the fold window operator.

@@ -22,7 +22,7 @@
 
 use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::TdPyAny;
-use crate::recovery::StateBytes;
+use crate::recovery::model::StateBytes;
 use crate::StringResult;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;

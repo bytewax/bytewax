@@ -1,4 +1,38 @@
-// Here's the main recovery operator.
+//! This is the most primitive stateful operator for non-input cases.
+//!
+//! To derive a new stateful operator from this, create a new
+//! [`StatefulLogic`] impl and pass it to the [`StatefulUnary`] Timely
+//! operator. If you fullfil the API of [`StatefulLogic`], you will
+//! get proper recovery behavior.
+//!
+//! The general idea is that you pass a **logic builder** which takes
+//! any previous state snapshots from the last execution and builds an
+//! instance of your logic. Then your logic is **snapshotted** at the
+//! end of each epoch, and that state durably saved in the recovery
+//! store.
+
+use std::{
+    collections::{hash_map::Entry, BTreeSet, HashMap, HashSet},
+    task::Poll,
+};
+
+use chrono::{DateTime, Utc};
+use timely::{
+    dataflow::{channels::pact::Exchange, operators::generic::builder_rc::OperatorBuilder, Scope},
+    progress::Antichain,
+    Data, ExchangeData,
+};
+
+use crate::recovery::model::*;
+
+// Re-export for convenience. If you want to write a stateful
+// operator, just use * this module.
+
+pub(crate) use crate::recovery::model::StateBytes;
+pub(crate) use crate::recovery::model::StepId;
+pub(crate) use crate::recovery::model::StepStateBytes;
+pub(crate) use crate::recovery::operators::FlowChangeStream;
+pub(crate) use crate::recovery::operators::StatefulStream;
 
 /// If a [`StatefulLogic`] for a key should be retained by
 /// [`StatefulUnary::stateful_unary`].
@@ -108,8 +142,8 @@ where
         &self,
         step_id: StepId,
         logic_builder: LB,
-        resume_state: HashMap<StateKey, State>,
-    ) -> (StatefulStream<S, R>, StateUpdateStream<S>)
+        resume_state: StepStateBytes,
+    ) -> (StatefulStream<S, R>, FlowChangeStream<S>)
     where
         R: Data,                                   // Output value type
         I: IntoIterator<Item = R>,                 // Iterator of output values
@@ -127,8 +161,8 @@ where
         &self,
         step_id: StepId,
         logic_builder: LB,
-        resume_state: HashMap<StateKey, State>,
-    ) -> (StatefulStream<S, R>, StateUpdateStream<S>)
+        resume_state: StepStateBytes,
+    ) -> (StatefulStream<S, R>, FlowChangeStream<S>)
     where
         R: Data,                                   // Output value type
         I: IntoIterator<Item = R>,                 // Iterator of output values
@@ -138,11 +172,11 @@ where
         let mut op_builder = OperatorBuilder::new(format!("{step_id}"), self.scope());
 
         let (mut output_wrapper, output_stream) = op_builder.new_output();
-        let (mut state_backup_wrapper, state_update_stream) = op_builder.new_output();
+        let (mut change_wrapper, change_stream) = op_builder.new_output();
 
         let mut input_handle = op_builder.new_input_connection(
             self,
-            pact::Exchange::new(move |&(ref key, ref _value)| StateKey::route(key)),
+            Exchange::new(move |&(ref key, ref _value)| StateKey::route(key)),
             // This is saying this input results in items on either
             // output.
             vec![Antichain::from_elem(0), Antichain::from_elem(0)],
@@ -167,12 +201,10 @@ where
             // awake time.
             let mut current_next_awake: HashMap<StateKey, DateTime<Utc>> = HashMap::new();
 
-            for (key, state) in resume_state {
-                let State {
-                    snapshot,
-                    next_awake,
-                } = state;
-                current_logic.insert(key.clone(), logic_builder(Some(snapshot)));
+            for (key, snapshot) in resume_state {
+                let state = StateBytes::de::<(StateBytes, Option<DateTime<Utc>>)>(snapshot);
+                let (logic_snapshot, next_awake) = state;
+                current_logic.insert(key.clone(), logic_builder(Some(logic_snapshot)));
                 if let Some(next_awake) = next_awake {
                     current_next_awake.insert(key.clone(), next_awake);
                 } else {
@@ -185,7 +217,7 @@ where
             // https://github.com/TimelyDataflow/timely-dataflow/pull/187
             // In reverse order because of how [`Vec::pop`] removes
             // from back.
-            let mut state_update_cap = init_caps.pop();
+            let mut change_cap = init_caps.pop();
             let mut output_cap = init_caps.pop();
 
             // Here we have "buffers" that store items across
@@ -227,7 +259,7 @@ where
                 let is_closed = |e: &S::Timestamp| input_frontiers.iter().all(|f| !f.less_equal(e));
 
                 if let (Some(output_cap), Some(state_update_cap)) =
-                    (output_cap.as_mut(), state_update_cap.as_mut())
+                    (output_cap.as_mut(), change_cap.as_mut())
                 {
                     assert!(output_cap.time() == state_update_cap.time());
                     assert!(tmp_closed_epochs.is_empty());
@@ -349,10 +381,9 @@ where
                         }
 
                         let mut output_handle = output_wrapper.activate();
-                        let mut state_update_handle = state_backup_wrapper.activate();
+                        let mut change_handle = change_wrapper.activate();
                         let mut output_session = output_handle.session(&output_cap);
-                        let mut state_update_session =
-                            state_update_handle.session(&state_update_cap);
+                        let mut change_session = change_handle.session(&state_update_cap);
 
                         // Drain to re-use allocation.
                         for (key, next_value) in tmp_awake_logic_with.drain(..) {
@@ -388,16 +419,16 @@ where
                                     .remove(&state_key)
                                     .expect("No logic for activated key");
 
-                                let op = match logic.fate() {
+                                let change = match logic.fate() {
                                     LogicFate::Discard => {
                                         // Do not re-insert the
                                         // logic. It'll be dropped.
                                         current_next_awake.remove(&state_key);
 
-                                        StateOp::Discard
+                                        Change::Discard
                                     }
                                     LogicFate::Retain => {
-                                        let snapshot = logic.snapshot();
+                                        let logic_snapshot = logic.snapshot();
                                         let next_awake = logic.next_awake();
 
                                         if let Some(next_awake) = next_awake {
@@ -409,20 +440,18 @@ where
 
                                         current_logic.insert(state_key.clone(), logic);
 
-                                        StateOp::Upsert(State {
-                                            snapshot,
-                                            next_awake,
-                                        })
+                                        let state = (logic_snapshot, next_awake);
+                                        let snapshot =
+                                            StateBytes::ser::<(StateBytes, Option<DateTime<Utc>>)>(
+                                                &state,
+                                            );
+                                        Change::Upsert(snapshot)
                                     }
                                 };
 
-                                let recovery_key = StateRecoveryKey {
-                                    step_id: step_id.clone(),
-                                    state_key,
-                                    epoch: epoch.clone(),
-                                };
-                                let update = StateUpdate(recovery_key, op);
-                                state_update_session.give(update);
+                                let flow_key = FlowKey(step_id.clone(), state_key);
+                                let kchange = KChange(flow_key, change);
+                                change_session.give(kchange);
                             }
                         }
                     }
@@ -437,18 +466,21 @@ where
                         .map(|next_awake| next_awake.clone() - now)
                         .min()
                     {
-                        activator
-                            .activate_after(soonest_next_awake.to_std().unwrap_or(Duration::ZERO));
+                        activator.activate_after(
+                            soonest_next_awake
+                                .to_std()
+                                .unwrap_or(std::time::Duration::ZERO),
+                        );
                     }
                 }
 
                 if eof {
                     output_cap = None;
-                    state_update_cap = None;
+                    change_cap = None;
                 }
             }
         });
 
-        (output_stream, state_update_stream)
+        (output_stream, change_stream)
     }
 }
