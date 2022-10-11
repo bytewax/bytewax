@@ -52,6 +52,10 @@
       {
         "title": "Using waxctl to manage your Dataflows in Kubernetes",
         "filename": "waxctl"
+      },
+      {
+        "title": "Running your Dataflows on an AWS EC2 using waxctl",
+        "filename": "waxctl-aws"
       }
     ]
   },
