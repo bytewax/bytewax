@@ -32,7 +32,7 @@ Alright, let's get started!
 Inputs & Outputs
 ----------------
 
-We are going to eventually create a cluster of dataflows where we could have multiple currency pairs running in parallel on different workers. In order to follow this approach, we will use the [`spawn_cluster`](https://docs.bytewax.io/apidocs#bytewax.spawn_cluster) method of kicking off our dataflow. To start, we will build a websocket input function that will use the coinbase pro websocket url (`wss://ws-feed.pro.coinbase.com`) and the Python websocket library to create a connection. Once connected we can send a message to the websocket subscribing to product_ids (pairs of currencies - USD-BTC for this example) and channels (level2 order book data). Finally since we know there will be some sort of acknowledgement message we can grab that with `ws.recv()` and print it out.
+We are going to eventually create a cluster of dataflows where we could have multiple currency pairs running in parallel on different workers. In order to follow this approach, we will use the [`spawn_cluster`](/apidocs#bytewax.spawn_cluster) method of kicking off our dataflow. To start, we will build a websocket input function that will use the coinbase pro websocket url (`wss://ws-feed.pro.coinbase.com`) and the Python websocket library to create a connection. Once connected we can send a message to the websocket subscribing to product_ids (pairs of currencies - USD-BTC for this example) and channels (level2 order book data). Finally since we know there will be some sort of acknowledgement message we can grab that with `ws.recv()` and print it out.
 
 ```python
 import json
@@ -146,7 +146,7 @@ The data from the coinbase pro websocket is first a snapshot of the current orde
 }
 ```
 
-To maintain an order book in real time, we will first need to construct an object to hold the orders from the snapshot and then update that object with each additional update. This is a good use case for the [`stateful_map`](https://docs.bytewax.io/apidocs#bytewax.Dataflow.stateful_map) operator, which can aggregate by key. `Stateful_map` will aggregate data based on a function (mapper), into an object that you define. The object must be defined via a builder, because it will create a new object via this builder for each new key received. The mapper must return the object so that it can be updated.
+To maintain an order book in real time, we will first need to construct an object to hold the orders from the snapshot and then update that object with each additional update. This is a good use case for the [`stateful_map`](/apidocs#bytewax.Dataflow.stateful_map) operator, which can aggregate by key. `Stateful_map` will aggregate data based on a function (mapper), into an object that you define. The object must be defined via a builder, because it will create a new object via this builder for each new key received. The mapper must return the object so that it can be updated.
 
 Below we have the code for the OrderBook object that has a bids and asks dictionary. These will be used to first create the order book from the snapshot and once created we can attain the first bid price and ask price. The bid price is the highest buy order placed and the ask price is the lowest sell order places. Once we have determined the bid and ask prices, we will be able to calculate the spread and track that as well.
 
@@ -224,7 +224,7 @@ flow.filter(lambda x: x[-1]['spread'] / x[-1]['ask'] > 0.0001)
 flow.capture(ManualOutputConfig(output_builder))
 ```
 
-[Bytewax provides a few different entry points for executing a dataflow](/getting-started/execution/).
+[Bytewax provides a few different entry points for executing a dataflow](/docs/getting-started/execution/).
 That's it, let's run it and verify our output:
 
 ```python

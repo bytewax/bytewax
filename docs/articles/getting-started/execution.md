@@ -134,7 +134,7 @@ spawn_cluster(
 ```
 ## Multiple Workers Cluster Main
 
-The final entry point, `bytewax.execution.cluster_main()` is the most flexible. It allows you to start up a single process within a cluster of processes that you are manually coordinating. We recommend you checkout the documentation for [waxctl](/deployment/waxctl) our command line tool which facilitates running a dataflow on kubernetes.
+The final entry point, `bytewax.execution.cluster_main()` is the most flexible. It allows you to start up a single process within a cluster of processes that you are manually coordinating. We recommend you checkout the documentation for [waxctl](/docs/deployment/waxctl/) our command line tool which facilitates running a dataflow on kubernetes.
 
 `cluster_main()` takes in a list of hostname and port of all workers (including itself). Each worker must be given a unique process ID.
 
