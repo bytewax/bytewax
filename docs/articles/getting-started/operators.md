@@ -20,4 +20,4 @@ In order to coordinate this state in a multiple-worker execution, all stateful o
 
 ### Stateful Operators and Recovery
 
-When a Bytewax dataflow is configured with recovery, state for operators can be periodically persisted. In the event of a crash or a restart, stateful operators can recover their internal state from a recovery store. For more information, see the documentation on [recovery](/getting-started/recovery/).
+When a Bytewax dataflow is configured with recovery, state for operators can be periodically persisted. In the event of a crash or a restart, stateful operators can recover their internal state from a recovery store. For more information, see the documentation on [recovery](/docs/getting-started/recovery/).
