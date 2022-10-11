@@ -41,7 +41,7 @@ from bytewax.outputs import ManualOutputConfig
 # but you can also create your own with the ManualOutputConfig.
 ```
 
-At a high-level, the dataflow compute model is one in which a program execution is conceptualized as data flowing through a series of operator-based steps. Operators like `map` and `filter` are the processing primitives of bytewax. Each of them gives you a “shape” of data transformation, and you give them regular Python functions to customize them to a specific task you need. See the documentation for a list of the [available operators](https://docs.bytewax.io/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow)
+At a high-level, the dataflow compute model is one in which a program execution is conceptualized as data flowing through a series of operator-based steps. Operators like `map` and `filter` are the processing primitives of Bytewax. Each of them gives you a “shape” of data transformation, and you give them regular Python functions to customize them to a specific task you need. See the documentation for a list of the [available operators](https://docs.bytewax.io/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow)
 
 ```python
 import json
