@@ -184,7 +184,7 @@ To build a specific branch, you will need to use Maturin and have Rust installed
 maturin develop
 ```
 
-*Important*: If you are testing with a maturin built version from source, you should use `maturin build --release` since develop will be slower.
+*Important*: If you are testing with a maturin built version from source, you should use `maturin build --release` since `maturin develop` will be slower.
 
 ## More Examples
 
