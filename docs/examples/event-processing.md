@@ -1,7 +1,7 @@
 Processing Events from Redpanda to Postgres
 ===========================
 
-This example will cover building a data product with Bytewax. We will write a data flow that will aggregate event data generated via a user's interaction with a software product. The event data in this example will stream into a Redpanda Topic and our dataflow will consume from this topic. The dataflow will anonymize user data, filter out employee generated events and then count the number of events per type of event, per user over a time window. The results will be written to a postgres database that will serve the final application.
+This example will cover building a data product with Bytewax. We will write a data flow that will aggregate event data generated via a user's interaction with a software product. The event data in this example will stream into a Redpanda Topic and our dataflow will consume from this topic. The dataflow will anonymize user data, filter out employee generated events and then count the number of events per event type and per user over a time window. The results will be written to a postgres database that will serve the final application.
 
 Prerequisites
 ---------
