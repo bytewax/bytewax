@@ -134,13 +134,13 @@ if __name__ == "__main__":
 
 ### Deploying and Scaling
 
-Bytewax can be run on a local machine, or remote machine just like a regular python script.
+Bytewax can be run on a local machine or remote machine, just like a regular Python script.
 
 ```sh
 python my_dataflow.py
 ```
 
-It can also be run in a docker container as described further in the [documentation](https://docs.bytewax.io/deployment/container).
+It can also be run in a Docker container as described further in the [documentation](https://docs.bytewax.io/deployment/container).
 
 #### Kubernetes
 

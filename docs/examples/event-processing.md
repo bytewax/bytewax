@@ -194,13 +194,13 @@ if __name__ == "__main__":
 **Deploying and Scaling**
 --------
 
-Bytewax can be run like a regular python script using a single worker thread and process. Alternatively it could be scaled up to multiple worker threads and processes.
+Bytewax can be run like a regular Python script using a single worker thread and process. Alternatively, it could be scaled up to multiple worker threads and processes.
 
 ```sh doctest:SKIP
 python my_dataflow.py
 ```
 
-It can also be run in a docker container as described further in the [documentation](https://docs.bytewax.io/deployment/container).
+It can also be run in a Docker container as described further in the [documentation](https://docs.bytewax.io/deployment/container).
 
 **Kubernetes**
 

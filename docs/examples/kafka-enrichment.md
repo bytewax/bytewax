@@ -1,7 +1,7 @@
 Enriching Streaming Data from Kafka
 ===========================
 
-This example will cover how to write a dataflow to support in-line data enrichment. Data enrichment is the process of adding to or enhancing data to make it more suitable or useful for a specific purpose. It is most often the result of joining additional data from a 3rd party database or another internal data source. For this specific example we will consume a stream of ip addresses from Kafka as input, enrich them with third party data to determine the location of the IP address and then produce data to Kafka. This example will leverage the `KafkaInputConfig` and `KafkaOutputConfig` to do so.
+This example will cover how to write a dataflow to support in-line data enrichment. Data enrichment is the process of adding to or enhancing data to make it more suitable or useful for a specific purpose. It is most often the result of joining additional data from a 3rd party database or another internal data source. For this specific example we will consume a stream of IP addresses from Kafka as input, enrich them with third party data to determine the location of the IP address, and then produce data to Kafka. This example will leverage the `KafkaInputConfig` and `KafkaOutputConfig` to do so.
 
 Prerequisites
 ---------
@@ -124,7 +124,7 @@ In the code above, we are making an http request to an external service, this is
 
 **Kafka Output**
 
-To capture data that is transformed in a dataflow, the capture method is used.Similarly to the input method, it takes a configuration as the argument. Bytewax has built-in output configurations and [`KafkaOutputConfig`](https://docs.bytewax.io/apidocs/bytewax.outputs#bytewax.outputs.KafkaOutputConfig) is one of those. We are going to use it in this example to write out the enriched data to a new topic.
+To capture data that is transformed in a dataflow, we will use the `capture` method. Similar to the input method, it takes a configuration as the argument. Bytewax has built-in output configurations and [`KafkaOutputConfig`](https://docs.bytewax.io/apidocs/bytewax.outputs#bytewax.outputs.KafkaOutputConfig) is one of those. We are going to use it in this example to write out the enriched data to a new topic.
 
 ```python doctest:SKIP
 flow.capture(
@@ -137,7 +137,7 @@ flow.capture(
 
 ### Kicking off execution
 
-With the above dataflow written the final step is to specify the execution method. Whether it will run as a single threaded process on our local machine or be capable of scaling across a kubernetes cluster. The methods used to define the execution are part of the execution module and more detail can be found in the long format documentation as well as in the API documentation.
+With the above dataflow written, the final step is to specify the execution method. Whether it will run as a single threaded process on our local machine or be capable of scaling across a Kubernetes cluster. The methods used to define the execution are part of the execution module and more detail can be found in the long format documentation as well as in the API documentation.
 
 ```python doctest:SKIP
 from bytewax.execution import cluster_main
@@ -154,18 +154,18 @@ if __name__ == "__main__":
         worker_count_per_proc=1)
 ```
 
-There are two types of workers, worker threads and worker processes. In most use cases where you are running Python code to transform and enrich data, you will want to use processes.
+There are two types of workers: worker threads and worker processes. In most use cases where you are running Python code to transform and enrich data, you will want to use processes.
 
 Deploying the Enrichment Dataflow
 ---------
 
-Bytewax dataflows can be run as you would a regular python script.
+Bytewax dataflows can be run as you would a regular Python script.
 
 ```bash doctest:SKIP
 > python kafka_enrich.py
 ```
 
-It is also possible to run a bytewax dataflow on one of the public clouds, like AWS with Waxctl with very little configuration. You will need to have the AWS cli install and configured.
+With Waxctl, it is also possible to run a Bytewax dataflow on one of the public clouds, like AWS, with very little configuration. You will need to have the AWS CLI installed and configured.
 
 ```bash doctest:SKIP
 waxctl aws deploy kafka-enrichment.py --name kafka-enrichment \
@@ -178,7 +178,7 @@ Waxctl will configure and start an AWS EC2 instance and run your dataflow on the
 waxctl aws deploy -h                                               
 Deploy a dataflow to a new EC2 instance.
 ​
-The deploy command expects one argument, which is the path of your python dataflow file.
+The deploy command expects one argument, which is the path of your Python dataflow file.
 By default, Waxctl creates a policy and a role that will allow the EC2 instance to store Cloudwatch logs and start sessions through Systems Manager.
 ​
 Examples:
