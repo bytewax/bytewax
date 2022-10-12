@@ -1,2 +1,0 @@
-pytest==7.1.0
-myst-docutils==0.17.0

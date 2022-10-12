@@ -45,8 +45,7 @@ jobs:
       shell: bash
       run: |
         WHEEL_FILE=$(ls ./dist/*.whl)
-        pip install $WHEEL_FILE'[dynamodb]' -v
-        pip install -r build.requirements.txt
+        pip install $WHEEL_FILE'[dev]' -v
         pytest
     - name: Upload wheels
       uses: actions/upload-artifact@v2
@@ -85,8 +84,7 @@ jobs:
       shell: bash
       run: |
         WHEEL_FILE=$(ls ./dist/*.whl)
-        pip install $WHEEL_FILE'[dynamodb]' -v
-        pip install -r build.requirements.txt
+        pip install $WHEEL_FILE'[dev]' -v
         pytest
     - name: Upload wheels
       uses: actions/upload-artifact@v2
@@ -125,8 +123,7 @@ jobs:
         eval "$(pyenv init -)"
         pyenv activate bytewax-${{ matrix.python-version }}
         WHEEL_FILE=$(ls ./dist/*.whl)
-        pip install $WHEEL_FILE'[dynamodb]' -v --force-reinstall
-        pip install -r build.requirements.txt
+        pip install $WHEEL_FILE'[dev]' -v --force-reinstall
         pytest
     - name: Upload wheels
       uses: actions/upload-artifact@v2

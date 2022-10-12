@@ -20,10 +20,19 @@ classifiers = [
     "Topic :: System :: Distributed Computing",
 ]
 dependencies = ["multiprocess>=0.70", "dill>=0.3.5"]
-extras = ["dynamodb"]
+extras = ["dynamodb", "dev", "docs", "test"]
 
 [project.optional-dependencies]
-dynamodb = ["boto3[crt]>=1.15.0"]
+dynamodb = ["boto3>=1.15.0"]
+test = ["pytest==7.1.0", "myst-docutils==0.17.0"]
+docs = ["pdoc3==0.10.0"]
+dev = [
+    "bytewax[dynamodb,test,docs]",
+    "black==22.3.0",
+    "flake8==4.0.1",
+    "isort==5.10.1",
+    "pre-commit==2.19.0"
+]
 
 [project.urls]
 "Source Code" = "https://github.com/bytewax/bytewax"
