@@ -19,8 +19,6 @@ from .bytewax import (  # noqa: F401
     StdOutputConfig,
 )
 
-from .dynamodb_output import DynamoDBOutputConfig  # noqa: F401
-
 
 class TestingEpochOutputConfig(ManualEpochOutputConfig):
     """

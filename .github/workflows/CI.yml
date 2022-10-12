@@ -45,7 +45,7 @@ jobs:
       shell: bash
       run: |
         WHEEL_FILE=$(ls ./dist/*.whl)
-        pip install $WHEEL_FILE -v
+        pip install $WHEEL_FILE'[dynamodb]' -v
         pip install -r build.requirements.txt
         pytest
     - name: Upload wheels

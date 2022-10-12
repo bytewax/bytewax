@@ -1,13 +1,14 @@
 import json
 import logging
 
+from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 
 from bytewax import parse
 from bytewax.dataflow import Dataflow
-from bytewax.execution import cluster_main
+from bytewax.execution import run_main
 from bytewax.inputs import KafkaInputConfig
-from bytewax.outputs import DynamoDBOutputConfig
+from bytewax.dynamodb import DynamoDBOutputConfig
 from bytewax.window import TumblingWindowConfig, EventClockConfig
 from bytewax.recovery import KafkaRecoveryConfig
 
@@ -57,11 +58,14 @@ def format(event):
     key, data = event
     values = [x[0] for x in data]
     dates = [datetime.fromisoformat(x[1]) for x in data]
-    return key, {
-        "average": sum(values) / len(values),
-        "num_events": len(values),
-        "from": (min(dates) - start_at).total_seconds(),
-        "to": (max(dates) - start_at).total_seconds(),
+    return {
+        "Item": {
+            "id": key,
+            "average": Decimal(str(sum(values) / len(values))),
+            "num_events": len(values),
+            "from": Decimal(str((min(dates) - start_at).total_seconds())),
+            "to": Decimal(str((max(dates) - start_at).total_seconds())),
+        }
     }
 
 
@@ -77,7 +81,6 @@ flow.map(format)
 flow.capture(
     DynamoDBOutputConfig(
         table="example",
-        primary_key="id",
     )
 )
 
@@ -87,9 +90,7 @@ recovery_config = KafkaRecoveryConfig(
 )
 
 if __name__ == "__main__":
-    cluster_main(
+    run_main(
         flow,
-        [],
-        0,
         recovery_config=recovery_config,
     )

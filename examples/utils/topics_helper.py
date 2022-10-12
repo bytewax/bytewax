@@ -1,4 +1,5 @@
 import json
+import math
 import fake_events
 import pandas as pd
 
@@ -32,6 +33,21 @@ def create_temperature_events(topic_name, servers=["localhost:9092"]):
         if random() > 0.8:
             dt = dt - timedelta(minutes=random())
         event = {"type": "temp", "value": i, "time": dt.isoformat()}
+        producer.send(topic_name, json.dumps(event).encode("utf-8"))
+        sleep(random())
+
+
+def create_sensor_events(topic_name, servers=["localhost:9092"]):
+    producer = create_local_kafka_producer(topic_name, servers)
+    for i in range(10):
+        dt = datetime.now(timezone.utc)
+        if random() > 0.8:
+            dt = dt - timedelta(minutes=random())
+        event = {
+            "id": str(math.floor(random() * 10)),
+            "value": i,
+            "time": dt.isoformat(),
+        }
         producer.send(topic_name, json.dumps(event).encode("utf-8"))
         sleep(random())
 

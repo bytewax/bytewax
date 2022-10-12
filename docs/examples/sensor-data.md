@@ -94,16 +94,25 @@ flow.fold_window("running_average", cc, wc, list, acc_values)
 
 For each completed window, we'll need to process the data to compute an average of all of the values collected during that period, and format the results as a dictionary, along with the key for that sensor. Let's define our formatting step and add it to the dataflow.
 
+When using DynamoDB as our output, we'll need to structure our output from this step as a dictionary, and add the values we want written to DynamoDB under the **Item** key.
+
+We'll also need to format any floating point values as [Decimal](https://docs.python.org/3/library/decimal.html) values.
+
 ``` python
+from decimal import Decimal
+
 def format(event):
     key, data = event
-    values = [x["value"] for x in data]
-    dates = [datetime.fromisoformat(x["time"]) for x in data]
-    return key, {
-        "average": sum(values) / len(values),
-        "num_events": len(values),
-        "from": (min(dates) - start_at).total_seconds(),
-        "to": (max(dates) - start_at).total_seconds(),
+    values = [x[0] for x in data]
+    dates = [datetime.fromisoformat(x[1]) for x in data]
+    return {
+        "Item": {
+            "id": key,
+            "average": Decimal(str(sum(values) / len(values))),
+            "num_events": len(values),
+            "from": Decimal(str((min(dates) - start_at).total_seconds())),
+            "to": Decimal(str((max(dates) - start_at).total_seconds())),
+        }
     }
 
 flow.map(format)
@@ -112,7 +121,7 @@ flow.map(format)
 With that completed, all that we need now is to write the finished data to DynamoDB. We can configure the built-in `DynamoDBOutputConfig` to do this:
 
 ``` python
-from bytewax.outputs import DynamoDBOutputConfig
+from bytewax.dynamodb import DynamoDBOutputConfig
 
 flow.capture(
     DynamoDBOutputConfig(
@@ -120,7 +129,5 @@ flow.capture(
     )
 )
 ```
-
-The key that we emitted from our `format` function above will be mapped to the primary key of the DynamoDB table. In this case, we want the keys emitted from the last step to be used in the DynamoDB table as the field *id*.
 
 For more information about configuring AWS credentials and region for DynamoDB, please see the [AWS documentation](https://docs.aws.amazon.com/sdk-for-rust/latest/dg/credentials.html).
