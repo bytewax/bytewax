@@ -268,7 +268,7 @@ And if we want to actually delete the dataflow we must add the `--yes` flag:
 ```bash
 ❯ waxctl aws rm --name my-dataflow --yes
 Role Waxctl-EC2-my-dataflow-Role deleted.
-Policy arn:aws:iam::443066169751:policy/Waxctl-EC2-my-dataflow-Policy deleted.
+Policy arn:aws:iam::111111111111:policy/Waxctl-EC2-my-dataflow-Policy deleted.
 EC2 instance my-dataflow with ID i-040f98b9160d2d158 has been terminated.
 ```
 
@@ -280,7 +280,7 @@ As you can imagine, Waxctl uses the AWS API to manage EC2 instances, IAM policie
 
 The operating system of EC2 instances created by Waxctl is Ubuntu 20.04 LTS.
 
-Waxctl relies on Cloud-init, a standard multi-distribution method for cross-platform cloud instance initialization. Using Cloud-init, Waxctl configure a Linux service which is going to run `pip install -r /home/ubuntu/bytewax/requirements.txt` and after that run your python dataflow program.
+Waxctl relies on [Cloud-init](https://cloudinit.readthedocs.io/en/latest/), a standard multi-distribution method for cross-platform cloud instance initialization. Using Cloud-init, Waxctl configures a Linux service which is going to run `pip install -r /home/ubuntu/bytewax/requirements.txt` and after that run your python dataflow program.
 
 As we mentioned before, you can specify your own `requirements.txt` file using the `--requirements-file-name` flag. If you don't, Waxctl is going to put only `bytewax` as a requirement.
 
@@ -317,7 +317,11 @@ You may want to check:
 - `df -H /` - File system information.
 - `top` - Processes information.
 
-You can install any profiling or debugging tool and use it. Also you could modify your script and restart the `bytewax-dataflow.service`.
+You can install any profiling or debugging tool and use it. Also you could modify your script and restart the `bytewax-dataflow.service` running:
+
+```bash
+systemctl restart bytewax-dataflow.service
+```
 
 ## A Production-like Example
 
