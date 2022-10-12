@@ -20,6 +20,10 @@ classifiers = [
     "Topic :: System :: Distributed Computing",
 ]
 dependencies = ["multiprocess>=0.70", "dill>=0.3.5"]
+extras = ["dynamodb"]
+
+[project.optional-dependencies]
+dynamodb = ["boto3[crt]>=1.15.0"]
 
 [project.urls]
 "Source Code" = "https://github.com/bytewax/bytewax"
