@@ -10,7 +10,7 @@ In this scenario, IOT devices are streaming real-time data that is being written
 
 In order to run this example, we'll need to install Bytewax with the optional `dynamodb` dependency:
 
-``` python
+``` shell
 pip install bytewax[dynamodb]
 ```
 
@@ -117,7 +117,6 @@ from bytewax.outputs import DynamoDBOutputConfig
 flow.capture(
     DynamoDBOutputConfig(
         table="example",
-        primary_key="id",
     )
 )
 ```
