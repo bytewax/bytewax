@@ -1,15 +1,15 @@
-`waxctl` helps you run and manage your Bytewax dataflows in Kubernetes.
+Waxctl helps you run and manage your Bytewax dataflows in Kubernetes.
 It uses the current `kubectl` context configuration, so you need kubectl configured to access the desired Kubernetes cluster for your dataflows.
 
 Check `kubectl` documentation [here](https://kubernetes.io/docs/tasks/tools/#kubectl) if you don't have it installed yet.
 
 ## Installation
 
-Installing `waxctl` is very simple. You just need to download the binary corresponding to your operating system and architecture [here](/downloads/).
+Installing Waxctl is very simple. You just need to download the binary corresponding to your operating system and architecture [here](/downloads/).
 
 ## Dataflow Lifecycle
 
-`waxctl` allows you to manage the entire dataflow program lifecycle which includes these phases:
+Waxctl allows you to manage the entire dataflow program lifecycle which includes these phases:
 
 - Deployment
 - Getting Status
@@ -20,7 +20,7 @@ In the following sections we are going to cover each one.
 
 ## Available Commands
 
-For now `waxctl` only has one available command and that is `dataflow`. That command is also aliased to `df` so any of them can be used.
+For now Waxctl only has one available command and that is `dataflow`. That command is also aliased to `df` so any of them can be used.
 
 You can manage the entire lifecycle of a dataflow in Kubernetes. To do so, the `dataflow` command has the following sub-commands:
 
@@ -56,13 +56,13 @@ Use "waxctl dataflow [command] --help" for more information about a command.
 
 ## Waxctl and Namespaces
 
-`waxctl` behavior leverages namespaces similarly to other kubernetes tools like helm. If you don’t specify a namespace, the tool will use the current `kubectl` namespace.
+Waxctl behavior leverages namespaces similarly to other kubernetes tools like helm. If you don’t specify a namespace, the tool will use the current `kubectl` namespace.
 
-You can specify an explicit namespace in every `waxctl` command using the `--namespace` flag.
+You can specify an explicit namespace in every Waxctl command using the `--namespace` flag.
 
 ## Deploying a Dataflow
 
-To deploy a dataflow you just need to run `dataflow deploy` passing the path of your python script as an argument. If left unset, `waxctl` will use the default name for your dataflow, which is `bytewax`. 
+To deploy a dataflow you just need to run `dataflow deploy` passing the path of your python script as an argument. If left unset, Waxctl will use the default name for your dataflow, which is `bytewax`. 
 
 In our example we are going to deploy a dataflow called `my-dataflow` in the current namespace which is `bytewax` in our case:
 
@@ -71,7 +71,7 @@ In our example we are going to deploy a dataflow called `my-dataflow` in the cur
 Dataflow my-dataflow deployed in bytewax namespace.
 ```
 
-In the above example, `waxctl` used the default values for all the flags besides `name`. The tool allows you to configure a wide range of characteristics of your dataflow. 
+In the above example, Waxctl used the default values for all the flags besides `name`. The tool allows you to configure a wide range of characteristics of your dataflow. 
 
 We can see which flags are available geting the `dataflow deploy` help.
 ```bash
@@ -219,9 +219,9 @@ Dataflow my-dataflow deleted.
 
 ## Bytewax Helm Chart
 
-`waxctl` uses a compiled-in [Bytewax helm chart](https://github.com/bytewax/helm-charts) to generate all the manifests except the Namespace and ConfigMap which are created by making calls to Kubernetes API directly. 
+Waxctl uses a compiled-in [Bytewax helm chart](https://github.com/bytewax/helm-charts) to generate all the manifests except the Namespace and ConfigMap which are created by making calls to Kubernetes API directly. 
 
-You can check the entire architecture that `waxctl` deploys in our [Bytewax Ecosystem on Kubernetes](/docs/deployment/k8s-ecosystem/) section.
+You can check the entire architecture that Waxctl deploys in our [Bytewax Ecosystem on Kubernetes](/docs/deployment/k8s-ecosystem/) section.
 
 ## More Examples
 
@@ -261,7 +261,7 @@ running a command with the `--dry-run` flag to get all the manifests without act
 ```bash
 ❯ waxctl df deploy ./basic.py -N dataflow -n new-namespace --dry-run
 ```
-setting the `-n` flag with the name of a non-existing namespace will cause `waxctl` to handle creating the resource and because we use the `--dry-run` flag it is going to include the namespace manifest in the output.
+setting the `-n` flag with the name of a non-existing namespace will cause Waxctl to handle creating the resource and because we use the `--dry-run` flag it is going to include the namespace manifest in the output.
 
 You could also get the output in JSON format:
 

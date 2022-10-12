@@ -136,7 +136,7 @@ We use this Kubernetes object to give access to the Registry Credentials Secrets
 
 ## Next Steps
 
-If you want to deploy this stack in your Kubernetes cluster we invite you to read our [next section](/docs/deployment/waxctl) where we use the Bytewax CLI, `waxctl`, to do that.
+If you want to deploy this stack in your Kubernetes cluster we invite you to read our [next section](/docs/deployment/waxctl) where we use the Bytewax CLI, Waxctl, to do that.
 
 ## Example Manifests
 
