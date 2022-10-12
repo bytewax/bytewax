@@ -206,3 +206,4 @@ Contributions are welcome! This community and project would not be what it is wi
 
 <p align="center"> With ❤️ Bytewax</p> 
 <p align="center"><img src="https://user-images.githubusercontent.com/6073079/157482621-331ad886-df3c-4c92-8948-9e50accd38c9.png" /> </p>
+<img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=07749572-3e76-4ac0-952b-d5dcf3bff737" />
