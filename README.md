@@ -2,8 +2,9 @@
 [![PyPI](https://img.shields.io/pypi/v/bytewax.svg?style=flat-square)](https://pypi.org/project/bytewax/)
 [![Bytewax User Guide](https://img.shields.io/badge/user-guide-brightgreen?style=flat-square)](https://docs.bytewax.io/)
 
+
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://user-images.githubusercontent.com/6073079/194626717-6c4ecbfe-afa9-408e-b8bb-91552842762c.png" width="350">
+  <source media="(prefers-color-scheme: dark)" srcset="https://user-images.githubusercontent.com/6073079/195393689-7334098b-a8cd-4aaa-8791-e4556c25713e.png" width="350">
   <source media="(prefers-color-scheme: light)" srcset="https://user-images.githubusercontent.com/6073079/194626697-425ade3d-3d72-4b4c-928e-47bad174a376.png" width="350">
   <img alt="Bytewax">
 </picture>
@@ -34,7 +35,7 @@ pip install bytewax
 A Bytewax dataflow is Python code that will represent an input, a series of processing steps, and an output. The inputs could range from a Kafka stream to a WebSocket and the outputs could vary from a data lake to a key-value store.
 
 ```python
-​​from bytewax.dataflow import Dataflow
+from bytewax.dataflow import Dataflow
 from bytewax.inputs import KafkaInputConfig 
 from bytewax.outputs import ManualOutputConfig
 # Bytewax has input and output helpers for common input and output data sources
