@@ -25,7 +25,7 @@ When using Waxctl with cloud specific resources, you will add the cloud name in 
 - start
 - delete
 
-Running `aws --help` will show further details for these.
+Running `waxctl aws --help` will show further details for these.
 
 ```bash
 ❯ waxctl aws --help
