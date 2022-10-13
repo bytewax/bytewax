@@ -162,7 +162,7 @@ We recommend to create an exclusive role having only that permission and maybe w
 
 ## Getting Dataflow Information
 
-You can query which dataflows are deployed on EC2 instances in your AWS account using the `waxctl gcp list` sub-command. By default the output will be a table with this information:
+You can query which dataflows are deployed on VM instances in your GCP account using the `waxctl gcp list` sub-command. By default the output will be a table with this information:
 
 ```bash
 ❯ waxctl gcp ls
