@@ -1,4 +1,4 @@
-as well as deployment facilitating deployment on kubernetes, Waxctl also provides an easy path to deploy dataflows on AWS EC2 instances.
+As well as facilitating deployment on Kubernetes, Waxctl provides an easy path to deploy dataflows on AWS EC2 instances.
 
 ## Installation
 
@@ -73,7 +73,7 @@ In the above example, Waxctl used the default values for all of the flags except
 
 As you can see in the output above, Waxctl created an IAM policy and role. That will allow the EC2 instance to store Cloudwatch logs and start sessions through Systems Manager.
 
-We can see the complete list of available flags with the `aws deploy` help command.
+We can see the complete list of available flags with the `waxctl aws deploy` help command.
 ```bash
 ❯ waxctl aws deploy -h                                               
 Deploy a dataflow to a new EC2 instance.
@@ -116,9 +116,51 @@ Global Flags:
 
 We suggest paying special attention to the `requirements-file-name` flag because normally you will want to specify a `requirements.txt` file with the needed libraries to run your dataflow program.
 
+## Default IAM Role
+
+As we mentioned, Waxctl creates an IAM policy and role to allow your EC2 instance to store CloudWatch logs and to start Systems Manager sessions. In case you need to use a custom IAM role, here we show you what are the permissions that the policy created by Waxctl has:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "logs:DescribeLogStreams"
+            ],
+            "Resource": "arn:aws:logs:*:*:*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ssmmessages:CreateControlChannel",
+                "ssmmessages:CreateDataChannel",
+                "ssmmessages:OpenControlChannel",
+                "ssmmessages:OpenDataChannel",
+                "ssm:UpdateInstanceInformation"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetEncryptionConfiguration"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+```
+So, your role must have those permissions to keep both features working. 
+We recommend attaching to your Role a Customer managed policy having only those permissions and maybe with an explicit name like "Bytewax-Policy" or "Waxctl-Policy".
+
 ## Getting Dataflow Information
 
-You can query which dataflows are deployed on EC2 instances in your AWS account using the `aws list` sub-command. By default the output will be a table with this information:
+You can query which dataflows are deployed on EC2 instances in your AWS account using the `waxctl aws list` sub-command. By default the output will be a table with this information:
 
 ```bash
 ❯ waxctl aws ls
