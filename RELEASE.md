@@ -16,7 +16,7 @@ Make a PR which commits the following:
 2. Commits updated API docs
 
    ```sh
-   (.venv) bytewax/apidocs $ pip install -r requirements.txt
+   (.venv) bytewax/apidocs $ maturin develop -E dev
    (.venv) bytewax/apidocs $ rm -rf html/
    (.venv) bytewax/apidocs $ ./build.sh
    ```

@@ -182,7 +182,7 @@ pip install bytewax
 To build a specific branch, you will need to use Maturin and have Rust installed on your machine. Once those have been installed run
 
 ```shell
-maturin develop
+maturin develop -E dev
 ```
 
 *Important*: If you are testing with a maturin built version from source, you should use `maturin build --release` since `maturin develop` will be slower.
