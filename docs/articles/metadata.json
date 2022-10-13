@@ -50,12 +50,16 @@
         "filename": "k8s-ecosystem"
       },
       {
-        "title": "Using waxctl to manage your Dataflows in Kubernetes",
+        "title": "Using Waxctl to manage your Dataflows in Kubernetes",
         "filename": "waxctl"
       },
       {
-        "title": "Running your Dataflows on an AWS EC2 using waxctl",
+        "title": "Running your Dataflows on an AWS EC2 using Waxctl",
         "filename": "waxctl-aws"
+      },
+      {
+        "title": "How to use Waxctl to run your Dataflows on GCP VM instances",
+        "filename": "waxctl-gcp"
       }
     ]
   },
