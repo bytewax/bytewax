@@ -9,7 +9,7 @@ you to **recover** your state and resume the dataflow after a fault.
 Not all dataflows are possible to be recovered. There are a few
 requirements:
 
-1. _Regular Epochs_ - The [epoch](/getting-started/epochs) is the
+1. _Regular Epochs_ - The [epoch](/docs/getting-started/epochs) is the
    minimum unit of recovery. Design your dataflow so that epochs are
    regularly occurring because it is not possible to coherently resume
    processing mid-epoch.
@@ -28,7 +28,7 @@ requirements:
 Your dataflow needs a few features to enable recovery on Bytewax:
 
 1. You must design your [input
-   builder](/getting-started/execution#builders) to be able to resume
+   builder](/docs/getting-started/execution#builders) to be able to resume
    and replay all data from the `resume_epoch` epoch onwards. Do not
    ignore this argument!
 
@@ -38,7 +38,7 @@ Your dataflow needs a few features to enable recovery on Bytewax:
    on our supported options.
    
 3. Pass the recovery config as the `recovery_config` argument to
-   whatever execution [entry point](/getting-started/execution)
+   whatever execution [entry point](/docs/getting-started/execution)
    (e.g. `cluster_main()`) you are using.
    
 4. Run the dataflow! Bytewax will automatically snapshots of state and

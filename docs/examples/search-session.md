@@ -87,7 +87,7 @@ the concept of time in your execution via attaching a kind of
 timestamp called an **epoch** to each **item** of input data.
 
 [You can read more about the details of epochs in our
-documentation](/getting-started/epochs/), but the most important facet of them for this
+documentation](/docs/getting-started/epochs/), but the most important facet of them for this
 example is that they are the _only_ way you can set up a sense of
 order in your data.
 
@@ -95,7 +95,7 @@ Since we are going to use the order in which events happen to divvy
 them up into user sessions, we need to take advantage of epochs at
 some level. In this basic example, we're going to label each input
 event with a monotonically increasing epoch. [There are some some
-scaling downsides to this approach](/getting-started/epochs/), but we will be
+scaling downsides to this approach](/docs/getting-started/epochs/), but we will be
 using it here anyway to demonstrate the basics of epochs.
 
 You tell Bytewax what epoch each input item has by having your input
@@ -135,7 +135,7 @@ You can then add a series of **steps** to the dataflow. Steps are made
 up of **operators**, that provide a "shape" of transformation, and
 **logic functions**, that you supply to do your specific
 transformation. [You can read more about all the operators in our
-documentation.](/getting-started/operators)
+documentation.](/docs/getting-started/operators)
 
 Our first task is to make sure to group incoming events by user since
 no session deals with multiple users.
@@ -275,7 +275,7 @@ Execution
 ---------
 
 [Bytewax provides a few different entry points for executing your
-dataflow](/getting-started/execution/), but because we're focusing on the dataflow in
+dataflow](/docs/getting-started/execution/), but because we're focusing on the dataflow in
 this example, we're going to use `bytewax.run` which is the most basic
 execution mode that pushes input items in an iterator through the
 dataflow.

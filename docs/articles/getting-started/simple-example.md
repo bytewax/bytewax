@@ -89,9 +89,9 @@ def file_input():
         yield 1, line
 ```
 
-To receive input, our program needs an **input iterator**. We've defined a [Python generator](https://docs.python.org/3/glossary.html#term-generator) that will read our input file. There are also more advanced ways to provide input, which you can read about later when we talk about [execution modes](/getting-started/execution/).
+To receive input, our program needs an **input iterator**. We've defined a [Python generator](https://docs.python.org/3/glossary.html#term-generator) that will read our input file. There are also more advanced ways to provide input, which you can read about later when we talk about [execution modes](/docs/getting-started/execution/).
 
-This generator yields two-tuples of `1` and a line from our file. The `1` in this example is significant, but we'll talk more about it when we discuss [epochs](/getting-started/epochs/).
+This generator yields two-tuples of `1` and a line from our file. The `1` in this example is significant, but we'll talk more about it when we discuss [epochs](/docs/getting-started/epochs/).
 
 Let's define the steps that we want to execute for each line of input that we receive. We will add these steps to a **dataflow object**, `bytewax.Dataflow()`.
 
@@ -171,7 +171,7 @@ That explains the previous map step in the dataflow with `initial_count()`.
 
 This map sets up the shape that reduce epoch needs: two-tuples where the key is the word, and the value is something we can add together. In this case, since we have a copy of a word for each instance, it represents that we should add `1` to the total count, so label that here.
 
-The "epoch" part of reduce epoch means that we repeat the reduction in each epoch. We'll gloss over that here, but know we'll be counting all the words from the input. Epochs will be further [explained later](/getting-started/epochs/).
+The "epoch" part of reduce epoch means that we repeat the reduction in each epoch. We'll gloss over that here, but know we'll be counting all the words from the input. Epochs will be further [explained later](/docs/getting-started/epochs/).
 
 ### Print out the counts
 
@@ -229,4 +229,4 @@ Here is the complete output when running the example:
 ('fortune', 1)
 ```
 
-To learn more about possible modes of execution, [read our page on execution](/getting-started/execution/).
+To learn more about possible modes of execution, [read our page on execution](/docs/getting-started/execution/).
