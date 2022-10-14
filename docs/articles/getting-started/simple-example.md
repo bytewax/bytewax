@@ -93,13 +93,13 @@ def file_input():
 
 To provide input to our program, we've defined a [Python generator](https://docs.python.org/3/glossary.html#term-generator) that will read our input file.
 
-This generator yields two-tuples of `1` and a line from our file. The `1` in this example is significant, but we'll talk more about it when we discuss [epochs](/getting-started/epochs/).
+This generator yields two-tuples of `1` and a line from our file. The `1` in this example is significant, but we'll talk more about it when we discuss [epochs](/docs/getting-started/epochs/).
 
 Let's define the steps that we want to execute for each line of input that we receive. We will add these steps to a **dataflow object**.
 
 ### Lowercase all characters in the line
 
-If you look closely at our input, we have instances of both `To` and `to`. Let's add a step to our dataflow that transforms each line into lowercase letters. At the same time, we'll introduce our first operator, [map](/operators/operators/#map).
+If you look closely at our input, we have instances of both `To` and `to`. Let's add a step to our dataflow that transforms each line into lowercase letters. At the same time, we'll introduce our first operator, [map](/docs/operators/operators/#map).
 
 ``` python
 def lower(line):
@@ -130,7 +130,7 @@ tokenize(line)
 ['To', 'be', 'or', 'not', 'to', 'be', 'that', 'is', 'the', 'question']
 ```
 
-To make use of `tokenize` function, we'll use the [flat map operator](/operators/operators/#flat-map):
+To make use of `tokenize` function, we'll use the [flat map operator](/docs/operators/operators/#flat-map):
 
 ``` python
 flow.flat_map(tokenize)
@@ -142,7 +142,7 @@ The flat map operator defines a step which calls a function on each input item. 
 
 At this point in the dataflow, the items of data are the individual words.
 
-Let's skip ahead slightly and look at one of the more useful operators in bytewax, [reduce epoch](/operators/operators#reduce-epoch).
+Let's skip ahead slightly and look at one of the more useful operators in bytewax, [reduce epoch](/docs/operators/operators#reduce-epoch).
 
 ``` python
 def add(count1, count2):
@@ -168,11 +168,11 @@ flow.map(initial_count)
 
 This map sets up the shape that reduce epoch needs: two-tuples where the key is the word, and the value is something we can add together. In this case, since we have a copy of a word for each instance, it represents that we should add `1` to the total count, so label that here.
 
-The "epoch" part of reduce epoch means that we repeat the reduction in each epoch. We'll gloss over that here, but know we'll be counting all the words from the input. Epochs will be further [explained later](/getting-started/epochs/).
+The "epoch" part of reduce epoch means that we repeat the reduction in each epoch. We'll gloss over that here, but know we'll be counting all the words from the input. Epochs will be further [explained later](/docs/getting-started/epochs/).
 
 ### Print out the counts
 
-The last part of our dataflow program will use the [inspect operator](/operators/operators#inspect) to see the results of our reduction. For this example, we're supplying the built-in Python function `print`.
+The last part of our dataflow program will use the [inspect operator](/docs/operators/operators#inspect) to see the results of our reduction. For this example, we're supplying the built-in Python function `print`.
 
 Here is the complete output when running the example:
 
@@ -221,4 +221,4 @@ if __name__ == "__main__":
 
 When we call `run`, our dataflow program will begin running, Bytewax will read the input items and epoch from your input generator, push the data through each step in the dataflow, and return the output. We then print the output of the final step.
 
-To learn more about possible modes of execution, [read our page on execution](/getting-started/execution).
+To learn more about possible modes of execution, [read our page on execution](/docs/getting-started/execution).
