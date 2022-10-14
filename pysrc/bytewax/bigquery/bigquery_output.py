@@ -10,9 +10,13 @@ class BigqueryOutputConfig(ManualOutputConfig):
 
     Attempts to write items as new rows to an existing Bigquery table, consistent with the schema specifications of that table.
 
-    Rows are written to Bigquery using [google-cloud-bigquery](https://pypi.org/project/google-cloud-bigquery/). For more information on authentication and configuration, please its documentation.
+    Rows are written to Bigquery using [google-cloud-bigquery](https://pypi.org/project/google-cloud-bigquery/).
+    For more information on authentication and configuration, please see its documentation.
 
-    Items flowing into the capture operator should be formatted as an array of dictionaries. The dictionary keys align with your column names, and value types should be compatible with your Bigquery table schema.
+    Items flowing into the capture operator should be formatted as dictionaries and will be passed as keyword
+    arguments to the [`insert_json_rows` function of google-cloud-bigquery]
+    (https://cloud.google.com/python/docs/reference/bigquery/latest/google.cloud.bigquery.client.Client#google_cloud_bigquery_client_Client_insert_rows_json).
+    The dictionary keys align with your column names, and value types should be compatible with your BigQuery table schema.
 
     Args:
 
