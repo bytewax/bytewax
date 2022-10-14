@@ -4,19 +4,6 @@ import logging
 from bytewax.outputs import ManualOutputConfig
 
 
-def output_builder(table):
-    """Construct an output function to map Bytewax' item structure
-    to boto3's required structure"""
-    dynamodb = boto3.resource("dynamodb")
-    table = dynamodb.Table(table)
-    logging.info(f"Writing to DynamoDB table {table}")
-
-    def put_item(item_kwargs):
-        table.put_item(**item_kwargs)
-
-    return put_item
-
-
 class DynamoDBOutputConfig(ManualOutputConfig):
     """Write output of a Dataflow to [DynamoDB](https://aws.amazon.com/dynamodb/).
 
@@ -41,4 +28,15 @@ class DynamoDBOutputConfig(ManualOutputConfig):
         """
         In classes defined by PyO3 we can only use __new__, not __init__
         """
-        return super().__new__(cls, lambda wi, wn: output_builder(table))
+
+        def output_builder(wi, wc):
+            dynamodb = boto3.resource("dynamodb")
+            table = dynamodb.Table(table)
+            logging.info(f"Writing to DynamoDB table {table}")
+
+            def output_handler(item_kwargs):
+                table.put_item(**item_kwargs)
+
+            return output_handler
+
+        return super().__new__(cls, output_builder)
