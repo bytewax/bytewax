@@ -4,6 +4,7 @@ from google.cloud import bigquery
 
 from bytewax.outputs import ManualOutputConfig
 
+
 def output_builder(table_ref):
     """Constructs an output function to write to BigQuery"""
     client = bigquery.Client()
@@ -25,7 +26,7 @@ class BigqueryOutputConfig(ManualOutputConfig):
     Rows are written to Bigquery using [google-cloud-bigquery](https://pypi.org/project/google-cloud-bigquery/). For more information on authentication and configuration, please its documentation.
 
     Items flowing into the capture operator should be formatted as an array of dictionaries. The dictionary keys align with your column names, and value types should be compatible with your Bigquery table schema.
-    
+
     Args:
 
         table_ref: Table reference in the format of your Bigquery "{project_id}.{dataset_id}.{table_id}"

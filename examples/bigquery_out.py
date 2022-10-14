@@ -12,12 +12,14 @@ from bytewax.execution import run_main
 from bytewax.inputs import ManualInputConfig
 
 logging.basicConfig(level=logging.INFO)
+
 flow = Dataflow()
+
 project = os.environ["PROJECT"]
 dataset = os.environ["DATASET"]
 table = os.environ["TABLE"]
-
 table_ref = f"{project}.{dataset}.{table}"
+
 
 def input_builder(worker_index, worker_count, resume_state):
     def random_new_users():
@@ -43,7 +45,6 @@ flow.input(
     "inp",
     ManualInputConfig(input_builder),
 )
-
 flow.capture(BigqueryOutputConfig(table_ref=table_ref))
 
 if __name__ == "__main__":
