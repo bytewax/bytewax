@@ -36,7 +36,7 @@ def input_builder(worker_index, worker_count, resume_state):
                 },
                 "created_at": dt.isoformat(),
             }
-            yield None, [user]
+            yield None, {"json_rows": [user]}
 
     return random_new_users()
 
