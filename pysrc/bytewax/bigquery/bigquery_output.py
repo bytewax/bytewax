@@ -41,7 +41,7 @@ class BigqueryOutputConfig(ManualOutputConfig):
             def output_handler(insert_kwargs):
                 errors = client.insert_rows_json(table=table, **insert_kwargs)
                 if errors != []:
-                    logging.info("Errors while inserting rows: {}".format(errors))
+                    raise Exception("Errors while inserting rows: {}".format(errors))
 
             return output_handler
 
