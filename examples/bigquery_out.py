@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import os
 
@@ -10,6 +11,7 @@ from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import ManualInputConfig
 
+logging.basicConfig(level=logging.INFO)
 flow = Dataflow()
 project = os.environ["PROJECT"]
 dataset = os.environ["DATASET"]
