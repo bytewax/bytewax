@@ -1,22 +1,22 @@
-Analyzing Sensor Data With Kafka and DynamoDB
-================================================
+# Analyzing Sensor Data With Kafka and DynamoDB
 
 In this example, we will walk through processing sensor data from IOT devices using Bytewax.
 
 In this scenario, IOT devices are streaming real-time data that is being written to Kafka. Our goals are to:
-* Read data from Kafka
-* Build up a window of events from each sensor, based on its id
-* Write those updated windows to DynamoDB every 5 seconds
+
+- Read data from Kafka
+- Build up a window of events from each sensor, based on its id
+- Write those updated windows to DynamoDB every 5 seconds
 
 In order to run this example, we'll need to install Bytewax with the optional `dynamodb` dependency:
 
-``` shell
+```shell
 pip install bytewax[dynamodb]
 ```
 
 Great, let's start configuring Bytewax to read from Kafka. We'll begin by importing some dependencies and instantiating our Bytewax Dataflow.
 
-``` python
+```python
 import json
 
 from bytewax.dataflow import Dataflow
@@ -28,7 +28,7 @@ flow.input("inp", KafkaInputConfig(brokers=["localhost:9092"], topic="sensor_top
 
 Our sensor payload is a JSON encoded string in Kafka. Let's write a function that deserializes data from Kafka, and returns it as a dictionary. In addition to the payload, we are also returning the `id` of the sensor that captured this data. Bytewax will use this key to route all of the data for a sensor to the same worker.
 
-``` python
+```python
 def deserialize(key_bytes__payload_bytes):
     _key_bytes, payload_bytes = key_bytes__payload_bytes
     payload = json.loads(payload_bytes)
@@ -41,7 +41,7 @@ The goal of our example Dataflow is to accumulate sensor data over a defined per
 
 In this example, we want our sensor readings to be grouped together based on the timestamp that the sensor recorded when the data was produced. To do that, we need to define a function that will read that time from the sensor event and convert it to UTC.
 
-``` python
+```python
 from datetime import datetime
 
 def get_event_time(event):
@@ -50,15 +50,15 @@ def get_event_time(event):
 
 There are two important considerations when using event times to construct windows:
 
- Event Orderliness: We cannot guarantee that sensor events will be read from Kafka in order.
- 
- Event Lateness: We can't guarantee that we will have received all of the events that we should consider in a timely fashion, since sensors could lose their connection to the Internet and send data well after it was recorded. 
- 
- In this way, event time processing is a tradeoff between latency and correctness.
+Event Orderliness: We cannot guarantee that sensor events will be read from Kafka in order.
+
+Event Lateness: We can't guarantee that we will have received all of the events that we should consider in a timely fashion, since sensors could lose their connection to the Internet and send data well after it was recorded.
+
+In this way, event time processing is a tradeoff between latency and correctness.
 
 We need a way to tell our window operator how long we are willing to wait for all of the data to arrive before returning windows. To do that, we create an `EventClockConfiguration` that uses our time getting function, and defines how long we are willing to wait, in system time.
 
-``` python
+```python
 from datetime import timedelta
 from bytewax.window import EventClockConfig
 
@@ -68,7 +68,7 @@ cc = EventClockConfig(get_event_time, wait_for_system_duration=timedelta(seconds
 
 We'll need to configure Bytewax to capture windows of data for a key every five seconds. Windows with a fixed size that do not overlap are called tumbling windows. The following code shows how to configure a bytewax `TumblingWindow` with 5 second intervals that are aligned to the time when the dataflow is started.
 
-``` python
+```python
 from datetime import timezone
 from bytewax.window import TumblingWindowConfig
 
@@ -80,7 +80,7 @@ Our stateful window operator, `fold_window` takes two functions in its list of a
 
 In our case, the folder function and the builder function are simple. We would like to accumulate all of the events for a sensor into a single list. Our builder function can be the built-in Python function `list`, and our folder can just call `append` on that list with every event within a window.
 
-``` python
+```python
 def acc_values(acc, event):
     acc.append(event)
     return acc
@@ -88,7 +88,7 @@ def acc_values(acc, event):
 
 With those two functions and our time configuration, we can now use our `fold_window` operator:
 
-``` python
+```python
 flow.fold_window("running_average", cc, wc, list, acc_values)
 ```
 
@@ -98,7 +98,7 @@ When using DynamoDB as our output, we'll need to structure our output from this 
 
 We'll also need to format any floating point values as [Decimal](https://docs.python.org/3/library/decimal.html) values.
 
-``` python
+```python
 from decimal import Decimal
 
 def format(event):
@@ -120,8 +120,8 @@ flow.map(format)
 
 With that completed, all that we need now is to write the finished data to DynamoDB. We can configure the built-in `DynamoDBOutputConfig` to do this:
 
-``` python
-from bytewax.dynamodb import DynamoDBOutputConfig
+```python
+from bytewax.connectors.dynamodb import DynamoDBOutputConfig
 
 flow.capture(
     DynamoDBOutputConfig(
