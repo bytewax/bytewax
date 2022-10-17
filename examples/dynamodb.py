@@ -8,7 +8,7 @@ from bytewax import parse
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import KafkaInputConfig
-from bytewax.dynamodb import DynamoDBOutputConfig
+from bytewax.connectors.dynamodb import DynamoDBOutputConfig
 from bytewax.window import TumblingWindowConfig, EventClockConfig
 from bytewax.recovery import KafkaRecoveryConfig
 
