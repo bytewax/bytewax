@@ -4,11 +4,10 @@ import logging
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 
-from bytewax import parse
+from bytewax.connectors.dynamodb.outputs import DynamoDBOutputConfig
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import KafkaInputConfig
-from bytewax.connectors.dynamodb import DynamoDBOutputConfig
 from bytewax.window import TumblingWindowConfig, EventClockConfig
 from bytewax.recovery import KafkaRecoveryConfig
 
@@ -16,8 +15,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 def deserialize(key_bytes__payload_bytes):
-    key_bytes, payload_bytes = key_bytes__payload_bytes
-    key = json.loads(key_bytes) if key_bytes else None
+    _key_bytes, payload_bytes = key_bytes__payload_bytes
     payload = json.loads(payload_bytes)
     return str(payload["id"]), payload
 
