@@ -5,7 +5,7 @@ from google.cloud import bigquery
 from bytewax.outputs import ManualOutputConfig
 
 
-class BigqueryOutputConfig(ManualOutputConfig):
+class BigQueryOutputConfig(ManualOutputConfig):
     """Write output of a Dataflow to [Bigquery](https://cloud.google.com/bigquery).
 
     Attempts to write items as new rows to an existing Bigquery table, consistent with the schema specifications of that table.

@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 from random import random, randrange, choice
 
-from bytewax.connectors.bigquery import BigqueryOutputConfig
+from bytewax.connectors.bigquery.outputs import BigQueryOutputConfig
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import ManualInputConfig
@@ -45,7 +45,7 @@ flow.input(
     "inp",
     ManualInputConfig(input_builder),
 )
-flow.capture(BigqueryOutputConfig(table_ref=table_ref))
+flow.capture(BigQueryOutputConfig(table_ref=table_ref))
 
 if __name__ == "__main__":
     run_main(flow)

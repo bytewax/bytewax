@@ -121,7 +121,7 @@ flow.map(format)
 With that completed, all that we need now is to write the finished data to DynamoDB. We can configure the built-in `DynamoDBOutputConfig` to do this:
 
 ```python
-from bytewax.connectors.dynamodb import DynamoDBOutputConfig
+from bytewax.connectors.dynamodb.outputs import DynamoDBOutputConfig
 
 flow.capture(
     DynamoDBOutputConfig(
