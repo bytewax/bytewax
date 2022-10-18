@@ -165,21 +165,27 @@ is defined within a window.</p>
 <pre><code class="language-python-repl">&gt;&gt;&gt; def gen():
 ...     yield from [
 ...         {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;login&quot;},
+...         sleep(4)
 ...         {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;},
+...         sleep(4)
 ...         {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;},
+...         sleep(4)
 ...         {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;login&quot;},
+...         sleep(4)
 ...         {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;},
+...         sleep(4)
 ...         {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;post&quot;},
+...         sleep(4)
 ...         {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;post&quot;},
 ...     ]
 &gt;&gt;&gt; def extract_id(event):
 ...     return (event[&quot;user&quot;], event)
-&gt;&gt;&gt; def build(key):
+&gt;&gt;&gt; def build():
 ...     return defaultdict(lambda: 0)
 &gt;&gt;&gt; def count(results, event):
 ...     results[event[&quot;type&quot;]] += 1
 ...     return results
-&gt;&gt;&gt; clock_config = TestingClockConfig(start_at=datetime(2022, 1, 1, 13), item_incr=timedelta(seconds=4))
+&gt;&gt;&gt; clock_config = SystemClockConfig()
 &gt;&gt;&gt; window_config = TumblingWindowConfig(length=timedelta(seconds=10))
 &gt;&gt;&gt; out = []
 &gt;&gt;&gt; flow = Dataflow(TestingInputConfig(gen()))

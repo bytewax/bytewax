@@ -138,8 +138,8 @@ adjust epochs.
 
 from .bytewax import (  # noqa: F401
     ClockConfig,
+    EventClockConfig,
     SystemClockConfig,
-    TestingClockConfig,
     TumblingWindowConfig,
     WindowConfig,
 )</code></pre>
@@ -165,9 +165,45 @@ current time and the time for each element.</p>
 you'd like to use.</p></div>
 <h3>Subclasses</h3>
 <ul class="hlist">
+<li><a title="bytewax.window.EventClockConfig" href="#bytewax.window.EventClockConfig">EventClockConfig</a></li>
 <li><a title="bytewax.window.SystemClockConfig" href="#bytewax.window.SystemClockConfig">SystemClockConfig</a></li>
-<li><a title="bytewax.window.TestingClockConfig" href="#bytewax.window.TestingClockConfig">TestingClockConfig</a></li>
 </ul>
+</dd>
+<dt id="bytewax.window.EventClockConfig"><code class="language-python flex name class">
+<span>class <span class="ident">EventClockConfig</span></span>
+<span>(</span><span>dt_getter, wait_for_system_duration)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use datetimes from events as clock.</p>
+<p>If the dataflow has no more input, all windows are closed.</p>
+<p>The watermark is the system time since the last element
+plus the value of <code>late</code> plus the delay of the latest received element.
+It is updated every time an event with a newer datetime is processed.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>dt_getter</code></strong></dt>
+<dd>Python function to get a datetime from an event.</dd>
+<dt><strong><code>wait_for_system_duration</code></strong></dt>
+<dd>How much (system) time to wait before considering an event late.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this as the <code>clock_config</code> parameter to your
+windowing operator.</p></div>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.window.ClockConfig" href="#bytewax.window.ClockConfig">ClockConfig</a></li>
+</ul>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.window.EventClockConfig.dt_getter"><code class="language-python name">var <span class="ident">dt_getter</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+<dt id="bytewax.window.EventClockConfig.wait_for_system_duration"><code class="language-python name">var <span class="ident">wait_for_system_duration</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+</dl>
 </dd>
 <dt id="bytewax.window.SystemClockConfig"><code class="language-python flex name class">
 <span>class <span class="ident">SystemClockConfig</span></span>
@@ -183,43 +219,6 @@ your windowing operator.</p></div>
 <ul class="hlist">
 <li><a title="bytewax.window.ClockConfig" href="#bytewax.window.ClockConfig">ClockConfig</a></li>
 </ul>
-</dd>
-<dt id="bytewax.window.TestingClockConfig"><code class="language-python flex name class">
-<span>class <span class="ident">TestingClockConfig</span></span>
-<span>(</span><span>item_incr)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Use to simulate system time in tests. Increment "now" after each
-item.</p>
-<p>If the dataflow has no more input, all windows are closed.</p>
-<p>The watermark uses the most recent "now".</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>item_incr</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
-<dd>Amount to increment "now"
-after each item.</dd>
-<dt><strong><code>start_at</code></strong> :&ensp;<code>datetime.datetime</code></dt>
-<dd>Initial "now" / time of first
-item. If you set this and use a window config</dd>
-</dl>
-<h2 id="returns">Returns</h2>
-<p>Config object. Pass this as the <code>clock_config</code> parameter to
-your windowing operator.</p></div>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li><a title="bytewax.window.ClockConfig" href="#bytewax.window.ClockConfig">ClockConfig</a></li>
-</ul>
-<h3>Instance variables</h3>
-<dl>
-<dt id="bytewax.window.TestingClockConfig.item_incr"><code class="language-python name">var <span class="ident">item_incr</span></code></dt>
-<dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
-</dd>
-<dt id="bytewax.window.TestingClockConfig.start_at"><code class="language-python name">var <span class="ident">start_at</span></code></dt>
-<dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
-</dd>
-</dl>
 </dd>
 <dt id="bytewax.window.TumblingWindowConfig"><code class="language-python flex name class">
 <span>class <span class="ident">TumblingWindowConfig</span></span>
@@ -294,14 +293,14 @@ bytewax
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.ClockConfig" href="#bytewax.window.ClockConfig">ClockConfig</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.SystemClockConfig" href="#bytewax.window.SystemClockConfig">SystemClockConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.EventClockConfig" href="#bytewax.window.EventClockConfig">EventClockConfig</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.EventClockConfig.dt_getter" href="#bytewax.window.EventClockConfig.dt_getter">dt_getter</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.EventClockConfig.wait_for_system_duration" href="#bytewax.window.EventClockConfig.wait_for_system_duration">wait_for_system_duration</a></li>
+</ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.TestingClockConfig" href="#bytewax.window.TestingClockConfig">TestingClockConfig</a></h4>
-<ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.TestingClockConfig.item_incr" href="#bytewax.window.TestingClockConfig.item_incr">item_incr</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.TestingClockConfig.start_at" href="#bytewax.window.TestingClockConfig.start_at">start_at</a></li>
-</ul>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.SystemClockConfig" href="#bytewax.window.SystemClockConfig">SystemClockConfig</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.TumblingWindowConfig" href="#bytewax.window.TumblingWindowConfig">TumblingWindowConfig</a></h4>
