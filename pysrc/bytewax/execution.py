@@ -37,6 +37,7 @@ from .bytewax import (  # noqa: F401
 __all__ = [
     "run_main",
     "cluster_main",
+    "spawn_cluster",
     "EpochConfig",
     "PeriodicEpochConfig",
     "TestingEpochConfig",

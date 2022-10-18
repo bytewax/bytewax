@@ -15,6 +15,8 @@ notes on GitHub when we make a new release.__
 - *Breaking change* Recovery format has been changed for all recovery stores.
   You cannot resume from recovery data written with an older version.
 
+- Adds a `DynamoDB` and `Bigquery` output connector.
+
 ## 0.11.2
 
 - Performance improvements.
