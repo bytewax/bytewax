@@ -5,13 +5,17 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## 0.12.0
+
 - Fixes bug where window is never closed if recovery occurs after last
   item but before window close.
 
 - Recovery logging is reduced.
 
-- Recovery format has been changed for all recovery stores. You cannot
-  resume from recovery data written with an older version.
+- *Breaking change* Recovery format has been changed for all recovery stores.
+  You cannot resume from recovery data written with an older version.
+
+- Adds a `DynamoDB` and `Bigquery` output connector.
 
 ## 0.11.2
 
