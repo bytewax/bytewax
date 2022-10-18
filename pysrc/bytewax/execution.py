@@ -22,12 +22,25 @@ from bytewax.dataflow import Dataflow
 from bytewax.recovery import RecoveryConfig
 
 from .bytewax import (  # noqa: F401
+    run_main,
     cluster_main,
     EpochConfig,
     PeriodicEpochConfig,
-    run_main,
     TestingEpochConfig,
 )
+
+# Due to our package structure, we need to define __all__
+# in any submodule as pdoc will not find the documentation
+# for functions imported here, but defined in another submodule.
+# See https://pdoc3.github.io/pdoc/doc/pdoc/#what-objects-are-documented
+# for more information.
+__all__ = [
+    "run_main",
+    "cluster_main",
+    "EpochConfig",
+    "PeriodicEpochConfig",
+    "TestingEpochConfig",
+]
 
 
 def _gen_addresses(proc_count: int) -> Iterable[str]:

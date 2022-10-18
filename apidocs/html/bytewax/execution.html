@@ -47,6 +47,19 @@ from .bytewax import (  # noqa: F401
     TestingEpochConfig,
 )
 
+# Due to our package structure, we need to define __all__ here
+# as pdoc will not find the documentation for functions defined
+# in rust.
+# See https://pdoc3.github.io/pdoc/doc/pdoc/#what-objects-are-documented
+# for more information.
+__all__ = [
+    &#34;cluster_main&#34;,
+    &#34;run_main&#34;,
+    &#34;TestingEpochConfig&#34;,
+    &#34;EpochConfig&#34;,
+    &#34;PeriodicEpochConfig&#34;,
+]
+
 
 def _gen_addresses(proc_count: int) -&gt; Iterable[str]:
     return [f&#34;localhost:{proc_id + 2101}&#34; for proc_id in range(proc_count)]
@@ -226,143 +239,6 @@ this. See <code><a title="bytewax.execution.EpochConfig" href="#bytewax.executio
 persisted.</dd>
 </dl></div>
 </dd>
-<dt id="bytewax.execution.spawn_cluster"><code class="language-python name flex">
-<span>def <span class="ident">spawn_cluster</span></span>(<span>flow: <a title="bytewax.dataflow.Dataflow" href="dataflow.html#bytewax.dataflow.Dataflow">Dataflow</a>, *, epoch_config: Optional[<a title="bytewax.execution.EpochConfig" href="#bytewax.execution.EpochConfig">EpochConfig</a>] = None, recovery_config: Optional[<a title="bytewax.recovery.RecoveryConfig" href="recovery.html#bytewax.recovery.RecoveryConfig">RecoveryConfig</a>] = None, proc_count: int = 1, worker_count_per_proc: int = 1, mp_ctx=&lt;multiprocess.context.SpawnContext object&gt;) ‑> List[Tuple[int, Any]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Execute a dataflow as a cluster of processes on this machine.</p>
-<p>Blocks until execution is complete.</p>
-<p>Starts up cluster processes for you and handles connecting them
-together. You'd commonly use this for notebook analysis that needs
-parallelism and higher throughput, or simple stand-alone demo
-programs.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import doctest_ctx
-&gt;&gt;&gt; from bytewax.dataflow import Dataflow
-&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
-&gt;&gt;&gt; flow.capture(StdOutputConfig())
-&gt;&gt;&gt; spawn_cluster(
-...     flow,
-...     proc_count=2,
-...     mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
-... )  # doctest: +ELLIPSIS
-(...)
-</code></pre>
-<p>See <code>bytewax.run_main()</code> for a way to test input and output
-builders without the complexity of starting a cluster.</p>
-<p>See <code>bytewax.cluster_main()</code> for starting one process in a cluster
-in a distributed situation.</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>flow</code></strong></dt>
-<dd>Dataflow to run.</dd>
-<dt><strong><code>epoch_config</code></strong></dt>
-<dd>A custom epoch config. You probably don't need
-this. See <code><a title="bytewax.execution.EpochConfig" href="#bytewax.execution.EpochConfig">EpochConfig</a></code> for more info.</dd>
-<dt><strong><code>recovery_config</code></strong></dt>
-<dd>State recovery config. See
-<code><a title="bytewax.recovery" href="recovery.html">bytewax.recovery</a></code>. If <code>None</code>, state will not be
-persisted.</dd>
-<dt><strong><code>proc_count</code></strong></dt>
-<dd>Number of processes to start.</dd>
-<dt><strong><code>worker_count_per_proc</code></strong></dt>
-<dd>Number of worker threads to start on
-each process.</dd>
-<dt><strong><code>mp_ctx</code></strong></dt>
-<dd><code>multiprocessing</code> context to use. Use this to
-configure starting up subprocesses via spawn or
-fork. Defaults to spawn.</dd>
-</dl></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">def spawn_cluster(
-    flow: Dataflow,
-    *,
-    epoch_config: Optional[EpochConfig] = None,
-    recovery_config: Optional[RecoveryConfig] = None,
-    proc_count: int = 1,
-    worker_count_per_proc: int = 1,
-    mp_ctx=get_context(&#34;spawn&#34;),
-) -&gt; List[Tuple[int, Any]]:
-    &#34;&#34;&#34;Execute a dataflow as a cluster of processes on this machine.
-
-    Blocks until execution is complete.
-
-    Starts up cluster processes for you and handles connecting them
-    together. You&#39;d commonly use this for notebook analysis that needs
-    parallelism and higher throughput, or simple stand-alone demo
-    programs.
-
-    &gt;&gt;&gt; from bytewax.testing import doctest_ctx
-    &gt;&gt;&gt; from bytewax.dataflow import Dataflow
-    &gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-    &gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
-    &gt;&gt;&gt; flow = Dataflow()
-    &gt;&gt;&gt; flow.input(&#34;inp&#34;, TestingInputConfig(range(3)))
-    &gt;&gt;&gt; flow.capture(StdOutputConfig())
-    &gt;&gt;&gt; spawn_cluster(
-    ...     flow,
-    ...     proc_count=2,
-    ...     mp_ctx=doctest_ctx,  # Outside a doctest, you&#39;d skip this.
-    ... )  # doctest: +ELLIPSIS
-    (...)
-
-    See `bytewax.run_main()` for a way to test input and output
-    builders without the complexity of starting a cluster.
-
-    See `bytewax.cluster_main()` for starting one process in a cluster
-    in a distributed situation.
-
-    Args:
-
-        flow: Dataflow to run.
-
-        epoch_config: A custom epoch config. You probably don&#39;t need
-            this. See `EpochConfig` for more info.
-
-        recovery_config: State recovery config. See
-            `bytewax.recovery`. If `None`, state will not be
-            persisted.
-
-        proc_count: Number of processes to start.
-
-        worker_count_per_proc: Number of worker threads to start on
-            each process.
-
-        mp_ctx: `multiprocessing` context to use. Use this to
-            configure starting up subprocesses via spawn or
-            fork. Defaults to spawn.
-
-    &#34;&#34;&#34;
-    addresses = _gen_addresses(proc_count)
-    with mp_ctx.Pool(processes=proc_count) as pool:
-        futures = [
-            pool.apply_async(
-                cluster_main,
-                (flow,),
-                {
-                    &#34;epoch_config&#34;: epoch_config,
-                    &#34;recovery_config&#34;: recovery_config,
-                    &#34;addresses&#34;: addresses,
-                    &#34;proc_id&#34;: proc_id,
-                    &#34;worker_count_per_proc&#34;: worker_count_per_proc,
-                },
-            )
-            for proc_id in range(proc_count)
-        ]
-        pool.close()
-
-        for future in futures:
-            # Will re-raise exceptions from subprocesses.
-            future.get()
-
-        pool.join()</code></pre>
-</details>
-</dd>
 </dl>
 </section>
 <section>
@@ -383,6 +259,35 @@ this does not change the semantics of any of the operators.</p>
 <li><a title="bytewax.execution.TestingEpochConfig" href="#bytewax.execution.TestingEpochConfig">TestingEpochConfig</a></li>
 <li>bytewax.window.PeriodicEpochConfig</li>
 </ul>
+</dd>
+<dt id="bytewax.execution.PeriodicEpochConfig"><code class="language-python flex name class">
+<span>class <span class="ident">PeriodicEpochConfig</span></span>
+<span>(</span><span>epoch_length)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Increment epochs at regular system time intervals.</p>
+<p>This is the default with 10 second epoch intervals if no
+<code>epoch_config</code> is passed to your execution entry point.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>epoch_length</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
+<dd>System time length of each
+epoch.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this as the <code>epoch_config</code> parameter of
+your execution entry point.</p></div>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.execution.EpochConfig" href="#bytewax.execution.EpochConfig">EpochConfig</a></li>
+</ul>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.execution.PeriodicEpochConfig.epoch_length"><code class="language-python name">var <span class="ident">epoch_length</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+</dl>
 </dd>
 <dt id="bytewax.execution.TestingEpochConfig"><code class="language-python flex name class">
 <span>class <span class="ident">TestingEpochConfig</span></span>
@@ -427,7 +332,6 @@ bytewax
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.execution.cluster_main" href="#bytewax.execution.cluster_main">cluster_main</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.execution.run_main" href="#bytewax.execution.run_main">run_main</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.execution.spawn_cluster" href="#bytewax.execution.spawn_cluster">spawn_cluster</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
@@ -435,6 +339,12 @@ bytewax
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.execution.EpochConfig" href="#bytewax.execution.EpochConfig">EpochConfig</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.execution.PeriodicEpochConfig" href="#bytewax.execution.PeriodicEpochConfig">PeriodicEpochConfig</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.execution.PeriodicEpochConfig.epoch_length" href="#bytewax.execution.PeriodicEpochConfig.epoch_length">epoch_length</a></li>
+</ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.execution.TestingEpochConfig" href="#bytewax.execution.TestingEpochConfig">TestingEpochConfig</a></h4>

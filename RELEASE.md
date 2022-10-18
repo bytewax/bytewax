@@ -19,7 +19,7 @@ Make a PR which commits the following:
    (.venv) bytewax/ $ maturin develop -E dev
    (.venv) bytewax/ $ cd apidocs
    (.venv) bytewax/apidocs $ rm -rf html/
-   (.venv) bytewax/apidocs $ python ./generate.py
+   (.venv) bytewax/apidocs $ ./build.sh
    ```
 
    You'll get a warning about `Couldn't read PEP-224 variable
