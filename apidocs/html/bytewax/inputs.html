@@ -9,8 +9,8 @@
 sources you might want to read dataflow input from.</p>
 <h2 id="use">Use</h2>
 <p>Create an <code><a title="bytewax.inputs.InputConfig" href="#bytewax.inputs.InputConfig">InputConfig</a></code> subclass for the source you'd like to read
-from. Then pass that config object to the <code><a title="bytewax.dataflow.Dataflow" href="dataflow.html#bytewax.dataflow.Dataflow">Dataflow</a></code>
-constructor.</p>
+from. Then pass that config object as the <code>input_config</code> argument of
+the <code><a title="bytewax.dataflow.Dataflow.input" href="dataflow.html#bytewax.dataflow.Dataflow.input">Dataflow.input()</a></code> operator.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -24,19 +24,19 @@ Use
 ---
 
 Create an `InputConfig` subclass for the source you&#39;d like to read
-from. Then pass that config object to the `bytewax.dataflow.Dataflow`
-constructor.
+from. Then pass that config object as the `input_config` argument of
+the `bytewax.dataflow.Dataflow.input` operator.
 
 &#34;&#34;&#34;
 
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from .bytewax import InputConfig, KafkaInputConfig, ManualInputConfig  # noqa: F401
 
 
-class TestingInputConfig(ManualInputConfig):
-    &#34;&#34;&#34;Produce input from a Python iterable.
-    You only want to use this for unit testing.
+class TestingBuilderInputConfig(ManualInputConfig):
+    &#34;&#34;&#34;Produce input from a builder of a Python iterable. You only want to
+    use this for unit testing.
 
     The iterable must be identical on all workers; this will
     automatically distribute the items across workers and handle
@@ -44,12 +44,13 @@ class TestingInputConfig(ManualInputConfig):
 
     Args:
 
-        it: Iterable for input.
+        builder: Called upon dataflow startup which returns an
+            iterable for input.
 
     Returns:
 
-        Config object. Pass this to the `bytewax.dataflow.Dataflow`
-        constructor.
+        Config object. Pass this as the `input_config` argument of the
+        `bytewax.dataflow.Dataflow.input` operator.
 
     &#34;&#34;&#34;
 
@@ -57,8 +58,9 @@ class TestingInputConfig(ManualInputConfig):
     # a test since its name starts with &#34;Test&#34;
     __test__ = False
 
-    def __new__(cls, it):
+    def __new__(cls, builder: Callable[[], Iterable[Any]]):
         def gen(worker_index, worker_count, resume_state):
+            it = builder()
             resume_i = resume_state or 0
             for i, x in enumerate(distribute(it, worker_index, worker_count)):
                 # FFWD to the resume item.
@@ -67,7 +69,36 @@ class TestingInputConfig(ManualInputConfig):
                 # Store the index in this worker&#39;s partition as the resume
                 # state.
                 yield (i + 1, x)
+
         return super().__new__(cls, gen)
+
+
+class TestingInputConfig(TestingBuilderInputConfig):
+    &#34;&#34;&#34;Produce input from a Python iterable. You only want to use this for
+    unit testing.
+
+    The iterable must be identical on all workers; this will
+    automatically distribute the items across workers and handle
+    recovery.
+
+    Be careful using a generator as the iterable; if you fail and
+    attempt to resume the dataflow without rebuilding it, the
+    half-consumed generator will be re-used on recovery and unexpected
+    input will be used. See `TestingBuilderInputConfig`.
+
+    Args:
+
+        it: Iterable for input.
+
+    Returns:
+
+        Config object. Pass this as the `input_config` argument of the
+        `bytewax.dataflow.Dataflow.input` operator.
+
+    &#34;&#34;&#34;
+
+    def __new__(cls, it: Iterable[Any]):
+        return super().__new__(cls, lambda: it)
 
 
 def distribute(elements: Iterable[Any], index: int, count: int) -&gt; Iterable[Any]:
@@ -357,8 +388,8 @@ See <a href="https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
 for more options.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
-<p>Config object. Pass this as the <code>input_config</code> argument to the
-<code><a title="bytewax.dataflow.Dataflow.input" href="dataflow.html#bytewax.dataflow.Dataflow.input">Dataflow.input()</a></code>.</p></div>
+<p>Config object. Pass this as the <code>input_config</code> argument of the
+<code><a title="bytewax.dataflow.Dataflow.input" href="dataflow.html#bytewax.dataflow.Dataflow.input">Dataflow.input()</a></code> operator.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li><a title="bytewax.inputs.InputConfig" href="#bytewax.inputs.InputConfig">InputConfig</a></li>
@@ -414,15 +445,15 @@ item</em>. Note that e.g. returning the same list from each
 worker will result in duplicate data in the dataflow.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
-<p>Config object. Pass this as the <code>input_config</code> argument to the
-<code><a title="bytewax.dataflow.Dataflow.input" href="dataflow.html#bytewax.dataflow.Dataflow.input">Dataflow.input()</a></code>.</p></div>
+<p>Config object. Pass this as the <code>input_config</code> argument of the
+<code><a title="bytewax.dataflow.Dataflow.input" href="dataflow.html#bytewax.dataflow.Dataflow.input">Dataflow.input()</a></code> operator.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li><a title="bytewax.inputs.InputConfig" href="#bytewax.inputs.InputConfig">InputConfig</a></li>
 </ul>
 <h3>Subclasses</h3>
 <ul class="hlist">
-<li><a title="bytewax.inputs.TestingInputConfig" href="#bytewax.inputs.TestingInputConfig">TestingInputConfig</a></li>
+<li><a title="bytewax.inputs.TestingBuilderInputConfig" href="#bytewax.inputs.TestingBuilderInputConfig">TestingBuilderInputConfig</a></li>
 </ul>
 <h3>Instance variables</h3>
 <dl>
@@ -432,31 +463,32 @@ worker will result in duplicate data in the dataflow.</dd>
 </dd>
 </dl>
 </dd>
-<dt id="bytewax.inputs.TestingInputConfig"><code class="language-python flex name class">
-<span>class <span class="ident">TestingInputConfig</span></span>
-<span>(</span><span>it)</span>
+<dt id="bytewax.inputs.TestingBuilderInputConfig"><code class="language-python flex name class">
+<span>class <span class="ident">TestingBuilderInputConfig</span></span>
+<span>(</span><span>builder: Callable[[], Iterable[Any]])</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Produce input from a Python iterable.
-You only want to use this for unit testing.</p>
+<div class="desc"><p>Produce input from a builder of a Python iterable. You only want to
+use this for unit testing.</p>
 <p>The iterable must be identical on all workers; this will
 automatically distribute the items across workers and handle
 recovery.</p>
 <h2 id="args">Args</h2>
 <dl>
-<dt><strong><code>it</code></strong></dt>
-<dd>Iterable for input.</dd>
+<dt><strong><code>builder</code></strong></dt>
+<dd>Called upon dataflow startup which returns an
+iterable for input.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
-<p>Config object. Pass this to the <code><a title="bytewax.dataflow.Dataflow" href="dataflow.html#bytewax.dataflow.Dataflow">Dataflow</a></code>
-constructor.</p></div>
+<p>Config object. Pass this as the <code>input_config</code> argument of the
+<code><a title="bytewax.dataflow.Dataflow.input" href="dataflow.html#bytewax.dataflow.Dataflow.input">Dataflow.input()</a></code> operator.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class TestingInputConfig(ManualInputConfig):
-    &#34;&#34;&#34;Produce input from a Python iterable.
-    You only want to use this for unit testing.
+<pre class="language-python line-numbers"><code class="language-python">class TestingBuilderInputConfig(ManualInputConfig):
+    &#34;&#34;&#34;Produce input from a builder of a Python iterable. You only want to
+    use this for unit testing.
 
     The iterable must be identical on all workers; this will
     automatically distribute the items across workers and handle
@@ -464,12 +496,13 @@ constructor.</p></div>
 
     Args:
 
-        it: Iterable for input.
+        builder: Called upon dataflow startup which returns an
+            iterable for input.
 
     Returns:
 
-        Config object. Pass this to the `bytewax.dataflow.Dataflow`
-        constructor.
+        Config object. Pass this as the `input_config` argument of the
+        `bytewax.dataflow.Dataflow.input` operator.
 
     &#34;&#34;&#34;
 
@@ -477,8 +510,9 @@ constructor.</p></div>
     # a test since its name starts with &#34;Test&#34;
     __test__ = False
 
-    def __new__(cls, it):
+    def __new__(cls, builder: Callable[[], Iterable[Any]]):
         def gen(worker_index, worker_count, resume_state):
+            it = builder()
             resume_i = resume_state or 0
             for i, x in enumerate(distribute(it, worker_index, worker_count)):
                 # FFWD to the resume item.
@@ -487,6 +521,7 @@ constructor.</p></div>
                 # Store the index in this worker&#39;s partition as the resume
                 # state.
                 yield (i + 1, x)
+
         return super().__new__(cls, gen)</code></pre>
 </details>
 <h3>Ancestors</h3>
@@ -494,11 +529,83 @@ constructor.</p></div>
 <li><a title="bytewax.inputs.ManualInputConfig" href="#bytewax.inputs.ManualInputConfig">ManualInputConfig</a></li>
 <li><a title="bytewax.inputs.InputConfig" href="#bytewax.inputs.InputConfig">InputConfig</a></li>
 </ul>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="bytewax.inputs.TestingInputConfig" href="#bytewax.inputs.TestingInputConfig">TestingInputConfig</a></li>
+</ul>
 <h3>Inherited members</h3>
 <ul class="hlist">
 <li><code class="language-python"><b><a title="bytewax.inputs.ManualInputConfig" href="#bytewax.inputs.ManualInputConfig">ManualInputConfig</a></b></code>:
 <ul class="hlist">
 <li><code class="language-python"><a title="bytewax.inputs.ManualInputConfig.input_builder" href="#bytewax.inputs.ManualInputConfig.input_builder">input_builder</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
+<dt id="bytewax.inputs.TestingInputConfig"><code class="language-python flex name class">
+<span>class <span class="ident">TestingInputConfig</span></span>
+<span>(</span><span>it: Iterable[Any])</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Produce input from a Python iterable. You only want to use this for
+unit testing.</p>
+<p>The iterable must be identical on all workers; this will
+automatically distribute the items across workers and handle
+recovery.</p>
+<p>Be careful using a generator as the iterable; if you fail and
+attempt to resume the dataflow without rebuilding it, the
+half-consumed generator will be re-used on recovery and unexpected
+input will be used. See <code><a title="bytewax.inputs.TestingBuilderInputConfig" href="#bytewax.inputs.TestingBuilderInputConfig">TestingBuilderInputConfig</a></code>.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>it</code></strong></dt>
+<dd>Iterable for input.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this as the <code>input_config</code> argument of the
+<code><a title="bytewax.dataflow.Dataflow.input" href="dataflow.html#bytewax.dataflow.Dataflow.input">Dataflow.input()</a></code> operator.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class TestingInputConfig(TestingBuilderInputConfig):
+    &#34;&#34;&#34;Produce input from a Python iterable. You only want to use this for
+    unit testing.
+
+    The iterable must be identical on all workers; this will
+    automatically distribute the items across workers and handle
+    recovery.
+
+    Be careful using a generator as the iterable; if you fail and
+    attempt to resume the dataflow without rebuilding it, the
+    half-consumed generator will be re-used on recovery and unexpected
+    input will be used. See `TestingBuilderInputConfig`.
+
+    Args:
+
+        it: Iterable for input.
+
+    Returns:
+
+        Config object. Pass this as the `input_config` argument of the
+        `bytewax.dataflow.Dataflow.input` operator.
+
+    &#34;&#34;&#34;
+
+    def __new__(cls, it: Iterable[Any]):
+        return super().__new__(cls, lambda: it)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.inputs.TestingBuilderInputConfig" href="#bytewax.inputs.TestingBuilderInputConfig">TestingBuilderInputConfig</a></li>
+<li><a title="bytewax.inputs.ManualInputConfig" href="#bytewax.inputs.ManualInputConfig">ManualInputConfig</a></li>
+<li><a title="bytewax.inputs.InputConfig" href="#bytewax.inputs.InputConfig">InputConfig</a></li>
+</ul>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code class="language-python"><b><a title="bytewax.inputs.TestingBuilderInputConfig" href="#bytewax.inputs.TestingBuilderInputConfig">TestingBuilderInputConfig</a></b></code>:
+<ul class="hlist">
+<li><code class="language-python"><a title="bytewax.inputs.TestingBuilderInputConfig.input_builder" href="#bytewax.inputs.ManualInputConfig.input_builder">input_builder</a></code></li>
 </ul>
 </li>
 </ul>
@@ -550,6 +657,9 @@ bytewax
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.ManualInputConfig.input_builder" href="#bytewax.inputs.ManualInputConfig.input_builder">input_builder</a></li>
 </ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.TestingBuilderInputConfig" href="#bytewax.inputs.TestingBuilderInputConfig">TestingBuilderInputConfig</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.TestingInputConfig" href="#bytewax.inputs.TestingInputConfig">TestingInputConfig</a></h4>

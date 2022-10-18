@@ -16,9 +16,10 @@ Make a PR which commits the following:
 2. Commits updated API docs
 
    ```sh
-   (.venv) bytewax/apidocs $ maturin develop -E dev
+   (.venv) bytewax/ $ maturin develop -E dev
+   (.venv) bytewax/ $ cd apidocs
    (.venv) bytewax/apidocs $ rm -rf html/
-   (.venv) bytewax/apidocs $ ./build.sh
+   (.venv) bytewax/apidocs $ python ./generate.py
    ```
 
    You'll get a warning about `Couldn't read PEP-224 variable
