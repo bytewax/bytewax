@@ -5,7 +5,7 @@
 </header>
 <section class="api__article-intro" id="section-intro">
 <p>How to execute your dataflows.</p>
-<p>Run an instantiated <code><a title="bytewax.dataflow.Dataflow" href="dataflow.html#bytewax.dataflow.Dataflow">Dataflow</a></code> using one of the entry
+<p>Run an instantiated <code><a title="bytewax.dataflow.Dataflow" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow">Dataflow</a></code> using one of the entry
 point functions in this module.</p>
 <h2 id="epoch-configs">Epoch Configs</h2>
 <p>Epochs define the granularity of recovery in a bytewax dataflow. By default, we
@@ -195,10 +195,10 @@ this cluster (including this one).</dd>
 <dd>Index of this process in cluster; starts from 0.</dd>
 <dt><strong><code>epoch_config</code></strong></dt>
 <dd>A custom epoch config. You probably don't need
-this. See <code><a title="bytewax.execution.EpochConfig" href="#bytewax.execution.EpochConfig">EpochConfig</a></code> for more info.</dd>
+this. See <code><a title="bytewax.execution.EpochConfig" href="/apidocs/bytewax.execution#bytewax.execution.EpochConfig">EpochConfig</a></code> for more info.</dd>
 <dt><strong><code>recovery_config</code></strong></dt>
 <dd>State recovery config. See
-<code><a title="bytewax.recovery" href="recovery.html">bytewax.recovery</a></code>. If <code>None</code>, state will not be
+<code><a title="bytewax.recovery" href="/apidocs/bytewax.recovery">bytewax.recovery</a></code>. If <code>None</code>, state will not be
 persisted.</dd>
 <dt><strong><code>worker_count_per_proc</code></strong></dt>
 <dd>Number of worker threads to start on
@@ -233,15 +233,15 @@ machine with full control over inputs and outputs.</p>
 <dd>Dataflow to run.</dd>
 <dt><strong><code>epoch_config</code></strong></dt>
 <dd>A custom epoch config. You probably don't need
-this. See <code><a title="bytewax.execution.EpochConfig" href="#bytewax.execution.EpochConfig">EpochConfig</a></code> for more info.</dd>
+this. See <code><a title="bytewax.execution.EpochConfig" href="/apidocs/bytewax.execution#bytewax.execution.EpochConfig">EpochConfig</a></code> for more info.</dd>
 <dt><strong><code>recovery_config</code></strong></dt>
 <dd>State recovery config. See
-<code><a title="bytewax.recovery" href="recovery.html">bytewax.recovery</a></code>. If <code>None</code>, state will not be
+<code><a title="bytewax.recovery" href="/apidocs/bytewax.recovery">bytewax.recovery</a></code>. If <code>None</code>, state will not be
 persisted.</dd>
 </dl></div>
 </dd>
 <dt id="bytewax.execution.spawn_cluster"><code class="language-python name flex">
-<span>def <span class="ident">spawn_cluster</span></span>(<span>flow: <a title="bytewax.dataflow.Dataflow" href="dataflow.html#bytewax.dataflow.Dataflow">Dataflow</a>, *, epoch_config: Optional[<a title="bytewax.execution.EpochConfig" href="#bytewax.execution.EpochConfig">EpochConfig</a>] = None, recovery_config: Optional[<a title="bytewax.recovery.RecoveryConfig" href="recovery.html#bytewax.recovery.RecoveryConfig">RecoveryConfig</a>] = None, proc_count: int = 1, worker_count_per_proc: int = 1, mp_ctx=&lt;multiprocess.context.SpawnContext object&gt;) ‑> List[Tuple[int, Any]]</span>
+<span>def <span class="ident">spawn_cluster</span></span>(<span>flow: <a title="bytewax.dataflow.Dataflow" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow">Dataflow</a>, *, epoch_config: Optional[<a title="bytewax.execution.EpochConfig" href="/apidocs/bytewax.execution#bytewax.execution.EpochConfig">EpochConfig</a>] = None, recovery_config: Optional[<a title="bytewax.recovery.RecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.RecoveryConfig">RecoveryConfig</a>] = None, proc_count: int = 1, worker_count_per_proc: int = 1, mp_ctx=&lt;multiprocess.context.SpawnContext object&gt;) ‑> List[Tuple[int, Any]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Execute a dataflow as a cluster of processes on this machine.</p>
@@ -274,10 +274,10 @@ in a distributed situation.</p>
 <dd>Dataflow to run.</dd>
 <dt><strong><code>epoch_config</code></strong></dt>
 <dd>A custom epoch config. You probably don't need
-this. See <code><a title="bytewax.execution.EpochConfig" href="#bytewax.execution.EpochConfig">EpochConfig</a></code> for more info.</dd>
+this. See <code><a title="bytewax.execution.EpochConfig" href="/apidocs/bytewax.execution#bytewax.execution.EpochConfig">EpochConfig</a></code> for more info.</dd>
 <dt><strong><code>recovery_config</code></strong></dt>
 <dd>State recovery config. See
-<code><a title="bytewax.recovery" href="recovery.html">bytewax.recovery</a></code>. If <code>None</code>, state will not be
+<code><a title="bytewax.recovery" href="/apidocs/bytewax.recovery">bytewax.recovery</a></code>. If <code>None</code>, state will not be
 persisted.</dd>
 <dt><strong><code>proc_count</code></strong></dt>
 <dd>Number of processes to start.</dd>
@@ -394,7 +394,7 @@ this does not change the semantics of any of the operators.</p>
 <p>Use a specific subclass of this for the epoch definition you need.</p></div>
 <h3>Subclasses</h3>
 <ul class="hlist">
-<li><a title="bytewax.execution.TestingEpochConfig" href="#bytewax.execution.TestingEpochConfig">TestingEpochConfig</a></li>
+<li><a title="bytewax.execution.TestingEpochConfig" href="/apidocs/bytewax.execution#bytewax.execution.TestingEpochConfig">TestingEpochConfig</a></li>
 <li>bytewax.window.PeriodicEpochConfig</li>
 </ul>
 </dd>
@@ -417,7 +417,7 @@ epoch.</dd>
 your execution entry point.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.execution.EpochConfig" href="#bytewax.execution.EpochConfig">EpochConfig</a></li>
+<li><a title="bytewax.execution.EpochConfig" href="/apidocs/bytewax.execution#bytewax.execution.EpochConfig">EpochConfig</a></li>
 </ul>
 <h3>Instance variables</h3>
 <dl>
@@ -442,7 +442,7 @@ writing tests of the recovery system.</p>
 your execution entry point.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.execution.EpochConfig" href="#bytewax.execution.EpochConfig">EpochConfig</a></li>
+<li><a title="bytewax.execution.EpochConfig" href="/apidocs/bytewax.execution#bytewax.execution.EpochConfig">EpochConfig</a></li>
 </ul>
 </dd>
 </dl>
@@ -459,34 +459,32 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <h3 class="api__sidebar-nav-title">Super-module</h3>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item">
-<a class="api__sidebar-nav-menu-link api-supermodule" href="/apidocs">
-bytewax
-</a>
+<a title="bytewax" href="/apidocs/">bytewax</a>
 </li>
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
 <h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.execution.cluster_main" href="#bytewax.execution.cluster_main">cluster_main</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.execution.run_main" href="#bytewax.execution.run_main">run_main</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.execution.spawn_cluster" href="#bytewax.execution.spawn_cluster">spawn_cluster</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.execution.cluster_main" href="/apidocs/bytewax.execution#bytewax.execution.cluster_main">cluster_main</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.execution.run_main" href="/apidocs/bytewax.execution#bytewax.execution.run_main">run_main</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.execution.spawn_cluster" href="/apidocs/bytewax.execution#bytewax.execution.spawn_cluster">spawn_cluster</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.execution.EpochConfig" href="#bytewax.execution.EpochConfig">EpochConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.execution.EpochConfig" href="/apidocs/bytewax.execution#bytewax.execution.EpochConfig">EpochConfig</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.execution.PeriodicEpochConfig" href="#bytewax.execution.PeriodicEpochConfig">PeriodicEpochConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.execution.PeriodicEpochConfig" href="/apidocs/bytewax.execution#bytewax.execution.PeriodicEpochConfig">PeriodicEpochConfig</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.execution.PeriodicEpochConfig.epoch_length" href="#bytewax.execution.PeriodicEpochConfig.epoch_length">epoch_length</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.execution.PeriodicEpochConfig.epoch_length" href="/apidocs/bytewax.execution#bytewax.execution.PeriodicEpochConfig.epoch_length">epoch_length</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.execution.TestingEpochConfig" href="#bytewax.execution.TestingEpochConfig">TestingEpochConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.execution.TestingEpochConfig" href="/apidocs/bytewax.execution#bytewax.execution.TestingEpochConfig">TestingEpochConfig</a></h4>
 </li>
 </ul>
 </li>

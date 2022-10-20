@@ -8,8 +8,8 @@
 <p>Bytewax provides pre-packaged output configuration options for common
 sinks you might want to write dataflow output to.</p>
 <h2 id="use">Use</h2>
-<p>Create an <code><a title="bytewax.outputs.OutputConfig" href="#bytewax.outputs.OutputConfig">OutputConfig</a></code> subclass for the sink you want to write to.
-Then pass that config object to the <code><a title="bytewax.dataflow.Dataflow.capture" href="dataflow.html#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code>
+<p>Create an <code><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></code> subclass for the sink you want to write to.
+Then pass that config object to the <code><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code>
 operator.</p>
 <details class="source">
 <summary>
@@ -135,7 +135,7 @@ for more options.</dd>
 <code>bytewax.dataflow.Dataflow.output</code>.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.OutputConfig" href="#bytewax.outputs.OutputConfig">OutputConfig</a></li>
+<li><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></li>
 </ul>
 <h3>Instance variables</h3>
 <dl>
@@ -159,7 +159,7 @@ for more options.</dd>
 </code></dt>
 <dd>
 <div class="desc"><p>Call a Python callback function with each output epoch and item.</p>
-<p>You probably want to use <code><a title="bytewax.outputs.ManualOutputConfig" href="#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></code> unless you know you
+<p>You probably want to use <code><a title="bytewax.outputs.ManualOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></code> unless you know you
 need specific epoch assignments for deep integration work.</p>
 <h2 id="args">Args</h2>
 <dl>
@@ -173,14 +173,14 @@ this worker.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this to the
-<code><a title="bytewax.dataflow.Dataflow.capture" href="dataflow.html#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
+<code><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.OutputConfig" href="#bytewax.outputs.OutputConfig">OutputConfig</a></li>
+<li><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></li>
 </ul>
 <h3>Subclasses</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.TestingEpochOutputConfig" href="#bytewax.outputs.TestingEpochOutputConfig">TestingEpochOutputConfig</a></li>
+<li><a title="bytewax.outputs.TestingEpochOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.TestingEpochOutputConfig">TestingEpochOutputConfig</a></li>
 </ul>
 </dd>
 <dt id="bytewax.outputs.ManualOutputConfig"><code class="language-python flex name class">
@@ -200,16 +200,16 @@ capture operator on this worker.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this to the
-<code><a title="bytewax.dataflow.Dataflow.capture" href="dataflow.html#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
+<code><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.OutputConfig" href="#bytewax.outputs.OutputConfig">OutputConfig</a></li>
+<li><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></li>
 </ul>
 <h3>Subclasses</h3>
 <ul class="hlist">
-<li><a title="bytewax.connectors.bigquery.outputs.BigQueryOutputConfig" href="connectors/bigquery/outputs.html#bytewax.connectors.bigquery.outputs.BigQueryOutputConfig">BigQueryOutputConfig</a></li>
-<li><a title="bytewax.connectors.dynamodb.outputs.DynamoDBOutputConfig" href="connectors/dynamodb/outputs.html#bytewax.connectors.dynamodb.outputs.DynamoDBOutputConfig">DynamoDBOutputConfig</a></li>
-<li><a title="bytewax.outputs.TestingOutputConfig" href="#bytewax.outputs.TestingOutputConfig">TestingOutputConfig</a></li>
+<li><a title="bytewax.connectors.bigquery.outputs.BigQueryOutputConfig" href="/apidocs/bytewax.connectors/bigquery/outputs#bytewax.connectors.bigquery.outputs.BigQueryOutputConfig">BigQueryOutputConfig</a></li>
+<li><a title="bytewax.connectors.dynamodb.outputs.DynamoDBOutputConfig" href="/apidocs/bytewax.connectors/dynamodb/outputs#bytewax.connectors.dynamodb.outputs.DynamoDBOutputConfig">DynamoDBOutputConfig</a></li>
+<li><a title="bytewax.outputs.TestingOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.TestingOutputConfig">TestingOutputConfig</a></li>
 </ul>
 <h3>Instance variables</h3>
 <dl>
@@ -229,10 +229,10 @@ capture operator on this worker.</dd>
 destination you'd like to write to.</p></div>
 <h3>Subclasses</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.KafkaOutputConfig" href="#bytewax.outputs.KafkaOutputConfig">KafkaOutputConfig</a></li>
-<li><a title="bytewax.outputs.ManualEpochOutputConfig" href="#bytewax.outputs.ManualEpochOutputConfig">ManualEpochOutputConfig</a></li>
-<li><a title="bytewax.outputs.ManualOutputConfig" href="#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></li>
-<li><a title="bytewax.outputs.StdOutputConfig" href="#bytewax.outputs.StdOutputConfig">StdOutputConfig</a></li>
+<li><a title="bytewax.outputs.KafkaOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.KafkaOutputConfig">KafkaOutputConfig</a></li>
+<li><a title="bytewax.outputs.ManualEpochOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualEpochOutputConfig">ManualEpochOutputConfig</a></li>
+<li><a title="bytewax.outputs.ManualOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></li>
+<li><a title="bytewax.outputs.StdOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.StdOutputConfig">StdOutputConfig</a></li>
 </ul>
 </dd>
 <dt id="bytewax.outputs.StdOutputConfig"><code class="language-python flex name class">
@@ -244,10 +244,10 @@ destination you'd like to write to.</p></div>
 string before capture.</p>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this to the
-<code><a title="bytewax.dataflow.Dataflow.capture" href="dataflow.html#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
+<code><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.OutputConfig" href="#bytewax.outputs.OutputConfig">OutputConfig</a></li>
+<li><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></li>
 </ul>
 </dd>
 <dt id="bytewax.outputs.TestingEpochOutputConfig"><code class="language-python flex name class">
@@ -267,7 +267,7 @@ workers.</p>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>Config object.
-Pass this to the <code><a title="bytewax.dataflow.Dataflow.capture" href="dataflow.html#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
+Pass this to the <code><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -304,8 +304,8 @@ Pass this to the <code><a title="bytewax.dataflow.Dataflow.capture" href="datafl
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.ManualEpochOutputConfig" href="#bytewax.outputs.ManualEpochOutputConfig">ManualEpochOutputConfig</a></li>
-<li><a title="bytewax.outputs.OutputConfig" href="#bytewax.outputs.OutputConfig">OutputConfig</a></li>
+<li><a title="bytewax.outputs.ManualEpochOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualEpochOutputConfig">ManualEpochOutputConfig</a></li>
+<li><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></li>
 </ul>
 </dd>
 <dt id="bytewax.outputs.TestingOutputConfig"><code class="language-python flex name class">
@@ -325,7 +325,7 @@ workers.</p>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>Config object.
-Pass this to the <code><a title="bytewax.dataflow.Dataflow.capture" href="dataflow.html#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
+Pass this to the <code><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -362,14 +362,14 @@ Pass this to the <code><a title="bytewax.dataflow.Dataflow.capture" href="datafl
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.ManualOutputConfig" href="#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></li>
-<li><a title="bytewax.outputs.OutputConfig" href="#bytewax.outputs.OutputConfig">OutputConfig</a></li>
+<li><a title="bytewax.outputs.ManualOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></li>
+<li><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></li>
 </ul>
 <h3>Inherited members</h3>
 <ul class="hlist">
-<li><code class="language-python"><b><a title="bytewax.outputs.ManualOutputConfig" href="#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></b></code>:
+<li><code class="language-python"><b><a title="bytewax.outputs.ManualOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></b></code>:
 <ul class="hlist">
-<li><code class="language-python"><a title="bytewax.outputs.ManualOutputConfig.output_builder" href="#bytewax.outputs.ManualOutputConfig.output_builder">output_builder</a></code></li>
+<li><code class="language-python"><a title="bytewax.outputs.ManualOutputConfig.output_builder" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig.output_builder">output_builder</a></code></li>
 </ul>
 </li>
 </ul>
@@ -388,9 +388,7 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <h3 class="api__sidebar-nav-title">Super-module</h3>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item">
-<a class="api__sidebar-nav-menu-link api-supermodule" href="/apidocs">
-bytewax
-</a>
+<a title="bytewax" href="/apidocs/">bytewax</a>
 </li>
 </ul>
 </li>
@@ -398,33 +396,33 @@ bytewax
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.KafkaOutputConfig" href="#bytewax.outputs.KafkaOutputConfig">KafkaOutputConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.KafkaOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.KafkaOutputConfig">KafkaOutputConfig</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.KafkaOutputConfig.additional_properties" href="#bytewax.outputs.KafkaOutputConfig.additional_properties">additional_properties</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.KafkaOutputConfig.brokers" href="#bytewax.outputs.KafkaOutputConfig.brokers">brokers</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.KafkaOutputConfig.topic" href="#bytewax.outputs.KafkaOutputConfig.topic">topic</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.KafkaOutputConfig.additional_properties" href="/apidocs/bytewax.outputs#bytewax.outputs.KafkaOutputConfig.additional_properties">additional_properties</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.KafkaOutputConfig.brokers" href="/apidocs/bytewax.outputs#bytewax.outputs.KafkaOutputConfig.brokers">brokers</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.KafkaOutputConfig.topic" href="/apidocs/bytewax.outputs#bytewax.outputs.KafkaOutputConfig.topic">topic</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.ManualEpochOutputConfig" href="#bytewax.outputs.ManualEpochOutputConfig">ManualEpochOutputConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.ManualEpochOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualEpochOutputConfig">ManualEpochOutputConfig</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.ManualOutputConfig" href="#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.ManualOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.ManualOutputConfig.output_builder" href="#bytewax.outputs.ManualOutputConfig.output_builder">output_builder</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.ManualOutputConfig.output_builder" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig.output_builder">output_builder</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.OutputConfig" href="#bytewax.outputs.OutputConfig">OutputConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.StdOutputConfig" href="#bytewax.outputs.StdOutputConfig">StdOutputConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.StdOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.StdOutputConfig">StdOutputConfig</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.TestingEpochOutputConfig" href="#bytewax.outputs.TestingEpochOutputConfig">TestingEpochOutputConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.TestingEpochOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.TestingEpochOutputConfig">TestingEpochOutputConfig</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.TestingOutputConfig" href="#bytewax.outputs.TestingOutputConfig">TestingOutputConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.TestingOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.TestingOutputConfig">TestingOutputConfig</a></h4>
 </li>
 </ul>
 </li>
