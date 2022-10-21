@@ -11,6 +11,12 @@
         return name
     url = dobj.url(relative_to=module, link_prefix=link_prefix,
                    top_ancestor=not show_inherited_members)
+    if url != None and url.endswith('/bytewax/index.html'):
+      url = url.replace('/bytewax/index.html', '/')
+    if url != None and '/bytewax/' in url:
+      url = url.replace('/bytewax/', '/bytewax.')
+    if url != None and '.html' in url:
+      url = url.replace('.html', '')
     return f'<a title="{dobj.refname}" href="{url}">{name}</a>'
 
 
@@ -141,7 +147,7 @@
     <div class="api__article-submodules">
     % for m in submodules:
       <div class="api__article-submodules-item">
-        <h4><a class="api-submodule" href="/apidocs/${(m.name)}">${(m.name)}</a></h4>
+        <h4>${link(m)}</h4>
         <p>${show_desc(m, short=True)}</p>
       </div>
     % endfor
@@ -294,9 +300,7 @@
       <h3 class="api__sidebar-nav-title">Super-module</h3>
       <ul class="api__sidebar-nav-menu">
         <li class="api__sidebar-nav-menu-item">
-          <a class="api__sidebar-nav-menu-link api-supermodule" href="/apidocs">
-            ${supermodule.name}
-          </a>
+          ${link(supermodule)}
         </li>
       </ul>
     </li>
@@ -304,12 +308,10 @@
 
     % if submodules:
     <li class="api__sidebar-nav-item"><h3 class="api__sidebar-nav-title"><a href="#header-submodules">Sub-modules</a></h3>
-      <ul class="api__sidebar-nav-menu">
+      <ul class="api__sidebar-nav-menu api__sidebar-nav-menu--submodules">
       % for m in submodules:
         <li class="api__sidebar-nav-menu-item">
-          <a class="api__sidebar-nav-menu-link api-submodule" href="/apidocs/${(m.name)}">
-            ${(m.name)}
-          </a>
+          ${link(m)}
         </li>
       % endfor
       </ul>
