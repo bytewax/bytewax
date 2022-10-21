@@ -45,131 +45,6 @@ use super::StateWriter;
 use super::StepId;
 use super::WorkerIndex;
 
-/// Use [SQLite](https://sqlite.org/index.html) to store recovery
-/// data.
-///
-/// Creates a SQLite DB per-worker in a given directory. Multiple DBs
-/// are used to allow workers to write without contention.
-///
-/// Use a distinct directory per dataflow so recovery data is not
-/// mixed.
-///
-/// >>> from bytewax.execution import run_main
-/// >>> from bytewax.inputs import TestingInputConfig
-/// >>> from bytewax.outputs import StdOutputConfig
-/// >>> flow = Dataflow()
-/// >>> flow.input("inp", TestingInputConfig(range(3)))
-/// >>> flow.capture(StdOutputConfig())
-/// >>> tmp_dir = TemporaryDirectory()  # We'll store this somewhere temporary for this test.
-/// >>> recovery_config = SqliteRecoveryConfig(tmp_dir)
-/// >>> run_main(
-/// ...     flow,
-/// ...     recovery_config=recovery_config,
-/// ... )  # doctest: +ELLIPSIS
-/// (...)
-///
-/// DB files and tables will automatically be created if there's no
-/// previous recovery data.
-///
-/// Args:
-///
-///   db_dir (Path): Existing directory to store per-worker DBs
-///       in. Must be distinct per-dataflow. DB files will have
-///       names like `"worker0.sqlite3"`. You can use `"."` for the
-///       current directory.
-///
-/// Returns:
-///
-///   Config object. Pass this as the `recovery_config` argument to
-///   your execution entry point.
-#[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
-#[pyo3(text_signature = "(db_dir)")]
-pub(crate) struct SqliteRecoveryConfig {
-    #[pyo3(get)]
-    db_dir: PathBuf,
-}
-
-#[pymethods]
-impl SqliteRecoveryConfig {
-    #[new]
-    #[args(db_dir)]
-    pub(crate) fn new(db_dir: PathBuf) -> (Self, RecoveryConfig) {
-        (Self { db_dir }, RecoveryConfig {})
-    }
-
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, PathBuf) {
-        ("SqliteRecoveryConfig", self.db_dir.clone())
-    }
-
-    /// Egregious hack because pickling assumes the type has "empty"
-    /// mutable objects.
-    ///
-    /// Pickle always calls `__new__(*__getnewargs__())` but notice we
-    /// don't have access to the pickled `db_file_path` yet, so we
-    /// have to pass in some dummy string value that will be
-    /// overwritten by `__setstate__()` shortly.
-    fn __getnewargs__(&self) -> (&str,) {
-        ("UNINIT_PICKLED_STRING",)
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("SqliteRecoveryConfig", db_dir)) = state.extract() {
-            self.db_dir = db_dir;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for SqliteRecoveryConfig: {state:?}"
-            )))
-        }
-    }
-}
-
-impl SqliteRecoveryConfig {
-    pub(crate) fn db_file(&self, worker_index: usize) -> PathBuf {
-        self.db_dir.join(format!("worker{worker_index}.sqlite3"))
-    }
-}
-
-pub(crate) struct SqliteStateWriter {
-    rt: Runtime,
-    conn: SqliteConnection,
-    table_name: String,
-}
-
-impl SqliteStateWriter {
-    pub(crate) fn new(db_file: &Path) -> Self {
-        let table_name = "state".to_string();
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-
-        let mut options = SqliteConnectOptions::new().filename(db_file);
-        options = options.create_if_missing(true);
-        let future = SqliteConnection::connect_with(&options);
-        let mut conn = rt.block_on(future).unwrap();
-        debug!("Opened Sqlite connection to {db_file:?}");
-
-        // TODO: SQLite doesn't let you bind to table names. Can
-        // we do this in a slightly safer way? I'm not as worried
-        // because this value is not from items in the dataflow
-        // stream, but from the config which should be under
-        // developer control.
-        let sql = format!("CREATE TABLE IF NOT EXISTS {table_name} (step_id TEXT, state_key TEXT, epoch INTEGER, snapshot BLOB, next_awake TEXT, PRIMARY KEY (step_id, state_key, epoch));");
-        let future = query(&sql).execute(&mut conn);
-        rt.block_on(future).unwrap();
-
-        Self {
-            rt,
-            conn,
-            table_name,
-        }
-    }
-}
-
 impl Type<Sqlite> for StepId {
     fn type_info() -> SqliteTypeInfo {
         <String as Type<Sqlite>>::type_info()
@@ -281,6 +156,44 @@ impl<'r> Decode<'r, Sqlite> for WorkerIndex {
     fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
         let value = <i32 as Decode<Sqlite>>::decode(value)?;
         Ok(Self(value as usize))
+    }
+}
+
+pub(crate) struct SqliteStateWriter {
+    rt: Runtime,
+    conn: SqliteConnection,
+    table_name: String,
+}
+
+impl SqliteStateWriter {
+    pub(crate) fn new(db_file: &Path) -> Self {
+        let table_name = "state".to_string();
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let mut options = SqliteConnectOptions::new().filename(db_file);
+        options = options.create_if_missing(true);
+        let future = SqliteConnection::connect_with(&options);
+        let mut conn = rt.block_on(future).unwrap();
+        debug!("Opened Sqlite connection to {db_file:?}");
+
+        // TODO: SQLite doesn't let you bind to table names. Can
+        // we do this in a slightly safer way? I'm not as worried
+        // because this value is not from items in the dataflow
+        // stream, but from the config which should be under
+        // developer control.
+        let sql = format!("CREATE TABLE IF NOT EXISTS {table_name} (step_id TEXT, state_key TEXT, epoch INTEGER, snapshot BLOB, next_awake TEXT, PRIMARY KEY (step_id, state_key, epoch));");
+        let future = query(&sql).execute(&mut conn);
+        rt.block_on(future).unwrap();
+
+        Self {
+            rt,
+            conn,
+            table_name,
+        }
     }
 }
 
