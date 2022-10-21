@@ -2,7 +2,7 @@ As well as facilitating deployment on Kubernetes, Waxctl provides an easy path t
 
 ## Installation
 
-To install Waxctl simply download the binary corresponding to your operating system and architecture [here](https://bytewax.io/downloads).
+To install Waxctl simply download the binary corresponding to your operating system and architecture [here](/downloads/).
 
 ## Dataflow Lifecycle
 
