@@ -158,7 +158,7 @@ impl FlowStateBytes {
             op_state
         } else {
             if !self.0.is_empty() {
-                warn!("No resume state for {step_id:?}, but other steps have state; this is concerning unless you're adding a new step to this dataflow and do not want state migrated");
+                warn!("No resume state for {step_id:?}, but other steps have state; did you add or rename a step and forget to init or migrate state data?");
             }
             Default::default()
         }

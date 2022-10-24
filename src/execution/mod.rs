@@ -399,7 +399,7 @@ where
         }
         if !resume_state.is_empty() {
             warn!(
-                "Resume state exists for unknown steps {:?}; this is concerning unless you're removing a step from this dataflow and do not want to migrate its state",
+                "Resume state exists for unknown steps {:?}; did you delete or rename a step and forget to remove or migrate state data?",
                 resume_state.keys(),
             );
         }
