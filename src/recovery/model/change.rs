@@ -1,12 +1,21 @@
 //! Base data model and traits for a "change data capture"-like
 //! system.
 //!
-//! The idea here is to model a stream of keyed changes to a key-value
-//! DB **store**. Streams of changes can be written and read to / from
-//! the store. The store itself does _not_ model time, so changes to
-//! the same key will be lost; only the final state must be
-//! retained. (But it is okay to retain more than just the final
-//! state; it's just not required.)
+//! The idea here is to model a key-value DB **store**. Streams of
+//! changes can be written and read to / from the store. The store
+//! itself does _not_ model time, changes are applied in-order.
+//!
+//! Reading and writing are not perfect mirror images of each other,
+//! since the store does not have to retain the changelog
+//! itself. Instead, the entire set of read changes would result in
+//! the same store state if written to an empty store.
+//!
+//! For example: Writing `KChange("a", Change::Upsert(1))`,
+//! `KChange("b", Change::Upsert(2))`, `KChange("a",
+//! Change::Upsert(2))` could result in reading `KChange("a",
+//! Change::Upsert(2))`, `KChange("b", Change::Upsert(2))`, since that
+//! middle change is not necessary to re-create the state of the
+//! store.
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -47,10 +56,7 @@ impl<V> Change<V> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct KChange<K, V>(pub(crate) K, pub(crate) Change<V>);
 
-/// Allows reifying keyed changes into a store.
-///
-/// The order is important. This store must apply the changes in
-/// order.
+/// Apply keyed changes to a store.
 pub(crate) trait KWriter<K, V> {
     fn write(&mut self, kchange: KChange<K, V>);
 
@@ -61,10 +67,8 @@ pub(crate) trait KWriter<K, V> {
     }
 }
 
-/// Allows reading keyed changes from a store.
-///
-/// This is not exactly the inverse of [`KWriter`]: a store is allowed
-/// to coallece writes that happen to the same key.
+/// Return a stream of keyed changes that, if written, will result in
+/// the same store state.
 pub(crate) trait KReader<K, V> {
     fn read(&mut self) -> Option<KChange<K, V>>;
 
