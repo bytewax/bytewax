@@ -10,9 +10,7 @@ use crate::StringResult;
 use pyo3::exceptions::*;
 use pyo3::prelude::*;
 use pyo3::types::*;
-use std::cell::RefCell;
 use std::path::PathBuf;
-use std::rc::Rc;
 
 /// Base class for a recovery config.
 ///
@@ -309,10 +307,7 @@ pub(crate) fn build_recovery_writers(
     worker_index: usize,
     worker_count: usize,
     config: Py<RecoveryConfig>,
-) -> StringResult<(
-    Box<dyn ProgressWriter<u64>>,
-    Rc<RefCell<dyn StateWriter<u64>>>,
-)> {
+) -> StringResult<(Box<dyn ProgressWriter<u64>>, Box<dyn StateWriter<u64>>)> {
     // Horrible news: we have to be very studious and release the GIL
     // any time we know we have it and we call into complex Rust
     // libraries because internally it might call log!() on a
@@ -324,10 +319,7 @@ pub(crate) fn build_recovery_writers(
     if let Ok(_config) = config.downcast::<PyCell<NoopRecoveryConfig>>() {
         let (progress_writer, state_writer) =
             py.allow_threads(|| (NoOpStore::new(), NoOpStore::new()));
-        Ok((
-            Box::new(progress_writer),
-            Rc::new(RefCell::new(state_writer)),
-        ))
+        Ok((Box::new(progress_writer), Box::new(state_writer)))
     } else if let Ok(config) = config.downcast::<PyCell<SqliteRecoveryConfig>>() {
         let config = config.borrow();
 
@@ -340,10 +332,7 @@ pub(crate) fn build_recovery_writers(
             )
         });
 
-        Ok((
-            Box::new(progress_writer),
-            Rc::new(RefCell::new(state_writer)),
-        ))
+        Ok((Box::new(progress_writer), Box::new(state_writer)))
     } else if let Ok(config) = config.downcast::<PyCell<KafkaRecoveryConfig>>() {
         let config = config.borrow();
 
@@ -363,10 +352,7 @@ pub(crate) fn build_recovery_writers(
             )
         });
 
-        Ok((
-            Box::new(progress_writer),
-            Rc::new(RefCell::new(state_writer)),
-        ))
+        Ok((Box::new(progress_writer), Box::new(state_writer)))
     } else {
         Err(format!(
             "Unknown recovery_config type: {}",

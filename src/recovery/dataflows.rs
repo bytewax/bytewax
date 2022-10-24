@@ -63,15 +63,17 @@ pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
     worker_key: WorkerKey,
     store_summary: StoreSummary<S::Timestamp>,
     progress_writer: PW,
-    state_writer: Rc<RefCell<SW>>,
+    state_writer: SW,
     step_changes: FlowChangeStream<S>,
     capture_clock: ClockStream<S>,
 ) where
     S: Scope,
     S::Timestamp: TotalOrder,
     PW: ProgressWriter<S::Timestamp> + 'static,
-    SW: StateWriter<S::Timestamp> + ?Sized + 'static,
+    SW: StateWriter<S::Timestamp> + 'static,
 {
+    let state_writer = Rc::new(RefCell::new(state_writer));
+
     let store_changes = step_changes.backup();
     let backup_clock = store_changes.write(state_writer.clone());
     let worker_clock = backup_clock.concat(&capture_clock);

@@ -51,7 +51,6 @@ use log::{debug, warn};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
@@ -208,12 +207,12 @@ fn build_production_dataflow<A, PW, SW>(
     mut resume_state: FlowStateBytes,
     store_summary: StoreSummary<u64>,
     progress_writer: PW,
-    state_writer: Rc<RefCell<SW>>,
+    state_writer: SW,
 ) -> StringResult<ProbeHandle<u64>>
 where
     A: Allocate,
     PW: ProgressWriter<u64> + 'static,
-    SW: StateWriter<u64> + ?Sized + 'static,
+    SW: StateWriter<u64> + 'static,
 {
     let worker_index = WorkerIndex(worker.index());
     let worker_count = worker.peers();
@@ -488,12 +487,12 @@ fn build_and_run_production_dataflow<A, PW, SW>(
     resume_state: FlowStateBytes,
     store_summary: StoreSummary<u64>,
     progress_writer: PW,
-    state_writer: Rc<RefCell<SW>>,
+    state_writer: SW,
 ) -> StringResult<()>
 where
     A: Allocate,
     PW: ProgressWriter<u64> + 'static,
-    SW: StateWriter<u64> + ?Sized + 'static,
+    SW: StateWriter<u64> + 'static,
 {
     let probe = Python::with_gil(|py| {
         build_production_dataflow(
