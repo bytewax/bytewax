@@ -20,6 +20,7 @@ pub(crate) mod fold_window;
 pub(crate) mod reduce;
 pub(crate) mod reduce_window;
 pub(crate) mod stateful_map;
+pub(crate) mod stateful_unary;
 
 pub(crate) fn map(mapper: &TdPyCallable, item: TdPyAny) -> TdPyAny {
     debug!("{}, mapper:{:?}, item:{:?}", log_func!(), mapper, item);

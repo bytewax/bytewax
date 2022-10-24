@@ -248,6 +248,7 @@ def test_stateful_map(recovery_config):
         "BOOM",
         "b",
         "c",
+        "a",
     ]
     flow.input("inp", TestingInputConfig(inp))
 

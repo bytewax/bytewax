@@ -28,10 +28,8 @@
 //! config objects and Rust impl structs for each trait of behavior we
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
+use crate::operators::stateful_unary::*;
 use crate::pyo3_extensions::TdPyAny;
-use crate::recovery::{LogicFate, State, StateBytes, StateKey, StatefulStream};
-use crate::recovery::{StateUpdate, StepId};
-use crate::recovery::{StatefulLogic, StatefulUnary};
 use crate::StringResult;
 use chrono::{DateTime, Utc};
 use pyo3::exceptions::PyValueError;
@@ -42,7 +40,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::task::Poll;
-use timely::dataflow::{Scope, Stream};
+use timely::dataflow::Scope;
 use timely::{Data, ExchangeData};
 
 pub(crate) mod event_time_clock;
@@ -52,6 +50,10 @@ pub(crate) mod tumbling_window;
 use self::event_time_clock::EventClockConfig;
 use self::system_clock::SystemClockConfig;
 use self::tumbling_window::{TumblingWindowConfig, TumblingWindower};
+
+// Re-export for convenience.
+
+pub(crate) use crate::operators::stateful_unary::StateBytes;
 
 /// Base class for a clock config.
 ///
@@ -501,10 +503,10 @@ where
         clock_builder: CB,
         windower_builder: WB,
         logic_builder: LB,
-        resume_state: HashMap<StateKey, State>,
+        resume_state: StepStateBytes,
     ) -> (
         StatefulStream<S, Result<R, WindowError<V>>>,
-        Stream<S, StateUpdate<S::Timestamp>>,
+        FlowChangeStream<S>,
     )
     where
         R: Data,                                                   // Output item type
@@ -527,10 +529,10 @@ where
         clock_builder: CB,
         windower_builder: WB,
         logic_builder: LB,
-        resume_state: HashMap<StateKey, State>,
+        resume_state: StepStateBytes,
     ) -> (
         StatefulStream<S, Result<R, WindowError<V>>>,
-        Stream<S, StateUpdate<S::Timestamp>>,
+        FlowChangeStream<S>,
     )
     where
         R: Data,                                                   // Output item type
