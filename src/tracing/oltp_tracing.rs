@@ -8,9 +8,10 @@ use opentelemetry::{
 };
 use opentelemetry_otlp::WithExportConfig;
 use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult};
-use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Layer, Registry};
+use tracing::{level_filters::LevelFilter, subscriber::SetGlobalDefaultError};
+use tracing_subscriber::{filter::Targets, layer::SubscriberExt, Layer, Registry};
 
-use super::{log_layer, TracerBuilder, TracingConfig, TracingSetupError};
+use super::{log_layer, TracerBuilder, TracingConfig};
 
 /// Send traces to the opentelemetry collector:
 /// https://opentelemetry.io/docs/collector/
@@ -39,7 +40,7 @@ pub(crate) struct OltpTracingConfig {
 }
 
 impl TracerBuilder for OltpTracingConfig {
-    fn setup(&self) -> Result<(), TracingSetupError> {
+    fn setup(&self, log_level: LevelFilter) -> Result<(), SetGlobalDefaultError> {
         // Instantiate the builder
         let mut exporter = opentelemetry_otlp::new_exporter().tonic();
 
@@ -63,23 +64,20 @@ impl TracerBuilder for OltpTracingConfig {
                     )])),
             )
             .install_batch(Tokio)
-            .map_err(|err| TracingSetupError::InitRuntime(err.to_string()))?;
+            .unwrap();
 
         // Tracing layer
         let telemetry = tracing_opentelemetry::layer()
             .with_tracer(tracer)
-            // By default we trace everything in bytewax, and only errors
-            // coming from other libraries we use.
-            .with_filter(EnvFilter::new("bytewax=trace,error"));
+            .with_filter(Targets::new().with_target("bytewax", LevelFilter::TRACE));
 
         // Log layer
-        let logs = log_layer();
+        let logs = log_layer(log_level);
 
         // The global subscriber
         let subscriber = Registry::default().with(telemetry).with(logs);
 
         tracing::subscriber::set_global_default(subscriber)
-            .map_err(|err| TracingSetupError::Init(err.to_string()))
     }
 }
 

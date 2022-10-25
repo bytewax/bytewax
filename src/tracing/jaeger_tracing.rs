@@ -3,9 +3,10 @@ use opentelemetry::{
     sdk::trace::{config, Sampler},
 };
 use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult};
-use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Layer, Registry};
+use tracing::{level_filters::LevelFilter, subscriber::SetGlobalDefaultError};
+use tracing_subscriber::{filter::Targets, layer::SubscriberExt, Layer, Registry};
 
-use super::{log_layer, TracerBuilder, TracingConfig, TracingSetupError};
+use super::{log_layer, TracerBuilder, TracingConfig};
 
 /// Configure tracing to send traces to a Jaeger instance.
 ///
@@ -37,7 +38,7 @@ pub(crate) struct JaegerConfig {
 }
 
 impl TracerBuilder for JaegerConfig {
-    fn setup(&self) -> Result<(), TracingSetupError> {
+    fn setup(&self, log_level: LevelFilter) -> Result<(), SetGlobalDefaultError> {
         opentelemetry::global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
         let mut tracer = opentelemetry_jaeger::new_agent_pipeline()
             .with_trace_config(config().with_sampler(Sampler::TraceIdRatioBased(
@@ -50,19 +51,17 @@ impl TracerBuilder for JaegerConfig {
             tracer = tracer.with_endpoint(endpoint);
         }
 
-        let tracer = tracer
-            .install_batch(Tokio)
-            .map_err(|err| TracingSetupError::InitRuntime(err.to_string()))?;
+        let tracer = tracer.install_batch(Tokio).unwrap();
 
         let layer = tracing_opentelemetry::layer()
             .with_tracer(tracer)
-            .with_filter(EnvFilter::new("bytewax=trace,error"));
+            .with_filter(Targets::new().with_target("bytewax", LevelFilter::TRACE));
+
         let subscriber = Registry::default()
             .with(layer)
             // Add logs too
-            .with(log_layer());
+            .with(log_layer(log_level));
         tracing::subscriber::set_global_default(subscriber)
-            .map_err(|err| TracingSetupError::Init(err.to_string()))
     }
 }
 
@@ -70,7 +69,11 @@ impl TracerBuilder for JaegerConfig {
 impl JaegerConfig {
     #[new]
     #[args(service_name, endpoint, sampling_ratio = "None")]
-    pub(crate) fn py_new(service_name: String, endpoint: Option<String>, sampling_ratio: Option<f64>) -> (Self, TracingConfig) {
+    pub(crate) fn py_new(
+        service_name: String,
+        endpoint: Option<String>,
+        sampling_ratio: Option<f64>,
+    ) -> (Self, TracingConfig) {
         (
             Self {
                 service_name,

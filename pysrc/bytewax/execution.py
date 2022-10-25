@@ -58,6 +58,7 @@ def spawn_cluster(
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
     mp_ctx=get_context("spawn"),
+    log_level: str = None,
 ) -> List[Tuple[int, Any]]:
     """Execute a dataflow as a cluster of processes on this machine.
 
@@ -122,6 +123,7 @@ def spawn_cluster(
                     "addresses": addresses,
                     "proc_id": proc_id,
                     "worker_count_per_proc": worker_count_per_proc,
+                    "log_level": log_level
                 },
             )
             for proc_id in range(proc_count)
