@@ -1,4 +1,5 @@
 import os
+import time
 
 from bytewax import parse
 from bytewax.dataflow import Dataflow
@@ -7,29 +8,8 @@ from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
 from bytewax.tracing import OltpTracingConfig
 
-# from opentelemetry import trace
-# from opentelemetry.sdk.resources import SERVICE_NAME, Resource
-# from opentelemetry.sdk.trace import TracerProvider
-# from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-# from opentelemetry.sdk.trace.export import (BatchSpanProcessor, ConsoleSpanExporter)
-#
-# resource = Resource(attributes={SERVICE_NAME: "Tracing-example-2"})
-# provider = TracerProvider(resource=resource)
-# processor = BatchSpanProcessor(OTLPSpanExporter(endpoint="http://localhost:4317"))
-# provider.add_span_processor(processor)
-#
-# # Sets the global default tracer provider
-# trace.set_tracer_provider(provider)
-#
-# # Creates a tracer from the global tracer provider
-# tracer = trace.get_tracer(__name__)
-#
-# span = tracer.start_as_current_span("Dataflow")
-
 
 def input_builder(worker_index, worker_count, state):
-    import time
-    # Ignore state recovery here
     state = None
     for i in range(50):
         time.sleep(0.5)
@@ -37,18 +17,14 @@ def input_builder(worker_index, worker_count, state):
 
 
 def double(x):
-    # with tracer.start_span("double"):
-    result = x * 2
-    return result
+    return x * 2
 
 
 def minus_one(x):
-    # with tracer.start_span("minus-one"):
     return x - 1
 
 
 def stringy(x):
-    # with tracer.start_span("stringy"):
     return f"<dance>{x}</dance>"
 
 

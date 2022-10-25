@@ -52,11 +52,17 @@ def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
         help="Number of processes to start",
         default=1,
     )
+    p.add_argument(
+        "--log-level",
+        dest="log_level",
+        help=("One of: 'ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'"),
+    )
     out = p.parse_args(args)
 
     kwargs = {
         "proc_count": out.proc_count,
         "worker_count_per_proc": out.worker_count_per_proc,
+        "log_level": out.log_level,
     }
     return kwargs
 
@@ -132,10 +138,15 @@ def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
             env["BYTEWAX_POD_NAME"].replace(env["BYTEWAX_STATEFULSET_NAME"] + "-", "")
         )
 
+    log_level = None
+    if "BYTEWAX_LOG" in env:
+        log_level = env["BYTEWAX_LOG"]
+
     kwargs = {
         "worker_count_per_proc": int(env["BYTEWAX_WORKERS_PER_PROCESS"]),
         "addresses": addresses,
         "proc_id": proc_id,
+        "log_level": log_level,
     }
     return kwargs
 
@@ -194,11 +205,17 @@ def proc_args(args: Iterable[str] = None) -> Dict[str, Any]:
             "Add the hostname:port address of every (including this) process in cluster"
         ),
     )
+    p.add_argument(
+        "--log-level",
+        dest="log_level",
+        help=("One of: 'ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'"),
+    )
     out = p.parse_args(args)
 
     kwargs = {
         "worker_count_per_proc": out.worker_count_per_proc,
         "addresses": out.addresses,
         "proc_id": out.proc_id,
+        "log_level": out.log_level,
     }
     return kwargs
