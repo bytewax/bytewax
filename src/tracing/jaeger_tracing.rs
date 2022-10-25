@@ -22,7 +22,7 @@ use super::{log_layer, TracerBuilder, TracingConfig, TracingSetupError};
 /// If a config option is passed to JaegerConfig,
 /// it takes precedence over env vars.
 #[pyclass(module="bytewax.tracing", extends=TracingConfig)]
-#[pyo3(text_signature = "(service_name, endpoint)")]
+#[pyo3(text_signature = "(service_name, endpoint, sampling_ratio=1.0)")]
 #[derive(Clone)]
 pub(crate) struct JaegerConfig {
     /// Service name, identifies this dataflow.
@@ -69,36 +69,39 @@ impl TracerBuilder for JaegerConfig {
 #[pymethods]
 impl JaegerConfig {
     #[new]
-    #[args(service_name, endpoint)]
-    pub(crate) fn py_new(service_name: String, endpoint: Option<String>) -> (Self, TracingConfig) {
+    #[args(service_name, endpoint, sampling_ratio = "None")]
+    pub(crate) fn py_new(service_name: String, endpoint: Option<String>, sampling_ratio: Option<f64>) -> (Self, TracingConfig) {
         (
             Self {
                 service_name,
                 endpoint,
+                sampling_ratio,
             },
             TracingConfig {},
         )
     }
 
     /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, String, Option<String>) {
+    fn __getstate__(&self) -> (&str, String, Option<String>, Option<f64>) {
         (
             "JaegerConfig",
             self.service_name.clone(),
             self.endpoint.clone(),
+            self.sampling_ratio.clone(),
         )
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (String, Option<String>) {
-        (String::new(), None)
+    fn __getnewargs__(&self) -> (String, Option<String>, Option<f64>) {
+        (String::new(), None, None)
     }
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("JaegerConfig", service_name, endpoint)) = state.extract() {
+        if let Ok(("JaegerConfig", service_name, endpoint, sampling_ratio)) = state.extract() {
             self.service_name = service_name;
             self.endpoint = endpoint;
+            self.sampling_ratio = sampling_ratio;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(

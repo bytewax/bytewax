@@ -22,7 +22,7 @@ use super::{log_layer, TracerBuilder, TracingConfig, TracingSetupError};
 /// the maximum flexibility in what to do with all the data
 /// bytewax can generate.
 #[pyclass(module="bytewax.tracing", extends=TracingConfig)]
-#[pyo3(text_signature = "(service_name, url)")]
+#[pyo3(text_signature = "(service_name, url, sampling_ratio=1.0)")]
 #[derive(Clone)]
 pub(crate) struct OltpTracingConfig {
     /// Service name, identifies this dataflow.
@@ -86,30 +86,43 @@ impl TracerBuilder for OltpTracingConfig {
 #[pymethods]
 impl OltpTracingConfig {
     #[new]
-    #[args(service_name, url, protocol)]
-    pub(crate) fn py_new(service_name: String, url: Option<String>) -> (Self, TracingConfig) {
-        (Self { service_name, url }, TracingConfig {})
+    #[args(service_name, url, sampling_ratio = "None")]
+    pub(crate) fn py_new(
+        service_name: String,
+        url: Option<String>,
+        sampling_ratio: Option<f64>,
+    ) -> (Self, TracingConfig) {
+        (
+            Self {
+                service_name,
+                url,
+                sampling_ratio,
+            },
+            TracingConfig {},
+        )
     }
 
     /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, String, Option<String>) {
+    fn __getstate__(&self) -> (&str, String, Option<String>, Option<f64>) {
         (
             "OltpTracingConfig",
             self.service_name.clone(),
             self.url.clone(),
+            self.sampling_ratio.clone(),
         )
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (String, Option<String>) {
-        (String::new(), None)
+    fn __getnewargs__(&self) -> (String, Option<String>, Option<f64>) {
+        (String::new(), None, None)
     }
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("OltpTracingConfig", service_name, url)) = state.extract() {
+        if let Ok(("OltpTracingConfig", service_name, url, sampling_ratio)) = state.extract() {
             self.service_name = service_name;
             self.url = url;
+            self.sampling_ratio = sampling_ratio;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
