@@ -1,4 +1,7 @@
-use opentelemetry::runtime::Tokio;
+use opentelemetry::{
+    runtime::Tokio,
+    sdk::trace::{config, Sampler},
+};
 use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult};
 use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Layer, Registry};
 
@@ -26,13 +29,21 @@ pub(crate) struct JaegerConfig {
     service_name: String,
     /// Optional Jaeger's URL
     endpoint: Option<String>,
+    /// Sampling ratio:
+    ///   samplig_ratio >= 1 - all traces are sampled
+    ///   samplig_ratio <= 0 - most traces are not sampled
+    #[pyo3(get)]
+    pub(crate) sampling_ratio: Option<f64>,
 }
 
 impl TracerBuilder for JaegerConfig {
     fn setup(&self) -> Result<(), TracingSetupError> {
         opentelemetry::global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
-        let mut tracer =
-            opentelemetry_jaeger::new_agent_pipeline().with_service_name(self.service_name.clone());
+        let mut tracer = opentelemetry_jaeger::new_agent_pipeline()
+            .with_trace_config(config().with_sampler(Sampler::TraceIdRatioBased(
+                self.sampling_ratio.unwrap_or(1.0),
+            )))
+            .with_service_name(self.service_name.clone());
 
         // Overwrite the endpoint if set here
         if let Some(endpoint) = self.endpoint.as_ref() {

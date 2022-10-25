@@ -64,9 +64,8 @@ if __name__ == "__main__":
     spawn_cluster(
         flow,
         tracing_config=OltpTracingConfig(
-            url=os.getenv("BYTEWAX_OTLP_URL", "http://127.0.0.1:4317"),
+            url=os.getenv("BYTEWAX_OTLP_URL", "grpc://127.0.0.1:4317"),
             service_name="Tracing-example",
-            protocol="GRPC",
         ),
         **parse.cluster_args(),
     )

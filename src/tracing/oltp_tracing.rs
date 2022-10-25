@@ -1,6 +1,9 @@
 use opentelemetry::{
     runtime::Tokio,
-    sdk::{trace::config, Resource},
+    sdk::{
+        trace::{config, Sampler},
+        Resource,
+    },
     KeyValue,
 };
 use opentelemetry_otlp::WithExportConfig;
@@ -28,6 +31,11 @@ pub(crate) struct OltpTracingConfig {
     /// Optional collector's URL, defaults to `grpc:://127.0.0.1:4317`
     #[pyo3(get)]
     pub(crate) url: Option<String>,
+    /// Sampling ratio:
+    ///   samplig_ratio >= 1 - all traces are sampled
+    ///   samplig_ratio <= 0 - most traces are not sampled
+    #[pyo3(get)]
+    pub(crate) sampling_ratio: Option<f64>,
 }
 
 impl TracerBuilder for OltpTracingConfig {
@@ -44,10 +52,16 @@ impl TracerBuilder for OltpTracingConfig {
         let tracer = opentelemetry_otlp::new_pipeline()
             .tracing()
             .with_exporter(exporter)
-            .with_trace_config(config().with_resource(Resource::new(vec![KeyValue::new(
-                "service.name",
-                self.service_name.clone(),
-            )])))
+            .with_trace_config(
+                config()
+                    .with_sampler(Sampler::TraceIdRatioBased(
+                        self.sampling_ratio.unwrap_or(1.0),
+                    ))
+                    .with_resource(Resource::new(vec![KeyValue::new(
+                        "service.name",
+                        self.service_name.clone(),
+                    )])),
+            )
             .install_batch(Tokio)
             .map_err(|err| TracingSetupError::InitRuntime(err.to_string()))?;
 
