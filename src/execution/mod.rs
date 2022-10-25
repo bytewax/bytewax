@@ -45,7 +45,7 @@ use crate::recovery::model::*;
 use crate::recovery::operators::FlowChangeStream;
 use crate::recovery::python::*;
 use crate::recovery::store::in_mem::StoreSummary;
-use crate::tracing::{BytewaxTracer, StdOutTracingConfig, TracingConfig};
+use crate::tracing::{BytewaxTracer, TracingConfig};
 use crate::window::{build_clock_builder, build_windower_builder, StatefulWindowUnary};
 use crate::StringResult;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -560,15 +560,6 @@ fn shutdown_worker<A: Allocate>(worker: &mut Worker<A>) {
     }
 }
 
-pub(crate) fn default_tracing_config() -> Py<TracingConfig> {
-    Python::with_gil(|py| {
-        PyCell::new(py, StdOutTracingConfig::py_new())
-            .unwrap()
-            .extract()
-            .unwrap()
-    })
-}
-
 /// What a worker thread should do during its lifetime.
 fn worker_main<A: Allocate>(
     worker: &mut Worker<A>,
@@ -668,9 +659,6 @@ pub(crate) fn run_main(
     tracing_config: Option<Py<TracingConfig>>,
     log_level: Option<String>,
 ) -> PyResult<()> {
-    // Extract tracing config
-    let tracing_config = tracing_config.unwrap_or_else(default_tracing_config);
-
     let result = py.allow_threads(move || {
         // Setup tracing/logging
         let tracer = BytewaxTracer::new();
@@ -814,8 +802,6 @@ pub(crate) fn cluster_main(
             let _ = std::panic::take_hook();
         }
 
-        // Setup tracing/logging
-        let tracing_config = tracing_config.unwrap_or_else(default_tracing_config);
         let tracer = BytewaxTracer::new();
         let _ = tracer.setup(tracing_config, log_level);
 

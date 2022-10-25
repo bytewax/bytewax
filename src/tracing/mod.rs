@@ -1,38 +1,25 @@
-//! Internal code for tracing.
+//! Internal code for tracing/logging.
+//!
+//! This module is used to configure both tracing and logging.
+//! Logging to stdout is always enabled, at least at the "ERROR" level.
+//! Tracing can be configured by the user, by default it is disabled.
+//!
+//! Each tracing backend has to implement the `TracerBuilder` trait, which
+//! requires a `setup` function that is used to configure both tracing and logging.
+use opentelemetry::sdk::trace::Tracer;
 use pyo3::{
     exceptions::PyValueError, pyclass, pymethods, types::PyModule, Py, PyAny, PyCell, PyResult,
     Python,
 };
 use tokio::runtime::EnterGuard;
-use tracing::{level_filters::LevelFilter, subscriber::SetGlobalDefaultError};
-use tracing_subscriber::{filter::Targets, registry::LookupSpan, Layer};
+use tracing::{level_filters::LevelFilter, Subscriber};
+use tracing_subscriber::{filter::Targets, layer::SubscriberExt, Layer, Registry};
 
 pub(crate) mod jaeger_tracing;
 pub(crate) mod oltp_tracing;
-pub(crate) mod stdout_tracing;
 
 pub(crate) use jaeger_tracing::JaegerConfig;
 pub(crate) use oltp_tracing::OltpTracingConfig;
-pub(crate) use stdout_tracing::StdOutTracingConfig;
-
-/// Tracing layer that logs to stdout, filtered by an environment variable.
-pub(crate) fn log_layer<S>(log_level: LevelFilter) -> impl Layer<S>
-where
-    S: tracing::Subscriber + for<'span> LookupSpan<'span>,
-{
-    // TODO: Do we want to offer customization here?
-    tracing_subscriber::fmt::Layer::default()
-        .compact()
-        // Show source file
-        .with_file(true)
-        // Display source code line numbers
-        .with_line_number(true)
-        // Display the thread ID an event was recorded on
-        .with_thread_ids(true)
-        // Don't display the event's target (module path)
-        .with_target(false)
-        .with_filter(Targets::new().with_target("bytewax", log_level))
-}
 
 /// Base class for tracing/logging configuration.
 ///
@@ -76,10 +63,9 @@ impl TracingConfig {
 }
 
 /// Trait that all the tracing config should implement.
-/// This function should try to setup tracing and return
-/// an error is something went wrong.
+/// This function should just return the proper `Tracer` for the backend.
 trait TracerBuilder {
-    fn setup(&self, log_level: LevelFilter) -> Result<(), SetGlobalDefaultError>;
+    fn build(&self) -> Tracer;
 }
 
 /// Utility class used to handle tracing.
@@ -121,8 +107,6 @@ impl BytewaxTracer {
             Ok(Box::new(oltp_conf))
         } else if let Ok(jaeger_conf) = py_conf.extract::<JaegerConfig>(py) {
             Ok(Box::new(jaeger_conf))
-        } else if let Ok(stdout_conf) = py_conf.extract::<StdOutTracingConfig>(py) {
-            Ok(Box::new(stdout_conf))
         } else {
             Err(format!("Unrecognized tracing config: {py_conf:?}"))
         }
@@ -133,7 +117,7 @@ impl BytewaxTracer {
     /// whole execution of the code you want to trace.
     pub fn setup<'a>(
         &'a self,
-        py_conf: Py<TracingConfig>,
+        py_conf: Option<Py<TracingConfig>>,
         log_level: Option<String>,
     ) -> EnterGuard<'a> {
         let guard = self.rt.enter();
@@ -142,26 +126,57 @@ impl BytewaxTracer {
 
         // We need an async block to properly initialize the tracing runtime.
         let initializer = async move {
-            Python::with_gil(|py| {
-                let conf = Self::extract_py_conf(py, py_conf).unwrap();
-                if let Err(err) = conf.setup(log_level) {
-                    // Try to setup tracing, but if it fails setup stdout and log the error.
-                    // This can fail if tracing was already initialized, which currently
-                    // happens in all tests.
-                    _ = StdOutTracingConfig::new().setup(log_level);
-                    tracing::warn!("{err}");
-                }
+            // Only keep the GIL to extract the conf struct
+            let conf = Python::with_gil(|py| {
+                py_conf.map(|py_conf| Self::extract_py_conf(py, py_conf).unwrap())
             });
+
+            // Prepare the log layer
+            let logs = tracing_subscriber::fmt::Layer::default()
+                .compact()
+                // Show source file
+                .with_file(true)
+                // Display source code line numbers
+                .with_line_number(true)
+                // Display the thread ID an event was recorded on
+                .with_thread_ids(true)
+                .with_filter(Targets::new().with_target("bytewax", log_level));
+
+            // If the conf was not none, setup the global subscriber with both log and
+            // telemetry layer, otherwise just setup logging.
+            if let Some(conf) = conf {
+                let tracer = conf.build();
+                let telemetry = tracing_opentelemetry::layer()
+                    .with_tracer(tracer)
+                    // Send all traces from bytewax
+                    .with_filter(Targets::new().with_target("bytewax", LevelFilter::TRACE));
+                set_global_subscriber(Registry::default().with(logs).with(telemetry));
+            } else {
+                set_global_subscriber(Registry::default().with(logs));
+            };
         };
         self.rt.block_on(self.rt.spawn(initializer)).unwrap();
         guard
     }
 }
 
+// Utility function used to try to set a global default subscriber,
+// logging the error without panicking if it was already set
+fn set_global_subscriber<S>(subscriber: S)
+where
+    S: Subscriber + Send + Sync + 'static,
+{
+    // This can fail if tracing was already initialized, which currently
+    // happens in all tests, and also if the user runs a cluster more than once
+    // in the same process.
+    if let Err(err) = tracing::subscriber::set_global_default(subscriber) {
+        tracing::warn!("{err}");
+    }
+}
+
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<TracingConfig>()?;
     m.add_class::<JaegerConfig>()?;
-    m.add_class::<StdOutTracingConfig>()?;
     m.add_class::<OltpTracingConfig>()?;
     Ok(())
 }

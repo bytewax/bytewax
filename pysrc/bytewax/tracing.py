@@ -39,5 +39,4 @@ from .bytewax import (  # noqa: F401
     TracingConfig,
     JaegerConfig,
     OltpTracingConfig,
-    StdOutTracingConfig
 )

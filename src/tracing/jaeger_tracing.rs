@@ -1,12 +1,10 @@
 use opentelemetry::{
     runtime::Tokio,
-    sdk::trace::{config, Sampler},
+    sdk::trace::{config, Sampler, Tracer},
 };
 use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult};
-use tracing::{level_filters::LevelFilter, subscriber::SetGlobalDefaultError};
-use tracing_subscriber::{filter::Targets, layer::SubscriberExt, Layer, Registry};
 
-use super::{log_layer, TracerBuilder, TracingConfig};
+use super::{TracerBuilder, TracingConfig};
 
 /// Configure tracing to send traces to a Jaeger instance.
 ///
@@ -38,7 +36,7 @@ pub(crate) struct JaegerConfig {
 }
 
 impl TracerBuilder for JaegerConfig {
-    fn setup(&self, log_level: LevelFilter) -> Result<(), SetGlobalDefaultError> {
+    fn build(&self) -> Tracer {
         opentelemetry::global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
         let mut tracer = opentelemetry_jaeger::new_agent_pipeline()
             .with_trace_config(config().with_sampler(Sampler::TraceIdRatioBased(
@@ -46,22 +44,12 @@ impl TracerBuilder for JaegerConfig {
             )))
             .with_service_name(self.service_name.clone());
 
-        // Overwrite the endpoint if set here
+        // Overwrite the endpoint if needed
         if let Some(endpoint) = self.endpoint.as_ref() {
             tracer = tracer.with_endpoint(endpoint);
         }
 
-        let tracer = tracer.install_batch(Tokio).unwrap();
-
-        let layer = tracing_opentelemetry::layer()
-            .with_tracer(tracer)
-            .with_filter(Targets::new().with_target("bytewax", LevelFilter::TRACE));
-
-        let subscriber = Registry::default()
-            .with(layer)
-            // Add logs too
-            .with(log_layer(log_level));
-        tracing::subscriber::set_global_default(subscriber)
+        tracer.install_batch(Tokio).unwrap()
     }
 }
 

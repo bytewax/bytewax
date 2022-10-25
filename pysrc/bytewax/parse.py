@@ -6,6 +6,8 @@ import os
 from argparse import ArgumentParser
 from typing import Any, Dict, Iterable
 
+LOG_LEVELS = ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"]
+
 
 def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
     """Parse command line arguments to generate arguments for
@@ -55,7 +57,8 @@ def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
     p.add_argument(
         "--log-level",
         dest="log_level",
-        help=("One of: 'ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'"),
+        choices=LOG_LEVELS,
+        help=("Logging level for the rust module"),
     )
     out = p.parse_args(args)
 
@@ -141,6 +144,8 @@ def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
     log_level = None
     if "BYTEWAX_LOG" in env:
         log_level = env["BYTEWAX_LOG"]
+        if log_level not in LOG_LEVELS:
+            raise ValueError(f"Wrong logging level: {log_level}")
 
     kwargs = {
         "worker_count_per_proc": int(env["BYTEWAX_WORKERS_PER_PROCESS"]),
@@ -208,7 +213,8 @@ def proc_args(args: Iterable[str] = None) -> Dict[str, Any]:
     p.add_argument(
         "--log-level",
         dest="log_level",
-        help=("One of: 'ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'"),
+        choices=LOG_LEVELS,
+        help=("Logging level for the rust module"),
     )
     out = p.parse_args(args)
 

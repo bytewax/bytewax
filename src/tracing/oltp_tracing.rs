@@ -1,17 +1,15 @@
 use opentelemetry::{
     runtime::Tokio,
     sdk::{
-        trace::{config, Sampler},
+        trace::{config, Sampler, Tracer},
         Resource,
     },
     KeyValue,
 };
 use opentelemetry_otlp::WithExportConfig;
 use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult};
-use tracing::{level_filters::LevelFilter, subscriber::SetGlobalDefaultError};
-use tracing_subscriber::{filter::Targets, layer::SubscriberExt, Layer, Registry};
 
-use super::{log_layer, TracerBuilder, TracingConfig};
+use super::{TracerBuilder, TracingConfig};
 
 /// Send traces to the opentelemetry collector:
 /// https://opentelemetry.io/docs/collector/
@@ -40,7 +38,7 @@ pub(crate) struct OltpTracingConfig {
 }
 
 impl TracerBuilder for OltpTracingConfig {
-    fn setup(&self, log_level: LevelFilter) -> Result<(), SetGlobalDefaultError> {
+    fn build(&self) -> Tracer {
         // Instantiate the builder
         let mut exporter = opentelemetry_otlp::new_exporter().tonic();
 
@@ -50,7 +48,7 @@ impl TracerBuilder for OltpTracingConfig {
         }
 
         // Create the tracer
-        let tracer = opentelemetry_otlp::new_pipeline()
+        opentelemetry_otlp::new_pipeline()
             .tracing()
             .with_exporter(exporter)
             .with_trace_config(
@@ -64,20 +62,7 @@ impl TracerBuilder for OltpTracingConfig {
                     )])),
             )
             .install_batch(Tokio)
-            .unwrap();
-
-        // Tracing layer
-        let telemetry = tracing_opentelemetry::layer()
-            .with_tracer(tracer)
-            .with_filter(Targets::new().with_target("bytewax", LevelFilter::TRACE));
-
-        // Log layer
-        let logs = log_layer(log_level);
-
-        // The global subscriber
-        let subscriber = Registry::default().with(telemetry).with(logs);
-
-        tracing::subscriber::set_global_default(subscriber)
+            .unwrap()
     }
 }
 
