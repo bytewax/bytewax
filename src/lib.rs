@@ -42,7 +42,7 @@ fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
     execution::register(py, m)?;
     inputs::register(py, m)?;
     outputs::register(py, m)?;
-    recovery::register(py, m)?;
+    recovery::python::register(py, m)?;
     window::register(py, m)?;
     tracing::register(py, m)?;
 

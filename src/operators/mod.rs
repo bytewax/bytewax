@@ -19,6 +19,7 @@ pub(crate) mod fold_window;
 pub(crate) mod reduce;
 pub(crate) mod reduce_window;
 pub(crate) mod stateful_map;
+pub(crate) mod stateful_unary;
 
 #[tracing::instrument(level = "trace")]
 pub(crate) fn map(mapper: &TdPyCallable, item: TdPyAny) -> TdPyAny {

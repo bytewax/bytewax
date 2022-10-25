@@ -2,7 +2,7 @@ use std::task::Poll;
 
 use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyCoroIterator};
-use crate::recovery::StateBytes;
+use crate::recovery::model::StateBytes;
 use crate::{py_unwrap, try_unwrap};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;

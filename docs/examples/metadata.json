@@ -13,17 +13,20 @@
     "title": "Analyzing the Coinbase Order Book in Real-Time",
     "description": "Connect to webhooks, and aggregate incoming events to maintain an order book in real-time.",
     "filename": "crypto-sockets"
-  }
-  ,
+  },
   {
     "title": "Processing Events from Redpanda to Postgres",
     "description": "Process and analyze web events in real-time and write them to Postgres",
     "filename": "event-processing"
-  }
-  ,
+  },
   {
     "title": "Enriching Streaming Data from Kafka",
     "description": "Enriching streaming data inline with Bytewax.",
     "filename": "kafka-enrichment"
+  },
+  {
+    "title": "Analyzing Sensor Data With Kafka and DynamoDB",
+    "description": "Capturing event-time windows to DynamoDB",
+    "filename": "sensor-data"
   }
 ]

@@ -4,9 +4,9 @@ use chrono::{DateTime, Utc};
 use pyo3::{exceptions::PyTypeError, prelude::*};
 use tracing::field::debug;
 
+use super::stateful_unary::*;
 use crate::{
     pyo3_extensions::{TdPyAny, TdPyCallable},
-    recovery::{LogicFate, StateBytes, StatefulLogic},
     try_unwrap, unwrap_any,
 };
 

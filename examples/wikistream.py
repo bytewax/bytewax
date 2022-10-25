@@ -14,6 +14,7 @@ from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
+from bytewax.tracing import OltpTracingConfig
 
 
 def input_builder(worker_index, worker_count, resume_state):
@@ -72,5 +73,6 @@ if __name__ == "__main__":
     spawn_cluster(
         flow,
         recovery_config=SqliteRecoveryConfig("."),
+        tracing_config=OltpTracingConfig("Wikistream", "http://localhost:4317", "GRPC"),
         **parse.cluster_args(),
     )

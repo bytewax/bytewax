@@ -5,7 +5,7 @@
 </header>
 <section class="api__article-intro" id="section-intro">
 <p>How to define dataflows.</p>
-<p>Create a <code><a title="bytewax.dataflow.Dataflow" href="#bytewax.dataflow.Dataflow">Dataflow</a></code> instance, then use the methods on it to add
+<p>Create a <code><a title="bytewax.dataflow.Dataflow" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow">Dataflow</a></code> instance, then use the methods on it to add
 computational steps.</p>
 <details class="source">
 <summary>
@@ -37,7 +37,7 @@ from .bytewax import Dataflow  # noqa: F401</code></pre>
 <div class="desc"><p>A definition of a Bytewax dataflow graph.</p>
 <p>Use the methods defined on this class to add steps with operators
 of the same name.</p>
-<p>See the execution entry points in <code><a title="bytewax.execution" href="execution.html">bytewax.execution</a></code> to run.</p></div>
+<p>See the execution entry points in <code><a title="bytewax.execution" href="/apidocs/bytewax.execution">bytewax.execution</a></code> to run.</p></div>
 <h3>Methods</h3>
 <dl>
 <dt id="bytewax.dataflow.Dataflow.capture"><code class="language-python name flex">
@@ -48,7 +48,7 @@ of the same name.</p>
 <p>At least one capture is required on every dataflow.</p>
 <p>It emits items downstream unmodified; you can capture midway
 through a dataflow.</p>
-<p>See <code><a title="bytewax.outputs" href="outputs.html">bytewax.outputs</a></code> for more information on how output
+<p>See <code><a title="bytewax.outputs" href="/apidocs/bytewax.outputs">bytewax.outputs</a></code> for more information on how output
 works.</p>
 <pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
 &gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
@@ -63,9 +63,9 @@ works.</p>
 </code></pre>
 <h2 id="args">Args</h2>
 <dl>
-<dt><strong><code>output_config</code></strong> :&ensp;<code><a title="bytewax.outputs.OutputConfig" href="outputs.html#bytewax.outputs.OutputConfig">OutputConfig</a></code></dt>
+<dt><strong><code>output_config</code></strong> :&ensp;<code><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></code></dt>
 <dd>Output
-config to use. See <code><a title="bytewax.outputs" href="outputs.html">bytewax.outputs</a></code>.</dd>
+config to use. See <code><a title="bytewax.outputs" href="/apidocs/bytewax.outputs">bytewax.outputs</a></code>.</dd>
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.filter"><code class="language-python name flex">
@@ -203,9 +203,9 @@ is defined within a window.</p>
 <dt><strong><code>step_id</code></strong></dt>
 <dd>Uniquely identifies this step for recovery.</dd>
 <dt><strong><code>clock_config</code></strong></dt>
-<dd>Clock config to use. See <code><a title="bytewax.window" href="window.html">bytewax.window</a></code>.</dd>
+<dd>Clock config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
 <dt><strong><code>window_config</code></strong></dt>
-<dd>Windower config to use. See <code><a title="bytewax.window" href="window.html">bytewax.window</a></code>.</dd>
+<dd>Windower config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
 <dt><strong><code>builder</code></strong></dt>
 <dd><code>builder(key: Any) =&gt; initial_accumulator: Any</code></dd>
 <dt><strong><code>folder</code></strong></dt>
@@ -219,7 +219,7 @@ is defined within a window.</p>
 <div class="desc"><p>Input introduces data into the dataflow.</p>
 <p>At least one input is required on every dataflow.</p>
 <p>Emits items downstream from the input source.</p>
-<p>See <code><a title="bytewax.inputs" href="inputs.html">bytewax.inputs</a></code> for more information on how input works.</p>
+<p>See <code><a title="bytewax.inputs" href="/apidocs/bytewax.inputs">bytewax.inputs</a></code> for more information on how input works.</p>
 <pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
 &gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
 &gt;&gt;&gt; from bytewax.execution import run_main
@@ -237,7 +237,7 @@ is defined within a window.</p>
 <dd>Uniquely identifies this step for recovery.</dd>
 <dt><strong><code>input_config</code></strong> :&ensp;<code>bytewax.input.InputConfig</code></dt>
 <dd>Input config to
-use. See <code><a title="bytewax.inputs" href="inputs.html">bytewax.inputs</a></code>.</dd>
+use. See <code><a title="bytewax.inputs" href="/apidocs/bytewax.inputs">bytewax.inputs</a></code>.</dd>
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.inspect"><code class="language-python name flex">
@@ -473,12 +473,12 @@ an ever-growing key space, note this.</p>
 <dl>
 <dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
 <dd>Uniquely identifies this step for recovery.</dd>
-<dt><strong><code>clock_config</code></strong> :&ensp;<code><a title="bytewax.window.ClockConfig" href="window.html#bytewax.window.ClockConfig">ClockConfig</a></code></dt>
+<dt><strong><code>clock_config</code></strong> :&ensp;<code><a title="bytewax.window.ClockConfig" href="/apidocs/bytewax.window#bytewax.window.ClockConfig">ClockConfig</a></code></dt>
 <dd>Clock config to
-use. See <code><a title="bytewax.window" href="window.html">bytewax.window</a></code>.</dd>
-<dt><strong><code>window_config</code></strong> :&ensp;<code><a title="bytewax.window.WindowConfig" href="window.html#bytewax.window.WindowConfig">WindowConfig</a></code></dt>
+use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
+<dt><strong><code>window_config</code></strong> :&ensp;<code><a title="bytewax.window.WindowConfig" href="/apidocs/bytewax.window#bytewax.window.WindowConfig">WindowConfig</a></code></dt>
 <dd>Windower
-config to use. See <code><a title="bytewax.window" href="window.html">bytewax.window</a></code>.</dd>
+config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
 <dt><strong><code>reducer</code></strong></dt>
 <dd><code>reducer(accumulator: Any, value: Any) =&gt;
 updated_accumulator: Any</code></dd>
@@ -580,9 +580,7 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <h3 class="api__sidebar-nav-title">Super-module</h3>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item">
-<a class="api__sidebar-nav-menu-link api-supermodule" href="/apidocs">
-bytewax
-</a>
+<a title="bytewax" href="/apidocs/">bytewax</a>
 </li>
 </ul>
 </li>
@@ -590,19 +588,19 @@ bytewax
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.dataflow.Dataflow" href="#bytewax.dataflow.Dataflow">Dataflow</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.dataflow.Dataflow" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow">Dataflow</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.capture" href="#bytewax.dataflow.Dataflow.capture">capture</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.filter" href="#bytewax.dataflow.Dataflow.filter">filter</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.flat_map" href="#bytewax.dataflow.Dataflow.flat_map">flat_map</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.fold_window" href="#bytewax.dataflow.Dataflow.fold_window">fold_window</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.input" href="#bytewax.dataflow.Dataflow.input">input</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect" href="#bytewax.dataflow.Dataflow.inspect">inspect</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect_epoch" href="#bytewax.dataflow.Dataflow.inspect_epoch">inspect_epoch</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.map" href="#bytewax.dataflow.Dataflow.map">map</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.reduce" href="#bytewax.dataflow.Dataflow.reduce">reduce</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.reduce_window" href="#bytewax.dataflow.Dataflow.reduce_window">reduce_window</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.stateful_map" href="#bytewax.dataflow.Dataflow.stateful_map">stateful_map</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">capture</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.filter" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.filter">filter</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.flat_map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.flat_map">flat_map</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.fold_window" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.fold_window">fold_window</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.input" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.input">input</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.inspect">inspect</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect_epoch" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.inspect_epoch">inspect_epoch</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.map">map</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.reduce" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce">reduce</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.reduce_window" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce_window">reduce_window</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.stateful_map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.stateful_map">stateful_map</a></li>
 </ul>
 </li>
 </ul>
