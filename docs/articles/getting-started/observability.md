@@ -96,8 +96,7 @@ if __name__ == "__main__":
         # Add this lines
         tracing_config=OltpTracingConfig(
             service_name="Wikistream",
-            url="http://127.0.0.1:4317",
-            protocol="GRPC"
+            url="grpc://127.0.0.1:4317",
         )
     )
 ```

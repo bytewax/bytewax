@@ -1,7 +1,7 @@
 use pyo3::{pyclass, pymethods};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use super::{log_layer, TracingConfig, TracingSetupError};
+use super::{log_layer, TracerBuilder, TracingConfig, TracingSetupError};
 
 /// This is the default tracing config, sends traces to stdout.
 ///
@@ -22,8 +22,10 @@ impl StdOutTracingConfig {
     pub(crate) fn new() -> Self {
         Self {}
     }
+}
 
-    pub(crate) fn setup(self) -> Result<(), TracingSetupError> {
+impl TracerBuilder for StdOutTracingConfig {
+    fn setup(&self) -> Result<(), TracingSetupError> {
         let fmt = log_layer();
         tracing_subscriber::registry()
             .with(fmt)

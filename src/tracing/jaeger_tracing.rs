@@ -2,7 +2,7 @@ use opentelemetry::runtime::Tokio;
 use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult};
 use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Layer, Registry};
 
-use super::{log_layer, TracingConfig, TracingSetupError};
+use super::{log_layer, TracerBuilder, TracingConfig, TracingSetupError};
 
 /// Configure tracing to send traces to a Jaeger instance.
 ///
@@ -28,14 +28,14 @@ pub(crate) struct JaegerConfig {
     endpoint: Option<String>,
 }
 
-impl JaegerConfig {
-    pub(crate) fn setup(self) -> Result<(), TracingSetupError> {
+impl TracerBuilder for JaegerConfig {
+    fn setup(&self) -> Result<(), TracingSetupError> {
         opentelemetry::global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
         let mut tracer =
-            opentelemetry_jaeger::new_agent_pipeline().with_service_name(self.service_name);
+            opentelemetry_jaeger::new_agent_pipeline().with_service_name(self.service_name.clone());
 
         // Overwrite the endpoint if set here
-        if let Some(endpoint) = self.endpoint {
+        if let Some(endpoint) = self.endpoint.as_ref() {
             tracer = tracer.with_endpoint(endpoint);
         }
 

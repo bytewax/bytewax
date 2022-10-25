@@ -99,6 +99,13 @@ impl TracingConfig {
     }
 }
 
+/// Trait that all the tracing config should implement.
+/// This function should try to setup tracing and return
+/// an error is something went wrong.
+trait TracerBuilder {
+    fn setup(&self) -> Result<(), TracingSetupError>;
+}
+
 /// Utility class used to handle tracing.
 ///
 /// It keeps a tokio runtime that is alive as long as the struct itself.
@@ -115,6 +122,21 @@ impl BytewaxTracer {
         Self { rt }
     }
 
+    fn extract_py_conf(
+        py: Python,
+        py_conf: Py<TracingConfig>,
+    ) -> Result<Box<dyn TracerBuilder>, String> {
+        if let Ok(oltp_conf) = py_conf.extract::<OltpTracingConfig>(py) {
+            Ok(Box::new(oltp_conf))
+        } else if let Ok(jaeger_conf) = py_conf.extract::<JaegerConfig>(py) {
+            Ok(Box::new(jaeger_conf))
+        } else if let Ok(stdout_conf) = py_conf.extract::<StdOutTracingConfig>(py) {
+            Ok(Box::new(stdout_conf))
+        } else {
+            Err(format!("Unrecognized tracing config: {py_conf:?}"))
+        }
+    }
+
     /// Call this with a TracingConfig subclass to configure tracing.
     /// Returns a guard that you have to keep in scope for the
     /// whole execution of the code you want to trace.
@@ -124,36 +146,15 @@ impl BytewaxTracer {
         // We need an async block to properly initialize the tracing runtime.
         let initializer = async move {
             Python::with_gil(|py| {
-                if let Ok(oltp_conf) = py_conf.extract::<OltpTracingConfig>(py) {
+                let conf = Self::extract_py_conf(py, py_conf).unwrap();
+                if let Err(err) = conf.setup() {
                     // Try to setup tracing, but if it fails setup stdout and log the error.
-                    if let Err(err) = oltp_conf.setup() {
-                        let conf = StdOutTracingConfig::new();
-                        // This can fail if tracing was already initialized, which can happen
-                        // if the user runs the same dataflow multiple times.
-                        // TODO: Right now this happens in execution tests, so I'm not
-                        //       unwrapping, but this solution is not ideal.
-                        _ = conf.setup();
-                        tracing::error!("{err}");
-                    }
-                } else if let Ok(jaeger_conf) = py_conf.extract::<JaegerConfig>(py) {
-                    // Try to setup tracing, but if it fails setup stdout and log the error.
-                    if let Err(err) = jaeger_conf.setup() {
-                        let conf = StdOutTracingConfig::new();
-                        // This can fail if tracing was already initialized, which can happen
-                        // if the user runs the same dataflow multiple times.
-                        // TODO: Right now this happens in execution tests, so I'm not
-                        //       unwrapping, but this solution is not ideal.
-                        _ = conf.setup();
-                        tracing::error!("{err}");
-                    }
-                } else if let Ok(stdout_conf) = py_conf.extract::<StdOutTracingConfig>(py) {
                     // This can fail if tracing was already initialized, which can happen
                     // if the user runs the same dataflow multiple times.
                     // TODO: Right now this happens in execution tests, so I'm not
                     //       unwrapping, but this solution is not ideal.
-                    _ = stdout_conf.setup();
-                } else {
-                    panic!("Unrecognized tracing config: {py_conf:?}");
+                    _ = StdOutTracingConfig::new().setup();
+                    tracing::error!("{err}");
                 }
             });
         };
