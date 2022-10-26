@@ -115,11 +115,11 @@ impl BytewaxTracer {
     /// Call this with a TracingConfig subclass to configure tracing.
     /// Returns a guard that you have to keep in scope for the
     /// whole execution of the code you want to trace.
-    pub fn setup<'a>(
-        &'a self,
+    pub fn setup(
+        &self,
         py_conf: Option<Py<TracingConfig>>,
         log_level: Option<String>,
-    ) -> EnterGuard<'a> {
+    ) -> EnterGuard<'_> {
         let guard = self.rt.enter();
 
         let log_level = get_log_level(log_level);

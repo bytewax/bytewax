@@ -78,7 +78,7 @@ impl JaegerConfig {
             "JaegerConfig",
             self.service_name.clone(),
             self.endpoint.clone(),
-            self.sampling_ratio.clone(),
+            self.sampling_ratio,
         )
     }
 

@@ -91,7 +91,7 @@ impl OltpTracingConfig {
             "OltpTracingConfig",
             self.service_name.clone(),
             self.url.clone(),
-            self.sampling_ratio.clone(),
+            self.sampling_ratio,
         )
     }
 
