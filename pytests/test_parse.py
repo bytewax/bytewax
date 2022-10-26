@@ -2,19 +2,18 @@ from bytewax.parse import cluster_args, proc_args, proc_env
 
 
 def test_cluster_args():
-    args = ["-w2", "-n2", "--log-level", "ERROR"]
+    args = ["-w2", "-n2"]
 
     found = cluster_args(args)
 
     assert found == {
         "worker_count_per_proc": 2,
         "proc_count": 2,
-        "log_level": "ERROR",
     }
 
 
 def test_proc_args():
-    args = ["-w2", "-p0", "-a", "localhost:1234", "-a", "localhost:5678", "--log-level", "ERROR"]
+    args = ["-w2", "-p0", "-a", "localhost:1234", "-a", "localhost:5678"]
 
     found = proc_args(args)
 
@@ -22,7 +21,6 @@ def test_proc_args():
         "worker_count_per_proc": 2,
         "proc_id": 0,
         "addresses": ["localhost:1234", "localhost:5678"],
-        "log_level": "ERROR",
     }
 
 
@@ -47,5 +45,4 @@ def test_proc_env(tmpdir):
         "worker_count_per_proc": 2,
         "proc_id": 0,
         "addresses": ["localhost:1234", "localhost:5678"],
-        "log_level": "ERROR",
     }
