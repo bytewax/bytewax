@@ -3,11 +3,13 @@
 Bytewax is instrumented to offer observability of your dataflow.
 
 The default configuration logs anything at the log level `ERROR` to standard output.  
-You can control the log level with an environment variable, `BYTEWAX_LOG`.  
+You can control the log level by passing the `log_level` parameter to the function used to run the dataflow (either `spawn_cluster`, `run_main` or `cluster_main`).
+If you use the helper method `bytewax.parse.proc_env`, the log level can be set with an environment variable: `BYTEWAX_LOG`.
+
 If you want to see all the messages bytewax emits, you can set it to "trace":
 
 ```
-BYTEWAX_LOG="bytewax=trace" python dataflow.py
+BYTEWAX_LOG="TRACE" python dataflow.py
 ```
 
 The `TRACE` level includes everything that would be sent to an opentelemetry compatible backend,
@@ -106,9 +108,7 @@ Create a virtual environment and install the needed dependencies:
 ```shell
 python3 -m venv .venv
 source .venv/bin/activate # Or activate.fish on fish shell
-# TODO: just use `pip install bytewax` when released
-pip install git+https://github.com/bytewax/bytewax.git@observability
-pip install sseclient-py urllib3
+pip install bytewax sseclient-py urllib3
 ```
 
 Now you can run it with:
