@@ -54,11 +54,9 @@ def spawn_cluster(
     *,
     epoch_config: Optional[EpochConfig] = None,
     recovery_config: Optional[RecoveryConfig] = None,
-    tracing_config: Optional[TracingConfig] = None,
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
     mp_ctx=get_context("spawn"),
-    log_level: str = None,
 ) -> List[Tuple[int, Any]]:
     """Execute a dataflow as a cluster of processes on this machine.
 
@@ -119,11 +117,9 @@ def spawn_cluster(
                 {
                     "epoch_config": epoch_config,
                     "recovery_config": recovery_config,
-                    "tracing_config": tracing_config,
                     "addresses": addresses,
                     "proc_id": proc_id,
                     "worker_count_per_proc": worker_count_per_proc,
-                    "log_level": log_level
                 },
             )
             for proc_id in range(proc_count)

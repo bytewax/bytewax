@@ -83,24 +83,20 @@ Now we need the dataflow. Download the example in this folder:
 curl https://raw.githubusercontent.com/bytewax/bytewax/main/examples/wikistream.py -o dataflow.py
 ```
 
-To instrument your dataflow, pass a tracing configuration to the `spawn_cluster` function:
+To instrument your dataflow, call `setup_tracing` from `bytewax.tracing` with the config object you want, and keep the returned object around (if you don't assign to the `tracer` variable, tracing would not work)
 
 ```python
 # file: dataflow.py
-from bytewax.tracing import OltpTracingConfig
+from bytewax.tracing import OtlpTracingConfig, setup_tracing
+tracer = setup_tracing(
+    tracing_config=OtlpTracingConfig(
+        service_name="Wikistream",
+        url="grpc://127.0.0.1:4317",
+    ),
+)
 #
 # ...rest of the file
 #
-if __name__ == "__main__":
-    spawn_cluster(
-        flow,
-        recovery_config=SqliteRecoveryConfig("."),
-        # Add this lines
-        tracing_config=OltpTracingConfig(
-            service_name="Wikistream",
-            url="grpc://127.0.0.1:4317",
-        )
-    )
 ```
 
 Create a virtual environment and install the needed dependencies:

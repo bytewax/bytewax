@@ -38,5 +38,6 @@ This makes the setup easier, but it's less flexible.
 from .bytewax import (  # noqa: F401
     TracingConfig,
     JaegerConfig,
-    OltpTracingConfig,
+    OtlpTracingConfig,
+    setup_tracing,
 )

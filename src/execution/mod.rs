@@ -45,7 +45,6 @@ use crate::recovery::model::*;
 use crate::recovery::operators::FlowChangeStream;
 use crate::recovery::python::*;
 use crate::recovery::store::in_mem::StoreSummary;
-use crate::tracing::{BytewaxTracer, TracingConfig};
 use crate::window::{build_clock_builder, build_windower_builder, StatefulWindowUnary};
 use crate::StringResult;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -642,28 +641,15 @@ fn worker_main<A: Allocate>(
 ///       `bytewax.recovery`. If `None`, state will not be
 ///       persisted.
 ///
-#[pyfunction(
-    flow,
-    "*",
-    epoch_config = "None",
-    recovery_config = "None",
-    tracing_config = "None",
-    log_level = "None"
-)]
-#[pyo3(text_signature = "(flow, *, epoch_config, recovery_config, tracing_config, log_level)")]
+#[pyfunction(flow, "*", epoch_config = "None", recovery_config = "None")]
+#[pyo3(text_signature = "(flow, *, epoch_config, recovery_config)")]
 pub(crate) fn run_main(
     py: Python,
     flow: Py<Dataflow>,
     epoch_config: Option<Py<EpochConfig>>,
     recovery_config: Option<Py<RecoveryConfig>>,
-    tracing_config: Option<Py<TracingConfig>>,
-    log_level: Option<String>,
 ) -> PyResult<()> {
     let result = py.allow_threads(move || {
-        // Setup tracing/logging
-        let tracer = BytewaxTracer::new();
-        let _ = tracer.setup(tracing_config, log_level);
-
         std::panic::catch_unwind(|| {
             // TODO: See if we can PR Timely to not cast result error
             // to a String. Then we could "raise" Python errors from
@@ -743,12 +729,10 @@ pub(crate) fn run_main(
     "*",
     epoch_config = "None",
     recovery_config = "None",
-    tracing_config = "None",
-    worker_count_per_proc = "1",
-    log_level = "None"
+    worker_count_per_proc = "1"
 )]
 #[pyo3(
-    text_signature = "(flow, addresses, proc_id, *, epoch_config, recovery_config, tracing_config, worker_count_per_proc, log_level)"
+    text_signature = "(flow, addresses, proc_id, *, epoch_config, recovery_config, worker_count_per_proc)"
 )]
 pub(crate) fn cluster_main(
     py: Python,
@@ -757,9 +741,7 @@ pub(crate) fn cluster_main(
     proc_id: usize,
     epoch_config: Option<Py<EpochConfig>>,
     recovery_config: Option<Py<RecoveryConfig>>,
-    tracing_config: Option<Py<TracingConfig>>,
     worker_count_per_proc: usize,
-    log_level: Option<String>,
 ) -> PyResult<()> {
     py.allow_threads(move || {
         let addresses = addresses.unwrap_or_default();
@@ -801,9 +783,6 @@ pub(crate) fn cluster_main(
         defer! {
             let _ = std::panic::take_hook();
         }
-
-        let tracer = BytewaxTracer::new();
-        let _ = tracer.setup(tracing_config, log_level);
 
         let guards = timely::execute::execute_from::<_, StringResult<()>, _>(
             builders,

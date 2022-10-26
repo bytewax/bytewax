@@ -35,6 +35,35 @@ fn sleep_release_gil(py: Python, secs: u64) {
     });
 }
 
+/// Helper function used to setup tracing and logging from the Rust side.
+///
+/// Args:
+///   tracing_config: A subclass of TracingConfig for a specific backend
+///   log_level: String of the log level, on of ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"]
+///
+/// By default it starts a tracer that logs all ERROR messages to stdout.
+///
+/// Note: to make this work, you have to keep a reference of the returned object:
+///
+/// ```python
+/// tracer = setup_tracing()
+/// ```
+#[pyfunction]
+#[pyo3(text_signature = "(tracing_config, log_level)")]
+fn setup_tracing(
+    py: Python,
+    tracing_config: Option<Py<tracing::TracingConfig>>,
+    log_level: Option<String>,
+) -> crate::tracing::BytewaxTracer {
+    let tracer = py.allow_threads(crate::tracing::BytewaxTracer::new);
+    let config_tracer = tracing_config
+        .map(|py_conf| crate::tracing::BytewaxTracer::extract_py_conf(py, py_conf).unwrap());
+    py.allow_threads(|| {
+        tracer.setup(config_tracer, log_level);
+        tracer
+    })
+}
+
 #[pymodule]
 #[pyo3(name = "bytewax")]
 fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
@@ -48,6 +77,7 @@ fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(sleep_keep_gil, m)?)?;
     m.add_function(wrap_pyfunction!(sleep_release_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(setup_tracing, m)?)?;
 
     Ok(())
 }

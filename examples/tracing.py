@@ -6,7 +6,15 @@ from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
-from bytewax.tracing import OltpTracingConfig
+from bytewax.tracing import setup_tracing, OtlpTracingConfig
+
+tracer = setup_tracing(
+    tracing_config=OtlpTracingConfig(
+        url=os.getenv("BYTEWAX_OTLP_URL", "grpc://127.0.0.1:4317"),
+        service_name="Tracing-example",
+    ),
+    log_level="TRACE",
+)
 
 
 def input_builder(worker_index, worker_count, state):
@@ -39,9 +47,5 @@ flow.capture(StdOutputConfig())
 if __name__ == "__main__":
     spawn_cluster(
         flow,
-        tracing_config=OltpTracingConfig(
-            url=os.getenv("BYTEWAX_OTLP_URL", "grpc://127.0.0.1:4317"),
-            service_name="Tracing-example",
-        ),
         **parse.cluster_args(),
     )

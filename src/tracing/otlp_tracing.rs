@@ -23,7 +23,7 @@ use super::{TracerBuilder, TracingConfig};
 #[pyclass(module="bytewax.tracing", extends=TracingConfig)]
 #[pyo3(text_signature = "(service_name, url, sampling_ratio=1.0)")]
 #[derive(Clone)]
-pub(crate) struct OltpTracingConfig {
+pub(crate) struct OtlpTracingConfig {
     /// Service name, identifies this dataflow.
     #[pyo3(get)]
     pub(crate) service_name: String,
@@ -37,7 +37,7 @@ pub(crate) struct OltpTracingConfig {
     pub(crate) sampling_ratio: Option<f64>,
 }
 
-impl TracerBuilder for OltpTracingConfig {
+impl TracerBuilder for OtlpTracingConfig {
     fn build(&self) -> Tracer {
         // Instantiate the builder
         let mut exporter = opentelemetry_otlp::new_exporter().tonic();
@@ -67,7 +67,7 @@ impl TracerBuilder for OltpTracingConfig {
 }
 
 #[pymethods]
-impl OltpTracingConfig {
+impl OtlpTracingConfig {
     #[new]
     #[args(service_name, url, sampling_ratio = "None")]
     pub(crate) fn py_new(
@@ -88,7 +88,7 @@ impl OltpTracingConfig {
     /// Pickle as a tuple.
     fn __getstate__(&self) -> (&str, String, Option<String>, Option<f64>) {
         (
-            "OltpTracingConfig",
+            "OtlpTracingConfig",
             self.service_name.clone(),
             self.url.clone(),
             self.sampling_ratio,
@@ -102,14 +102,14 @@ impl OltpTracingConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("OltpTracingConfig", service_name, url, sampling_ratio)) = state.extract() {
+        if let Ok(("OtlpTracingConfig", service_name, url, sampling_ratio)) = state.extract() {
             self.service_name = service_name;
             self.url = url;
             self.sampling_ratio = sampling_ratio;
             Ok(())
         } else {
             Err(PyValueError::new_err(format!(
-                "bad pickle contents for OltpTracingConfig: {state:?}"
+                "bad pickle contents for OtlpTracingConfig: {state:?}"
             )))
         }
     }
