@@ -68,6 +68,8 @@ jobs:
         toolchain: 1.61
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install system dependency
       shell: bash
       run: |
