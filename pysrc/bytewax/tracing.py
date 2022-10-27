@@ -41,3 +41,10 @@ from .bytewax import (  # noqa: F401
     OtlpTracingConfig,
     setup_tracing,
 )
+
+__all__ = [
+    "TracingConfig",
+    "JaegerConfig",
+    "OtlpTracingConfig",
+    "setup_tracing",
+]
