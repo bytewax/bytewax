@@ -1,0 +1,21 @@
+FROM rust:1.61-slim-bullseye AS build
+
+RUN apt-get update && \
+  apt-get install --no-install-suggests --no-install-recommends --yes \
+        python3-venv \
+        libpython3-dev \
+        build-essential \
+        gcc \
+        cmake \
+        make \
+        libssl-dev \
+        libsasl2-dev \
+        patchelf \
+        pkg-config \
+        openssl && \
+    python3 -m venv /venv && \
+    /venv/bin/pip install --upgrade pip setuptools wheel
+
+COPY docs-entrypoint.sh /
+
+ENTRYPOINT ["/bin/sh", "-c", "/docs-entrypoint.sh"]

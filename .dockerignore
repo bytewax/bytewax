@@ -56,6 +56,7 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
+.pytest_cache
 
 # Translations
 *.mo
@@ -69,6 +70,7 @@ docs/_build/
 
 # PyBuilder
 target/
+target
 
 # Virtual environment
 .env
@@ -87,3 +89,5 @@ venv/
 
 # VS Code
 .vscode/
+
+@ Project stuff

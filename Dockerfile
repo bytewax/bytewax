@@ -1,27 +1,36 @@
+# Builder to get maturin
 FROM konstin2/maturin:v0.12.6 as maturin-builder
 
-COPY . /bytewax
-WORKDIR /bytewax
+# Builder to get the package
+FROM rust:1.61-slim-bullseye AS build
 
-RUN rustup install 1.58.1
-RUN rustup override set 1.58.1
-RUN cargo --version
-RUN rustc --version
-
-RUN maturin build --interpreter python3.9
-
-FROM debian:11-slim AS build
+COPY --from=maturin-builder /usr/bin/maturin /usr/bin/maturin
 
 ARG BYTEWAX_VERSION
 
 RUN apt-get update && \
-    apt-get install --no-install-suggests --no-install-recommends --yes python3-venv gcc libpython3-dev && \
+    apt-get install --no-install-suggests --no-install-recommends --yes \
+        python3-venv \
+        libpython3-dev \
+        build-essential \
+        gcc \
+        cmake \
+        make \
+        libssl-dev \
+        libsasl2-dev \
+        patchelf \
+        pkg-config \
+        openssl && \
     python3 -m venv /venv && \
     /venv/bin/pip install --upgrade pip setuptools wheel
 
-COPY --from=maturin-builder /bytewax/target/wheels/bytewax-$BYTEWAX_VERSION-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl /bytewax/target/wheels/bytewax-$BYTEWAX_VERSION-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl
-RUN /venv/bin/pip3 install /bytewax/target/wheels/bytewax-$BYTEWAX_VERSION-cp39-cp39-manylinux_2_12_x86_64.manylinux2010_x86_64.whl
+COPY . /bytewax
+WORKDIR /bytewax
 
+RUN maturin build --interpreter python3.9
+RUN /venv/bin/pip3 install /bytewax/target/wheels/bytewax-$BYTEWAX_VERSION-cp39-cp39-manylinux_2_31_x86_64.whl
+
+# Final image
 FROM gcr.io/distroless/python3-debian11:debug
 COPY --from=build /venv /venv
 WORKDIR /bytewax

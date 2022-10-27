@@ -1,7 +1,8 @@
 #!/bin/sh
 
 cd $BYTEWAX_WORKDIR
-/venv/bin/python $BYTEWAX_PYTHON_FILE_PATH
+. /venv/bin/activate
+python $BYTEWAX_PYTHON_FILE_PATH
 
 echo 'Process ended.'
 
