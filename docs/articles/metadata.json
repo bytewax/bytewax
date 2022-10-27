@@ -32,6 +32,10 @@
         "filename": "recovery"
       },
       {
+        "title": "Observability",
+        "filename": "observability"
+      },
+      {
         "title": "Design patterns",
         "filename": "design-patterns"
       }

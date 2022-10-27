@@ -8,7 +8,7 @@ Epoch Configs
 -------------
 
 Epochs define the granularity of recovery in a bytewax dataflow. By default, we
-snapshot recovery every 10 seconds. You should only need to set this if you are 
+snapshot recovery every 10 seconds. You should only need to set this if you are
 testing the recovery system or are doing deep exactly-once integration work. Changing
 this does not change the semantics of any of the operators.
 
@@ -20,6 +20,7 @@ from multiprocess import get_context
 
 from bytewax.dataflow import Dataflow
 from bytewax.recovery import RecoveryConfig
+from bytewax.tracing import TracingConfig
 
 from .bytewax import (  # noqa: F401
     run_main,

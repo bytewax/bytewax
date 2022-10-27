@@ -6,7 +6,6 @@
 
 use super::change::*;
 use super::progress::WorkerIndex;
-use log::warn;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
@@ -158,7 +157,11 @@ impl FlowStateBytes {
             op_state
         } else {
             if !self.0.is_empty() {
-                warn!("No resume state for {step_id:?}, but other steps have state; did you add or rename a step and forget to init or migrate state data?");
+                tracing::warn!(
+                    "No resume state for {step_id:?}, \
+                    but other steps have state; did you add or rename a \
+                    step and forget to init or migrate state data?"
+                );
             }
             Default::default()
         }

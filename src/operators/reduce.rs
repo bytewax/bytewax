@@ -1,8 +1,8 @@
 use std::task::Poll;
 
 use chrono::{DateTime, Utc};
-use log::debug;
 use pyo3::{exceptions::PyTypeError, prelude::*};
+use tracing::field::debug;
 
 use super::stateful_unary::*;
 use crate::{
@@ -40,26 +40,26 @@ impl ReduceLogic {
 }
 
 impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceLogic {
+    #[tracing::instrument(
+        name = "reduce",
+        level = "trace",
+        skip(self),
+        fields(self.reducer, self.is_complete, self.acc, updated_acc)
+    )]
     fn on_awake(&mut self, next_value: Poll<Option<TdPyAny>>) -> Option<TdPyAny> {
         if let Poll::Ready(Some(value)) = next_value {
+            tracing::trace!("Calling python reducer");
             Python::with_gil(|py| {
                 let updated_acc: TdPyAny = match &self.acc {
                     // If there's no previous state for this key, use
                     // the current value.
                     None => value,
-                    Some(acc) => {
-                        let updated_acc = unwrap_any!(self
-                            .reducer
-                            .call1(py, (acc.clone_ref(py), value.clone_ref(py))))
-                        .into();
-                        debug!(
-                            "reduce: reducer={:?}(acc={acc:?}, value={value:?}) \
-                            -> updated_acc={updated_acc:?}",
-                            self.reducer
-                        );
-                        updated_acc
-                    }
+                    Some(acc) => unwrap_any!(self
+                        .reducer
+                        .call1(py, (acc.clone_ref(py), value.clone_ref(py))))
+                    .into(),
                 };
+                tracing::Span::current().record("updated_acc", debug(&updated_acc));
 
                 let should_emit_and_discard_acc: bool = try_unwrap!({
                     let should_emit_and_discard_acc_pybool: TdPyAny = self
@@ -75,10 +75,10 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceLogic {
                             ))
                         })
                 });
-                debug!(
-                    "reduce: is_complete={:?}(updated_acc={updated_acc:?}) \
-                    -> should_emit_and_discard_acc={should_emit_and_discard_acc:?}",
-                    self.is_complete
+
+                tracing::Span::current().record(
+                    "should_emit_and_discard_acc",
+                    debug(&should_emit_and_discard_acc),
                 );
 
                 if should_emit_and_discard_acc {
@@ -106,6 +106,7 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceLogic {
         None
     }
 
+    #[tracing::instrument(name = "reduce_snapshot", level = "trace", skip_all)]
     fn snapshot(&self) -> StateBytes {
         StateBytes::ser::<Option<TdPyAny>>(&self.acc)
     }

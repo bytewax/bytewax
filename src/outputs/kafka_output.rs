@@ -1,6 +1,5 @@
 use crate::py_unwrap;
 use crate::pyo3_extensions::TdPyAny;
-use log::debug;
 use pyo3::{
     exceptions::{PyTypeError, PyValueError},
     prelude::*,
@@ -124,12 +123,13 @@ impl KafkaOutput {
 
 impl Drop for KafkaOutput {
     fn drop(&mut self) {
-        debug!("Flushing producer queue");
+        tracing::debug!("Flushing producer queue");
         self.producer.flush(Duration::from_secs(5));
     }
 }
 
 impl OutputWriter<u64, TdPyAny> for KafkaOutput {
+    #[tracing::instrument(name = "KafkaOutput.push", level = "trace", skip_all)]
     fn push(&mut self, _epoch: u64, key_payload: TdPyAny) {
         Python::with_gil(|py| {
             let (key, payload): (Option<TdPyAny>, TdPyAny) = py_unwrap!(

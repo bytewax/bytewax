@@ -152,7 +152,7 @@ impl KafkaInputConfig {
 fn get_kafka_partition_count(consumer: &BaseConsumer, topic: &str) -> i32 {
     let timeout = Some(Duration::from_secs(5));
 
-    log::debug!("Attempting to fetch metadata from {}", topic);
+    tracing::debug!("Attempting to fetch metadata from {}", topic);
 
     let metadata = consumer
         .fetch_metadata(Some(topic), timeout)
@@ -267,6 +267,7 @@ impl KafkaInput {
 }
 
 impl InputReader<TdPyAny> for KafkaInput {
+    #[tracing::instrument(name = "kafka_input", level = "trace", skip_all)]
     fn next(&mut self) -> Poll<Option<TdPyAny>> {
         match self.consumer.poll(Duration::from_millis(0)) {
             None => Poll::Pending,
@@ -310,6 +311,7 @@ impl InputReader<TdPyAny> for KafkaInput {
         }
     }
 
+    #[tracing::instrument(name = "kafka_input_snapshot", level = "trace", skip_all)]
     fn snapshot(&self) -> StateBytes {
         StateBytes::ser::<HashMap<KafkaPartition, KafkaPosition>>(&self.positions)
     }

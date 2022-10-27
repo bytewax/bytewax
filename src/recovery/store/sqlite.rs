@@ -4,8 +4,6 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use futures::StreamExt;
-use log::debug;
-use log::trace;
 
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
@@ -160,7 +158,7 @@ impl SqliteStateWriter {
         options = options.create_if_missing(true);
         options.disable_statement_logging();
         let future = SqliteConnection::connect_with(&options);
-        debug!("Opening Sqlite connection to {db_file:?}");
+        tracing::debug!("Opening Sqlite connection to {db_file:?}");
         let mut conn = rt.block_on(future).unwrap();
 
         // TODO: SQLite doesn't let you bind to table names. Can
@@ -182,7 +180,7 @@ impl SqliteStateWriter {
 
 impl KWriter<StoreKey<u64>, Change<StateBytes>> for SqliteStateWriter {
     fn write(&mut self, kchange: KChange<StoreKey<u64>, Change<StateBytes>>) {
-        trace!("Writing state change {kchange:?}");
+        tracing::trace!("Writing state change {kchange:?}");
         let KChange(store_key, recovery_change) = kchange;
         let StoreKey(epoch, FlowKey(step_id, state_key)) = store_key;
 
@@ -266,7 +264,7 @@ impl SqliteStateReader {
                 .map(|result| result.expect("Error selecting from SQLite"));
 
             while let Some(kchange) = stream.next().await {
-                trace!("Reading state change {kchange:?}");
+                tracing::trace!("Reading state change {kchange:?}");
                 tx.send(kchange).await.unwrap();
             }
         });
@@ -300,7 +298,7 @@ impl SqliteProgressWriter {
         options = options.create_if_missing(true);
         options.disable_statement_logging();
         let future = SqliteConnection::connect_with(&options);
-        debug!("Opening Sqlite connection to {db_file:?}");
+        tracing::debug!("Opening Sqlite connection to {db_file:?}");
         let mut conn = rt.block_on(future).unwrap();
 
         let sql = format!(
@@ -319,7 +317,7 @@ impl SqliteProgressWriter {
 
 impl KWriter<WorkerKey, u64> for SqliteProgressWriter {
     fn write(&mut self, kchange: ProgressChange<u64>) {
-        trace!("Writing progress change {kchange:?}");
+        tracing::trace!("Writing progress change {kchange:?}");
         let KChange(worker_key, change) = kchange;
         let WorkerKey(worker_index) = worker_key;
 
@@ -375,7 +373,7 @@ impl SqliteProgressReader {
                 .map(|result| result.expect("Error selecting from SQLite"));
 
             while let Some(kchange) = stream.next().await {
-                trace!("Reading progress change {kchange:?}");
+                tracing::trace!("Reading progress change {kchange:?}");
                 tx.send(kchange).await.unwrap();
             }
         });

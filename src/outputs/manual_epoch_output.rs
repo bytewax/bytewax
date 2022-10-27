@@ -85,6 +85,7 @@ impl ManualEpochOutput {
 }
 
 impl OutputWriter<u64, TdPyAny> for ManualEpochOutput {
+    #[tracing::instrument(name = "ManualEpochOutput.push", level = "trace", skip_all)]
     fn push(&mut self, epoch: u64, item: TdPyAny) {
         Python::with_gil(|py| {
             let epoch_item_pytuple: Py<PyAny> = (epoch, item).into_py(py);

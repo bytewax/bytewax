@@ -1,5 +1,5 @@
-use log::debug;
 use pyo3::prelude::*;
+use tracing::field::debug;
 
 use crate::{
     pyo3_extensions::{TdPyAny, TdPyCallable},
@@ -29,6 +29,12 @@ impl ReduceWindowLogic {
 }
 
 impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceWindowLogic {
+    #[tracing::instrument(
+        name = "reduce_window",
+        level = "trace",
+        skip(self),
+        fields(self.reducer, self.acc, updated_acc)
+    )]
     fn with_next(&mut self, next_value: Option<TdPyAny>) -> Option<TdPyAny> {
         match next_value {
             Some(value) => {
@@ -38,18 +44,12 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceWindowLogic {
                         // use the current value.
                         None => value,
                         Some(acc) => {
-                            let updated_acc = unwrap_any!(self
-                                .reducer
-                                .call1(py, (acc.clone_ref(py), value.clone_ref(py))))
-                            .into();
-                            debug!("reduce_window: reducer={:?}(acc={acc:?}, value={value:?}) -> updated_acc={updated_acc:?}", self.reducer);
-
-                            updated_acc
+                            tracing::trace!("Calling python reducer");
+                            unwrap_any!(self.reducer.call1(py, (acc, value))).into()
                         }
                     };
-
+                    tracing::Span::current().record("updated_acc", debug(&updated_acc));
                     self.acc = Some(updated_acc);
-
                     None
                 })
             }
@@ -58,6 +58,7 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceWindowLogic {
         }
     }
 
+    #[tracing::instrument(name = "reduce_window_snapshot", level = "trace", skip_all)]
     fn snapshot(&self) -> StateBytes {
         StateBytes::ser::<Option<TdPyAny>>(&self.acc)
     }

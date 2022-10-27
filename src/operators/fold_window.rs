@@ -1,5 +1,5 @@
-use log::debug;
 use pyo3::prelude::*;
+use tracing::field::debug;
 
 use crate::{
     pyo3_extensions::{TdPyAny, TdPyCallable},
@@ -34,6 +34,12 @@ impl FoldWindowLogic {
 }
 
 impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for FoldWindowLogic {
+    #[tracing::instrument(
+        name = "fold_window",
+        level = "trace",
+        skip(self),
+        fields(self.builder, self.folder, self.acc, updated_acc),
+    )]
     fn with_next(&mut self, next_value: Option<TdPyAny>) -> Option<TdPyAny> {
         match next_value {
             Some(value) => Python::with_gil(|py| {
@@ -46,11 +52,7 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for FoldWindowLogic {
                     .folder
                     .call1(py, (acc.clone_ref(py), value.clone_ref(py))))
                 .into();
-                debug!(
-                    "fold_window: builder={:?}, folder={:?}(acc={acc:?}, value={value:?}) \
-                        -> updated_acc={updated_acc:?}",
-                    self.builder, self.folder
-                );
+                tracing::Span::current().record("updated_acc", debug(&updated_acc));
                 self.acc = Some(updated_acc);
                 None
             }),
@@ -59,6 +61,7 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for FoldWindowLogic {
         }
     }
 
+    #[tracing::instrument(name = "fold_window_snapshot", level = "trace", skip_all)]
     fn snapshot(&self) -> StateBytes {
         StateBytes::ser::<Option<TdPyAny>>(&self.acc)
     }

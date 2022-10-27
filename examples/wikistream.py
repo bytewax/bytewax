@@ -1,4 +1,3 @@
-import collections
 import json
 import operator
 from datetime import timedelta
@@ -7,6 +6,7 @@ from datetime import timedelta
 import sseclient
 import urllib3
 
+from bytewax import parse
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
 from bytewax.inputs import ManualInputConfig
@@ -71,4 +71,5 @@ if __name__ == "__main__":
     spawn_cluster(
         flow,
         recovery_config=SqliteRecoveryConfig("."),
+        **parse.cluster_args(),
     )

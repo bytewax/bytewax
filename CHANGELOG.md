@@ -5,6 +5,8 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Added tracing instrumentation and configurations for tracing backends.
+
 ## 0.12.0
 
 - Fixes bug where window is never closed if recovery occurs after last

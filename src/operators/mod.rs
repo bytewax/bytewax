@@ -11,8 +11,7 @@
 
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 use crate::try_unwrap;
-use crate::{log_func, unwrap_any};
-use log::debug;
+use crate::unwrap_any;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 
@@ -22,23 +21,18 @@ pub(crate) mod reduce_window;
 pub(crate) mod stateful_map;
 pub(crate) mod stateful_unary;
 
+#[tracing::instrument(level = "trace")]
 pub(crate) fn map(mapper: &TdPyCallable, item: TdPyAny) -> TdPyAny {
-    debug!("{}, mapper:{:?}, item:{:?}", log_func!(), mapper, item);
     Python::with_gil(|py| unwrap_any!(mapper.call1(py, (item,))).into())
 }
 
+#[tracing::instrument(level = "trace")]
 pub(crate) fn flat_map(mapper: &TdPyCallable, item: TdPyAny) -> TdPyIterator {
-    debug!("{}, mapper:{:?}, item:{:?}", log_func!(), mapper, item);
     Python::with_gil(|py| try_unwrap!(mapper.call1(py, (item,))?.extract(py)))
 }
 
+#[tracing::instrument(level = "trace")]
 pub(crate) fn filter(predicate: &TdPyCallable, item: &TdPyAny) -> bool {
-    debug!(
-        "{}, predicate:{:?}, item:{:?}",
-        log_func!(),
-        predicate,
-        item
-    );
     Python::with_gil(|py| {
         try_unwrap!({
             let should_emit_pybool: TdPyAny = predicate.call1(py, (item,))?.into();
@@ -52,22 +46,12 @@ pub(crate) fn filter(predicate: &TdPyCallable, item: &TdPyAny) -> bool {
     })
 }
 
+#[tracing::instrument(level = "trace")]
 pub(crate) fn inspect(inspector: &TdPyCallable, item: &TdPyAny) {
-    debug!(
-        "{}, inspector:{:?}, item:{:?}",
-        log_func!(),
-        inspector,
-        item
-    );
     Python::with_gil(|py| unwrap_any!(inspector.call1(py, (item,))));
 }
 
+#[tracing::instrument(level = "trace")]
 pub(crate) fn inspect_epoch(inspector: &TdPyCallable, epoch: &u64, item: &TdPyAny) {
-    debug!(
-        "{}, inspector:{:?}, item:{:?}",
-        log_func!(),
-        inspector,
-        item
-    );
     Python::with_gil(|py| unwrap_any!(inspector.call1(py, (*epoch, item))));
 }

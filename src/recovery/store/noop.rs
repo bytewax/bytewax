@@ -1,7 +1,6 @@
 //! State and progress stores which do nothing.
 
 use crate::recovery::model::*;
-use log::trace;
 use std::fmt::Debug;
 
 /// Writes are dropped and reads are the same as an empty store.
@@ -19,7 +18,7 @@ where
     V: Debug,
 {
     fn write(&mut self, kchange: KChange<K, V>) {
-        trace!("No-op change {kchange:?}");
+        tracing::trace!("No-op change {kchange:?}");
     }
 }
 

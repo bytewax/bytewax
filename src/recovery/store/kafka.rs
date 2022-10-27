@@ -6,8 +6,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use log::debug;
-use log::trace;
 use rdkafka::admin::AdminClient;
 use rdkafka::admin::AdminOptions;
 use rdkafka::admin::NewTopic;
@@ -49,7 +47,7 @@ pub(crate) fn create_kafka_topic(brokers: &[String], topic: &str, partitions: i3
         config: vec![("cleanup.policy", "compact")],
     };
     let future = admin.create_topics(vec![&new_topic], &admin_options);
-    debug!("Creating Kafka topic={topic:?}");
+    tracing::debug!("Creating Kafka topic={topic:?}");
     let result = rt
         .block_on(future)
         .expect("Error calling create Kafka topic on admin")
@@ -58,7 +56,7 @@ pub(crate) fn create_kafka_topic(brokers: &[String], topic: &str, partitions: i3
     match result {
         Ok(_topic) => {}
         Err((topic, RDKafkaErrorCode::TopicAlreadyExists)) => {
-            debug!("Kafka topic={topic:?} already exists; continuing");
+            tracing::debug!("Kafka topic={topic:?} already exists; continuing");
         }
         Err((topic, err_code)) => {
             panic!("Error creating Kafka topic={topic:?}: {err_code:?}")
@@ -98,7 +96,7 @@ pub(crate) struct KafkaWriter<K, P> {
 
 impl<K, P> KafkaWriter<K, P> {
     pub fn new(brokers: &[String], topic: String, partition: i32) -> Self {
-        debug!("Creating Kafka producer with brokers={brokers:?} topic={topic:?}");
+        tracing::debug!("Creating Kafka producer with brokers={brokers:?} topic={topic:?}");
         let producer: BaseProducer = ClientConfig::new()
             .set("bootstrap.servers", brokers.join(","))
             .create()
@@ -120,7 +118,7 @@ where
     V: Serialize + Debug,
 {
     fn write(&mut self, kchange: KChange<K, V>) {
-        trace!("Writing change {kchange:?}");
+        tracing::trace!("Writing change {kchange:?}");
         let KChange(key, change) = kchange;
 
         let key_bytes = to_bytes(&key);
@@ -152,7 +150,7 @@ pub(crate) struct KafkaReader<K, P> {
 
 impl<K, P> KafkaReader<K, P> {
     pub(crate) fn new(brokers: &[String], topic: &str, partition: i32) -> Self {
-        debug!("Creating Kafka consumer with brokers={brokers:?} topic={topic:?}");
+        tracing::debug!("Creating Kafka consumer with brokers={brokers:?} topic={topic:?}");
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", brokers.join(","))
             // We don't want to use consumer groups because
@@ -202,7 +200,7 @@ where
                     Change::Discard
                 };
                 let kchange = KChange(key, change);
-                trace!("Reading change {kchange:?}");
+                tracing::trace!("Reading change {kchange:?}");
                 Some(kchange)
             }
             Some(Err(KafkaError::PartitionEOF(_))) => None,

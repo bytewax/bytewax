@@ -6,6 +6,8 @@ import os
 from argparse import ArgumentParser
 from typing import Any, Dict, Iterable
 
+LOG_LEVELS = ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"]
+
 
 def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
     """Parse command line arguments to generate arguments for

@@ -47,7 +47,6 @@ use crate::recovery::python::*;
 use crate::recovery::store::in_mem::StoreSummary;
 use crate::window::{build_clock_builder, build_windower_builder, StatefulWindowUnary};
 use crate::StringResult;
-use log::{debug, warn};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -57,7 +56,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use timely::communication::Allocate;
 use timely::dataflow::{operators::*, Stream};
 use timely::dataflow::{ProbeHandle, Scope};
@@ -65,6 +64,7 @@ use timely::order::TotalOrder;
 use timely::progress::timestamp::Refines;
 use timely::progress::Timestamp;
 use timely::worker::Worker;
+use tracing::span::EnteredSpan;
 
 use self::periodic_epoch::{periodic_epoch_source, PeriodicEpochConfig};
 use self::testing_epoch::{testing_epoch_source, TestingEpochConfig};
@@ -398,7 +398,7 @@ where
             return Err("Dataflow needs to contain at least one capture".to_string());
         }
         if !resume_state.is_empty() {
-            warn!(
+            tracing::warn!(
                 "Resume state exists for unknown steps {:?}; did you delete or rename a step and forget to remove or migrate state data?",
                 resume_state.keys(),
             );
@@ -418,14 +418,47 @@ where
     })
 }
 
+// Struct used to handle a span that is closed and reopened periodically.
+struct PeriodicSpan {
+    span: Option<EnteredSpan>,
+    length: Duration,
+    // State
+    last_open: Instant,
+    counter: u64,
+}
+
+impl PeriodicSpan {
+    pub fn new(length: Duration) -> Self {
+        Self {
+            span: Some(tracing::trace_span!("Periodic", counter = 0).entered()),
+            length,
+            last_open: Instant::now(),
+            counter: 0,
+        }
+    }
+
+    pub fn update(&mut self) {
+        if self.last_open.elapsed() > self.length {
+            if let Some(span) = self.span.take() {
+                span.exit();
+            }
+            self.counter += 1;
+            self.span = Some(tracing::trace_span!("Periodic", counter = self.counter).entered());
+            self.last_open = Instant::now();
+        }
+    }
+}
+
 /// Run a dataflow which uses sources until complete.
 fn run_until_done<A: Allocate, T: Timestamp>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     probe: ProbeHandle<T>,
 ) {
+    let mut span = PeriodicSpan::new(Duration::from_secs(10));
     while !interrupt_flag.load(Ordering::Relaxed) && !probe.done() {
         worker.step();
+        span.update();
     }
 }
 
@@ -447,7 +480,7 @@ where
         .expect("Resume epoch dataflow still has reference to cluster_progress")
         .into_inner()
         .frontier();
-    debug!("Calculated resume epoch {resume_epoch:?}");
+    tracing::debug!("Calculated resume epoch {resume_epoch:?}");
 
     Ok(resume_epoch)
 }
@@ -494,6 +527,7 @@ where
     PW: ProgressWriter<u64> + 'static,
     SW: StateWriter<u64> + 'static,
 {
+    let span = tracing::trace_span!("Building dataflow").entered();
     let probe = Python::with_gil(|py| {
         build_production_dataflow(
             py,
@@ -507,6 +541,7 @@ where
             state_writer,
         )
     })?;
+    span.exit();
 
     run_until_done(worker, interrupt_flag, probe);
 
@@ -545,11 +580,15 @@ fn worker_main<A: Allocate>(
         build_recovery_writers(py, worker_index, worker_count, recovery_config)
     })?;
 
+    let span = tracing::trace_span!("Resume epoch").entered();
     let resume_epoch =
         build_and_run_resume_epoch_calc_dataflow(worker, interrupt_flag, progress_reader)?;
+    span.exit();
 
+    let span = tracing::trace_span!("State loading").entered();
     let (resume_state, store_summary) =
         build_and_run_state_loading_dataflow(worker, interrupt_flag, resume_epoch, state_reader)?;
+    span.exit();
 
     build_and_run_production_dataflow(
         worker,
@@ -602,7 +641,7 @@ fn worker_main<A: Allocate>(
 ///       `bytewax.recovery`. If `None`, state will not be
 ///       persisted.
 ///
-#[pyfunction(flow, "*", epoch_length = "None", recovery_config = "None")]
+#[pyfunction(flow, "*", epoch_config = "None", recovery_config = "None")]
 #[pyo3(text_signature = "(flow, *, epoch_config, recovery_config)")]
 pub(crate) fn run_main(
     py: Python,
@@ -618,7 +657,6 @@ pub(crate) fn run_main(
             // panic recast issue below.
             timely::execute::execute_directly::<Result<(), String>, _>(move |worker| {
                 let interrupt_flag = AtomicBool::new(false);
-
                 worker_main(worker, &interrupt_flag, flow, epoch_config, recovery_config)
             })
         })
