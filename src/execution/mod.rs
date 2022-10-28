@@ -29,7 +29,7 @@
 //! for how to create a [`periodic_epoch_source`].
 
 use crate::dataflow::{Dataflow, Step};
-use crate::inputs::build_input_reader;
+use crate::inputs::InputBuilder;
 use crate::inputs::InputReader;
 use crate::operators::fold_window::FoldWindowLogic;
 use crate::operators::reduce::ReduceLogic;
@@ -246,13 +246,7 @@ where
                     let (step_resume_state, store_key) =
                         resume_input_state(worker_index, resume_state.remove(&step_id));
 
-                    let input_reader = build_input_reader(
-                        py,
-                        input_config,
-                        worker_index,
-                        worker_count,
-                        step_resume_state,
-                    )?;
+                    let input_reader = input_config.build(py, worker_index, worker_count, step_resume_state)?;
                     let (output, changes) = build_source(
                         py,
                         epoch_config.clone_ref(py),

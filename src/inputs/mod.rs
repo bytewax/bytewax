@@ -26,15 +26,61 @@ use crate::recovery::model::StateBytes;
 use crate::StringResult;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rdkafka::Offset;
-use send_wrapper::SendWrapper;
 use std::task::Poll;
 
 pub(crate) mod kafka_input;
 pub(crate) mod manual_input;
 
-pub(crate) use self::kafka_input::{KafkaInput, KafkaInputConfig};
-pub(crate) use self::manual_input::{ManualInput, ManualInputConfig};
+pub(crate) use self::kafka_input::KafkaInputConfig;
+pub(crate) use self::manual_input::ManualInputConfig;
+
+// This trait has to be implemented by each InputConfig subclass.
+// It is used to create an InputReader from an InputConfig.
+pub(crate) trait InputBuilder {
+    fn build(
+        &self,
+        py: Python,
+        worker_index: WorkerIndex,
+        worker_count: usize,
+        resume_snapshot: Option<StateBytes>,
+    ) -> StringResult<Box<dyn InputReader<TdPyAny>>>;
+}
+
+// This is a trait that can be implemented by any parent class.
+// The function returns one of the possible subclasses instances.
+pub(crate) trait ParentClass {
+    type Children;
+    fn get_subclass(&self, py: Python) -> StringResult<Self::Children>;
+}
+
+// Extract a specific InputConfig from a parent InputConfig coming from python.
+impl ParentClass for Py<InputConfig> {
+    type Children = Box<dyn InputBuilder>;
+
+    fn get_subclass(&self, py: Python) -> StringResult<Self::Children> {
+        if let Ok(conf) = self.extract::<ManualInputConfig>(py) {
+            Ok(Box::new(conf))
+        } else if let Ok(conf) = self.extract::<KafkaInputConfig>(py) {
+            Ok(Box::new(conf))
+        } else {
+            let pytype = self.as_ref(py).get_type();
+            Err(format!("Unknown input_config type: {pytype}"))
+        }
+    }
+}
+
+impl InputBuilder for Py<InputConfig> {
+    fn build(
+        &self,
+        py: Python,
+        worker_index: WorkerIndex,
+        worker_count: usize,
+        resume_snapshot: Option<StateBytes>,
+    ) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
+        self.get_subclass(py)?
+            .build(py, worker_index, worker_count, resume_snapshot)
+    }
+}
 
 /// Base class for an input config.
 ///
@@ -102,70 +148,6 @@ pub(crate) trait InputReader<D> {
     /// input exactly how it is currently. This will probably mean
     /// writing out any offsets in the various input streams.
     fn snapshot(&self) -> StateBytes;
-}
-
-// TODO: Convert this to use the builder pattern to match the other
-// stateful components.
-pub(crate) fn build_input_reader(
-    py: Python,
-    config: Py<InputConfig>,
-    worker_index: WorkerIndex,
-    worker_count: usize,
-    resume_snapshot: Option<StateBytes>,
-) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
-    // See comment in [`crate::recovery::build_recovery_writers`]
-    // about releasing the GIL during IO class building.
-    let config = config.as_ref(py);
-
-    if let Ok(config) = config.downcast::<PyCell<ManualInputConfig>>() {
-        let config = config.borrow();
-
-        let input_builder = config.input_builder.clone();
-
-        // This one can't release the GIL because we're calling Python
-        // to construct it.
-        let reader = ManualInput::new(
-            py,
-            input_builder,
-            worker_index,
-            worker_count,
-            resume_snapshot,
-        );
-
-        Ok(Box::new(reader))
-    } else if let Ok(config) = config.downcast::<PyCell<KafkaInputConfig>>() {
-        let config = config.borrow();
-
-        let brokers = &config.brokers;
-        let topic = &config.topic;
-        let tail = config.tail;
-        let starting_offset = match config.starting_offset.as_str() {
-            "beginning" => Ok(Offset::Beginning),
-            "end" => Ok(Offset::End),
-            unk => Err(format!(
-                "starting_offset should be either `\"beginning\"` or `\"end\"`; got `{unk:?}`"
-            )),
-        }?;
-        let additional_properties = &config.additional_properties;
-
-        let reader = py.allow_threads(|| {
-            SendWrapper::new(KafkaInput::new(
-                brokers,
-                topic,
-                tail,
-                starting_offset,
-                additional_properties,
-                worker_index,
-                worker_count,
-                resume_snapshot,
-            ))
-        });
-
-        Ok(Box::new(reader.take()))
-    } else {
-        let pytype = config.get_type();
-        Err(format!("Unknown input_config type: {pytype}"))
-    }
 }
 
 // TODO: One day could use this impl for the Python version in

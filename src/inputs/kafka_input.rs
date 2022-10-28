@@ -13,13 +13,15 @@ use rdkafka::error::KafkaError;
 use rdkafka::message::Message;
 use rdkafka::{Offset, TopicPartitionList};
 
+use send_wrapper::SendWrapper;
 use serde::{Deserialize, Serialize};
 
 use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::model::StateBytes;
+use crate::StringResult;
 
-use super::{distribute, InputConfig, InputReader};
+use super::{distribute, InputBuilder, InputConfig, InputReader};
 
 /// Use [Kafka](https://kafka.apache.org) as the input
 /// source.
@@ -52,6 +54,7 @@ use super::{distribute, InputConfig, InputReader};
 ///   `bytewax.dataflow.Dataflow.input` operator.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
 #[pyo3(text_signature = "(brokers, topic, tail, starting_offset, additional_properties)")]
+#[derive(Clone)]
 pub(crate) struct KafkaInputConfig {
     #[pyo3(get)]
     pub(crate) brokers: Vec<String>,
@@ -63,6 +66,38 @@ pub(crate) struct KafkaInputConfig {
     pub(crate) starting_offset: String,
     #[pyo3(get)]
     pub(crate) additional_properties: Option<HashMap<String, String>>,
+}
+
+impl InputBuilder for KafkaInputConfig {
+    fn build(
+        &self,
+        py: Python,
+        worker_index: WorkerIndex,
+        worker_count: usize,
+        resume_snapshot: Option<StateBytes>,
+    ) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
+        let starting_offset = match self.starting_offset.as_str() {
+            "beginning" => Ok(Offset::Beginning),
+            "end" => Ok(Offset::End),
+            unk => Err(format!(
+                "starting_offset should be either `\"beginning\"` or `\"end\"`; got `{unk:?}`"
+            )),
+        }?;
+        let reader = py.allow_threads(|| {
+            SendWrapper::new(KafkaInput::new(
+                &self.brokers,
+                &self.topic,
+                self.tail,
+                starting_offset,
+                &self.additional_properties,
+                worker_index,
+                worker_count,
+                resume_snapshot,
+            ))
+        });
+
+        Ok(Box::new(reader.take()))
+    }
 }
 
 #[pymethods]
