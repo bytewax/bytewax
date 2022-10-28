@@ -9,6 +9,8 @@ use opentelemetry::{
 use opentelemetry_otlp::WithExportConfig;
 use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult};
 
+use crate::common::StringResult;
+
 use super::{TracerBuilder, TracingConfig};
 
 /// Send traces to the opentelemetry collector:
@@ -38,7 +40,7 @@ pub(crate) struct OtlpTracingConfig {
 }
 
 impl TracerBuilder for OtlpTracingConfig {
-    fn build(&self) -> Tracer {
+    fn build(&self) -> StringResult<Tracer> {
         // Instantiate the builder
         let mut exporter = opentelemetry_otlp::new_exporter().tonic();
 
@@ -62,7 +64,7 @@ impl TracerBuilder for OtlpTracingConfig {
                     )])),
             )
             .install_batch(Tokio)
-            .unwrap()
+            .map_err(|err| format!("Error installing tracer: {err}"))
     }
 }
 

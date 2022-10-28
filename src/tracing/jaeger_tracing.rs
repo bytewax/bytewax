@@ -4,6 +4,8 @@ use opentelemetry::{
 };
 use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult};
 
+use crate::common::StringResult;
+
 use super::{TracerBuilder, TracingConfig};
 
 /// Configure tracing to send traces to a Jaeger instance.
@@ -36,7 +38,7 @@ pub(crate) struct JaegerConfig {
 }
 
 impl TracerBuilder for JaegerConfig {
-    fn build(&self) -> Tracer {
+    fn build(&self) -> StringResult<Tracer> {
         opentelemetry::global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
         let mut tracer = opentelemetry_jaeger::new_agent_pipeline()
             .with_trace_config(config().with_sampler(Sampler::TraceIdRatioBased(
@@ -49,7 +51,7 @@ impl TracerBuilder for JaegerConfig {
             tracer = tracer.with_endpoint(endpoint);
         }
 
-        tracer.install_batch(Tokio).unwrap()
+        Ok(tracer.install_batch(Tokio).unwrap())
     }
 }
 
