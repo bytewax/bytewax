@@ -5,7 +5,7 @@ use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult, Python
 
 use crate::{
     pyo3_extensions::{TdPyAny, TdPyCallable},
-    window::ClockConfig,
+    window::clock::ClockConfig,
 };
 
 use super::*;

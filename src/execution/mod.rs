@@ -45,7 +45,7 @@ use crate::recovery::model::*;
 use crate::recovery::operators::FlowChangeStream;
 use crate::recovery::python::*;
 use crate::recovery::store::in_mem::StoreSummary;
-use crate::window::{build_windower_builder, StatefulWindowUnary, ClockBuilder};
+use crate::window::{build_windower_builder, StatefulWindowUnary, clock::ClockBuilder};
 use crate::common::StringResult;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
