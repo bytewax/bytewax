@@ -70,7 +70,6 @@ docs/_build/
 
 # PyBuilder
 target/
-target
 
 # Virtual environment
 .env
@@ -90,4 +89,8 @@ venv/
 # VS Code
 .vscode/
 
-@ Project stuff
+# Rust target folders
+target
+
+# We also want to avoid sending compiled libraries to the docker image
+pysrc/bytewax/bytewax*.so
