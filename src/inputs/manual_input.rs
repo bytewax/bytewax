@@ -3,7 +3,7 @@ use std::task::Poll;
 use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyCoroIterator};
 use crate::recovery::model::StateBytes;
-use crate::{py_unwrap, try_unwrap, StringResult};
+use crate::{py_unwrap, try_unwrap, common::StringResult};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 
@@ -53,7 +53,7 @@ impl InputBuilder for ManualInputConfig {
     ) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
         Ok(Box::new(ManualInput::new(
             py,
-            self.input_builder,
+            self.input_builder.clone(),
             worker_index,
             worker_count,
             resume_snapshot,

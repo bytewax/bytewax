@@ -37,8 +37,8 @@ use crate::operators::reduce_window::ReduceWindowLogic;
 use crate::operators::stateful_map::StatefulMapLogic;
 use crate::operators::stateful_unary::StatefulUnary;
 use crate::operators::*;
-use crate::outputs::build_output_writer;
 use crate::outputs::capture;
+use crate::outputs::OutputBuilder;
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny};
 use crate::recovery::dataflows::*;
 use crate::recovery::model::*;
@@ -46,7 +46,7 @@ use crate::recovery::operators::FlowChangeStream;
 use crate::recovery::python::*;
 use crate::recovery::store::in_mem::StoreSummary;
 use crate::window::{build_clock_builder, build_windower_builder, StatefulWindowUnary};
-use crate::StringResult;
+use crate::common::StringResult;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -372,7 +372,7 @@ where
                 }
                 Step::Capture { output_config } => {
                     let mut writer =
-                        build_output_writer(py, output_config, worker_index, worker_count)?;
+                        output_config.build(py, worker_index, worker_count)?;
 
                     // TODO: Should capture itself emit a clock
                     // stream?

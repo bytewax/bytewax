@@ -48,7 +48,7 @@ use timely::{communication::Allocate, dataflow::ProbeHandle, progress::Timestamp
 use super::model::*;
 use super::operators::*;
 use super::store::in_mem::*;
-use crate::StringResult;
+use crate::common::StringResult;
 
 /// Add in the recovery machinery to the production dataflow.
 ///

@@ -20,10 +20,11 @@
 //! want. E.g. [`KafkaInputConfig`] represents a token in Python for
 //! how to create a [`KafkaInput`].
 
+use crate::common::ParentClass;
 use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::model::StateBytes;
-use crate::StringResult;
+use crate::common::StringResult;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::task::Poll;
@@ -33,54 +34,6 @@ pub(crate) mod manual_input;
 
 pub(crate) use self::kafka_input::KafkaInputConfig;
 pub(crate) use self::manual_input::ManualInputConfig;
-
-// This trait has to be implemented by each InputConfig subclass.
-// It is used to create an InputReader from an InputConfig.
-pub(crate) trait InputBuilder {
-    fn build(
-        &self,
-        py: Python,
-        worker_index: WorkerIndex,
-        worker_count: usize,
-        resume_snapshot: Option<StateBytes>,
-    ) -> StringResult<Box<dyn InputReader<TdPyAny>>>;
-}
-
-// This is a trait that can be implemented by any parent class.
-// The function returns one of the possible subclasses instances.
-pub(crate) trait ParentClass {
-    type Children;
-    fn get_subclass(&self, py: Python) -> StringResult<Self::Children>;
-}
-
-// Extract a specific InputConfig from a parent InputConfig coming from python.
-impl ParentClass for Py<InputConfig> {
-    type Children = Box<dyn InputBuilder>;
-
-    fn get_subclass(&self, py: Python) -> StringResult<Self::Children> {
-        if let Ok(conf) = self.extract::<ManualInputConfig>(py) {
-            Ok(Box::new(conf))
-        } else if let Ok(conf) = self.extract::<KafkaInputConfig>(py) {
-            Ok(Box::new(conf))
-        } else {
-            let pytype = self.as_ref(py).get_type();
-            Err(format!("Unknown input_config type: {pytype}"))
-        }
-    }
-}
-
-impl InputBuilder for Py<InputConfig> {
-    fn build(
-        &self,
-        py: Python,
-        worker_index: WorkerIndex,
-        worker_count: usize,
-        resume_snapshot: Option<StateBytes>,
-    ) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
-        self.get_subclass(py)?
-            .build(py, worker_index, worker_count, resume_snapshot)
-    }
-}
 
 /// Base class for an input config.
 ///
@@ -123,6 +76,49 @@ impl InputConfig {
         }
     }
 }
+
+// This trait has to be implemented by each InputConfig subclass.
+// It is used to create an InputReader from an InputConfig.
+pub(crate) trait InputBuilder {
+    fn build(
+        &self,
+        py: Python,
+        worker_index: WorkerIndex,
+        worker_count: usize,
+        resume_snapshot: Option<StateBytes>,
+    ) -> StringResult<Box<dyn InputReader<TdPyAny>>>;
+}
+
+
+// Extract a specific InputConfig from a parent InputConfig coming from python.
+impl ParentClass for Py<InputConfig> {
+    type Children = Box<dyn InputBuilder>;
+
+    fn get_subclass(&self, py: Python) -> StringResult<Self::Children> {
+        if let Ok(conf) = self.extract::<ManualInputConfig>(py) {
+            Ok(Box::new(conf))
+        } else if let Ok(conf) = self.extract::<KafkaInputConfig>(py) {
+            Ok(Box::new(conf))
+        } else {
+            let pytype = self.as_ref(py).get_type();
+            Err(format!("Unknown input_config type: {pytype}"))
+        }
+    }
+}
+
+impl InputBuilder for Py<InputConfig> {
+    fn build(
+        &self,
+        py: Python,
+        worker_index: WorkerIndex,
+        worker_count: usize,
+        resume_snapshot: Option<StateBytes>,
+    ) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
+        self.get_subclass(py)?
+            .build(py, worker_index, worker_count, resume_snapshot)
+    }
+}
+
 
 /// Defines how a single source of input reads data.
 pub(crate) trait InputReader<D> {

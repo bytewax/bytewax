@@ -5,6 +5,7 @@ use pyo3::prelude::*;
 use std::thread;
 use std::time::Duration;
 
+pub(crate) mod common;
 pub(crate) mod dataflow;
 pub(crate) mod execution;
 pub(crate) mod inputs;
@@ -17,9 +18,6 @@ pub(crate) mod window;
 
 #[macro_use]
 pub(crate) mod macros;
-
-/// Result type used in the crate that holds a String as the Err type.
-pub(crate) type StringResult<T> = Result<T, String>;
 
 #[pyfunction]
 #[pyo3(text_signature = "(secs)")]

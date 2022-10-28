@@ -5,7 +5,7 @@ use crate::{
 };
 use pyo3::{exceptions::PyValueError, prelude::*};
 
-use super::{OutputConfig, OutputWriter};
+use super::{OutputBuilder, OutputConfig, OutputWriter};
 
 /// Call a Python callback function with each output epoch and item.
 ///
@@ -27,8 +27,25 @@ use super::{OutputConfig, OutputWriter};
 ///   `bytewax.dataflow.Dataflow.capture` operator.
 #[pyclass(module = "bytewax.outputs", extends = OutputConfig, subclass)]
 #[pyo3(text_signature = "(output_builder)")]
+#[derive(Clone)]
 pub(crate) struct ManualEpochOutputConfig {
     pub(crate) output_builder: TdPyCallable,
+}
+
+impl OutputBuilder for ManualEpochOutputConfig {
+    fn build(
+        &self,
+        py: Python,
+        worker_index: WorkerIndex,
+        worker_count: usize,
+    ) -> crate::common::StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
+        Ok(Box::new(ManualEpochOutput::new(
+            py,
+            self.output_builder.clone(),
+            worker_index,
+            worker_count,
+        )))
+    }
 }
 
 #[pymethods]
