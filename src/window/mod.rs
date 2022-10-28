@@ -28,9 +28,9 @@
 //! config objects and Rust impl structs for each trait of behavior we
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
+use crate::common::{ParentClass, StringResult};
 use crate::operators::stateful_unary::*;
 use crate::pyo3_extensions::TdPyAny;
-use crate::common::StringResult;
 use chrono::{DateTime, Utc};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -104,26 +104,27 @@ type Builder<V> = Box<dyn Fn(Option<StateBytes>) -> Box<dyn Clock<V>>>;
 
 /// The `builder` function consumes a ClockConfig to build a Clock.
 pub(crate) trait ClockBuilder<V> {
-    fn builder(self) -> Builder<V>;
+    fn build(&self, py: Python) -> StringResult<Builder<V>>;
 }
 
-pub(crate) fn build_clock_builder(
-    py: Python,
-    clock_config: Py<ClockConfig>,
-) -> StringResult<Builder<TdPyAny>> {
-    let clock_config = clock_config.as_ref(py);
-    // System clock
-    if let Ok(conf) = clock_config.extract::<SystemClockConfig>() {
-        Ok(conf.builder())
-    // Event clock
-    } else if let Ok(conf) = clock_config.extract::<EventClockConfig>() {
-        Ok(conf.builder())
-    // Anything else
-    } else {
-        Err(format!(
-            "Unknown clock_config type: {}",
-            clock_config.get_type()
-        ))
+impl ParentClass for Py<ClockConfig> {
+    type Children = Box<dyn ClockBuilder<TdPyAny>>;
+
+    fn get_subclass(&self, py: Python) -> StringResult<Self::Children> {
+        if let Ok(conf) = self.extract::<SystemClockConfig>(py) {
+            Ok(Box::new(conf))
+        } else if let Ok(conf) = self.extract::<EventClockConfig>(py) {
+            Ok(Box::new(conf))
+        } else {
+            let pytype = self.as_ref(py).get_type();
+            Err(format!("Unknown clock_config type: {pytype}",))
+        }
+    }
+}
+
+impl ClockBuilder<TdPyAny> for Py<ClockConfig> {
+    fn build(&self, py: Python) -> StringResult<Builder<TdPyAny>> {
+        self.get_subclass(py)?.build(py)
     }
 }
 

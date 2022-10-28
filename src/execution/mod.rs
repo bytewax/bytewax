@@ -45,7 +45,7 @@ use crate::recovery::model::*;
 use crate::recovery::operators::FlowChangeStream;
 use crate::recovery::python::*;
 use crate::recovery::store::in_mem::StoreSummary;
-use crate::window::{build_clock_builder, build_windower_builder, StatefulWindowUnary};
+use crate::window::{build_windower_builder, StatefulWindowUnary, ClockBuilder};
 use crate::common::StringResult;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -279,7 +279,7 @@ where
                 } => {
                     let step_resume_state = resume_state.remove(&step_id);
 
-                    let clock_builder = build_clock_builder(py, clock_config)?;
+                    let clock_builder = clock_config.build(py)?;
                     let windower_builder = build_windower_builder(py, window_config)?;
 
                     let (output, changes) = stream.map(extract_state_pair).stateful_window_unary(
@@ -332,7 +332,7 @@ where
                 } => {
                     let step_resume_state = resume_state.remove(&step_id);
 
-                    let clock_builder = build_clock_builder(py, clock_config)?;
+                    let clock_builder = clock_config.build(py)?;
                     let windower_builder = build_windower_builder(py, window_config)?;
 
                     let (output, changes) = stream.map(extract_state_pair).stateful_window_unary(
