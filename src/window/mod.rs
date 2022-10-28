@@ -28,7 +28,7 @@
 //! config objects and Rust impl structs for each trait of behavior we
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
-use crate::common::StringResult;
+use crate::common::{ParentClass, StringResult};
 use crate::operators::stateful_unary::*;
 use chrono::{DateTime, Utc};
 use pyo3::exceptions::PyValueError;
@@ -45,7 +45,7 @@ use timely::{Data, ExchangeData};
 pub(crate) mod clock;
 pub(crate) mod tumbling_window;
 
-use self::tumbling_window::{TumblingWindowConfig, TumblingWindower};
+use self::tumbling_window::TumblingWindowConfig;
 use clock::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig, ClockConfig};
 
 // Re-export for convenience.
@@ -94,25 +94,28 @@ impl WindowConfig {
     }
 }
 
-pub(crate) fn build_windower_builder(
-    py: Python,
-    window_config: Py<WindowConfig>,
-) -> StringResult<Box<dyn Fn(Option<StateBytes>) -> Box<dyn Windower>>> {
-    let window_config = window_config.as_ref(py);
+type Builder = Box<dyn Fn(Option<StateBytes>) -> Box<dyn Windower>>;
 
-    if let Ok(tumbling_window_config) = window_config.downcast::<PyCell<TumblingWindowConfig>>() {
-        let tumbling_window_config = tumbling_window_config.borrow();
+pub(crate) trait WindowBuilder {
+    fn build(&self, py: Python) -> StringResult<Builder>;
+}
 
-        let length = tumbling_window_config.length;
-        let start_at = tumbling_window_config.start_at.unwrap_or_else(Utc::now);
+impl ParentClass for Py<WindowConfig> {
+    type Children = Box<dyn WindowBuilder>;
 
-        let builder = TumblingWindower::builder(length, start_at);
-        Ok(Box::new(builder))
-    } else {
-        Err(format!(
-            "Unknown window_config type: {}",
-            window_config.get_type(),
-        ))
+    fn get_subclass(&self, py: Python) -> StringResult<Self::Children> {
+        if let Ok(conf) = self.extract::<TumblingWindowConfig>(py) {
+            Ok(Box::new(conf))
+        } else {
+            let pytype = self.as_ref(py).get_type();
+            Err(format!("Unknown window_config type: {pytype}",))
+        }
+    }
+}
+
+impl WindowBuilder for Py<WindowConfig> {
+    fn build(&self, py: Python) -> StringResult<Builder> {
+        self.get_subclass(py)?.build(py)
     }
 }
 

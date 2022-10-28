@@ -28,6 +28,7 @@
 //! want. E.g. [`PeriodicEpochConfig`] represents a token in Python
 //! for how to create a [`periodic_epoch_source`].
 
+use crate::common::StringResult;
 use crate::dataflow::{Dataflow, Step};
 use crate::inputs::InputBuilder;
 use crate::inputs::InputReader;
@@ -45,8 +46,8 @@ use crate::recovery::model::*;
 use crate::recovery::operators::FlowChangeStream;
 use crate::recovery::python::*;
 use crate::recovery::store::in_mem::StoreSummary;
-use crate::window::{build_windower_builder, StatefulWindowUnary, clock::ClockBuilder};
-use crate::common::StringResult;
+use crate::window::WindowBuilder;
+use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -280,7 +281,7 @@ where
                     let step_resume_state = resume_state.remove(&step_id);
 
                     let clock_builder = clock_config.build(py)?;
-                    let windower_builder = build_windower_builder(py, window_config)?;
+                    let windower_builder = window_config.build(py)?;
 
                     let (output, changes) = stream.map(extract_state_pair).stateful_window_unary(
                         step_id,
@@ -333,7 +334,7 @@ where
                     let step_resume_state = resume_state.remove(&step_id);
 
                     let clock_builder = clock_config.build(py)?;
-                    let windower_builder = build_windower_builder(py, window_config)?;
+                    let windower_builder = window_config.build(py)?;
 
                     let (output, changes) = stream.map(extract_state_pair).stateful_window_unary(
                         step_id,
