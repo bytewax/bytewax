@@ -70,10 +70,8 @@ pub(crate) trait TracerBuilder {
     fn build(&self) -> StringResult<Tracer>;
 }
 
-impl PyConfigClass for Py<TracingConfig> {
-    type Children = Box<dyn TracerBuilder + Send>;
-
-    fn downcast(&self, py: Python) -> StringResult<Self::Children> {
+impl PyConfigClass<Box<dyn TracerBuilder + Send>> for Py<TracingConfig> {
+    fn downcast(&self, py: Python) -> StringResult<Box<dyn TracerBuilder + Send>> {
         if let Ok(otlp_conf) = self.extract::<OtlpTracingConfig>(py) {
             Ok(Box::new(otlp_conf))
         } else if let Ok(jaeger_conf) = self.extract::<JaegerConfig>(py) {

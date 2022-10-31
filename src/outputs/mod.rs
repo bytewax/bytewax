@@ -84,10 +84,8 @@ pub(crate) trait OutputBuilder {
 }
 
 // Extract a specific OutputConfig from a parent OutputConfig coming from python.
-impl PyConfigClass for Py<OutputConfig> {
-    type Children = Box<dyn OutputBuilder>;
-
-    fn downcast(&self, py: Python) -> StringResult<Self::Children> {
+impl PyConfigClass<Box<dyn OutputBuilder>> for Py<OutputConfig> {
+    fn downcast(&self, py: Python) -> StringResult<Box<dyn OutputBuilder>> {
         if let Ok(conf) = self.extract::<ManualOutputConfig>(py) {
             Ok(Box::new(conf))
         } else if let Ok(conf) = self.extract::<ManualEpochOutputConfig>(py) {

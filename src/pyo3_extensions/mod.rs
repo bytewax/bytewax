@@ -358,7 +358,6 @@ impl TdPyCallable {
 
 // This is a trait that can be implemented by any parent class.
 // The function returns one of the possible subclasses instances.
-pub(crate) trait PyConfigClass {
-    type Children;
-    fn downcast(&self, py: Python) -> StringResult<Self::Children>;
+pub(crate) trait PyConfigClass<S> {
+    fn downcast(&self, py: Python) -> StringResult<S>;
 }

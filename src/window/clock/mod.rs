@@ -64,10 +64,8 @@ pub(crate) trait ClockBuilder<V> {
     fn build(&self, py: Python) -> StringResult<Builder<V>>;
 }
 
-impl PyConfigClass for Py<ClockConfig> {
-    type Children = Box<dyn ClockBuilder<TdPyAny>>;
-
-    fn downcast(&self, py: Python) -> StringResult<Self::Children> {
+impl PyConfigClass<Box<dyn ClockBuilder<TdPyAny>>> for Py<ClockConfig> {
+    fn downcast(&self, py: Python) -> StringResult<Box<dyn ClockBuilder<TdPyAny>>> {
         if let Ok(conf) = self.extract::<SystemClockConfig>(py) {
             Ok(Box::new(conf))
         } else if let Ok(conf) = self.extract::<EventClockConfig>(py) {

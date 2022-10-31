@@ -29,8 +29,8 @@
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
 use crate::common::StringResult;
-use crate::pyo3_extensions::PyConfigClass;
 use crate::operators::stateful_unary::*;
+use crate::pyo3_extensions::PyConfigClass;
 use chrono::{DateTime, Utc};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -101,10 +101,8 @@ pub(crate) trait WindowBuilder {
     fn build(&self, py: Python) -> StringResult<Builder>;
 }
 
-impl PyConfigClass for Py<WindowConfig> {
-    type Children = Box<dyn WindowBuilder>;
-
-    fn downcast(&self, py: Python) -> StringResult<Self::Children> {
+impl PyConfigClass<Box<dyn WindowBuilder>> for Py<WindowConfig> {
+    fn downcast(&self, py: Python) -> StringResult<Box<dyn WindowBuilder>> {
         if let Ok(conf) = self.extract::<TumblingWindowConfig>(py) {
             Ok(Box::new(conf))
         } else {

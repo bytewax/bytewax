@@ -1,8 +1,8 @@
 #[macro_use(defer)]
 extern crate scopeguard;
 
-use crate::pyo3_extensions::PyConfigClass;
 use pyo3::prelude::*;
+use pyo3_extensions::PyConfigClass;
 use std::thread;
 use std::time::Duration;
 

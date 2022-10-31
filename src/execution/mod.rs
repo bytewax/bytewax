@@ -31,7 +31,6 @@
 use crate::common::StringResult;
 use crate::dataflow::{Dataflow, Step};
 use crate::inputs::InputBuilder;
-use crate::inputs::InputReader;
 use crate::operators::fold_window::FoldWindowLogic;
 use crate::operators::reduce::ReduceLogic;
 use crate::operators::reduce_window::ReduceWindowLogic;
@@ -40,10 +39,9 @@ use crate::operators::stateful_unary::StatefulUnary;
 use crate::operators::*;
 use crate::outputs::capture;
 use crate::outputs::OutputBuilder;
-use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny};
+use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair};
 use crate::recovery::dataflows::*;
 use crate::recovery::model::*;
-use crate::recovery::operators::FlowChangeStream;
 use crate::recovery::python::*;
 use crate::recovery::store::in_mem::StoreSummary;
 use crate::window::WindowBuilder;
@@ -59,73 +57,20 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use timely::communication::Allocate;
-use timely::dataflow::{operators::*, Stream};
-use timely::dataflow::{ProbeHandle, Scope};
+use timely::dataflow::operators::*;
+use timely::dataflow::ProbeHandle;
 use timely::order::TotalOrder;
 use timely::progress::timestamp::Refines;
 use timely::progress::Timestamp;
 use timely::worker::Worker;
 use tracing::span::EnteredSpan;
 
-use self::periodic_epoch::{periodic_epoch_source, PeriodicEpochConfig};
-use self::testing_epoch::{testing_epoch_source, TestingEpochConfig};
-
-pub(crate) mod periodic_epoch;
-pub(crate) mod testing_epoch;
-
-/// Base class for an epoch config.
-///
-/// These define how epochs are assigned on source input data. You
-/// should only need to set this if you are testing the recovery
-/// system or are doing deep exactly-once integration work. Changing
-/// this does not change the semantics of any of the operators.
-///
-/// Use a specific subclass of this for the epoch definition you need.
-#[pyclass(module = "bytewax.execution", subclass)]
-#[pyo3(text_signature = "()")]
-pub(crate) struct EpochConfig;
-
-impl EpochConfig {
-    /// Create an "empty" [`Self`] just for use in `__getnewargs__`.
-    #[allow(dead_code)]
-    pub(crate) fn pickle_new(py: Python) -> Py<Self> {
-        PyCell::new(py, EpochConfig {}).unwrap().into()
-    }
-}
-
-#[pymethods]
-impl EpochConfig {
-    #[new]
-    fn new() -> Self {
-        Self {}
-    }
-
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("EpochConfig",)
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("EpochConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for EpochConfig: {state:?}"
-            )))
-        }
-    }
-}
-
-/// Default to 10 second periodic epochs.
-pub(crate) fn default_epoch_config() -> Py<EpochConfig> {
-    Python::with_gil(|py| {
-        PyCell::new(py, PeriodicEpochConfig::new(chrono::Duration::seconds(10)))
-            .unwrap()
-            .extract()
-            .unwrap()
-    })
-}
+pub(crate) mod epoch;
+use self::epoch::EpochBuilder;
+use self::epoch::{
+    default_epoch_config, periodic_epoch::PeriodicEpochConfig, testing_epoch::TestingEpochConfig,
+    EpochConfig,
+};
 
 /// Integer representing the index of a worker in a cluster.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -148,48 +93,6 @@ fn resume_input_state(
     let resume_snapshot = resume_state.remove(&key);
 
     (resume_snapshot, key)
-}
-
-pub(crate) fn build_source<S>(
-    py: Python,
-    config: Py<EpochConfig>,
-    scope: &S,
-    step_id: StepId,
-    key: StateKey,
-    reader: Box<dyn InputReader<TdPyAny>>,
-    start_at: S::Timestamp,
-    probe: &ProbeHandle<S::Timestamp>,
-) -> StringResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)>
-where
-    S: Scope<Timestamp = u64>,
-{
-    let config = config.as_ref(py);
-
-    if let Ok(_config) = config.downcast::<PyCell<TestingEpochConfig>>() {
-        Ok(testing_epoch_source(
-            scope, step_id, key, reader, start_at, probe,
-        ))
-    } else if let Ok(config) = config.downcast::<PyCell<PeriodicEpochConfig>>() {
-        let config = config.borrow();
-
-        let epoch_length = config
-            .epoch_length
-            .to_std()
-            .map_err(|err| format!("Invalid epoch length: {err:?}"))?;
-
-        Ok(periodic_epoch_source(
-            scope,
-            step_id,
-            key,
-            reader,
-            start_at,
-            probe,
-            epoch_length,
-        ))
-    } else {
-        let pytype = config.get_type();
-        Err(format!("Unknown epoch_config type: {pytype}"))
-    }
 }
 
 /// Turn the abstract blueprint for a dataflow into a Timely dataflow
@@ -248,9 +151,8 @@ where
                         resume_input_state(worker_index, resume_state.remove(&step_id));
 
                     let input_reader = input_config.build(py, worker_index, worker_count, step_resume_state)?;
-                    let (output, changes) = build_source(
+                    let (output, changes) = epoch_config.build(
                         py,
-                        epoch_config.clone_ref(py),
                         scope,
                         step_id,
                         store_key,
