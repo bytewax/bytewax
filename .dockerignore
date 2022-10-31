@@ -56,6 +56,7 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
+.pytest_cache
 
 # Translations
 *.mo
@@ -87,3 +88,9 @@ venv/
 
 # VS Code
 .vscode/
+
+# Rust target folders
+target
+
+# We also want to avoid sending compiled libraries to the docker image
+pysrc/bytewax/bytewax*.so
