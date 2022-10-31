@@ -1,7 +1,7 @@
 #[macro_use(defer)]
 extern crate scopeguard;
 
-use common::ParentClass;
+use crate::pyo3_extensions::PyConfigClass;
 use pyo3::prelude::*;
 use std::thread;
 use std::time::Duration;
@@ -55,7 +55,7 @@ fn setup_tracing(
     log_level: Option<String>,
 ) -> crate::tracing::BytewaxTracer {
     let tracer = py.allow_threads(crate::tracing::BytewaxTracer::new);
-    let builder = tracing_config.map(|conf| conf.get_subclass(py).unwrap());
+    let builder = tracing_config.map(|conf| conf.downcast(py).unwrap());
     py.allow_threads(|| {
         tracer.setup(builder, log_level);
         tracer

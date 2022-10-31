@@ -20,7 +20,8 @@ pub(crate) mod otlp_tracing;
 pub(crate) use jaeger_tracing::JaegerConfig;
 pub(crate) use otlp_tracing::OtlpTracingConfig;
 
-use crate::common::{ParentClass, StringResult};
+use crate::common::StringResult;
+use crate::pyo3_extensions::PyConfigClass;
 
 /// Base class for tracing/logging configuration.
 ///
@@ -69,10 +70,10 @@ pub(crate) trait TracerBuilder {
     fn build(&self) -> StringResult<Tracer>;
 }
 
-impl ParentClass for Py<TracingConfig> {
+impl PyConfigClass for Py<TracingConfig> {
     type Children = Box<dyn TracerBuilder + Send>;
 
-    fn get_subclass(&self, py: Python) -> StringResult<Self::Children> {
+    fn downcast(&self, py: Python) -> StringResult<Self::Children> {
         if let Ok(otlp_conf) = self.extract::<OtlpTracingConfig>(py) {
             Ok(Box::new(otlp_conf))
         } else if let Ok(jaeger_conf) = self.extract::<JaegerConfig>(py) {

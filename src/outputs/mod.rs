@@ -15,9 +15,11 @@
 //! want. E.g. [`StdOutputConfig`] represents a token in Python for
 //! how to create a [`StdOutput`].
 
-use crate::common::ParentClass;
-use crate::execution::WorkerIndex;
-use crate::{pyo3_extensions::TdPyAny, common::StringResult};
+use crate::{
+    common::StringResult,
+    execution::WorkerIndex,
+    pyo3_extensions::{PyConfigClass, TdPyAny},
+};
 use pyo3::{exceptions::PyValueError, prelude::*};
 
 pub(crate) mod kafka_output;
@@ -82,10 +84,10 @@ pub(crate) trait OutputBuilder {
 }
 
 // Extract a specific OutputConfig from a parent OutputConfig coming from python.
-impl ParentClass for Py<OutputConfig> {
+impl PyConfigClass for Py<OutputConfig> {
     type Children = Box<dyn OutputBuilder>;
 
-    fn get_subclass(&self, py: Python) -> StringResult<Self::Children> {
+    fn downcast(&self, py: Python) -> StringResult<Self::Children> {
         if let Ok(conf) = self.extract::<ManualOutputConfig>(py) {
             Ok(Box::new(conf))
         } else if let Ok(conf) = self.extract::<ManualEpochOutputConfig>(py) {
@@ -108,7 +110,7 @@ impl OutputBuilder for Py<OutputConfig> {
         worker_index: WorkerIndex,
         worker_count: usize,
     ) -> StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
-        self.get_subclass(py)?.build(py, worker_index, worker_count)
+        self.downcast(py)?.build(py, worker_index, worker_count)
     }
 }
 

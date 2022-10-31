@@ -1,10 +1,13 @@
-use pyo3::{pyclass, PyCell, Python, Py, pymethods, exceptions::PyValueError, PyAny, PyResult};
+use pyo3::{exceptions::PyValueError, pyclass, pymethods, Py, PyAny, PyCell, PyResult, Python};
 
-use crate::{common::{StringResult, ParentClass}, pyo3_extensions::TdPyAny};
+use crate::{
+    common::StringResult,
+    pyo3_extensions::{PyConfigClass, TdPyAny},
+};
 
-use self::{system_clock::SystemClockConfig, event_time_clock::EventClockConfig};
+use self::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig};
 
-use super::{StateBytes, Clock};
+use super::{Clock, StateBytes};
 
 pub(crate) mod event_time_clock;
 pub(crate) mod system_clock;
@@ -61,10 +64,10 @@ pub(crate) trait ClockBuilder<V> {
     fn build(&self, py: Python) -> StringResult<Builder<V>>;
 }
 
-impl ParentClass for Py<ClockConfig> {
+impl PyConfigClass for Py<ClockConfig> {
     type Children = Box<dyn ClockBuilder<TdPyAny>>;
 
-    fn get_subclass(&self, py: Python) -> StringResult<Self::Children> {
+    fn downcast(&self, py: Python) -> StringResult<Self::Children> {
         if let Ok(conf) = self.extract::<SystemClockConfig>(py) {
             Ok(Box::new(conf))
         } else if let Ok(conf) = self.extract::<EventClockConfig>(py) {
@@ -78,6 +81,6 @@ impl ParentClass for Py<ClockConfig> {
 
 impl ClockBuilder<TdPyAny> for Py<ClockConfig> {
     fn build(&self, py: Python) -> StringResult<Builder<TdPyAny>> {
-        self.get_subclass(py)?.build(py)
+        self.downcast(py)?.build(py)
     }
 }

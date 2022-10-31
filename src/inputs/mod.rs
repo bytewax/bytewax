@@ -20,9 +20,8 @@
 //! want. E.g. [`KafkaInputConfig`] represents a token in Python for
 //! how to create a [`KafkaInput`].
 
-use crate::common::ParentClass;
 use crate::execution::WorkerIndex;
-use crate::pyo3_extensions::TdPyAny;
+use crate::pyo3_extensions::{PyConfigClass, TdPyAny};
 use crate::recovery::model::StateBytes;
 use crate::common::StringResult;
 use pyo3::exceptions::PyValueError;
@@ -91,10 +90,10 @@ pub(crate) trait InputBuilder {
 
 
 // Extract a specific InputConfig from a parent InputConfig coming from python.
-impl ParentClass for Py<InputConfig> {
+impl PyConfigClass for Py<InputConfig> {
     type Children = Box<dyn InputBuilder>;
 
-    fn get_subclass(&self, py: Python) -> StringResult<Self::Children> {
+    fn downcast(&self, py: Python) -> StringResult<Self::Children> {
         if let Ok(conf) = self.extract::<ManualInputConfig>(py) {
             Ok(Box::new(conf))
         } else if let Ok(conf) = self.extract::<KafkaInputConfig>(py) {
@@ -114,7 +113,7 @@ impl InputBuilder for Py<InputConfig> {
         worker_count: usize,
         resume_snapshot: Option<StateBytes>,
     ) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
-        self.get_subclass(py)?
+        self.downcast(py)?
             .build(py, worker_index, worker_count, resume_snapshot)
     }
 }

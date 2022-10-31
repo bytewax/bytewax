@@ -28,7 +28,8 @@
 //! config objects and Rust impl structs for each trait of behavior we
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
-use crate::common::{ParentClass, StringResult};
+use crate::common::StringResult;
+use crate::pyo3_extensions::PyConfigClass;
 use crate::operators::stateful_unary::*;
 use chrono::{DateTime, Utc};
 use pyo3::exceptions::PyValueError;
@@ -100,10 +101,10 @@ pub(crate) trait WindowBuilder {
     fn build(&self, py: Python) -> StringResult<Builder>;
 }
 
-impl ParentClass for Py<WindowConfig> {
+impl PyConfigClass for Py<WindowConfig> {
     type Children = Box<dyn WindowBuilder>;
 
-    fn get_subclass(&self, py: Python) -> StringResult<Self::Children> {
+    fn downcast(&self, py: Python) -> StringResult<Self::Children> {
         if let Ok(conf) = self.extract::<TumblingWindowConfig>(py) {
             Ok(Box::new(conf))
         } else {
@@ -115,7 +116,7 @@ impl ParentClass for Py<WindowConfig> {
 
 impl WindowBuilder for Py<WindowConfig> {
     fn build(&self, py: Python) -> StringResult<Builder> {
-        self.get_subclass(py)?.build(py)
+        self.downcast(py)?.build(py)
     }
 }
 
