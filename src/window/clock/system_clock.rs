@@ -20,8 +20,8 @@ use super::*;
 pub(crate) struct SystemClockConfig {}
 
 impl<V> ClockBuilder<V> for SystemClockConfig {
-    fn builder(self) -> Builder<V> {
-        Box::new(move |_resume_snapshot| Box::new(SystemClock::new()))
+    fn build(&self, _py: Python) -> StringResult<Builder<V>> {
+        Ok(Box::new(move |_resume_snapshot| Box::new(SystemClock::new())))
     }
 }
 

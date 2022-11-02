@@ -9,9 +9,10 @@ use rdkafka::{
     producer::{BaseProducer, BaseRecord, Producer},
     ClientConfig,
 };
+use send_wrapper::SendWrapper;
 use std::{collections::HashMap, time::Duration};
 
-use super::{OutputConfig, OutputWriter};
+use super::{OutputBuilder, OutputConfig, OutputWriter};
 /// Use [Kafka](https://kafka.apache.org) as the output.
 ///
 /// A `capture` using KafkaOutput expects to receive data
@@ -36,6 +37,7 @@ use super::{OutputConfig, OutputWriter};
 ///   `bytewax.dataflow.Dataflow.output`.
 #[pyclass(module = "bytewax.outputs", extends = OutputConfig)]
 #[pyo3(text_signature = "(brokers, topic, additional_properties)")]
+#[derive(Clone)]
 pub(crate) struct KafkaOutputConfig {
     #[pyo3(get)]
     pub(crate) brokers: Vec<String>,
@@ -43,6 +45,25 @@ pub(crate) struct KafkaOutputConfig {
     pub(crate) topic: String,
     #[pyo3(get)]
     pub(crate) additional_properties: Option<HashMap<String, String>>,
+}
+
+impl OutputBuilder for KafkaOutputConfig {
+    fn build(
+        &self,
+        py: Python,
+        _worker_index: crate::execution::WorkerIndex,
+        _worker_count: usize,
+    ) -> crate::common::StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
+        let writer = py.allow_threads(|| {
+            SendWrapper::new(KafkaOutput::new(
+                &self.brokers,
+                self.topic.to_string(),
+                &self.additional_properties,
+            ))
+        });
+
+        Ok(Box::new(writer.take()))
+    }
 }
 
 #[pymethods]

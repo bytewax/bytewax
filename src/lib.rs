@@ -2,9 +2,11 @@
 extern crate scopeguard;
 
 use pyo3::prelude::*;
+use pyo3_extensions::PyConfigClass;
 use std::thread;
 use std::time::Duration;
 
+pub(crate) mod common;
 pub(crate) mod dataflow;
 pub(crate) mod execution;
 pub(crate) mod inputs;
@@ -17,9 +19,6 @@ pub(crate) mod window;
 
 #[macro_use]
 pub(crate) mod macros;
-
-/// Result type used in the crate that holds a String as the Err type.
-pub(crate) type StringResult<T> = Result<T, String>;
 
 #[pyfunction]
 #[pyo3(text_signature = "(secs)")]
@@ -56,10 +55,9 @@ fn setup_tracing(
     log_level: Option<String>,
 ) -> crate::tracing::BytewaxTracer {
     let tracer = py.allow_threads(crate::tracing::BytewaxTracer::new);
-    let config_tracer = tracing_config
-        .map(|py_conf| crate::tracing::BytewaxTracer::extract_py_conf(py, py_conf).unwrap());
+    let builder = tracing_config.map(|conf| conf.downcast(py).unwrap());
     py.allow_threads(|| {
-        tracer.setup(config_tracer, log_level);
+        tracer.setup(builder, log_level);
         tracer
     })
 }

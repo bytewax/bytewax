@@ -6,7 +6,7 @@ use super::model::*;
 use super::store::kafka::*;
 use super::store::noop::*;
 use super::store::sqlite::*;
-use crate::StringResult;
+use crate::common::StringResult;
 use pyo3::exceptions::*;
 use pyo3::prelude::*;
 use pyo3::types::*;

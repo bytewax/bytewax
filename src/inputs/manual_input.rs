@@ -3,11 +3,11 @@ use std::task::Poll;
 use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyCoroIterator};
 use crate::recovery::model::StateBytes;
-use crate::{py_unwrap, try_unwrap};
+use crate::{py_unwrap, try_unwrap, common::StringResult};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 
-use super::{InputConfig, InputReader};
+use super::{InputBuilder, InputConfig, InputReader};
 
 /// Use a user-defined function that returns an iterable as the input
 /// source.
@@ -37,9 +37,28 @@ use super::{InputConfig, InputReader};
 ///   `bytewax.dataflow.Dataflow.input` operator.
 #[pyclass(module = "bytewax.inputs", extends = InputConfig)]
 #[pyo3(text_signature = "(input_builder)", subclass)]
+#[derive(Clone)]
 pub(crate) struct ManualInputConfig {
     #[pyo3(get)]
     pub(crate) input_builder: TdPyCallable,
+}
+
+impl InputBuilder for ManualInputConfig {
+    fn build(
+        &self,
+        py: Python,
+        worker_index: WorkerIndex,
+        worker_count: usize,
+        resume_snapshot: Option<StateBytes>,
+    ) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
+        Ok(Box::new(ManualInput::new(
+            py,
+            self.input_builder.clone(),
+            worker_index,
+            worker_count,
+            resume_snapshot,
+        )))
+    }
 }
 
 #[pymethods]

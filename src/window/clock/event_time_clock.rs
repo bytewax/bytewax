@@ -5,7 +5,7 @@ use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult, Python
 
 use crate::{
     pyo3_extensions::{TdPyAny, TdPyCallable},
-    window::ClockConfig,
+    window::clock::ClockConfig,
 };
 
 use super::*;
@@ -38,8 +38,10 @@ pub(crate) struct EventClockConfig {
 }
 
 impl ClockBuilder<TdPyAny> for EventClockConfig {
-    fn builder(self) -> Builder<TdPyAny> {
-        Box::new(move |resume_snapshot: Option<StateBytes>| {
+    fn build(&self, _py: Python) -> StringResult<Builder<TdPyAny>> {
+        let dt_getter = self.dt_getter.clone();
+        let wait_for_system_duration = self.wait_for_system_duration.clone();
+        Ok(Box::new(move |resume_snapshot: Option<StateBytes>| {
             // Deserialize data if a snapshot existed
             let (latest_event_time, system_time_of_last_event, late_time, watermark) =
                 resume_snapshot.map(StateBytes::de).unwrap_or_else(|| {
@@ -56,14 +58,14 @@ impl ClockBuilder<TdPyAny> for EventClockConfig {
                 });
 
             Box::new(EventClock::new(
-                self.dt_getter.clone(),
-                self.wait_for_system_duration,
+                dt_getter.clone(),
+                wait_for_system_duration,
                 latest_event_time,
                 late_time,
                 system_time_of_last_event,
                 watermark,
             ))
-        })
+        }))
     }
 }
 
@@ -229,7 +231,7 @@ mod tests {
                 dt_getter: dt_getter_clone,
                 wait_for_system_duration: late,
             };
-            let mut deserialized = config.builder()(Some(snapshot));
+            let mut deserialized = config.build(py).unwrap()(Some(snapshot));
 
             // If everything is (de)serialized correctly, the watermark should be exactly
             // MAX_UTC. If something didn't work with (de)serialization, it would be slightly

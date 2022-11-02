@@ -15,20 +15,22 @@
 //! want. E.g. [`StdOutputConfig`] represents a token in Python for
 //! how to create a [`StdOutput`].
 
-use crate::execution::WorkerIndex;
-use crate::{pyo3_extensions::TdPyAny, StringResult};
+use crate::{
+    common::StringResult,
+    execution::WorkerIndex,
+    pyo3_extensions::{PyConfigClass, TdPyAny},
+};
 use pyo3::{exceptions::PyValueError, prelude::*};
-use send_wrapper::SendWrapper;
 
 pub(crate) mod kafka_output;
 pub(crate) mod manual_epoch_output;
 pub(crate) mod manual_output;
 pub(crate) mod std_output;
 
-pub(crate) use self::kafka_output::{KafkaOutput, KafkaOutputConfig};
-pub(crate) use self::manual_epoch_output::{ManualEpochOutput, ManualEpochOutputConfig};
-pub(crate) use self::manual_output::{ManualOutput, ManualOutputConfig};
-pub(crate) use self::std_output::{StdOutput, StdOutputConfig};
+pub(crate) use self::kafka_output::KafkaOutputConfig;
+pub(crate) use self::manual_epoch_output::ManualEpochOutputConfig;
+pub(crate) use self::manual_output::ManualOutputConfig;
+pub(crate) use self::std_output::StdOutputConfig;
 
 /// Base class for an output config.
 ///
@@ -72,68 +74,48 @@ impl OutputConfig {
     }
 }
 
+pub(crate) trait OutputBuilder {
+    fn build(
+        &self,
+        py: Python,
+        worker_index: WorkerIndex,
+        worker_count: usize,
+    ) -> StringResult<Box<dyn OutputWriter<u64, TdPyAny>>>;
+}
+
+// Extract a specific OutputConfig from a parent OutputConfig coming from python.
+impl PyConfigClass<Box<dyn OutputBuilder>> for Py<OutputConfig> {
+    fn downcast(&self, py: Python) -> StringResult<Box<dyn OutputBuilder>> {
+        if let Ok(conf) = self.extract::<ManualOutputConfig>(py) {
+            Ok(Box::new(conf))
+        } else if let Ok(conf) = self.extract::<ManualEpochOutputConfig>(py) {
+            Ok(Box::new(conf))
+        } else if let Ok(conf) = self.extract::<StdOutputConfig>(py) {
+            Ok(Box::new(conf))
+        } else if let Ok(conf) = self.extract::<KafkaOutputConfig>(py) {
+            Ok(Box::new(conf))
+        } else {
+            let pytype = self.as_ref(py).get_type();
+            Err(format!("Unknown output_config type: {pytype}"))
+        }
+    }
+}
+
+impl OutputBuilder for Py<OutputConfig> {
+    fn build(
+        &self,
+        py: Python,
+        worker_index: WorkerIndex,
+        worker_count: usize,
+    ) -> StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
+        self.downcast(py)?.build(py, worker_index, worker_count)
+    }
+}
+
 /// Defines how output of the dataflow is written.
 pub(crate) trait OutputWriter<T, D> {
     /// Write a single output item.
     fn push(&mut self, epoch: T, item: D);
-}
-
-pub(crate) fn build_output_writer(
-    py: Python,
-    config: Py<OutputConfig>,
-    worker_index: WorkerIndex,
-    worker_count: usize,
-) -> StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
-    // See comment in [`crate::recovery::build_recovery_writers`]
-    // about releasing the GIL during IO class building.
-    let config = config.as_ref(py);
-
-    if let Ok(config) = config.downcast::<PyCell<ManualOutputConfig>>() {
-        let config = config.borrow();
-
-        let output_builder = config.output_builder.clone();
-
-        // This one can't release the GIL because we're calling Python
-        // to construct it.
-        let writer = ManualOutput::new(py, output_builder, worker_index, worker_count);
-
-        Ok(Box::new(writer))
-    } else if let Ok(config) = config.downcast::<PyCell<ManualEpochOutputConfig>>() {
-        let config = config.borrow();
-
-        let output_builder = config.output_builder.clone();
-
-        // This one can't release the GIL because we're calling Python
-        // to construct it.
-        let writer = ManualEpochOutput::new(py, output_builder, worker_index, worker_count);
-
-        Ok(Box::new(writer))
-    } else if let Ok(config) = config.downcast::<PyCell<StdOutputConfig>>() {
-        let _config = config.borrow();
-
-        let writer = py.allow_threads(StdOutput::new);
-
-        Ok(Box::new(writer))
-    } else if let Ok(config) = config.downcast::<PyCell<KafkaOutputConfig>>() {
-        let config = config.borrow();
-
-        let brokers = &config.brokers;
-        let topic = &config.topic;
-        let additional_properties = &config.additional_properties;
-
-        let writer = py.allow_threads(|| {
-            SendWrapper::new(KafkaOutput::new(
-                brokers,
-                topic.to_string(),
-                additional_properties,
-            ))
-        });
-
-        Ok(Box::new(writer.take()))
-    } else {
-        let pytype = config.get_type();
-        Err(format!("Unknown output_config type: {pytype}"))
-    }
 }
 
 pub(crate) fn capture(

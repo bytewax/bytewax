@@ -20,11 +20,21 @@ use super::*;
 ///   Config object. Pass this as the `window_config` parameter to
 ///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=WindowConfig)]
+#[derive(Clone)]
 pub(crate) struct TumblingWindowConfig {
     #[pyo3(get)]
     pub(crate) length: chrono::Duration,
     #[pyo3(get)]
     pub(crate) start_at: Option<DateTime<Utc>>,
+}
+
+impl WindowBuilder for TumblingWindowConfig {
+    fn build(&self, _py: Python) -> StringResult<Builder> {
+        Ok(Box::new(TumblingWindower::builder(
+            self.length,
+            self.start_at.unwrap_or_else(Utc::now),
+        )))
+    }
 }
 
 #[pymethods]

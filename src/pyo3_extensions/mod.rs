@@ -1,5 +1,6 @@
 //! Newtypes around PyO3 types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
+use crate::common::StringResult;
 use crate::py_unwrap;
 use crate::recovery::model::StateKey;
 use crate::try_unwrap;
@@ -352,4 +353,11 @@ impl TdPyCallable {
     pub(crate) fn call1(&self, py: Python, args: impl IntoPy<Py<PyTuple>>) -> PyResult<Py<PyAny>> {
         self.0.call1(py, args)
     }
+}
+
+
+// This is a trait that can be implemented by any parent class.
+// The function returns one of the possible subclasses instances.
+pub(crate) trait PyConfigClass<S> {
+    fn downcast(&self, py: Python) -> StringResult<S>;
 }

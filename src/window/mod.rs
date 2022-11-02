@@ -28,9 +28,9 @@
 //! config objects and Rust impl structs for each trait of behavior we
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
+use crate::common::StringResult;
 use crate::operators::stateful_unary::*;
-use crate::pyo3_extensions::TdPyAny;
-use crate::StringResult;
+use crate::pyo3_extensions::PyConfigClass;
 use chrono::{DateTime, Utc};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -43,89 +43,15 @@ use std::task::Poll;
 use timely::dataflow::Scope;
 use timely::{Data, ExchangeData};
 
-pub(crate) mod event_time_clock;
-pub(crate) mod system_clock;
+pub(crate) mod clock;
 pub(crate) mod tumbling_window;
 
-use self::event_time_clock::EventClockConfig;
-use self::system_clock::SystemClockConfig;
-use self::tumbling_window::{TumblingWindowConfig, TumblingWindower};
+use self::tumbling_window::TumblingWindowConfig;
+use clock::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig, ClockConfig};
 
 // Re-export for convenience.
 
 pub(crate) use crate::operators::stateful_unary::StateBytes;
-
-/// Base class for a clock config.
-///
-/// This describes how a windowing operator should determine the
-/// current time and the time for each element.
-///
-/// Use a specific subclass of this that matches the time definition
-/// you'd like to use.
-#[pyclass(module = "bytewax.window", subclass)]
-#[pyo3(text_signature = "()")]
-pub(crate) struct ClockConfig;
-
-impl ClockConfig {
-    /// Create an "empty" [`Self`] just for use in `__getnewargs__`.
-    #[allow(dead_code)]
-    pub(crate) fn pickle_new(py: Python) -> Py<Self> {
-        PyCell::new(py, ClockConfig {}).unwrap().into()
-    }
-}
-
-#[pymethods]
-impl ClockConfig {
-    #[new]
-    fn new() -> Self {
-        Self {}
-    }
-
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("ClockConfig",)
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("ClockConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for ClockConfig: {state:?}"
-            )))
-        }
-    }
-}
-
-/// A type representing a function that takes an optional serialized
-/// state and returns a Clock.
-type Builder<V> = Box<dyn Fn(Option<StateBytes>) -> Box<dyn Clock<V>>>;
-
-/// The `builder` function consumes a ClockConfig to build a Clock.
-pub(crate) trait ClockBuilder<V> {
-    fn builder(self) -> Builder<V>;
-}
-
-pub(crate) fn build_clock_builder(
-    py: Python,
-    clock_config: Py<ClockConfig>,
-) -> StringResult<Builder<TdPyAny>> {
-    let clock_config = clock_config.as_ref(py);
-    // System clock
-    if let Ok(conf) = clock_config.extract::<SystemClockConfig>() {
-        Ok(conf.builder())
-    // Event clock
-    } else if let Ok(conf) = clock_config.extract::<EventClockConfig>() {
-        Ok(conf.builder())
-    // Anything else
-    } else {
-        Err(format!(
-            "Unknown clock_config type: {}",
-            clock_config.get_type()
-        ))
-    }
-}
 
 /// Base class for a windower config.
 ///
@@ -169,25 +95,26 @@ impl WindowConfig {
     }
 }
 
-pub(crate) fn build_windower_builder(
-    py: Python,
-    window_config: Py<WindowConfig>,
-) -> StringResult<Box<dyn Fn(Option<StateBytes>) -> Box<dyn Windower>>> {
-    let window_config = window_config.as_ref(py);
+type Builder = Box<dyn Fn(Option<StateBytes>) -> Box<dyn Windower>>;
 
-    if let Ok(tumbling_window_config) = window_config.downcast::<PyCell<TumblingWindowConfig>>() {
-        let tumbling_window_config = tumbling_window_config.borrow();
+pub(crate) trait WindowBuilder {
+    fn build(&self, py: Python) -> StringResult<Builder>;
+}
 
-        let length = tumbling_window_config.length;
-        let start_at = tumbling_window_config.start_at.unwrap_or_else(Utc::now);
+impl PyConfigClass<Box<dyn WindowBuilder>> for Py<WindowConfig> {
+    fn downcast(&self, py: Python) -> StringResult<Box<dyn WindowBuilder>> {
+        if let Ok(conf) = self.extract::<TumblingWindowConfig>(py) {
+            Ok(Box::new(conf))
+        } else {
+            let pytype = self.as_ref(py).get_type();
+            Err(format!("Unknown window_config type: {pytype}",))
+        }
+    }
+}
 
-        let builder = TumblingWindower::builder(length, start_at);
-        Ok(Box::new(builder))
-    } else {
-        Err(format!(
-            "Unknown window_config type: {}",
-            window_config.get_type(),
-        ))
+impl WindowBuilder for Py<WindowConfig> {
+    fn build(&self, py: Python) -> StringResult<Builder> {
+        self.downcast(py)?.build(py)
     }
 }
 

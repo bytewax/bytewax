@@ -20,6 +20,9 @@ pub(crate) mod otlp_tracing;
 pub(crate) use jaeger_tracing::JaegerConfig;
 pub(crate) use otlp_tracing::OtlpTracingConfig;
 
+use crate::common::StringResult;
+use crate::pyo3_extensions::PyConfigClass;
+
 /// Base class for tracing/logging configuration.
 ///
 /// There defines what to do with traces and logs emitted by Bytewax.
@@ -64,7 +67,20 @@ impl TracingConfig {
 /// Trait that all the tracing config should implement.
 /// This function should just return the proper `Tracer` for the backend.
 pub(crate) trait TracerBuilder {
-    fn build(&self) -> Tracer;
+    fn build(&self) -> StringResult<Tracer>;
+}
+
+impl PyConfigClass<Box<dyn TracerBuilder + Send>> for Py<TracingConfig> {
+    fn downcast(&self, py: Python) -> StringResult<Box<dyn TracerBuilder + Send>> {
+        if let Ok(otlp_conf) = self.extract::<OtlpTracingConfig>(py) {
+            Ok(Box::new(otlp_conf))
+        } else if let Ok(jaeger_conf) = self.extract::<JaegerConfig>(py) {
+            Ok(Box::new(jaeger_conf))
+        } else {
+            let pytype = self.as_ref(py).get_type();
+            Err(format!("Unknown tracing_config type: {pytype}"))
+        }
+    }
 }
 
 /// Utility class used to handle tracing.
@@ -99,19 +115,6 @@ impl BytewaxTracer {
         Self { rt }
     }
 
-    pub(crate) fn extract_py_conf(
-        py: Python,
-        py_conf: Py<TracingConfig>,
-    ) -> Result<Box<dyn TracerBuilder + Send>, String> {
-        if let Ok(otlp_conf) = py_conf.extract::<OtlpTracingConfig>(py) {
-            Ok(Box::new(otlp_conf))
-        } else if let Ok(jaeger_conf) = py_conf.extract::<JaegerConfig>(py) {
-            Ok(Box::new(jaeger_conf))
-        } else {
-            Err(format!("Unrecognized tracing config: {py_conf:?}"))
-        }
-    }
-
     /// Call this with a TracingConfig subclass to configure tracing.
     /// Returns a guard that you have to keep in scope for the
     /// whole execution of the code you want to trace.
@@ -136,12 +139,14 @@ impl BytewaxTracer {
                     .with_thread_ids(true)
                     .with_filter(Targets::new().with_target("bytewax", log_level));
 
+                let tracer = tracer.map(|tracer| tracer.build().unwrap());
                 let telemetry = tracer.map(|tracer| {
                     tracing_opentelemetry::layer()
-                        .with_tracer(tracer.build())
+                        .with_tracer(tracer)
                         // Send all traces from bytewax
                         .with_filter(Targets::new().with_target("bytewax", LevelFilter::TRACE))
                 });
+
                 // If the conf was not none, setup the global subscriber with both log and
                 // telemetry layer, otherwise just setup logging.
                 if let Some(telemetry) = telemetry {

@@ -3,7 +3,7 @@ use std::ffi::CString;
 
 use crate::pyo3_extensions::TdPyAny;
 
-use super::{OutputConfig, OutputWriter};
+use super::{OutputBuilder, OutputConfig, OutputWriter};
 
 /// Write the output items to standard out.
 ///
@@ -16,7 +16,19 @@ use super::{OutputConfig, OutputWriter};
 ///   `bytewax.dataflow.Dataflow.capture` operator.
 #[pyclass(module = "bytewax.outputs", extends = OutputConfig)]
 #[pyo3(text_signature = "()")]
+#[derive(Clone)]
 pub(crate) struct StdOutputConfig {}
+
+impl OutputBuilder for StdOutputConfig {
+    fn build(
+        &self,
+        py: Python,
+        _worker_index: crate::execution::WorkerIndex,
+        _worker_count: usize,
+    ) -> crate::common::StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
+        Ok(Box::new(py.allow_threads(StdOutput::new)))
+    }
+}
 
 #[pymethods]
 impl StdOutputConfig {
