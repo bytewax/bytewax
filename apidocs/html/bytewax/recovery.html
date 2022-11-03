@@ -10,7 +10,7 @@ resume processing and output due to a failure without re-processing
 all initial data to re-calculate all internal state.</p>
 <p>It does this by storing state and progress information for a single
 dataflow instance in a <strong>recovery store</strong> backed by a durable state
-storage system of your choosing, e.g. Sqlite or Kafka. See the
+storage system of your choosing, e.g. SQLite or Kafka. See the
 subclasses of <code><a title="bytewax.recovery.RecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></code> in this module for the supported
 datastores, the specifics of how each is utilized, and tradeoffs.</p>
 <h2 id="preparation">Preparation</h2>
@@ -23,40 +23,40 @@ recovery store of your choosing.</p>
 <p>Pass that recovery config as the <code>recovery_config</code> argument to the
 entry point running your dataflow (e.g. <code>bytewax.cluster_main()</code>).</p>
 </li>
-<li>
-<p>Run your dataflow! It will start backing up recovery data
-automatically.</p>
-</li>
 </ol>
-<h2 id="caveats">Caveats</h2>
-<p>Recovery data for multiple dataflows <em>must not</em> be mixed together. See
-the docs for each <code><a title="bytewax.recovery.RecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></code> subclass for what this means
-depending on the recovery store. E.g. when using a
-<code><a title="bytewax.recovery.KafkaRecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.KafkaRecoveryConfig">KafkaRecoveryConfig</a></code>, each dataflow must have a distinct topic
-prefix.</p>
-<p>The epoch is the unit of recovery: dataflows will only resume on epoch
-boundaries. Bytewax defaults to a new epoch every 10 seconds. See
-<code><a title="bytewax.execution.EpochConfig" href="/apidocs/bytewax.execution#bytewax.execution.EpochConfig">EpochConfig</a></code> for more info.</p>
-<p>See comments on input configuration types in <code><a title="bytewax.inputs" href="/apidocs/bytewax.inputs">bytewax.inputs</a></code> for any
-limitations each might have regarding recovery.</p>
-<p>It is possible that your output systems will see duplicate data during
-the resume epoch; design your systems to support at-least-once
-processing.</p>
-<p>Currently it is not possible to recover a dataflow with a different
-number of workers than when it failed.</p>
-<h2 id="on-failure">On Failure</h2>
+<h2 id="execution">Execution</h2>
+<p>Make sure your worker processes have access to the recovery store.</p>
+<p>Then, run your dataflow! It will start backing up recovery data
+automatically.</p>
+<h2 id="recovering">Recovering</h2>
 <p>If the dataflow fails, first you must fix whatever underlying fault
 caused the issue. That might mean deploying new code which fixes a bug
 or resolving an issue with a connected system.</p>
 <p>Once that is done, re-run the dataflow using the <em>same recovery
 config</em> and thus re-connect to the <em>same recovery store</em>. Bytewax will
 automatically read the progress of the previous dataflow execution and
-determine the most recent epoch that processing can resume at, called
-the <strong>resume epoch</strong>. Output should resume from the beginning of the
-resume epoch.</p>
+determine the most recent point that processing can resume at. Output
+should resume from that point.</p>
 <p>If you want to fully restart a dataflow and ignore previous state,
 delete the data in the recovery store using whatever operational tools
 you have for that storage type.</p>
+<h2 id="caveats">Caveats</h2>
+<p>Recovery data for multiple dataflows <em>must not</em> be mixed together. See
+the docs for each <code><a title="bytewax.recovery.RecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></code> subclass for what this means
+depending on the recovery store. E.g. when using a
+<code><a title="bytewax.recovery.KafkaRecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.KafkaRecoveryConfig">KafkaRecoveryConfig</a></code>, each dataflow must have a distinct topic
+prefix.</p>
+<p>See comments on input configuration types in <code><a title="bytewax.inputs" href="/apidocs/bytewax.inputs">bytewax.inputs</a></code> for any
+limitations each might have regarding recovery.</p>
+<p>It is possible that your output systems will see duplicate data around
+the resume point; design your systems to support at-least-once
+processing.</p>
+<p>Currently it is not possible to recover a dataflow with a different
+number of workers than when it failed.</p>
+<p>The epoch is the time unit of recovery: dataflows will only resume on
+epoch boundaries, with the <strong>resume epoch</strong> being where the dataflow
+witll resume. Bytewax defaults to a new epoch every 10 seconds. See
+<code><a title="bytewax.execution.EpochConfig" href="/apidocs/bytewax.execution#bytewax.execution.EpochConfig">EpochConfig</a></code> for more info on epochs.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -69,7 +69,7 @@ all initial data to re-calculate all internal state.
 
 It does this by storing state and progress information for a single
 dataflow instance in a **recovery store** backed by a durable state
-storage system of your choosing, e.g. Sqlite or Kafka. See the
+storage system of your choosing, e.g. SQLite or Kafka. See the
 subclasses of `RecoveryConfig` in this module for the supported
 datastores, the specifics of how each is utilized, and tradeoffs.
 
@@ -82,8 +82,30 @@ recovery store of your choosing.
 2. Pass that recovery config as the `recovery_config` argument to the
 entry point running your dataflow (e.g. `bytewax.cluster_main()`).
 
-3. Run your dataflow! It will start backing up recovery data
+Execution
+---------
+
+Make sure your worker processes have access to the recovery store.
+
+Then, run your dataflow! It will start backing up recovery data
 automatically.
+
+Recovering
+----------
+
+If the dataflow fails, first you must fix whatever underlying fault
+caused the issue. That might mean deploying new code which fixes a bug
+or resolving an issue with a connected system.
+
+Once that is done, re-run the dataflow using the _same recovery
+config_ and thus re-connect to the _same recovery store_. Bytewax will
+automatically read the progress of the previous dataflow execution and
+determine the most recent point that processing can resume at. Output
+should resume from that point.
+
+If you want to fully restart a dataflow and ignore previous state,
+delete the data in the recovery store using whatever operational tools
+you have for that storage type.
 
 Caveats
 -------
@@ -94,37 +116,20 @@ depending on the recovery store. E.g. when using a
 `KafkaRecoveryConfig`, each dataflow must have a distinct topic
 prefix.
 
-The epoch is the unit of recovery: dataflows will only resume on epoch
-boundaries. Bytewax defaults to a new epoch every 10 seconds. See
-`bytewax.execution.EpochConfig` for more info.
-
 See comments on input configuration types in `bytewax.inputs` for any
 limitations each might have regarding recovery.
 
-It is possible that your output systems will see duplicate data during
-the resume epoch; design your systems to support at-least-once
+It is possible that your output systems will see duplicate data around
+the resume point; design your systems to support at-least-once
 processing.
 
 Currently it is not possible to recover a dataflow with a different
 number of workers than when it failed.
 
-On Failure
-----------
-
-If the dataflow fails, first you must fix whatever underlying fault
-caused the issue. That might mean deploying new code which fixes a bug
-or resolving an issue with a connected system.
-
-Once that is done, re-run the dataflow using the _same recovery
-config_ and thus re-connect to the _same recovery store_. Bytewax will
-automatically read the progress of the previous dataflow execution and
-determine the most recent epoch that processing can resume at, called
-the **resume epoch**. Output should resume from the beginning of the
-resume epoch.
-
-If you want to fully restart a dataflow and ignore previous state,
-delete the data in the recovery store using whatever operational tools
-you have for that storage type.
+The epoch is the time unit of recovery: dataflows will only resume on
+epoch boundaries, with the **resume epoch** being where the dataflow
+witll resume. Bytewax defaults to a new epoch every 10 seconds. See
+`bytewax.execution.EpochConfig` for more info on epochs.
 
 &#34;&#34;&#34;
 
@@ -132,7 +137,13 @@ from .bytewax import (  # noqa: F401
     KafkaRecoveryConfig,
     RecoveryConfig,
     SqliteRecoveryConfig,
-)</code></pre>
+)
+
+__all__ = [
+    &#34;KafkaRecoveryConfig&#34;,
+    &#34;RecoveryConfig&#34;,
+    &#34;SqliteRecoveryConfig&#34;,
+]</code></pre>
 </details>
 </section>
 <section>
