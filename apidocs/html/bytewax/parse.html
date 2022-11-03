@@ -18,6 +18,8 @@ import os
 from argparse import ArgumentParser
 from typing import Any, Dict, Iterable
 
+LOG_LEVELS = [&#34;ERROR&#34;, &#34;WARN&#34;, &#34;INFO&#34;, &#34;DEBUG&#34;, &#34;TRACE&#34;]
+
 
 def cluster_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
     &#34;&#34;&#34;Parse command line arguments to generate arguments for
