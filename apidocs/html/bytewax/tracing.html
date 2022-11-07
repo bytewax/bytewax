@@ -7,14 +7,9 @@
 <p>Tracing and logging in bytewax are handled in the rust side,
 to offer a really detailed view of what is happening in your dataflow.</p>
 <p>By default, bytewax sends all "error" logs to the standard output.
-This can be configured with an environment variable, "BYTEWAX_LOG".</p>
-<p>See tracing-subscriber's documentation for possible values of the variable:
-<a href="https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html">https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html</a></p>
-<p>For example, to set bytewax's logs to the "debug" level, and all other packages
-to the "error" level, you can run the dataflow like this:</p>
-<pre><code>$ BYTEWAX_LOG="bytewax=debug,error" python dataflow.py
-</code></pre>
-<p>But there's more. All the logs emitted by bytewax are structured,
+This can be configured with the <code>log_level</code> parameter of the
+<code><a title="bytewax.tracing.setup_tracing" href="/apidocs/bytewax.tracing#bytewax.tracing.setup_tracing">setup_tracing()</a></code> function.</p>
+<p>All the logs emitted by bytewax are structured,
 and can be used to setup proper tracing for the dataflow.
 To do that you need to talk to a service that collects
 and shows data coming from bytewax.</p>
@@ -39,17 +34,10 @@ Tracing and logging in bytewax are handled in the rust side,
 to offer a really detailed view of what is happening in your dataflow.
 
 By default, bytewax sends all &#34;error&#34; logs to the standard output.
-This can be configured with an environment variable, &#34;BYTEWAX_LOG&#34;.
+This can be configured with the `log_level` parameter of the
+`setup_tracing` function.
 
-See tracing-subscriber&#39;s documentation for possible values of the variable:
-    https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html
-
-For example, to set bytewax&#39;s logs to the &#34;debug&#34; level, and all other packages
-to the &#34;error&#34; level, you can run the dataflow like this:
-
-    $ BYTEWAX_LOG=&#34;bytewax=debug,error&#34; python dataflow.py
-
-But there&#39;s more. All the logs emitted by bytewax are structured,
+All the logs emitted by bytewax are structured,
 and can be used to setup proper tracing for the dataflow.
 To do that you need to talk to a service that collects
 and shows data coming from bytewax.

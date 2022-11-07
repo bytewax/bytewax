@@ -36,7 +36,6 @@ def test_proc_env(tmpdir):
         "BYTEWAX_HOSTFILE_PATH": str(hostpath),
         "BYTEWAX_POD_NAME": "stateful_set-0",
         "BYTEWAX_STATEFULSET_NAME": "stateful_set",
-        "BYTEWAX_LOG": "ERROR",
     }
 
     found = proc_env(env)
