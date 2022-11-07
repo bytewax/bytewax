@@ -123,6 +123,7 @@ jobs:
     - name: Run tests
       shell: bash
       run: |
+        export OPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/
         export PATH="$PYENV_ROOT/bin:$PATH"
         eval "$(pyenv init -)"
         pyenv activate bytewax-${{ matrix.python-version }}
