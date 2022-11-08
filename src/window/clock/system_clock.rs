@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::task::Poll;
 
 use chrono::{DateTime, Utc};
 use pyo3::prelude::*;
-use pyo3::{exceptions::PyValueError, PyResult};
+use pyo3::PyResult;
 
 use super::*;
 
@@ -21,7 +22,9 @@ pub(crate) struct SystemClockConfig {}
 
 impl<V> ClockBuilder<V> for SystemClockConfig {
     fn build(&self, _py: Python) -> StringResult<Builder<V>> {
-        Ok(Box::new(move |_resume_snapshot| Box::new(SystemClock::new())))
+        Ok(Box::new(move |_resume_snapshot| {
+            Box::new(SystemClock::new())
+        }))
     }
 }
 
@@ -33,20 +36,14 @@ impl SystemClockConfig {
         (Self {}, ClockConfig {})
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("SystemClockConfig",)
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| HashMap::from([("type", "SystemClockConfig".into_py(py))]))
     }
 
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("SystemClockConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for SystemClockConfig: {state:?}"
-            )))
-        }
+    /// Unpickle from a PyDict of arguments.
+    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
+        Ok(())
     }
 }
 

@@ -1,4 +1,6 @@
-use pyo3::{exceptions::PyValueError, pyclass, pymethods, Py, PyAny, PyCell, PyResult, Python};
+use std::collections::HashMap;
+
+use pyo3::{prelude::*, exceptions::PyValueError};
 
 use crate::{
     common::StringResult,
@@ -38,20 +40,14 @@ impl ClockConfig {
         Self {}
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("ClockConfig",)
-    }
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| HashMap::from([("type", "ClockConfig".into_py(py))]))
+    }    
 
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("ClockConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for ClockConfig: {state:?}"
-            )))
-        }
+    /// Unpickle from a PyDict.
+    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
+        Ok(())
     }
 }
 

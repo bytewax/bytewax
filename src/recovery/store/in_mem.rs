@@ -165,10 +165,7 @@ fn drain_garbage_works() {
             key1,
             BTreeMap::from([(10, upz.clone()), (5, upx.clone()), (6, upy.clone())]),
         ),
-        (
-            key2.clone(),
-            BTreeMap::from([(2, upx), (3, upz), (1, upy)]),
-        ),
+        (key2.clone(), BTreeMap::from([(2, upx), (3, upz), (1, upy)])),
     ]);
 
     let found: HashSet<_> = store.drain_garbage(&6).collect();
@@ -274,10 +271,7 @@ fn write_upserts() {
     let upx = Change::Upsert("x".to_owned());
     let upy = Change::Upsert("y".to_owned());
 
-    store.write(KChange(
-        StoreKey(5, key1.clone()),
-        Change::Upsert(upx),
-    ));
+    store.write(KChange(StoreKey(5, key1.clone()), Change::Upsert(upx)));
     store.write(KChange(
         StoreKey(5, key1.clone()),
         Change::Upsert(upy.clone()),
@@ -295,10 +289,7 @@ fn write_discard_drops_key() {
 
     let upx = Change::Upsert("x".to_owned());
 
-    store.write(KChange(
-        StoreKey(5, key1.clone()),
-        Change::Upsert(upx),
-    ));
+    store.write(KChange(StoreKey(5, key1.clone()), Change::Upsert(upx)));
     store.write(KChange(StoreKey(5, key1), Change::Discard));
 
     let expected = HashMap::from([]);

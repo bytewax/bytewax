@@ -7,9 +7,11 @@ use super::store::kafka::*;
 use super::store::noop::*;
 use super::store::sqlite::*;
 use crate::common::StringResult;
+use crate::pickle_extract;
 use pyo3::exceptions::*;
 use pyo3::prelude::*;
 use pyo3::types::*;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Base class for a recovery config.
@@ -38,20 +40,14 @@ impl RecoveryConfig {
         Self {}
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("RecoveryConfig",)
-    }
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| HashMap::from([("type", "RecoveryConfig".into_py(py))]))
+    }    
 
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("RecoveryConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for RecoveryConfig: {state:?}"
-            )))
-        }
+    /// Unpickle from a PyDict.
+    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
+        Ok(())
     }
 }
 
@@ -70,20 +66,14 @@ impl NoopRecoveryConfig {
         (Self {}, RecoveryConfig {})
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("NoopRecoveryConfig",)
-    }
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| HashMap::from([("type", "NoopRecoveryConfig".into_py(py))]))
+    }    
 
     /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("NoopRecoveryConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for NoopRecoveryConfig: {state:?}"
-            )))
-        }
+    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
+        Ok(())
     }
 }
 
@@ -139,10 +129,15 @@ impl SqliteRecoveryConfig {
         (Self { db_dir }, RecoveryConfig {})
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, PathBuf) {
-        ("SqliteRecoveryConfig", self.db_dir.clone())
-    }
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {
+            HashMap::from([
+                ("type", "SqliteRecoveryConfig".into_py(py)),
+                ("db_dir", self.db_dir.clone().into_py(py))
+            ])
+        })
+    }    
 
     /// Egregious hack because pickling assumes the type has "empty"
     /// mutable objects.
@@ -157,14 +152,9 @@ impl SqliteRecoveryConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("SqliteRecoveryConfig", db_dir)) = state.extract() {
-            self.db_dir = db_dir;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for SqliteRecoveryConfig: {state:?}"
-            )))
-        }
+        let dict: &PyDict = state.downcast()?;
+        pickle_extract!(self, dict, db_dir);
+        Ok(())
     }
 }
 
@@ -241,13 +231,15 @@ impl KafkaRecoveryConfig {
         )
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, Vec<String>, &str) {
-        (
-            "KafkaRecoveryConfig",
-            self.brokers.clone(),
-            &self.topic_prefix,
-        )
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {
+            HashMap::from([
+                ("type", "KafkaRecoveryConfig".into_py(py)),
+                ("brokers", self.brokers.clone().into_py(py)),
+                ("topic_prefix", self.topic_prefix.clone().into_py(py))
+            ])
+        })
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -257,15 +249,10 @@ impl KafkaRecoveryConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("KafkaRecoveryConfig", hosts, topic_prefix)) = state.extract() {
-            self.brokers = hosts;
-            self.topic_prefix = topic_prefix;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for KafkaRecoveryConfig: {state:?}"
-            )))
-        }
+        let dict: &PyDict = state.downcast()?;
+        pickle_extract!(self, dict, brokers);
+        pickle_extract!(self, dict, topic_prefix);
+        Ok(())
     }
 }
 

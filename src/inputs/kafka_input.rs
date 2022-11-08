@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, PyDict};
 
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::base_consumer::BaseConsumer;
@@ -16,10 +16,11 @@ use rdkafka::{Offset, TopicPartitionList};
 use send_wrapper::SendWrapper;
 use serde::{Deserialize, Serialize};
 
+use crate::common::StringResult;
 use crate::execution::WorkerIndex;
+use crate::pickle_extract;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::model::StateBytes;
-use crate::common::StringResult;
 
 use super::{distribute, InputBuilder, InputConfig, InputReader};
 
@@ -128,26 +129,21 @@ impl KafkaInputConfig {
             InputConfig {},
         )
     }
-
-    #[allow(clippy::type_complexity)]
-    fn __getstate__(
-        &self,
-    ) -> (
-        &str,
-        Vec<String>,
-        String,
-        bool,
-        String,
-        Option<HashMap<String, String>>,
-    ) {
-        (
-            "KafkaInputConfig",
-            self.brokers.clone(),
-            self.topic.clone(),
-            self.tail,
-            self.starting_offset.clone(),
-            self.additional_properties.clone(),
-        )
+    /// Pickle as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {
+            HashMap::from([
+                ("type", "KafkaInputConfig".into_py(py)),
+                ("brokers", self.brokers.clone().into_py(py)),
+                ("topic", self.topic.clone().into_py(py)),
+                ("tail", self.tail.into_py(py)),
+                ("starting_offset", self.starting_offset.clone().into_py(py)),
+                (
+                    "additional_properties",
+                    self.additional_properties.clone().into_py(py),
+                ),
+            ])
+        })
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -156,28 +152,15 @@ impl KafkaInputConfig {
         (Vec::new(), s, false, s)
     }
 
-    /// Unpickle from tuple of arguments.
+    /// Unpickle from a PyDict of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok((
-            "KafkaInputConfig",
-            brokers,
-            topic,
-            tail,
-            starting_offset,
-            additional_properties,
-        )) = state.extract()
-        {
-            self.brokers = brokers;
-            self.topic = topic;
-            self.tail = tail;
-            self.starting_offset = starting_offset;
-            self.additional_properties = additional_properties;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for KafkaInputConfig: {state:?}"
-            )))
-        }
+        let dict: &PyDict = state.downcast()?;
+        pickle_extract!(self, dict, brokers);
+        pickle_extract!(self, dict, topic);
+        pickle_extract!(self, dict, tail);
+        pickle_extract!(self, dict, starting_offset);
+        pickle_extract!(self, dict, additional_properties);                                
+        Ok(())
     }
 }
 

@@ -1,5 +1,5 @@
-use pyo3::{exceptions::PyValueError, ffi::PySys_WriteStdout, prelude::*};
-use std::ffi::CString;
+use pyo3::{ffi::PySys_WriteStdout, prelude::*};
+use std::{collections::HashMap, ffi::CString};
 
 use crate::pyo3_extensions::TdPyAny;
 
@@ -38,20 +38,14 @@ impl StdOutputConfig {
         (Self {}, OutputConfig {})
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("StdOutputConfig",)
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| HashMap::from([("type", "StdOutputConfig".into_py(py))]))
     }
 
     /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("StdOutputConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for StdOutputConfig: {state:?}"
-            )))
-        }
+    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
+        Ok(())
     }
 }
 

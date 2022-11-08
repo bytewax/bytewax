@@ -1,7 +1,9 @@
 pub(crate) mod periodic_epoch;
 pub(crate) mod testing_epoch;
 
-use pyo3::{exceptions::PyValueError, pyclass, pymethods, Py, PyAny, PyCell, PyResult, Python};
+use std::collections::HashMap;
+
+use pyo3::prelude::*;
 use timely::dataflow::{ProbeHandle, Scope, Stream};
 
 use crate::{
@@ -41,20 +43,18 @@ impl EpochConfig {
         Self {}
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("EpochConfig",)
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {        
+            HashMap::from([
+                ("type", "EpochConfig".into_py(py)),
+            ])
+        })
     }
 
     /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("EpochConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for EpochConfig: {state:?}"
-            )))
-        }
+    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
+        Ok(())
     }
 }
 

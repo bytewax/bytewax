@@ -15,12 +15,14 @@
 //! want. E.g. [`StdOutputConfig`] represents a token in Python for
 //! how to create a [`StdOutput`].
 
+use std::collections::HashMap;
+
 use crate::{
     common::StringResult,
     execution::WorkerIndex,
     pyo3_extensions::{PyConfigClass, TdPyAny},
 };
-use pyo3::{exceptions::PyValueError, prelude::*};
+use pyo3::prelude::*;
 
 pub(crate) mod kafka_output;
 pub(crate) mod manual_epoch_output;
@@ -57,20 +59,14 @@ impl OutputConfig {
         Self {}
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("OutputConfig",)
-    }
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| HashMap::from([("type", "OutputConfig".into_py(py))]))
+    }    
 
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("OutputConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for OutputConfig: {state:?}"
-            )))
-        }
+    /// Unpickle from a PyDict.
+    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
+        Ok(())
     }
 }
 

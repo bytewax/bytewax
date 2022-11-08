@@ -1,11 +1,11 @@
-use std::task::Poll;
+use std::{collections::HashMap, task::Poll};
 
 use chrono::{DateTime, Utc};
-use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult, Python};
+use pyo3::{prelude::*, types::PyDict};
 
 use crate::{
     pyo3_extensions::{TdPyAny, TdPyCallable},
-    window::clock::ClockConfig,
+    window::clock::ClockConfig, pickle_extract,
 };
 
 use super::*;
@@ -86,13 +86,18 @@ impl EventClockConfig {
         )
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, TdPyCallable, chrono::Duration) {
-        (
-            "EventClockConfig",
-            self.dt_getter.clone(),
-            self.wait_for_system_duration,
-        )
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {
+            HashMap::from([
+                ("type", "EventClockConfig".into_py(py)),
+                ("dt_getter", self.dt_getter.clone().into_py(py)),
+                (
+                    "wait_for_system_duration",
+                    self.wait_for_system_duration.into_py(py),
+                ),
+            ])
+        })
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -105,15 +110,10 @@ impl EventClockConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("EventClockConfig", dt_getter, late)) = state.extract() {
-            self.dt_getter = dt_getter;
-            self.wait_for_system_duration = late;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for EventClockConfig: {state:?}"
-            )))
-        }
+        let dict: &PyDict = state.downcast()?;
+        pickle_extract!(self, dict, dt_getter);
+        pickle_extract!(self, dict, wait_for_system_duration);        
+        Ok(())
     }
 }
 
@@ -167,8 +167,7 @@ impl Clock<TdPyAny> for EventClock {
         let system_duration_since_last_event =
             now.signed_duration_since(self.system_time_of_last_event);
         // This is the watermark
-        self
-            .late_time
+        self.late_time
             .checked_add_signed(system_duration_since_last_event)
             .unwrap_or(DateTime::<Utc>::MAX_UTC)
     }

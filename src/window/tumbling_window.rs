@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Duration, Utc};
-use pyo3::{exceptions::PyValueError, prelude::*};
+use pyo3::{exceptions::PyValueError, prelude::*, types::PyDict};
+
+use crate::pickle_extract;
 
 use super::*;
 
@@ -48,9 +50,15 @@ impl TumblingWindowConfig {
         (Self { length, start_at }, WindowConfig {})
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, chrono::Duration, Option<DateTime<Utc>>) {
-        ("TumblingWindowConfig", self.length, self.start_at)
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {
+            HashMap::from([
+                ("type", "TumblingWindowConfig".into_py(py)),
+                ("length", self.length.into_py(py)),
+                ("start_at", self.start_at.into_py(py)),
+            ])
+        })
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -58,17 +66,12 @@ impl TumblingWindowConfig {
         (chrono::Duration::zero(), None)
     }
 
-    /// Unpickle from tuple of arguments.
+    /// Unpickle from a PyDict
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("TumblingWindowConfig", length, start_at)) = state.extract() {
-            self.length = length;
-            self.start_at = start_at;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for TumblingWindowConfig: {state:?}"
-            )))
-        }
+        let dict: &PyDict = state.downcast()?;
+        pickle_extract!(self, dict, length);
+        pickle_extract!(self, dict, start_at);
+        Ok(())
     }
 }
 
