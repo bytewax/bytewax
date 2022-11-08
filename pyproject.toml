@@ -23,7 +23,7 @@ dependencies = ["multiprocess>=0.70", "dill>=0.3.5"]
 extras = ["bigquery", "dynamodb", "dev", "docs", "test"]
 
 [project.optional-dependencies]
-bigquery = ["google-cloud-bigquery>=3.3.5"]
+bigquery = ["google-cloud-bigquery<=3.3.5"]
 dynamodb = ["boto3>=1.15.0"]
 test = ["pytest==7.1.0", "myst-docutils==0.17.0"]
 docs = ["pdoc3==0.10.0"]

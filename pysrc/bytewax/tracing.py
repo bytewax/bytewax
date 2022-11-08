@@ -3,17 +3,10 @@ Tracing and logging in bytewax are handled in the rust side,
 to offer a really detailed view of what is happening in your dataflow.
 
 By default, bytewax sends all "error" logs to the standard output.
-This can be configured with an environment variable, "BYTEWAX_LOG".
+This can be configured with the `log_level` parameter of the
+`setup_tracing` function.
 
-See tracing-subscriber's documentation for possible values of the variable:
-    https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html
-
-For example, to set bytewax's logs to the "debug" level, and all other packages
-to the "error" level, you can run the dataflow like this:
-
-    $ BYTEWAX_LOG="bytewax=debug,error" python dataflow.py
-
-But there's more. All the logs emitted by bytewax are structured,
+All the logs emitted by bytewax are structured,
 and can be used to setup proper tracing for the dataflow.
 To do that you need to talk to a service that collects
 and shows data coming from bytewax.

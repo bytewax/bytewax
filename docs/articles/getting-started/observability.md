@@ -3,14 +3,8 @@
 Bytewax is instrumented to offer observability of your dataflow.
 
 The default configuration logs anything at the log level `ERROR` to standard output.  
-You can control the log level by passing the `log_level` parameter to the function used to run the dataflow (either `spawn_cluster`, `run_main` or `cluster_main`).
-If you use the helper method `bytewax.parse.proc_env`, the log level can be set with an environment variable: `BYTEWAX_LOG`.
-
-If you want to see all the messages bytewax emits, you can set it to "trace":
-
-```
-BYTEWAX_LOG="TRACE" python dataflow.py
-```
+You can control the log level by passing the `log_level` parameter to the `setup_tracing` function.
+If you want to see all the messages bytewax emits, set the level to `TRACE`.
 
 The `TRACE` level includes everything that would be sent to an opentelemetry compatible backend,
 like [Jaeger](https://www.jaegertracing.io/), or the [Opentelemetry Collector](https://opentelemetry.io/docs/collector/).  
@@ -93,6 +87,7 @@ tracer = setup_tracing(
         service_name="Wikistream",
         url="grpc://127.0.0.1:4317",
     ),
+    log_level="ERROR"
 )
 #
 # ...rest of the file
