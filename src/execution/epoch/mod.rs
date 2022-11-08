@@ -59,6 +59,7 @@ impl EpochConfig {
 }
 
 pub(crate) trait EpochBuilder<S: Scope<Timestamp = u64>> {
+    #[allow(clippy::too_many_arguments)]
     fn build(
         &self,
         py: Python,

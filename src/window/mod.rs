@@ -424,6 +424,7 @@ where
     /// The output will be a stream of `(key, value)` output
     /// 2-tuples. Values emitted by [`WindowLogic::exec`] will
     /// automatically be paired with the key in the output stream.
+    #[allow(clippy::type_complexity)]
     fn stateful_window_unary<R, I, CB, WB, L, LB>(
         &self,
         step_id: StepId,

@@ -102,6 +102,7 @@ fn resume_input_state(
 /// concepts to Timely, as we are using Timely as a basis to implement
 /// more-complicated Bytewax features like input builders and
 /// recovery.
+#[allow(clippy::too_many_arguments)]
 fn build_production_dataflow<A, PW, SW>(
     py: Python,
     worker: &mut Worker<A>,
@@ -408,6 +409,7 @@ where
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_and_run_production_dataflow<A, PW, SW>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,

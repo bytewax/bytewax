@@ -134,15 +134,15 @@ fn filter_last_works() {
         ),
         (
             key2.clone(),
-            BTreeMap::from([(2, upx.clone()), (3, upz.clone()), (1, upy.clone())]),
+            BTreeMap::from([(2, upx), (3, upz.clone()), (1, upy)]),
         ),
     ]);
 
     store.filter_last();
 
     let expected = HashMap::from([
-        (key1.clone(), BTreeMap::from([(10, upz.clone())])),
-        (key2.clone(), BTreeMap::from([(3, upz.clone())])),
+        (key1, BTreeMap::from([(10, upz.clone())])),
+        (key2, BTreeMap::from([(3, upz)])),
     ]);
     assert_eq!(store.db, expected);
 }
@@ -162,17 +162,17 @@ fn drain_garbage_works() {
 
     store.db = HashMap::from([
         (
-            key1.clone(),
+            key1,
             BTreeMap::from([(10, upz.clone()), (5, upx.clone()), (6, upy.clone())]),
         ),
         (
             key2.clone(),
-            BTreeMap::from([(2, upx.clone()), (3, upz.clone()), (1, upy.clone())]),
+            BTreeMap::from([(2, upx), (3, upz), (1, upy)]),
         ),
     ]);
 
     let found: HashSet<_> = store.drain_garbage(&6).collect();
-    let expected = HashSet::from([StoreKey(1, key2.clone()), StoreKey(2, key2.clone())]);
+    let expected = HashSet::from([StoreKey(1, key2.clone()), StoreKey(2, key2)]);
     assert_eq!(found, expected);
 }
 
@@ -190,9 +190,9 @@ fn drain_garbage_includes_newest_discard() {
     store.db = HashMap::from([(
         key1.clone(),
         BTreeMap::from([
-            (2, upx.clone()),
+            (2, upx),
             (3, Change::Discard),
-            (1, upy.clone()),
+            (1, upy),
             (7, Change::Discard),
         ]),
     )]);
@@ -201,7 +201,7 @@ fn drain_garbage_includes_newest_discard() {
     let expected = HashSet::from([
         StoreKey(1, key1.clone()),
         StoreKey(2, key1.clone()),
-        StoreKey(3, key1.clone()),
+        StoreKey(3, key1),
     ]);
     assert_eq!(found, expected);
 }
@@ -216,8 +216,8 @@ fn drain_garbage_drops_unused_keys() {
     let upy = Change::Upsert("y".to_owned());
 
     store.db = HashMap::from([(
-        key1.clone(),
-        BTreeMap::from([(2, upx.clone()), (3, Change::Discard), (1, upy.clone())]),
+        key1,
+        BTreeMap::from([(2, upx), (3, Change::Discard), (1, upy)]),
     )]);
 
     // Must use the iterator.
@@ -244,9 +244,9 @@ fn drain_works() {
 
     let found: Vec<_> = store.drain_flatten().collect();
     let expected = vec![
-        KChange(key1.clone(), upx.clone()),
-        KChange(key1.clone(), upy.clone()),
-        KChange(key1.clone(), upz.clone()),
+        KChange(key1.clone(), upx),
+        KChange(key1.clone(), upy),
+        KChange(key1, upz),
     ];
     assert_eq!(found, expected);
 }
@@ -276,14 +276,14 @@ fn write_upserts() {
 
     store.write(KChange(
         StoreKey(5, key1.clone()),
-        Change::Upsert(upx.clone()),
+        Change::Upsert(upx),
     ));
     store.write(KChange(
         StoreKey(5, key1.clone()),
         Change::Upsert(upy.clone()),
     ));
 
-    let expected = HashMap::from([(key1.clone(), BTreeMap::from([(5, upy.clone())]))]);
+    let expected = HashMap::from([(key1, BTreeMap::from([(5, upy)]))]);
     assert_eq!(store.db, expected);
 }
 
@@ -297,9 +297,9 @@ fn write_discard_drops_key() {
 
     store.write(KChange(
         StoreKey(5, key1.clone()),
-        Change::Upsert(upx.clone()),
+        Change::Upsert(upx),
     ));
-    store.write(KChange(StoreKey(5, key1.clone()), Change::Discard));
+    store.write(KChange(StoreKey(5, key1), Change::Discard));
 
     let expected = HashMap::from([]);
     assert_eq!(store.db, expected);

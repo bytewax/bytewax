@@ -129,6 +129,7 @@ impl KafkaInputConfig {
         )
     }
 
+    #[allow(clippy::type_complexity)]
     fn __getstate__(
         &self,
     ) -> (
@@ -239,6 +240,7 @@ pub(crate) struct KafkaInput {
 }
 
 impl KafkaInput {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         brokers: &[String],
         topic: &str,
