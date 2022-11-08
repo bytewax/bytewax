@@ -302,6 +302,7 @@ pub(crate) fn default_recovery_config() -> Py<RecoveryConfig> {
 /// This function is also part of the Python/Rust barrier for
 /// recovery; we don't have any Python types in the recovery machinery
 /// after this.
+#[allow(clippy::type_complexity)]
 pub(crate) fn build_recovery_writers(
     py: Python,
     worker_index: usize,
@@ -376,6 +377,7 @@ pub(crate) fn build_recovery_writers(
 /// Note that as of now, this code assumes that the number of workers
 /// _has not changed between executions_. Things will silently not
 /// fully load if worker count is changed.
+#[allow(clippy::type_complexity)]
 pub(crate) fn build_recovery_readers(
     py: Python,
     worker_index: usize,

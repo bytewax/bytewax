@@ -40,7 +40,7 @@ pub(crate) struct EventClockConfig {
 impl ClockBuilder<TdPyAny> for EventClockConfig {
     fn build(&self, _py: Python) -> StringResult<Builder<TdPyAny>> {
         let dt_getter = self.dt_getter.clone();
-        let wait_for_system_duration = self.wait_for_system_duration.clone();
+        let wait_for_system_duration = self.wait_for_system_duration;
         Ok(Box::new(move |resume_snapshot: Option<StateBytes>| {
             // Deserialize data if a snapshot existed
             let (latest_event_time, system_time_of_last_event, late_time, watermark) =
@@ -167,11 +167,10 @@ impl Clock<TdPyAny> for EventClock {
         let system_duration_since_last_event =
             now.signed_duration_since(self.system_time_of_last_event);
         // This is the watermark
-        let watermark = self
+        self
             .late_time
             .checked_add_signed(system_duration_since_last_event)
-            .unwrap_or(DateTime::<Utc>::MAX_UTC);
-        watermark
+            .unwrap_or(DateTime::<Utc>::MAX_UTC)
     }
 
     fn time_for(&mut self, event: &TdPyAny) -> DateTime<Utc> {

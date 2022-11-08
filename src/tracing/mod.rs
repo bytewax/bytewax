@@ -106,6 +106,12 @@ fn get_log_level(level: Option<String>) -> LevelFilter {
     }
 }
 
+impl Default for BytewaxTracer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BytewaxTracer {
     pub fn new() -> Self {
         let rt = tokio::runtime::Builder::new_multi_thread()

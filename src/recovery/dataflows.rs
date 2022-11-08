@@ -102,6 +102,7 @@ pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
 /// Read state out of the cell once the probe is done. Each resume
 /// cluster worker will have the progress info of all workers in the
 /// previous cluster.
+#[allow(clippy::type_complexity)]
 pub(crate) fn build_resume_epoch_calc_dataflow<A, T, R>(
     timely_worker: &mut Worker<A>,
     // TODO: Allow multiple (or none) FrontierReaders so you can recover a
@@ -133,6 +134,7 @@ where
 /// epoch is where input will begin during this recovered cluster.
 ///
 /// Read state out of the cells once the probe is done.
+#[allow(clippy::type_complexity)]
 pub(crate) fn build_state_loading_dataflow<A, T, R>(
     timely_worker: &mut Worker<A>,
     reader: R,

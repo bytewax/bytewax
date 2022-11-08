@@ -300,7 +300,7 @@ where
                     // closed. Thus, we haven't run the "epoch closed"
                     // code yet. Make sure that close code is run if
                     // that epoch is now closed on this activation.
-                    tmp_closed_epochs.extend(Some(output_cap.time().clone()).filter(is_closed));
+                    tmp_closed_epochs.extend(Some(*output_cap.time()).filter(is_closed));
                     // Try to process all the epochs we have input
                     // for. Filter out epochs that are not closed; the
                     // state at the beginning of those epochs are not
@@ -319,10 +319,10 @@ where
                         // sending output at any older epochs. This
                         // also asserts "apply changes in epoch order"
                         // to the state cache.
-                        output_cap.downgrade(&epoch);
-                        state_update_cap.downgrade(&epoch);
+                        output_cap.downgrade(epoch);
+                        state_update_cap.downgrade(epoch);
 
-                        let incoming_state_key_values = incoming_buffer.remove(&epoch);
+                        let incoming_state_key_values = incoming_buffer.remove(epoch);
 
                         // Now let's find all the key-value pairs to
                         // awaken logic with.
@@ -413,7 +413,7 @@ where
                         // ignore it here. Snapshot and output state
                         // changes. Remove will ensure we slowly drain
                         // the buffer.
-                        if is_closed(&epoch) {
+                        if is_closed(epoch) {
                             for state_key in awoken_keys_buffer.drain() {
                                 let logic = current_logic
                                     .remove(&state_key)
@@ -463,7 +463,7 @@ where
                     // requested logic awake time for any key.
                     if let Some(soonest_next_awake) = current_next_awake
                         .values()
-                        .map(|next_awake| next_awake.clone() - now)
+                        .map(|next_awake| *next_awake - now)
                         .min()
                     {
                         activator.activate_after(
