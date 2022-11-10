@@ -1,0 +1,164 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.connectors.dynamodb.outputs</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">import boto3
+import logging
+
+from bytewax.outputs import ManualOutputConfig
+
+
+class DynamoDBOutputConfig(ManualOutputConfig):
+    &#34;&#34;&#34;Write output of a Dataflow to [DynamoDB](https://aws.amazon.com/dynamodb/).
+
+    Creates a new DynamoDB item, or replaces an old item with a new item. If an item that has the same primary key as the new item already exists in the specified table, the new item completely replaces the existing item.
+
+    Items are written to DynamoDB using [boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html). For more information on authentication and configuration, please see the documentation for boto3.
+
+    Items flowing into the capture operator should be formatted as dictionaries and will be passed as keyword arguments to boto3&#39;s `put_item` function. This dictionary should include an `Item` key, that is itself a dictionary containing the requisite primary_key(s). See the [boto docs](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/dynamodb.html#DynamoDB.Table.put_item) for the schema of that dictionary.
+
+    Args:
+
+        table: DynamoDB table to write output items to.
+
+    Returns:
+
+        Config object. Pass this as the `output_config` argument of the
+        `bytewax.dataflow.Dataflow.output` operator.
+
+    &#34;&#34;&#34;
+
+    def __new__(cls, table):
+        &#34;&#34;&#34;
+        In classes defined by PyO3 we can only use __new__, not __init__
+        &#34;&#34;&#34;
+
+        def output_builder(wi, wc):
+            dynamodb = boto3.resource(&#34;dynamodb&#34;)
+            table = dynamodb.Table(table)
+            logging.info(f&#34;Writing to DynamoDB table {table}&#34;)
+
+            def output_handler(item_kwargs):
+                table.put_item(**item_kwargs)
+
+            return output_handler
+
+        return super().__new__(cls, output_builder)</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
+<dl>
+<dt id="bytewax.connectors.dynamodb.outputs.DynamoDBOutputConfig"><code class="language-python flex name class">
+<span>class <span class="ident">DynamoDBOutputConfig</span></span>
+<span>(</span><span>table)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Write output of a Dataflow to <a href="https://aws.amazon.com/dynamodb/">DynamoDB</a>.</p>
+<p>Creates a new DynamoDB item, or replaces an old item with a new item. If an item that has the same primary key as the new item already exists in the specified table, the new item completely replaces the existing item.</p>
+<p>Items are written to DynamoDB using <a href="https://boto3.amazonaws.com/v1/documentation/api/latest/index.html">boto3</a>. For more information on authentication and configuration, please see the documentation for boto3.</p>
+<p>Items flowing into the capture operator should be formatted as dictionaries and will be passed as keyword arguments to boto3's <code>put_item</code> function. This dictionary should include an <code>Item</code> key, that is itself a dictionary containing the requisite primary_key(s). See the <a href="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/dynamodb.html#DynamoDB.Table.put_item">boto docs</a> for the schema of that dictionary.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>table</code></strong></dt>
+<dd>DynamoDB table to write output items to.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this as the <code>output_config</code> argument of the
+<code>bytewax.dataflow.Dataflow.output</code> operator.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class DynamoDBOutputConfig(ManualOutputConfig):
+    &#34;&#34;&#34;Write output of a Dataflow to [DynamoDB](https://aws.amazon.com/dynamodb/).
+
+    Creates a new DynamoDB item, or replaces an old item with a new item. If an item that has the same primary key as the new item already exists in the specified table, the new item completely replaces the existing item.
+
+    Items are written to DynamoDB using [boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html). For more information on authentication and configuration, please see the documentation for boto3.
+
+    Items flowing into the capture operator should be formatted as dictionaries and will be passed as keyword arguments to boto3&#39;s `put_item` function. This dictionary should include an `Item` key, that is itself a dictionary containing the requisite primary_key(s). See the [boto docs](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/dynamodb.html#DynamoDB.Table.put_item) for the schema of that dictionary.
+
+    Args:
+
+        table: DynamoDB table to write output items to.
+
+    Returns:
+
+        Config object. Pass this as the `output_config` argument of the
+        `bytewax.dataflow.Dataflow.output` operator.
+
+    &#34;&#34;&#34;
+
+    def __new__(cls, table):
+        &#34;&#34;&#34;
+        In classes defined by PyO3 we can only use __new__, not __init__
+        &#34;&#34;&#34;
+
+        def output_builder(wi, wc):
+            dynamodb = boto3.resource(&#34;dynamodb&#34;)
+            table = dynamodb.Table(table)
+            logging.info(f&#34;Writing to DynamoDB table {table}&#34;)
+
+            def output_handler(item_kwargs):
+                table.put_item(**item_kwargs)
+
+            return output_handler
+
+        return super().__new__(cls, output_builder)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.outputs.ManualOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></li>
+<li><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></li>
+</ul>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code class="language-python"><b><a title="bytewax.outputs.ManualOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></b></code>:
+<ul class="hlist">
+<li><code class="language-python"><a title="bytewax.outputs.ManualOutputConfig.output_builder" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig.output_builder">output_builder</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
+</dl>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors.dynamodb" href="/apidocs/bytewax.connectors/dynamodb/index">bytewax.connectors.dynamodb</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
+<ul class="api__sidebar-nav-classes">
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.dynamodb.outputs.DynamoDBOutputConfig" href="/apidocs/bytewax.connectors/dynamodb/outputs#bytewax.connectors.dynamodb.outputs.DynamoDBOutputConfig">DynamoDBOutputConfig</a></h4>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>

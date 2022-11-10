@@ -1,0 +1,610 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.dataflow</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<p>How to define dataflows.</p>
+<p>Create a <code><a title="bytewax.dataflow.Dataflow" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow">Dataflow</a></code> instance, then use the methods on it to add
+computational steps.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;How to define dataflows.
+
+Create a `Dataflow` instance, then use the methods on it to add
+computational steps.
+
+&#34;&#34;&#34;
+
+from .bytewax import Dataflow  # noqa: F401</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
+<dl>
+<dt id="bytewax.dataflow.Dataflow"><code class="language-python flex name class">
+<span>class <span class="ident">Dataflow</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>A definition of a Bytewax dataflow graph.</p>
+<p>Use the methods defined on this class to add steps with operators
+of the same name.</p>
+<p>See the execution entry points in <code><a title="bytewax.execution" href="/apidocs/bytewax.execution">bytewax.execution</a></code> to run.</p></div>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.dataflow.Dataflow.capture"><code class="language-python name flex">
+<span>def <span class="ident">capture</span></span>(<span>self, output_config)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Capture is how you specify output of a dataflow.</p>
+<p>At least one capture is required on every dataflow.</p>
+<p>It emits items downstream unmodified; you can capture midway
+through a dataflow.</p>
+<p>See <code><a title="bytewax.outputs" href="/apidocs/bytewax.outputs">bytewax.outputs</a></code> for more information on how output
+works.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
+&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
+&gt;&gt;&gt; from bytewax.execution import run_main
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
+&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; run_main(flow)
+0
+1
+2
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>output_config</code></strong> :&ensp;<code><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></code></dt>
+<dd>Output
+config to use. See <code><a title="bytewax.outputs" href="/apidocs/bytewax.outputs">bytewax.outputs</a></code>.</dd>
+</dl></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.filter"><code class="language-python name flex">
+<span>def <span class="ident">filter</span></span>(<span>self, predicate)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Filter selectively keeps only some items.</p>
+<p>It calls a <strong>predicate</strong> function on each item.</p>
+<p>It emits the item downstream unmodified if the predicate
+returns <code>True</code>.</p>
+<p>It is commonly used for:</p>
+<ul>
+<li>Selecting relevant events</li>
+<li>Removing empty events</li>
+<li>Removing sentinels</li>
+<li>Removing stop words</li>
+</ul>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
+&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
+&gt;&gt;&gt; from bytewax.execution import run_main
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
+&gt;&gt;&gt; def is_odd(item):
+...     return item % 2 != 0
+&gt;&gt;&gt; flow.filter(is_odd)
+&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; run_main(flow)
+1
+3
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>predicate</code></strong></dt>
+<dd><code>predicate(item: Any) =&gt; should_emit: bool</code></dd>
+</dl></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.flat_map"><code class="language-python name flex">
+<span>def <span class="ident">flat_map</span></span>(<span>self, mapper)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Flat map is a one-to-many transformation of items.</p>
+<p>It calls a <strong>mapper</strong> function on each item.</p>
+<p>It emits each element in the returned iterator individually
+downstream in the epoch of the input item.</p>
+<p>It is commonly used for:</p>
+<ul>
+<li>Tokenizing</li>
+<li>Flattening hierarchical objects</li>
+<li>Breaking up aggregations for further processing</li>
+</ul>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
+&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
+&gt;&gt;&gt; from bytewax.execution import run_main
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; inp = [&quot;hello world&quot;]
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(inp))
+&gt;&gt;&gt; def split_into_words(sentence):
+...     return sentence.split()
+&gt;&gt;&gt; flow.flat_map(split_into_words)
+&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; run_main(flow)
+hello
+world
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>mapper</code></strong></dt>
+<dd><code>mapper(item: Any) =&gt; emit: Iterable[Any]</code></dd>
+</dl></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.fold_window"><code class="language-python name flex">
+<span>def <span class="ident">fold_window</span></span>(<span>self, step_id, clock_config, window_config, builder, folder)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Fold window lets you combine all items for a key within a
+window into an accumulator, using a function to build its initial value.</p>
+<p>It is like <code>bytewax.Dataflow.reduce_window()</code> but uses a function to
+build the initial value.</p>
+<p>It is a stateful operator. It requires the input stream
+has items that are <code>(key: str, value)</code> tuples so we can ensure
+that all relevant values are routed to the relevant state. It
+also requires a step ID to recover the correct state.</p>
+<p>It calls two functions:</p>
+<ul>
+<li>
+<p>A <strong>builder</strong> function which is called the first time a key appears
+and is expected to return the empty state for that key.</p>
+</li>
+<li>
+<p>A <strong>folder</strong> which combines a new value with an accumulator.
+The accumulator is initially the output of the builder function.
+Values will be passed in window order, but no order
+is defined within a window.</p>
+</li>
+</ul>
+<p>It emits <code>(key, accumulator)</code> tuples downstream when the window closes</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def gen():
+...     yield from [
+...         {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;login&quot;},
+...         sleep(4)
+...         {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;},
+...         sleep(4)
+...         {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;},
+...         sleep(4)
+...         {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;login&quot;},
+...         sleep(4)
+...         {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;},
+...         sleep(4)
+...         {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;post&quot;},
+...         sleep(4)
+...         {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;post&quot;},
+...     ]
+&gt;&gt;&gt; def extract_id(event):
+...     return (event[&quot;user&quot;], event)
+&gt;&gt;&gt; def build():
+...     return defaultdict(lambda: 0)
+&gt;&gt;&gt; def count(results, event):
+...     results[event[&quot;type&quot;]] += 1
+...     return results
+&gt;&gt;&gt; clock_config = SystemClockConfig()
+&gt;&gt;&gt; window_config = TumblingWindowConfig(length=timedelta(seconds=10))
+&gt;&gt;&gt; out = []
+&gt;&gt;&gt; flow = Dataflow(TestingInputConfig(gen()))
+&gt;&gt;&gt; flow.map(extract_id)
+&gt;&gt;&gt; flow.fold_window(&quot;sum&quot;, clock_config, window_config, build, count)
+&gt;&gt;&gt; flow.capture(TestingOutputConfig(out))
+&gt;&gt;&gt; run_main(flow)
+&gt;&gt;&gt; assert len(out) == 3
+&gt;&gt;&gt; assert (&quot;a&quot;, {&quot;login&quot;: 1, &quot;post&quot;: 2}) in out
+&gt;&gt;&gt; assert (&quot;a&quot;, {&quot;post&quot;: 1}) in out
+&gt;&gt;&gt; assert (&quot;b&quot;, {&quot;login&quot;: 1, &quot;post&quot;: 2}) in out
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>step_id</code></strong></dt>
+<dd>Uniquely identifies this step for recovery.</dd>
+<dt><strong><code>clock_config</code></strong></dt>
+<dd>Clock config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
+<dt><strong><code>window_config</code></strong></dt>
+<dd>Windower config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
+<dt><strong><code>builder</code></strong></dt>
+<dd><code>builder(key: Any) =&gt; initial_accumulator: Any</code></dd>
+<dt><strong><code>folder</code></strong></dt>
+<dd><code>folder(accumulator: Any, value: Any) =&gt; updated_accumulator: Any</code></dd>
+</dl></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.input"><code class="language-python name flex">
+<span>def <span class="ident">input</span></span>(<span>self, step_id, input_config)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Input introduces data into the dataflow.</p>
+<p>At least one input is required on every dataflow.</p>
+<p>Emits items downstream from the input source.</p>
+<p>See <code><a title="bytewax.inputs" href="/apidocs/bytewax.inputs">bytewax.inputs</a></code> for more information on how input works.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
+&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
+&gt;&gt;&gt; from bytewax.execution import run_main
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
+&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; run_main(flow)
+0
+1
+2
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
+<dd>Uniquely identifies this step for recovery.</dd>
+<dt><strong><code>input_config</code></strong> :&ensp;<code>bytewax.input.InputConfig</code></dt>
+<dd>Input config to
+use. See <code><a title="bytewax.inputs" href="/apidocs/bytewax.inputs">bytewax.inputs</a></code>.</dd>
+</dl></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.inspect"><code class="language-python name flex">
+<span>def <span class="ident">inspect</span></span>(<span>self, inspector)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Inspect allows you to observe, but not modify, items.</p>
+<p>It calls an <strong>inspector</strong> callback on each item.</p>
+<p>It emits items downstream unmodified.</p>
+<p>It is commonly used for debugging.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
+&gt;&gt;&gt; from bytewax.outputs import TestingOutputConfig
+&gt;&gt;&gt; from bytewax.execution import run_main
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
+&gt;&gt;&gt; def log(item):
+...     print(&quot;Saw&quot;, item)
+&gt;&gt;&gt; flow.inspect(log)
+&gt;&gt;&gt; out = []
+&gt;&gt;&gt; flow.capture(TestingOutputConfig(out))  # Notice we don't print out.
+&gt;&gt;&gt; run_main(flow)
+Saw 1
+Saw 2
+Saw 3
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>inspector</code></strong></dt>
+<dd><code>inspector(item: Any) =&gt; None</code></dd>
+</dl></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.inspect_epoch"><code class="language-python name flex">
+<span>def <span class="ident">inspect_epoch</span></span>(<span>self, inspector)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Inspect epoch allows you to observe, but not modify, items and
+their epochs.</p>
+<p>It calls an <strong>inspector</strong> function on each item with its
+epoch.</p>
+<p>It emits items downstream unmodified.</p>
+<p>It is commonly used for debugging.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
+&gt;&gt;&gt; from bytewax.outputs import TestingOutputConfig
+&gt;&gt;&gt; from bytewax.execution import run_main, TestingEpochConfig
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
+&gt;&gt;&gt; def log(epoch, item):
+...    print(f&quot;Saw {item} @ {epoch}&quot;)
+&gt;&gt;&gt; flow.inspect(log)
+&gt;&gt;&gt; out = []
+&gt;&gt;&gt; flow.capture(TestingOutputConfig(out))  # Notice we don't print out.
+&gt;&gt;&gt; run_main(flow, epoch_config=TestingEpochConfig())
+Saw 0 @ 0
+Saw 1 @ 1
+Saw 2 @ 2
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>inspector</code></strong></dt>
+<dd><code>inspector(epoch: int, item: Any) =&gt; None</code></dd>
+</dl></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.map"><code class="language-python name flex">
+<span>def <span class="ident">map</span></span>(<span>self, mapper)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Map is a one-to-one transformation of items.</p>
+<p>It calls a <strong>mapper</strong> function on each item.</p>
+<p>It emits each updated item downstream.</p>
+<p>It is commonly used for:</p>
+<ul>
+<li>Extracting keys</li>
+<li>Turning JSON into objects</li>
+<li>So many things</li>
+</ul>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
+&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
+&gt;&gt;&gt; from bytewax.execution import run_main
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
+&gt;&gt;&gt; def add_one(item):
+...     return item + 10
+&gt;&gt;&gt; flow.map(add_one)
+&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; run_main(flow)
+10
+11
+12
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>mapper</code></strong></dt>
+<dd><code>mapper(item: Any) =&gt; updated_item: Any</code></dd>
+</dl></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.reduce"><code class="language-python name flex">
+<span>def <span class="ident">reduce</span></span>(<span>self, step_id, reducer, is_complete)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Reduce lets you combine items for a key into an accumulator.</p>
+<p>It is a stateful operator. It requires the input stream
+has items that are <code>(key: str, value)</code> tuples so we can ensure
+that all relevant values are routed to the relevant state. It
+also requires a step ID to recover the correct state.</p>
+<p>It calls two functions:</p>
+<ul>
+<li>
+<p>A <strong>reducer</strong> which combines a new value with an
+accumulator. The accumulator is initially the first value seen
+for a key. Values will be passed in an arbitrary order. If
+there is only a single value for a key since the last
+completion, this function will not be called.</p>
+</li>
+<li>
+<p>An <strong>is complete</strong> function which returns <code>True</code> if the most
+recent <code>(key, accumulator)</code> should be emitted downstream and
+the accumulator for that key forgotten. If there was only a
+single value for a key, it is passed in as the accumulator
+here.</p>
+</li>
+</ul>
+<p>It emits <code>(key, accumulator)</code> tuples downstream when the is
+complete function returns <code>True</code> in the epoch of the most
+recent value for that key.</p>
+<p>If the ordering of values is crucial, group beforhand using a
+windowing operator with a timeout like <code>reduce_window</code>, then
+sort, then use this operator.</p>
+<p>It is commonly used for:</p>
+<ul>
+<li>Collection into a list</li>
+<li>Summarizing data</li>
+</ul>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.dataflow import Dataflow
+&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
+&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
+&gt;&gt;&gt; from bytewax.execution import run_main
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; inp = [
+...     {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;login&quot;},
+...     {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;},
+...     {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;login&quot;},
+...     {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;logout&quot;},
+...     {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;logout&quot;},
+... ]
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(inp))
+&gt;&gt;&gt; def user_as_key(event):
+...     return event[&quot;user&quot;], [event]
+&gt;&gt;&gt; flow.map(user_as_key)
+&gt;&gt;&gt; def extend_session(session, events):
+...     session.extend(events)
+...     return session
+&gt;&gt;&gt; def session_complete(session):
+...     return any(event[&quot;type&quot;] == &quot;logout&quot; for event in session)
+&gt;&gt;&gt; flow.reduce(&quot;sessionizer&quot;, extend_session, session_complete)
+&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; run_main(flow)
+('b', ['login', 'logout'])
+('a', ['login', 'post', 'logout'])
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
+<dd>Uniquely identifies this step for recovery.</dd>
+<dt><strong><code>reducer</code></strong></dt>
+<dd><code>reducer(accumulator: Any, value: Any) =&gt;
+updated_accumulator: Any</code></dd>
+<dt><strong><code>is_complete</code></strong></dt>
+<dd><code>is_complete(updated_accumulator: Any) =&gt;
+should_emit: bool</code></dd>
+</dl></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.reduce_window"><code class="language-python name flex">
+<span>def <span class="ident">reduce_window</span></span>(<span>self, step_id, clock_config, window_config, reducer)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Reduce window lets you combine all items for a key within a
+window into an accumulator.</p>
+<p>It is like <code>bytewax.Dataflow.reduce()</code> but marks the
+accumulator as complete automatically at the end of each
+window.</p>
+<p>It is a stateful operator. It requires the input stream
+has items that are <code>(key: str, value)</code> tuples so we can ensure
+that all relevant values are routed to the relevant state. It
+also requires a step ID to recover the correct state.</p>
+<p>It calls a <strong>reducer</strong> function which combines two values. The
+accumulator is initially the first value seen for a key. Values
+will be passed in arbitrary order. If there is only a single
+value for a key in this window, this function will not be
+called.</p>
+<p>It emits <code>(key, accumulator)</code> tuples downstream at the end of
+each window.</p>
+<p>If the ordering of values is crucial, group in this operator,
+then sort afterwards.</p>
+<p>Currently, data is permanently allocated per-key. If you have
+an ever-growing key space, note this.</p>
+<p>It is commonly used for:</p>
+<ul>
+<li>Sessionization</li>
+</ul>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from datetime import datetime, timedelta
+&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
+&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
+&gt;&gt;&gt; from bytewax.execution import run_main
+&gt;&gt;&gt; from bytewax.window import TestingClockConfig, TumblingWindowConfig
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; inp = [
+...     {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;login&quot;},  # 1:00pm
+...     {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;login&quot;},  # 1:01pm
+...     {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;},   # 1:02pm
+...     {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;post&quot;},   # 1:03pm
+... ]
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(inp))
+&gt;&gt;&gt; def add_initial_count(event):
+...     return event[&quot;user&quot;], 1
+&gt;&gt;&gt; flow.map(add_initial_count)
+&gt;&gt;&gt; def count(count, event_count):
+...     return count + event_count
+&gt;&gt;&gt; clock_config = TestingClockConfig(
+...     item_incr=timedelta(minutes=1),
+...     start=datetime(2022, 1, 1, 13),
+... )
+&gt;&gt;&gt; window_config = TumblingWindowConfig(
+...     length=timedelta(minutes=2),
+... )
+&gt;&gt;&gt; flow.reduce_window(&quot;count&quot;, clock_config, window_config, count)
+&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; run_main(flow)
+('b', 1)
+('a', 2)
+('b', 1)
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
+<dd>Uniquely identifies this step for recovery.</dd>
+<dt><strong><code>clock_config</code></strong> :&ensp;<code><a title="bytewax.window.ClockConfig" href="/apidocs/bytewax.window#bytewax.window.ClockConfig">ClockConfig</a></code></dt>
+<dd>Clock config to
+use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
+<dt><strong><code>window_config</code></strong> :&ensp;<code><a title="bytewax.window.WindowConfig" href="/apidocs/bytewax.window#bytewax.window.WindowConfig">WindowConfig</a></code></dt>
+<dd>Windower
+config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
+<dt><strong><code>reducer</code></strong></dt>
+<dd><code>reducer(accumulator: Any, value: Any) =&gt;
+updated_accumulator: Any</code></dd>
+</dl></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.stateful_map"><code class="language-python name flex">
+<span>def <span class="ident">stateful_map</span></span>(<span>self, step_id, builder, mapper)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Stateful map is a one-to-one transformation of values, but
+allows you to reference a persistent state for each key when
+doing the transformation.</p>
+<p>It is a stateful operator. It requires the input stream
+has items that are <code>(key: str, value)</code> tuples so we can ensure
+that all relevant values are routed to the relevant state. It
+also requires a step ID to recover the correct state.</p>
+<p>It calls two functions:</p>
+<ul>
+<li>
+<p>A <strong>builder</strong> which returns a new state and will be called
+whenever a new key is encountered with the key as a parameter.</p>
+</li>
+<li>
+<p>A <strong>mapper</strong> which transforms values. Values will be passed
+in an arbitrary order. If the updated state is <code>None</code>, the
+state will be forgotten.</p>
+</li>
+</ul>
+<p>It emits a <code>(key, updated_value)</code> tuple downstream for each
+input item.</p>
+<p>If the ordering of values is crucial, group beforhand using a
+windowing operator with a timeout like <code>reduce_window</code>, then
+sort, then use this operator.</p>
+<p>It is commonly used for:</p>
+<ul>
+<li>Anomaly detection</li>
+<li>State machines</li>
+</ul>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
+&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
+&gt;&gt;&gt; from bytewax.execution import run_main
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; inp = [
+...     &quot;a&quot;,
+...     &quot;a&quot;,
+...     &quot;a&quot;,
+...     &quot;a&quot;,
+...     &quot;b&quot;,
+... ]
+&gt;&gt;&gt; flow.inputs(&quot;inp&quot;, TestingInputConfig(inp))
+&gt;&gt;&gt; def self_as_key(item):
+...     return item, item
+&gt;&gt;&gt; flow.map(self_as_key)
+&gt;&gt;&gt; def build_count(key):
+...     return 0
+&gt;&gt;&gt; def check(running_count, item):
+...     running_count += 1
+...     if running_count == 1:
+...         return running_count, item
+...     else:
+...         return running_count, None
+&gt;&gt;&gt; flow.stateful_map(&quot;remove_duplicates&quot;, build_count, check)
+&gt;&gt;&gt; def remove_none_and_key(key_item):
+...     key, item = key_item
+...     if item is None:
+...         return []
+...     else:
+...         return [item]
+&gt;&gt;&gt; flow.flat_map(remove_none_and_key)
+&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; run_main(flow)
+a
+b
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
+<dd>Uniquely identifies this step for recovery.</dd>
+<dt><strong><code>builder</code></strong></dt>
+<dd><code>builder(key: Any) =&gt; new_state: Any</code></dd>
+<dt><strong><code>mapper</code></strong></dt>
+<dd><code>mapper(state: Any, value: Any) =&gt; (updated_state:
+Any, updated_value: Any)</code></dd>
+</dl></div>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax" href="/apidocs/">bytewax</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
+<ul class="api__sidebar-nav-classes">
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.dataflow.Dataflow" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow">Dataflow</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">capture</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.filter" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.filter">filter</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.flat_map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.flat_map">flat_map</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.fold_window" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.fold_window">fold_window</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.input" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.input">input</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.inspect">inspect</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect_epoch" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.inspect_epoch">inspect_epoch</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.map">map</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.reduce" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce">reduce</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.reduce_window" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce_window">reduce_window</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.stateful_map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.stateful_map">stateful_map</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>

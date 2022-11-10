@@ -1,0 +1,585 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.parse</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<p>Helpers to read execution arguments from the environment or command
+line.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Helpers to read execution arguments from the environment or command
+line.
+
+&#34;&#34;&#34;
+import os
+from argparse import ArgumentParser
+from typing import Any, Dict, Iterable
+
+LOG_LEVELS = [&#34;ERROR&#34;, &#34;WARN&#34;, &#34;INFO&#34;, &#34;DEBUG&#34;, &#34;TRACE&#34;]
+
+
+def cluster_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
+    &#34;&#34;&#34;Parse command line arguments to generate arguments for
+    `bytewax.run_cluster()`.
+
+    See documentation for `bytewax.run_cluster()` for semantics of
+    these variables.
+
+    &gt;&gt;&gt; from bytewax import Dataflow, run_cluster
+    &gt;&gt;&gt; from bytewax.testing import doctest_ctx
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; args = &#34;-w2 -n2&#34;.split()
+    &gt;&gt;&gt; out = run_cluster(
+    ...     flow,
+    ...     enumerate(range(3)),
+    ...     mp_ctx=doctest_ctx,
+    ...     **cluster_args(args),
+    ... )
+    &gt;&gt;&gt; sorted(out)
+    [(0, 0), (1, 1), (2, 2)]
+
+    Args:
+
+        args: List of arguments to parse. Defaults to `sys.argv`.
+
+    Returns:
+
+        kwargs to pass to `bytewax.run_cluster()`.
+
+    &#34;&#34;&#34;
+    p = ArgumentParser()
+    p.add_argument(
+        &#34;-w&#34;,
+        dest=&#34;worker_count_per_proc&#34;,
+        type=int,
+        help=&#34;Number of worker threads per process&#34;,
+        default=1,
+    )
+    p.add_argument(
+        &#34;-n&#34;,
+        dest=&#34;proc_count&#34;,
+        type=int,
+        help=&#34;Number of processes to start&#34;,
+        default=1,
+    )
+    out = p.parse_args(args)
+
+    kwargs = {
+        &#34;proc_count&#34;: out.proc_count,
+        &#34;worker_count_per_proc&#34;: out.worker_count_per_proc,
+    }
+    return kwargs
+
+
+def proc_env(env: Dict[str, str] = os.environ) -&gt; Dict[str, Any]:
+    &#34;&#34;&#34;Parse environment variables to generate arguments for
+    `bytewax.cluster_main()` when you are manually launching a
+    cluster.
+
+    This is probably what you want to use in Kubernetes.
+
+    See documentation for `bytewax.cluster_main()` for semantics of
+    these variables.
+
+    The environment variables you need set are:
+
+    * `BYTEWAX_WORKERS_PER_PROCESS`
+
+    Then either:
+
+    * `BYTEWAX_ADDRESSES` - `;` separated list of &#34;host:port&#34;
+      addresses.
+
+    * `BYTEWAX_HOSTFILE_PATH` - Path to a file containing a list of
+      cluster addresses.
+
+    Then either:
+
+    * `BYTEWAX_PROCESS_ID`
+
+    * `BYTEWAX_POD_NAME` and `BYTEWAX_STATEFULSET_NAME` -
+      E.g. `cluster_name-0` and `cluster_name` and we will calculate
+      the process ID from that.
+
+    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+    &gt;&gt;&gt; from bytewax.inputs import AdvanceTo, Emit
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; def ib(i, n):
+    ...   for epoch, item in enumerate(range(3)):
+    ...     yield AdvanceTo(epoch)
+    ...     yield Emit(item)
+    &gt;&gt;&gt; ob = lambda i, n: print
+    &gt;&gt;&gt; env = {
+    ...     &#34;BYTEWAX_ADDRESSES&#34;: &#34;localhost:2101&#34;,
+    ...     &#34;BYTEWAX_PROCESS_ID&#34;: &#34;0&#34;,
+    ...     &#34;BYTEWAX_WORKERS_PER_PROCESS&#34;: &#34;2&#34;,
+    ... }
+    &gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_env(env))  # doctest: +ELLIPSIS
+    (...)
+
+    Args:
+
+        env: Environment variables. Defaults to `os.environ`.
+
+    Returns:
+
+        kwargs to pass to `bytewax.cluster_main()`.
+
+    &#34;&#34;&#34;
+    if &#34;BYTEWAX_ADDRESSES&#34; in env:
+        addresses = env[&#34;BYTEWAX_ADDRESSES&#34;].split(&#34;;&#34;)
+    else:
+        with open(env[&#34;BYTEWAX_HOSTFILE_PATH&#34;]) as hostfile:
+            addresses = [
+                address.strip() for address in hostfile if address.strip() != &#34;&#34;
+            ]
+
+    if &#34;BYTEWAX_PROCESS_ID&#34; in env:
+        proc_id = int(env[&#34;BYTEWAX_PROCESS_ID&#34;])
+    else:
+        proc_id = int(
+            env[&#34;BYTEWAX_POD_NAME&#34;].replace(env[&#34;BYTEWAX_STATEFULSET_NAME&#34;] + &#34;-&#34;, &#34;&#34;)
+        )
+
+    kwargs = {
+        &#34;worker_count_per_proc&#34;: int(env[&#34;BYTEWAX_WORKERS_PER_PROCESS&#34;]),
+        &#34;addresses&#34;: addresses,
+        &#34;proc_id&#34;: proc_id,
+    }
+    return kwargs
+
+
+def proc_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
+    &#34;&#34;&#34;Parse command line arguments to generate arguments for
+    `bytewax.cluster_main()` when you are manually launching a
+    cluster.
+
+    See documentation for `bytewax.cluster_main()` for semantics of
+    these variables.
+
+    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+    &gt;&gt;&gt; from bytewax.inputs import AdvanceTo, Emit
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; def ib(i, n):
+    ...   for epoch, item in enumerate(range(3)):
+    ...     yield AdvanceTo(epoch)
+    ...     yield Emit(item)
+    &gt;&gt;&gt; ob = lambda i, n: print
+    &gt;&gt;&gt; args = &#34;-w2 -p0 -a localhost:2101&#34;.split()
+    &gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS
+    (...)
+
+    Args:
+
+        args: List of arguments to parse. Defaults to `sys.argv`.
+
+    Returns:
+
+        kwargs to pass to `bytewax.cluster_main()`.
+
+    &#34;&#34;&#34;
+    p = ArgumentParser()
+    p.add_argument(
+        &#34;-w&#34;,
+        dest=&#34;worker_count_per_proc&#34;,
+        type=int,
+        help=&#34;Number of worker threads per process&#34;,
+        default=1,
+    )
+    p.add_argument(
+        &#34;-p&#34;,
+        dest=&#34;proc_id&#34;,
+        type=int,
+        required=True,
+        help=&#34;Index of this process in cluster, starts from 0&#34;,
+    )
+    p.add_argument(
+        &#34;-a&#34;,
+        dest=&#34;addresses&#34;,
+        action=&#34;append&#34;,
+        required=True,
+        help=(
+            &#34;Add the hostname:port address of every (including this) process in cluster&#34;
+        ),
+    )
+    out = p.parse_args(args)
+
+    kwargs = {
+        &#34;worker_count_per_proc&#34;: out.worker_count_per_proc,
+        &#34;addresses&#34;: out.addresses,
+        &#34;proc_id&#34;: out.proc_id,
+    }
+    return kwargs</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-functions">Functions</h2>
+<dl>
+<dt id="bytewax.parse.cluster_args"><code class="language-python name flex">
+<span>def <span class="ident">cluster_args</span></span>(<span>args: Iterable[str] = None) ‑> Dict[str, Any]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Parse command line arguments to generate arguments for
+<code>bytewax.run_cluster()</code>.</p>
+<p>See documentation for <code>bytewax.run_cluster()</code> for semantics of
+these variables.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, run_cluster
+&gt;&gt;&gt; from bytewax.testing import doctest_ctx
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; args = &quot;-w2 -n2&quot;.split()
+&gt;&gt;&gt; out = run_cluster(
+...     flow,
+...     enumerate(range(3)),
+...     mp_ctx=doctest_ctx,
+...     **cluster_args(args),
+... )
+&gt;&gt;&gt; sorted(out)
+[(0, 0), (1, 1), (2, 2)]
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>args</code></strong></dt>
+<dd>List of arguments to parse. Defaults to <code>sys.argv</code>.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>kwargs to pass to <code>bytewax.run_cluster()</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def cluster_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
+    &#34;&#34;&#34;Parse command line arguments to generate arguments for
+    `bytewax.run_cluster()`.
+
+    See documentation for `bytewax.run_cluster()` for semantics of
+    these variables.
+
+    &gt;&gt;&gt; from bytewax import Dataflow, run_cluster
+    &gt;&gt;&gt; from bytewax.testing import doctest_ctx
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; args = &#34;-w2 -n2&#34;.split()
+    &gt;&gt;&gt; out = run_cluster(
+    ...     flow,
+    ...     enumerate(range(3)),
+    ...     mp_ctx=doctest_ctx,
+    ...     **cluster_args(args),
+    ... )
+    &gt;&gt;&gt; sorted(out)
+    [(0, 0), (1, 1), (2, 2)]
+
+    Args:
+
+        args: List of arguments to parse. Defaults to `sys.argv`.
+
+    Returns:
+
+        kwargs to pass to `bytewax.run_cluster()`.
+
+    &#34;&#34;&#34;
+    p = ArgumentParser()
+    p.add_argument(
+        &#34;-w&#34;,
+        dest=&#34;worker_count_per_proc&#34;,
+        type=int,
+        help=&#34;Number of worker threads per process&#34;,
+        default=1,
+    )
+    p.add_argument(
+        &#34;-n&#34;,
+        dest=&#34;proc_count&#34;,
+        type=int,
+        help=&#34;Number of processes to start&#34;,
+        default=1,
+    )
+    out = p.parse_args(args)
+
+    kwargs = {
+        &#34;proc_count&#34;: out.proc_count,
+        &#34;worker_count_per_proc&#34;: out.worker_count_per_proc,
+    }
+    return kwargs</code></pre>
+</details>
+</dd>
+<dt id="bytewax.parse.proc_args"><code class="language-python name flex">
+<span>def <span class="ident">proc_args</span></span>(<span>args: Iterable[str] = None) ‑> Dict[str, Any]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Parse command line arguments to generate arguments for
+<code>bytewax.cluster_main()</code> when you are manually launching a
+cluster.</p>
+<p>See documentation for <code>bytewax.cluster_main()</code> for semantics of
+these variables.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+&gt;&gt;&gt; from bytewax.inputs import AdvanceTo, Emit
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; def ib(i, n):
+...   for epoch, item in enumerate(range(3)):
+...     yield AdvanceTo(epoch)
+...     yield Emit(item)
+&gt;&gt;&gt; ob = lambda i, n: print
+&gt;&gt;&gt; args = &quot;-w2 -p0 -a localhost:2101&quot;.split()
+&gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS
+(...)
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>args</code></strong></dt>
+<dd>List of arguments to parse. Defaults to <code>sys.argv</code>.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>kwargs to pass to <code>bytewax.cluster_main()</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def proc_args(args: Iterable[str] = None) -&gt; Dict[str, Any]:
+    &#34;&#34;&#34;Parse command line arguments to generate arguments for
+    `bytewax.cluster_main()` when you are manually launching a
+    cluster.
+
+    See documentation for `bytewax.cluster_main()` for semantics of
+    these variables.
+
+    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+    &gt;&gt;&gt; from bytewax.inputs import AdvanceTo, Emit
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; def ib(i, n):
+    ...   for epoch, item in enumerate(range(3)):
+    ...     yield AdvanceTo(epoch)
+    ...     yield Emit(item)
+    &gt;&gt;&gt; ob = lambda i, n: print
+    &gt;&gt;&gt; args = &#34;-w2 -p0 -a localhost:2101&#34;.split()
+    &gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_args(args))  # doctest: +ELLIPSIS
+    (...)
+
+    Args:
+
+        args: List of arguments to parse. Defaults to `sys.argv`.
+
+    Returns:
+
+        kwargs to pass to `bytewax.cluster_main()`.
+
+    &#34;&#34;&#34;
+    p = ArgumentParser()
+    p.add_argument(
+        &#34;-w&#34;,
+        dest=&#34;worker_count_per_proc&#34;,
+        type=int,
+        help=&#34;Number of worker threads per process&#34;,
+        default=1,
+    )
+    p.add_argument(
+        &#34;-p&#34;,
+        dest=&#34;proc_id&#34;,
+        type=int,
+        required=True,
+        help=&#34;Index of this process in cluster, starts from 0&#34;,
+    )
+    p.add_argument(
+        &#34;-a&#34;,
+        dest=&#34;addresses&#34;,
+        action=&#34;append&#34;,
+        required=True,
+        help=(
+            &#34;Add the hostname:port address of every (including this) process in cluster&#34;
+        ),
+    )
+    out = p.parse_args(args)
+
+    kwargs = {
+        &#34;worker_count_per_proc&#34;: out.worker_count_per_proc,
+        &#34;addresses&#34;: out.addresses,
+        &#34;proc_id&#34;: out.proc_id,
+    }
+    return kwargs</code></pre>
+</details>
+</dd>
+<dt id="bytewax.parse.proc_env"><code class="language-python name flex">
+<span>def <span class="ident">proc_env</span></span>(<span>env: Dict[str, str] = os.environ) ‑> Dict[str, Any]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Parse environment variables to generate arguments for
+<code>bytewax.cluster_main()</code> when you are manually launching a
+cluster.</p>
+<p>This is probably what you want to use in Kubernetes.</p>
+<p>See documentation for <code>bytewax.cluster_main()</code> for semantics of
+these variables.</p>
+<p>The environment variables you need set are:</p>
+<ul>
+<li><code>BYTEWAX_WORKERS_PER_PROCESS</code></li>
+</ul>
+<p>Then either:</p>
+<ul>
+<li>
+<p><code>BYTEWAX_ADDRESSES</code> - <code>;</code> separated list of "host:port"
+addresses.</p>
+</li>
+<li>
+<p><code>BYTEWAX_HOSTFILE_PATH</code> - Path to a file containing a list of
+cluster addresses.</p>
+</li>
+</ul>
+<p>Then either:</p>
+<ul>
+<li>
+<p><code>BYTEWAX_PROCESS_ID</code></p>
+</li>
+<li>
+<p><code>BYTEWAX_POD_NAME</code> and <code>BYTEWAX_STATEFULSET_NAME</code> -
+E.g. <code>cluster_name-0</code> and <code>cluster_name</code> and we will calculate
+the process ID from that.</p>
+</li>
+</ul>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+&gt;&gt;&gt; from bytewax.inputs import AdvanceTo, Emit
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.capture()
+&gt;&gt;&gt; def ib(i, n):
+...   for epoch, item in enumerate(range(3)):
+...     yield AdvanceTo(epoch)
+...     yield Emit(item)
+&gt;&gt;&gt; ob = lambda i, n: print
+&gt;&gt;&gt; env = {
+...     &quot;BYTEWAX_ADDRESSES&quot;: &quot;localhost:2101&quot;,
+...     &quot;BYTEWAX_PROCESS_ID&quot;: &quot;0&quot;,
+...     &quot;BYTEWAX_WORKERS_PER_PROCESS&quot;: &quot;2&quot;,
+... }
+&gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_env(env))  # doctest: +ELLIPSIS
+(...)
+</code></pre>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>env</code></strong></dt>
+<dd>Environment variables. Defaults to <code>os.environ</code>.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>kwargs to pass to <code>bytewax.cluster_main()</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def proc_env(env: Dict[str, str] = os.environ) -&gt; Dict[str, Any]:
+    &#34;&#34;&#34;Parse environment variables to generate arguments for
+    `bytewax.cluster_main()` when you are manually launching a
+    cluster.
+
+    This is probably what you want to use in Kubernetes.
+
+    See documentation for `bytewax.cluster_main()` for semantics of
+    these variables.
+
+    The environment variables you need set are:
+
+    * `BYTEWAX_WORKERS_PER_PROCESS`
+
+    Then either:
+
+    * `BYTEWAX_ADDRESSES` - `;` separated list of &#34;host:port&#34;
+      addresses.
+
+    * `BYTEWAX_HOSTFILE_PATH` - Path to a file containing a list of
+      cluster addresses.
+
+    Then either:
+
+    * `BYTEWAX_PROCESS_ID`
+
+    * `BYTEWAX_POD_NAME` and `BYTEWAX_STATEFULSET_NAME` -
+      E.g. `cluster_name-0` and `cluster_name` and we will calculate
+      the process ID from that.
+
+    &gt;&gt;&gt; from bytewax import Dataflow, cluster_main
+    &gt;&gt;&gt; from bytewax.inputs import AdvanceTo, Emit
+    &gt;&gt;&gt; flow = Dataflow()
+    &gt;&gt;&gt; flow.capture()
+    &gt;&gt;&gt; def ib(i, n):
+    ...   for epoch, item in enumerate(range(3)):
+    ...     yield AdvanceTo(epoch)
+    ...     yield Emit(item)
+    &gt;&gt;&gt; ob = lambda i, n: print
+    &gt;&gt;&gt; env = {
+    ...     &#34;BYTEWAX_ADDRESSES&#34;: &#34;localhost:2101&#34;,
+    ...     &#34;BYTEWAX_PROCESS_ID&#34;: &#34;0&#34;,
+    ...     &#34;BYTEWAX_WORKERS_PER_PROCESS&#34;: &#34;2&#34;,
+    ... }
+    &gt;&gt;&gt; cluster_main(flow, ib, ob, **proc_env(env))  # doctest: +ELLIPSIS
+    (...)
+
+    Args:
+
+        env: Environment variables. Defaults to `os.environ`.
+
+    Returns:
+
+        kwargs to pass to `bytewax.cluster_main()`.
+
+    &#34;&#34;&#34;
+    if &#34;BYTEWAX_ADDRESSES&#34; in env:
+        addresses = env[&#34;BYTEWAX_ADDRESSES&#34;].split(&#34;;&#34;)
+    else:
+        with open(env[&#34;BYTEWAX_HOSTFILE_PATH&#34;]) as hostfile:
+            addresses = [
+                address.strip() for address in hostfile if address.strip() != &#34;&#34;
+            ]
+
+    if &#34;BYTEWAX_PROCESS_ID&#34; in env:
+        proc_id = int(env[&#34;BYTEWAX_PROCESS_ID&#34;])
+    else:
+        proc_id = int(
+            env[&#34;BYTEWAX_POD_NAME&#34;].replace(env[&#34;BYTEWAX_STATEFULSET_NAME&#34;] + &#34;-&#34;, &#34;&#34;)
+        )
+
+    kwargs = {
+        &#34;worker_count_per_proc&#34;: int(env[&#34;BYTEWAX_WORKERS_PER_PROCESS&#34;]),
+        &#34;addresses&#34;: addresses,
+        &#34;proc_id&#34;: proc_id,
+    }
+    return kwargs</code></pre>
+</details>
+</dd>
+</dl>
+</section>
+<section>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax" href="/apidocs/">bytewax</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.parse.cluster_args" href="/apidocs/bytewax.parse#bytewax.parse.cluster_args">cluster_args</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.parse.proc_args" href="/apidocs/bytewax.parse#bytewax.parse.proc_args">proc_args</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.parse.proc_env" href="/apidocs/bytewax.parse#bytewax.parse.proc_env">proc_env</a></li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
