@@ -5,6 +5,8 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Added Google Colab support.
+
 ## 0.13.0
 
 - Added tracing instrumentation and configurations for tracing backends.
