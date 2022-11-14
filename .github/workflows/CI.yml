@@ -165,7 +165,7 @@ jobs:
     name: Store wheels in S3
     runs-on: ubuntu-latest
     if: "github.ref == 'refs/heads/main'"
-    needs: [ linux, macos_x86, macos_arm64 ]
+    needs: [ linux, linux_glibc_227_colab, macos_x86, macos_arm64 ]
     steps:
       - uses: actions/download-artifact@v2
         with:
