@@ -1,0 +1,47 @@
+FROM ubuntu:18.04
+
+# Install Python 3.7
+RUN apt update
+RUN apt install software-properties-common -y
+RUN add-apt-repository ppa:deadsnakes/ppa
+RUN apt install python3.7 -y
+RUN python3.7 --version
+
+# Install pip and venv
+RUN apt install python3-pip -y
+RUN apt-get install python3.7-venv -y
+
+# Install cargo
+RUN apt install curl -y
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN cargo --version
+
+# Install maturin in environment
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3.7 -m venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+RUN pip install maturin
+RUN python3.7 -m pip install --upgrade pip
+RUN maturin --help
+
+# Install cmake
+RUN apt install wget -y
+RUN wget https://cmake.org/files/v3.22/cmake-3.22.1.tar.gz
+RUN tar -xvf cmake-3.22.1.tar.gz
+RUN apt install libssl-dev libsasl2-dev pkg-config openssl protobuf-compiler -y
+RUN cd cmake-3.22.1/ && ./bootstrap && make && make install
+RUN cmake --version
+
+# Install patchelf
+RUN wget https://github.com/NixOS/patchelf/releases/download/0.14.5/patchelf-0.14.5-x86_64.tar.gz
+RUN mkdir patchelf-0.14.5-x86_64
+RUN tar -xvf patchelf-0.14.5-x86_64.tar.gz -C ./patchelf-0.14.5-x86_64
+RUN cd patchelf-0.14.5-x86_64 && cp ./bin/patchelf /usr/local/bin/
+RUN patchelf --version
+
+# Install CI needed libraries
+RUN apt-get install librdkafka-dev -y
+RUN apt install python3.7-dev -y
+RUN pip install dill
+RUN apt install git -y
