@@ -53,6 +53,31 @@ jobs:
         name: wheels
         path: dist
 
+  linux_glibc_227_colab:
+    runs-on: ubuntu-latest
+    container: bytewax/glib-2.27-builder:v0
+    steps:
+    - uses: actions/checkout@v2
+    - name: Rust Toolchain
+      run: |
+        rustup default 1.61
+    - name: Cargo Test
+      run: |
+        cargo test --no-default-features
+    - name: Build wheel
+      run: |
+        maturin build --release -o dist
+    - name: Pytest
+      run: |
+        WHEEL_FILE=$(ls ./dist/*.whl)
+        pip install $WHEEL_FILE'[dev]' -v
+        pytest
+    - name: Upload wheels
+      uses: actions/upload-artifact@v2
+      with:
+        name: wheels
+        path: dist
+
   macos_x86:
     runs-on: macos-latest
     strategy:
@@ -140,7 +165,7 @@ jobs:
     name: Store wheels in S3
     runs-on: ubuntu-latest
     if: "github.ref == 'refs/heads/main'"
-    needs: [ linux, macos_x86, macos_arm64 ]
+    needs: [ linux, linux_glibc_227_colab, macos_x86, macos_arm64 ]
     steps:
       - uses: actions/download-artifact@v2
         with:
