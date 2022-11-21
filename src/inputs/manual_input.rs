@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::task::Poll;
 
 use crate::execution::WorkerIndex;
-use crate::pickle_extract;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyCoroIterator};
 use crate::recovery::model::StateBytes;
-use crate::{common::StringResult, py_unwrap, try_unwrap};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use crate::{
+    common::{pickle_extract, StringResult},
+    py_unwrap, try_unwrap,
+};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -90,7 +92,7 @@ impl ManualInputConfig {
     /// Unpickle from a PyDict of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         let dict: &PyDict = state.downcast()?;
-        pickle_extract!(self, dict, input_builder);
+        self.input_builder = pickle_extract(dict, "input_builder")?;
         Ok(())
     }
 }

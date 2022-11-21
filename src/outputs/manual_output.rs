@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
-use pyo3::{exceptions::PyValueError, prelude::*, types::PyDict};
+use pyo3::{prelude::*, types::PyDict};
 
 use crate::{
+    common::pickle_extract,
     execution::WorkerIndex,
     pyo3_extensions::{TdPyAny, TdPyCallable},
-    unwrap_any, pickle_extract,
+    unwrap_any,
 };
 
 use super::{OutputBuilder, OutputConfig, OutputWriter};
@@ -74,7 +75,7 @@ impl ManualOutputConfig {
     /// Unpickle from a PyDict
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         let dict: &PyDict = state.downcast()?;
-        pickle_extract!(self, dict, output_builder);
+        self.output_builder = pickle_extract(dict, "output_builder")?;
         Ok(())
     }
 }

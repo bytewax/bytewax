@@ -9,9 +9,9 @@ use opentelemetry::{
     KeyValue,
 };
 use opentelemetry_otlp::WithExportConfig;
-use pyo3::{prelude::*, exceptions::PyValueError, types::PyDict};
+use pyo3::{prelude::*, types::PyDict};
 
-use crate::{common::StringResult, pickle_extract};
+use crate::common::{pickle_extract, StringResult};
 
 use super::{TracerBuilder, TracingConfig};
 
@@ -109,9 +109,9 @@ impl OtlpTracingConfig {
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         let dict: &PyDict = state.downcast()?;
-        pickle_extract!(self, dict, service_name);
-        pickle_extract!(self, dict, url);
-        pickle_extract!(self, dict, sampling_ratio);
+        self.service_name = pickle_extract(dict, "service_name")?;
+        self.url = pickle_extract(dict, "url")?;
+        self.sampling_ratio = pickle_extract(dict, "sampling_ratio")?;
         Ok(())
     }
 }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use pyo3::{prelude::*, exceptions::PyValueError};
+use pyo3::prelude::*;
 
 use crate::{
     common::StringResult,
@@ -43,7 +43,7 @@ impl ClockConfig {
     /// Return a representation of this class as a PyDict.
     fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
         Python::with_gil(|py| HashMap::from([("type", "ClockConfig".into_py(py))]))
-    }    
+    }
 
     /// Unpickle from a PyDict.
     fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {

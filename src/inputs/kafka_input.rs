@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::task::Poll;
 use std::time::Duration;
 
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict};
 
@@ -16,9 +15,8 @@ use rdkafka::{Offset, TopicPartitionList};
 use send_wrapper::SendWrapper;
 use serde::{Deserialize, Serialize};
 
-use crate::common::StringResult;
+use crate::common::{pickle_extract, StringResult};
 use crate::execution::WorkerIndex;
-use crate::pickle_extract;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::model::StateBytes;
 
@@ -155,11 +153,11 @@ impl KafkaInputConfig {
     /// Unpickle from a PyDict of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         let dict: &PyDict = state.downcast()?;
-        pickle_extract!(self, dict, brokers);
-        pickle_extract!(self, dict, topic);
-        pickle_extract!(self, dict, tail);
-        pickle_extract!(self, dict, starting_offset);
-        pickle_extract!(self, dict, additional_properties);                                
+        self.brokers = pickle_extract(dict, "brokers")?;
+        self.topic = pickle_extract(dict, "topic")?;
+        self.tail = pickle_extract(dict, "tail")?;
+        self.starting_offset = pickle_extract(dict, "starting_offset")?;
+        self.additional_properties = pickle_extract(dict, "additional_properties")?;
         Ok(())
     }
 }

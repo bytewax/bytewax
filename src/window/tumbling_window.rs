@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Duration, Utc};
-use pyo3::{exceptions::PyValueError, prelude::*, types::PyDict};
+use pyo3::{prelude::*, types::PyDict};
 
-use crate::pickle_extract;
+use crate::common::pickle_extract;
 
 use super::*;
 
@@ -69,8 +69,8 @@ impl TumblingWindowConfig {
     /// Unpickle from a PyDict
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         let dict: &PyDict = state.downcast()?;
-        pickle_extract!(self, dict, length);
-        pickle_extract!(self, dict, start_at);
+        self.length = pickle_extract(dict, "length")?;
+        self.start_at = pickle_extract(dict, "start_at")?;
         Ok(())
     }
 }

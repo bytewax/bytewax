@@ -11,9 +11,9 @@
 
 use std::collections::HashMap;
 
+use crate::common::{pickle_extract, step_extract};
 use crate::inputs::InputConfig;
 use crate::outputs::OutputConfig;
-use crate::pickle_extract;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::model::StepId;
 use crate::window::clock::ClockConfig;
@@ -57,7 +57,7 @@ impl Dataflow {
     /// Unpickle from a PyDict of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         let dict: &PyDict = state.downcast()?;
-        pickle_extract!(self, dict, steps);
+        self.steps = pickle_extract(dict, "steps")?;
         Ok(())
     }
 
@@ -697,124 +697,55 @@ pub(crate) enum Step {
 impl<'source> FromPyObject<'source> for Step {
     fn extract(obj: &'source PyAny) -> PyResult<Self> {
         let dict: &PyDict = obj.downcast()?;
-        let t: &str = dict
+        let step: &str = dict
             .get_item("type")
             .expect("Unable to extract step, missing `type` field.")
             .extract()?;
-        match t {
+        match step {
             "Input" => Ok(Self::Input {
-                step_id: dict
-                    .get_item("step_id")
-                    .expect("unable to extract step_id")
-                    .extract()?,
-                input_config: dict
-                    .get_item("input_config")
-                    .expect("unable to extract input_config")
-                    .extract()?,
+                step_id: step_extract(dict, "step_id")?,
+                input_config: step_extract(dict, "input_config")?,
             }),
             "Map" => Ok(Self::Map {
-                mapper: dict
-                    .get_item("mapper")
-                    .expect("unable to extract `mapper`")
-                    .extract()?,
+                mapper: step_extract(dict, "mapper")?,
             }),
             "FlatMap" => Ok(Self::FlatMap {
-                mapper: dict
-                    .get_item("mapper")
-                    .expect("unable to extract `mapper`")
-                    .extract()?,
+                mapper: step_extract(dict, "mapper")?,
             }),
             "Filter" => Ok(Self::Filter {
-                predicate: dict
-                    .get_item("predicate")
-                    .expect("unable to extract `predicate`")
-                    .extract()?,
+                predicate: step_extract(dict, "predicate")?,
             }),
             "FoldWindow" => Ok(Self::FoldWindow {
-                step_id: dict
-                    .get_item("step_id")
-                    .expect("`step_id` key not found in dict")
-                    .extract()?,
-                clock_config: dict
-                    .get_item("clock_config")
-                    .expect("`clock_config` key not found in dict")
-                    .extract()?,
-                window_config: dict
-                    .get_item("window_config")
-                    .expect("`window_config` key not found in dict")
-                    .extract()?,
-                builder: dict
-                    .get_item("builder")
-                    .expect("`builder` key not found in dict")
-                    .extract()?,
-                folder: dict
-                    .get_item("folder")
-                    .expect("`folder` key not found in dict")
-                    .extract()?,
+                step_id: step_extract(dict, "step_id")?,
+                clock_config: step_extract(dict, "clock_config")?,
+                window_config: step_extract(dict, "window_config")?,
+                builder: step_extract(dict, "builder")?,
+                folder: step_extract(dict, "folder")?,
             }),
             "Inspect" => Ok(Self::Inspect {
-                inspector: dict
-                    .get_item("inspector")
-                    .expect("`inspector` key not found in dict")
-                    .extract()?,
+                inspector: step_extract(dict, "inspector")?,
             }),
             "InspectEpoch" => Ok(Self::InspectEpoch {
-                inspector: dict
-                    .get_item("inspector")
-                    .expect("`inspector` key not found in dict")
-                    .extract()?,
+                inspector: step_extract(dict, "inspector")?,
             }),
             "Reduce" => Ok(Self::Reduce {
-                step_id: dict
-                    .get_item("step_id")
-                    .expect("`step_id` key not found in dict")
-                    .extract()?,
-                reducer: dict
-                    .get_item("reducer")
-                    .expect("`reducer` key not found in dict")
-                    .extract()?,
-                is_complete: dict
-                    .get_item("is_complete")
-                    .expect("`is_complete` key not found in dict")
-                    .extract()?,
+                step_id: step_extract(dict, "step_id")?,
+                reducer: step_extract(dict, "reducer")?,
+                is_complete: step_extract(dict, "is_complete")?,
             }),
             "ReduceWindow" => Ok(Self::ReduceWindow {
-                step_id: dict
-                    .get_item("step_id")
-                    .expect("`step_id` key not found in dict")
-                    .extract()?,
-                clock_config: dict
-                    .get_item("clock_config")
-                    .expect("`clock_config` key not found in dict")
-                    .extract()?,
-                window_config: dict
-                    .get_item("window_config")
-                    .expect("`window_config` key not found in dict")
-                    .extract()?,
-                reducer: dict
-                    .get_item("reducer")
-                    .expect("`reducer` key not found in dict")
-                    .extract()?,
+                step_id: step_extract(dict, "step_id")?,
+                clock_config: step_extract(dict, "clock_config")?,
+                window_config: step_extract(dict, "window_config")?,
+                reducer: step_extract(dict, "reducer")?,
             }),
             "StatefulMap" => Ok(Self::StatefulMap {
-                step_id: dict
-                    .get_item("step_id")
-                    .expect("`step_id` key not found in dict")
-                    .extract()?,
-                builder: dict
-                    .get_item("builder")
-                    .expect("`builder` key not found in dict")
-                    .extract()?,
-                mapper: dict
-                    .get_item("mapper")
-                    .expect("`mapper` key not found in dict")
-                    .extract()?,
+                step_id: step_extract(dict, "step_id")?,
+                builder: step_extract(dict, "builder")?,
+                mapper: step_extract(dict, "mapper")?,
             }),
             "Capture" => Ok(Self::Capture {
-                output_config: dict
-                    .get_item("output_config")
-                    .expect("`output_config` key not found in dict")
-                    .extract()?,
+                output_config: step_extract(dict, "output_config")?,
             }),
             &_ => Err(PyValueError::new_err(format!(
                 "bad python repr when unpickling Step: {dict:?}"

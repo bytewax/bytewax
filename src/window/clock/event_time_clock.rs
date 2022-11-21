@@ -4,8 +4,9 @@ use chrono::{DateTime, Utc};
 use pyo3::{prelude::*, types::PyDict};
 
 use crate::{
+    common::pickle_extract,
     pyo3_extensions::{TdPyAny, TdPyCallable},
-    window::clock::ClockConfig, pickle_extract,
+    window::clock::ClockConfig,
 };
 
 use super::*;
@@ -111,8 +112,8 @@ impl EventClockConfig {
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         let dict: &PyDict = state.downcast()?;
-        pickle_extract!(self, dict, dt_getter);
-        pickle_extract!(self, dict, wait_for_system_duration);        
+        self.dt_getter = pickle_extract(dict, "dt_getter")?;
+        self.wait_for_system_duration = pickle_extract(dict, "wait_for_system_duration")?;
         Ok(())
     }
 }

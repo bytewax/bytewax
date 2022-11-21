@@ -48,11 +48,7 @@ impl TracingConfig {
     }
     /// Return a representation of this class as a PyDict.
     fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| {        
-            HashMap::from([
-                ("type", "TracingConfig".into_py(py))
-            ])
-        })
+        Python::with_gil(|py| HashMap::from([("type", "TracingConfig".into_py(py))]))
     }
 
     /// Unpickle from a PyDict.

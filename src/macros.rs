@@ -87,17 +87,3 @@ macro_rules! log_func {
         &name[..name.len() - 3]
     }};
 }
-
-#[macro_export]
-macro_rules! pickle_extract {
-    ($self: ident, $pydict:expr, $attr_name:ident) => {
-        $self.$attr_name = $pydict
-            .get_item(stringify!($attr_name))
-            .ok_or_else(|| {
-                PyValueError::new_err(format!(
-                    "bad pickle contents for {}: {}",
-                    stringify!($attr_name), $pydict
-                ))
-            })?.extract()?;
-    };
-}

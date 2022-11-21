@@ -4,9 +4,9 @@ use opentelemetry::{
     runtime::Tokio,
     sdk::trace::{config, Sampler, Tracer},
 };
-use pyo3::{exceptions::PyValueError, prelude::*, types::PyDict};
+use pyo3::{prelude::*, types::PyDict};
 
-use crate::{common::StringResult, pickle_extract};
+use crate::common::{pickle_extract, StringResult};
 
 use super::{TracerBuilder, TracingConfig};
 
@@ -96,9 +96,9 @@ impl JaegerConfig {
     /// Unpickle from a PyDict.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         let dict: &PyDict = state.downcast()?;
-        pickle_extract!(self, dict, service_name);
-        pickle_extract!(self, dict, endpoint);
-        pickle_extract!(self, dict, sampling_ratio);
+        self.service_name = pickle_extract(dict, "service_name")?;
+        self.endpoint = pickle_extract(dict, "endpoint")?;
+        self.sampling_ratio = pickle_extract(dict, "sampling_ratio")?;
         Ok(())
     }
 }

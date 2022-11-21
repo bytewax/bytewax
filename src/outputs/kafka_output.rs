@@ -1,11 +1,7 @@
-use crate::{py_unwrap, pickle_extract};
 use crate::pyo3_extensions::TdPyAny;
+use crate::{common::pickle_extract, py_unwrap};
 use pyo3::types::PyDict;
-use pyo3::{
-    exceptions::{PyTypeError, PyValueError},
-    prelude::*,
-    types::PyBytes,
-};
+use pyo3::{exceptions::PyTypeError, prelude::*, types::PyBytes};
 use rdkafka::{
     producer::{BaseProducer, BaseRecord, Producer},
     ClientConfig,
@@ -93,7 +89,10 @@ impl KafkaOutputConfig {
                 ("type", "KafkaOutputConfig".into_py(py)),
                 ("brokers", self.brokers.clone().into_py(py)),
                 ("topic", self.topic.clone().into_py(py)),
-                ("additional_properties", self.additional_properties.clone().into_py(py))
+                (
+                    "additional_properties",
+                    self.additional_properties.clone().into_py(py),
+                ),
             ])
         })
     }
@@ -107,9 +106,9 @@ impl KafkaOutputConfig {
     /// Unpickle from a PyDict.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         let dict: &PyDict = state.downcast()?;
-        pickle_extract!(self, dict, brokers);
-        pickle_extract!(self, dict, topic);
-        pickle_extract!(self, dict, additional_properties);
+        self.brokers = pickle_extract(dict, "brokers")?;
+        self.topic = pickle_extract(dict, "topic")?;
+        self.additional_properties = pickle_extract(dict, "additional_properties")?;
         Ok(())
     }
 }

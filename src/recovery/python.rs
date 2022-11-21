@@ -6,8 +6,7 @@ use super::model::*;
 use super::store::kafka::*;
 use super::store::noop::*;
 use super::store::sqlite::*;
-use crate::common::StringResult;
-use crate::pickle_extract;
+use crate::common::{pickle_extract, StringResult};
 use pyo3::exceptions::*;
 use pyo3::prelude::*;
 use pyo3::types::*;
@@ -43,7 +42,7 @@ impl RecoveryConfig {
     /// Return a representation of this class as a PyDict.
     fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
         Python::with_gil(|py| HashMap::from([("type", "RecoveryConfig".into_py(py))]))
-    }    
+    }
 
     /// Unpickle from a PyDict.
     fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
@@ -69,7 +68,7 @@ impl NoopRecoveryConfig {
     /// Return a representation of this class as a PyDict.
     fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
         Python::with_gil(|py| HashMap::from([("type", "NoopRecoveryConfig".into_py(py))]))
-    }    
+    }
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
@@ -134,10 +133,10 @@ impl SqliteRecoveryConfig {
         Python::with_gil(|py| {
             HashMap::from([
                 ("type", "SqliteRecoveryConfig".into_py(py)),
-                ("db_dir", self.db_dir.clone().into_py(py))
+                ("db_dir", self.db_dir.clone().into_py(py)),
             ])
         })
-    }    
+    }
 
     /// Egregious hack because pickling assumes the type has "empty"
     /// mutable objects.
@@ -153,7 +152,7 @@ impl SqliteRecoveryConfig {
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         let dict: &PyDict = state.downcast()?;
-        pickle_extract!(self, dict, db_dir);
+        self.db_dir = pickle_extract(dict, "db_dir")?;
         Ok(())
     }
 }
@@ -237,7 +236,7 @@ impl KafkaRecoveryConfig {
             HashMap::from([
                 ("type", "KafkaRecoveryConfig".into_py(py)),
                 ("brokers", self.brokers.clone().into_py(py)),
-                ("topic_prefix", self.topic_prefix.clone().into_py(py))
+                ("topic_prefix", self.topic_prefix.clone().into_py(py)),
             ])
         })
     }
@@ -250,8 +249,8 @@ impl KafkaRecoveryConfig {
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         let dict: &PyDict = state.downcast()?;
-        pickle_extract!(self, dict, brokers);
-        pickle_extract!(self, dict, topic_prefix);
+        self.brokers = pickle_extract(dict, "brokers")?;
+        self.topic_prefix = pickle_extract(dict, "topic_prefix")?;
         Ok(())
     }
 }

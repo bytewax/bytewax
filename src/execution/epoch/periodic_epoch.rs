@@ -2,18 +2,15 @@ use std::collections::HashMap;
 use std::task::Poll;
 use std::time::Instant;
 
-use pyo3::exceptions::PyValueError;
-use pyo3::prelude::*;
-use pyo3::PyResult;
-use pyo3::types::PyDict;
+use pyo3::{prelude::*, types::PyDict};
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
 
+use crate::common::pickle_extract;
 use crate::common::StringResult;
 use crate::inputs::InputReader;
-use crate::pickle_extract;
 use crate::recovery::model::*;
 use crate::recovery::operators::FlowChangeStream;
 
@@ -51,10 +48,10 @@ impl PeriodicEpochConfig {
 
     /// Return a representation of this class as a PyDict.
     fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| {        
+        Python::with_gil(|py| {
             HashMap::from([
                 ("type", "PeriodicEpochConfig".into_py(py)),
-                ("epoch_length", self.epoch_length.into_py(py))
+                ("epoch_length", self.epoch_length.into_py(py)),
             ])
         })
     }
@@ -67,7 +64,7 @@ impl PeriodicEpochConfig {
     /// Unpickle from a PyDict.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         let dict: &PyDict = state.downcast()?;
-        pickle_extract!(self, dict, epoch_length);
+        self.epoch_length = pickle_extract(dict, "epoch_length")?;
         Ok(())
     }
 }
