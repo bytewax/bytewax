@@ -16,6 +16,15 @@ def acc_values(acc, event):
     return acc
 
 
+# Example class to be encoded
+class OrderBook:
+    def __init__(self):
+        self.data = []
+
+    def update(self, data):
+        self.data.append(data)
+
+
 @pytest.mark.parametrize(
     ["step", "output"],
     [
@@ -61,6 +70,16 @@ def acc_values(acc, event):
                 },
             },
         ),
+        (
+            "stateful_map",
+            {
+                "builder": "<lambda>",
+                "mapper": "update",
+                "step_id": "order_book",
+                "type": "StatefulMap",
+            },
+        ),
+        ("method_descriptor", {"type": "Map", "mapper": "split"}),
     ],
 )
 def test_dataflow_encoding(step, output):
@@ -70,6 +89,10 @@ def test_dataflow_encoding(step, output):
         flow.input("inp", ManualInputConfig(lambda: inp))
     elif step == "map":
         flow.map(lambda x: x + 1)
+    elif step == "method_descriptor":
+        flow.map(str.split)
+    elif step == "stateful_map":
+        flow.stateful_map("order_book", lambda key: OrderBook(), OrderBook.update)
     elif step == "flatmap":
         flow.flat_map(lambda x: x + 1)
     elif step == "filter":

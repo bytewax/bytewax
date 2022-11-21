@@ -42,7 +42,11 @@ class DataflowEncoder(json.JSONEncoder):
             return obj.__getstate__()
         if isinstance(obj, types.BuiltinFunctionType):
             return obj.__name__
+        if isinstance(obj, types.MethodDescriptorType):
+            return obj.__name__
         if isinstance(obj, types.FunctionType):
+            return obj.__name__
+        if isinstance(obj, types.BuiltinMethodType):
             return obj.__name__
         if isinstance(obj, (datetime.date, datetime.datetime)):
             return obj.isoformat()
@@ -50,7 +54,10 @@ class DataflowEncoder(json.JSONEncoder):
             return str(obj)
 
         # Call the default encoder method for any other instance types.
-        return json.JSONEncoder.default(self, obj)
+        try:
+            return json.JSONEncoder.default(self, obj)
+        except TypeError as err:
+            raise TypeError(f"{obj} can not be JSON encoded: {err}")
 
 
 def encode_dataflow(dataflow: Dataflow):
