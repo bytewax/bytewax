@@ -9,6 +9,9 @@
 //! We can't call into this structure directly from Timely because PyO3 does
 //! not like generics.
 
+use std::collections::HashMap;
+
+use crate::common::pickle_extract;
 use crate::inputs::InputConfig;
 use crate::outputs::OutputConfig;
 use crate::pyo3_extensions::TdPyCallable;
@@ -28,7 +31,9 @@ use pyo3::types::*;
 // TODO: Right now this is just a linear dataflow only.
 #[pyclass(module = "bytewax.dataflow")]
 #[pyo3(text_signature = "()")]
+#[derive(Clone)]
 pub(crate) struct Dataflow {
+    #[pyo3(get)]
     pub(crate) steps: Vec<Step>,
 }
 
@@ -39,19 +44,21 @@ impl Dataflow {
         Self { steps: Vec::new() }
     }
 
-    fn __getstate__(&self) -> (&str, Vec<Step>) {
-        ("Dataflow", self.steps.clone())
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {
+            HashMap::from([
+                ("type", "Dataflow".into_py(py)),
+                ("steps", self.steps.clone().into_py(py)),
+            ])
+        })
     }
 
+    /// Unpickle from a PyDict of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("Dataflow", steps)) = state.extract() {
-            self.steps = steps;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for Dataflow: {state:?}"
-            )))
-        }
+        let dict: &PyDict = state.downcast()?;
+        self.steps = pickle_extract(dict, "steps")?;
+        Ok(())
     }
 
     /// Input introduces data into the dataflow.
@@ -684,64 +691,65 @@ pub(crate) enum Step {
     },
 }
 
-/// Decode Steps from Python (name, funcs...) tuples.
+/// Decode Steps from Python (name, funcs...) dict.
 ///
 /// Required for pickling.
 impl<'source> FromPyObject<'source> for Step {
     fn extract(obj: &'source PyAny) -> PyResult<Self> {
-        let tuple: &PySequence = obj.downcast()?;
-        if let Ok(("Input", step_id, input_config)) = tuple.extract() {
-            Ok(Self::Input {
-                step_id,
-                input_config,
-            })
-        } else if let Ok(("Map", mapper)) = tuple.extract() {
-            Ok(Self::Map { mapper })
-        } else if let Ok(("FlatMap", mapper)) = tuple.extract() {
-            Ok(Self::FlatMap { mapper })
-        } else if let Ok(("Filter", predicate)) = tuple.extract() {
-            Ok(Self::Filter { predicate })
-        } else if let Ok(("FoldWindow", step_id, clock_config, window_config, builder, folder)) =
-            tuple.extract()
-        {
-            Ok(Self::FoldWindow {
-                step_id,
-                clock_config,
-                window_config,
-                builder,
-                folder,
-            })
-        } else if let Ok(("Inspect", inspector)) = tuple.extract() {
-            Ok(Self::Inspect { inspector })
-        } else if let Ok(("InspectEpoch", inspector)) = tuple.extract() {
-            Ok(Self::InspectEpoch { inspector })
-        } else if let Ok(("Reduce", step_id, reducer, is_complete)) = tuple.extract() {
-            Ok(Self::Reduce {
-                step_id,
-                reducer,
-                is_complete,
-            })
-        } else if let Ok(("ReduceWindow", step_id, clock_config, window_config, reducer)) =
-            tuple.extract()
-        {
-            Ok(Self::ReduceWindow {
-                step_id,
-                clock_config,
-                window_config,
-                reducer,
-            })
-        } else if let Ok(("StatefulMap", step_id, builder, mapper)) = tuple.extract() {
-            Ok(Self::StatefulMap {
-                step_id,
-                builder,
-                mapper,
-            })
-        } else if let Ok(("Capture", output_config)) = tuple.extract() {
-            Ok(Self::Capture { output_config })
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad python repr when unpickling Step: {obj:?}"
-            )))
+        let dict: &PyDict = obj.downcast()?;
+        let step: &str = dict
+            .get_item("type")
+            .expect("Unable to extract step, missing `type` field.")
+            .extract()?;
+        match step {
+            "Input" => Ok(Self::Input {
+                step_id: pickle_extract(dict, "step_id")?,
+                input_config: pickle_extract(dict, "input_config")?,
+            }),
+            "Map" => Ok(Self::Map {
+                mapper: pickle_extract(dict, "mapper")?,
+            }),
+            "FlatMap" => Ok(Self::FlatMap {
+                mapper: pickle_extract(dict, "mapper")?,
+            }),
+            "Filter" => Ok(Self::Filter {
+                predicate: pickle_extract(dict, "predicate")?,
+            }),
+            "FoldWindow" => Ok(Self::FoldWindow {
+                step_id: pickle_extract(dict, "step_id")?,
+                clock_config: pickle_extract(dict, "clock_config")?,
+                window_config: pickle_extract(dict, "window_config")?,
+                builder: pickle_extract(dict, "builder")?,
+                folder: pickle_extract(dict, "folder")?,
+            }),
+            "Inspect" => Ok(Self::Inspect {
+                inspector: pickle_extract(dict, "inspector")?,
+            }),
+            "InspectEpoch" => Ok(Self::InspectEpoch {
+                inspector: pickle_extract(dict, "inspector")?,
+            }),
+            "Reduce" => Ok(Self::Reduce {
+                step_id: pickle_extract(dict, "step_id")?,
+                reducer: pickle_extract(dict, "reducer")?,
+                is_complete: pickle_extract(dict, "is_complete")?,
+            }),
+            "ReduceWindow" => Ok(Self::ReduceWindow {
+                step_id: pickle_extract(dict, "step_id")?,
+                clock_config: pickle_extract(dict, "clock_config")?,
+                window_config: pickle_extract(dict, "window_config")?,
+                reducer: pickle_extract(dict, "reducer")?,
+            }),
+            "StatefulMap" => Ok(Self::StatefulMap {
+                step_id: pickle_extract(dict, "step_id")?,
+                builder: pickle_extract(dict, "builder")?,
+                mapper: pickle_extract(dict, "mapper")?,
+            }),
+            "Capture" => Ok(Self::Capture {
+                output_config: pickle_extract(dict, "output_config")?,
+            }),
+            &_ => Err(PyValueError::new_err(format!(
+                "bad python repr when unpickling Step: {dict:?}"
+            ))),
         }
     }
 }
@@ -755,51 +763,91 @@ impl IntoPy<PyObject> for Step {
             Self::Input {
                 step_id,
                 input_config,
-            } => ("Input", step_id, input_config).into_py(py),
-            Self::Map { mapper } => ("Map", mapper).into_py(py),
-            Self::FlatMap { mapper } => ("FlatMap", mapper).into_py(py),
-            Self::Filter { predicate } => ("Filter", predicate).into_py(py),
+            } => HashMap::from([
+                ("type", "Input".into_py(py)),
+                ("step_id", step_id.into_py(py)),
+                ("input_config", input_config.into_py(py)),
+            ])
+            .into_py(py),
+            Self::Map { mapper } => {
+                HashMap::from([("type", "Map".into_py(py)), ("mapper", mapper.into_py(py))])
+                    .into_py(py)
+            }
+            Self::FlatMap { mapper } => HashMap::from([
+                ("type", "FlatMap".into_py(py)),
+                ("mapper", mapper.into_py(py)),
+            ])
+            .into_py(py),
+            Self::Filter { predicate } => HashMap::from([
+                ("type", "Filter".into_py(py)),
+                ("predicate", predicate.into_py(py)),
+            ])
+            .into_py(py),
             Self::FoldWindow {
                 step_id,
                 clock_config,
                 window_config,
                 builder,
                 folder,
-            } => (
-                "FoldWindow",
-                step_id,
-                clock_config,
-                window_config,
-                builder,
-                folder,
-            )
-                .into_py(py),
-            Self::Inspect { inspector } => ("Inspect", inspector).into_py(py),
-            Self::InspectEpoch { inspector } => ("InspectEpoch", inspector).into_py(py),
+            } => HashMap::from([
+                ("type", "FoldWindow".into_py(py)),
+                ("step_id", step_id.into_py(py)),
+                ("clock_config", clock_config.into_py(py)),
+                ("window_config", window_config.into_py(py)),
+                ("builder", builder.into_py(py)),
+                ("folder", folder.into_py(py)),
+            ])
+            .into_py(py),
+            Self::Inspect { inspector } => HashMap::from([
+                ("type", "Inspect".into_py(py)),
+                ("inspector", inspector.into_py(py)),
+            ])
+            .into_py(py),
+            Self::InspectEpoch { inspector } => HashMap::from([
+                ("type", "InspectEpoch".into_py(py)),
+                ("inspector", inspector.into_py(py)),
+            ])
+            .into_py(py),
             Self::Reduce {
                 step_id,
                 reducer,
                 is_complete,
-            } => ("Reduce", step_id, reducer, is_complete).into_py(py),
+            } => HashMap::from([
+                ("type", "Reduce".into_py(py)),
+                ("step_id", step_id.into_py(py)),
+                ("reducer", reducer.into_py(py)),
+                ("is_complete", is_complete.into_py(py)),
+            ])
+            .into_py(py),
             Self::ReduceWindow {
                 step_id,
                 clock_config,
                 window_config,
                 reducer,
-            } => (
-                "ReduceWindow",
-                step_id,
-                clock_config,
-                window_config,
-                reducer,
-            )
-                .into_py(py),
+            } => HashMap::from([
+                ("type", "ReduceWindow".into_py(py)),
+                ("step_id", step_id.into_py(py)),
+                ("clock_config", clock_config.into_py(py)),
+                ("window_config", window_config.into_py(py)),
+                ("reducer", reducer.into_py(py)),
+            ])
+            .into_py(py),
             Self::StatefulMap {
                 step_id,
                 builder,
                 mapper,
-            } => ("StatefulMap", step_id, builder, mapper).into_py(py),
-            Self::Capture { output_config } => ("Capture", output_config).into_py(py),
+            } => HashMap::from([
+                ("type", "StatefulMap".into_py(py)),
+                ("step_id", step_id.into_py(py)),
+                ("builder", builder.into_py(py)),
+                ("mapper", mapper.into_py(py)),
+            ])
+            .into_py(py),
+            Self::Capture { output_config } => HashMap::from([
+                ("type", "Capture".into_py(py)),
+                ("output_config", output_config.into_py(py)),
+            ])
+            .into_py(py),
         }
     }
 }

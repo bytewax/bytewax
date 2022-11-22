@@ -1,11 +1,16 @@
+use std::collections::HashMap;
 use std::task::Poll;
 
 use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyCoroIterator};
 use crate::recovery::model::StateBytes;
-use crate::{py_unwrap, try_unwrap, common::StringResult};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use crate::{
+    common::{pickle_extract, StringResult},
+    py_unwrap, try_unwrap,
+};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 use super::{InputBuilder, InputConfig, InputReader};
 
@@ -69,9 +74,14 @@ impl ManualInputConfig {
         (Self { input_builder }, InputConfig {})
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, TdPyCallable) {
-        ("ManualInputConfig", self.input_builder.clone())
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {
+            HashMap::from([
+                ("type", "ManualInputConfig".into_py(py)),
+                ("input_builder", self.input_builder.clone().into_py(py)),
+            ])
+        })
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -79,16 +89,11 @@ impl ManualInputConfig {
         (TdPyCallable::pickle_new(py),)
     }
 
-    /// Unpickle from tuple of arguments.
+    /// Unpickle from a PyDict of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("ManualInputConfig", input_builder)) = state.extract() {
-            self.input_builder = input_builder;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for ManualInputConfig: {state:?}"
-            )))
-        }
+        let dict: &PyDict = state.downcast()?;
+        self.input_builder = pickle_extract(dict, "input_builder")?;
+        Ok(())
     }
 }
 

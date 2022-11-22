@@ -24,8 +24,8 @@ use crate::common::StringResult;
 use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::{PyConfigClass, TdPyAny};
 use crate::recovery::model::StateBytes;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use std::collections::HashMap;
 use std::task::Poll;
 
 pub(crate) mod kafka_input;
@@ -59,20 +59,14 @@ impl InputConfig {
         Self {}
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("InputConfig",)
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| HashMap::from([("type", "InputConfig".into_py(py))]))
     }
 
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("InputConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for InputConfig: {state:?}"
-            )))
-        }
+    /// Unpickle from a PyDict.
+    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
+        Ok(())
     }
 }
 

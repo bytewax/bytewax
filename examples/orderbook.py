@@ -1,6 +1,6 @@
 import json
 
-from websocket import create_connection #pip install websocket-client
+from websocket import create_connection  # pip install websocket-client
 from bytewax import parse
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
@@ -114,8 +114,7 @@ flow.map(json.loads)
 # {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'}
 flow.map(key_on_product)
 # ('BTC-USD', {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'})
-flow.stateful_map("order_book", OrderBook, OrderBook.update)
-# if using bytewax>0.9.0 --> flow.stateful_map("order_book", lambda key: OrderBook(), OrderBook.update)
+flow.stateful_map("order_book", lambda: OrderBook(), OrderBook.update)
 # ('BTC-USD', (36905.39, 0.00334873, 36905.4, 1.6e-05, 0.010000000002037268))
 flow.filter(
     lambda x: x[-1]["spread"] / x[-1]["ask"] > 0.0001

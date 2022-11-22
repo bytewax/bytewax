@@ -6,11 +6,10 @@
 //!
 //! Each tracing backend has to implement the `TracerBuilder` trait, which
 //! requires a `build` function that is used to build the telemetry layer.
+use std::collections::HashMap;
+
 use opentelemetry::sdk::trace::Tracer;
-use pyo3::{
-    exceptions::PyValueError, pyclass, pymethods, types::PyModule, Py, PyAny, PyCell, PyResult,
-    Python,
-};
+use pyo3::prelude::*;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{filter::Targets, layer::SubscriberExt, Layer, Registry};
 
@@ -47,20 +46,14 @@ impl TracingConfig {
     fn py_new() -> Self {
         Self {}
     }
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("TracingConfig",)
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| HashMap::from([("type", "TracingConfig".into_py(py))]))
     }
 
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("TracingConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for TracingConfig: {state:?}"
-            )))
-        }
+    /// Unpickle from a PyDict.
+    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
+        Ok(())
     }
 }
 

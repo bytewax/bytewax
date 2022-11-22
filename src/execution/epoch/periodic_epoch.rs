@@ -1,14 +1,14 @@
+use std::collections::HashMap;
 use std::task::Poll;
 use std::time::Instant;
 
-use pyo3::exceptions::PyValueError;
-use pyo3::prelude::*;
-use pyo3::PyResult;
+use pyo3::{prelude::*, types::PyDict};
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
 
+use crate::common::pickle_extract;
 use crate::common::StringResult;
 use crate::inputs::InputReader;
 use crate::recovery::model::*;
@@ -46,9 +46,14 @@ impl PeriodicEpochConfig {
         (Self { epoch_length }, EpochConfig {})
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, chrono::Duration) {
-        ("PeriodicEpochConfig", self.epoch_length)
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {
+            HashMap::from([
+                ("type", "PeriodicEpochConfig".into_py(py)),
+                ("epoch_length", self.epoch_length.into_py(py)),
+            ])
+        })
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -56,16 +61,11 @@ impl PeriodicEpochConfig {
         (chrono::Duration::zero(),)
     }
 
-    /// Unpickle from tuple of arguments.
+    /// Unpickle from a PyDict.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("PeriodicEpochConfig", epoch_length)) = state.extract() {
-            self.epoch_length = epoch_length;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for PeriodicEpochConfig: {state:?}"
-            )))
-        }
+        let dict: &PyDict = state.downcast()?;
+        self.epoch_length = pickle_extract(dict, "epoch_length")?;
+        Ok(())
     }
 }
 

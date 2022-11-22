@@ -44,6 +44,7 @@ use crate::recovery::dataflows::*;
 use crate::recovery::model::*;
 use crate::recovery::python::*;
 use crate::recovery::store::in_mem::StoreSummary;
+use crate::webserver::run_webserver;
 use crate::window::WindowBuilder;
 use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -427,7 +428,20 @@ where
     SW: StateWriter<u64> + 'static,
 {
     let span = tracing::trace_span!("Building dataflow").entered();
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_name("webserver-threads")
+        .enable_all()
+        .build()
+        .unwrap();
+
     let probe = Python::with_gil(|py| {
+        let df = flow.extract(py).unwrap();
+        if worker.index() == 0 {
+            rt.spawn(run_webserver(df));
+        }
+
         build_production_dataflow(
             py,
             worker,

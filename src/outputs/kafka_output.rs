@@ -1,10 +1,7 @@
-use crate::py_unwrap;
 use crate::pyo3_extensions::TdPyAny;
-use pyo3::{
-    exceptions::{PyTypeError, PyValueError},
-    prelude::*,
-    types::PyBytes,
-};
+use crate::{common::pickle_extract, py_unwrap};
+use pyo3::types::PyDict;
+use pyo3::{exceptions::PyTypeError, prelude::*, types::PyBytes};
 use rdkafka::{
     producer::{BaseProducer, BaseRecord, Producer},
     ClientConfig,
@@ -85,13 +82,19 @@ impl KafkaOutputConfig {
         )
     }
 
-    fn __getstate__(&self) -> (&str, Vec<String>, String, Option<HashMap<String, String>>) {
-        (
-            "KafkaOutputConfig",
-            self.brokers.clone(),
-            self.topic.clone(),
-            self.additional_properties.clone(),
-        )
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {
+            HashMap::from([
+                ("type", "KafkaOutputConfig".into_py(py)),
+                ("brokers", self.brokers.clone().into_py(py)),
+                ("topic", self.topic.clone().into_py(py)),
+                (
+                    "additional_properties",
+                    self.additional_properties.clone().into_py(py),
+                ),
+            ])
+        })
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -100,18 +103,13 @@ impl KafkaOutputConfig {
         (Vec::new(), s, None)
     }
 
-    /// Unpickle from tuple of arguments.
+    /// Unpickle from a PyDict.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("KafkaOutputConfig", brokers, topic, additional_properties)) = state.extract() {
-            self.brokers = brokers;
-            self.topic = topic;
-            self.additional_properties = additional_properties;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for KafkaOutputConfig: {state:?}"
-            )))
-        }
+        let dict: &PyDict = state.downcast()?;
+        self.brokers = pickle_extract(dict, "brokers")?;
+        self.topic = pickle_extract(dict, "topic")?;
+        self.additional_properties = pickle_extract(dict, "additional_properties")?;
+        Ok(())
     }
 }
 

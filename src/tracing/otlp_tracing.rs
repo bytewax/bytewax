@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use opentelemetry::{
     runtime::Tokio,
     sdk::{
@@ -7,9 +9,9 @@ use opentelemetry::{
     KeyValue,
 };
 use opentelemetry_otlp::WithExportConfig;
-use pyo3::{exceptions::PyValueError, pyclass, pymethods, PyAny, PyResult};
+use pyo3::{prelude::*, types::PyDict};
 
-use crate::common::StringResult;
+use crate::common::{pickle_extract, StringResult};
 
 use super::{TracerBuilder, TracingConfig};
 
@@ -87,14 +89,16 @@ impl OtlpTracingConfig {
         )
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, String, Option<String>, Option<f64>) {
-        (
-            "OtlpTracingConfig",
-            self.service_name.clone(),
-            self.url.clone(),
-            self.sampling_ratio,
-        )
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {
+            HashMap::from([
+                ("type", "OtlpTracingConfig".into_py(py)),
+                ("service_name", self.service_name.clone().into_py(py)),
+                ("url", self.url.clone().into_py(py)),
+                ("sampling_ratio", self.sampling_ratio.into_py(py)),
+            ])
+        })
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -104,15 +108,10 @@ impl OtlpTracingConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("OtlpTracingConfig", service_name, url, sampling_ratio)) = state.extract() {
-            self.service_name = service_name;
-            self.url = url;
-            self.sampling_ratio = sampling_ratio;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for OtlpTracingConfig: {state:?}"
-            )))
-        }
+        let dict: &PyDict = state.downcast()?;
+        self.service_name = pickle_extract(dict, "service_name")?;
+        self.url = pickle_extract(dict, "url")?;
+        self.sampling_ratio = pickle_extract(dict, "sampling_ratio")?;
+        Ok(())
     }
 }

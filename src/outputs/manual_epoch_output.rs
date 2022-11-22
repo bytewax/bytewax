@@ -1,9 +1,12 @@
+use std::collections::HashMap;
+
 use crate::{
+    common::pickle_extract,
     execution::WorkerIndex,
     pyo3_extensions::{TdPyAny, TdPyCallable},
     unwrap_any,
 };
-use pyo3::{exceptions::PyValueError, prelude::*};
+use pyo3::{prelude::*, types::PyDict};
 
 use super::{OutputBuilder, OutputConfig, OutputWriter};
 
@@ -56,9 +59,14 @@ impl ManualEpochOutputConfig {
         (Self { output_builder }, OutputConfig {})
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str, TdPyCallable) {
-        ("ManualEpochOutputConfig", self.output_builder.clone())
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {
+            HashMap::from([
+                ("type", "ManualEpochOutputConfig".into_py(py)),
+                ("input_builder", self.output_builder.clone().into_py(py)),
+            ])
+        })
     }
 
     /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
@@ -68,14 +76,9 @@ impl ManualEpochOutputConfig {
 
     /// Unpickle from tuple of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("ManualEpochOutputConfig", output_builder)) = state.extract() {
-            self.output_builder = output_builder;
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for ManualEpochOutputConfig: {state:?}"
-            )))
-        }
+        let dict: &PyDict = state.downcast()?;
+        self.output_builder = pickle_extract(dict, "output_builder")?;
+        Ok(())
     }
 }
 

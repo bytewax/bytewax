@@ -1,14 +1,14 @@
+use std::collections::HashMap;
 use std::task::Poll;
 
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use timely::dataflow::{
     operators::generic::builder_rc::OperatorBuilder, ProbeHandle, Scope, Stream,
 };
 
-use crate::{inputs::InputReader, common::StringResult};
 use crate::recovery::model::*;
 use crate::recovery::operators::FlowChangeStream;
+use crate::{common::StringResult, inputs::InputReader};
 
 use super::{EpochBuilder, EpochConfig};
 
@@ -44,20 +44,14 @@ impl TestingEpochConfig {
         (Self {}, EpochConfig {})
     }
 
-    /// Pickle as a tuple.
-    fn __getstate__(&self) -> (&str,) {
-        ("TestingEpochConfig",)
+    /// Return a representation of this class as a PyDict.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| HashMap::from([("type", "TestingEpochConfig".into_py(py))]))
     }
 
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        if let Ok(("TestingEpochConfig",)) = state.extract() {
-            Ok(())
-        } else {
-            Err(PyValueError::new_err(format!(
-                "bad pickle contents for TestingEpochConfig: {state:?}"
-            )))
-        }
+    /// Unpickle from a PyDict.
+    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
+        Ok(())
     }
 }
 
