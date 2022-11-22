@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use crate::common::{pickle_extract, step_extract};
+use crate::common::pickle_extract;
 use crate::inputs::InputConfig;
 use crate::outputs::OutputConfig;
 use crate::pyo3_extensions::TdPyCallable;
@@ -703,49 +703,49 @@ impl<'source> FromPyObject<'source> for Step {
             .extract()?;
         match step {
             "Input" => Ok(Self::Input {
-                step_id: step_extract(dict, "step_id")?,
-                input_config: step_extract(dict, "input_config")?,
+                step_id: pickle_extract(dict, "step_id")?,
+                input_config: pickle_extract(dict, "input_config")?,
             }),
             "Map" => Ok(Self::Map {
-                mapper: step_extract(dict, "mapper")?,
+                mapper: pickle_extract(dict, "mapper")?,
             }),
             "FlatMap" => Ok(Self::FlatMap {
-                mapper: step_extract(dict, "mapper")?,
+                mapper: pickle_extract(dict, "mapper")?,
             }),
             "Filter" => Ok(Self::Filter {
-                predicate: step_extract(dict, "predicate")?,
+                predicate: pickle_extract(dict, "predicate")?,
             }),
             "FoldWindow" => Ok(Self::FoldWindow {
-                step_id: step_extract(dict, "step_id")?,
-                clock_config: step_extract(dict, "clock_config")?,
-                window_config: step_extract(dict, "window_config")?,
-                builder: step_extract(dict, "builder")?,
-                folder: step_extract(dict, "folder")?,
+                step_id: pickle_extract(dict, "step_id")?,
+                clock_config: pickle_extract(dict, "clock_config")?,
+                window_config: pickle_extract(dict, "window_config")?,
+                builder: pickle_extract(dict, "builder")?,
+                folder: pickle_extract(dict, "folder")?,
             }),
             "Inspect" => Ok(Self::Inspect {
-                inspector: step_extract(dict, "inspector")?,
+                inspector: pickle_extract(dict, "inspector")?,
             }),
             "InspectEpoch" => Ok(Self::InspectEpoch {
-                inspector: step_extract(dict, "inspector")?,
+                inspector: pickle_extract(dict, "inspector")?,
             }),
             "Reduce" => Ok(Self::Reduce {
-                step_id: step_extract(dict, "step_id")?,
-                reducer: step_extract(dict, "reducer")?,
-                is_complete: step_extract(dict, "is_complete")?,
+                step_id: pickle_extract(dict, "step_id")?,
+                reducer: pickle_extract(dict, "reducer")?,
+                is_complete: pickle_extract(dict, "is_complete")?,
             }),
             "ReduceWindow" => Ok(Self::ReduceWindow {
-                step_id: step_extract(dict, "step_id")?,
-                clock_config: step_extract(dict, "clock_config")?,
-                window_config: step_extract(dict, "window_config")?,
-                reducer: step_extract(dict, "reducer")?,
+                step_id: pickle_extract(dict, "step_id")?,
+                clock_config: pickle_extract(dict, "clock_config")?,
+                window_config: pickle_extract(dict, "window_config")?,
+                reducer: pickle_extract(dict, "reducer")?,
             }),
             "StatefulMap" => Ok(Self::StatefulMap {
-                step_id: step_extract(dict, "step_id")?,
-                builder: step_extract(dict, "builder")?,
-                mapper: step_extract(dict, "mapper")?,
+                step_id: pickle_extract(dict, "step_id")?,
+                builder: pickle_extract(dict, "builder")?,
+                mapper: pickle_extract(dict, "mapper")?,
             }),
             "Capture" => Ok(Self::Capture {
-                output_config: step_extract(dict, "output_config")?,
+                output_config: pickle_extract(dict, "output_config")?,
             }),
             &_ => Err(PyValueError::new_err(format!(
                 "bad python repr when unpickling Step: {dict:?}"

@@ -10,15 +10,5 @@ where
         .extract()
 }
 
-// Extract a field of a Dataflow `Step` from a PyDict
-pub(crate) fn step_extract<'a, D>(dict: &'a PyDict, key: &str) -> PyResult<D>
-where
-    D: FromPyObject<'a>,
-{
-    dict.get_item(key)
-        .expect("Unable to extract step, missing `{key}` field.")
-        .extract()
-}
-
 /// Result type used in the crate that holds a String as the Err type.
 pub(crate) type StringResult<T> = Result<T, String>;

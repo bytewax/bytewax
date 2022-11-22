@@ -29,18 +29,17 @@ def test_encoding_manual_input():
 
     assert encode_dataflow(flow) == json.dumps(
         {
-            "Dataflow": {
-                "steps": [
-                    {
-                        "input_config": {
-                            "input_builder": "<lambda>",
-                            "type": "ManualInputConfig",
-                        },
-                        "step_id": "inp",
-                        "type": "Input",
+            "type": "Dataflow",
+            "steps": [
+                {
+                    "input_config": {
+                        "input_builder": "<lambda>",
+                        "type": "ManualInputConfig",
                     },
-                ]
-            }
+                    "step_id": "inp",
+                    "type": "Input",
+                },
+            ],
         },
         sort_keys=True,
     )
@@ -51,7 +50,7 @@ def test_encoding_map():
     flow.map(lambda x: x + 1)
 
     assert encode_dataflow(flow) == json.dumps(
-        {"Dataflow": {"steps": [{"type": "Map", "mapper": "<lambda>"}]}},
+        {"type": "Dataflow", "steps": [{"type": "Map", "mapper": "<lambda>"}]},
         sort_keys=True,
     )
 
@@ -61,7 +60,7 @@ def test_encoding_filter():
     flow.filter(lambda x: x == 1)
 
     assert encode_dataflow(flow) == json.dumps(
-        {"Dataflow": {"steps": [{"type": "Filter", "predicate": "<lambda>"}]}},
+        {"type": "Dataflow", "steps": [{"type": "Filter", "predicate": "<lambda>"}]},
         sort_keys=True,
     )
 
@@ -72,16 +71,15 @@ def test_encoding_reduce():
 
     assert encode_dataflow(flow) == json.dumps(
         {
-            "Dataflow": {
-                "steps": [
-                    {
-                        "type": "Reduce",
-                        "step_id": "sessionizer",
-                        "reducer": "<lambda>",
-                        "is_complete": "<lambda>",
-                    }
-                ]
-            }
+            "type": "Dataflow",
+            "steps": [
+                {
+                    "type": "Reduce",
+                    "step_id": "sessionizer",
+                    "reducer": "<lambda>",
+                    "is_complete": "<lambda>",
+                }
+            ],
         },
         sort_keys=True,
     )
@@ -92,7 +90,7 @@ def test_encoding_flat_map():
     flow.flat_map(lambda x: x + 1)
 
     assert encode_dataflow(flow) == json.dumps(
-        {"Dataflow": {"steps": [{"type": "FlatMap", "mapper": "<lambda>"}]}},
+        {"type": "Dataflow", "steps": [{"type": "FlatMap", "mapper": "<lambda>"}]},
         sort_keys=True,
     )
 
@@ -103,16 +101,15 @@ def test_encoding_stateful_map():
 
     assert encode_dataflow(flow) == json.dumps(
         {
-            "Dataflow": {
-                "steps": [
-                    {
-                        "builder": "<lambda>",
-                        "mapper": "update",
-                        "step_id": "order_book",
-                        "type": "StatefulMap",
-                    }
-                ]
-            }
+            "type": "Dataflow",
+            "steps": [
+                {
+                    "builder": "<lambda>",
+                    "mapper": "update",
+                    "step_id": "order_book",
+                    "type": "StatefulMap",
+                }
+            ],
         },
         sort_keys=True,
     )
@@ -130,26 +127,25 @@ def test_encoding_fold_window():
 
     assert encode_dataflow(flow) == json.dumps(
         {
-            "Dataflow": {
-                "steps": [
-                    {
-                        "builder": "<lambda>",
-                        "clock_config": {
-                            "dt_getter": "<lambda>",
-                            "type": "EventClockConfig",
-                            "wait_for_system_duration": "0:00:10",
-                        },
-                        "folder": "acc_values",
-                        "step_id": "running_average",
-                        "type": "FoldWindow",
-                        "window_config": {
-                            "length": "0:00:05",
-                            "start_at": "2005-07-14T12:30:00+00:00",
-                            "type": "TumblingWindowConfig",
-                        },
-                    }
-                ]
-            }
+            "type": "Dataflow",
+            "steps": [
+                {
+                    "builder": "<lambda>",
+                    "clock_config": {
+                        "dt_getter": "<lambda>",
+                        "type": "EventClockConfig",
+                        "wait_for_system_duration": "0:00:10",
+                    },
+                    "folder": "acc_values",
+                    "step_id": "running_average",
+                    "type": "FoldWindow",
+                    "window_config": {
+                        "length": "0:00:05",
+                        "start_at": "2005-07-14T12:30:00+00:00",
+                        "type": "TumblingWindowConfig",
+                    },
+                }
+            ],
         },
         sort_keys=True,
     )
@@ -160,6 +156,6 @@ def test_encoding_method_descriptor():
     flow.flat_map(str.split)
 
     assert encode_dataflow(flow) == json.dumps(
-        {"Dataflow": {"steps": [{"type": "FlatMap", "mapper": "split"}]}},
+        {"type": "Dataflow", "steps": [{"type": "FlatMap", "mapper": "split"}]},
         sort_keys=True,
     )

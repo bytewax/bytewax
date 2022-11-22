@@ -24,8 +24,6 @@ class DataflowEncoder(json.JSONEncoder):
     """
 
     def default(self, obj):
-        if isinstance(obj, Dataflow):
-            return {"Dataflow": {"steps": obj.steps}}
         if "__getstate__" in dir(obj):
             return obj.__getstate__()
         if isinstance(obj, types.BuiltinFunctionType):
