@@ -19,7 +19,7 @@ pub(crate) async fn run_webserver(dataflow: Dataflow) {
     // once, when the webserver starts.
     let dataflow_json: String = Python::with_gil(|py| {
         let encoder_module =
-            PyModule::import(py, "bytewax.encoder").expect("Unable to load Bytewax encoder module");
+            PyModule::import(py, "bytewax._encoder").expect("Unable to load Bytewax encoder module");
         // For convenience, we are using a helper function supplied in the
         // bytewax.encoder module.
         let encode = encoder_module

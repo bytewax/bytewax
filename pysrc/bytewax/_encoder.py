@@ -12,33 +12,21 @@ from .outputs import (
     KafkaOutputConfig,
 )
 
-# A list of all types that should use vars(obj)
-# which uses the Python `__getstate__` method
-# to return a JSON encodable representation.
-config_types = (
-    InputConfig,
-    ClockConfig,
-    WindowConfig,
-    ManualOutputConfig,
-    ManualInputConfig,
-    ManualEpochOutputConfig,
-    StdOutputConfig,
-    KafkaOutputConfig,
-    SystemClockConfig,
-)
-
 
 class DataflowEncoder(json.JSONEncoder):
     """Custom JSON encoder for a Dataflow
 
     This class is used in conjunction with the Rust `webserver` module to
     produce a JSON representation of a bytewax Dataflow.
+
+    __getstate__() is a method defined on all of the Python classes we
+    create in Rust to return a PyDict representation of that class.
     """
 
     def default(self, obj):
         if isinstance(obj, Dataflow):
             return {"Dataflow": {"steps": obj.steps}}
-        if isinstance(obj, config_types):
+        if "__getstate__" in dir(obj):
             return obj.__getstate__()
         if isinstance(obj, types.BuiltinFunctionType):
             return obj.__name__

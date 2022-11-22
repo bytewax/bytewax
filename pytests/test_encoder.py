@@ -1,14 +1,11 @@
-import pytest
 import json
 
 from datetime import timedelta, datetime, timezone
 
 from bytewax.dataflow import Dataflow
-from bytewax.encoder import encode_dataflow
+from bytewax._encoder import encode_dataflow
 from bytewax.inputs import ManualInputConfig
 from bytewax.window import TumblingWindowConfig, EventClockConfig
-
-from unittest import TestCase
 
 # Helper functions for some steps
 def acc_values(acc, event):
