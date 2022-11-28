@@ -18,8 +18,8 @@ pub(crate) async fn run_webserver(dataflow: Dataflow) {
     // Since the dataflow can't change at runtime, we encode it as a string of JSON
     // once, when the webserver starts.
     let dataflow_json: String = Python::with_gil(|py| {
-        let encoder_module =
-            PyModule::import(py, "bytewax._encoder").expect("Unable to load Bytewax encoder module");
+        let encoder_module = PyModule::import(py, "bytewax._encoder")
+            .expect("Unable to load Bytewax encoder module");
         // For convenience, we are using a helper function supplied in the
         // bytewax.encoder module.
         let encode = encoder_module
@@ -34,14 +34,16 @@ pub(crate) async fn run_webserver(dataflow: Dataflow) {
         .route("/dataflow", get(get_dataflow))
         .layer(Extension(shared_state));
 
-    let addr = match std::env::var("BYTEWAX_PORT") {
-        Ok(config) => config.parse().expect("Unable to parse BYTEWAX_PORT"),
-        Err(_) => SocketAddr::from(([0, 0, 0, 0], 3030)),
-    };
+    let port = std::env::var("BYTEWAX_PORT")
+        .map(|var| var.parse().expect("Unable to parse BYTEWAX_PORT"))
+        .unwrap_or(3030);
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
-        .expect("Unable to create local webserver at port 3000");
+        .expect(&format!("Unable to create local webserver at port {port}"));
 }
 
 async fn get_dataflow(Extension(state): Extension<Arc<State>>) -> impl IntoResponse {

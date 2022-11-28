@@ -39,4 +39,7 @@ COPY ./entrypoint.sh .
 
 ENV BYTEWAX_WORKDIR=/bytewax
 
+# Ports that needs to be exposed
+EXPOSE 9999 3030
+
 ENTRYPOINT ["/bin/sh", "-c", "./entrypoint.sh"]
