@@ -55,7 +55,10 @@ jobs:
 
   linux_glibc_227_colab:
     runs-on: ubuntu-latest
-    container: bytewax/glib-2.27-builder:v0
+    strategy:
+      matrix:
+        python-version: ['3.7', '3.8', '3.9', '3.10']
+    container: bytewax/glib-2.27-builder:v1
     steps:
     - uses: actions/checkout@v2
     - name: Rust Toolchain
@@ -66,9 +69,14 @@ jobs:
         cargo test --no-default-features
     - name: Build wheel
       run: |
-        maturin build --release -o dist
+        maturin build --release -o dist --interpreter python${{ matrix.python-version }}
     - name: Pytest
       run: |
+        PATH=`echo $PATH | sed -e "s/3.7/${{ matrix.python-version }}/g"`
+        echo $PATH
+        which python
+        python -V
+        pip -V
         WHEEL_FILE=$(ls ./dist/*.whl)
         pip install $WHEEL_FILE'[dev]' -v
         pytest
