@@ -45,7 +45,7 @@ jobs:
       - name: Check the Version and Quantity of Wheel files
         env:
           NEEDED_VERSION: ${{steps.get-info.outputs.bytewax-version}}
-          WHEELS: 13
+          WHEELS: 16
         run: |
           cat << EOF > ./check_versions.sh
           #!/bin/bash
