@@ -8,7 +8,8 @@ RUN apt install python3.7 -y
 RUN python3.7 --version
 
 # Install pip and venv
-RUN apt install python3-pip -y
+RUN apt-get update
+RUN apt install python3-pip -y 
 RUN apt-get install python3.7-venv -y
 
 # Install cargo
@@ -18,7 +19,7 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 RUN cargo --version
 
 # Install maturin in environment
-ENV VIRTUAL_ENV=/opt/venv
+ENV VIRTUAL_ENV=/opt/venv3.7
 RUN python3.7 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN pip install maturin
@@ -40,8 +41,39 @@ RUN tar -xvf patchelf-0.14.5-x86_64.tar.gz -C ./patchelf-0.14.5-x86_64
 RUN cd patchelf-0.14.5-x86_64 && cp ./bin/patchelf /usr/local/bin/
 RUN patchelf --version
 
+# Download pip script
+RUN wget https://bootstrap.pypa.io/get-pip.py
+
+# Install Python 3.8, pip and create a venv for CI
+RUN apt install python3.8 -y
+RUN apt install python3.8-distutils -y
+RUN python3.8 --version
+RUN python3.8 -m venv /opt/venv3.8; exit 0
+RUN PATH=`echo $PATH | sed -e "s/3.7/3.8/g"` && python3.8 ./get-pip.py
+
+# Install Python 3.9, pip and create a venv for CI
+RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get -y install tzdata
+RUN apt install python3.9 -y
+RUN apt install python3.9-distutils -y
+RUN python3.9 --version
+RUN python3.9 -m venv /opt/venv3.9; exit 0
+RUN PATH=`echo $PATH | sed -e "s/3.7/3.9/g"` && python3.9 ./get-pip.py
+
+# # Install Python 3.10, pip and create a venv for CI
+RUN apt install python3.10 -y
+RUN apt install python3.10-distutils -y
+RUN python3.10 --version
+RUN python3.10 -m venv /opt/venv3.10; exit 0
+RUN PATH=`echo $PATH | sed -e "s/3.7/3.10/g"` && python3.10 ./get-pip.py
+
+RUN maturin list-python
+
 # Install CI needed libraries
 RUN apt-get install librdkafka-dev -y
 RUN apt install python3.7-dev -y
+RUN apt install python3.8-dev -y
+RUN apt install python3.9-dev -y
+RUN apt install python3.10-dev -y
+
 RUN pip install dill
 RUN apt install git -y
