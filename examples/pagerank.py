@@ -1,16 +1,16 @@
 import collections
 import operator
-
 from datetime import timedelta
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
-from bytewax.window import TumblingWindowConfig, SystemClockConfig
+from bytewax.window import SystemClockConfig, TumblingWindowConfig
+
 
 def read_edges(worker_index, worker_count, resume_state):
-    state = resume_state or None #ignoring recovery here
+    state = resume_state or None  # ignoring recovery here
     with open("examples/sample_data/graph.txt") as lines:
         for line in lines:
             line = line.strip()
@@ -44,7 +44,10 @@ flow = Dataflow()
 flow.input("input", ManualInputConfig(read_edges))
 # (parent, {child}) per edge
 flow.reduce_window(
-    "sum", SystemClockConfig(), TumblingWindowConfig(length=timedelta(seconds=5)), operator.or_
+    "sum",
+    SystemClockConfig(),
+    TumblingWindowConfig(length=timedelta(seconds=5)),
+    operator.or_,
 )
 # (parent, children) per parent
 flow.map(with_initial_weight)
@@ -52,7 +55,10 @@ flow.map(with_initial_weight)
 flow.flat_map(parent_contribs)
 # (node, sum_contrib) per node per worker
 flow.reduce_window(
-    "sum", SystemClockConfig(), TumblingWindowConfig(length=timedelta(seconds=5)), operator.add
+    "sum",
+    SystemClockConfig(),
+    TumblingWindowConfig(length=timedelta(seconds=5)),
+    operator.add,
 )
 # (node, sum_contrib) per node
 flow.map(sum_to_weight)

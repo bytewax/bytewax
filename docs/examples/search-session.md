@@ -81,10 +81,11 @@ IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS = [
     AppClose(2),
 ]
 
+
 def input_builder(worker_index, worker_count, resume_state):
     state = resume_state or None
     for line in IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS:
-        yield(state, line)
+        yield (state, line)
 ```
 
 For the moment, we aren't going to be using our resume state to manage failures,
@@ -144,6 +145,7 @@ event's user ID as a string into that key position.
 ```python
 def initial_session(event):
     return str(event.user), [event]
+
 
 flow.map(initial_session)
 ```
@@ -262,8 +264,10 @@ In this example, we're just printing out what we've received.
 ```python
 from bytewax.outputs import ManualOutputConfig
 
+
 def output_builder(worker_index, worker_count):
     return print
+
 
 flow.capture(ManualOutputConfig(output_builder))
 ```

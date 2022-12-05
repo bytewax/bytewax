@@ -1,13 +1,12 @@
 import itertools
 import operator
-
 from collections import Counter
 from datetime import timedelta
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import spawn_cluster, run_main
+from bytewax.execution import run_main, spawn_cluster
 from bytewax.inputs import ManualInputConfig
-from bytewax.outputs import StdOutputConfig, ManualOutputConfig, TestingOutputConfig
+from bytewax.outputs import ManualOutputConfig, StdOutputConfig, TestingOutputConfig
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 

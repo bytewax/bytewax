@@ -1,15 +1,14 @@
 import json
 import logging
-
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from datetime import datetime, timezone, timedelta
 
 from bytewax.connectors.dynamodb.outputs import DynamoDBOutputConfig
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import KafkaInputConfig
-from bytewax.window import TumblingWindowConfig, EventClockConfig
 from bytewax.recovery import KafkaRecoveryConfig
+from bytewax.window import EventClockConfig, TumblingWindowConfig
 
 logging.basicConfig(level=logging.DEBUG)
 

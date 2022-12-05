@@ -1,12 +1,11 @@
 import json
 import math
-import fake_events
-import pandas as pd
-
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from random import random
 from time import sleep
 
+import fake_events
+import pandas as pd
 from kafka import KafkaAdminClient, KafkaProducer
 from kafka.admin import NewTopic
 

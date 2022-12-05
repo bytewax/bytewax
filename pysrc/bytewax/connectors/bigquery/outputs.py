@@ -1,5 +1,3 @@
-import logging
-
 from google.cloud import bigquery
 
 from bytewax.outputs import ManualOutputConfig
@@ -28,7 +26,7 @@ class BigQueryOutputConfig(ManualOutputConfig):
         Config object. Pass this as the `output_config` argument of the
         `bytewax.dataflow.Dataflow.output` operator.
 
-    """
+    """  # noqa
 
     def __new__(cls, table_ref):
         """

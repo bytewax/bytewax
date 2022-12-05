@@ -71,9 +71,7 @@ if __name__ == "__main__":
     flow = Dataflow()
     flow.input("input", ManualInputConfig(input_builder))
     # ("metric", value)
-    flow.stateful_map(
-        "AnomalyDetector", lambda: ZTestDetector(2.0), ZTestDetector.push
-    )
+    flow.stateful_map("AnomalyDetector", lambda: ZTestDetector(2.0), ZTestDetector.push)
     # ("metric", (value, mu, sigma, is_anomalous))
     flow.capture(ManualOutputConfig(output_builder))
     spawn_cluster(flow)

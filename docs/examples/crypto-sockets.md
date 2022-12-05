@@ -39,11 +39,12 @@ import json
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import ManualOutputConfig
 
-PRODUCT_IDS = ['BTC-USD','ETH-USD']
+PRODUCT_IDS = ["BTC-USD", "ETH-USD"]
 ```
 
 ```python doctest:SKIP
 from websocket import create_connection
+
 
 def ws_input(product_ids):
     state = None
@@ -66,7 +67,9 @@ For testing purposes, if you don't want to perform HTTP requests, you can read t
 
 ```python
 def ws_input(product_ids, state):
-    print('{"type":"subscriptions","channels":[{"name":"level2","product_ids":["BTC-USD","ETH-USD"]}]}')
+    print(
+        '{"type":"subscriptions","channels":[{"name":"level2","product_ids":["BTC-USD","ETH-USD"]}]}'
+    )
     for msg in open("crypto-sockets.json"):
         yield state, msg
 ```
@@ -76,12 +79,18 @@ Now that we have our websocket based data generator built, we will write an inpu
 ```python
 from bytewax.inputs import ManualInputConfig
 
+
 def input_builder(worker_index, worker_count, resume_state):
     # We're not going to worry about stateful recovery in this example.
     state = None
-    prods_per_worker = int(len(PRODUCT_IDS)/worker_count)
-    product_ids = PRODUCT_IDS[int(worker_index*prods_per_worker):int(worker_index*prods_per_worker+prods_per_worker)]
+    prods_per_worker = int(len(PRODUCT_IDS) / worker_count)
+    product_ids = PRODUCT_IDS[
+        int(worker_index * prods_per_worker) : int(
+            worker_index * prods_per_worker + prods_per_worker
+        )
+    ]
     return ws_input(product_ids, state)
+
 
 input_config = ManualInputConfig(input_builder)
 ```
@@ -101,8 +110,10 @@ Before we get to the exciting part of our order book dataflow we need to prep th
 ```python
 from bytewax.dataflow import Dataflow
 
+
 def key_on_product(data):
-    return(data['product_id'],data)
+    return (data["product_id"], data)
+
 
 flow = Dataflow()
 flow.input("input", ManualInputConfig(input_builder))
@@ -159,13 +170,13 @@ class OrderBook:
 
     def update(self, data):
         if self.bids == {}:
-            self.bids = {float(price):float(size) for price, size in data['bids']}
+            self.bids = {float(price): float(size) for price, size in data["bids"]}
             # The bid_price is the highest priced buy limit order.
             # since the bids are in order, the first item of our newly constructed bids
             # will have our bid price, so we can track the best bid
             self.bid_price = next(iter(self.bids))
         if self.asks == {}:
-            self.asks = {float(price):float(size) for price, size in data['asks']}
+            self.asks = {float(price): float(size) for price, size in data["asks"]}
             # The ask price is the lowest priced sell limit order.
             # since the asks are in order, the first item of our newly constructed
             # asks will be our ask price, so we can track the best ask
@@ -173,10 +184,10 @@ class OrderBook:
         else:
             # We receive a list of lists here, normally it is only one change,
             # but could be more than one.
-            for update in data['changes']:
+            for update in data["changes"]:
                 price = float(update[1])
                 size = float(update[2])
-            if update[0] == 'sell':
+            if update[0] == "sell":
                 # first check if the size is zero and needs to be removed
                 if size == 0.0:
                     try:
@@ -192,7 +203,7 @@ class OrderBook:
                     self.asks[price] = size
                     if price < self.ask_price:
                         self.ask_price = price
-            if update[0] == 'buy':
+            if update[0] == "buy":
                 # first check if the size is zero and needs to be removed
                 if size == 0.0:
                     try:
@@ -208,7 +219,14 @@ class OrderBook:
                     self.bids[price] = size
                     if price > self.bid_price:
                         self.bid_price = price
-        return self, {'bid': self.bid_price, 'bid_size': self.bids[self.bid_price], 'ask': self.ask_price, 'ask_price': self.asks[self.ask_price], 'spread': self.ask_price-self.bid_price}
+        return self, {
+            "bid": self.bid_price,
+            "bid_size": self.bids[self.bid_price],
+            "ask": self.ask_price,
+            "ask_price": self.asks[self.ask_price],
+            "spread": self.ask_price - self.bid_price,
+        }
+
 
 flow.stateful_map("order_book", OrderBook, OrderBook.update)
 ```
@@ -220,7 +238,7 @@ Finishing it up, for fun we can filter for a spread as a percentage of the ask p
 The `capture` operator is designed to use the output builder function that we defined earlier. In this case it will print out to our terminal.
 
 ```python
-flow.filter(lambda x: x[-1]['spread'] / x[-1]['ask'] > 0.0001)
+flow.filter(lambda x: x[-1]["spread"] / x[-1]["ask"] > 0.0001)
 flow.capture(ManualOutputConfig(output_builder))
 ```
 

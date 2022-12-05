@@ -25,7 +25,7 @@ from datetime import timedelta, datetime
 
 # For all examples below
 def input_builder(worker_index, worker_count, resume_from):
-    resume_from = None # Ignore recovery logic
+    resume_from = None  # Ignore recovery logic
     for e in data:
         yield resume_from, e
 ```
@@ -35,6 +35,7 @@ def input_builder(worker_index, worker_count, resume_from):
 ```python
 def split_sentence(sentence):
     return sentence.split()
+
 
 data = ["hello world"]
 flow = Dataflow()
@@ -92,6 +93,7 @@ world
 def add_to_list(l, items):
     l.extend(items)
     return l
+
 
 clock = SystemClockConfig()
 window = TumblingWindowConfig(length=timedelta(seconds=5))

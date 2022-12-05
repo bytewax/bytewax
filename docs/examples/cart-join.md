@@ -42,7 +42,6 @@ def input_builder(worker_index, worker_count, resume_state):
         for i, line in enumerate(f):
             obj = json.loads(line)
             yield i, obj
-
 ```
 
 ## Dataflow
@@ -64,6 +63,7 @@ Let's add that key field using the `user_id` field present in every event.
 ```python
 def key_off_user_id(event):
     return event["user_id"], event
+
 
 flow.map(key_off_user_id)
 ```
@@ -114,6 +114,7 @@ def format_output(user_id__joined_state):
         "unpaid_order_ids": joined_state["unpaid_order_ids"],
     }
 
+
 flow.map(format_output)
 ```
 
@@ -125,6 +126,7 @@ def output_builder(worker_index, worker_count):
     def output_handler(item):
         line = json.dumps(item)
         print(line)
+
     return output_handler
 ```
 
@@ -209,7 +211,9 @@ on a single machine.
 from tempfile import TemporaryDirectory
 from bytewax.recovery import SqliteRecoveryConfig
 
-recovery_dir = TemporaryDirectory()  # We'll store this somewhere temporary for this test.
+recovery_dir = (
+    TemporaryDirectory()
+)  # We'll store this somewhere temporary for this test.
 recovery_config = SqliteRecoveryConfig(recovery_dir.name)
 ```
 
@@ -228,11 +232,7 @@ flow.stateful_map("joiner", build_state, joiner)
 flow.map(format_output)
 flow.capture(ManualOutputConfig(output_builder))
 
-run_main(
-    flow,
-    recovery_config=recovery_config,
-    epoch_config=TestingEpochConfig()
-)
+run_main(flow, recovery_config=recovery_config, epoch_config=TestingEpochConfig())
 ```
 
 As expected, we have the same error.
@@ -270,6 +270,7 @@ def input_builder(worker_index, worker_count, resume_state):
             resume_state += 1
             yield resume_state, obj
 
+
 flow = Dataflow()
 flow.input("input", ManualInputConfig(input_builder))
 flow.map(key_off_user_id)
@@ -284,11 +285,7 @@ so it resumes from there. As the `FAIL HERE` string is ignored,
 there's no output when processing line `5`.
 
 ```python
-run_main(
-    flow,
-    recovery_config=recovery_config,
-    epoch_config=TestingEpochConfig()
-)
+run_main(flow, recovery_config=recovery_config, epoch_config=TestingEpochConfig())
 ```
 
 ```{testoutput}

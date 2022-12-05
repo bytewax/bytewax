@@ -15,7 +15,7 @@ use rdkafka::{Offset, TopicPartitionList};
 use send_wrapper::SendWrapper;
 use serde::{Deserialize, Serialize};
 
-use crate::common::{StringResult, pickle_extract};
+use crate::common::{pickle_extract, StringResult};
 use crate::execution::WorkerIndex;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::model::StateBytes;

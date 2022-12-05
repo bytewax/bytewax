@@ -29,10 +29,10 @@ the opentelemetry collector.
 This makes the setup easier, but it's less flexible.
 """
 from .bytewax import (  # noqa: F401
-    TracingConfig,
     JaegerConfig,
     OtlpTracingConfig,
     setup_tracing,
+    TracingConfig,
 )
 
 __all__ = [

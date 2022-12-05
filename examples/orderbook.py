@@ -1,6 +1,7 @@
 import json
 
 from websocket import create_connection  # pip install websocket-client
+
 from bytewax import parse
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster

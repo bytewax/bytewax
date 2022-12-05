@@ -63,7 +63,6 @@ flow.map(str.upper)
 flow.capture(ManualOutputConfig(output_builder))
 
 
-
 if __name__ == "__main__":
     # We are going to use Waxctl, you can download it from https://bytewax.io/downloads
     # Run these commands in your terminal to run a cluster of two containers:

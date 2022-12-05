@@ -36,8 +36,9 @@ A Bytewax dataflow is Python code that will represent an input, a series of proc
 
 ```python
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import KafkaInputConfig 
+from bytewax.inputs import KafkaInputConfig
 from bytewax.outputs import ManualOutputConfig
+
 # Bytewax has input and output helpers for common input and output data sources
 # but you can also create your own with the ManualOutputConfig.
 ```
@@ -46,20 +47,25 @@ At a high-level, the dataflow compute model is one in which a program execution 
 
 ```python
 import json
+
+
 def deserialize(key_bytes__payload_bytes):
     key_bytes, payload_bytes = key_bytes__payload_bytes
     key = json.loads(key_bytes) if key_bytes else None
     event_data = json.loads(payload_bytes) if payload_bytes else None
     return event_data["user_id"], event_data
 
+
 def anonymize_email(user_id__event_data):
     user_id, event_data = user_id__event_data
     event_data["email"] = "@".join(["******", event_data["email"].split("@")[-1]])
     return user_id, event_data
 
+
 def remove_bytewax(user_id__event_data):
     user_id, event_data = user_id__event_data
     return "bytewax" not in event_data["email"]
+
 
 flow = Dataflow()
 flow.input("inp", KafkaInputConfig(brokers=["localhost:9092"], topic="web_events"))
@@ -81,12 +87,15 @@ from bytewax.window import TumblingWindowConfig, SystemClockConfig
 cc = SystemClockConfig()
 wc = TumblingWindowConfig(length=datetime.timedelta(seconds=5))
 
+
 def build():
     return defaultdict(lambda: 0)
+
 
 def count_events(results, event):
     results[event["type"]] += 1
     return results
+
 
 flow.fold_window("session_state_recovery", cc, wc, build, count_events)
 ```
@@ -98,6 +107,7 @@ import json
 
 import psycopg2
 
+
 def output_builder(worker_index, worker_count):
     # create the connection at the worker level
     conn = psycopg2.connect("dbname=website user=bytewax")
@@ -106,14 +116,18 @@ def output_builder(worker_index, worker_count):
 
     def write_to_postgres(user_id__user_data):
         user_id, user_data = user_id__user_data
-        query_string = '''
+        query_string = """
                     INSERT INTO events (user_id, data)
                     VALUES (%s, %s)
                     ON CONFLICT (user_id)
                     DO
-                        UPDATE SET data = %s;'''
-        cur.execute(query_string, (user_id, json.dumps(user_data), json.dumps(user_data)))
+                        UPDATE SET data = %s;"""
+        cur.execute(
+            query_string, (user_id, json.dumps(user_data), json.dumps(user_data))
+        )
+
     return write_to_postgres
+
 
 flow.capture(ManualOutputConfig(output_builder))
 ```
@@ -122,15 +136,9 @@ Bytewax dataflows can be executed on a single host with multiple Python processe
 
 ```python
 if __name__ == "__main__":
-    addresses = [
-    "localhost:2101"
-    ]
+    addresses = ["localhost:2101"]
 
-    cluster_main(
-        flow,
-        addresses=addresses,
-        proc_id=0,
-        worker_count_per_proc=2)
+    cluster_main(flow, addresses=addresses, proc_id=0, worker_count_per_proc=2)
 ```
 
 ### Deploying and Scaling

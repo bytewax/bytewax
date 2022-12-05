@@ -61,24 +61,19 @@ except:
 
 # Add data to input topic
 users = [
-    {"user_id":"a12", "email":"joe@mail.com"}, 
-    {"user_id":"a34", "email":"jane@mail.com"}, 
-    {"user_id":"a56", "email":"you@mail.com"}, 
-    {"user_id":"a78", "email":"the@mail.com"}, 
-    {"user_id":"a99", "email":"employee@bytewax.io"}
-    ]
-
-event_types = [
-    "click",
-    "post",
-    "comment",
-    "login"
+    {"user_id": "a12", "email": "joe@mail.com"},
+    {"user_id": "a34", "email": "jane@mail.com"},
+    {"user_id": "a56", "email": "you@mail.com"},
+    {"user_id": "a78", "email": "the@mail.com"},
+    {"user_id": "a99", "email": "employee@bytewax.io"},
 ]
+
+event_types = ["click", "post", "comment", "login"]
 
 try:
     for i in range(500):
-        event = users[randint(0,4)]
-        event['type'] = event_types[randint(0,3)]
+        event = users[randint(0, 4)]
+        event["type"] = event_types[randint(0, 3)]
         event_ = json.dumps(event).encode()
         producer.send(input_topic_name, value=event_)
         sleep(0.1)
@@ -89,7 +84,7 @@ except KafkaError:
 
 Now run `fake_events.py` to load our topic up with some event data.
 
-```python doctest:SKIP
+```shell doctest:SKIP
 python fake_events.py
 ```
 
@@ -99,9 +94,8 @@ Dataflow
 The dataflow will start with us defining the input. In this case, consuming from a Redpanda topic.
 
 ```python doctest:SKIP
-
-​​from bytewax.dataflow import Dataflow
-from bytewax.inputs import KafkaInputConfig 
+from bytewax.dataflow import Dataflow
+from bytewax.inputs import KafkaInputConfig
 
 flow = Dataflow()
 flow.input("inp", KafkaInputConfig(brokers=["localhost:9092"], topic="web_events"))
@@ -111,20 +105,25 @@ At a high-level, dataflow programming is a programming paradigm where program ex
 
 ```python doctest:SKIP
 import json
+
+
 def deserialize(key_bytes__payload_bytes):
     key_bytes, payload_bytes = key_bytes__payload_bytes
     key = json.loads(key_bytes) if key_bytes else None
     event_data = json.loads(payload_bytes) if payload_bytes else None
     return event_data["user_id"], event_data
 
+
 def anonymize_email(user_id__event_data):
     user_id, event_data = user_id__event_data
     event_data["email"] = "@".join(["******", event_data["email"].split("@")[-1]])
     return user_id, event_data
 
+
 def remove_bytewax(user_id__event_data):
     user_id, event_data = user_id__event_data
     return "bytewax" not in event_data["email"]
+
 
 flow.map(deserialize)
 flow.map(anonymize_email)
@@ -142,12 +141,15 @@ from bytewax.window import TumblingWindowConfig, SystemClockConfig
 cc = SystemClockConfig()
 wc = TumblingWindowConfig(length=datetime.timedelta(seconds=5))
 
+
 def build():
     return defaultdict(lambda: 0)
+
 
 def count_events(results, event):
     results[event["type"]] += 1
     return results
+
 
 flow.fold_window("session_state_recovery", cc, wc, build, count_events)
 ```
@@ -160,6 +162,7 @@ import json
 import psycopg2
 from bytewax.outputs import ManualOutputConfig
 
+
 def output_builder(worker_index, worker_count):
     # create the connection at the worker level
     conn = psycopg2.connect("dbname=website user=bytewax")
@@ -168,14 +171,18 @@ def output_builder(worker_index, worker_count):
 
     def write_to_postgres(user_id__user_data):
         user_id, user_data = user_id__user_data
-        query_string = '''
+        query_string = """
                     INSERT INTO events (user_id, data)
                     VALUES (%s, %s)
                     ON CONFLICT (user_id)
                     DO
-                        UPDATE SET data = %s;'''
-        cur.execute(query_string, (user_id, json.dumps(user_data), json.dumps(user_data)))
+                        UPDATE SET data = %s;"""
+        cur.execute(
+            query_string, (user_id, json.dumps(user_data), json.dumps(user_data))
+        )
+
     return write_to_postgres
+
 
 flow.capture(ManualOutputConfig(output_builder))
 ```
@@ -184,15 +191,9 @@ Bytewax comes with a few different execution models. They are used to run the da
 
 ```python doctest:SKIP
 if __name__ == "__main__":
-    addresses = [
-    "localhost:2101"
-    ]
+    addresses = ["localhost:2101"]
 
-    cluster_main(
-        flow,
-        addresses=addresses,
-        proc_id=0,
-        worker_count_per_proc=2)
+    cluster_main(flow, addresses=addresses, proc_id=0, worker_count_per_proc=2)
 ```
 
 **Deploying and Scaling**

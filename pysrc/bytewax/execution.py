@@ -20,13 +20,12 @@ from multiprocess import get_context
 
 from bytewax.dataflow import Dataflow
 from bytewax.recovery import RecoveryConfig
-from bytewax.tracing import TracingConfig
 
 from .bytewax import (  # noqa: F401
-    run_main,
     cluster_main,
     EpochConfig,
     PeriodicEpochConfig,
+    run_main,
     TestingEpochConfig,
 )
 
