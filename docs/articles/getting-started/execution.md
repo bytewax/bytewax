@@ -20,13 +20,16 @@ from bytewax.execution import run_main
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import ManualOutputConfig
 
+
 def input_builder(worker_index, worker_count, resume_state):
-    state = None # Ignore recovery
+    state = None  # Ignore recovery
     for i in range(3):
         yield (state, i)
 
+
 def output_builder(worker_index, worker_count):
     return print
+
 
 flow = Dataflow()
 flow.input("inp", ManualInputConfig(input_builder))
@@ -61,17 +64,21 @@ from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import ManualOutputConfig
 from bytewax.testing import doctest_ctx
 
+
 def input_builder(worker_index, worker_count, resume_state):
     state = 0  # Ignore recovery
     for state, item in enumerate(range(state, 3)):
-        yield(state, {"Worker": worker_index, "Item": item})
+        yield (state, {"Worker": worker_index, "Item": item})
+
 
 def incr(item):
     item["Item"] += 1
     return item
 
+
 def output_builder(worker_index, worker_count):
     return print
+
 
 flow = Dataflow()
 flow.input("inp", ManualInputConfig(input_builder))
@@ -112,8 +119,9 @@ def input_builder(worker_index, worker_count, resume_state):
     state = 0
     for state, item in enumerate(range(state, 3)):
         # Partition the input across workers
-        if (item % worker_count == worker_index):
-            yield(state, {"Worker": worker_index, "Item": item})
+        if item % worker_count == worker_index:
+            yield (state, {"Worker": worker_index, "Item": item})
+
 
 flow = Dataflow()
 flow.input("inp", ManualInputConfig(input_builder))
@@ -147,17 +155,21 @@ from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import TestingOutputConfig, ManualOutputConfig
 from bytewax.testing import doctest_ctx
 
+
 def input_builder(worker_index, worker_count, resume_state):
     state = 0  # Ignore recovery for now
     for state, item in enumerate(range(state, 3)):
-        yield(state, {"Worker": worker_index, "Item": item})
+        yield (state, {"Worker": worker_index, "Item": item})
+
 
 def incr(item):
     item["Item"] += 1
     return item
 
+
 def output_builder(worker_index, worker_count):
     return print
+
 
 flow = Dataflow()
 flow.input("inp", ManualInputConfig(input_builder))
@@ -170,12 +182,7 @@ addresses = [
     # "localhost:2102",
     # ...
 ]
-cluster_main(
-    flow,
-    addresses=addresses,
-    proc_id=0,
-    worker_count_per_proc=2
-)
+cluster_main(flow, addresses=addresses, proc_id=0, worker_count_per_proc=2)
 ```
 
 In this toy example here, the cluster is only of a single process with an ID of `0`, so there are only two workers in the sample output:

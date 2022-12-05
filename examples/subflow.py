@@ -5,7 +5,7 @@ from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import ManualOutputConfig
-from bytewax.window import TumblingWindowConfig, SystemClockConfig
+from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
 def input_builder(worker_index, worker_count, resume_state):
@@ -33,13 +33,17 @@ def get_count(word_count):
     word, count = word_count
     return count
 
+
 def output_builder(worker_index, worker_count):
     def format_and_print_output(count_count):
         times_appearing, num_words_with_the_same_count = count_count
         if num_words_with_the_same_count == 1:
             print(f"There was one word with a count of {times_appearing}")
         else:
-            print(f"There were {num_words_with_the_same_count} different words with a count of {times_appearing}")
+            print(
+                f"There were {num_words_with_the_same_count} different words with a count of {times_appearing}"
+            )
+
     return format_and_print_output
 
 

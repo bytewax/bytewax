@@ -82,12 +82,13 @@ To instrument your dataflow, call `setup_tracing` from `bytewax.tracing` with th
 ```python
 # file: dataflow.py
 from bytewax.tracing import OtlpTracingConfig, setup_tracing
+
 tracer = setup_tracing(
     tracing_config=OtlpTracingConfig(
         service_name="Wikistream",
         url="grpc://127.0.0.1:4317",
     ),
-    log_level="ERROR"
+    log_level="ERROR",
 )
 #
 # ...rest of the file

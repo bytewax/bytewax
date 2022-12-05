@@ -19,15 +19,13 @@
 # - time: A string representing the UTC datetime the event was generated,
 #         in isoformat (eg: datetime.now(timezone.utc).isoformat() )
 import json
-
-from datetime import timedelta, datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import KafkaInputConfig
-from bytewax.window import TumblingWindowConfig, EventClockConfig
 from bytewax.outputs import StdOutputConfig
-
+from bytewax.window import EventClockConfig, TumblingWindowConfig
 
 # Define the dataflow object and kafka input.
 flow = Dataflow()

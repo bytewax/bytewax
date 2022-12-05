@@ -1,12 +1,12 @@
-import re
 import operator
+import re
 from datetime import timedelta
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
-from bytewax.window import TumblingWindowConfig, SystemClockConfig
+from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
 def input_builder(worker_index, worker_count, resume_state):
@@ -26,6 +26,7 @@ def tokenize(line):
 def initial_count(word):
     return word, 1
 
+
 cc = SystemClockConfig()
 wc = TumblingWindowConfig(length=timedelta(seconds=5))
 
@@ -39,7 +40,10 @@ flow.flat_map(tokenize)
 flow.map(initial_count)
 # ("word, 1")
 flow.reduce_window(
-    "sum", SystemClockConfig(), TumblingWindowConfig(length=timedelta(seconds=5)), operator.add
+    "sum",
+    SystemClockConfig(),
+    TumblingWindowConfig(length=timedelta(seconds=5)),
+    operator.add,
 )
 # ("word", count)
 flow.capture(StdOutputConfig())

@@ -53,7 +53,11 @@ try:
     for line in open("ip_address_with_country.txt"):
         ip_address, country_raw = line.split(",")
         country = country_raw[:-1]
-        producer.send(input_topic_name, key=f"{country}".encode('ascii'), value=f"{ip_address}".encode('ascii'))
+        producer.send(
+            input_topic_name,
+            key=f"{country}".encode("ascii"),
+            value=f"{ip_address}".encode("ascii"),
+        )
         sleep(0.1)
     print(f"input topic {output_topic_name} populated successfully")
 except KafkaError:
@@ -83,13 +87,11 @@ from bytewax.outputs import KafkaOutputConfig
 
 flow = Dataflow()
 flow.input(
-    step_id = "ip_address", 
-    input_config = KafkaInputConfig(
-        brokers=["localhost:9092"], 
-        topic="ip_address_by_country",
-        tail=False
-        )
-    )
+    step_id="ip_address",
+    input_config=KafkaInputConfig(
+        brokers=["localhost:9092"], topic="ip_address_by_country", tail=False
+    ),
+)
 ```
 
 After initializing a Dataflow object, we use the `input` method to define our input. The input method takes two arguments, the `step_id` and the `input_config`. The `step_id` is used for recovery purposes and the input configuration is where we will use the `KafkaInputConfig` to set up our dataflow to consume from Kafka.
@@ -104,18 +106,20 @@ _A Quick Aside on Recovery: With Bytewax you can persist state in more durable f
 import json
 import requests
 
+
 def get_location(data):
     key, value = data
-    ip_address = value.decode('ascii')
-    response = requests.get(f'https://ipapi.co/{ip_address}/json/')
+    ip_address = value.decode("ascii")
+    response = requests.get(f"https://ipapi.co/{ip_address}/json/")
     response_json = response.json()
     location_data = {
         "ip": ip_address,
         "city": response_json.get("city"),
         "region": response_json.get("region"),
-        "country_name": response_json.get("country_name")
+        "country_name": response_json.get("country_name"),
     }
     return key, json.loads(location_data)
+
 
 # corresponding flow module for the Map operator
 flow.map(get_location)
@@ -129,10 +133,7 @@ To capture data that is transformed in a dataflow, we will use the `capture` met
 
 ```python doctest:SKIP
 flow.capture(
-    KafkaOutputConfig(
-        brokers=["localhost:9092"],
-        topic="ip_address_by_location"
-    )
+    KafkaOutputConfig(brokers=["localhost:9092"], topic="ip_address_by_location")
 )
 ```
 
@@ -144,15 +145,9 @@ With the above dataflow written, the final step is to specify the execution meth
 from bytewax.execution import cluster_main
 
 if __name__ == "__main__":
-    addresses = [
-    "localhost:2101"
-    ]
+    addresses = ["localhost:2101"]
 
-    cluster_main(
-        flow, 
-        addresses=addresses,
-        proc_id=0,
-        worker_count_per_proc=1)
+    cluster_main(flow, addresses=addresses, proc_id=0, worker_count_per_proc=1)
 ```
 
 There are two types of workers: worker threads and worker processes. In most use cases where you are running Python code to transform and enrich data, you will want to use processes.

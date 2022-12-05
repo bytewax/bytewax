@@ -26,7 +26,7 @@ from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
 def input_builder(worker_index, worker_count, resume_state):
-    state = None # ignore recovery
+    state = None  # ignore recovery
     for line in open("wordcount.txt"):
         yield state, line
 
@@ -41,10 +41,11 @@ def tokenize(line):
 
 def initial_count(word):
     return word, 1
-    
-    
+
+
 def add(count1, count2):
     return count1 + count2
+
 
 clock_config = SystemClockConfig()
 window_config = TumblingWindowConfig(length=timedelta(seconds=5))
@@ -120,6 +121,7 @@ def input_builder(worker_index, worker_count, resume_state):
     for line in open("wordcount.txt"):
         yield resume_state, line
 
+
 flow = Dataflow()
 flow.input("input", ManualInputConfig(input_builder))
 ```
@@ -188,15 +190,16 @@ Let's skip ahead to the second operator here, [reduce window](/apidocs/bytewax.d
 ```python
 def initial_count(word):
     return word, 1
-    
-    
+
+
 def add(count1, count2):
     return count1 + count2
+
 
 # Configuration for time based windows.
 clock_config = SystemClockConfig()
 window_config = TumblingWindowConfig(length=timedelta(seconds=5))
-    
+
 flow.map(initial_count)
 flow.reduce_window("sum", clock_config, window_config, add)
 ```

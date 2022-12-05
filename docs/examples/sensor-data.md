@@ -34,6 +34,7 @@ def deserialize(key_bytes__payload_bytes):
     payload = json.loads(payload_bytes)
     return payload["id"], payload
 
+
 flow.map(deserialize)
 ```
 
@@ -43,6 +44,7 @@ In this example, we want our sensor readings to be grouped together based on the
 
 ```python
 from datetime import datetime
+
 
 def get_event_time(event):
     return datetime.fromisoformat(event["time"])
@@ -101,6 +103,7 @@ We'll also need to format any floating point values as [Decimal](https://docs.py
 ```python
 from decimal import Decimal
 
+
 def format(event):
     key, data = event
     values = [x[0] for x in data]
@@ -114,6 +117,7 @@ def format(event):
             "to": Decimal(str((max(dates) - start_at).total_seconds())),
         }
     }
+
 
 flow.map(format)
 ```

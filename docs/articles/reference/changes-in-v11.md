@@ -67,8 +67,8 @@ def tokenize(line):
 
 def initial_count(word):
     return word, 1
-    
-    
+
+
 def add(count1, count2):
     return count1 + count2
 
@@ -120,7 +120,7 @@ to:
 
 ```python doctest:SKIP
 def input_builder(worker_index, worker_count, resume_state):
-    state = None # ignore recovery
+    state = None  # ignore recovery
     for line in open("wordcount.txt"):
         yield state, line
 ```
@@ -208,7 +208,7 @@ from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
 def input_builder(worker_index, worker_count, resume_state):
-    state = None # ignore recovery
+    state = None  # ignore recovery
     for line in open("wordcount.txt"):
         yield state, line
 
@@ -223,8 +223,8 @@ def tokenize(line):
 
 def initial_count(word):
     return word, 1
-    
-    
+
+
 def add(count1, count2):
     return count1 + count2
 

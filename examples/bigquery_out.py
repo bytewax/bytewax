@@ -1,8 +1,7 @@
 import math
 import os
-
 from datetime import datetime, timedelta
-from random import random, randrange, choice
+from random import choice, random, randrange
 
 from bytewax.connectors.bigquery.outputs import BigQueryOutputConfig
 from bytewax.dataflow import Dataflow

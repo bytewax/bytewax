@@ -1,16 +1,16 @@
 import json
-import pandas
+from datetime import datetime, timedelta
 
+import pandas
 from pandas import DataFrame
-from pyarrow import Table, parquet
+from pyarrow import parquet, Table
 from utils import fake_events
-from datetime import timedelta, datetime
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import ManualOutputConfig
-from bytewax.window import TumblingWindowConfig, SystemClockConfig
+from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
 # `fake_events` will generate events for multiple

@@ -1,11 +1,11 @@
 import json
+from datetime import datetime, timedelta, timezone
 
-from datetime import timedelta, datetime, timezone
-
-from bytewax.dataflow import Dataflow
 from bytewax._encoder import encode_dataflow
+from bytewax.dataflow import Dataflow
 from bytewax.inputs import ManualInputConfig
-from bytewax.window import TumblingWindowConfig, EventClockConfig
+from bytewax.window import EventClockConfig, TumblingWindowConfig
+
 
 # Helper functions for some steps
 def acc_values(acc, event):

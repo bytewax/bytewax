@@ -15,4 +15,8 @@ repos:
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
-    -   id: fmt
+      - id: fmt
+  - repo: https://github.com/bytewax/pre-commit-cbfmt
+    rev: v0.1
+    hooks:
+      - id: fmt

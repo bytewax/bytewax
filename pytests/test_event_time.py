@@ -3,8 +3,8 @@ from datetime import datetime, timedelta, timezone
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import ManualInputConfig
-from bytewax.window import TumblingWindowConfig, EventClockConfig
 from bytewax.outputs import TestingOutputConfig
+from bytewax.window import EventClockConfig, TumblingWindowConfig
 
 
 def test_event_time_processing():
@@ -37,8 +37,7 @@ def test_event_time_processing():
         return acc
 
     cc = EventClockConfig(
-        lambda event: event["time"],
-        wait_for_system_duration=timedelta(seconds=0)
+        lambda event: event["time"], wait_for_system_duration=timedelta(seconds=0)
     )
     wc = TumblingWindowConfig(start_at=start_at, length=window_length)
 

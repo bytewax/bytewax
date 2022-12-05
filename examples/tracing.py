@@ -6,7 +6,7 @@ from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
-from bytewax.tracing import setup_tracing, OtlpTracingConfig
+from bytewax.tracing import OtlpTracingConfig, setup_tracing
 
 tracer = setup_tracing(
     tracing_config=OtlpTracingConfig(

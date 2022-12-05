@@ -1,0 +1,3 @@
+[languages]
+rust = ["rustfmt"]
+python = ["black --fast -"]
