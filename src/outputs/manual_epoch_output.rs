@@ -64,7 +64,7 @@ impl ManualEpochOutputConfig {
         Python::with_gil(|py| {
             HashMap::from([
                 ("type", "ManualEpochOutputConfig".into_py(py)),
-                ("input_builder", self.output_builder.clone().into_py(py)),
+                ("output_builder", self.output_builder.clone().into_py(py)),
             ])
         })
     }
