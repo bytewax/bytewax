@@ -155,7 +155,9 @@ where
     S: Scope,
     D: Data,
 {
-    /// Emit the current frontier labeled with the current worker.
+    /// Write out all epochs from upstream that are completed.
+    ///
+    /// The write that an epoch is complete happens within that epoch.
     ///
     /// Doesn't emit a progress update on dataflow termination to
     /// allow for continuation in another execution.
@@ -184,11 +186,10 @@ where
                 ncater.notify_at(cap.retain());
             });
 
-            ncater.for_each(|cap, _count, ncater| {
-                if let Some(frontier) = ncater.frontier(0).first().cloned() {
-                    let mut session = output.session(&cap);
-                    session.give(KChange(worker_key.clone(), Change::Upsert(frontier)));
-                }
+            ncater.for_each(|cap, _count, _ncater| {
+                let epoch = cap.time();
+                let kchange = KChange(worker_key.clone(), Change::Upsert(epoch.clone()));
+                output.session(&cap).give(kchange);
             });
         })
     }
@@ -385,7 +386,7 @@ where
 
 impl<S> GarbageCollect<S> for StoreSummaryStream<S>
 where
-    S: Scope,
+    S: Scope<Timestamp = u64>,
 {
     fn garbage_collect(
         &self,
@@ -450,7 +451,7 @@ where
                     let mut session = output.session(&cap);
                     session.give_iterator(
                         summary
-                            .drain_garbage(&cluster_progress.frontier())
+                            .drain_garbage(&cluster_progress.resume_epoch())
                             .into_iter()
                             .map(|key| KChange(key, Change::Discard)),
                     );

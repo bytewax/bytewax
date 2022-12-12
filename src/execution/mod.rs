@@ -361,15 +361,14 @@ fn run_until_done<A: Allocate, T: Timestamp>(
     }
 }
 
-fn build_and_run_resume_epoch_calc_dataflow<A, T, R>(
+fn build_and_run_resume_epoch_calc_dataflow<A, R>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     progress_reader: R,
-) -> StringResult<T>
+) -> StringResult<u64>
 where
     A: Allocate,
-    T: Timestamp + Debug,
-    R: ProgressReader<T> + 'static,
+    R: ProgressReader<u64> + 'static,
 {
     let (probe, cluster_progress) = build_resume_epoch_calc_dataflow(worker, progress_reader)?;
 
@@ -378,7 +377,7 @@ where
     let resume_epoch = Rc::try_unwrap(cluster_progress)
         .expect("Resume epoch dataflow still has reference to cluster_progress")
         .into_inner()
-        .frontier();
+        .resume_epoch();
     tracing::debug!("Calculated resume epoch {resume_epoch:?}");
 
     Ok(resume_epoch)

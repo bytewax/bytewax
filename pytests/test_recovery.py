@@ -239,7 +239,7 @@ def test_continuation(entry_point, inp, out, recovery_config):
     flow = build_keep_max_dataflow(armed, inp)
     flow.capture(TestingOutputConfig(out))
 
-    entry_point(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+    entry_point(flow, recovery_config=recovery_config)
 
     assert sorted(out) == sorted(
         [
@@ -261,7 +261,7 @@ def test_continuation(entry_point, inp, out, recovery_config):
     del out[:]
 
     # Continue.
-    entry_point(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+    entry_point(flow, recovery_config=recovery_config)
 
     # Incorporates new input.
     assert sorted(out) == sorted(

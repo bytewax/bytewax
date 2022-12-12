@@ -100,39 +100,23 @@ where
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
 
-        let flow_key = FlowKey(step_id, state_key);
+        let flow_key = FlowKey(step_id.clone(), state_key);
 
         op_builder.build(move |mut init_caps| {
-            let mut change_cap = init_caps.pop().map(|cap| cap.delayed(&start_at));
-            let mut output_cap = init_caps.pop().map(|cap| cap.delayed(&start_at));
+            let change_cap = init_caps.pop().map(|cap| cap.delayed(&start_at)).unwrap();
+            let output_cap = init_caps.pop().map(|cap| cap.delayed(&start_at)).unwrap();
 
-            let mut eof = false;
+            let mut caps = Some((output_cap, change_cap));
             let mut epoch_started = Instant::now();
 
             move |_input_frontiers| {
-                if let (Some(output_cap), Some(change_cap)) =
-                    (output_cap.as_mut(), change_cap.as_mut())
-                {
+                caps = if let Some((output_cap, change_cap)) = caps.clone() {
                     assert!(output_cap.time() == change_cap.time());
                     let epoch = output_cap.time();
 
+                    let mut eof = false;
+
                     if !probe.less_than(epoch) {
-                        if epoch_started.elapsed() > epoch_length {
-                            // Snapshot just before incrementing epoch to
-                            // get the "end of the epoch state".
-                            change_wrapper
-                                .activate()
-                                .session(&change_cap)
-                                .give(KChange(flow_key.clone(), Change::Upsert(reader.snapshot())));
-
-                            let next_epoch = epoch + 1;
-
-                            output_cap.downgrade(&next_epoch);
-                            change_cap.downgrade(&next_epoch);
-
-                            epoch_started = Instant::now();
-                        }
-
                         match reader.next() {
                             Poll::Pending => {}
                             Poll::Ready(None) => {
@@ -143,12 +127,36 @@ where
                             }
                         }
                     }
-                }
+                    let advance = epoch_started.elapsed() > epoch_length;
 
-                if eof {
-                    output_cap = None;
-                    change_cap = None;
+                    // If the the current epoch will be over, snapshot
+                    // to get "end of the epoch state".
+                    if advance || eof {
+                        let kchange = KChange(flow_key.clone(), Change::Upsert(reader.snapshot()));
+                        change_wrapper.activate().session(&change_cap).give(kchange);
+                    }
+
+                    if eof {
+                        tracing::trace!("Input {step_id:?} reached EOF");
+                        None
+                    } else if advance {
+                        let next_epoch = epoch + 1;
+                        epoch_started = Instant::now();
+                        tracing::trace!("Input {step_id:?} advancing to epoch {next_epoch:?}");
+                        Some((
+                            output_cap.delayed(&next_epoch),
+                            change_cap.delayed(&next_epoch),
+                        ))
+                    } else {
+                        Some((output_cap, change_cap))
+                    }
                 } else {
+                    None
+                };
+
+                // Wake up constantly, because we never know when
+                // input will have new data.
+                if caps.is_some() {
                     activator.activate();
                 }
             }

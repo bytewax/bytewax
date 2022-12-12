@@ -67,8 +67,7 @@ pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
     step_changes: FlowChangeStream<S>,
     capture_clock: ClockStream<S>,
 ) where
-    S: Scope,
-    S::Timestamp: TotalOrder,
+    S: Scope<Timestamp = u64>,
     PW: ProgressWriter<S::Timestamp> + 'static,
     SW: StateWriter<S::Timestamp> + 'static,
 {
@@ -79,6 +78,7 @@ pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
     let worker_clock = backup_clock.concat(&capture_clock);
     let progress_clock = worker_clock
         .progress(worker_key.clone())
+        .inspect(|kchange| tracing::trace!("Worker progress {kchange:?}"))
         .write(progress_writer);
     // GC works on a progress stream. But we don't want to GC state
     // until the progress messages are written, thus we need to view
@@ -157,12 +157,16 @@ where
         let store_change_stream = read(scope, reader, &probe);
 
         store_change_stream
-            // Not <=.
+            // The resume epoch is the epoch we are starting at,
+            // so only load state from before < that point. Not
+            // <=.
             .filter(move |KChange(StoreKey(epoch, _flow_key), _change)| epoch < &resume_epoch)
             .recover()
             .write(resume_state.clone())
             .probe_with(&mut probe);
 
+        // Might need to GC writes from some workers even if we
+        // shouldn't be loading any state.
         store_change_stream
             .summary()
             .write(summary.clone())

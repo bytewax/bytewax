@@ -1,8 +1,8 @@
 //! Data model representing progress in the dataflow and the recovery
 //! system.
 //!
-//! A progress store is a K-V mapping from [`WorkerKey`] to a frontier
-//! epoch `T`.
+//! A progress store is a K-V mapping from [`WorkerKey`] to a
+//! finalized epoch `T`.
 
 use super::change::*;
 use serde::Deserialize;
@@ -21,7 +21,7 @@ pub(crate) struct WorkerKey(pub(crate) WorkerIndex);
 
 /// A change to the progress store.
 ///
-/// Notes that a worker's frontier changed.
+/// Notes that a worker's finalized epoch has changed.
 pub(crate) type ProgressChange<T> = KChange<WorkerKey, T>;
 
 /// All progress stores have to implement this writer.

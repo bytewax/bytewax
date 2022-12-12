@@ -302,38 +302,66 @@ pub(crate) struct InMemProgress<T>(HashMap<WorkerKey, T>);
 
 impl<T> InMemProgress<T>
 where
-    T: Timestamp,
+    T: Ord + Clone,
 {
     pub(crate) fn new() -> Self {
         Self(HashMap::new())
     }
 
-    /// Calculate the current cluster frontier.
-    pub(crate) fn frontier(&self) -> T {
-        self.0.values().min().cloned().unwrap_or_else(T::minimum)
+    /// Calculate finalized epoch for the cluster.
+    pub(crate) fn finalized_epoch(&self) -> Option<T> {
+        self.0.values().min().cloned()
+    }
+}
+
+impl InMemProgress<u64> {
+    /// Calculate the resume epoch from the previous cluster state.
+    ///
+    /// This should be the epoch after the last finalized epoch, or if
+    /// none, the minimum epoch.
+    pub(crate) fn resume_epoch(&self) -> u64 {
+        self.finalized_epoch()
+            .map(|epoch| epoch + 1)
+            .unwrap_or_else(<u64 as Timestamp>::minimum)
     }
 }
 
 #[test]
-fn cluster_frontier_works() {
+fn finalized_epoch_works() {
     let mut progress = InMemProgress::new();
 
     progress.0 = HashMap::from([
         (WorkerKey(WorkerIndex(1)), 5),
-        (WorkerKey(WorkerIndex(1)), 2),
+        (WorkerKey(WorkerIndex(2)), 2),
     ]);
 
-    let found = progress.frontier();
-    let expected = 2;
+    let found = progress.finalized_epoch();
+    let expected = Some(2);
     assert_eq!(found, expected);
 }
 
 #[test]
-fn cluster_frontier_returns_starting_epoch() {
-    let progress = InMemProgress::<u64>::new();
+fn resume_epoch_works() {
+    let mut progress = InMemProgress::new();
 
-    let found = progress.frontier();
-    let expected = 0;
+    progress.0 = HashMap::from([
+        (WorkerKey(WorkerIndex(1)), 5),
+        (WorkerKey(WorkerIndex(2)), 2),
+    ]);
+
+    let found = progress.resume_epoch();
+    let expected = 3;
+    assert_eq!(found, expected);
+}
+
+#[test]
+fn resume_epoch_works_with_no_state() {
+    let mut progress = InMemProgress::new();
+
+    progress.0 = HashMap::from([]);
+
+    let found = progress.resume_epoch();
+    let expected = <u64 as Timestamp>::minimum();
     assert_eq!(found, expected);
 }
 

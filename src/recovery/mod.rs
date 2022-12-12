@@ -25,9 +25,10 @@
 //! which allows us to recover to a synchronized point in time (the
 //! beginning of an epoch) across workers.
 //!
-//! We also snapshot the frontier of each worker as the dataflow
-//! executes. The **worker frontier** represents the oldest epoch on a
-//! given worker for which output or state backup is still pending.
+//! We also snapshot the **finalized epoch** of each worker as the
+//! dataflow executes. The finalized epoch is the newest epoch on a
+//! given worker for which output or state backup is no longer
+//! pending.
 //!
 //! See [`model`] for the specifics of what is stored for [`model::state`] and
 //! [`model::progress`].
