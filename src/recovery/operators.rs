@@ -187,8 +187,8 @@ where
             });
 
             ncater.for_each(|cap, _count, _ncater| {
-                let epoch = cap.time();
-                let kchange = KChange(worker_key.clone(), Change::Upsert(epoch.clone()));
+                let epoch = BorderEpoch(cap.time().clone());
+                let kchange = KChange(worker_key.clone(), Change::Upsert(epoch));
                 output.session(&cap).give(kchange);
             });
         })

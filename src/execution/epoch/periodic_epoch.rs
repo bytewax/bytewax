@@ -80,7 +80,7 @@ where
         step_id: StepId,
         state_key: StateKey,
         mut reader: Box<dyn InputReader<crate::pyo3_extensions::TdPyAny>>,
-        start_at: S::Timestamp,
+        start_at: ResumeEpoch<u64>,
         probe: &ProbeHandle<S::Timestamp>,
     ) -> StringResult<(
         Stream<S, crate::pyo3_extensions::TdPyAny>,
@@ -103,8 +103,8 @@ where
         let flow_key = FlowKey(step_id.clone(), state_key);
 
         op_builder.build(move |mut init_caps| {
-            let change_cap = init_caps.pop().map(|cap| cap.delayed(&start_at)).unwrap();
-            let output_cap = init_caps.pop().map(|cap| cap.delayed(&start_at)).unwrap();
+            let change_cap = init_caps.pop().map(|cap| cap.delayed(&start_at.0)).unwrap();
+            let output_cap = init_caps.pop().map(|cap| cap.delayed(&start_at.0)).unwrap();
 
             let mut caps = Some((output_cap, change_cap));
             let mut epoch_started = Instant::now();

@@ -44,23 +44,29 @@ where
     /// for recovery.
     ///
     /// This is all but the last upsert for each routing key before
-    /// the cluster frontier, since we only need to recover to the
-    /// cluster frontier.
+    /// the cluster finalized epoch, since we only need to recover to
+    /// the resume epoch.
     ///
-    /// State changes more recent than the frontier could be used
+    /// State changes more recent than the resume epoch could be used
     /// later, so we must keep them.
-    pub(crate) fn drain_garbage(&mut self, frontier: &T) -> impl Iterator<Item = StoreKey<T>> {
+    pub(crate) fn drain_garbage(
+        &mut self,
+        before: &ResumeEpoch<T>,
+    ) -> impl Iterator<Item = StoreKey<T>> {
         let mut garbage = Vec::new();
 
         let mut empty_keys = Vec::new();
-        for (key, non_garbage_changes) in self.db.iter_mut() {
+        for (key, changes) in self.db.iter_mut() {
             // This now contains `(epoch, op)` in epoch order where
-            // epoch < frontier. So all operations that could be GCd.
-            // Unfortunately [`BTreeMap::split_off`] returns the "high
-            // end" / not garbage, so we have to swap around pointers
-            // to get ownership right without cloning.
-            let tmp = non_garbage_changes.split_off(frontier);
-            let mut garbage_changes = std::mem::replace(non_garbage_changes, tmp);
+            // epoch < resume epoch. So all operations that could be
+            // GCd.  Unfortunately [`BTreeMap::split_off`] returns the
+            // "high end" / not garbage, so we have to swap around
+            // pointers to get ownership right without cloning.
+            let (mut garbage_changes, non_garbage_changes) = {
+                let tmp = changes.split_off(&before.0);
+                let garbage_changes = std::mem::replace(changes, tmp);
+                (garbage_changes, changes)
+            };
 
             // If the newest bit of "garbage" in epoch order is an
             // upsert, keep it, since it's the state we'd use to
@@ -168,7 +174,7 @@ fn drain_garbage_works() {
         (key2.clone(), BTreeMap::from([(2, upx), (3, upz), (1, upy)])),
     ]);
 
-    let found: HashSet<_> = store.drain_garbage(&6).collect();
+    let found: HashSet<_> = store.drain_garbage(&ResumeEpoch(6)).collect();
     let expected = HashSet::from([StoreKey(1, key2.clone()), StoreKey(2, key2)]);
     assert_eq!(found, expected);
 }
@@ -194,7 +200,7 @@ fn drain_garbage_includes_newest_discard() {
         ]),
     )]);
 
-    let found: HashSet<_> = store.drain_garbage(&6).collect();
+    let found: HashSet<_> = store.drain_garbage(&ResumeEpoch(6)).collect();
     let expected = HashSet::from([
         StoreKey(1, key1.clone()),
         StoreKey(2, key1.clone()),
@@ -218,7 +224,7 @@ fn drain_garbage_drops_unused_keys() {
     )]);
 
     // Must use the iterator.
-    store.drain_garbage(&6).for_each(drop);
+    store.drain_garbage(&ResumeEpoch(6)).for_each(drop);
 
     let expected = HashMap::from([]);
     assert_eq!(store.db, expected);
@@ -298,7 +304,7 @@ fn write_discard_drops_key() {
 
 /// A progress store with all data in-memory.
 #[derive(Debug)]
-pub(crate) struct InMemProgress<T>(HashMap<WorkerKey, T>);
+pub(crate) struct InMemProgress<T>(HashMap<WorkerKey, BorderEpoch<T>>);
 
 impl<T> InMemProgress<T>
 where
@@ -307,11 +313,6 @@ where
     pub(crate) fn new() -> Self {
         Self(HashMap::new())
     }
-
-    /// Calculate finalized epoch for the cluster.
-    pub(crate) fn finalized_epoch(&self) -> Option<T> {
-        self.0.values().min().cloned()
-    }
 }
 
 impl InMemProgress<u64> {
@@ -319,25 +320,16 @@ impl InMemProgress<u64> {
     ///
     /// This should be the epoch after the last finalized epoch, or if
     /// none, the minimum epoch.
-    pub(crate) fn resume_epoch(&self) -> u64 {
-        self.finalized_epoch()
-            .map(|epoch| epoch + 1)
-            .unwrap_or_else(<u64 as Timestamp>::minimum)
+    pub(crate) fn resume_epoch(&self) -> ResumeEpoch<u64> {
+        ResumeEpoch(
+            self.0
+                .values()
+                .min()
+                .cloned()
+                .map(|border| border.0 + 1)
+                .unwrap_or_else(<u64 as Timestamp>::minimum),
+        )
     }
-}
-
-#[test]
-fn finalized_epoch_works() {
-    let mut progress = InMemProgress::new();
-
-    progress.0 = HashMap::from([
-        (WorkerKey(WorkerIndex(1)), 5),
-        (WorkerKey(WorkerIndex(2)), 2),
-    ]);
-
-    let found = progress.finalized_epoch();
-    let expected = Some(2);
-    assert_eq!(found, expected);
 }
 
 #[test]
@@ -345,12 +337,12 @@ fn resume_epoch_works() {
     let mut progress = InMemProgress::new();
 
     progress.0 = HashMap::from([
-        (WorkerKey(WorkerIndex(1)), 5),
-        (WorkerKey(WorkerIndex(2)), 2),
+        (WorkerKey(WorkerIndex(1)), BorderEpoch(5)),
+        (WorkerKey(WorkerIndex(2)), BorderEpoch(2)),
     ]);
 
     let found = progress.resume_epoch();
-    let expected = 3;
+    let expected = ResumeEpoch(3);
     assert_eq!(found, expected);
 }
 
@@ -361,12 +353,12 @@ fn resume_epoch_works_with_no_state() {
     progress.0 = HashMap::from([]);
 
     let found = progress.resume_epoch();
-    let expected = <u64 as Timestamp>::minimum();
+    let expected = ResumeEpoch(<u64 as Timestamp>::minimum());
     assert_eq!(found, expected);
 }
 
-impl<T> KWriter<WorkerKey, T> for InMemProgress<T> {
-    fn write(&mut self, kchange: KChange<WorkerKey, T>) {
+impl<T> KWriter<WorkerKey, BorderEpoch<T>> for InMemProgress<T> {
+    fn write(&mut self, kchange: KChange<WorkerKey, BorderEpoch<T>>) {
         self.0.write(kchange)
     }
 }

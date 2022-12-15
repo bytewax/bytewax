@@ -22,7 +22,7 @@ def test_run(entry_point, out):
 
 
 def test_reraises_exception(entry_point, out, entry_point_name):
-    if entry_point_name == "spawn_cluster":
+    if entry_point_name.startswith("spawn_cluster"):
         skip(
             "Timely is currently double panicking in cluster mode and that causes"
             " pool.join() to hang; it can be ctrl-c'd though"

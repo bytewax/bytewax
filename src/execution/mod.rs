@@ -109,7 +109,7 @@ fn build_production_dataflow<A, PW, SW>(
     worker: &mut Worker<A>,
     flow: Py<Dataflow>,
     epoch_config: Py<EpochConfig>,
-    resume_epoch: u64,
+    resume_epoch: ResumeEpoch<u64>,
     mut resume_state: FlowStateBytes,
     store_summary: StoreSummary<u64>,
     progress_writer: PW,
@@ -365,7 +365,7 @@ fn build_and_run_resume_epoch_calc_dataflow<A, R>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     progress_reader: R,
-) -> StringResult<u64>
+) -> StringResult<ResumeEpoch<u64>>
 where
     A: Allocate,
     R: ProgressReader<u64> + 'static,
@@ -386,7 +386,7 @@ where
 fn build_and_run_state_loading_dataflow<A, T, R>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
-    resume_epoch: T,
+    resume_epoch: ResumeEpoch<T>,
     state_reader: R,
 ) -> StringResult<(FlowStateBytes, StoreSummary<T>)>
 where
@@ -415,7 +415,7 @@ fn build_and_run_production_dataflow<A, PW, SW>(
     interrupt_flag: &AtomicBool,
     flow: Py<Dataflow>,
     epoch_config: Py<EpochConfig>,
-    resume_epoch: u64,
+    resume_epoch: ResumeEpoch<u64>,
     resume_state: FlowStateBytes,
     store_summary: StoreSummary<u64>,
     progress_writer: PW,

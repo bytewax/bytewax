@@ -138,7 +138,7 @@ where
 pub(crate) fn build_state_loading_dataflow<A, T, R>(
     timely_worker: &mut Worker<A>,
     reader: R,
-    resume_epoch: T,
+    resume_epoch: ResumeEpoch<T>,
 ) -> StringResult<(
     ProbeHandle<T>,
     Rc<RefCell<FlowStateBytes>>,
@@ -160,7 +160,7 @@ where
             // The resume epoch is the epoch we are starting at,
             // so only load state from before < that point. Not
             // <=.
-            .filter(move |KChange(StoreKey(epoch, _flow_key), _change)| epoch < &resume_epoch)
+            .filter(move |KChange(StoreKey(epoch, _flow_key), _change)| *epoch < resume_epoch.0)
             .recover()
             .write(resume_state.clone())
             .probe_with(&mut probe);
