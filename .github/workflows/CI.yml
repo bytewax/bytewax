@@ -46,7 +46,8 @@ jobs:
       run: |
         WHEEL_FILE=$(ls ./dist/*.whl)
         pip install $WHEEL_FILE'[dev]' -v
-        pytest
+        pytest pytests
+        pytest docs
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -79,7 +80,8 @@ jobs:
         pip -V
         WHEEL_FILE=$(ls ./dist/*.whl)
         pip install $WHEEL_FILE'[dev]' -v
-        pytest
+        pytest pytests
+        pytest docs
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -122,7 +124,8 @@ jobs:
       run: |
         WHEEL_FILE=$(ls ./dist/*.whl)
         pip install $WHEEL_FILE'[dev]' -v
-        pytest
+        pytest pytests
+        pytest docs
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -162,7 +165,8 @@ jobs:
         pyenv activate bytewax-${{ matrix.python-version }}
         WHEEL_FILE=$(ls ./dist/*.whl)
         pip install $WHEEL_FILE'[dev]' -v --force-reinstall
-        pytest
+        pytest pytests
+        pytest docs
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
