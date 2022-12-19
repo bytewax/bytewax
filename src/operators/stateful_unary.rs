@@ -24,6 +24,7 @@ use timely::{
 };
 
 use crate::recovery::model::*;
+use crate::recovery::operators::Route;
 
 // Re-export for convenience. If you want to write a stateful
 // operator, just use * this module.
@@ -176,7 +177,7 @@ where
 
         let mut input_handle = op_builder.new_input_connection(
             self,
-            Exchange::new(move |&(ref key, ref _value)| StateKey::route(key)),
+            Exchange::new(move |(key, _value): &(StateKey, V)| key.route()),
             // This is saying this input results in items on either
             // output.
             vec![Antichain::from_elem(0), Antichain::from_elem(0)],
@@ -202,6 +203,13 @@ where
             let mut current_next_awake: HashMap<StateKey, DateTime<Utc>> = HashMap::new();
 
             for (key, snapshot) in resume_state {
+                // TODO: How do we double check that resume state was
+                // routed correctly? We don't have access to how
+                // [`Exchange`] is converted to worker index, so we
+                // can't even write this:
+
+                // assert!(key.route() == worker_index);
+
                 let state = StateBytes::de::<(StateBytes, Option<DateTime<Utc>>)>(snapshot);
                 let (logic_snapshot, next_awake) = state;
                 current_logic.insert(key.clone(), logic_builder(Some(logic_snapshot)));

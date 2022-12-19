@@ -43,7 +43,7 @@ use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair};
 use crate::recovery::dataflows::*;
 use crate::recovery::model::*;
 use crate::recovery::python::*;
-use crate::recovery::store::in_mem::StoreSummary;
+use crate::recovery::store::in_mem::{InMemProgress, StoreSummary};
 use crate::webserver::run_webserver;
 use crate::window::WindowBuilder;
 use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
@@ -111,6 +111,7 @@ fn build_production_dataflow<A, PW, SW>(
     epoch_config: Py<EpochConfig>,
     resume_epoch: ResumeEpoch<u64>,
     mut resume_state: FlowStateBytes,
+    resume_progress: InMemProgress<u64>,
     store_summary: StoreSummary<u64>,
     progress_writer: PW,
     state_writer: SW,
@@ -306,6 +307,7 @@ where
         attach_recovery_to_dataflow(
             &mut probe,
             worker_key,
+            resume_progress,
             store_summary,
             progress_writer,
             state_writer,
@@ -361,26 +363,24 @@ fn run_until_done<A: Allocate, T: Timestamp>(
     }
 }
 
-fn build_and_run_resume_epoch_calc_dataflow<A, R>(
+fn build_and_run_progress_loading_dataflow<A, R>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     progress_reader: R,
-) -> StringResult<ResumeEpoch<u64>>
+) -> StringResult<InMemProgress<u64>>
 where
     A: Allocate,
     R: ProgressReader<u64> + 'static,
 {
-    let (probe, cluster_progress) = build_resume_epoch_calc_dataflow(worker, progress_reader)?;
+    let (probe, progress_store) = build_progress_loading_dataflow(worker, progress_reader)?;
 
     run_until_done(worker, interrupt_flag, probe);
 
-    let resume_epoch = Rc::try_unwrap(cluster_progress)
-        .expect("Resume epoch dataflow still has reference to cluster_progress")
-        .into_inner()
-        .resume_epoch();
-    tracing::debug!("Calculated resume epoch {resume_epoch:?}");
+    let resume_progress = Rc::try_unwrap(progress_store)
+        .expect("Resume epoch dataflow still has reference to progress_store")
+        .into_inner();
 
-    Ok(resume_epoch)
+    Ok(resume_progress)
 }
 
 fn build_and_run_state_loading_dataflow<A, T, R>(
@@ -417,6 +417,7 @@ fn build_and_run_production_dataflow<A, PW, SW>(
     epoch_config: Py<EpochConfig>,
     resume_epoch: ResumeEpoch<u64>,
     resume_state: FlowStateBytes,
+    resume_progress: InMemProgress<u64>,
     store_summary: StoreSummary<u64>,
     progress_writer: PW,
     state_writer: SW,
@@ -448,6 +449,7 @@ where
             epoch_config,
             resume_epoch,
             resume_state,
+            resume_progress,
             store_summary,
             progress_writer,
             state_writer,
@@ -493,9 +495,11 @@ fn worker_main<A: Allocate>(
     })?;
 
     let span = tracing::trace_span!("Resume epoch").entered();
-    let resume_epoch =
-        build_and_run_resume_epoch_calc_dataflow(worker, interrupt_flag, progress_reader)?;
+    let resume_progress =
+        build_and_run_progress_loading_dataflow(worker, interrupt_flag, progress_reader)?;
     span.exit();
+    let resume_epoch = resume_progress.resume_epoch();
+    tracing::info!("Calculated resume epoch {resume_epoch:?}");
 
     let span = tracing::trace_span!("State loading").entered();
     let (resume_state, store_summary) =
@@ -509,6 +513,7 @@ fn worker_main<A: Allocate>(
         epoch_config,
         resume_epoch,
         resume_state,
+        resume_progress,
         store_summary,
         progress_writer,
         state_writer,
