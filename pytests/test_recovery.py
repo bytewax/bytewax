@@ -5,7 +5,7 @@ from pytest import fixture, raises
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main, TestingEpochConfig
 from bytewax.inputs import TestingInputConfig
-from bytewax.outputs import TestingEpochOutputConfig
+from bytewax.outputs import TestingEpochOutputConfig, TestingOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
 
 epoch_config = TestingEpochConfig()
@@ -55,10 +55,7 @@ def build_keep_max_dataflow(armed, inp):
 
     flow.stateful_map("keep_max", lambda: None, keep_max)
 
-    out = []
-    flow.capture(TestingEpochOutputConfig(out))
-
-    return flow, out
+    return flow
 
 
 def test_recover_with_latest_state(recovery_config):
@@ -78,7 +75,9 @@ def test_recover_with_latest_state(recovery_config):
         # Epoch 3
         ("b", 1, False),
     ]
-    flow, out = build_keep_max_dataflow(armed, inp)
+    out = []
+    flow = build_keep_max_dataflow(armed, inp)
+    flow.capture(TestingEpochOutputConfig(out))
 
     # First pass.
     with raises(RuntimeError):
@@ -132,7 +131,9 @@ def test_recover_doesnt_gc_last_write(recovery_config):
         # Epoch 6
         ("a", 1, False),
     ]
-    flow, out = build_keep_max_dataflow(armed, inp)
+    out = []
+    flow = build_keep_max_dataflow(armed, inp)
+    flow.capture(TestingEpochOutputConfig(out))
 
     # First pass.
     with raises(RuntimeError):
@@ -188,7 +189,9 @@ def test_recover_respects_delete(recovery_config):
         # Should be max for "a" on resume.
         ("a", 2, False),
     ]
-    flow, out = build_keep_max_dataflow(armed, inp)
+    out = []
+    flow = build_keep_max_dataflow(armed, inp)
+    flow.capture(TestingEpochOutputConfig(out))
 
     # First pass.
     with raises(RuntimeError):
@@ -216,5 +219,54 @@ def test_recover_respects_delete(recovery_config):
             (4, ("b", 5)),
             # Notice not 4.
             (5, ("a", 2)),
+        ]
+    )
+
+
+def test_continuation(entry_point, inp, out, recovery_config):
+    # Not used for continuation, but we want to re-use
+    # build_keep_max_dataflow.
+    armed = Event()
+
+    # Since we're modifying the input, use the fixture so it works
+    # across processes.
+    inp.extend(
+        [
+            ("a", 4, False),
+            ("b", 4, False),
+        ]
+    )
+    flow = build_keep_max_dataflow(armed, inp)
+    flow.capture(TestingOutputConfig(out))
+
+    entry_point(flow, recovery_config=recovery_config)
+
+    assert sorted(out) == sorted(
+        [
+            ("a", 4),
+            ("b", 4),
+        ]
+    )
+
+    # Add new input. Don't clear because `TestingInputConfig` needs
+    # the initial items so the resume epoch skips to here.
+    inp.extend(
+        [
+            ("a", 1, False),
+            ("b", 5, False),
+        ]
+    )
+    # Unfortunately `ListProxy`, which we'd use in the cluster entry
+    # point, does not have `clear`.
+    del out[:]
+
+    # Continue.
+    entry_point(flow, recovery_config=recovery_config)
+
+    # Incorporates new input.
+    assert sorted(out) == sorted(
+        [
+            ("a", 4),
+            ("b", 5),
         ]
     )

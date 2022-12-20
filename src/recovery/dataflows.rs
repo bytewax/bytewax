@@ -61,14 +61,14 @@ use crate::common::StringResult;
 pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
     probe: &mut ProbeHandle<S::Timestamp>,
     worker_key: WorkerKey,
+    resume_progress: InMemProgress<S::Timestamp>,
     store_summary: StoreSummary<S::Timestamp>,
     progress_writer: PW,
     state_writer: SW,
     step_changes: FlowChangeStream<S>,
     capture_clock: ClockStream<S>,
 ) where
-    S: Scope,
-    S::Timestamp: TotalOrder,
+    S: Scope<Timestamp = u64>,
     PW: ProgressWriter<S::Timestamp> + 'static,
     SW: StateWriter<S::Timestamp> + 'static,
 {
@@ -79,6 +79,7 @@ pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
     let worker_clock = backup_clock.concat(&capture_clock);
     let progress_clock = worker_clock
         .progress(worker_key.clone())
+        .inspect(|kchange| tracing::trace!("Worker progress {kchange:?}"))
         .write(progress_writer);
     // GC works on a progress stream. But we don't want to GC state
     // until the progress messages are written, thus we need to view
@@ -86,7 +87,7 @@ pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
     let cluster_progress = progress_clock.progress(worker_key).broadcast();
     let gc_clock = store_changes
         .summary()
-        .garbage_collect(cluster_progress, store_summary)
+        .garbage_collect(cluster_progress, resume_progress, store_summary)
         .write(state_writer);
     // Rate limit the whole dataflow on GC, not just on main
     // execution.
@@ -103,27 +104,25 @@ pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
 /// cluster worker will have the progress info of all workers in the
 /// previous cluster.
 #[allow(clippy::type_complexity)]
-pub(crate) fn build_resume_epoch_calc_dataflow<A, T, R>(
+pub(crate) fn build_progress_loading_dataflow<A, R>(
     timely_worker: &mut Worker<A>,
     // TODO: Allow multiple (or none) FrontierReaders so you can recover a
     // different-sized cluster.
     reader: R,
-) -> StringResult<(ProbeHandle<()>, Rc<RefCell<InMemProgress<T>>>)>
+) -> StringResult<(ProbeHandle<()>, Rc<RefCell<InMemProgress<u64>>>)>
 where
     A: Allocate,
-    T: Timestamp,
-    R: ProgressReader<T> + 'static,
+    R: ProgressReader<u64> + 'static,
 {
     timely_worker.dataflow(|scope| {
         let mut probe = ProbeHandle::new();
-        let cluster_progress = Rc::new(RefCell::new(InMemProgress::new()));
+        let resume_progress = Rc::new(RefCell::new(InMemProgress::new()));
 
         read(scope, reader, &probe)
-            .broadcast()
-            .write(cluster_progress.clone())
+            .broadcast_write(resume_progress.clone())
             .probe_with(&mut probe);
 
-        Ok((probe, cluster_progress))
+        Ok((probe, resume_progress))
     })
 }
 
@@ -138,7 +137,7 @@ where
 pub(crate) fn build_state_loading_dataflow<A, T, R>(
     timely_worker: &mut Worker<A>,
     reader: R,
-    resume_epoch: T,
+    resume_epoch: ResumeEpoch<T>,
 ) -> StringResult<(
     ProbeHandle<T>,
     Rc<RefCell<FlowStateBytes>>,
@@ -157,12 +156,16 @@ where
         let store_change_stream = read(scope, reader, &probe);
 
         store_change_stream
-            // Not <=.
-            .filter(move |KChange(StoreKey(epoch, _flow_key), _change)| epoch < &resume_epoch)
+            // The resume epoch is the epoch we are starting at,
+            // so only load state from before < that point. Not
+            // <=.
+            .filter(move |KChange(StoreKey(epoch, _flow_key), _change)| *epoch < resume_epoch.0)
             .recover()
             .write(resume_state.clone())
             .probe_with(&mut probe);
 
+        // Might need to GC writes from some workers even if we
+        // shouldn't be loading any state.
         store_change_stream
             .summary()
             .write(summary.clone())

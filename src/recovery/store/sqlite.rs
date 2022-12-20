@@ -302,7 +302,7 @@ impl SqliteProgressWriter {
         let mut conn = rt.block_on(future).unwrap();
 
         let sql = format!(
-            "CREATE TABLE IF NOT EXISTS {table_name} (worker_index INTEGER PRIMARY KEY, frontier INTEGER);"
+            "CREATE TABLE IF NOT EXISTS {table_name} (worker_index INTEGER PRIMARY KEY, border INTEGER);"
         );
         let future = query(&sql).execute(&mut conn);
         rt.block_on(future).unwrap();
@@ -315,20 +315,20 @@ impl SqliteProgressWriter {
     }
 }
 
-impl KWriter<WorkerKey, u64> for SqliteProgressWriter {
+impl KWriter<WorkerKey, BorderEpoch<u64>> for SqliteProgressWriter {
     fn write(&mut self, kchange: ProgressChange<u64>) {
         tracing::trace!("Writing progress change {kchange:?}");
         let KChange(worker_key, change) = kchange;
         let WorkerKey(worker_index) = worker_key;
 
         match change {
-            Change::Upsert(frontier) => {
-                let sql = format!("INSERT INTO {} (worker_index, frontier) VALUES (?1, ?2) ON CONFLICT (worker_index) DO UPDATE SET frontier = EXCLUDED.frontier", self.table_name);
+            Change::Upsert(epoch) => {
+                let sql = format!("INSERT INTO {} (worker_index, border) VALUES (?1, ?2) ON CONFLICT (worker_index) DO UPDATE SET border = EXCLUDED.border", self.table_name);
                 let future = query(&sql)
                     .bind(worker_index)
                     .bind(
-                        <u64 as TryInto<i64>>::try_into(frontier)
-                            .expect("frontier can't fit into SQLite int"),
+                        <u64 as TryInto<i64>>::try_into(epoch.0)
+                            .expect("epoch can't fit into SQLite int"),
                     )
                     .execute(&mut self.conn);
                 self.rt.block_on(future).unwrap();
@@ -358,16 +358,17 @@ impl SqliteProgressReader {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
 
         rt.spawn(async move {
-            let sql = format!("SELECT worker_index, frontier FROM {table_name}");
+            let sql = format!("SELECT worker_index, border FROM {table_name}");
             let mut stream = query(&sql)
                 .map(|row: SqliteRow| {
                     let worker_index: WorkerIndex = row.get(0);
                     let worker_key = WorkerKey(worker_index);
-                    let frontier: u64 = row
-                        .get::<i64, _>(1)
-                        .try_into()
-                        .expect("SQLite int can't fit into frontier; might be negative");
-                    KChange(worker_key, Change::Upsert(frontier))
+                    let border = BorderEpoch(
+                        row.get::<i64, _>(1)
+                            .try_into()
+                            .expect("SQLite int can't fit into epoch; might be negative"),
+                    );
+                    KChange(worker_key, Change::Upsert(border))
                 })
                 .fetch(&mut conn)
                 .map(|result| result.expect("Error selecting from SQLite"));
@@ -382,7 +383,7 @@ impl SqliteProgressReader {
     }
 }
 
-impl KReader<WorkerKey, u64> for SqliteProgressReader {
+impl KReader<WorkerKey, BorderEpoch<u64>> for SqliteProgressReader {
     fn read(&mut self) -> Option<ProgressChange<u64>> {
         self.rt.block_on(self.rx.recv())
     }

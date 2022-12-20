@@ -215,5 +215,8 @@ impl<T> StateReader<T> for KafkaReader<StoreKey<T>, Change<StateBytes>> where
     T: DeserializeOwned + Debug
 {
 }
-impl<T> ProgressWriter<T> for KafkaWriter<WorkerKey, T> where T: Serialize + Debug {}
-impl<T> ProgressReader<T> for KafkaReader<WorkerKey, T> where T: DeserializeOwned + Debug {}
+impl<T> ProgressWriter<T> for KafkaWriter<WorkerKey, BorderEpoch<T>> where T: Serialize + Debug {}
+impl<T> ProgressReader<T> for KafkaReader<WorkerKey, BorderEpoch<T>> where
+    T: DeserializeOwned + Debug
+{
+}

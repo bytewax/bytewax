@@ -54,48 +54,39 @@ pub(crate) type StoreSummaryStream<S> =
     Stream<S, StoreChangeSummary<<S as ScopeParent>::Timestamp>>;
 
 /// A stream of changes to a progress store.
-pub(crate) type ProgressStream<S> = Stream<S, ProgressChange<<S as ScopeParent>::Timestamp>>;
+pub(crate) type ProgressStream<S> = Stream<S, ProgressChange<u64>>;
 
-impl<K, V> KChange<K, V>
-where
-    K: Hash,
-{
-    fn route_by_key() -> impl Fn(&Self) -> u64 {
-        |Self(key, _value)| {
-            let mut hasher = DefaultHasher::new();
-            key.hash(&mut hasher);
-            hasher.finish()
-        }
-    }
+pub(crate) trait Route {
+    /// Hash this key for Timely.
+    ///
+    /// Timely uses the result here to decide which worker to send
+    /// this data.
+    fn route(&self) -> u64;
 }
 
-impl<T, V> KChange<StoreKey<T>, V> {
-    fn route_by_flow_key() -> impl Fn(&Self) -> u64 {
-        |Self(StoreKey(_epoch, flow_key), _value)| {
-            let mut hasher = DefaultHasher::new();
-            flow_key.hash(&mut hasher);
-            hasher.finish()
-        }
-    }
-}
-
-impl WorkerIndex {
+impl Route for WorkerIndex {
     /// Tell Timely to route to this worker.
     // My read of
     // https://github.com/TimelyDataflow/timely-dataflow/blob/v0.12.0/timely/src/dataflow/channels/pushers/exchange.rs#L61-L90
     // says that if you return the worker index, it'll be
     // routed to that worker.
-    pub(crate) fn route(&self) -> u64 {
+    fn route(&self) -> u64 {
         self.0 as u64
     }
 }
 
-impl StateKey {
-    /// Hash this key for Timely.
-    ///
-    /// Timely uses the result here to decide which worker to send
-    /// this data.
-    pub(crate) fn route(&self) -> u64 {
+impl Route for WorkerKey {
+    /// As this is the key into the progress store during backup, this
+    /// can be evenly distributed.
+    fn route(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+impl Route for StateKey {
+    fn route(&self) -> u64 {
         match self {
             Self::Hash(key) => {
                 let mut hasher = DefaultHasher::new();
@@ -104,6 +95,29 @@ impl StateKey {
             }
             Self::Worker(index) => index.route(),
         }
+    }
+}
+
+impl<T> Route for StoreKey<T>
+where
+    T: Hash,
+{
+    /// As this is the key into the progress store during backup, this
+    /// can be evenly distributed.
+    fn route(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+impl Route for FlowKey {
+    /// This is hacky, but whenever we're writing by FlowKey, it's
+    /// actually for recovering operator state which is routed by
+    /// StateKey, so we have to really route there.
+    fn route(&self) -> u64 {
+        let FlowKey(_step_id, state_key) = self;
+        state_key.route()
     }
 }
 
@@ -155,7 +169,9 @@ where
     S: Scope,
     D: Data,
 {
-    /// Emit the current frontier labeled with the current worker.
+    /// Write out all epochs from upstream that are completed.
+    ///
+    /// The write that an epoch is complete happens within that epoch.
     ///
     /// Doesn't emit a progress update on dataflow termination to
     /// allow for continuation in another execution.
@@ -164,8 +180,7 @@ where
 
 impl<S, D> Progress<S, D> for Stream<S, D>
 where
-    S: Scope,
-    S::Timestamp: TotalOrder,
+    S: Scope<Timestamp = u64>,
     D: Data,
 {
     fn progress(&self, worker_key: WorkerKey) -> ProgressStream<S> {
@@ -184,11 +199,10 @@ where
                 ncater.notify_at(cap.retain());
             });
 
-            ncater.for_each(|cap, _count, ncater| {
-                if let Some(frontier) = ncater.frontier(0).first().cloned() {
-                    let mut session = output.session(&cap);
-                    session.give(KChange(worker_key.clone(), Change::Upsert(frontier)));
-                }
+            ncater.for_each(|cap, _count, _ncater| {
+                let epoch = BorderEpoch(cap.time().clone());
+                let kchange = KChange(worker_key.clone(), Change::Upsert(epoch));
+                output.session(&cap).give(kchange);
             });
         })
     }
@@ -197,7 +211,7 @@ where
 pub(crate) trait Write<S, K, V, W>
 where
     S: Scope,
-    K: ExchangeData + Hash,
+    K: ExchangeData + Route,
     V: ExchangeData,
     W: KWriter<K, V> + 'static,
 {
@@ -211,7 +225,7 @@ where
 impl<S, K, V, W> Write<S, K, V, W> for KChangeStream<S, K, V>
 where
     S: Scope,
-    K: ExchangeData + Hash,
+    K: ExchangeData + Route,
     V: ExchangeData,
     W: KWriter<K, V> + 'static,
 {
@@ -223,7 +237,7 @@ where
         // V)`. It's just slightly longer, but clearer to write it out
         // ourselves.
         self.unary_notify(
-            Exchange::new(KChange::route_by_key()),
+            Exchange::new(|KChange(key, _change): &KChange<K, V>| key.route()),
             "write",
             None,
             move |input, output, ncater| {
@@ -255,6 +269,59 @@ where
                 });
             },
         )
+    }
+}
+
+pub(crate) trait BroadcastWrite<S, K, V, W>
+where
+    S: Scope,
+    K: ExchangeData,
+    V: ExchangeData,
+    W: KWriter<K, V> + 'static,
+{
+    /// This is identical to [`Write::write`] but because of how
+    /// exchange pacts work, we have to manually insert broadcast.
+    fn broadcast_write(&self, writer: W) -> ClockStream<S>;
+}
+
+impl<S, K, V, W> BroadcastWrite<S, K, V, W> for KChangeStream<S, K, V>
+where
+    S: Scope,
+    K: ExchangeData,
+    V: ExchangeData,
+    W: KWriter<K, V> + 'static,
+{
+    fn broadcast_write(&self, mut writer: W) -> ClockStream<S> {
+        let mut tmp_incoming = Vec::new();
+        let mut incoming_buffer = HashMap::new();
+
+        self.broadcast()
+            .unary_notify(Pipeline, "write", None, move |input, output, ncater| {
+                input.for_each(|cap, incoming| {
+                    let epoch = cap.time();
+
+                    assert!(tmp_incoming.is_empty());
+                    incoming.swap(&mut tmp_incoming);
+
+                    incoming_buffer
+                        .entry(epoch.clone())
+                        .or_insert_with(Vec::new)
+                        .append(&mut tmp_incoming);
+
+                    ncater.notify_at(cap.retain());
+                });
+
+                ncater.for_each(|cap, _count, _ncater| {
+                    let epoch = cap.time();
+
+                    if let Some(incoming) = incoming_buffer.remove(epoch) {
+                        writer.write_many(incoming);
+
+                        let mut session = output.session(&cap);
+                        session.give(());
+                    }
+                });
+            })
     }
 }
 
@@ -315,7 +382,7 @@ where
         let mut state = InMemStore::new();
 
         self.unary_notify(
-            Exchange::new(KChange::route_by_flow_key()),
+            Exchange::new(|KChange(StoreKey(_epoch, flow_key), _change)| flow_key.route()),
             "recover",
             None,
             move |input, output, ncater| {
@@ -353,7 +420,7 @@ where
     S: Scope,
 {
     fn summary(&self) -> StoreSummaryStream<S> {
-        self.map(|KChange(key, change)| KChange(key, change.map(|c| c.typ())))
+        self.map(|KChange(store_key, change)| KChange(store_key, change.map(|c| c.typ())))
     }
 }
 
@@ -379,17 +446,19 @@ where
     fn garbage_collect(
         &self,
         progress_stream: ProgressStream<S>,
+        cluster_progress: InMemProgress<S::Timestamp>,
         summary: StoreSummary<S::Timestamp>,
     ) -> StoreChangeStream<S>;
 }
 
 impl<S> GarbageCollect<S> for StoreSummaryStream<S>
 where
-    S: Scope,
+    S: Scope<Timestamp = u64>,
 {
     fn garbage_collect(
         &self,
         progress_stream: ProgressStream<S>,
+        mut cluster_progress: InMemProgress<S::Timestamp>,
         mut summary: StoreSummary<S::Timestamp>,
     ) -> StoreChangeStream<S> {
         let mut tmp_summary = Vec::new();
@@ -398,13 +467,11 @@ where
         let mut store_buffer = HashMap::new();
         let mut progress_buffer = HashMap::new();
 
-        let mut cluster_progress = InMemProgress::new();
-
         // This is effectively "binary aggregate with epoch" but Timely
         // doesn't give us that.
         self.binary_notify(
             &progress_stream,
-            Exchange::new(KChange::route_by_flow_key()),
+            Exchange::new(|KChange(StoreKey(_epoch, flow_key), _change)| flow_key.route()),
             Pipeline,
             "garbage_collect",
             None,
@@ -450,7 +517,7 @@ where
                     let mut session = output.session(&cap);
                     session.give_iterator(
                         summary
-                            .drain_garbage(&cluster_progress.frontier())
+                            .drain_garbage(&cluster_progress.resume_epoch())
                             .into_iter()
                             .map(|key| KChange(key, Change::Discard)),
                     );

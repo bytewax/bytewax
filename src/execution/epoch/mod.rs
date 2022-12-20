@@ -11,7 +11,7 @@ use crate::{
     inputs::InputReader,
     operators::stateful_unary::{FlowChangeStream, StepId},
     pyo3_extensions::{PyConfigClass, TdPyAny},
-    recovery::model::state::StateKey,
+    recovery::model::{progress::ResumeEpoch, state::StateKey},
 };
 
 use self::{periodic_epoch::PeriodicEpochConfig, testing_epoch::TestingEpochConfig};
@@ -63,7 +63,7 @@ pub(crate) trait EpochBuilder<S: Scope<Timestamp = u64>> {
         step_id: StepId,
         key: StateKey,
         reader: Box<dyn InputReader<TdPyAny>>,
-        start_at: S::Timestamp,
+        start_at: ResumeEpoch<S::Timestamp>,
         probe: &ProbeHandle<S::Timestamp>,
     ) -> StringResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)>;
 }
@@ -79,7 +79,7 @@ where
         step_id: StepId,
         key: StateKey,
         reader: Box<dyn InputReader<TdPyAny>>,
-        start_at: S::Timestamp,
+        start_at: ResumeEpoch<S::Timestamp>,
         probe: &ProbeHandle<S::Timestamp>,
     ) -> StringResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)> {
         self.downcast(py)?

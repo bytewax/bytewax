@@ -2,43 +2,11 @@ import os
 import signal
 from sys import exit
 
-from pytest import fixture, mark, raises, skip
+from pytest import mark, raises, skip
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import cluster_main, run_main, spawn_cluster
 from bytewax.inputs import TestingInputConfig
 from bytewax.outputs import TestingOutputConfig
-
-
-@fixture(params=["run_main", "spawn_cluster", "cluster_main"])
-def entry_point_name(request):
-    return request.param
-
-
-@fixture
-def entry_point(entry_point_name):
-    if entry_point_name == "run_main":
-        return run_main
-    elif entry_point_name == "spawn_cluster":
-        return lambda flow: spawn_cluster(flow, proc_count=2, worker_count_per_proc=2)
-    elif entry_point_name == "cluster_main":
-        return lambda flow: cluster_main(flow, [], 0, worker_count_per_proc=2)
-    else:
-        raise ValueError("unknown entry point name: {request.param!r}")
-
-
-@fixture
-def out(entry_point_name, request):
-    if entry_point_name == "run_main":
-        yield []
-    elif entry_point_name == "spawn_cluster":
-        mp_ctx = request.getfixturevalue("mp_ctx")
-        with mp_ctx.Manager() as man:
-            yield man.list()
-    elif entry_point_name == "cluster_main":
-        yield []
-    else:
-        raise ValueError("unknown entry point name: {request.param!r}")
 
 
 def test_run(entry_point, out):
@@ -54,7 +22,7 @@ def test_run(entry_point, out):
 
 
 def test_reraises_exception(entry_point, out, entry_point_name):
-    if entry_point_name == "spawn_cluster":
+    if entry_point_name.startswith("spawn_cluster"):
         skip(
             "Timely is currently double panicking in cluster mode and that causes"
             " pool.join() to hang; it can be ctrl-c'd though"
