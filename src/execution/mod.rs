@@ -31,6 +31,7 @@
 use crate::common::StringResult;
 use crate::dataflow::{Dataflow, Step};
 use crate::inputs::InputBuilder;
+use crate::operators::collect_window::CollectWindowLogic;
 use crate::operators::fold_window::FoldWindowLogic;
 use crate::operators::reduce::ReduceLogic;
 use crate::operators::reduce_window::ReduceWindowLogic;
@@ -146,6 +147,36 @@ where
             // for a while when it's moved into the closure.
             let step = step.clone();
             match step {
+                Step::CollectWindow {
+                    step_id,
+                    clock_config,
+                    window_config,
+                } => {
+                    let step_resume_state = resume_state.remove(&step_id);
+
+                    let clock_builder = clock_config.build(py)?;
+                    let windower_builder = window_config.build(py)?;
+
+                    let (output, changes) = stream.map(extract_state_pair).stateful_window_unary(
+                        step_id,
+                        clock_builder,
+                        windower_builder,
+                        CollectWindowLogic::builder(),
+                        step_resume_state,
+                    );
+
+                    stream = output
+                        .map(|(key, result)| {
+                            result
+                                .map(|value| (key.clone(), value))
+                                .map_err(|err| (key.clone(), err))
+                        })
+                        // For now, filter to just reductions and
+                        // ignore late values.
+                        .ok()
+                        .map(wrap_state_pair);
+                    step_changes.push(changes);
+                }
                 Step::Input {
                     step_id,
                     input_config,

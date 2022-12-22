@@ -105,9 +105,9 @@ impl Windower for TumblingWindower {
     fn insert(
         &mut self,
         watermark: &DateTime<Utc>,
-        item_time: DateTime<Utc>,
+        item_time: &DateTime<Utc>,
     ) -> Vec<Result<WindowKey, InsertError>> {
-        let since_start_at = item_time - self.start_at;
+        let since_start_at = *item_time - self.start_at;
         let window_count = since_start_at.num_milliseconds() / self.length.num_milliseconds();
 
         let key = WindowKey(window_count);
