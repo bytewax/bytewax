@@ -5,7 +5,7 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
-## 0.13.2
+## 0.14.0
 
 - Dataflow continuation now works. If you run a dataflow over a finite
   input, all state will be persisted via recovery so if you re-run the
