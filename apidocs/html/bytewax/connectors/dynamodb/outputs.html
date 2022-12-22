@@ -8,8 +8,9 @@
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">import boto3
-import logging
+<pre class="language-python line-numbers"><code class="language-python">import logging
+
+import boto3
 
 from bytewax.outputs import ManualOutputConfig
 
@@ -17,7 +18,8 @@ from bytewax.outputs import ManualOutputConfig
 class DynamoDBOutputConfig(ManualOutputConfig):
     &#34;&#34;&#34;Write output of a Dataflow to [DynamoDB](https://aws.amazon.com/dynamodb/).
 
-    Creates a new DynamoDB item, or replaces an old item with a new item. If an item that has the same primary key as the new item already exists in the specified table, the new item completely replaces the existing item.
+    Creates a new DynamoDB item, or replaces an old item with a new item. If an item
+    that has the same primary key as the new item already exists in the specified table, the new item completely replaces the existing item.
 
     Items are written to DynamoDB using [boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html). For more information on authentication and configuration, please see the documentation for boto3.
 
@@ -31,18 +33,15 @@ class DynamoDBOutputConfig(ManualOutputConfig):
 
         Config object. Pass this as the `output_config` argument of the
         `bytewax.dataflow.Dataflow.output` operator.
-
-    &#34;&#34;&#34;
+    &#34;&#34;&#34;  # noqa
 
     def __new__(cls, table):
-        &#34;&#34;&#34;
-        In classes defined by PyO3 we can only use __new__, not __init__
-        &#34;&#34;&#34;
+        &#34;&#34;&#34;In classes defined by PyO3 we can only use __new__, not __init__&#34;&#34;&#34;
 
         def output_builder(wi, wc):
             dynamodb = boto3.resource(&#34;dynamodb&#34;)
-            table = dynamodb.Table(table)
-            logging.info(f&#34;Writing to DynamoDB table {table}&#34;)
+            dynamo_table = dynamodb.Table(table)
+            logging.info(f&#34;Writing to DynamoDB table {dynamo_table}&#34;)
 
             def output_handler(item_kwargs):
                 table.put_item(**item_kwargs)
@@ -67,7 +66,8 @@ class DynamoDBOutputConfig(ManualOutputConfig):
 </code></dt>
 <dd>
 <div class="desc"><p>Write output of a Dataflow to <a href="https://aws.amazon.com/dynamodb/">DynamoDB</a>.</p>
-<p>Creates a new DynamoDB item, or replaces an old item with a new item. If an item that has the same primary key as the new item already exists in the specified table, the new item completely replaces the existing item.</p>
+<p>Creates a new DynamoDB item, or replaces an old item with a new item. If an item
+that has the same primary key as the new item already exists in the specified table, the new item completely replaces the existing item.</p>
 <p>Items are written to DynamoDB using <a href="https://boto3.amazonaws.com/v1/documentation/api/latest/index.html">boto3</a>. For more information on authentication and configuration, please see the documentation for boto3.</p>
 <p>Items flowing into the capture operator should be formatted as dictionaries and will be passed as keyword arguments to boto3's <code>put_item</code> function. This dictionary should include an <code>Item</code> key, that is itself a dictionary containing the requisite primary_key(s). See the <a href="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/dynamodb.html#DynamoDB.Table.put_item">boto docs</a> for the schema of that dictionary.</p>
 <h2 id="args">Args</h2>
@@ -85,7 +85,8 @@ class DynamoDBOutputConfig(ManualOutputConfig):
 <pre class="language-python line-numbers"><code class="language-python">class DynamoDBOutputConfig(ManualOutputConfig):
     &#34;&#34;&#34;Write output of a Dataflow to [DynamoDB](https://aws.amazon.com/dynamodb/).
 
-    Creates a new DynamoDB item, or replaces an old item with a new item. If an item that has the same primary key as the new item already exists in the specified table, the new item completely replaces the existing item.
+    Creates a new DynamoDB item, or replaces an old item with a new item. If an item
+    that has the same primary key as the new item already exists in the specified table, the new item completely replaces the existing item.
 
     Items are written to DynamoDB using [boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html). For more information on authentication and configuration, please see the documentation for boto3.
 
@@ -99,18 +100,15 @@ class DynamoDBOutputConfig(ManualOutputConfig):
 
         Config object. Pass this as the `output_config` argument of the
         `bytewax.dataflow.Dataflow.output` operator.
-
-    &#34;&#34;&#34;
+    &#34;&#34;&#34;  # noqa
 
     def __new__(cls, table):
-        &#34;&#34;&#34;
-        In classes defined by PyO3 we can only use __new__, not __init__
-        &#34;&#34;&#34;
+        &#34;&#34;&#34;In classes defined by PyO3 we can only use __new__, not __init__&#34;&#34;&#34;
 
         def output_builder(wi, wc):
             dynamodb = boto3.resource(&#34;dynamodb&#34;)
-            table = dynamodb.Table(table)
-            logging.info(f&#34;Writing to DynamoDB table {table}&#34;)
+            dynamo_table = dynamodb.Table(table)
+            logging.info(f&#34;Writing to DynamoDB table {dynamo_table}&#34;)
 
             def output_handler(item_kwargs):
                 table.put_item(**item_kwargs)
