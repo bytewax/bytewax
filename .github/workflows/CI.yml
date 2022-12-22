@@ -8,7 +8,7 @@ on:
 
 jobs:
   linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     strategy:
       matrix:
         python-version: ['3.7', '3.8', '3.9', '3.10']
@@ -40,7 +40,7 @@ jobs:
         manylinux: auto
         container: off
         command: build
-        args: --release -o dist --interpreter python${{ matrix.python-version }} --compatibility manylinux_2_31
+        args: --release -o dist --interpreter python${{ matrix.python-version }}
     - name: Run tests
       shell: bash
       run: |
@@ -55,7 +55,7 @@ jobs:
         path: dist
 
   linux_glibc_227_colab:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     strategy:
       matrix:
         python-version: ['3.7', '3.8', '3.9', '3.10']
@@ -175,7 +175,7 @@ jobs:
 
   upload:
     name: Store wheels in S3
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     if: "github.ref == 'refs/heads/main'"
     needs: [ linux, linux_glibc_227_colab, macos_x86, macos_arm64 ]
     steps:
