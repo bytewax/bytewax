@@ -40,7 +40,7 @@ jobs:
         manylinux: auto
         container: off
         command: build
-        args: --release -o dist --interpreter python${{ matrix.python-version }}
+        args: --release -o dist --interpreter python${{ matrix.python-version }} --compatibility manylinux_2_31
     - name: Run tests
       shell: bash
       run: |
