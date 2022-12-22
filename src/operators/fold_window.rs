@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use pyo3::prelude::*;
 use tracing::field::debug;
 
@@ -40,9 +41,9 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for FoldWindowLogic {
         skip(self),
         fields(self.builder, self.folder, self.acc, updated_acc),
     )]
-    fn with_next(&mut self, next_value: Option<TdPyAny>) -> Option<TdPyAny> {
+    fn with_next(&mut self, next_value: Option<(TdPyAny, DateTime<Utc>)>) -> Option<TdPyAny> {
         match next_value {
-            Some(value) => Python::with_gil(|py| {
+            Some((value, _item_time)) => Python::with_gil(|py| {
                 let acc: TdPyAny = self
                     .acc
                     .take()

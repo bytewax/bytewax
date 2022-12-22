@@ -22,6 +22,8 @@ notes on GitHub when we make a new release.__
 
 - Adds an introspection web server to dataflow workers.
 
+- Adds `collect_window` operator.
+
 ## 0.13.1
 
 - Added Google Colab support.

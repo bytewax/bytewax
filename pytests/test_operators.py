@@ -531,3 +531,77 @@ def test_fold_window(recovery_config):
     assert ("b", {"login": 1}) in out
     assert ("b", {"post": 2}) in out
     assert ("a", {"post": 1}) in out
+
+
+def test_collect_window(recovery_config):
+    start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
+    flow = Dataflow()
+
+    def gen():
+        yield ("ALL", {"time": start_at, "val": 1})
+        yield ("ALL", {"time": start_at + timedelta(seconds=4), "val": 1})
+        yield ("ALL", {"time": start_at + timedelta(seconds=8), "val": 1})
+        yield ("ALL", {"time": start_at + timedelta(seconds=12), "val": 1})
+        yield "BOOM"
+        yield ("ALL", {"time": start_at + timedelta(seconds=13), "val": 1})
+
+    flow.input("inp", TestingBuilderInputConfig(gen))
+
+    armed = Event()
+    armed.set()
+
+    def trigger(item):
+        if item == "BOOM":
+            if armed.is_set():
+                raise RuntimeError("BOOM")
+            else:
+                return []
+        else:
+            return [item]
+
+    flow.flat_map(trigger)
+
+    clock_config = EventClockConfig(
+        lambda e: e["time"], wait_for_system_duration=timedelta(0)
+    )
+    window_config = TumblingWindowConfig(
+        length=timedelta(seconds=10), start_at=start_at
+    )
+
+    flow.collect_window("add", clock_config, window_config)
+
+    out = []
+    flow.capture(TestingOutputConfig(out))
+
+    with raises(RuntimeError):
+        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+
+    # Only the first window closed here
+    assert out == [
+        (
+            "ALL",
+            [
+                {"time": start_at, "val": 1},
+                {"time": start_at + timedelta(seconds=4), "val": 1},
+                {"time": start_at + timedelta(seconds=8), "val": 1},
+            ],
+        )
+    ]
+
+    # Disable bomb
+    armed.clear()
+    out.clear()
+
+    # Recover
+    run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+
+    # But it remembers the first item of the second window.
+    assert out == [
+        (
+            "ALL",
+            [
+                {"time": start_at + timedelta(seconds=12), "val": 1},
+                {"time": start_at + timedelta(seconds=13), "val": 1},
+            ],
+        )
+    ]

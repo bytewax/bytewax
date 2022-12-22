@@ -551,6 +551,44 @@ impl Dataflow {
         });
     }
 
+    /// Collect window lets emits all items for a key in a window
+    /// downstream in sorted order.
+    ///
+    /// It is a stateful operator. It requires the upstream items are
+    /// `(key: str, value)` tuples so we can ensure that all relevant
+    /// values are routed to the relevant state. It also requires a
+    /// step ID to recover the correct state.
+    ///
+    /// It emits `(key, list)` tuples downstream at the end of each
+    /// window where `list` is sorted by the time assigned by the
+    /// clock.
+    ///
+    /// Currently, data is permanently allocated per-key. If you have
+    /// an ever-growing key space, note this.
+    ///
+    /// Args:
+    ///
+    ///   step_id (str): Uniquely identifies this step for recovery.
+    ///
+    ///   clock_config (bytewax.window.ClockConfig): Clock config to
+    ///       use. See `bytewax.window`.
+    ///
+    ///   window_config (bytewax.window.WindowConfig): Windower
+    ///       config to use. See `bytewax.window`.
+    #[pyo3(text_signature = "(self, step_id, clock_config, window_config)")]
+    fn collect_window(
+        &mut self,
+        step_id: StepId,
+        clock_config: Py<ClockConfig>,
+        window_config: Py<WindowConfig>,
+    ) {
+        self.steps.push(Step::CollectWindow {
+            step_id,
+            clock_config,
+            window_config,
+        });
+    }
+
     /// Stateful map is a one-to-one transformation of values, but
     /// allows you to reference a persistent state for each key when
     /// doing the transformation.
@@ -681,6 +719,11 @@ pub(crate) enum Step {
         window_config: Py<WindowConfig>,
         reducer: TdPyCallable,
     },
+    CollectWindow {
+        step_id: StepId,
+        clock_config: Py<ClockConfig>,
+        window_config: Py<WindowConfig>,
+    },
     StatefulMap {
         step_id: StepId,
         builder: TdPyCallable,
@@ -738,6 +781,11 @@ impl<'source> FromPyObject<'source> for Step {
                 clock_config: pickle_extract(dict, "clock_config")?,
                 window_config: pickle_extract(dict, "window_config")?,
                 reducer: pickle_extract(dict, "reducer")?,
+            }),
+            "CollectWindow" => Ok(Self::CollectWindow {
+                step_id: pickle_extract(dict, "step_id")?,
+                clock_config: pickle_extract(dict, "clock_config")?,
+                window_config: pickle_extract(dict, "window_config")?,
             }),
             "StatefulMap" => Ok(Self::StatefulMap {
                 step_id: pickle_extract(dict, "step_id")?,
@@ -830,6 +878,17 @@ impl IntoPy<PyObject> for Step {
                 ("clock_config", clock_config.into_py(py)),
                 ("window_config", window_config.into_py(py)),
                 ("reducer", reducer.into_py(py)),
+            ])
+            .into_py(py),
+            Self::CollectWindow {
+                step_id,
+                clock_config,
+                window_config,
+            } => HashMap::from([
+                ("type", "CollectWindow".into_py(py)),
+                ("step_id", step_id.into_py(py)),
+                ("clock_config", clock_config.into_py(py)),
+                ("window_config", window_config.into_py(py)),
             ])
             .into_py(py),
             Self::StatefulMap {
