@@ -8,9 +8,7 @@
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">import logging
-
-from google.cloud import bigquery
+<pre class="language-python line-numbers"><code class="language-python">from google.cloud import bigquery
 
 from bytewax.outputs import ManualOutputConfig
 
@@ -38,7 +36,7 @@ class BigQueryOutputConfig(ManualOutputConfig):
         Config object. Pass this as the `output_config` argument of the
         `bytewax.dataflow.Dataflow.output` operator.
 
-    &#34;&#34;&#34;
+    &#34;&#34;&#34;  # noqa
 
     def __new__(cls, table_ref):
         &#34;&#34;&#34;
@@ -117,7 +115,7 @@ align with your column names, and value types should be compatible with your Big
         Config object. Pass this as the `output_config` argument of the
         `bytewax.dataflow.Dataflow.output` operator.
 
-    &#34;&#34;&#34;
+    &#34;&#34;&#34;  # noqa
 
     def __new__(cls, table_ref):
         &#34;&#34;&#34;
