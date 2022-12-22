@@ -5,6 +5,19 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## 0.13.2
+
+- Dataflow continuation now works. If you run a dataflow over a finite
+  input, all state will be persisted via recovery so if you re-run the
+  same dataflow pointing at the same input, but with more data
+  appended at the end, it will correctly continue processing from the
+  previous end-of-stream.
+
+- Fixes issue with multi-worker recovery. Previously resume data was
+  being routed to the wrong worker so state would be missing.
+
+- Adds an introspection web server to dataflow workers.
+
 ## 0.13.1
 
 - Added Google Colab support.
