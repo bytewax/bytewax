@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use pyo3::prelude::*;
 use tracing::field::debug;
 
@@ -35,9 +36,9 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceWindowLogic {
         skip(self),
         fields(self.reducer, self.acc, updated_acc)
     )]
-    fn with_next(&mut self, next_value: Option<TdPyAny>) -> Option<TdPyAny> {
+    fn with_next(&mut self, next_value: Option<(TdPyAny, DateTime<Utc>)>) -> Option<TdPyAny> {
         match next_value {
-            Some(value) => {
+            Some((value, _item_time)) => {
                 Python::with_gil(|py| {
                     let updated_acc: TdPyAny = match &self.acc {
                         // If there's no previous state for this key,

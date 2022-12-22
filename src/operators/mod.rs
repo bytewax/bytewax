@@ -15,6 +15,7 @@ use crate::unwrap_any;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 
+pub(crate) mod collect_window;
 pub(crate) mod fold_window;
 pub(crate) mod reduce;
 pub(crate) mod reduce_window;

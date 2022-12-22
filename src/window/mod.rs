@@ -171,7 +171,7 @@ pub(crate) trait Windower {
     fn insert(
         &mut self,
         watermark: &DateTime<Utc>,
-        item_time: DateTime<Utc>,
+        item_time: &DateTime<Utc>,
     ) -> Vec<Result<WindowKey, InsertError>>;
 
     /// Look at the current watermark, determine which windows are now
@@ -222,7 +222,7 @@ where
     /// [`None`], signaling the window has closed, but you might want
     /// something more generic. They will be automatically paired with
     /// the key in the output stream.
-    fn with_next(&mut self, next_value: Option<V>) -> I;
+    fn with_next(&mut self, next_value: Option<(V, DateTime<Utc>)>) -> I;
 
     /// Snapshot the internal state of this logic.
     ///
@@ -317,7 +317,7 @@ where
         if let Poll::Ready(Some(value)) = next_value {
             let item_time = self.clock.time_for(&value);
 
-            for window_result in self.windower.insert(&watermark, item_time) {
+            for window_result in self.windower.insert(&watermark, &item_time) {
                 let value = value.clone();
                 match window_result {
                     Err(InsertError::Late(_window_key)) => {
@@ -328,7 +328,7 @@ where
                             .current_state
                             .entry(window_key)
                             .or_insert_with(|| (self.logic_builder)(None));
-                        let window_output = logic.with_next(Some(value));
+                        let window_output = logic.with_next(Some((value, item_time)));
                         output.extend(window_output.into_iter().map(Ok));
                     }
                 }
