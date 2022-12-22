@@ -16,6 +16,10 @@ notes on GitHub when we make a new release.__
 - Fixes issue with multi-worker recovery. Previously resume data was
   being routed to the wrong worker so state would be missing.
 
+- The above two changes require that the recovery format has been
+  changed for all recovery stores. You cannot resume from recovery
+  data written with an older version.
+
 - Adds an introspection web server to dataflow workers.
 
 ## 0.13.1
