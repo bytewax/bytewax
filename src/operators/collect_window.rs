@@ -41,9 +41,9 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for CollectWindowLogic {
             None => {
                 self.acc
                     .sort_by_key(|(_value, item_time)| item_time.clone());
-                let new_acc = Vec::new();
-                let out_values: Vec<TdPyAny> = std::mem::replace(&mut self.acc, new_acc)
-                    .into_iter()
+                let out_values: Vec<TdPyAny> = self
+                    .acc
+                    .drain(..)
                     .map(|(value, _item_time)| value)
                     .collect();
                 Python::with_gil(|py| Some(out_values.into_py(py).into()))
