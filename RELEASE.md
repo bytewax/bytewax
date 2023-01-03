@@ -89,7 +89,7 @@ repo](https://github.com/bytewax/bytewax/releases/new).
    kick off, pushing the final package to PyPI.
 
    Check that the CD run completed on [our CD actions
-   page](https://github.com/bytewax/bytewax/actions/workflows/CI.yml).
+   page](https://github.com/bytewax/bytewax/actions/workflows/CD.yml).
 
 ## 3. Double check PyPI
 
