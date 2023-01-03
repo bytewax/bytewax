@@ -14,7 +14,7 @@ the `bytewax.dataflow.Dataflow.input` operator.
 
 from typing import Any, Callable, Iterable
 
-from .bytewax import InputConfig, KafkaInputConfig, ManualInputConfig  # noqa: F401
+from .bytewax import InputConfig, KafkaInputConfig, ManualInputConfig, MqttInputConfig  # noqa: F401
 
 
 class TestingBuilderInputConfig(ManualInputConfig):

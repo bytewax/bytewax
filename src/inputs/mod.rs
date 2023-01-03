@@ -30,9 +30,11 @@ use std::task::Poll;
 
 pub(crate) mod kafka_input;
 pub(crate) mod manual_input;
+pub(crate) mod mqtt_input;
 
 pub(crate) use self::kafka_input::KafkaInputConfig;
 pub(crate) use self::manual_input::ManualInputConfig;
+pub(crate) use self::mqtt_input::MqttInputConfig;
 
 /// Base class for an input config.
 ///
@@ -88,6 +90,8 @@ impl PyConfigClass<Box<dyn InputBuilder>> for Py<InputConfig> {
         if let Ok(conf) = self.extract::<ManualInputConfig>(py) {
             Ok(Box::new(conf))
         } else if let Ok(conf) = self.extract::<KafkaInputConfig>(py) {
+            Ok(Box::new(conf))
+        } else if let Ok(conf) = self.extract::<MqttInputConfig>(py) {
             Ok(Box::new(conf))
         } else {
             let pytype = self.as_ref(py).get_type();
@@ -172,5 +176,6 @@ pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<InputConfig>()?;
     m.add_class::<ManualInputConfig>()?;
     m.add_class::<KafkaInputConfig>()?;
+    m.add_class::<MqttInputConfig>()?;
     Ok(())
 }
