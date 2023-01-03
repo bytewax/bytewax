@@ -30,6 +30,8 @@ class DataflowEncoder(json.JSONEncoder):
             return obj.isoformat()
         if isinstance(obj, datetime.timedelta):
             return str(obj)
+        if isinstance(obj, type):  # For callable types like `list` and `dict`
+            return obj.__name__
 
         # Call the default encoder method for any other instance types.
         try:
