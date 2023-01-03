@@ -469,7 +469,7 @@ where
 
     let probe = Python::with_gil(|py| {
         let df = flow.extract(py).unwrap();
-        if worker.index() == 0 {
+        if worker.index() == 0 && std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
             rt.spawn(run_webserver(df));
         }
 

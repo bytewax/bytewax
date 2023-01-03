@@ -34,8 +34,11 @@ pub(crate) async fn run_webserver(dataflow: Dataflow) {
         .route("/dataflow", get(get_dataflow))
         .layer(Extension(shared_state));
 
-    let port = std::env::var("BYTEWAX_PORT")
-        .map(|var| var.parse().expect("Unable to parse BYTEWAX_PORT"))
+    let port = std::env::var("BYTEWAX_DATAFLOW_API_PORT")
+        .map(|var| {
+            var.parse()
+                .expect("Unable to parse BYTEWAX_DATAFLOW_API_PORT")
+        })
         .unwrap_or(3030);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
