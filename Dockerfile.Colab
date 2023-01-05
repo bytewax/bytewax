@@ -66,6 +66,13 @@ RUN python3.10 --version
 RUN python3.10 -m venv /opt/venv3.10; exit 0
 RUN PATH=`echo $PATH | sed -e "s/3.7/3.10/g"` && python3.10 ./get-pip.py
 
+# # Install Python 3.11, pip and create a venv for CI
+RUN apt install python3.11 -y
+RUN apt install python3.11-distutils -y
+RUN python3.11 --version
+RUN python3.11 -m venv /opt/venv3.11; exit 0
+RUN PATH=`echo $PATH | sed -e "s/3.7/3.11/g"` && python3.11 ./get-pip.py
+
 RUN maturin list-python
 
 # Install CI needed libraries
@@ -74,5 +81,6 @@ RUN apt install python3.7-dev -y
 RUN apt install python3.8-dev -y
 RUN apt install python3.9-dev -y
 RUN apt install python3.10-dev -y
+RUN apt install python3.11-dev -y
 
 RUN apt install git -y
