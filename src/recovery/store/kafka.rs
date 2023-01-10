@@ -212,5 +212,5 @@ where
 
 impl StateWriter for KafkaWriter<StoreKey, Change<StateBytes>> {}
 impl StateReader for KafkaReader<StoreKey, Change<StateBytes>> {}
-impl ProgressWriter for KafkaWriter<WorkerKey, BorderEpoch> {}
-impl ProgressReader for KafkaReader<WorkerKey, BorderEpoch> {}
+impl ProgressWriter for KafkaWriter<WorkerKey, ProgressMsg> {}
+impl ProgressReader for KafkaReader<WorkerKey, ProgressMsg> {}

@@ -14,6 +14,7 @@ use timely::dataflow::channels::pact::Exchange;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::flow_controlled::iterator_source;
 use timely::dataflow::operators::flow_controlled::IteratorSourceInput;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::*;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
@@ -139,7 +140,7 @@ where
         self.unary(Pipeline, "backup", |_init_cap, _info| {
             move |input, output| {
                 input.for_each(|cap, incoming| {
-                    let epoch = cap.time();
+                    let epoch = SnapshotEpoch(*cap.time());
 
                     assert!(tmp_incoming.is_empty());
                     incoming.swap(&mut tmp_incoming);
@@ -147,10 +148,7 @@ where
                     let mut session = output.session(&cap);
                     session.give_iterator(tmp_incoming.drain(..).map(
                         |KChange(flow_key, step_change)| {
-                            KChange(
-                                StoreKey(SnapshotEpoch(epoch.clone()), flow_key),
-                                Change::Upsert(step_change),
-                            )
+                            KChange(StoreKey(epoch, flow_key), Change::Upsert(step_change))
                         },
                     ));
                 })
@@ -164,12 +162,14 @@ where
     S: Scope,
     D: Data,
 {
-    /// Write out all epochs from upstream that are completed.
+    /// Write out the current frontier at this point.
     ///
-    /// The write that an epoch is complete happens within that epoch.
+    /// The write happens just before the frontier advances, and thus
+    /// is actually within the previous epoch.
     ///
-    /// Doesn't emit a progress update on dataflow termination to
-    /// allow for continuation in another execution.
+    /// Doesn't emit the "empty frontier" (even though that is the
+    /// true frontier) on dataflow termination to allow dataflow
+    /// continuation.
     fn progress(&self, worker_key: WorkerKey) -> ProgressStream<S>;
 }
 
@@ -179,27 +179,92 @@ where
     D: Data,
 {
     fn progress(&self, worker_key: WorkerKey) -> ProgressStream<S> {
-        let mut tmp_incoming = Vec::new();
+        let mut op_builder = OperatorBuilder::new(format!("progress"), self.scope());
+
+        let mut input = op_builder.new_input(self, Pipeline);
+
+        let (mut output_wrapper, output_stream) = op_builder.new_output();
+
+        let info = op_builder.operator_info();
+        let activator = self.scope().activator_for(&info.address[..]);
 
         // Sort of "emit at end of epoch" but Timely doesn't give us
         // that.
-        self.unary_notify(Pipeline, "progress", None, move |input, output, ncater| {
-            input.for_each(|cap, incoming| {
-                assert!(tmp_incoming.is_empty());
-                incoming.swap(&mut tmp_incoming);
-                // We have to drain the incoming data, but we just
-                // care about the epoch so drop it.
-                tmp_incoming.clear();
+        op_builder.build(move |mut init_caps| {
+            let mut tmp_incoming = Vec::new();
 
-                ncater.notify_at(cap.retain());
-            });
+            let mut cap = init_caps.pop();
 
-            ncater.for_each(|cap, _count, _ncater| {
-                let epoch = BorderEpoch(cap.time().clone());
-                let kchange = KChange(worker_key.clone(), Change::Upsert(epoch));
-                output.session(&cap).give(kchange);
-            });
-        })
+            move |input_frontiers| {
+                input.for_each(|_cap, incoming| {
+                    assert!(tmp_incoming.is_empty());
+                    incoming.swap(&mut tmp_incoming);
+                    // We have to drain the incoming data, but we just
+                    // care about the epoch so drop it.
+                    tmp_incoming.clear();
+                });
+
+                cap = if let Some(cap) = cap.clone() {
+                    let frontier = input_frontiers[0].frontier().iter().min().copied();
+
+                    // Do not delay cap before the write; we will
+                    // delay downstream progress messages longer than
+                    // necessary if so. This would manifest as
+                    // resuming from an epoch that seems "too
+                    // early". Write out the progress at the end of
+                    // each epoch and where the frontier has moved.
+                    let should_write = if let Some(frontier) = frontier {
+                        frontier > *cap.time()
+                    } else {
+                        true
+                    };
+
+                    if should_write {
+                        let write_frontier = if let Some(frontier) = frontier {
+                            frontier
+                        } else {
+                            // There's no way to guarantee this is
+                            // actually the resume epoch on the next
+                            // execution, but mark that this worker is
+                            // ready to resume there on EOF. It's also
+                            // possible that this results in a "too
+                            // small" resume epoch: if for some reason
+                            // this operator isn't activated during
+                            // every epoch, we might miss the
+                            // "largest" epoch and so we'll mark down
+                            // the resume epoch as one too
+                            // small. That's fine, we just might
+                            // resume further back than is optimal.
+                            let resume_epoch = *cap.time() + 1;
+                            resume_epoch
+                        };
+                        let msg = ProgressMsg::Advance(WorkerFrontier(write_frontier));
+                        let kchange = KChange(worker_key.clone(), Change::Upsert(msg));
+                        output_wrapper.activate().session(&cap).give(kchange);
+                    }
+
+                    if let Some(frontier) = frontier {
+                        // We should never delay to something like
+                        // frontier + 1, otherwise chained progress
+                        // operators will "drift" forward and GC will
+                        // happen too early.
+                        Some(cap.delayed(&frontier))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                // Wake up constantly, because we never know when
+                // frontier might have advanced.
+                if cap.is_some() {
+                    activator.activate();
+                }
+            }
+        });
+
+        output_stream
     }
 }
 
@@ -509,10 +574,11 @@ where
                         cluster_progress.write_many(progress_changes);
                     }
 
+                    let ResumeFrom(_ex, resume_epoch) = cluster_progress.resume_from();
                     let mut session = output.session(&cap);
                     session.give_iterator(
                         summary
-                            .drain_garbage(&cluster_progress.resume_epoch())
+                            .drain_garbage(&resume_epoch)
                             .into_iter()
                             .map(|key| KChange(key, Change::Discard)),
                     );

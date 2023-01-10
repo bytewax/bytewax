@@ -19,7 +19,7 @@ use std::collections::HashMap;
 
 use crate::{
     common::StringResult,
-    execution::WorkerIndex,
+    execution::{WorkerCount, WorkerIndex},
     pyo3_extensions::{PyConfigClass, TdPyAny},
 };
 use pyo3::prelude::*;
@@ -75,7 +75,7 @@ pub(crate) trait OutputBuilder {
         &self,
         py: Python,
         worker_index: WorkerIndex,
-        worker_count: usize,
+        worker_count: WorkerCount,
     ) -> StringResult<Box<dyn OutputWriter<u64, TdPyAny>>>;
 }
 
@@ -102,7 +102,7 @@ impl OutputBuilder for Py<OutputConfig> {
         &self,
         py: Python,
         worker_index: WorkerIndex,
-        worker_count: usize,
+        worker_count: WorkerCount,
     ) -> StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
         self.downcast(py)?.build(py, worker_index, worker_count)
     }

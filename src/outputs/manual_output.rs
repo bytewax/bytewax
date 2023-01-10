@@ -4,7 +4,7 @@ use pyo3::{prelude::*, types::PyDict};
 
 use crate::{
     common::pickle_extract,
-    execution::WorkerIndex,
+    execution::{WorkerCount, WorkerIndex},
     pyo3_extensions::{TdPyAny, TdPyCallable},
     unwrap_any,
 };
@@ -38,7 +38,7 @@ impl OutputBuilder for ManualOutputConfig {
         &self,
         py: Python,
         worker_index: WorkerIndex,
-        worker_count: usize,
+        worker_count: WorkerCount,
     ) -> crate::common::StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
         Ok(Box::new(ManualOutput::new(
             py,
@@ -90,10 +90,10 @@ impl ManualOutput {
         py: Python,
         output_builder: TdPyCallable,
         worker_index: WorkerIndex,
-        worker_count: usize,
+        worker_count: WorkerCount,
     ) -> Self {
         let pyfunc: TdPyCallable = output_builder
-            .call1(py, (worker_index, worker_count))
+            .call1(py, (worker_index.0, worker_count.0))
             .unwrap()
             .extract(py)
             .unwrap();

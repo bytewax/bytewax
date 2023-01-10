@@ -331,58 +331,152 @@ fn write_discard_drops_key() {
 
 /// A progress store with all data in-memory.
 #[derive(Debug)]
-pub(crate) struct InMemProgress(HashMap<WorkerKey, BorderEpoch>);
-
-impl InMemProgress {
-    pub(crate) fn new() -> Self {
-        Self(HashMap::new())
-    }
+pub(crate) struct InMemProgress {
+    /// Stores the current execution.
+    ///
+    /// Defaults to -1 so the initial call to [`resume_from`] will
+    /// generate the "zeroth execution". There will never be any
+    /// recovery progress data that will match this, so as soon as we
+    /// start reading any, we'll bump to the first execution.
+    ex: i128,
+    frontiers: HashMap<WorkerIndex, WorkerFrontier>,
 }
 
 impl InMemProgress {
-    /// Calculate the resume epoch from the previous cluster state.
+    /// Init to the "default" progress of a cluster of a given
+    /// size. You have to specify a worker count so the
+    pub(crate) fn new(count: WorkerCount) -> Self {
+        let ex = Into::<i128>::into(<u64 as Timestamp>::minimum()) - 1;
+        let mut frontiers = HashMap::new();
+        for worker in count.iter() {
+            frontiers.insert(worker, WorkerFrontier(<u64 as Timestamp>::minimum()));
+        }
+        Self { ex, frontiers }
+    }
+
+    pub(crate) fn worker_count(&self) -> WorkerCount {
+        WorkerCount(self.frontiers.len())
+    }
+
+    fn init(&mut self, ex: Execution, count: WorkerCount, epoch: ResumeEpoch) {
+        // Tidbit: you almost never want to use `as` numerical
+        // casts. They do "bit folding" on downcasts and don't panic
+        // when you're out of range, which is probably what you want.
+        let in_ex: i128 = ex.0.into();
+        if in_ex > self.ex {
+            self.ex = in_ex;
+            self.frontiers.clear();
+            for worker in count.iter() {
+                self.frontiers.insert(worker, WorkerFrontier(epoch.0));
+            }
+        }
+        // It's ok for init msgs to be out of order because they are
+        // not necessarily read from the same recovery progress
+        // partitions.
+    }
+
+    fn advance(&mut self, ex: Execution, worker: WorkerIndex, epoch: WorkerFrontier) {
+        let in_ex: i128 = ex.0.into();
+        if in_ex == self.ex {
+            let last_epoch = self
+                .frontiers
+                .insert(worker, epoch)
+                .expect("Advancing unknown worker");
+            assert!(last_epoch <= epoch, "Progress for a worker went backwards");
+        }
+        // It's ok for advance msgs to be out of order because they
+        // are not necessarily read from the same recovery progress
+        // partitions.
+    }
+
+    /// Calculate the resume execution and epoch from the previous
+    /// cluster state.
     ///
-    /// This should be the epoch after the last finalized epoch, or if
-    /// none, the minimum epoch.
-    pub(crate) fn resume_epoch(&self) -> ResumeEpoch {
-        ResumeEpoch(
-            self.0
+    /// This should be the next execution (starting from 0) and the
+    /// previous cluster frontier.
+    pub(crate) fn resume_from(&self) -> ResumeFrom {
+        let next_ex = self.ex + 1;
+        let next_ex = Execution(
+            next_ex
+                .try_into()
+                .expect("Next execution ID would be oversized"),
+        );
+
+        assert!(
+            self.worker_count()
+                .iter()
+                .all(|worker| self.frontiers.contains_key(&worker)),
+            "Progress map is missing some workers"
+        );
+        let resume_epoch = ResumeEpoch(
+            self.frontiers
                 .values()
                 .min()
-                .cloned()
-                .map(|border| border.0 + 1)
-                .unwrap_or_else(<u64 as Timestamp>::minimum),
-        )
+                .copied()
+                .unwrap_or(WorkerFrontier(<u64 as Timestamp>::minimum()))
+                .0,
+        );
+
+        ResumeFrom(next_ex, resume_epoch)
     }
 }
 
 #[test]
-fn resume_epoch_works() {
-    let mut progress = InMemProgress::new();
+fn worker_count_works() {
+    let progress = InMemProgress::new(WorkerCount(5));
 
-    progress.0 = HashMap::from([
-        (WorkerKey(WorkerIndex(1)), BorderEpoch(5)),
-        (WorkerKey(WorkerIndex(2)), BorderEpoch(2)),
-    ]);
-
-    let found = progress.resume_epoch();
-    let expected = ResumeEpoch(3);
+    let found = progress.worker_count();
+    let expected = WorkerCount(5);
     assert_eq!(found, expected);
 }
 
 #[test]
-fn resume_epoch_works_with_no_state() {
-    let mut progress = InMemProgress::new();
+fn resume_from_default_works() {
+    let progress = InMemProgress::new(WorkerCount(2));
 
-    progress.0 = HashMap::from([]);
-
-    let found = progress.resume_epoch();
-    let expected = ResumeEpoch(<u64 as Timestamp>::minimum());
+    let found = progress.resume_from();
+    let expected = ResumeFrom(
+        Execution(<u64 as Timestamp>::minimum()),
+        ResumeEpoch(<u64 as Timestamp>::minimum()),
+    );
     assert_eq!(found, expected);
 }
 
-impl KWriter<WorkerKey, BorderEpoch> for InMemProgress {
-    fn write(&mut self, kchange: KChange<WorkerKey, BorderEpoch>) {
-        self.0.write(kchange)
+#[test]
+fn resume_from_works() {
+    let mut progress = InMemProgress::new(WorkerCount(2));
+
+    let ex0 = Execution(0);
+    progress.advance(ex0, WorkerIndex(0), WorkerFrontier(1));
+    progress.advance(ex0, WorkerIndex(1), WorkerFrontier(1));
+    progress.advance(ex0, WorkerIndex(0), WorkerFrontier(2));
+
+    let ex1 = Execution(1);
+    progress.init(ex1, WorkerCount(3), ResumeEpoch(1));
+
+    progress.advance(ex1, WorkerIndex(0), WorkerFrontier(2));
+    progress.advance(ex1, WorkerIndex(1), WorkerFrontier(2));
+    progress.advance(ex1, WorkerIndex(2), WorkerFrontier(2));
+
+    let found = progress.resume_from();
+    let expected = ResumeFrom(Execution(2), ResumeEpoch(2));
+    assert_eq!(found, expected);
+}
+
+impl KWriter<WorkerKey, ProgressMsg> for InMemProgress {
+    fn write(&mut self, kchange: KChange<WorkerKey, ProgressMsg>) {
+        let KChange(key, change) = kchange;
+        let WorkerKey(ex, index) = key;
+        match change {
+            Change::Upsert(msg) => match msg {
+                ProgressMsg::Init(count, epoch) => {
+                    self.init(ex, count, epoch);
+                }
+                ProgressMsg::Advance(epoch) => {
+                    self.advance(ex, index, epoch);
+                }
+            },
+            Change::Discard => {}
+        }
     }
 }
