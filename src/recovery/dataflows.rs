@@ -41,9 +41,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use timely::dataflow::{operators::*, Scope};
-use timely::order::TotalOrder;
-use timely::progress::timestamp::Refines;
-use timely::{communication::Allocate, dataflow::ProbeHandle, progress::Timestamp, worker::Worker};
+use timely::{communication::Allocate, dataflow::ProbeHandle, worker::Worker};
 
 use super::model::*;
 use super::operators::*;
@@ -59,18 +57,18 @@ use crate::common::StringResult;
 /// calculating the resume epoch if we were to resume right this
 /// instant.
 pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
-    probe: &mut ProbeHandle<S::Timestamp>,
+    probe: &mut ProbeHandle<u64>,
     worker_key: WorkerKey,
-    resume_progress: InMemProgress<S::Timestamp>,
-    store_summary: StoreSummary<S::Timestamp>,
+    resume_progress: InMemProgress,
+    store_summary: StoreSummary,
     progress_writer: PW,
     state_writer: SW,
     step_changes: FlowChangeStream<S>,
     capture_clock: ClockStream<S>,
 ) where
     S: Scope<Timestamp = u64>,
-    PW: ProgressWriter<S::Timestamp> + 'static,
-    SW: StateWriter<S::Timestamp> + 'static,
+    PW: ProgressWriter + 'static,
+    SW: StateWriter + 'static,
 {
     let state_writer = Rc::new(RefCell::new(state_writer));
 
@@ -109,10 +107,10 @@ pub(crate) fn build_progress_loading_dataflow<A, R>(
     // TODO: Allow multiple (or none) FrontierReaders so you can recover a
     // different-sized cluster.
     reader: R,
-) -> StringResult<(ProbeHandle<()>, Rc<RefCell<InMemProgress<u64>>>)>
+) -> StringResult<(ProbeHandle<()>, Rc<RefCell<InMemProgress>>)>
 where
     A: Allocate,
-    R: ProgressReader<u64> + 'static,
+    R: ProgressReader + 'static,
 {
     timely_worker.dataflow(|scope| {
         let mut probe = ProbeHandle::new();
@@ -134,19 +132,18 @@ where
 ///
 /// Read state out of the cells once the probe is done.
 #[allow(clippy::type_complexity)]
-pub(crate) fn build_state_loading_dataflow<A, T, R>(
+pub(crate) fn build_state_loading_dataflow<A, R>(
     timely_worker: &mut Worker<A>,
     reader: R,
-    resume_epoch: ResumeEpoch<T>,
+    resume_epoch: ResumeEpoch,
 ) -> StringResult<(
-    ProbeHandle<T>,
+    ProbeHandle<u64>,
     Rc<RefCell<FlowStateBytes>>,
-    Rc<RefCell<StoreSummary<T>>>,
+    Rc<RefCell<StoreSummary>>,
 )>
 where
     A: Allocate,
-    T: Timestamp + Refines<()> + TotalOrder,
-    R: StateReader<T> + 'static,
+    R: StateReader + 'static,
 {
     timely_worker.dataflow(|scope| {
         let mut probe = ProbeHandle::new();
@@ -159,7 +156,7 @@ where
             // The resume epoch is the epoch we are starting at,
             // so only load state from before < that point. Not
             // <=.
-            .filter(move |KChange(StoreKey(epoch, _flow_key), _change)| *epoch < resume_epoch.0)
+            .filter(move |KChange(StoreKey(epoch, _flow_key), _change)| epoch.0 < resume_epoch.0)
             .recover()
             .write(resume_state.clone())
             .probe_with(&mut probe);

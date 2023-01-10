@@ -2,7 +2,7 @@
 //! system.
 //!
 //! A progress store is a K-V mapping from [`WorkerKey`] to a
-//! finalized epoch `T`.
+//! finalized `Epoch`.
 
 use super::change::*;
 use serde::Deserialize;
@@ -23,31 +23,31 @@ pub(crate) struct WorkerKey(pub(crate) WorkerIndex);
 ///
 /// The epoch just before the frontier.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub(crate) struct BorderEpoch<T>(pub(crate) T);
+pub(crate) struct BorderEpoch(pub(crate) u64);
 
 /// The epoch we should resume from the beginning of.
 ///
 /// This will be the dataflow frontier of the last execution.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) struct ResumeEpoch<T>(pub(crate) T);
+pub(crate) struct ResumeEpoch(pub(crate) u64);
 
 /// A change to the progress store.
 ///
 /// Notes that a worker's finalized epoch has changed.
-pub(crate) type ProgressChange<T> = KChange<WorkerKey, BorderEpoch<T>>;
+pub(crate) type ProgressChange = KChange<WorkerKey, BorderEpoch>;
 
 /// All progress stores have to implement this writer.
 ///
 /// Since trait aliases don't work in stable, don't actually `impl`
 /// this, but it's used for bounds.
-pub(crate) trait ProgressWriter<T>: KWriter<WorkerKey, BorderEpoch<T>> {}
+pub(crate) trait ProgressWriter: KWriter<WorkerKey, BorderEpoch> {}
 
-impl<T, P> ProgressWriter<T> for Box<P> where P: ProgressWriter<T> + ?Sized {}
+impl<P> ProgressWriter for Box<P> where P: ProgressWriter + ?Sized {}
 
 /// All progress stores have to implement this reader.
 ///
 /// Since trait aliases don't work in stable, don't actually `impl`
 /// this, but it's used for bounds.
-pub(crate) trait ProgressReader<T>: KReader<WorkerKey, BorderEpoch<T>> {}
+pub(crate) trait ProgressReader: KReader<WorkerKey, BorderEpoch> {}
 
-impl<T, P> ProgressReader<T> for Box<P> where P: ProgressReader<T> + ?Sized {}
+impl<P> ProgressReader for Box<P> where P: ProgressReader + ?Sized {}

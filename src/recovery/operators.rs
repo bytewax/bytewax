@@ -17,7 +17,6 @@ use timely::dataflow::operators::flow_controlled::IteratorSourceInput;
 use timely::dataflow::operators::*;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
-use timely::dataflow::ScopeParent;
 use timely::dataflow::Stream;
 use timely::order::TotalOrder;
 use timely::progress::Timestamp;
@@ -47,14 +46,13 @@ type KChangeStream<S, K, V> = Stream<S, KChange<K, V>>;
 pub(crate) type FlowChangeStream<S> = Stream<S, FlowChange>;
 
 /// An ordered stream of changes to the state store.
-pub(crate) type StoreChangeStream<S> = Stream<S, StoreChange<<S as ScopeParent>::Timestamp>>;
+pub(crate) type StoreChangeStream<S> = Stream<S, StoreChange>;
 
 /// An ordered stream of changes to the summary the GC operator needs.
-pub(crate) type StoreSummaryStream<S> =
-    Stream<S, StoreChangeSummary<<S as ScopeParent>::Timestamp>>;
+pub(crate) type StoreSummaryStream<S> = Stream<S, StoreChangeSummary>;
 
 /// A stream of changes to a progress store.
-pub(crate) type ProgressStream<S> = Stream<S, ProgressChange<u64>>;
+pub(crate) type ProgressStream<S> = Stream<S, ProgressChange>;
 
 pub(crate) trait Route {
     /// Hash this key for Timely.
@@ -98,10 +96,7 @@ impl Route for StateKey {
     }
 }
 
-impl<T> Route for StoreKey<T>
-where
-    T: Hash,
-{
+impl Route for StoreKey {
     /// As this is the key into the progress store during backup, this
     /// can be evenly distributed.
     fn route(&self) -> u64 {
@@ -134,7 +129,7 @@ where
 
 impl<S> Backup<S> for FlowChangeStream<S>
 where
-    S: Scope,
+    S: Scope<Timestamp = u64>,
 {
     fn backup(&self) -> StoreChangeStream<S> {
         let mut tmp_incoming = Vec::new();
@@ -153,7 +148,7 @@ where
                     session.give_iterator(tmp_incoming.drain(..).map(
                         |KChange(flow_key, step_change)| {
                             KChange(
-                                StoreKey(epoch.clone(), flow_key),
+                                StoreKey(SnapshotEpoch(epoch.clone()), flow_key),
                                 Change::Upsert(step_change),
                             )
                         },
@@ -446,8 +441,8 @@ where
     fn garbage_collect(
         &self,
         progress_stream: ProgressStream<S>,
-        cluster_progress: InMemProgress<S::Timestamp>,
-        summary: StoreSummary<S::Timestamp>,
+        cluster_progress: InMemProgress,
+        summary: StoreSummary,
     ) -> StoreChangeStream<S>;
 }
 
@@ -458,8 +453,8 @@ where
     fn garbage_collect(
         &self,
         progress_stream: ProgressStream<S>,
-        mut cluster_progress: InMemProgress<S::Timestamp>,
-        mut summary: StoreSummary<S::Timestamp>,
+        mut cluster_progress: InMemProgress,
+        mut summary: StoreSummary,
     ) -> StoreChangeStream<S> {
         let mut tmp_summary = Vec::new();
         let mut tmp_progress = Vec::new();

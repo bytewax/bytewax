@@ -54,9 +54,13 @@ pub(crate) enum StateKey {
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct FlowKey(pub(crate) StepId, pub(crate) StateKey);
 
+///
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub(crate) struct SnapshotEpoch(pub(crate) u64);
+
 /// Key to route state within the state store.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct StoreKey<T>(pub(crate) T, pub(crate) FlowKey);
+pub(crate) struct StoreKey(pub(crate) SnapshotEpoch, pub(crate) FlowKey);
 
 /// A snapshot of state for a specific key within a step.
 ///
@@ -93,25 +97,25 @@ impl StateBytes {
 pub(crate) type FlowChange = KChange<FlowKey, StateBytes>;
 
 /// A change to the state store.
-pub(crate) type StoreChange<T> = KChange<StoreKey<T>, Change<StateBytes>>;
+pub(crate) type StoreChange = KChange<StoreKey, Change<StateBytes>>;
 
 /// All state stores have to implement this writer.
-pub(crate) trait StateWriter<T>: KWriter<StoreKey<T>, Change<StateBytes>> {}
+pub(crate) trait StateWriter: KWriter<StoreKey, Change<StateBytes>> {}
 
-impl<T, P> StateWriter<T> for Box<P> where P: StateWriter<T> + ?Sized {}
-impl<T, P> StateWriter<T> for Rc<RefCell<P>> where P: StateWriter<T> + ?Sized {}
+impl<P> StateWriter for Box<P> where P: StateWriter + ?Sized {}
+impl<P> StateWriter for Rc<RefCell<P>> where P: StateWriter + ?Sized {}
 
 /// All state stores have to implement this reader.
-pub(crate) trait StateReader<T>: KReader<StoreKey<T>, Change<StateBytes>> {}
+pub(crate) trait StateReader: KReader<StoreKey, Change<StateBytes>> {}
 
-impl<T, P> StateReader<T> for Box<P> where P: StateReader<T> + ?Sized {}
+impl<P> StateReader for Box<P> where P: StateReader + ?Sized {}
 
 /// A change to the state store, but elide the actual state change
 /// within the dataflow and only keep the "type" of change.
 ///
 /// This is used to allow the GC component to not need to store full
 /// state snapshots.
-pub(crate) type StoreChangeSummary<T> = KChange<StoreKey<T>, ChangeType>;
+pub(crate) type StoreChangeSummary = KChange<StoreKey, ChangeType>;
 
 /// A snapshot of all state within a step.
 ///

@@ -61,8 +61,6 @@ use std::time::{Duration, Instant};
 use timely::communication::Allocate;
 use timely::dataflow::operators::*;
 use timely::dataflow::ProbeHandle;
-use timely::order::TotalOrder;
-use timely::progress::timestamp::Refines;
 use timely::progress::Timestamp;
 use timely::worker::Worker;
 use tracing::span::EnteredSpan;
@@ -110,17 +108,17 @@ fn build_production_dataflow<A, PW, SW>(
     worker: &mut Worker<A>,
     flow: Py<Dataflow>,
     epoch_config: Py<EpochConfig>,
-    resume_epoch: ResumeEpoch<u64>,
+    resume_epoch: ResumeEpoch,
     mut resume_state: FlowStateBytes,
-    resume_progress: InMemProgress<u64>,
-    store_summary: StoreSummary<u64>,
+    resume_progress: InMemProgress,
+    store_summary: StoreSummary,
     progress_writer: PW,
     state_writer: SW,
 ) -> StringResult<ProbeHandle<u64>>
 where
     A: Allocate,
-    PW: ProgressWriter<u64> + 'static,
-    SW: StateWriter<u64> + 'static,
+    PW: ProgressWriter + 'static,
+    SW: StateWriter + 'static,
 {
     let worker_index = WorkerIndex(worker.index());
     let worker_count = worker.peers();
@@ -398,10 +396,10 @@ fn build_and_run_progress_loading_dataflow<A, R>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     progress_reader: R,
-) -> StringResult<InMemProgress<u64>>
+) -> StringResult<InMemProgress>
 where
     A: Allocate,
-    R: ProgressReader<u64> + 'static,
+    R: ProgressReader + 'static,
 {
     let (probe, progress_store) = build_progress_loading_dataflow(worker, progress_reader)?;
 
@@ -414,16 +412,15 @@ where
     Ok(resume_progress)
 }
 
-fn build_and_run_state_loading_dataflow<A, T, R>(
+fn build_and_run_state_loading_dataflow<A, R>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
-    resume_epoch: ResumeEpoch<T>,
+    resume_epoch: ResumeEpoch,
     state_reader: R,
-) -> StringResult<(FlowStateBytes, StoreSummary<T>)>
+) -> StringResult<(FlowStateBytes, StoreSummary)>
 where
     A: Allocate,
-    T: Timestamp + Refines<()> + TotalOrder,
-    R: StateReader<T> + 'static,
+    R: StateReader + 'static,
 {
     let (probe, resume_state, summary) =
         build_state_loading_dataflow(worker, state_reader, resume_epoch)?;
@@ -446,17 +443,17 @@ fn build_and_run_production_dataflow<A, PW, SW>(
     interrupt_flag: &AtomicBool,
     flow: Py<Dataflow>,
     epoch_config: Py<EpochConfig>,
-    resume_epoch: ResumeEpoch<u64>,
+    resume_epoch: ResumeEpoch,
     resume_state: FlowStateBytes,
-    resume_progress: InMemProgress<u64>,
-    store_summary: StoreSummary<u64>,
+    resume_progress: InMemProgress,
+    store_summary: StoreSummary,
     progress_writer: PW,
     state_writer: SW,
 ) -> StringResult<()>
 where
     A: Allocate,
-    PW: ProgressWriter<u64> + 'static,
-    SW: StateWriter<u64> + 'static,
+    PW: ProgressWriter + 'static,
+    SW: StateWriter + 'static,
 {
     let span = tracing::trace_span!("Building dataflow").entered();
 

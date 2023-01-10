@@ -15,18 +15,15 @@ use crate::recovery::model::*;
 ///
 /// See [`ChangeType`] and
 /// [`crate::recovery::operators::GarbageCollect`].
-pub(crate) type StoreSummary<T> = InMemStore<T, ()>;
+pub(crate) type StoreSummary = InMemStore<()>;
 
 /// A state store with all data in memory.
 #[derive(Debug)]
-pub(crate) struct InMemStore<T, V> {
-    db: HashMap<FlowKey, BTreeMap<T, Change<V>>>,
+pub(crate) struct InMemStore<V> {
+    db: HashMap<FlowKey, BTreeMap<SnapshotEpoch, Change<V>>>,
 }
 
-impl<T, V> InMemStore<T, V>
-where
-    T: Clone + Ord,
-{
+impl<V> InMemStore<V> {
     pub(crate) fn new() -> Self {
         Self { db: HashMap::new() }
     }
@@ -49,10 +46,7 @@ where
     ///
     /// State changes more recent than the resume epoch could be used
     /// later, so we must keep them.
-    pub(crate) fn drain_garbage(
-        &mut self,
-        before: &ResumeEpoch<T>,
-    ) -> impl Iterator<Item = StoreKey<T>> {
+    pub(crate) fn drain_garbage(&mut self, before: &ResumeEpoch) -> impl Iterator<Item = StoreKey> {
         let mut garbage = Vec::new();
 
         let mut empty_keys = Vec::new();
@@ -63,7 +57,7 @@ where
             // "high end" / not garbage, so we have to swap around
             // pointers to get ownership right without cloning.
             let (mut garbage_changes, non_garbage_changes) = {
-                let tmp = changes.split_off(&before.0);
+                let tmp = changes.split_off(&SnapshotEpoch(before.0));
                 let garbage_changes = std::mem::replace(changes, tmp);
                 (garbage_changes, changes)
             };
@@ -136,19 +130,27 @@ fn filter_last_works() {
     store.db = HashMap::from([
         (
             key1.clone(),
-            BTreeMap::from([(10, upz.clone()), (5, upx.clone()), (6, upy.clone())]),
+            BTreeMap::from([
+                (SnapshotEpoch(10), upz.clone()),
+                (SnapshotEpoch(5), upx.clone()),
+                (SnapshotEpoch(6), upy.clone()),
+            ]),
         ),
         (
             key2.clone(),
-            BTreeMap::from([(2, upx), (3, upz.clone()), (1, upy)]),
+            BTreeMap::from([
+                (SnapshotEpoch(2), upx),
+                (SnapshotEpoch(3), upz.clone()),
+                (SnapshotEpoch(1), upy),
+            ]),
         ),
     ]);
 
     store.filter_last();
 
     let expected = HashMap::from([
-        (key1, BTreeMap::from([(10, upz.clone())])),
-        (key2, BTreeMap::from([(3, upz)])),
+        (key1, BTreeMap::from([(SnapshotEpoch(10), upz.clone())])),
+        (key2, BTreeMap::from([(SnapshotEpoch(3), upz)])),
     ]);
     assert_eq!(store.db, expected);
 }
@@ -169,13 +171,27 @@ fn drain_garbage_works() {
     store.db = HashMap::from([
         (
             key1,
-            BTreeMap::from([(10, upz.clone()), (5, upx.clone()), (6, upy.clone())]),
+            BTreeMap::from([
+                (SnapshotEpoch(10), upz.clone()),
+                (SnapshotEpoch(5), upx.clone()),
+                (SnapshotEpoch(6), upy.clone()),
+            ]),
         ),
-        (key2.clone(), BTreeMap::from([(2, upx), (3, upz), (1, upy)])),
+        (
+            key2.clone(),
+            BTreeMap::from([
+                (SnapshotEpoch(2), upx),
+                (SnapshotEpoch(3), upz),
+                (SnapshotEpoch(1), upy),
+            ]),
+        ),
     ]);
 
     let found: HashSet<_> = store.drain_garbage(&ResumeEpoch(6)).collect();
-    let expected = HashSet::from([StoreKey(1, key2.clone()), StoreKey(2, key2)]);
+    let expected = HashSet::from([
+        StoreKey(SnapshotEpoch(1), key2.clone()),
+        StoreKey(SnapshotEpoch(2), key2),
+    ]);
     assert_eq!(found, expected);
 }
 
@@ -193,18 +209,18 @@ fn drain_garbage_includes_newest_discard() {
     store.db = HashMap::from([(
         key1.clone(),
         BTreeMap::from([
-            (2, upx),
-            (3, Change::Discard),
-            (1, upy),
-            (7, Change::Discard),
+            (SnapshotEpoch(2), upx),
+            (SnapshotEpoch(3), Change::Discard),
+            (SnapshotEpoch(1), upy),
+            (SnapshotEpoch(7), Change::Discard),
         ]),
     )]);
 
     let found: HashSet<_> = store.drain_garbage(&ResumeEpoch(6)).collect();
     let expected = HashSet::from([
-        StoreKey(1, key1.clone()),
-        StoreKey(2, key1.clone()),
-        StoreKey(3, key1),
+        StoreKey(SnapshotEpoch(1), key1.clone()),
+        StoreKey(SnapshotEpoch(2), key1.clone()),
+        StoreKey(SnapshotEpoch(3), key1),
     ]);
     assert_eq!(found, expected);
 }
@@ -220,7 +236,11 @@ fn drain_garbage_drops_unused_keys() {
 
     store.db = HashMap::from([(
         key1,
-        BTreeMap::from([(2, upx), (3, Change::Discard), (1, upy)]),
+        BTreeMap::from([
+            (SnapshotEpoch(2), upx),
+            (SnapshotEpoch(3), Change::Discard),
+            (SnapshotEpoch(1), upy),
+        ]),
     )]);
 
     // Must use the iterator.
@@ -242,7 +262,11 @@ fn drain_works() {
 
     store.db = HashMap::from([(
         key1.clone(),
-        BTreeMap::from([(10, upz.clone()), (5, upx.clone()), (6, upy.clone())]),
+        BTreeMap::from([
+            (SnapshotEpoch(10), upz.clone()),
+            (SnapshotEpoch(5), upx.clone()),
+            (SnapshotEpoch(6), upy.clone()),
+        ]),
     )]);
 
     let found: Vec<_> = store.drain_flatten().collect();
@@ -254,11 +278,8 @@ fn drain_works() {
     assert_eq!(found, expected);
 }
 
-impl<T, V> KWriter<StoreKey<T>, Change<V>> for InMemStore<T, V>
-where
-    T: Ord,
-{
-    fn write(&mut self, kchange: KChange<StoreKey<T>, Change<V>>) {
+impl<V> KWriter<StoreKey, Change<V>> for InMemStore<V> {
+    fn write(&mut self, kchange: KChange<StoreKey, Change<V>>) {
         let KChange(StoreKey(epoch, key), change) = kchange;
         let changes = self.db.entry(key.clone()).or_default();
         changes.write(KChange(epoch, change));
@@ -277,13 +298,16 @@ fn write_upserts() {
     let upx = Change::Upsert("x".to_owned());
     let upy = Change::Upsert("y".to_owned());
 
-    store.write(KChange(StoreKey(5, key1.clone()), Change::Upsert(upx)));
     store.write(KChange(
-        StoreKey(5, key1.clone()),
+        StoreKey(SnapshotEpoch(5), key1.clone()),
+        Change::Upsert(upx),
+    ));
+    store.write(KChange(
+        StoreKey(SnapshotEpoch(5), key1.clone()),
         Change::Upsert(upy.clone()),
     ));
 
-    let expected = HashMap::from([(key1, BTreeMap::from([(5, upy)]))]);
+    let expected = HashMap::from([(key1, BTreeMap::from([(SnapshotEpoch(5), upy)]))]);
     assert_eq!(store.db, expected);
 }
 
@@ -295,8 +319,11 @@ fn write_discard_drops_key() {
 
     let upx = Change::Upsert("x".to_owned());
 
-    store.write(KChange(StoreKey(5, key1.clone()), Change::Upsert(upx)));
-    store.write(KChange(StoreKey(5, key1), Change::Discard));
+    store.write(KChange(
+        StoreKey(SnapshotEpoch(5), key1.clone()),
+        Change::Upsert(upx),
+    ));
+    store.write(KChange(StoreKey(SnapshotEpoch(5), key1), Change::Discard));
 
     let expected = HashMap::from([]);
     assert_eq!(store.db, expected);
@@ -304,23 +331,20 @@ fn write_discard_drops_key() {
 
 /// A progress store with all data in-memory.
 #[derive(Debug)]
-pub(crate) struct InMemProgress<T>(HashMap<WorkerKey, BorderEpoch<T>>);
+pub(crate) struct InMemProgress(HashMap<WorkerKey, BorderEpoch>);
 
-impl<T> InMemProgress<T>
-where
-    T: Ord + Clone,
-{
+impl InMemProgress {
     pub(crate) fn new() -> Self {
         Self(HashMap::new())
     }
 }
 
-impl InMemProgress<u64> {
+impl InMemProgress {
     /// Calculate the resume epoch from the previous cluster state.
     ///
     /// This should be the epoch after the last finalized epoch, or if
     /// none, the minimum epoch.
-    pub(crate) fn resume_epoch(&self) -> ResumeEpoch<u64> {
+    pub(crate) fn resume_epoch(&self) -> ResumeEpoch {
         ResumeEpoch(
             self.0
                 .values()
@@ -357,8 +381,8 @@ fn resume_epoch_works_with_no_state() {
     assert_eq!(found, expected);
 }
 
-impl<T> KWriter<WorkerKey, BorderEpoch<T>> for InMemProgress<T> {
-    fn write(&mut self, kchange: KChange<WorkerKey, BorderEpoch<T>>) {
+impl KWriter<WorkerKey, BorderEpoch> for InMemProgress {
+    fn write(&mut self, kchange: KChange<WorkerKey, BorderEpoch>) {
         self.0.write(kchange)
     }
 }

@@ -63,8 +63,8 @@ pub(crate) trait EpochBuilder<S: Scope<Timestamp = u64>> {
         step_id: StepId,
         key: StateKey,
         reader: Box<dyn InputReader<TdPyAny>>,
-        start_at: ResumeEpoch<S::Timestamp>,
-        probe: &ProbeHandle<S::Timestamp>,
+        start_at: ResumeEpoch,
+        probe: &ProbeHandle<u64>,
     ) -> StringResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)>;
 }
 
@@ -79,8 +79,8 @@ where
         step_id: StepId,
         key: StateKey,
         reader: Box<dyn InputReader<TdPyAny>>,
-        start_at: ResumeEpoch<S::Timestamp>,
-        probe: &ProbeHandle<S::Timestamp>,
+        start_at: ResumeEpoch,
+        probe: &ProbeHandle<u64>,
     ) -> StringResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)> {
         self.downcast(py)?
             .build(py, scope, step_id, key, reader, start_at, probe)
