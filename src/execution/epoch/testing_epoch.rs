@@ -66,8 +66,8 @@ where
         step_id: StepId,
         state_key: StateKey,
         mut reader: Box<dyn InputReader<crate::pyo3_extensions::TdPyAny>>,
-        start_at: ResumeEpoch<S::Timestamp>,
-        probe: &ProbeHandle<S::Timestamp>,
+        start_at: ResumeEpoch,
+        probe: &ProbeHandle<u64>,
     ) -> StringResult<(
         Stream<S, crate::pyo3_extensions::TdPyAny>,
         FlowChangeStream<S>,

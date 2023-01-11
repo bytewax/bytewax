@@ -178,8 +178,8 @@ impl SqliteStateWriter {
     }
 }
 
-impl KWriter<StoreKey<u64>, Change<StateBytes>> for SqliteStateWriter {
-    fn write(&mut self, kchange: KChange<StoreKey<u64>, Change<StateBytes>>) {
+impl KWriter<StoreKey, Change<StateBytes>> for SqliteStateWriter {
+    fn write(&mut self, kchange: KChange<StoreKey, Change<StateBytes>>) {
         tracing::trace!("Writing state change {kchange:?}");
         let KChange(store_key, recovery_change) = kchange;
         let StoreKey(epoch, FlowKey(step_id, state_key)) = store_key;
@@ -195,7 +195,7 @@ impl KWriter<StoreKey<u64>, Change<StateBytes>> for SqliteStateWriter {
                     .bind(step_id)
                     .bind(state_key)
                     .bind(
-                        <u64 as TryInto<i64>>::try_into(epoch)
+                        <u64 as TryInto<i64>>::try_into(epoch.0)
                             .expect("epoch can't fit into SQLite int"),
                     )
                     // Remember, reset state is stored as an explicit NULL in the
@@ -213,7 +213,7 @@ impl KWriter<StoreKey<u64>, Change<StateBytes>> for SqliteStateWriter {
                     .bind(step_id)
                     .bind(state_key)
                     .bind(
-                        <u64 as TryInto<i64>>::try_into(epoch)
+                        <u64 as TryInto<i64>>::try_into(epoch.0)
                             .expect("epoch can't fit into SQLite int"),
                     )
                     .execute(&mut self.conn);
@@ -225,7 +225,7 @@ impl KWriter<StoreKey<u64>, Change<StateBytes>> for SqliteStateWriter {
 
 pub(crate) struct SqliteStateReader {
     rt: Runtime,
-    rx: tokio::sync::mpsc::Receiver<StoreChange<u64>>,
+    rx: tokio::sync::mpsc::Receiver<StoreChange>,
 }
 
 impl SqliteStateReader {
@@ -247,10 +247,11 @@ impl SqliteStateReader {
                 .map(|row: SqliteRow| {
                     let step_id: StepId = row.get(0);
                     let state_key: StateKey = row.get(1);
-                    let epoch: u64 = row
-                        .get::<i64, _>(2)
-                        .try_into()
-                        .expect("SQLite int can't fit into epoch; might be negative");
+                    let epoch = SnapshotEpoch(
+                        row.get::<i64, _>(2)
+                            .try_into()
+                            .expect("SQLite int can't fit into epoch; might be negative"),
+                    );
                     let store_key = StoreKey(epoch, FlowKey(step_id, state_key));
                     let step_change = if let Some(snapshot) = row.get(3) {
                         Change::Upsert(snapshot)
@@ -273,8 +274,8 @@ impl SqliteStateReader {
     }
 }
 
-impl KReader<StoreKey<u64>, Change<StateBytes>> for SqliteStateReader {
-    fn read(&mut self) -> Option<StoreChange<u64>> {
+impl KReader<StoreKey, Change<StateBytes>> for SqliteStateReader {
+    fn read(&mut self) -> Option<StoreChange> {
         self.rt.block_on(self.rx.recv())
     }
 }
@@ -315,8 +316,8 @@ impl SqliteProgressWriter {
     }
 }
 
-impl KWriter<WorkerKey, BorderEpoch<u64>> for SqliteProgressWriter {
-    fn write(&mut self, kchange: ProgressChange<u64>) {
+impl KWriter<WorkerKey, BorderEpoch> for SqliteProgressWriter {
+    fn write(&mut self, kchange: ProgressChange) {
         tracing::trace!("Writing progress change {kchange:?}");
         let KChange(worker_key, change) = kchange;
         let WorkerKey(worker_index) = worker_key;
@@ -344,7 +345,7 @@ impl KWriter<WorkerKey, BorderEpoch<u64>> for SqliteProgressWriter {
 
 pub(crate) struct SqliteProgressReader {
     rt: Runtime,
-    rx: tokio::sync::mpsc::Receiver<ProgressChange<u64>>,
+    rx: tokio::sync::mpsc::Receiver<ProgressChange>,
 }
 
 impl SqliteProgressReader {
@@ -383,13 +384,13 @@ impl SqliteProgressReader {
     }
 }
 
-impl KReader<WorkerKey, BorderEpoch<u64>> for SqliteProgressReader {
-    fn read(&mut self) -> Option<ProgressChange<u64>> {
+impl KReader<WorkerKey, BorderEpoch> for SqliteProgressReader {
+    fn read(&mut self) -> Option<ProgressChange> {
         self.rt.block_on(self.rx.recv())
     }
 }
 
-impl StateWriter<u64> for SqliteStateWriter {}
-impl StateReader<u64> for SqliteStateReader {}
-impl ProgressWriter<u64> for SqliteProgressWriter {}
-impl ProgressReader<u64> for SqliteProgressReader {}
+impl StateWriter for SqliteStateWriter {}
+impl StateReader for SqliteStateReader {}
+impl ProgressWriter for SqliteProgressWriter {}
+impl ProgressReader for SqliteProgressReader {}

@@ -294,7 +294,7 @@ pub(crate) fn build_recovery_writers(
     worker_index: usize,
     worker_count: usize,
     config: Py<RecoveryConfig>,
-) -> StringResult<(Box<dyn ProgressWriter<u64>>, Box<dyn StateWriter<u64>>)> {
+) -> StringResult<(Box<dyn ProgressWriter>, Box<dyn StateWriter>)> {
     // Horrible news: we have to be very studious and release the GIL
     // any time we know we have it and we call into complex Rust
     // libraries because internally it might call log!() on a
@@ -369,7 +369,7 @@ pub(crate) fn build_recovery_readers(
     worker_index: usize,
     worker_count: usize,
     config: Py<RecoveryConfig>,
-) -> StringResult<(Box<dyn ProgressReader<u64>>, Box<dyn StateReader<u64>>)> {
+) -> StringResult<(Box<dyn ProgressReader>, Box<dyn StateReader>)> {
     // See comment about the GIL in
     // [`build_recovery_writers`].
     let config = config.as_ref(py);

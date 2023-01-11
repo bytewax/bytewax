@@ -28,7 +28,7 @@ impl<K, V> KReader<K, V> for NoOpStore {
     }
 }
 
-impl<T> StateWriter<T> for NoOpStore where T: Debug {}
-impl<T> StateReader<T> for NoOpStore {}
-impl<T> ProgressWriter<T> for NoOpStore where T: Debug {}
-impl<T> ProgressReader<T> for NoOpStore {}
+impl StateWriter for NoOpStore {}
+impl StateReader for NoOpStore {}
+impl ProgressWriter for NoOpStore {}
+impl ProgressReader for NoOpStore {}
