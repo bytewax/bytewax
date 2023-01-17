@@ -4,6 +4,8 @@ Thank you for investing your time in contributing to our project! Any contributi
 
 Read our [Code of Conduct](CODE_OF_CONDUCT.md) to keep our community approachable and respectable.
 
+Read the [Developer Certificate of Origin](DEVELOPER_CERTIFICATE_OF_ORIGIN.md) to ensure you are in compliance.
+
 In this guide you will get an overview of the contribution workflow from opening an issue, creating a PR, reviewing, and merging the PR.
 
 ## New contributor guide
@@ -49,7 +51,7 @@ Important Labels:
 
 ### Commit your update
 
-Commit the changes once you are happy with them. 
+Commit the changes once you are happy with them. Be sure to [sign your commit](https://docs.github.com/en/organizations/managing-organization-settings/managing-the-commit-signoff-policy-for-your-organization#about-commit-signoffs) if using the command line interface.
 
 ### Pull Request
 
