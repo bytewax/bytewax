@@ -8,17 +8,27 @@ import urllib3
 
 from bytewax import parse
 from bytewax.dataflow import Dataflow
-from bytewax.execution import spawn_cluster
-from bytewax.inputs import ManualInputConfig
+from bytewax.execution import run_main, spawn_cluster
+from bytewax.inputs import CustomPartInput
 from bytewax.outputs import StdOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
-def input_builder(worker_index, worker_count, resume_state):
-    # Multiple SSE connections will duplicate the streams, so only
-    # have the first worker generate input.
-    if worker_index == 0:
+class WikiStreamInput(CustomPartInput):
+    def list_keys(self):
+        # Wikimedia's SSE stream has no way to request disjoint data,
+        # so we have only one partition.
+        return ["single-stream"]
+
+    def build_part(self, _for_key, _resume_state):
+        # Since there is no way to rewind to SSE data we missed while
+        # resuming a dataflow, we're going to ignore `resume_state`
+        # and drop missed data. That's fine as long as we know to
+        # interpret the results with that in mind.
+        assert _for_key == "single-stream"
+        assert _resume_state == None
+
         pool = urllib3.PoolManager()
         resp = pool.request(
             "GET",
@@ -28,11 +38,8 @@ def input_builder(worker_index, worker_count, resume_state):
         )
         client = sseclient.SSEClient(resp)
 
-        # Since there is no way to replay missed SSE data, we're going
-        # to drop missed data. That's fine as long as we know to
-        # interpret the results with that in mind.
         for event in client.events():
-            yield (None, event.data)
+            yield None, event.data
 
 
 def initial_count(data_dict):
@@ -45,7 +52,7 @@ def keep_max(max_count, new_count):
 
 
 flow = Dataflow()
-flow.input("inp", ManualInputConfig(input_builder))
+flow.input("inp", WikiStreamInput())
 # "event_json"
 flow.map(json.loads)
 # {"server_name": "server.name", ...}
@@ -68,8 +75,8 @@ flow.capture(StdOutputConfig())
 
 
 if __name__ == "__main__":
-    spawn_cluster(
+    run_main(
         flow,
-        recovery_config=SqliteRecoveryConfig("."),
-        **parse.cluster_args(),
+        # recovery_config=SqliteRecoveryConfig("."),
+        # **parse.cluster_args(),
     )

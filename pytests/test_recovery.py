@@ -4,9 +4,9 @@ from pytest import fixture, raises
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main, TestingEpochConfig
-from bytewax.inputs import TestingInputConfig
 from bytewax.outputs import TestingEpochOutputConfig, TestingOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.testing import TestingInput
 
 epoch_config = TestingEpochConfig()
 
@@ -32,7 +32,7 @@ def build_keep_max_dataflow(armed, inp):
     """
     flow = Dataflow()
 
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     def trigger(item):
         """Odd numbers cause exception if armed."""

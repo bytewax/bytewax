@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 
 use crate::common::pickle_extract;
-use crate::inputs::InputConfig;
+use crate::inputs::CustomPartInput;
 use crate::outputs::OutputConfig;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::model::StepId;
@@ -84,14 +84,11 @@ impl Dataflow {
     ///
     ///   step_id (str): Uniquely identifies this step for recovery.
     ///
-    ///   input_config (bytewax.input.InputConfig): Input config to
-    ///       use. See `bytewax.inputs`.
-    #[pyo3(text_signature = "(self, step_id, input_config)")]
-    fn input(&mut self, step_id: StepId, input_config: Py<InputConfig>) {
-        self.steps.push(Step::Input {
-            step_id,
-            input_config,
-        });
+    ///   input: Source. See `bytewax.connectors` and
+    ///       `bytewax.inputs`.
+    #[pyo3(text_signature = "(self, step_id, input)")]
+    fn input(&mut self, step_id: StepId, input: CustomPartInput) {
+        self.steps.push(Step::Input { step_id, input });
     }
 
     /// Capture is how you specify output of a dataflow.
@@ -702,7 +699,7 @@ impl Dataflow {
 pub(crate) enum Step {
     Input {
         step_id: StepId,
-        input_config: Py<InputConfig>,
+        input: CustomPartInput,
     },
     Map {
         mapper: TdPyCallable,
@@ -768,7 +765,7 @@ impl<'source> FromPyObject<'source> for Step {
         match step {
             "Input" => Ok(Self::Input {
                 step_id: pickle_extract(dict, "step_id")?,
-                input_config: pickle_extract(dict, "input_config")?,
+                input: pickle_extract(dict, "input")?,
             }),
             "Map" => Ok(Self::Map {
                 mapper: pickle_extract(dict, "mapper")?,
@@ -832,13 +829,10 @@ impl<'source> FromPyObject<'source> for Step {
 impl IntoPy<PyObject> for Step {
     fn into_py(self, py: Python) -> Py<PyAny> {
         match self {
-            Self::Input {
-                step_id,
-                input_config,
-            } => HashMap::from([
+            Self::Input { step_id, input } => HashMap::from([
                 ("type", "Input".into_py(py)),
                 ("step_id", step_id.into_py(py)),
-                ("input_config", input_config.into_py(py)),
+                ("input", input.into_py(py)),
             ])
             .into_py(py),
             Self::Map { mapper } => {

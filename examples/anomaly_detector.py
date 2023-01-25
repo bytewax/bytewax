@@ -2,16 +2,20 @@ import random
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
-from bytewax.inputs import ManualInputConfig
+from bytewax.inputs import CustomPartInput
 from bytewax.outputs import ManualOutputConfig
 
 
-def input_builder(worker_index, worker_count, resume_state):
-    def random_datapoints():
+class RandomMetricInput(CustomPartInput):
+    def list_keys(self):
+        return ["singleton"]
+
+    def build_part(self, _for_key, _resume_state):
+        assert _for_key == "singleton"
+        assert _resume_state is None
+
         for _ in range(20):
             yield None, ("QPS", random.randrange(0, 10))
-
-    return random_datapoints()
 
 
 class ZTestDetector:
@@ -69,7 +73,7 @@ def output_builder(worker_index, worker_count):
 
 if __name__ == "__main__":
     flow = Dataflow()
-    flow.input("input", ManualInputConfig(input_builder))
+    flow.input("inp", RandomMetricInput())
     # ("metric", value)
     flow.stateful_map("AnomalyDetector", lambda: ZTestDetector(2.0), ZTestDetector.push)
     # ("metric", (value, mu, sigma, is_anomalous))

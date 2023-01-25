@@ -39,7 +39,7 @@ pub(crate) struct EventClockConfig {
 }
 
 impl ClockBuilder<TdPyAny> for EventClockConfig {
-    fn build(&self, _py: Python) -> StringResult<Builder<TdPyAny>> {
+    fn build(&self, _py: Python) -> PyResult<Builder<TdPyAny>> {
         let dt_getter = self.dt_getter.clone();
         let wait_for_system_duration = self.wait_for_system_duration;
         Ok(Box::new(move |resume_snapshot: Option<StateBytes>| {

@@ -6,9 +6,10 @@ use timely::dataflow::{
     operators::generic::builder_rc::OperatorBuilder, ProbeHandle, Scope, Stream,
 };
 
+use crate::inputs::PartBundle;
+use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::model::*;
 use crate::recovery::operators::FlowChangeStream;
-use crate::{common::StringResult, inputs::InputReader};
 
 use super::{EpochBuilder, EpochConfig};
 
@@ -64,15 +65,11 @@ where
         _py: Python,
         scope: &S,
         step_id: StepId,
-        state_key: StateKey,
-        mut reader: Box<dyn InputReader<crate::pyo3_extensions::TdPyAny>>,
+        mut parts: PartBundle,
         start_at: ResumeEpoch,
         probe: &ProbeHandle<u64>,
-    ) -> StringResult<(
-        Stream<S, crate::pyo3_extensions::TdPyAny>,
-        FlowChangeStream<S>,
-    )> {
-        let mut op_builder = OperatorBuilder::new(format!("{step_id}"), scope.clone());
+    ) -> PyResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)> {
+        let mut op_builder = OperatorBuilder::new(step_id.0.to_string(), scope.clone());
 
         let (mut output_wrapper, output_stream) = op_builder.new_output();
         let (mut change_wrapper, change_stream) = op_builder.new_output();
@@ -80,8 +77,6 @@ where
         let probe = probe.clone();
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
-
-        let flow_key = FlowKey(step_id.clone(), state_key);
 
         op_builder.build(move |mut init_caps| {
             let change_cap = init_caps.pop().map(|cap| cap.delayed(&start_at.0)).unwrap();
@@ -98,7 +93,7 @@ where
                     let mut advance = false;
 
                     if !probe.less_than(epoch) {
-                        match reader.next() {
+                        match parts.next() {
                             Poll::Pending => {}
                             Poll::Ready(None) => {
                                 eof = true;
@@ -114,8 +109,15 @@ where
                     // If the the current epoch will be over, snapshot
                     // to get "end of the epoch state".
                     if advance || eof {
-                        let kchange = KChange(flow_key.clone(), Change::Upsert(reader.snapshot()));
-                        change_wrapper.activate().session(&change_cap).give(kchange);
+                        let kchanges = parts
+                            .snapshot()
+                            .into_iter()
+                            .map(|(state_key, snap)| (FlowKey(step_id.clone(), state_key), snap))
+                            .map(|(flow_key, snap)| KChange(flow_key, Change::Upsert(snap)));
+                        change_wrapper
+                            .activate()
+                            .session(&change_cap)
+                            .give_iterator(kchanges);
                     }
 
                     if eof {

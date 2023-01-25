@@ -46,7 +46,6 @@ use timely::{communication::Allocate, dataflow::ProbeHandle, worker::Worker};
 use super::model::*;
 use super::operators::*;
 use super::store::in_mem::*;
-use crate::common::StringResult;
 
 /// Add in the recovery machinery to the production dataflow.
 ///
@@ -105,7 +104,7 @@ pub(crate) fn build_progress_loading_dataflow<A, R>(
     // TODO: Allow multiple (or none) FrontierReaders so you can recover a
     // different-sized cluster.
     reader: R,
-) -> StringResult<(ProbeHandle<()>, Rc<RefCell<InMemProgress>>)>
+) -> (ProbeHandle<()>, Rc<RefCell<InMemProgress>>)
 where
     A: Allocate,
     R: ProgressReader + 'static,
@@ -120,7 +119,7 @@ where
             .broadcast_write(resume_progress.clone())
             .probe_with(&mut probe);
 
-        Ok((probe, resume_progress))
+        (probe, resume_progress)
     })
 }
 
@@ -136,11 +135,11 @@ pub(crate) fn build_state_loading_dataflow<A, R>(
     timely_worker: &mut Worker<A>,
     reader: R,
     resume_epoch: ResumeEpoch,
-) -> StringResult<(
+) -> (
     ProbeHandle<u64>,
     Rc<RefCell<FlowStateBytes>>,
     Rc<RefCell<StoreSummary>>,
-)>
+)
 where
     A: Allocate,
     R: StateReader + 'static,
@@ -168,6 +167,6 @@ where
             .write(summary.clone())
             .probe_with(&mut probe);
 
-        Ok((probe, resume_state, summary))
+        (probe, resume_state, summary)
     })
 }

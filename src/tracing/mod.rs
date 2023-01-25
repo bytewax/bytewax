@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use opentelemetry::sdk::trace::Tracer;
-use pyo3::prelude::*;
+use pyo3::{exceptions::PyTypeError, prelude::*};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{filter::Targets, layer::SubscriberExt, Layer, Registry};
 
@@ -19,7 +19,6 @@ pub(crate) mod otlp_tracing;
 pub(crate) use jaeger_tracing::JaegerConfig;
 pub(crate) use otlp_tracing::OtlpTracingConfig;
 
-use crate::common::StringResult;
 use crate::pyo3_extensions::PyConfigClass;
 
 /// Base class for tracing/logging configuration.
@@ -60,18 +59,20 @@ impl TracingConfig {
 /// Trait that all the tracing config should implement.
 /// This function should just return the proper `Tracer` for the backend.
 pub(crate) trait TracerBuilder {
-    fn build(&self) -> StringResult<Tracer>;
+    fn build(&self) -> PyResult<Tracer>;
 }
 
 impl PyConfigClass<Box<dyn TracerBuilder + Send>> for Py<TracingConfig> {
-    fn downcast(&self, py: Python) -> StringResult<Box<dyn TracerBuilder + Send>> {
+    fn downcast(&self, py: Python) -> PyResult<Box<dyn TracerBuilder + Send>> {
         if let Ok(otlp_conf) = self.extract::<OtlpTracingConfig>(py) {
             Ok(Box::new(otlp_conf))
         } else if let Ok(jaeger_conf) = self.extract::<JaegerConfig>(py) {
             Ok(Box::new(jaeger_conf))
         } else {
             let pytype = self.as_ref(py).get_type();
-            Err(format!("Unknown tracing_config type: {pytype}"))
+            Err(PyTypeError::new_err(format!(
+                "Unknown tracing_config type: {pytype}"
+            )))
         }
     }
 }
@@ -135,7 +136,7 @@ impl BytewaxTracer {
                     // Display source code line numbers
                     .with_line_number(true)
                     // Display the thread ID an event was recorded on
-                    .with_thread_ids(true)
+                    .with_thread_names(true)
                     .with_filter(Targets::new().with_target("bytewax", log_level));
 
                 let tracer = tracer.map(|tracer| tracer.build().unwrap());

@@ -3,19 +3,11 @@ import operator
 from collections import Counter
 from datetime import timedelta
 
+from bytewax.connectors.files import FileInput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main, spawn_cluster
-from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import ManualOutputConfig, StdOutputConfig, TestingOutputConfig
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
-
-
-def input_builder(worker_index, worker_count, state):
-    def file_input():
-        for line in open("examples/sample_data/apriori.txt"):
-            yield None, line
-
-    return file_input()
 
 
 def lower(line):
@@ -53,7 +45,7 @@ wc = TumblingWindowConfig(length=timedelta(seconds=5))
 # first pass - count products
 out = []
 flow = Dataflow()
-flow.input("input", ManualInputConfig(input_builder))
+flow.input("inp", FileInput("examples/sample_data/apriori.txt"))
 flow.map(lower)
 flow.flat_map(tokenize)
 flow.map(initial_count)
@@ -63,7 +55,7 @@ flow.capture(TestingOutputConfig(out))
 # second pass - count pairs
 out2 = []
 flow2 = Dataflow()
-flow2.input("input", ManualInputConfig(input_builder))
+flow2.input("input", FileInput("examples/sample_data/apriori.txt"))
 flow2.map(lower)
 flow2.filter(is_most_common)  # count basket only with popular products
 flow2.flat_map(build_pairs)

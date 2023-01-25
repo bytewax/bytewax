@@ -1,19 +1,14 @@
 import json
 
+from bytewax.connectors.kafka import KafkaInput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.inputs import KafkaInputConfig
 from bytewax.outputs import KafkaOutputConfig, StdOutputConfig
 
 flow = Dataflow()
 
-flow.input(
-    "inp",
-    KafkaInputConfig(
-        brokers=["localhost:9092"],
-        topic="input_topic",
-    ),
-)
+
+flow.input("inp", KafkaInput(["localhost:9092"], "input_topic"))
 
 
 def deserialize(key_bytes__payload_bytes):

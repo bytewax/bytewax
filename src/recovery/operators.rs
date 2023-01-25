@@ -61,16 +61,12 @@ pub(crate) trait Route {
     /// Timely uses the result here to decide which worker to send
     /// this data.
     fn route(&self) -> u64;
-}
 
-impl Route for WorkerIndex {
-    /// Tell Timely to route to this worker.
-    // My read of
-    // https://github.com/TimelyDataflow/timely-dataflow/blob/v0.12.0/timely/src/dataflow/channels/pushers/exchange.rs#L61-L90
-    // says that if you return the worker index, it'll be
-    // routed to that worker.
-    fn route(&self) -> u64 {
-        self.0 as u64
+    /// Determine if this key would route to this worker.
+    fn is_local(&self, index: WorkerIndex, count: WorkerCount) -> bool {
+        // My read of
+        // https://github.com/TimelyDataflow/timely-dataflow/blob/v0.12.0/timely/src/dataflow/channels/pushers/exchange.rs#L61-L90
+        (self.route() % count.0 as u64) as usize == index.0
     }
 }
 
@@ -86,14 +82,9 @@ impl Route for WorkerKey {
 
 impl Route for StateKey {
     fn route(&self) -> u64 {
-        match self {
-            Self::Hash(key) => {
-                let mut hasher = DefaultHasher::new();
-                key.hash(&mut hasher);
-                hasher.finish()
-            }
-            Self::Worker(index) => index.route(),
-        }
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
     }
 }
 

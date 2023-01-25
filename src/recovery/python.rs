@@ -7,10 +7,8 @@ use super::store::kafka::*;
 use super::store::noop::*;
 use super::store::sqlite::*;
 use crate::add_pymethods;
-use crate::common::StringResult;
 use pyo3::exceptions::*;
 use pyo3::prelude::*;
-use pyo3::types::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -238,7 +236,7 @@ pub(crate) fn build_recovery_writers(
     worker_index: usize,
     worker_count: usize,
     config: Py<RecoveryConfig>,
-) -> StringResult<(Box<dyn ProgressWriter>, Box<dyn StateWriter>)> {
+) -> PyResult<(Box<dyn ProgressWriter>, Box<dyn StateWriter>)> {
     // Horrible news: we have to be very studious and release the GIL
     // any time we know we have it and we call into complex Rust
     // libraries because internally it might call log!() on a
@@ -285,10 +283,10 @@ pub(crate) fn build_recovery_writers(
 
         Ok((Box::new(progress_writer), Box::new(state_writer)))
     } else {
-        Err(format!(
+        Err(PyTypeError::new_err(format!(
             "Unknown recovery_config type: {}",
             config.get_type(),
-        ))
+        )))
     }
 }
 
@@ -313,7 +311,7 @@ pub(crate) fn build_recovery_readers(
     worker_index: usize,
     worker_count: usize,
     config: Py<RecoveryConfig>,
-) -> StringResult<(Box<dyn ProgressReader>, Box<dyn StateReader>)> {
+) -> PyResult<(Box<dyn ProgressReader>, Box<dyn StateReader>)> {
     // See comment about the GIL in
     // [`build_recovery_writers`].
     let config = config.as_ref(py);
@@ -356,10 +354,10 @@ pub(crate) fn build_recovery_readers(
 
         Ok((Box::new(progress_reader), Box::new(state_reader)))
     } else {
-        Err(format!(
+        Err(PyTypeError::new_err(format!(
             "Unknown recovery_config type: {}",
             config.get_type(),
-        ))
+        )))
     }
 }
 
@@ -377,21 +375,12 @@ impl IntoPy<PyObject> for StepId {
 
 impl<'source> FromPyObject<'source> for StateKey {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        if let Ok(py_string) = ob.cast_as::<PyString>() {
-            Ok(Self::Hash(py_string.to_str()?.into()))
-        } else if let Ok(py_int) = ob.cast_as::<PyLong>() {
-            Ok(Self::Worker(WorkerIndex(py_int.extract()?)))
-        } else {
-            Err(PyTypeError::new_err("Can only make StateKey out of either str (route to worker by hash) or int (route to worker by index)"))
-        }
+        Ok(Self(<String as FromPyObject>::extract(ob)?))
     }
 }
 
 impl IntoPy<PyObject> for StateKey {
     fn into_py(self, py: Python) -> Py<PyAny> {
-        match self {
-            Self::Hash(key) => key.into_py(py),
-            Self::Worker(index) => index.0.into_py(py),
-        }
+        self.0.into_py(py)
     }
 }

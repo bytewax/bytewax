@@ -170,7 +170,7 @@ where
         L: StatefulLogic<V, R, I> + 'static,       // Logic
         LB: Fn(Option<StateBytes>) -> L + 'static, // Logic builder
     {
-        let mut op_builder = OperatorBuilder::new(format!("{step_id}"), self.scope());
+        let mut op_builder = OperatorBuilder::new(step_id.0.to_string(), self.scope());
 
         let (mut output_wrapper, output_stream) = op_builder.new_output();
         let (mut change_wrapper, change_stream) = op_builder.new_output();

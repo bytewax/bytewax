@@ -3,15 +3,14 @@ pub(crate) mod testing_epoch;
 
 use std::collections::HashMap;
 
-use pyo3::prelude::*;
+use pyo3::{exceptions::PyTypeError, prelude::*};
 use timely::dataflow::{ProbeHandle, Scope, Stream};
 
 use crate::{
-    common::StringResult,
-    inputs::InputReader,
+    inputs::PartBundle,
     operators::stateful_unary::{FlowChangeStream, StepId},
     pyo3_extensions::{PyConfigClass, TdPyAny},
-    recovery::model::{progress::ResumeEpoch, state::StateKey},
+    recovery::model::progress::ResumeEpoch,
 };
 
 use self::{periodic_epoch::PeriodicEpochConfig, testing_epoch::TestingEpochConfig};
@@ -61,11 +60,10 @@ pub(crate) trait EpochBuilder<S: Scope<Timestamp = u64>> {
         py: Python,
         scope: &S,
         step_id: StepId,
-        key: StateKey,
-        reader: Box<dyn InputReader<TdPyAny>>,
+        parts: PartBundle,
         start_at: ResumeEpoch,
         probe: &ProbeHandle<u64>,
-    ) -> StringResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)>;
+    ) -> PyResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)>;
 }
 
 impl<S> EpochBuilder<S> for Py<EpochConfig>
@@ -77,13 +75,12 @@ where
         py: Python,
         scope: &S,
         step_id: StepId,
-        key: StateKey,
-        reader: Box<dyn InputReader<TdPyAny>>,
+        parts: PartBundle,
         start_at: ResumeEpoch,
         probe: &ProbeHandle<u64>,
-    ) -> StringResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)> {
+    ) -> PyResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)> {
         self.downcast(py)?
-            .build(py, scope, step_id, key, reader, start_at, probe)
+            .build(py, scope, step_id, parts, start_at, probe)
     }
 }
 
@@ -91,14 +88,16 @@ impl<S> PyConfigClass<Box<dyn EpochBuilder<S>>> for Py<EpochConfig>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn downcast(&self, py: Python) -> StringResult<Box<dyn EpochBuilder<S>>> {
+    fn downcast(&self, py: Python) -> PyResult<Box<dyn EpochBuilder<S>>> {
         if let Ok(config) = self.extract::<TestingEpochConfig>(py) {
             Ok(Box::new(config))
         } else if let Ok(config) = self.extract::<PeriodicEpochConfig>(py) {
             Ok(Box::new(config))
         } else {
             let pytype = self.as_ref(py).get_type();
-            Err(format!("Unknown epoch_config type: {pytype}"))
+            Err(PyTypeError::new_err(format!(
+                "Unknown epoch_config type: {pytype}"
+            )))
         }
     }
 }

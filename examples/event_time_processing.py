@@ -6,7 +6,7 @@
 ###################
 # To run this example you'll need a Kafka (or redpanda) cluster.
 # Create a topic with using the `create_temperature_events` function
-# in examples/utils/topics_helper.py:
+# in examples/example_utils/topics_helper.py:
 #
 # ```python
 # from utils.topics_helper import create_temperature_events
@@ -21,20 +21,17 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+from bytewax.connectors.kafka import KafkaInput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.inputs import KafkaInputConfig
 from bytewax.outputs import StdOutputConfig
 from bytewax.window import EventClockConfig, TumblingWindowConfig
 
 # Define the dataflow object and kafka input.
 flow = Dataflow()
-flow.input(
-    "input",
-    KafkaInputConfig(
-        brokers=["localhost:9092"], topic="sensors", starting_offset="beginning"
-    ),
-)
+
+
+flow.input("inp", KafkaInput(["localhost:9092"], "sensors", tail=False))
 
 
 # We expect a json string that represents a reading from a sensor.
@@ -105,4 +102,7 @@ flow.map(format)
 
 
 flow.capture(StdOutputConfig())
-run_main(flow)
+
+
+if __name__ == "__main__":
+    run_main(flow)

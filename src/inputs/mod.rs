@@ -1,176 +1,209 @@
 //! Internal code for input systems.
 //!
-//! For a user-centric version of input, read the `bytewax.input`
+//! For a user-centric version of input, read the `bytewax.inputs`
 //! Python module docstring. Read that first.
 //!
-//! Architecture
-//! ------------
+//! [`CustomPartInput`] defines an input source. [`PartBundle`] is
+//! what is passed to the source operators defined in
+//! [`crate::execution::epoch`].
+//!
+//! Each [`PartIter`] is keyed by a [`StateKey`] so that the recovery
+//! system can round trip the state data back to
+//! [`CustomPartInput::build_parts`] and be provided to the correct
+//! builder.
 //!
 //! The one extra quirk here is that input is completely decoupled
 //! from epoch generation. See [`crate::execution`] for how Timely
 //! sources are generated and epochs assigned. The only goal of the
-//! input system is "what's my next item for this worker?"
-//!
-//! Input is based around the core trait of [`InputReader`].  The
-//! [`crate::dataflow::Dataflow::input`] operator delegates to impls
-//! of that trait for actual writing.
-//!
-//! This system follows our standard pattern of having parallel Python
-//! config objects and Rust impl structs for each trait of behavior we
-//! want. E.g. [`KafkaInputConfig`] represents a token in Python for
-//! how to create a [`KafkaInput`].
+//! input system is "what's the next item for this input?"
 
-use crate::common::StringResult;
-use crate::execution::{WorkerCount, WorkerIndex};
-use crate::pyo3_extensions::{PyConfigClass, TdPyAny};
-use crate::recovery::model::StateBytes;
-use pyo3::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::task::Poll;
 
-pub(crate) mod kafka_input;
-pub(crate) mod manual_input;
+use crate::execution::{WorkerCount, WorkerIndex};
+use crate::pyo3_extensions::TdPyAny;
+use crate::recovery::model::{StateBytes, StateKey, StepId, StepStateBytes};
+use crate::recovery::operators::Route;
+use crate::unwrap_any;
+use pyo3::exceptions::PyTypeError;
+use pyo3::prelude::*;
+use pyo3::types::PyIterator;
 
-pub(crate) use self::kafka_input::KafkaInputConfig;
-pub(crate) use self::manual_input::ManualInputConfig;
+/// Represents a `bytewax.inputs.CustomPartInput` from Python.
+#[derive(Clone)]
+pub(crate) struct CustomPartInput(Py<PyAny>);
 
-/// Base class for an input config.
-///
-/// These define how you will input data to your dataflow.
-///
-/// Use a specific subclass of InputConfig for the kind of input
-/// source you are plan to use. See the subclasses in this module.
-#[pyclass(module = "bytewax.inputs", subclass)]
-#[pyo3(text_signature = "()")]
-pub(crate) struct InputConfig;
-
-impl InputConfig {
-    /// Create an "empty" [`Self`] just for use in `__getnewargs__`.
-    #[allow(dead_code)]
-    pub(crate) fn pickle_new(py: Python) -> Py<Self> {
-        PyCell::new(py, InputConfig {}).unwrap().into()
-    }
-}
-
-#[pymethods]
-impl InputConfig {
-    #[new]
-    fn new() -> Self {
-        Self {}
-    }
-
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| HashMap::from([("type", "InputConfig".into_py(py))]))
-    }
-
-    /// Unpickle from a PyDict.
-    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
-        Ok(())
-    }
-}
-
-// This trait has to be implemented by each InputConfig subclass.
-// It is used to create an InputReader from an InputConfig.
-pub(crate) trait InputBuilder {
-    fn build(
-        &self,
-        py: Python,
-        worker_index: WorkerIndex,
-        worker_count: WorkerCount,
-        resume_snapshot: Option<StateBytes>,
-    ) -> StringResult<Box<dyn InputReader<TdPyAny>>>;
-}
-
-// Extract a specific InputConfig from a parent InputConfig coming from python.
-impl PyConfigClass<Box<dyn InputBuilder>> for Py<InputConfig> {
-    fn downcast(&self, py: Python) -> StringResult<Box<dyn InputBuilder>> {
-        if let Ok(conf) = self.extract::<ManualInputConfig>(py) {
-            Ok(Box::new(conf))
-        } else if let Ok(conf) = self.extract::<KafkaInputConfig>(py) {
-            Ok(Box::new(conf))
+/// Do some eager type checking.
+impl<'source> FromPyObject<'source> for CustomPartInput {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        let abc = ob
+            .py()
+            .import("bytewax.inputs")?
+            .getattr("CustomPartInput")?
+            .extract()?;
+        if !ob.is_instance(abc)? {
+            Err(PyTypeError::new_err(
+                "input must derive from `bytewax.inputs.CustomPartInput`",
+            ))
         } else {
-            let pytype = self.as_ref(py).get_type();
-            Err(format!("Unknown input_config type: {pytype}"))
+            Ok(Self(ob.into()))
         }
     }
 }
 
-impl InputBuilder for Py<InputConfig> {
-    fn build(
-        &self,
-        py: Python,
-        worker_index: WorkerIndex,
-        worker_count: WorkerCount,
-        resume_snapshot: Option<StateBytes>,
-    ) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
-        self.downcast(py)?
-            .build(py, worker_index, worker_count, resume_snapshot)
+impl IntoPy<Py<PyAny>> for CustomPartInput {
+    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
+        self.0
     }
 }
 
-/// Defines how a single source of input reads data.
-pub(crate) trait InputReader<D> {
-    /// Return the next item from this input, if any.
-    ///
-    /// This method must _never block or wait_ on data. If there's no
-    /// data yet, return [`Poll::Pending`].
-    ///
-    /// This has the same semantics as
-    /// [`std::async_iter::AsyncIterator::poll_next`]:
-    ///
-    /// - [`Poll::Pending`]: no new values ready yet.
-    ///
-    /// - [`Poll::Ready`] with a [`Some`]: a new value has arrived.
-    ///
-    /// - [`Poll::Ready`] with a [`None`]: the stream has ended and
-    ///   [`next`] should not be called again.
-    fn next(&mut self) -> Poll<Option<D>>;
+/// The total number of partitions in an input source.
+///
+/// Not just on this worker.
+pub(crate) struct TotalPartCount(pub(crate) usize);
 
-    /// Snapshot the internal state of this input.
-    ///
-    /// Serialize any and all state necessary to re-construct this
-    /// input exactly how it is currently. This will probably mean
-    /// writing out any offsets in the various input streams.
-    fn snapshot(&self) -> StateBytes;
+impl CustomPartInput {
+    /// Build all partitions for this input for this worker.
+    pub(crate) fn build_parts(
+        &self,
+        py: Python,
+        step_id: StepId,
+        index: WorkerIndex,
+        worker_count: WorkerCount,
+        mut resume_state: StepStateBytes,
+    ) -> PyResult<(PartBundle, TotalPartCount)> {
+        let mut keys: Vec<StateKey> = self.0.call_method0(py, "list_parts")?.extract(py)?;
+        keys.sort();
+
+        let part_count = TotalPartCount(keys.len());
+
+        // Can't use collect because of `?`s.
+        let mut parts = HashMap::new();
+        // We are using the [`StateKey`] routing hash as the way to
+        // divvy up partitions to workers. This is kinda an abuse of
+        // behavior, but also means we don't have to find a way to
+        // propogate the correct partition:worker mappings into the
+        // restore system, which would be more difficult as we have to
+        // find a way to treat this kind of state key differently. I
+        // might regret this.
+        for key in keys
+            .into_iter()
+            .filter(|key| key.is_local(index, worker_count))
+        {
+            let state = resume_state
+                .remove(&key)
+                .map(StateBytes::de::<TdPyAny>)
+                .unwrap_or_else(|| py.None().into());
+            tracing::info!("{index:?} building input {step_id:?} partition {key:?} with resume state {state:?}");
+            let iter: Py<PyIterator> = self
+                .0
+                .call_method1(py, "build_part", (key.clone(), state.clone_ref(py)))?
+                .as_ref(py)
+                .iter()?
+                .into();
+            let part = PartIter { iter, state };
+            parts.insert(key, part);
+        }
+
+        let remaining_keys: Vec<StateKey> = resume_state.into_keys().into_iter().collect();
+        assert!(remaining_keys.is_empty(), "Partition keys in resume state that are not in partition list; changing partition counts? recovery state routing bug?");
+
+        Ok((PartBundle::new(parts), part_count))
+    }
 }
 
-// TODO: One day could use this impl for the Python version in
-// `bytewax.inputs.distribute`? Hard to do because there's no PyO3
-// bridging of `impl Iterator`.
-fn distribute<T>(
-    it: impl IntoIterator<Item = T>,
-    index: usize,
-    count: usize,
-) -> impl Iterator<Item = T> {
-    assert!(index < count);
-    it.into_iter()
-        .enumerate()
-        .filter(move |(i, _x)| i % count == index)
-        .map(|(_i, x)| x)
+/// A single input partition.
+pub(crate) struct PartIter {
+    iter: Py<PyIterator>,
+    /// The last state seen.
+    state: TdPyAny,
 }
 
-#[test]
-fn test_distribute() {
-    let found: Vec<_> = distribute(vec!["blue", "green", "red"], 0, 2).collect();
-    let expected = vec!["blue", "red"];
-    assert_eq!(found, expected);
+impl PartIter {
+    /// Get the next item from this partition, if any, and save the
+    /// state.
+    pub(crate) fn next(&mut self) -> Poll<Option<TdPyAny>> {
+        Python::with_gil(|py| {
+            let mut iter = self.iter.as_ref(py);
+            match iter.next() {
+                None => Poll::Ready(None),
+                Some(res) => {
+                    let res = unwrap_any!(res);
+                    if res.is_none() {
+                        Poll::Pending
+                    } else {
+                        let (state, item): (TdPyAny, TdPyAny) = res.extract()
+                            .expect("`PartIter` did not yield either `(state, item)` 2-tuple of new item and recovery state or `None` to signify no new items yet");
+                        self.state = state.into();
+                        Poll::Ready(Some(item))
+                    }
+                }
+            }
+        })
+    }
 
-    let found: Vec<_> = distribute(vec!["blue", "green", "red"], 1, 2).collect();
-    let expected = vec!["green"];
-    assert_eq!(found, expected);
+    pub(crate) fn snapshot(&self) -> StateBytes {
+        StateBytes::ser::<TdPyAny>(&self.state)
+    }
 }
 
-#[test]
-fn test_distribute_empty() {
-    let found: Vec<_> = distribute(vec!["blue", "green", "red"], 3, 5).collect();
-    let expected: Vec<&str> = vec![];
-    assert_eq!(found, expected);
+/// All partitions for this input on a worker.
+pub(crate) struct PartBundle {
+    /// Partitions in order.
+    ///
+    /// This will be cycled through to read from all partitions.
+    parts: VecDeque<(StateKey, PartIter)>,
+    /// Partitions which are EOF.
+    ///
+    /// This is saved to ensure we snapshot their state even after
+    /// EOF.
+    eofd: Vec<(StateKey, PartIter)>,
 }
 
-pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<InputConfig>()?;
-    m.add_class::<ManualInputConfig>()?;
-    m.add_class::<KafkaInputConfig>()?;
-    Ok(())
+impl PartBundle {
+    fn new(parts: HashMap<StateKey, PartIter>) -> Self {
+        let len = parts.len();
+        Self {
+            parts: parts.into_iter().collect(),
+            eofd: Vec::with_capacity(len),
+        }
+    }
+
+    /// Get the next item for this input, rotating through partitions.
+    pub(crate) fn next(&mut self) -> Poll<Option<TdPyAny>> {
+        if let Some((key, mut part)) = self.parts.pop_front() {
+            match part.next() {
+                Poll::Pending => {
+                    self.parts.push_back((key, part));
+                    Poll::Pending
+                }
+                Poll::Ready(None) => {
+                    tracing::trace!("Partition {key:?} reached EOF");
+                    self.eofd.push((key, part));
+                    Poll::Pending
+                }
+                Poll::Ready(Some(next)) => {
+                    self.parts.push_back((key, part));
+                    Poll::Ready(Some(next))
+                }
+            }
+        } else {
+            Poll::Ready(None)
+        }
+    }
+
+    pub(crate) fn snapshot(&self) -> Vec<(StateKey, StateBytes)> {
+        let mut snaps = Vec::with_capacity(self.parts.len() + self.eofd.len());
+        snaps.extend(
+            self.parts
+                .iter()
+                .map(|(key, part)| (key.clone(), part.snapshot())),
+        );
+        snaps.extend(
+            self.eofd
+                .iter()
+                .map(|(key, part)| (key.clone(), part.snapshot())),
+        );
+        snaps
+    }
 }

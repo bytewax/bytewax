@@ -28,10 +28,10 @@
 //! config objects and Rust impl structs for each trait of behavior we
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
-use crate::common::StringResult;
 use crate::operators::stateful_unary::*;
 use crate::pyo3_extensions::PyConfigClass;
 use chrono::{DateTime, Utc};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -93,24 +93,26 @@ impl WindowConfig {
 type Builder = Box<dyn Fn(Option<StateBytes>) -> Box<dyn Windower>>;
 
 pub(crate) trait WindowBuilder {
-    fn build(&self, py: Python) -> StringResult<Builder>;
+    fn build(&self, py: Python) -> PyResult<Builder>;
 }
 
 impl PyConfigClass<Box<dyn WindowBuilder>> for Py<WindowConfig> {
-    fn downcast(&self, py: Python) -> StringResult<Box<dyn WindowBuilder>> {
+    fn downcast(&self, py: Python) -> PyResult<Box<dyn WindowBuilder>> {
         if let Ok(conf) = self.extract::<TumblingWindowConfig>(py) {
             Ok(Box::new(conf))
         } else if let Ok(conf) = self.extract::<HoppingWindowConfig>(py) {
             Ok(Box::new(conf))
         } else {
             let pytype = self.as_ref(py).get_type();
-            Err(format!("Unknown window_config type: {pytype}",))
+            Err(PyTypeError::new_err(format!(
+                "Unknown window_config type: {pytype}"
+            )))
         }
     }
 }
 
 impl WindowBuilder for Py<WindowConfig> {
-    fn build(&self, py: Python) -> StringResult<Builder> {
+    fn build(&self, py: Python) -> PyResult<Builder> {
         self.downcast(py)?.build(py)
     }
 }

@@ -17,9 +17,7 @@ where
     K: Debug,
     V: Debug,
 {
-    fn write(&mut self, kchange: KChange<K, V>) {
-        tracing::trace!("No-op change {kchange:?}");
-    }
+    fn write(&mut self, _kchange: KChange<K, V>) {}
 }
 
 impl<K, V> KReader<K, V> for NoOpStore {

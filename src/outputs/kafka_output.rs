@@ -53,7 +53,7 @@ impl OutputBuilder for KafkaOutputConfig {
         py: Python,
         _worker_index: WorkerIndex,
         _worker_count: WorkerCount,
-    ) -> crate::common::StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
+    ) -> PyResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
         let writer = py.allow_threads(|| {
             SendWrapper::new(KafkaOutput::new(
                 &self.brokers,

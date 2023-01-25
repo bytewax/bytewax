@@ -12,19 +12,14 @@ import json
 import pandas as pd
 from river import anomaly
 
+from bytewax.connectors.kafka import KafkaInput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.inputs import KafkaInputConfig
 from bytewax.outputs import ManualOutputConfig
 
 # Define the dataflow object and kafka input.
 flow = Dataflow()
-flow.input(
-    "inp",
-    KafkaInputConfig(
-        brokers=["localhost:9092"], topic="ec2_metrics", starting_offset="beginning"
-    ),
-)
+flow.input("inp", KafkaInput(["localhost:9092"], "ec2_metrics"))
 
 
 def group_instance_and_normalize(key__data):
@@ -97,5 +92,4 @@ flow.filter(lambda x: bool(x[1][4]))
 flow.capture(ManualOutputConfig(output_builder))
 
 if __name__ == "__main__":
-
     run_main(flow)

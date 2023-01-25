@@ -70,8 +70,8 @@ adjust epochs.
 from .bytewax import (  # noqa: F401
     ClockConfig,
     EventClockConfig,
+    HoppingWindowConfig,
     SystemClockConfig,
     TumblingWindowConfig,
-    HoppingWindowConfig,
     WindowConfig,
 )

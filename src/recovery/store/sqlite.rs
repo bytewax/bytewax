@@ -55,23 +55,14 @@ impl Type<Sqlite> for StateKey {
     }
 }
 
-/// sqlx doesn't support the fact that SQLite lets you have weakly
-/// typed columns, so we can't store an int when it's worker index
-/// (for input component state) and a string when it's a generic
-/// hash. Instead do a light "encoding" of the type. We could break
-/// out full serde JSON for this, but it seems like overkill and would
-/// make querying the table via SQL harder.
 impl<'q> Encode<'q, Sqlite> for StateKey {
+    fn encode(self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
+        args.push(SqliteArgumentValue::Text(Cow::Owned(self.0)));
+        IsNull::No
+    }
+
     fn encode_by_ref(&self, args: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
-        let value = match self {
-            Self::Hash(string) => {
-                format!("H:{string}")
-            }
-            Self::Worker(worker_index) => {
-                format!("W:{}", worker_index.0)
-            }
-        };
-        args.push(SqliteArgumentValue::Text(Cow::Owned(value)));
+        args.push(SqliteArgumentValue::Text(Cow::Owned(self.0.clone())));
         IsNull::No
     }
 }
@@ -79,13 +70,7 @@ impl<'q> Encode<'q, Sqlite> for StateKey {
 impl<'r> Decode<'r, Sqlite> for StateKey {
     fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
         let value = <String as Decode<Sqlite>>::decode(value)?;
-        if let Some(string) = value.strip_prefix("H:") {
-            Ok(Self::Hash(string.to_string()))
-        } else if let Some(worker_index_str) = value.strip_prefix("W:") {
-            Ok(Self::Worker(WorkerIndex(worker_index_str.parse()?)))
-        } else {
-            panic!("Un-parseable state_key: {value:?}");
-        }
+        Ok(Self(value))
     }
 }
 

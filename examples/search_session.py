@@ -4,8 +4,8 @@ from typing import List
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
+from bytewax.testing import TestingInput
 
 
 @dataclass
@@ -58,12 +58,6 @@ IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS = [
 ]
 
 
-def input_builder(worker_index, worker_count, resume_state):
-    state = resume_state or None  # Not handling recovery
-    for line in IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS:
-        yield (state, line)
-
-
 def initial_session(event):
     return str(event.user), [event]
 
@@ -106,7 +100,7 @@ def calc_ctr(search_session):
 
 
 flow = Dataflow()
-flow.input("input", ManualInputConfig(input_builder))
+flow.input("inp", TestingInput(IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS))
 # event
 flow.map(initial_session)
 # (user, [event])

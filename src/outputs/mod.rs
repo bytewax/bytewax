@@ -18,11 +18,10 @@
 use std::collections::HashMap;
 
 use crate::{
-    common::StringResult,
     execution::{WorkerCount, WorkerIndex},
     pyo3_extensions::{PyConfigClass, TdPyAny},
 };
-use pyo3::prelude::*;
+use pyo3::{exceptions::PyTypeError, prelude::*};
 
 pub(crate) mod kafka_output;
 pub(crate) mod manual_epoch_output;
@@ -76,12 +75,12 @@ pub(crate) trait OutputBuilder {
         py: Python,
         worker_index: WorkerIndex,
         worker_count: WorkerCount,
-    ) -> StringResult<Box<dyn OutputWriter<u64, TdPyAny>>>;
+    ) -> PyResult<Box<dyn OutputWriter<u64, TdPyAny>>>;
 }
 
 // Extract a specific OutputConfig from a parent OutputConfig coming from python.
 impl PyConfigClass<Box<dyn OutputBuilder>> for Py<OutputConfig> {
-    fn downcast(&self, py: Python) -> StringResult<Box<dyn OutputBuilder>> {
+    fn downcast(&self, py: Python) -> PyResult<Box<dyn OutputBuilder>> {
         if let Ok(conf) = self.extract::<ManualOutputConfig>(py) {
             Ok(Box::new(conf))
         } else if let Ok(conf) = self.extract::<ManualEpochOutputConfig>(py) {
@@ -92,7 +91,9 @@ impl PyConfigClass<Box<dyn OutputBuilder>> for Py<OutputConfig> {
             Ok(Box::new(conf))
         } else {
             let pytype = self.as_ref(py).get_type();
-            Err(format!("Unknown output_config type: {pytype}"))
+            Err(PyTypeError::new_err(format!(
+                "Unknown output_config type: {pytype}"
+            )))
         }
     }
 }
@@ -103,7 +104,7 @@ impl OutputBuilder for Py<OutputConfig> {
         py: Python,
         worker_index: WorkerIndex,
         worker_count: WorkerCount,
-    ) -> StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
+    ) -> PyResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
         self.downcast(py)?.build(py, worker_index, worker_count)
     }
 }

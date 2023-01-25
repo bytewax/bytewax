@@ -1,11 +1,8 @@
 use std::collections::HashMap;
 
-use pyo3::prelude::*;
+use pyo3::{exceptions::PyTypeError, prelude::*};
 
-use crate::{
-    common::StringResult,
-    pyo3_extensions::{PyConfigClass, TdPyAny},
-};
+use crate::pyo3_extensions::{PyConfigClass, TdPyAny};
 
 use self::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig};
 
@@ -57,24 +54,26 @@ type Builder<V> = Box<dyn Fn(Option<StateBytes>) -> Box<dyn Clock<V>>>;
 
 /// The `builder` function consumes a ClockConfig to build a Clock.
 pub(crate) trait ClockBuilder<V> {
-    fn build(&self, py: Python) -> StringResult<Builder<V>>;
+    fn build(&self, py: Python) -> PyResult<Builder<V>>;
 }
 
 impl PyConfigClass<Box<dyn ClockBuilder<TdPyAny>>> for Py<ClockConfig> {
-    fn downcast(&self, py: Python) -> StringResult<Box<dyn ClockBuilder<TdPyAny>>> {
+    fn downcast(&self, py: Python) -> PyResult<Box<dyn ClockBuilder<TdPyAny>>> {
         if let Ok(conf) = self.extract::<SystemClockConfig>(py) {
             Ok(Box::new(conf))
         } else if let Ok(conf) = self.extract::<EventClockConfig>(py) {
             Ok(Box::new(conf))
         } else {
             let pytype = self.as_ref(py).get_type();
-            Err(format!("Unknown clock_config type: {pytype}",))
+            Err(PyTypeError::new_err(format!(
+                "Unknown clock_config type: {pytype}"
+            )))
         }
     }
 }
 
 impl ClockBuilder<TdPyAny> for Py<ClockConfig> {
-    fn build(&self, py: Python) -> StringResult<Builder<TdPyAny>> {
+    fn build(&self, py: Python) -> PyResult<Builder<TdPyAny>> {
         self.downcast(py)?.build(py)
     }
 }

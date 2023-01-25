@@ -1,29 +1,31 @@
 import json
 from datetime import datetime, timedelta
 
+# pip install pandas pyarrow fake-web-events
 import pandas
+from fake_web_events import Simulation
 from pandas import DataFrame
 from pyarrow import parquet, Table
-from utils import fake_events
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
-from bytewax.inputs import ManualInputConfig
+from bytewax.inputs import CustomPartInput
 from bytewax.outputs import ManualOutputConfig
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
-# `fake_events` will generate events for multiple
-# days around today. Each worker will generate independent fake
-# events.
-def input_builder(worker_index, worker_count, resume_epoch):
-    state = None
+class FakeWebEventsInput(CustomPartInput):
+    def list_keys(self):
+        return ["singleton"]
 
-    def generator():
-        for event in fake_events.generate_web_events():
-            yield state, event
+    def build_part(self, for_key, resume_state):
+        assert for_key == "singleton"
+        assert resume_state is None
 
-    return generator()
+        simulation = Simulation(user_pool_size=5, sessions_per_day=100)
+
+        for event in simulation.run(duration_seconds=10):
+            yield None, json.dumps(event)
 
 
 # Arrow assigns a UUID to each worker / window's file so they won't
@@ -70,7 +72,7 @@ cc = SystemClockConfig()
 wc = TumblingWindowConfig(length=timedelta(seconds=5))
 
 flow = Dataflow()
-flow.input("input", ManualInputConfig(input_builder))
+flow.input("input", FakeWebEventsInput())
 flow.map(json.loads)
 # {"page_url_path": "/path", "event_timestamp": "2022-01-02 03:04:05", ...}
 flow.map(add_date_columns)

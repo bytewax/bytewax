@@ -9,6 +9,3 @@ where
         .ok_or_else(|| PyValueError::new_err(format!("bad pickle contents for {key}: {dict}")))?
         .extract()
 }
-
-/// Result type used in the crate that holds a String as the Err type.
-pub(crate) type StringResult<T> = Result<T, String>;

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from bytewax._encoder import encode_dataflow
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import ManualInputConfig
+from bytewax.inputs import CustomPartInput
 from bytewax.window import EventClockConfig, TumblingWindowConfig
 
 
@@ -22,19 +22,25 @@ class OrderBook:
         self.data.append(data)
 
 
-def test_encoding_manual_input():
+def test_encoding_custom_input():
     flow = Dataflow()
-    inp = [0, 1, 2]
-    flow.input("inp", ManualInputConfig(lambda: inp))
+
+    class MyCustomInput(CustomPartInput):
+        def list_keys(self):
+            return ["one"]
+
+        def build_part(self, for_key, resume_state):
+            ...
+
+    flow.input("inp", MyCustomInput())
 
     assert encode_dataflow(flow) == json.dumps(
         {
             "type": "Dataflow",
             "steps": [
                 {
-                    "input_config": {
-                        "input_builder": "<lambda>",
-                        "type": "ManualInputConfig",
+                    "input": {
+                        "type": "MyCustomInput",
                     },
                     "step_id": "inp",
                     "type": "Input",

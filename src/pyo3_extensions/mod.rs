@@ -1,6 +1,5 @@
 //! Newtypes around PyO3 types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
-use crate::common::StringResult;
 use crate::py_unwrap;
 use crate::recovery::model::StateKey;
 use crate::try_unwrap;
@@ -12,7 +11,6 @@ use pyo3::types::*;
 use serde::ser::Error;
 use std::fmt;
 use std::ops::Deref;
-use std::task::Poll;
 
 /// Represents a Python object flowing through a Timely dataflow.
 ///
@@ -273,35 +271,6 @@ impl Iterator for TdPyIterator {
     }
 }
 
-/// Similar to [`TdPyIterator`] but interprets the iterator sending
-/// Python `None` as [`Poll::Pending`] so we can use it in a
-/// coroutine-like context.
-#[derive(Clone)]
-pub(crate) struct TdPyCoroIterator(Py<PyIterator>);
-
-/// Have PyO3 do type checking to ensure we only make from iterable
-/// objects.
-impl<'source> FromPyObject<'source> for TdPyCoroIterator {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        Ok(Self(ob.iter()?.into()))
-    }
-}
-
-// TODO: Could maybe bridge this with std::iter::AsyncIterator?
-impl TdPyCoroIterator {
-    pub(crate) fn next(&mut self) -> Poll<Option<TdPyAny>> {
-        Python::with_gil(|py| {
-            let mut iter = self.0.as_ref(py);
-            match iter.next() {
-                Some(Err(err)) => unwrap_any!(Err(err)),
-                Some(Ok(item)) if item.is_none() => Poll::Pending,
-                Some(Ok(item)) => Poll::Ready(Some(item.into())),
-                None => Poll::Ready(None),
-            }
-        })
-    }
-}
-
 /// A Python object that is callable.
 #[derive(Clone)]
 pub(crate) struct TdPyCallable(Py<PyAny>);
@@ -358,5 +327,5 @@ impl TdPyCallable {
 // This is a trait that can be implemented by any parent class.
 // The function returns one of the possible subclasses instances.
 pub(crate) trait PyConfigClass<S> {
-    fn downcast(&self, py: Python) -> StringResult<S>;
+    fn downcast(&self, py: Python) -> PyResult<S>;
 }

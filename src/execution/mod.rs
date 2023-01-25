@@ -27,10 +27,7 @@
 //! config objects and Rust impl structs for each trait of behavior we
 //! want. E.g. [`PeriodicEpochConfig`] represents a token in Python
 //! for how to create a [`periodic_epoch_source`].
-
-use crate::common::StringResult;
 use crate::dataflow::{Dataflow, Step};
-use crate::inputs::InputBuilder;
 use crate::operators::collect_window::CollectWindowLogic;
 use crate::operators::fold_window::FoldWindowLogic;
 use crate::operators::reduce::ReduceLogic;
@@ -51,6 +48,7 @@ use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::cell::Cell;
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
@@ -95,19 +93,6 @@ fn worker_count_iter_works() {
     assert_eq!(found, expected);
 }
 
-/// Generate the [`StateKey`] that represents this worker and
-/// determine if there's any resume state.
-fn resume_input_state(
-    worker_index: WorkerIndex,
-    mut resume_state: StepStateBytes,
-) -> (Option<StateBytes>, StateKey) {
-    let key = StateKey::Worker(worker_index);
-
-    let resume_snapshot = resume_state.remove(&key);
-
-    (resume_snapshot, key)
-}
-
 /// Turn the abstract blueprint for a dataflow into a Timely dataflow
 /// so it can be executed.
 ///
@@ -127,7 +112,7 @@ fn build_production_dataflow<A, PW, SW>(
     store_summary: StoreSummary,
     mut progress_writer: PW,
     state_writer: SW,
-) -> StringResult<ProbeHandle<u64>>
+) -> PyResult<ProbeHandle<u64>>
 where
     A: Allocate,
     PW: ProgressWriter + 'static,
@@ -147,6 +132,10 @@ where
     resume_progress.write(progress_init.clone());
     progress_writer.write(progress_init);
 
+    // Remember! Never build different numbers of Timely operators on
+    // different workers! Timely does not like that and you'll see a
+    // mysterious `failed to correctly cast channel` panic. You must
+    // build asymmetry within each operator.
     worker.dataflow(|scope| {
         let flow = flow.as_ref(py).borrow();
 
@@ -199,21 +188,46 @@ where
                 }
                 Step::Input {
                     step_id,
-                    input_config,
+                    input,
                 } => {
-                    let (step_resume_state, store_key) =
-                        resume_input_state(worker_index, resume_state.remove(&step_id));
+                    let step_resume_state = resume_state.remove(&step_id);
 
-                    let input_reader = input_config.build(py, worker_index, worker_count, step_resume_state)?;
+                    let (parts, part_count) = input.build_parts(
+                        py,
+                        step_id.clone(),
+                        worker_index,
+                        worker_count,
+                        step_resume_state
+                    )?;
                     let (output, changes) = epoch_config.build(
                         py,
                         scope,
-                        step_id,
-                        store_key,
-                        input_reader,
+                        step_id.clone(),
+                        parts,
                         resume_epoch,
                         &probe,
                     )?;
+
+                    // Re-balance input if we have a small number of
+                    // partitions. This will be a slight performance
+                    // penalty if there are no CPU-heavy tasks, but it
+                    // seems more intuitive to have all workers
+                    // contribute.
+                    let output = if part_count.0 < worker_count.0 {
+                        tracing::info!("Worker count < partition count; activating random load-balancing for input {step_id:?}");
+                        // TODO: Could do this via `let mut counter =
+                        // 0` when PR to make this FnMut lands in
+                        // Timely stable.
+                        let counter: Cell<u64> = Cell::new(0);
+                        output.exchange(move |_item| {
+                            let next = counter.get().wrapping_add(1);
+                            counter.set(next);
+                            next
+                        })
+                    } else {
+                        output
+                    };
+
                     inputs.push(output.clone());
                     stream = output;
                     step_changes.push(changes);
@@ -348,10 +362,10 @@ where
         }
 
         if inputs.is_empty() {
-            return Err("Dataflow needs to contain at least one input".to_string());
+            return Err(PyValueError::new_err("Dataflow needs to contain at least one input"));
         }
         if capture_clocks.is_empty() {
-            return Err("Dataflow needs to contain at least one capture".to_string());
+            return Err(PyValueError::new_err("Dataflow needs to contain at least one capture"));
         }
         if !resume_state.is_empty() {
             tracing::warn!(
@@ -411,26 +425,31 @@ fn run_until_done<A: Allocate, T: Timestamp>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     probe: ProbeHandle<T>,
-) {
+) -> PyResult<()> {
     let mut span = PeriodicSpan::new(Duration::from_secs(10));
     while !interrupt_flag.load(Ordering::Relaxed) && !probe.done() {
         worker.step();
         span.update();
+        Python::with_gil(|py| Python::check_signals(py)).map_err(|err| {
+            interrupt_flag.store(true, Ordering::Relaxed);
+            err
+        })?;
     }
+    Ok(())
 }
 
 fn build_and_run_progress_loading_dataflow<A, R>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     progress_reader: R,
-) -> StringResult<InMemProgress>
+) -> PyResult<InMemProgress>
 where
     A: Allocate,
     R: ProgressReader + 'static,
 {
-    let (probe, progress_store) = build_progress_loading_dataflow(worker, progress_reader)?;
+    let (probe, progress_store) = build_progress_loading_dataflow(worker, progress_reader);
 
-    run_until_done(worker, interrupt_flag, probe);
+    run_until_done(worker, interrupt_flag, probe)?;
 
     let resume_progress = Rc::try_unwrap(progress_store)
         .expect("Resume epoch dataflow still has reference to progress_store")
@@ -444,15 +463,15 @@ fn build_and_run_state_loading_dataflow<A, R>(
     interrupt_flag: &AtomicBool,
     resume_epoch: ResumeEpoch,
     state_reader: R,
-) -> StringResult<(FlowStateBytes, StoreSummary)>
+) -> PyResult<(FlowStateBytes, StoreSummary)>
 where
     A: Allocate,
     R: StateReader + 'static,
 {
     let (probe, resume_state, summary) =
-        build_state_loading_dataflow(worker, state_reader, resume_epoch)?;
+        build_state_loading_dataflow(worker, state_reader, resume_epoch);
 
-    run_until_done(worker, interrupt_flag, probe);
+    run_until_done(worker, interrupt_flag, probe)?;
 
     Ok((
         Rc::try_unwrap(resume_state)
@@ -476,7 +495,7 @@ fn build_and_run_production_dataflow<A, PW, SW>(
     store_summary: StoreSummary,
     progress_writer: PW,
     state_writer: SW,
-) -> StringResult<()>
+) -> PyResult<()>
 where
     A: Allocate,
     PW: ProgressWriter + 'static,
@@ -512,7 +531,7 @@ where
     })?;
     span.exit();
 
-    run_until_done(worker, interrupt_flag, probe);
+    run_until_done(worker, interrupt_flag, probe)?;
 
     Ok(())
 }
@@ -535,7 +554,7 @@ fn worker_main<A: Allocate>(
     flow: Py<Dataflow>,
     epoch_config: Option<Py<EpochConfig>>,
     recovery_config: Option<Py<RecoveryConfig>>,
-) -> StringResult<()> {
+) -> PyResult<()> {
     let worker_index = worker.index();
     let worker_count = worker.peers();
 
@@ -632,7 +651,7 @@ pub(crate) fn run_main(
             // to a String. Then we could "raise" Python errors from
             // the builder directly. Probably also as part of the
             // panic recast issue below.
-            timely::execute::execute_directly::<Result<(), String>, _>(move |worker| {
+            timely::execute::execute_directly::<Result<(), PyErr>, _>(move |worker| {
                 let interrupt_flag = AtomicBool::new(false);
                 worker_main(worker, &interrupt_flag, flow, epoch_config, recovery_config)
             })
@@ -761,7 +780,7 @@ pub(crate) fn cluster_main(
             let _ = std::panic::take_hook();
         }
 
-        let guards = timely::execute::execute_from::<_, StringResult<()>, _>(
+        let guards = timely::execute::execute_from::<_, PyResult<()>, _>(
             builders,
             other,
             timely::WorkerConfig::default(),
@@ -799,7 +818,7 @@ pub(crate) fn cluster_main(
             // do graceful shutdown.
             match maybe_worker_panic {
                 Ok(Ok(ok)) => Ok(ok),
-                Ok(Err(build_err_str)) => Err(PyValueError::new_err(build_err_str)),
+                Ok(Err(build_err)) => Err(build_err),
                 Err(_panic_err) => Err(PyRuntimeError::new_err(
                     "Worker thread died; look for errors above",
                 )),
