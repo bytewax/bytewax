@@ -54,7 +54,7 @@ pub(crate) enum StateKey {
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct FlowKey(pub(crate) StepId, pub(crate) StateKey);
 
-/// Epoch that should be interpreted as
+/// This state snapshot happened at the end of this epoch.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub(crate) struct SnapshotEpoch(pub(crate) u64);
 
