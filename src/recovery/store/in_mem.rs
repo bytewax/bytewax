@@ -334,17 +334,20 @@ fn write_discard_drops_key() {
 pub(crate) struct InMemProgress {
     /// Stores the current execution.
     ///
-    /// Defaults to -1 so the initial call to [`resume_from`] will
-    /// generate the "zeroth execution". There will never be any
-    /// recovery progress data that will match this, so as soon as we
-    /// start reading any, we'll bump to the first execution.
+    /// Defaults to `-1` so the initial call to [`resume_from`] will
+    /// generate the execution `0`. There will never be any recovery
+    /// progress data that will match execution `-1`, so as soon as we
+    /// start reading any, we'll bump to the correct execution.
     ex: i128,
     frontiers: HashMap<WorkerIndex, WorkerFrontier>,
 }
 
 impl InMemProgress {
     /// Init to the "default" progress of a cluster of a given
-    /// size. You have to specify a worker count so the
+    /// size.
+    ///
+    /// You have to specify a worker count so the initial data is
+    /// well-formed.
     pub(crate) fn new(count: WorkerCount) -> Self {
         let ex = Into::<i128>::into(<u64 as Timestamp>::minimum()) - 1;
         let mut frontiers = HashMap::new();
@@ -363,30 +366,37 @@ impl InMemProgress {
         // casts. They do "bit folding" on downcasts and don't panic
         // when you're out of range, which is probably what you want.
         let in_ex: i128 = ex.0.into();
+        // Execution should never regress because the entire cluster
+        // is shut down before resuming.
+        assert!(!(in_ex < self.ex), "Execution regressed");
         if in_ex > self.ex {
             self.ex = in_ex;
             self.frontiers.clear();
             for worker in count.iter() {
                 self.frontiers.insert(worker, WorkerFrontier(epoch.0));
             }
+        // It's ok if in_ex == self.ex since we might have multiple
+        // workers from the previous execution multiplexed into the
+        // same progress partition.
+        } else if in_ex == self.ex {
+            assert!(
+                count == self.worker_count(),
+                "Single execution has inconsistent worker count"
+            );
         }
-        // It's ok for init msgs to be out of order because they are
-        // not necessarily read from the same recovery progress
-        // partitions.
     }
 
     fn advance(&mut self, ex: Execution, worker: WorkerIndex, epoch: WorkerFrontier) {
         let in_ex: i128 = ex.0.into();
-        if in_ex == self.ex {
-            let last_epoch = self
-                .frontiers
-                .insert(worker, epoch)
-                .expect("Advancing unknown worker");
-            assert!(last_epoch <= epoch, "Progress for a worker went backwards");
-        }
-        // It's ok for advance msgs to be out of order because they
-        // are not necessarily read from the same recovery progress
-        // partitions.
+        // Execution should never interleave because the entire
+        // cluster is shut down before resuming.
+        assert!(in_ex == self.ex, "Interleaved executions");
+        let last_epoch = self
+            .frontiers
+            .insert(worker, epoch)
+            .expect("Advancing unknown worker");
+        // Double check Timely's sanity and recovery store ordering.
+        assert!(last_epoch <= epoch, "Worker regressed");
     }
 
     /// Calculate the resume execution and epoch from the previous
@@ -431,6 +441,43 @@ fn worker_count_works() {
 }
 
 #[test]
+#[should_panic]
+fn init_panics_on_regress() {
+    let mut progress = InMemProgress::new(WorkerCount(2));
+
+    let ex1 = Execution(1);
+    progress.init(ex1, WorkerCount(3), ResumeEpoch(1));
+
+    let ex0 = Execution(0);
+    progress.init(ex0, WorkerCount(3), ResumeEpoch(1));
+}
+
+#[test]
+#[should_panic]
+fn init_panics_on_inconsistent_worker_count() {
+    let mut progress = InMemProgress::new(WorkerCount(2));
+
+    let ex1 = Execution(1);
+    progress.init(ex1, WorkerCount(3), ResumeEpoch(1));
+
+    progress.init(ex1, WorkerCount(5), ResumeEpoch(1));
+}
+
+#[test]
+#[should_panic]
+fn advance_panics_on_regress() {
+    let mut progress = InMemProgress::new(WorkerCount(2));
+
+    let ex1 = Execution(1);
+    progress.init(ex1, WorkerCount(3), ResumeEpoch(1));
+
+    progress.advance(ex1, WorkerIndex(0), WorkerFrontier(2));
+
+    let ex0 = Execution(0);
+    progress.advance(ex0, WorkerIndex(1), WorkerFrontier(3));
+}
+
+#[test]
 fn resume_from_default_works() {
     let progress = InMemProgress::new(WorkerCount(2));
 
@@ -444,9 +491,11 @@ fn resume_from_default_works() {
 
 #[test]
 fn resume_from_works() {
-    let mut progress = InMemProgress::new(WorkerCount(2));
+    let mut progress = InMemProgress::new(WorkerCount(1));
 
     let ex0 = Execution(0);
+    progress.init(ex0, WorkerCount(2), ResumeEpoch(0));
+
     progress.advance(ex0, WorkerIndex(0), WorkerFrontier(1));
     progress.advance(ex0, WorkerIndex(1), WorkerFrontier(1));
     progress.advance(ex0, WorkerIndex(0), WorkerFrontier(2));
