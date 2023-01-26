@@ -123,7 +123,7 @@ fn build_production_dataflow<A, PW, SW>(
     epoch_config: Py<EpochConfig>,
     resume_from: ResumeFrom,
     mut resume_state: FlowStateBytes,
-    resume_progress: InMemProgress,
+    mut resume_progress: InMemProgress,
     store_summary: StoreSummary,
     mut progress_writer: PW,
     state_writer: SW,
@@ -140,10 +140,12 @@ where
 
     let worker_key = WorkerKey(ex, worker_index);
 
-    progress_writer.write(KChange(
+    let progress_init = KChange(
         worker_key.clone(),
         Change::Upsert(ProgressMsg::Init(worker_count, resume_epoch)),
-    ));
+    );
+    resume_progress.write(progress_init.clone());
+    progress_writer.write(progress_init);
 
     worker.dataflow(|scope| {
         let flow = flow.as_ref(py).borrow();
