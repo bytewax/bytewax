@@ -5,6 +5,12 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes issue with multi-worker recovery. If the cluster crashed
+  before all workers had completed their first epoch, the cluster
+  would resume from the incorrect position. This requires a change to
+  the recovery store. You cannot resume from recovery data written
+  with an older version.
+
 ## 0.14.0
 
 - Dataflow continuation now works. If you run a dataflow over a finite
