@@ -204,57 +204,39 @@ where
                     tmp_incoming.clear();
                 });
 
-                cap = if let Some(cap) = cap.clone() {
+                cap = cap.take().and_then(|cap| {
                     let frontier = input_frontiers[0].frontier().iter().min().copied();
-
                     // Do not delay cap before the write; we will
                     // delay downstream progress messages longer than
                     // necessary if so. This would manifest as
                     // resuming from an epoch that seems "too
                     // early". Write out the progress at the end of
                     // each epoch and where the frontier has moved.
-                    let should_write = if let Some(frontier) = frontier {
-                        frontier > *cap.time()
-                    } else {
-                        true
-                    };
-
+                    let should_write = frontier.map_or(true, |f| f > *cap.time());
                     if should_write {
-                        let write_frontier = if let Some(frontier) = frontier {
-                            frontier
-                        } else {
-                            // There's no way to guarantee this is
-                            // actually the resume epoch on the next
-                            // execution, but mark that this worker is
-                            // ready to resume there on EOF. It's also
-                            // possible that this results in a "too
-                            // small" resume epoch: if for some reason
-                            // this operator isn't activated during
-                            // every epoch, we might miss the
-                            // "largest" epoch and so we'll mark down
-                            // the resume epoch as one too
-                            // small. That's fine, we just might
-                            // resume further back than is optimal.
-                            let resume_epoch = *cap.time() + 1;
-                            resume_epoch
-                        };
+                        // There's no way to guarantee this is
+                        // actually the resume epoch on the next
+                        // execution, but mark that this worker is
+                        // ready to resume there on EOF. It's also
+                        // possible that this results in a "too small"
+                        // resume epoch: if for some reason this
+                        // operator isn't activated during every
+                        // epoch, we might miss the "largest" epoch
+                        // and so we'll mark down the resume epoch as
+                        // one too small. That's fine, we just might
+                        // resume further back than is optimal.
+                        let write_frontier = frontier.unwrap_or(*cap.time() + 1);
                         let msg = ProgressMsg::Advance(WorkerFrontier(write_frontier));
                         let kchange = KChange(worker_key.clone(), Change::Upsert(msg));
                         output_wrapper.activate().session(&cap).give(kchange);
                     }
-
-                    if let Some(frontier) = frontier {
-                        // We should never delay to something like
-                        // frontier + 1, otherwise chained progress
-                        // operators will "drift" forward and GC will
-                        // happen too early.
-                        Some(cap.delayed(&frontier))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
+                    // We should never delay to something like
+                    // frontier + 1, otherwise chained progress
+                    // operators will "drift" forward and GC will
+                    // happen too early. If the frontier is empty,
+                    // also drop the capability.
+                    frontier.map(|f| cap.delayed(&f))
+                });
 
                 // Wake up constantly, because we never know when
                 // frontier might have advanced.
