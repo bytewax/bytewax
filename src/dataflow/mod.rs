@@ -159,6 +159,24 @@ impl Dataflow {
         self.steps.push(Step::Filter { predicate });
     }
 
+    /// Filter map acts as a normal map function,
+    /// but if the mapper returns None, the item
+    /// is filtered out.
+    ///
+    /// ```python
+    /// def validate(data):
+    ///     if type(data) != dict or "key" not in data:
+    ///         return None
+    ///     else:
+    ///         return data["key"], data
+    ///
+    /// flow.filter_map(validate)
+    /// ```
+    #[pyo3(text_signature = "(self, mapper)")]
+    fn filter_map(&mut self, mapper: TdPyCallable) {
+        self.steps.push(Step::FilterMap { mapper });
+    }
+
     /// Flat map is a one-to-many transformation of items.
     ///
     /// It calls a **mapper** function on each item.
@@ -695,6 +713,9 @@ pub(crate) enum Step {
     Filter {
         predicate: TdPyCallable,
     },
+    FilterMap {
+        mapper: TdPyCallable,
+    },
     FoldWindow {
         step_id: StepId,
         clock_config: Py<ClockConfig>,
@@ -757,6 +778,9 @@ impl<'source> FromPyObject<'source> for Step {
             }),
             "Filter" => Ok(Self::Filter {
                 predicate: pickle_extract(dict, "predicate")?,
+            }),
+            "FilterMap" => Ok(Self::FilterMap {
+                mapper: pickle_extract(dict, "mapper")?,
             }),
             "FoldWindow" => Ok(Self::FoldWindow {
                 step_id: pickle_extract(dict, "step_id")?,
@@ -829,6 +853,11 @@ impl IntoPy<PyObject> for Step {
             Self::Filter { predicate } => HashMap::from([
                 ("type", "Filter".into_py(py)),
                 ("predicate", predicate.into_py(py)),
+            ])
+            .into_py(py),
+            Self::FilterMap { mapper } => HashMap::from([
+                ("type", "FilterMap".into_py(py)),
+                ("mapper", mapper.into_py(py)),
             ])
             .into_py(py),
             Self::FoldWindow {

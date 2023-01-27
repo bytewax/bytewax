@@ -1,6 +1,6 @@
 extern crate paho_mqtt as mqtt;
 
-use std::{collections::HashMap, task::Poll, thread, time::Duration};
+use std::{collections::HashMap, task::Poll, time::Duration};
 
 use mqtt::{Message, Receiver};
 use pyo3::{

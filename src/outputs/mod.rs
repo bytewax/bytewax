@@ -28,10 +28,12 @@ pub(crate) mod kafka_output;
 pub(crate) mod manual_epoch_output;
 pub(crate) mod manual_output;
 pub(crate) mod std_output;
+pub(crate) mod mqtt_output;
 
 pub(crate) use self::kafka_output::KafkaOutputConfig;
 pub(crate) use self::manual_epoch_output::ManualEpochOutputConfig;
 pub(crate) use self::manual_output::ManualOutputConfig;
+pub(crate) use self::mqtt_output::MqttOutputConfig;
 pub(crate) use self::std_output::StdOutputConfig;
 
 /// Base class for an output config.
@@ -90,6 +92,8 @@ impl PyConfigClass<Box<dyn OutputBuilder>> for Py<OutputConfig> {
             Ok(Box::new(conf))
         } else if let Ok(conf) = self.extract::<KafkaOutputConfig>(py) {
             Ok(Box::new(conf))
+        } else if let Ok(conf) = self.extract::<MqttOutputConfig>(py) {
+            Ok(Box::new(conf))
         } else {
             let pytype = self.as_ref(py).get_type();
             Err(format!("Unknown output_config type: {pytype}"))
@@ -128,5 +132,6 @@ pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ManualEpochOutputConfig>()?;
     m.add_class::<StdOutputConfig>()?;
     m.add_class::<KafkaOutputConfig>()?;
+    m.add_class::<MqttOutputConfig>()?;
     Ok(())
 }

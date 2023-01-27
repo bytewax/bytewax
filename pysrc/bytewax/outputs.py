@@ -17,6 +17,7 @@ from .bytewax import (  # noqa: F401
     ManualOutputConfig,
     OutputConfig,
     StdOutputConfig,
+    MqttOutputConfig,
 )
 
 
