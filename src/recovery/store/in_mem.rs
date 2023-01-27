@@ -350,10 +350,10 @@ impl InMemProgress {
     /// well-formed.
     pub(crate) fn new(count: WorkerCount) -> Self {
         let ex = Into::<i128>::into(<u64 as Timestamp>::minimum()) - 1;
-        let mut frontiers = HashMap::new();
-        for worker in count.iter() {
-            frontiers.insert(worker, WorkerFrontier(<u64 as Timestamp>::minimum()));
-        }
+        let frontiers = count
+            .iter()
+            .map(|worker| (worker, WorkerFrontier(<u64 as Timestamp>::minimum())))
+            .collect();
         Self { ex, frontiers }
     }
 
@@ -371,10 +371,10 @@ impl InMemProgress {
         assert!(!(in_ex < self.ex), "Execution regressed");
         if in_ex > self.ex {
             self.ex = in_ex;
-            self.frontiers.clear();
-            for worker in count.iter() {
-                self.frontiers.insert(worker, WorkerFrontier(epoch.0));
-            }
+            self.frontiers = count
+                .iter()
+                .map(|worker| (worker, WorkerFrontier(epoch.0)))
+                .collect();
         // It's ok if in_ex == self.ex since we might have multiple
         // workers from the previous execution multiplexed into the
         // same progress partition.
