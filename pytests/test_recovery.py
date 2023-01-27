@@ -229,7 +229,7 @@ def test_continuation(entry_point, inp, out, recovery_config):
     armed = Event()
 
     # Since we're modifying the input, use the fixture so it works
-    # across processes.
+    # across processes. Currently, `inp = []`.
     inp.extend(
         [
             ("a", 4, False),

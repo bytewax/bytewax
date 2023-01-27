@@ -1,3 +1,4 @@
+use crate::execution::{WorkerCount, WorkerIndex};
 use pyo3::{ffi::PySys_WriteStdout, prelude::*};
 use std::{collections::HashMap, ffi::CString};
 
@@ -23,8 +24,8 @@ impl OutputBuilder for StdOutputConfig {
     fn build(
         &self,
         py: Python,
-        _worker_index: crate::execution::WorkerIndex,
-        _worker_count: usize,
+        _worker_index: WorkerIndex,
+        _worker_count: WorkerCount,
     ) -> crate::common::StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
         Ok(Box::new(py.allow_threads(StdOutput::new)))
     }

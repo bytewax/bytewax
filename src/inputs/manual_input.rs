@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::task::Poll;
 
-use crate::execution::WorkerIndex;
+use crate::execution::{WorkerCount, WorkerIndex};
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyCoroIterator};
 use crate::recovery::model::StateBytes;
 use crate::{
@@ -53,7 +53,7 @@ impl InputBuilder for ManualInputConfig {
         &self,
         py: Python,
         worker_index: WorkerIndex,
-        worker_count: usize,
+        worker_count: WorkerCount,
         resume_snapshot: Option<StateBytes>,
     ) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
         Ok(Box::new(ManualInput::new(
@@ -109,7 +109,7 @@ impl ManualInput {
         py: Python,
         input_builder: TdPyCallable,
         worker_index: WorkerIndex,
-        worker_count: usize,
+        worker_count: WorkerCount,
         resume_snapshot: Option<StateBytes>,
     ) -> Self {
         let resume_state: TdPyAny = resume_snapshot
@@ -117,7 +117,10 @@ impl ManualInput {
             .unwrap_or_else(|| py.None().into());
 
         let pyiter: TdPyCoroIterator = try_unwrap!(input_builder
-            .call1(py, (worker_index, worker_count, resume_state.clone_ref(py)))?
+            .call1(
+                py,
+                (worker_index.0, worker_count.0, resume_state.clone_ref(py))
+            )?
             .extract(py));
 
         Self {

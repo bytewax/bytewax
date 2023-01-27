@@ -9,7 +9,10 @@ use rdkafka::{
 use send_wrapper::SendWrapper;
 use std::{collections::HashMap, time::Duration};
 
+use crate::execution::{WorkerCount, WorkerIndex};
+
 use super::{OutputBuilder, OutputConfig, OutputWriter};
+
 /// Use [Kafka](https://kafka.apache.org) as the output.
 ///
 /// A `capture` using KafkaOutput expects to receive data
@@ -48,8 +51,8 @@ impl OutputBuilder for KafkaOutputConfig {
     fn build(
         &self,
         py: Python,
-        _worker_index: crate::execution::WorkerIndex,
-        _worker_count: usize,
+        _worker_index: WorkerIndex,
+        _worker_count: WorkerCount,
     ) -> crate::common::StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
         let writer = py.allow_threads(|| {
             SendWrapper::new(KafkaOutput::new(

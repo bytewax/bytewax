@@ -76,10 +76,23 @@ use self::epoch::{
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) struct WorkerIndex(pub(crate) usize);
 
-impl IntoPy<PyObject> for WorkerIndex {
-    fn into_py(self, py: Python) -> Py<PyAny> {
-        self.0.into_py(py)
+/// Integer representing the number of workers in a cluster.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct WorkerCount(pub(crate) usize);
+
+impl WorkerCount {
+    /// Iterate through all workers in this cluster.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = WorkerIndex> {
+        (0..self.0).map(WorkerIndex)
     }
+}
+
+#[test]
+fn worker_count_iter_works() {
+    let count = WorkerCount(3);
+    let found: Vec<_> = count.iter().collect();
+    let expected = vec![WorkerIndex(0), WorkerIndex(1), WorkerIndex(2)];
+    assert_eq!(found, expected);
 }
 
 /// Generate the [`StateKey`] that represents this worker and
@@ -108,11 +121,11 @@ fn build_production_dataflow<A, PW, SW>(
     worker: &mut Worker<A>,
     flow: Py<Dataflow>,
     epoch_config: Py<EpochConfig>,
-    resume_epoch: ResumeEpoch,
+    resume_from: ResumeFrom,
     mut resume_state: FlowStateBytes,
-    resume_progress: InMemProgress,
+    mut resume_progress: InMemProgress,
     store_summary: StoreSummary,
-    progress_writer: PW,
+    mut progress_writer: PW,
     state_writer: SW,
 ) -> StringResult<ProbeHandle<u64>>
 where
@@ -120,10 +133,19 @@ where
     PW: ProgressWriter + 'static,
     SW: StateWriter + 'static,
 {
-    let worker_index = WorkerIndex(worker.index());
-    let worker_count = worker.peers();
+    let ResumeFrom(ex, resume_epoch) = resume_from;
 
-    let worker_key = WorkerKey(worker_index);
+    let worker_index = WorkerIndex(worker.index());
+    let worker_count = WorkerCount(worker.peers());
+
+    let worker_key = WorkerKey(ex, worker_index);
+
+    let progress_init = KChange(
+        worker_key.clone(),
+        Change::Upsert(ProgressMsg::Init(worker_count, resume_epoch)),
+    );
+    resume_progress.write(progress_init.clone());
+    progress_writer.write(progress_init);
 
     worker.dataflow(|scope| {
         let flow = flow.as_ref(py).borrow();
@@ -443,7 +465,7 @@ fn build_and_run_production_dataflow<A, PW, SW>(
     interrupt_flag: &AtomicBool,
     flow: Py<Dataflow>,
     epoch_config: Py<EpochConfig>,
-    resume_epoch: ResumeEpoch,
+    resume_from: ResumeFrom,
     resume_state: FlowStateBytes,
     resume_progress: InMemProgress,
     store_summary: StoreSummary,
@@ -475,7 +497,7 @@ where
             worker,
             flow,
             epoch_config,
-            resume_epoch,
+            resume_from,
             resume_state,
             resume_progress,
             store_summary,
@@ -509,11 +531,13 @@ fn worker_main<A: Allocate>(
     epoch_config: Option<Py<EpochConfig>>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> StringResult<()> {
-    let epoch_config = epoch_config.unwrap_or_else(default_epoch_config);
-    let recovery_config = recovery_config.unwrap_or_else(default_recovery_config);
-
     let worker_index = worker.index();
     let worker_count = worker.peers();
+
+    tracing::info!("Worker {worker_index:?} of {worker_count:?} starting up");
+
+    let epoch_config = epoch_config.unwrap_or_else(default_epoch_config);
+    let recovery_config = recovery_config.unwrap_or_else(default_recovery_config);
 
     let (progress_reader, state_reader) = Python::with_gil(|py| {
         build_recovery_readers(py, worker_index, worker_count, recovery_config.clone())
@@ -526,10 +550,11 @@ fn worker_main<A: Allocate>(
     let resume_progress =
         build_and_run_progress_loading_dataflow(worker, interrupt_flag, progress_reader)?;
     span.exit();
-    let resume_epoch = resume_progress.resume_epoch();
-    tracing::info!("Calculated resume epoch {resume_epoch:?}");
+    let resume_from = resume_progress.resume_from();
+    tracing::info!("Calculated {resume_from:?}");
 
     let span = tracing::trace_span!("State loading").entered();
+    let ResumeFrom(_ex, resume_epoch) = resume_from;
     let (resume_state, store_summary) =
         build_and_run_state_loading_dataflow(worker, interrupt_flag, resume_epoch, state_reader)?;
     span.exit();
@@ -539,7 +564,7 @@ fn worker_main<A: Allocate>(
         interrupt_flag,
         flow,
         epoch_config,
-        resume_epoch,
+        resume_from,
         resume_state,
         resume_progress,
         store_summary,
@@ -548,6 +573,8 @@ fn worker_main<A: Allocate>(
     )?;
 
     shutdown_worker(worker);
+
+    tracing::info!("Worker {worker_index:?} of {worker_count:?} shut down");
 
     Ok(())
 }

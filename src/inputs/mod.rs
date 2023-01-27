@@ -21,7 +21,7 @@
 //! how to create a [`KafkaInput`].
 
 use crate::common::StringResult;
-use crate::execution::WorkerIndex;
+use crate::execution::{WorkerCount, WorkerIndex};
 use crate::pyo3_extensions::{PyConfigClass, TdPyAny};
 use crate::recovery::model::StateBytes;
 use pyo3::prelude::*;
@@ -77,7 +77,7 @@ pub(crate) trait InputBuilder {
         &self,
         py: Python,
         worker_index: WorkerIndex,
-        worker_count: usize,
+        worker_count: WorkerCount,
         resume_snapshot: Option<StateBytes>,
     ) -> StringResult<Box<dyn InputReader<TdPyAny>>>;
 }
@@ -101,7 +101,7 @@ impl InputBuilder for Py<InputConfig> {
         &self,
         py: Python,
         worker_index: WorkerIndex,
-        worker_count: usize,
+        worker_count: WorkerCount,
         resume_snapshot: Option<StateBytes>,
     ) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
         self.downcast(py)?

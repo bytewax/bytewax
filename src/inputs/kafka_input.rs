@@ -16,7 +16,7 @@ use send_wrapper::SendWrapper;
 use serde::{Deserialize, Serialize};
 
 use crate::common::{pickle_extract, StringResult};
-use crate::execution::WorkerIndex;
+use crate::execution::{WorkerCount, WorkerIndex};
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::model::StateBytes;
 
@@ -72,7 +72,7 @@ impl InputBuilder for KafkaInputConfig {
         &self,
         py: Python,
         worker_index: WorkerIndex,
-        worker_count: usize,
+        worker_count: WorkerCount,
         resume_snapshot: Option<StateBytes>,
     ) -> StringResult<Box<dyn InputReader<TdPyAny>>> {
         let starting_offset = match self.starting_offset.as_str() {
@@ -229,7 +229,7 @@ impl KafkaInput {
         starting_offset: Offset,
         additional_properties: &Option<HashMap<String, String>>,
         worker_index: WorkerIndex,
-        worker_count: usize,
+        worker_count: WorkerCount,
         resume_snapshot: Option<StateBytes>,
     ) -> Self {
         let mut positions = resume_snapshot
@@ -262,7 +262,7 @@ impl KafkaInput {
         }
 
         let mut partitions = TopicPartitionList::new();
-        for partition in distribute(0..partition_count, worker_index.0, worker_count) {
+        for partition in distribute(0..partition_count, worker_index.0, worker_count.0) {
             let partition = KafkaPartition(partition);
             let resume_offset: Option<Offset> =
                 (*positions.entry(partition).or_insert(KafkaPosition::Default)).into();

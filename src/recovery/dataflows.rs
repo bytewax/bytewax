@@ -77,7 +77,6 @@ pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
     let worker_clock = backup_clock.concat(&capture_clock);
     let progress_clock = worker_clock
         .progress(worker_key.clone())
-        .inspect(|kchange| tracing::trace!("Worker progress {kchange:?}"))
         .write(progress_writer);
     // GC works on a progress stream. But we don't want to GC state
     // until the progress messages are written, thus we need to view
@@ -112,9 +111,11 @@ where
     A: Allocate,
     R: ProgressReader + 'static,
 {
+    let count = WorkerCount(timely_worker.peers());
+
     timely_worker.dataflow(|scope| {
         let mut probe = ProbeHandle::new();
-        let resume_progress = Rc::new(RefCell::new(InMemProgress::new()));
+        let resume_progress = Rc::new(RefCell::new(InMemProgress::new(count)));
 
         read(scope, reader, &probe)
             .broadcast_write(resume_progress.clone())
