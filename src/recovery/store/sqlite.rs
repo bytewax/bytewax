@@ -189,7 +189,15 @@ impl SqliteStateWriter {
         // because this value is not from items in the dataflow
         // stream, but from the config which should be under
         // developer control.
-        let sql = format!("CREATE TABLE IF NOT EXISTS {table_name} (step_id TEXT, state_key TEXT, epoch INTEGER, snapshot BLOB, PRIMARY KEY (step_id, state_key, epoch));");
+        let sql = format!(
+            "CREATE TABLE IF NOT EXISTS {table_name} ( \
+             step_id TEXT, \
+             state_key TEXT, \
+             epoch INTEGER, \
+             snapshot BLOB, \
+             PRIMARY KEY (step_id, state_key, epoch) \
+             );"
+        );
         let future = query(&sql).execute(&conn);
         rt.block_on(future).unwrap();
 
@@ -213,7 +221,13 @@ impl KWriter<StoreKey, Change<StateBytes>> for SqliteStateWriter {
                     Change::Upsert(snapshot) => Some(snapshot),
                     Change::Discard => None,
                 };
-                let sql = format!("INSERT INTO {} (step_id, state_key, epoch, snapshot) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (step_id, state_key, epoch) DO UPDATE SET snapshot = EXCLUDED.snapshot", self.table_name);
+                let sql = format!(
+                    "INSERT INTO {} (step_id, state_key, epoch, snapshot) \
+                     VALUES (?1, ?2, ?3, ?4) \
+                     ON CONFLICT (step_id, state_key, epoch) DO UPDATE \
+                     SET snapshot = EXCLUDED.snapshot",
+                    self.table_name,
+                );
                 let future = query(&sql)
                     .bind(step_id)
                     .bind(state_key)
@@ -264,7 +278,9 @@ impl SqliteStateReader {
 
         rt.spawn(async move {
             let sql = format!(
-                "SELECT step_id, state_key, epoch, snapshot FROM {table_name} ORDER BY epoch ASC"
+                "SELECT step_id, state_key, epoch, snapshot \
+                 FROM {table_name} \
+                 ORDER BY epoch ASC"
             );
             let mut stream = query(&sql)
                 .map(|row: SqliteRow| {
@@ -330,13 +346,24 @@ impl SqliteProgressWriter {
         let conn = rt.block_on(future).unwrap();
 
         let sql = format!(
-            "CREATE TABLE IF NOT EXISTS {progress_table_name} (execution INTEGER, worker_index INTEGER, frontier INTEGER, PRIMARY KEY (execution, worker_index));"
+            "CREATE TABLE IF NOT EXISTS {progress_table_name} ( \
+             execution INTEGER, \
+             worker_index INTEGER, \
+             frontier INTEGER, \
+             PRIMARY KEY (execution, worker_index) \
+             );"
         );
         let future = query(&sql).execute(&conn);
         rt.block_on(future).unwrap();
 
         let sql = format!(
-            "CREATE TABLE IF NOT EXISTS {execution_table_name} (execution INTEGER, worker_index INTEGER, worker_count INTEGER, resume_epoch INTEGER, PRIMARY KEY (execution, worker_index));"
+            "CREATE TABLE IF NOT EXISTS {execution_table_name} ( \
+             execution INTEGER, \
+             worker_index INTEGER, \
+             worker_count INTEGER, \
+             resume_epoch INTEGER, \
+             PRIMARY KEY (execution, worker_index) \
+             );"
         );
         let future = query(&sql).execute(&conn);
         rt.block_on(future).unwrap();
@@ -359,7 +386,15 @@ impl KWriter<WorkerKey, ProgressMsg> for SqliteProgressWriter {
         match change {
             Change::Upsert(msg) => match msg {
                 ProgressMsg::Init(count, epoch) => {
-                    let sql = format!("INSERT INTO {} (execution, worker_index, worker_count, resume_epoch) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (execution, worker_index) DO UPDATE SET worker_count = EXCLUDED.worker_count, resume_epoch = EXCLUDED.resume_epoch", self.execution_table_name);
+                    let sql = format!(
+                        "INSERT INTO {} \
+                         (execution, worker_index, worker_count, resume_epoch) \
+                         VALUES (?1, ?2, ?3, ?4) \
+                         ON CONFLICT (execution, worker_index) DO UPDATE \
+                         SET worker_count = EXCLUDED.worker_count, \
+                         resume_epoch = EXCLUDED.resume_epoch",
+                        self.execution_table_name,
+                    );
                     let future = query(&sql)
                         .bind(
                             <u64 as TryInto<i64>>::try_into(ex.0)
@@ -375,7 +410,14 @@ impl KWriter<WorkerKey, ProgressMsg> for SqliteProgressWriter {
                     self.rt.block_on(future).unwrap();
                 }
                 ProgressMsg::Advance(epoch) => {
-                    let sql = format!("INSERT INTO {} (execution, worker_index, frontier) VALUES (?1, ?2, ?3) ON CONFLICT (execution, worker_index) DO UPDATE SET frontier = EXCLUDED.frontier", self.progress_table_name);
+                    let sql = format!(
+                        "INSERT INTO {} \
+                         (execution, worker_index, frontier) \
+                         VALUES (?1, ?2, ?3) \
+                         ON CONFLICT (execution, worker_index) DO UPDATE \
+                         SET frontier = EXCLUDED.frontier",
+                        self.progress_table_name,
+                    );
                     let future = query(&sql)
                         .bind(
                             <u64 as TryInto<i64>>::try_into(ex.0)
@@ -427,7 +469,10 @@ impl SqliteProgressReader {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
 
         rt.spawn(async move {
-            let sql = format!("SELECT execution, worker_index, worker_count, resume_epoch FROM {execution_table_name}");
+            let sql = format!(
+                "SELECT execution, worker_index, worker_count, resume_epoch \
+                 FROM {execution_table_name}"
+            );
             let mut stream = query(&sql)
                 .map(|row: SqliteRow| {
                     let ex = Execution(
@@ -454,7 +499,10 @@ impl SqliteProgressReader {
                 tx.send(kchange).await.unwrap();
             }
 
-            let sql = format!("SELECT execution, worker_index, frontier FROM {progress_table_name}");
+            let sql = format!(
+                "SELECT execution, worker_index, frontier \
+                 FROM {progress_table_name}"
+            );
             let mut stream = query(&sql)
                 .map(|row: SqliteRow| {
                     let ex = Execution(
