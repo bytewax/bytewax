@@ -5,6 +5,8 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## 0.15.0
+
 - Fixes issue with multi-worker recovery. If the cluster crashed
   before all workers had completed their first epoch, the cluster
   would resume from the incorrect position. This requires a change to
