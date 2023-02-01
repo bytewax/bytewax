@@ -24,7 +24,7 @@ use super::{Builder, InsertError, StateBytes, WindowBuilder, WindowKey, Windower
 ///
 ///   Config object. Pass this as the `window_config` parameter to
 ///   your windowing operator.
-#[pyclass(module="bytewax.config", extends=WindowConfig)]
+#[pyclass(module="bytewax.window", extends=WindowConfig)]
 #[derive(Clone)]
 pub(crate) struct HoppingWindowConfig {
     #[pyo3(get)]
@@ -98,13 +98,15 @@ impl Windower for HoppingWindower {
 
         (first_window..windows_count)
             .map(|i| {
-                // First generate the WindowKey and calculate the window_end time
+                // First generate the WindowKey and calculate
+                // the window_end time
                 let key = WindowKey(i);
                 let window_start = self.start_at + Duration::milliseconds(i * offset);
                 let window_end = window_start + self.length;
-                // We only want to add items that happened between start and end of the window.
-                // If the watermark is past the end of the window, any item is late for this
-                // window.
+                // We only want to add items that happened between
+                // start and end of the window.
+                // If the watermark is past the end of the window,
+                // any item is late for this window.
                 if *item_time <= window_end
                     && *item_time >= window_start
                     && *watermark <= window_end
@@ -112,7 +114,8 @@ impl Windower for HoppingWindower {
                     self.add_close_time(key, window_end);
                     Ok(key)
                 } else {
-                    // We send `Late` even if the item came too early, maybe we should differentate
+                    // We send `Late` even if the item came too early,
+                    // maybe we should differentate
                     Err(InsertError::Late(key))
                 }
             })

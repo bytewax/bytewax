@@ -92,17 +92,26 @@ macro_rules! log_func {
 /// This macro adds some boilerplate to classes exposed tp Python.
 /// This is needed mainly for pickling and unpickling of the objects.
 ///
-/// Example usage:
-///
 /// ```rust
+/// // Example usage:
+/// use bytewax::add_pymethods;
+/// use chrono::Duration;
+/// use pyo3::{pyclass, Python};
+///
+/// #[pyclass(module = "bytewax.window", subclass)]
+/// #[pyo3(text_signature = "()")]
+/// struct WindowConfig;
+///
+/// #[pyclass(module="bytewax.config", extends=WindowConfig)]
+/// #[derive(Clone)]
+/// struct HoppingWindowConfig { length: Duration };
+///
 /// add_pymethods!(
 ///     HoppingWindowConfig,
 ///     parent: WindowConfig,
-///     py_args: (length, offset, start_at = "None"),
+///     py_args: (length,),
 ///     args {
-///         length: Duration => Duration::zero(),
-///         offset: Duration => Duration::zero(),
-///         start_at: Option<DateTime<Utc>> => None
+///         length: Duration => Duration::zero()
 ///     }
 /// );
 /// ```
@@ -145,7 +154,17 @@ macro_rules! add_pymethods {(
         /// Unpickle from a PyDict
         fn __setstate__(&mut self, state: &pyo3::PyAny) -> pyo3::PyResult<()> {
             let dict: &pyo3::types::PyDict = state.downcast()?;
-            $(self.$arg = $crate::common::pickle_extract(dict, stringify!($arg))?;)*
+            // This is like crate::common::pickle_extract
+            // Duplicated here so that we can doctest this macro
+            // without making `pickle_extract` public.
+            $(
+            self.$arg = dict
+                .get_item(stringify!($arg))
+                .ok_or_else(|| pyo3::exceptions::PyValueError::new_err(
+                    format!("bad pickle contents for {}: {}", stringify!($arg), dict)
+                ))?
+                .extract()?;
+            )*
             Ok(())
         }
     }
