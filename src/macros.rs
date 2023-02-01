@@ -96,7 +96,7 @@ macro_rules! log_func {
 ///
 /// ```rust
 /// add_pymethods!(
-///     SlidingWindowConfig,
+///     HoppingWindowConfig,
 ///     parent: WindowConfig,
 ///     py_args: (length, offset, start_at = "None"),
 ///     args {

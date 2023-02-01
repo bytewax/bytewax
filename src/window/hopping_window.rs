@@ -7,7 +7,7 @@ use crate::{add_pymethods, common::StringResult, window::WindowConfig};
 
 use super::{Builder, InsertError, StateBytes, WindowBuilder, WindowKey, Windower};
 
-/// Sliding windows of fixed duration.
+/// Hopping windows of fixed duration.
 /// Windows overlap if offset < length, and leave holes if offset > length.
 ///
 /// Args:
@@ -26,7 +26,7 @@ use super::{Builder, InsertError, StateBytes, WindowBuilder, WindowKey, Windower
 ///   your windowing operator.
 #[pyclass(module="bytewax.config", extends=WindowConfig)]
 #[derive(Clone)]
-pub(crate) struct SlidingWindowConfig {
+pub(crate) struct HoppingWindowConfig {
     #[pyo3(get)]
     pub(crate) length: Duration,
     #[pyo3(get)]
@@ -36,7 +36,7 @@ pub(crate) struct SlidingWindowConfig {
 }
 
 add_pymethods!(
-    SlidingWindowConfig,
+    HoppingWindowConfig,
     parent: WindowConfig,
     py_args: (length, offset, start_at = "None"),
     args {
@@ -46,9 +46,9 @@ add_pymethods!(
     }
 );
 
-impl WindowBuilder for SlidingWindowConfig {
+impl WindowBuilder for HoppingWindowConfig {
     fn build(&self, _py: Python) -> StringResult<Builder> {
-        Ok(Box::new(SlidingWindower::builder(
+        Ok(Box::new(HoppingWindower::builder(
             self.length,
             self.offset,
             self.start_at.unwrap_or_else(Utc::now),
@@ -56,14 +56,14 @@ impl WindowBuilder for SlidingWindowConfig {
     }
 }
 
-pub(crate) struct SlidingWindower {
+pub(crate) struct HoppingWindower {
     length: Duration,
     offset: Duration,
     start_at: DateTime<Utc>,
     close_times: HashMap<WindowKey, DateTime<Utc>>,
 }
 
-impl SlidingWindower {
+impl HoppingWindower {
     pub(crate) fn builder(
         length: Duration,
         offset: Duration,
@@ -83,7 +83,7 @@ impl SlidingWindower {
     }
 }
 
-impl Windower for SlidingWindower {
+impl Windower for HoppingWindower {
     fn insert(
         &mut self,
         watermark: &DateTime<Utc>,
