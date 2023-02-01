@@ -8,6 +8,7 @@ use crate::{add_pymethods, common::StringResult, window::WindowConfig};
 use super::{Builder, InsertError, StateBytes, WindowBuilder, WindowKey, Windower};
 
 /// Sliding windows of fixed duration.
+/// Windows overlap if offset < length, and leave holes if offset > length.
 ///
 /// Args:
 ///
@@ -88,45 +89,42 @@ impl Windower for SlidingWindower {
         watermark: &DateTime<Utc>,
         item_time: &DateTime<Utc>,
     ) -> Vec<Result<WindowKey, InsertError>> {
-        let since_start_at = *item_time - self.start_at;
-        let windows_count = since_start_at.num_milliseconds() / self.offset.num_milliseconds() + 1;
-        let mut windows = vec![];
-        // TODO: Avoid starting from 0 here, we can skip windows closed before the watermark
-        for i in 0..windows_count {
+        let since_start_at = (*item_time - self.start_at).num_milliseconds();
+        let since_watermark = (*watermark - self.start_at).num_milliseconds();
+        let offset = self.offset.num_milliseconds();
 
-            let key = WindowKey(i);
-            let window_start =
-                self.start_at + Duration::milliseconds(i * self.offset.num_milliseconds());
-            let window_end = window_start + self.length;
+        let windows_count = since_start_at / offset + 1;
+        let first_window = (since_watermark / offset - 1).max(0);
 
-            if window_end < *watermark {
-                windows.push(Err(InsertError::Late(key)));
-                continue;
-            }
-
-            if *item_time < window_start {
-                continue;
-            }
-            if *item_time <= window_end {
-                self.close_times
-                    .entry(key)
-                    .and_modify(|existing| {
-                        assert!(
-                            existing == &window_end,
-                            "Sliding windower is not generating consistent boundaries"
-                        )
-                    })
-                    .or_insert(window_end);
-                windows.push(Ok(key));
-            } else {
-                windows.push(Err(InsertError::Late(key)));
-            }
-        }
-        windows
+        (first_window..windows_count)
+            .map(|i| {
+                // First generate the WindowKey and calculate the window_end time
+                let key = WindowKey(i);
+                let window_start = self.start_at + Duration::milliseconds(i * offset);
+                let window_end = window_start + self.length;
+                // We only want to add items that happened between start and end of the window.
+                // If the watermark is past the end of the window, any item is late for this
+                // window.
+                if *item_time <= window_end
+                    && *item_time >= window_start
+                    && *watermark <= window_end
+                {
+                    self.add_close_time(key, window_end);
+                    Ok(key)
+                } else {
+                    // We send `Late` even if the item came too early, maybe we should differentate
+                    Err(InsertError::Late(key))
+                }
+            })
+            .collect()
     }
 
     fn get_close_times(&self) -> &HashMap<WindowKey, DateTime<Utc>> {
         &self.close_times
+    }
+
+    fn get_close_times_mut(&mut self) -> &mut HashMap<WindowKey, DateTime<Utc>> {
+        &mut self.close_times
     }
 
     fn set_close_times(&mut self, close_times: HashMap<WindowKey, DateTime<Utc>>) {

@@ -93,21 +93,17 @@ impl Windower for TumblingWindower {
         if &close_at < watermark {
             vec![Err(InsertError::Late(key))]
         } else {
-            self.close_times
-                .entry(key)
-                .and_modify(|existing_close_at| {
-                    assert!(
-                        existing_close_at == &close_at,
-                        "Tumbling windower is not generating consistent boundaries"
-                    )
-                })
-                .or_insert(close_at);
+            self.add_close_time(key, close_at);
             vec![Ok(key)]
         }
     }
 
     fn get_close_times(&self) -> &HashMap<WindowKey, DateTime<Utc>> {
         &self.close_times
+    }
+
+    fn get_close_times_mut(&mut self) -> &mut HashMap<WindowKey, DateTime<Utc>> {
+        &mut self.close_times
     }
 
     fn set_close_times(&mut self, close_times: HashMap<WindowKey, DateTime<Utc>>) {

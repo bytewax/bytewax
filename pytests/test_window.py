@@ -20,6 +20,8 @@ def test_sliding_window():
         yield ("ALL", {"time": start_at + timedelta(seconds=13), "val": 1})
         yield ("ALL", {"time": start_at + timedelta(seconds=14), "val": 1})
         yield ("ALL", {"time": start_at + timedelta(seconds=16), "val": 1})
+        # This is late, and should be ignored
+        yield ("ALL", {"time": start_at + timedelta(seconds=1), "val": 10})
 
     flow.input("inp", TestingBuilderInputConfig(gen))
 

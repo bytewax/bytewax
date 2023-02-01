@@ -178,8 +178,27 @@ pub(crate) trait Windower {
         item_time: &DateTime<Utc>,
     ) -> Vec<Result<WindowKey, InsertError>>;
 
+    /// Methods used by the trait to autoimplement other methods, specifically:
+    /// - self.add_close_time
+    /// - self.drain_closed
+    /// - self.is_empty
+    /// - self.next_close
+    /// - self.snapshot
     fn get_close_times(&self) -> &HashMap<WindowKey, DateTime<Utc>>;
+    fn get_close_times_mut(&mut self) -> &mut HashMap<WindowKey, DateTime<Utc>>;
     fn set_close_times(&mut self, close_times: HashMap<WindowKey, DateTime<Utc>>);
+
+    fn add_close_time(&mut self, key: WindowKey, window_end: DateTime<Utc>) {
+        self.get_close_times_mut()
+            .entry(key)
+            .and_modify(|existing| {
+                assert!(
+                    existing == &window_end,
+                    "Windower is not generating consistent boundaries"
+                )
+            })
+            .or_insert(window_end);
+    }
 
     /// Look at the current watermark, determine which windows are now
     /// closed, return them, and remove them from internal state.
