@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Duration, Utc};
-use pyo3::{prelude::*, types::PyDict};
+use pyo3::prelude::*;
 
-use crate::common::pickle_extract;
+use crate::add_pymethods;
 
 use super::*;
 
@@ -39,41 +39,15 @@ impl WindowBuilder for TumblingWindowConfig {
     }
 }
 
-#[pymethods]
-impl TumblingWindowConfig {
-    #[new]
-    #[args(length, start_at = "None")]
-    pub(crate) fn new(
-        length: chrono::Duration,
-        start_at: Option<DateTime<Utc>>,
-    ) -> (Self, WindowConfig) {
-        (Self { length, start_at }, WindowConfig {})
+add_pymethods!(
+    TumblingWindowConfig,
+    parent: WindowConfig,
+    py_args: (length, start_at = "None"),
+    args {
+        length: Duration => Duration::zero(),
+        start_at: Option<DateTime<Utc>> => None
     }
-
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| {
-            HashMap::from([
-                ("type", "TumblingWindowConfig".into_py(py)),
-                ("length", self.length.into_py(py)),
-                ("start_at", self.start_at.into_py(py)),
-            ])
-        })
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (chrono::Duration, Option<DateTime<Utc>>) {
-        (chrono::Duration::zero(), None)
-    }
-
-    /// Unpickle from a PyDict
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        let dict: &PyDict = state.downcast()?;
-        self.length = pickle_extract(dict, "length")?;
-        self.start_at = pickle_extract(dict, "start_at")?;
-        Ok(())
-    }
-}
+);
 
 /// Use fixed-length tumbling windows aligned to a start time.
 pub(crate) struct TumblingWindower {
@@ -132,32 +106,11 @@ impl Windower for TumblingWindower {
         }
     }
 
-    fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<WindowKey> {
-        // TODO: Gosh I really want [`HashMap::drain_filter`].
-        let mut future_close_times = HashMap::new();
-        let mut closed_ids = Vec::new();
-
-        for (id, close_at) in self.close_times.iter() {
-            if close_at < watermark {
-                closed_ids.push(*id);
-            } else {
-                future_close_times.insert(*id, *close_at);
-            }
-        }
-
-        self.close_times = future_close_times;
-        closed_ids
+    fn get_close_times(&self) -> &HashMap<WindowKey, DateTime<Utc>> {
+        &self.close_times
     }
 
-    fn is_empty(&self) -> bool {
-        self.close_times.is_empty()
-    }
-
-    fn next_close(&self) -> Option<DateTime<Utc>> {
-        self.close_times.values().cloned().min()
-    }
-
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser::<HashMap<WindowKey, DateTime<Utc>>>(&self.close_times)
+    fn set_close_times(&mut self, close_times: HashMap<WindowKey, DateTime<Utc>>) {
+        self.close_times = close_times;
     }
 }

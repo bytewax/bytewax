@@ -43,8 +43,10 @@ use timely::dataflow::Scope;
 use timely::{Data, ExchangeData};
 
 pub(crate) mod clock;
+pub(crate) mod sliding_window;
 pub(crate) mod tumbling_window;
 
+use self::sliding_window::SlidingWindowConfig;
 use self::tumbling_window::TumblingWindowConfig;
 use clock::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig, ClockConfig};
 
@@ -97,6 +99,8 @@ pub(crate) trait WindowBuilder {
 impl PyConfigClass<Box<dyn WindowBuilder>> for Py<WindowConfig> {
     fn downcast(&self, py: Python) -> StringResult<Box<dyn WindowBuilder>> {
         if let Ok(conf) = self.extract::<TumblingWindowConfig>(py) {
+            Ok(Box::new(conf))
+        } else if let Ok(conf) = self.extract::<SlidingWindowConfig>(py) {
             Ok(Box::new(conf))
         } else {
             let pytype = self.as_ref(py).get_type();
@@ -174,16 +178,37 @@ pub(crate) trait Windower {
         item_time: &DateTime<Utc>,
     ) -> Vec<Result<WindowKey, InsertError>>;
 
+    fn get_close_times(&self) -> &HashMap<WindowKey, DateTime<Utc>>;
+    fn set_close_times(&mut self, close_times: HashMap<WindowKey, DateTime<Utc>>);
+
     /// Look at the current watermark, determine which windows are now
     /// closed, return them, and remove them from internal state.
-    fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<WindowKey>;
+    fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<WindowKey> {
+        let mut future_close_times = HashMap::new();
+        let mut closed_ids = Vec::new();
+
+        for (id, close_at) in self.get_close_times().iter() {
+            if close_at < watermark {
+                closed_ids.push(*id);
+            } else {
+                future_close_times.insert(*id, *close_at);
+            }
+        }
+
+        self.set_close_times(future_close_times);
+        closed_ids
+    }
 
     /// Is this windower currently tracking any windows?
-    fn is_empty(&self) -> bool;
+    fn is_empty(&self) -> bool {
+        self.get_close_times().is_empty()
+    }
 
     /// Return the system time estimate of the next window close, if
     /// any.
-    fn next_close(&self) -> Option<DateTime<Utc>>;
+    fn next_close(&self) -> Option<DateTime<Utc>> {
+        self.get_close_times().values().cloned().min()
+    }
 
     /// Snapshot the internal state of this windower.
     ///
@@ -191,7 +216,9 @@ pub(crate) trait Windower {
     /// windower exactly how it is in
     /// [`StatefulWindowUnary::stateful_window_unary`]'s
     /// `logic_builder`.
-    fn snapshot(&self) -> StateBytes;
+    fn snapshot(&self) -> StateBytes {
+        StateBytes::ser::<HashMap<WindowKey, DateTime<Utc>>>(&self.get_close_times())
+    }
 }
 
 /// Possible errors emitted downstream from windowing operators.
@@ -477,5 +504,6 @@ pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<SystemClockConfig>()?;
     m.add_class::<WindowConfig>()?;
     m.add_class::<TumblingWindowConfig>()?;
+    m.add_class::<SlidingWindowConfig>()?;
     Ok(())
 }

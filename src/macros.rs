@@ -87,3 +87,45 @@ macro_rules! log_func {
         &name[..name.len() - 3]
     }};
 }
+
+#[macro_export]
+macro_rules! add_pymethods {(
+    $struct:ident,
+    parent: $parent:ident,
+    py_args: $py_args:tt,
+    args { $($arg:ident: $arg_type:ty => $default:expr),* }
+) => {
+        use pyo3::IntoPy;
+
+        #[pyo3::pymethods]
+        impl $struct {
+            #[new]
+            #[args $py_args ]
+            pub(crate) fn py_new($($arg: $arg_type),*) -> (Self, $parent) {
+                (Self { $($arg),* }, $parent {})
+            }
+
+            /// Return a representation of this class as a PyDict.
+            fn __getstate__(&self) -> std::collections::HashMap<&str, pyo3::Py<pyo3::PyAny>> {
+                Python::with_gil(|py| {
+                    std::collections::HashMap::from([
+                        ("type", stringify!($struct).into_py(py)),
+                        $((stringify!($arg), self.$arg.into_py(py))),*
+                    ])
+                })
+            }
+
+            /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
+            fn __getnewargs__(&self) -> ($($arg_type),*) {
+                ($($default),*)
+            }
+
+            /// Unpickle from a PyDict
+            fn __setstate__(&mut self, state: &pyo3::PyAny) -> pyo3::PyResult<()> {
+                let dict: &pyo3::types::PyDict = state.downcast()?;
+                $(self.$arg = crate::common::pickle_extract(dict, stringify!($arg))?;)*
+                Ok(())
+            }
+        }
+    };
+}
