@@ -6,7 +6,8 @@ use super::model::*;
 use super::store::kafka::*;
 use super::store::noop::*;
 use super::store::sqlite::*;
-use crate::common::{pickle_extract, StringResult};
+use crate::add_pymethods;
+use crate::common::StringResult;
 use pyo3::exceptions::*;
 use pyo3::prelude::*;
 use pyo3::types::*;
@@ -120,42 +121,14 @@ struct SqliteRecoveryConfig {
     db_dir: PathBuf,
 }
 
-#[pymethods]
-impl SqliteRecoveryConfig {
-    #[new]
-    #[args(db_dir)]
-    fn new(db_dir: PathBuf) -> (Self, RecoveryConfig) {
-        (Self { db_dir }, RecoveryConfig {})
+add_pymethods!(
+    SqliteRecoveryConfig,
+    parent: RecoveryConfig,
+    py_args: (db_dir),
+    args {
+        db_dir: PathBuf => String::new().into()
     }
-
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| {
-            HashMap::from([
-                ("type", "SqliteRecoveryConfig".into_py(py)),
-                ("db_dir", self.db_dir.clone().into_py(py)),
-            ])
-        })
-    }
-
-    /// Egregious hack because pickling assumes the type has "empty"
-    /// mutable objects.
-    ///
-    /// Pickle always calls `__new__(*__getnewargs__())` but notice we
-    /// don't have access to the pickled `db_file_path` yet, so we
-    /// have to pass in some dummy string value that will be
-    /// overwritten by `__setstate__()` shortly.
-    fn __getnewargs__(&self) -> (&str,) {
-        ("UNINIT_PICKLED_STRING",)
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        let dict: &PyDict = state.downcast()?;
-        self.db_dir = pickle_extract(dict, "db_dir")?;
-        Ok(())
-    }
-}
+);
 
 impl SqliteRecoveryConfig {
     fn db_file(&self, worker_index: usize) -> PathBuf {
@@ -216,44 +189,15 @@ struct KafkaRecoveryConfig {
     topic_prefix: String,
 }
 
-#[pymethods]
-impl KafkaRecoveryConfig {
-    #[new]
-    #[args(brokers, topic_prefix)]
-    fn new(brokers: Vec<String>, topic_prefix: String) -> (Self, RecoveryConfig) {
-        (
-            Self {
-                brokers,
-                topic_prefix,
-            },
-            RecoveryConfig {},
-        )
+add_pymethods!(
+    KafkaRecoveryConfig,
+    parent: RecoveryConfig,
+    py_args: (brokers, topic_prefix),
+    args {
+        brokers: Vec<String> => Vec::new(),
+        topic_prefix: String => String::new()
     }
-
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| {
-            HashMap::from([
-                ("type", "KafkaRecoveryConfig".into_py(py)),
-                ("brokers", self.brokers.clone().into_py(py)),
-                ("topic_prefix", self.topic_prefix.clone().into_py(py)),
-            ])
-        })
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (Vec<String>, &str) {
-        (vec![], "UNINIT_PICKLED_STRING")
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        let dict: &PyDict = state.downcast()?;
-        self.brokers = pickle_extract(dict, "brokers")?;
-        self.topic_prefix = pickle_extract(dict, "topic_prefix")?;
-        Ok(())
-    }
-}
+);
 
 impl KafkaRecoveryConfig {
     fn progress_topic(&self) -> String {

@@ -1,10 +1,10 @@
-use std::{collections::HashMap, task::Poll};
+use std::task::Poll;
 
-use chrono::{DateTime, Utc};
-use pyo3::{prelude::*, types::PyDict};
+use chrono::{DateTime, Utc, Duration};
+use pyo3::prelude::*;
 
 use crate::{
-    common::pickle_extract,
+    add_pymethods,
     pyo3_extensions::{TdPyAny, TdPyCallable},
     window::clock::ClockConfig,
 };
@@ -70,53 +70,15 @@ impl ClockBuilder<TdPyAny> for EventClockConfig {
     }
 }
 
-#[pymethods]
-impl EventClockConfig {
-    #[new]
-    #[args(dt_getter, late, test)]
-    fn new(
-        dt_getter: TdPyCallable,
-        wait_for_system_duration: chrono::Duration,
-    ) -> (Self, ClockConfig) {
-        (
-            Self {
-                dt_getter,
-                wait_for_system_duration,
-            },
-            ClockConfig {},
-        )
+add_pymethods!(
+    EventClockConfig,
+    parent: ClockConfig,
+    py_args: (dt_getter, wait_for_system_duration),
+    args {
+        dt_getter: TdPyCallable => Python::with_gil(TdPyCallable::pickle_new),
+        wait_for_system_duration: Duration => Duration::zero()
     }
-
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| {
-            HashMap::from([
-                ("type", "EventClockConfig".into_py(py)),
-                ("dt_getter", self.dt_getter.clone().into_py(py)),
-                (
-                    "wait_for_system_duration",
-                    self.wait_for_system_duration.into_py(py),
-                ),
-            ])
-        })
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (TdPyCallable, chrono::Duration) {
-        (
-            pyo3::Python::with_gil(TdPyCallable::pickle_new),
-            chrono::Duration::zero(),
-        )
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        let dict: &PyDict = state.downcast()?;
-        self.dt_getter = pickle_extract(dict, "dt_getter")?;
-        self.wait_for_system_duration = pickle_extract(dict, "wait_for_system_duration")?;
-        Ok(())
-    }
-}
+);
 
 pub(crate) struct EventClock {
     dt_getter: TdPyCallable,

@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-
 use opentelemetry::{
     runtime::Tokio,
     sdk::trace::{config, Sampler, Tracer},
 };
-use pyo3::{prelude::*, types::PyDict};
+use pyo3::prelude::*;
 
-use crate::common::{pickle_extract, StringResult};
+use crate::{add_pymethods, common::StringResult};
 
 use super::{TracerBuilder, TracingConfig};
 
@@ -57,48 +55,13 @@ impl TracerBuilder for JaegerConfig {
     }
 }
 
-#[pymethods]
-impl JaegerConfig {
-    #[new]
-    #[args(service_name, endpoint, sampling_ratio = "None")]
-    pub(crate) fn py_new(
-        service_name: String,
-        endpoint: Option<String>,
-        sampling_ratio: Option<f64>,
-    ) -> (Self, TracingConfig) {
-        (
-            Self {
-                service_name,
-                endpoint,
-                sampling_ratio,
-            },
-            TracingConfig {},
-        )
+add_pymethods!(
+    JaegerConfig,
+    parent: TracingConfig,
+    py_args: (service_name, endpoint, sampling_ratio = "None"),
+    args {
+        service_name: String => String::new(),
+        endpoint: Option<String> => None,
+        sampling_ratio: Option<f64> => None
     }
-
-    /// Pickle as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| {
-            HashMap::from([
-                ("type", "JaegerConfig".into_py(py)),
-                ("service_name", self.service_name.clone().into_py(py)),
-                ("endpoint", self.endpoint.clone().into_py(py)),
-                ("sampling_ratio", self.sampling_ratio.into_py(py)),
-            ])
-        })
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (String, Option<String>, Option<f64>) {
-        (String::new(), None, None)
-    }
-
-    /// Unpickle from a PyDict.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        let dict: &PyDict = state.downcast()?;
-        self.service_name = pickle_extract(dict, "service_name")?;
-        self.endpoint = pickle_extract(dict, "endpoint")?;
-        self.sampling_ratio = pickle_extract(dict, "sampling_ratio")?;
-        Ok(())
-    }
-}
+);

@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
-use pyo3::{prelude::*, types::PyDict};
+use pyo3::prelude::*;
 
 use crate::{
-    common::pickle_extract,
+    add_pymethods,
     execution::{WorkerCount, WorkerIndex},
     pyo3_extensions::{TdPyAny, TdPyCallable},
     unwrap_any,
@@ -49,36 +47,14 @@ impl OutputBuilder for ManualOutputConfig {
     }
 }
 
-#[pymethods]
-impl ManualOutputConfig {
-    #[new]
-    #[args(output_builder)]
-    fn new(output_builder: TdPyCallable) -> (Self, OutputConfig) {
-        (Self { output_builder }, OutputConfig {})
+add_pymethods!(
+    ManualOutputConfig,
+    parent: OutputConfig,
+    py_args: (output_builder),
+    args {
+        output_builder: TdPyCallable => Python::with_gil(TdPyCallable::pickle_new)
     }
-
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| {
-            HashMap::from([
-                ("type", "ManualOutputConfig".into_py(py)),
-                ("output_builder", self.output_builder.clone().into_py(py)),
-            ])
-        })
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self, py: Python) -> (TdPyCallable,) {
-        (TdPyCallable::pickle_new(py),)
-    }
-
-    /// Unpickle from a PyDict
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        let dict: &PyDict = state.downcast()?;
-        self.output_builder = pickle_extract(dict, "output_builder")?;
-        Ok(())
-    }
-}
+);
 
 /// Call a Python callback function on each item of output.
 pub(crate) struct ManualOutput {
