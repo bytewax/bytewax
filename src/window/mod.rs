@@ -178,56 +178,16 @@ pub(crate) trait Windower {
         item_time: &DateTime<Utc>,
     ) -> Vec<Result<WindowKey, InsertError>>;
 
-    /// Methods used by the trait to autoimplement other methods, specifically:
-    /// - self.add_close_time
-    /// - self.drain_closed
-    /// - self.is_empty
-    /// - self.next_close
-    /// - self.snapshot
-    fn get_close_times(&self) -> &HashMap<WindowKey, DateTime<Utc>>;
-    fn get_close_times_mut(&mut self) -> &mut HashMap<WindowKey, DateTime<Utc>>;
-    fn set_close_times(&mut self, close_times: HashMap<WindowKey, DateTime<Utc>>);
-
-    fn add_close_time(&mut self, key: WindowKey, window_end: DateTime<Utc>) {
-        self.get_close_times_mut()
-            .entry(key)
-            .and_modify(|existing| {
-                assert!(
-                    existing == &window_end,
-                    "Windower is not generating consistent boundaries"
-                )
-            })
-            .or_insert(window_end);
-    }
-
     /// Look at the current watermark, determine which windows are now
     /// closed, return them, and remove them from internal state.
-    fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<WindowKey> {
-        let mut future_close_times = HashMap::new();
-        let mut closed_ids = Vec::new();
-
-        for (id, close_at) in self.get_close_times().iter() {
-            if close_at < watermark {
-                closed_ids.push(*id);
-            } else {
-                future_close_times.insert(*id, *close_at);
-            }
-        }
-
-        self.set_close_times(future_close_times);
-        closed_ids
-    }
+    fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<WindowKey>;
 
     /// Is this windower currently tracking any windows?
-    fn is_empty(&self) -> bool {
-        self.get_close_times().is_empty()
-    }
+    fn is_empty(&self) -> bool;
 
     /// Return the system time estimate of the next window close, if
     /// any.
-    fn next_close(&self) -> Option<DateTime<Utc>> {
-        self.get_close_times().values().cloned().min()
-    }
+    fn next_close(&self) -> Option<DateTime<Utc>>;
 
     /// Snapshot the internal state of this windower.
     ///
@@ -235,9 +195,7 @@ pub(crate) trait Windower {
     /// windower exactly how it is in
     /// [`StatefulWindowUnary::stateful_window_unary`]'s
     /// `logic_builder`.
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser::<HashMap<WindowKey, DateTime<Utc>>>(&self.get_close_times())
-    }
+    fn snapshot(&self) -> StateBytes;
 }
 
 /// Possible errors emitted downstream from windowing operators.

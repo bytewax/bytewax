@@ -8,7 +8,9 @@ use crate::{add_pymethods, common::StringResult, window::WindowConfig};
 use super::{Builder, InsertError, StateBytes, WindowBuilder, WindowKey, Windower};
 
 /// Hopping windows of fixed duration.
-/// Windows overlap if offset < length, and leave holes if offset > length.
+/// If offset == length, you get tumbling windows.
+/// If offset < length, windows overlap.
+/// If offset > length, there will be holes between windows.
 ///
 /// Args:
 ///
@@ -81,6 +83,18 @@ impl HoppingWindower {
             })
         }
     }
+
+    fn add_close_time(&mut self, key: WindowKey, window_end: DateTime<Utc>) {
+        self.close_times
+            .entry(key)
+            .and_modify(|existing| {
+                assert!(
+                    existing == &window_end,
+                    "HoppingWindower is not generating consistent boundaries"
+                )
+            })
+            .or_insert(window_end);
+    }
 }
 
 impl Windower for HoppingWindower {
@@ -107,9 +121,7 @@ impl Windower for HoppingWindower {
                 // start and end of the window.
                 // If the watermark is past the end of the window,
                 // any item is late for this window.
-                if *item_time <= window_end
-                    && *item_time >= window_start
-                    && *watermark <= window_end
+                if *item_time >= window_start && *item_time < window_end && *watermark <= window_end
                 {
                     self.add_close_time(key, window_end);
                     Ok(key)
@@ -122,15 +134,33 @@ impl Windower for HoppingWindower {
             .collect()
     }
 
-    fn get_close_times(&self) -> &HashMap<WindowKey, DateTime<Utc>> {
-        &self.close_times
+    /// Look at the current watermark, determine which windows are now
+    /// closed, return them, and remove them from internal state.
+    fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<WindowKey> {
+        let mut future_close_times = HashMap::new();
+        let mut closed_ids = Vec::new();
+
+        for (id, close_at) in self.close_times.iter() {
+            if close_at < watermark {
+                closed_ids.push(*id);
+            } else {
+                future_close_times.insert(*id, *close_at);
+            }
+        }
+
+        self.close_times = future_close_times;
+        closed_ids
     }
 
-    fn get_close_times_mut(&mut self) -> &mut HashMap<WindowKey, DateTime<Utc>> {
-        &mut self.close_times
+    fn is_empty(&self) -> bool {
+        self.close_times.is_empty()
     }
 
-    fn set_close_times(&mut self, close_times: HashMap<WindowKey, DateTime<Utc>>) {
-        self.close_times = close_times;
+    fn next_close(&self) -> Option<DateTime<Utc>> {
+        self.close_times.values().cloned().min()
+    }
+
+    fn snapshot(&self) -> StateBytes {
+        StateBytes::ser::<HashMap<WindowKey, DateTime<Utc>>>(&self.close_times)
     }
 }
