@@ -89,7 +89,7 @@ macro_rules! log_func {
 }
 
 #[macro_export]
-/// This macro adds some boilerplate to classes exposed tp Python.
+/// This macro generates some boilerplate for classes exposed to Python.
 /// This is needed mainly for pickling and unpickling of the objects.
 ///
 /// ```rust
