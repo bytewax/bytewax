@@ -44,6 +44,27 @@ def test_map():
     assert sorted(out) == sorted([1, 2, 3])
 
 
+def test_filter_map():
+    flow = Dataflow()
+
+    inp = [0, 1, 2, 3, 4, 5]
+    flow.input("inp", TestingInputConfig(inp))
+
+    def make_odd(item):
+        if item % 2 != 0:
+            return None
+        return item + 1
+
+    flow.filter_map(make_odd)
+
+    out = []
+    flow.capture(TestingOutputConfig(out))
+
+    run_main(flow)
+
+    assert sorted(out) == sorted([1, 3, 5])
+
+
 def test_flat_map():
     flow = Dataflow()
 

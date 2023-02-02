@@ -227,6 +227,11 @@ where
                 Step::Filter { predicate } => {
                     stream = stream.filter(move |item| filter(&predicate, item));
                 }
+                Step::FilterMap { mapper } => {
+                    stream = stream
+                        .map(move |item| map(&mapper, item))
+                        .filter(move |item| Python::with_gil(|py| !item.is_none(py)));
+                }
                 Step::FoldWindow {
                     step_id,
                     clock_config,
