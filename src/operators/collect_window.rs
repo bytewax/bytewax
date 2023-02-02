@@ -39,8 +39,7 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for CollectWindowLogic {
             }
             // Emit in item time order at end of window.
             None => {
-                self.acc
-                    .sort_by_key(|(_value, item_time)| item_time.clone());
+                self.acc.sort_by_key(|(_value, item_time)| *item_time);
                 let out_values: Vec<TdPyAny> = self
                     .acc
                     .drain(..)

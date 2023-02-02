@@ -141,7 +141,7 @@ where
     let worker_key = WorkerKey(ex, worker_index);
 
     let progress_init = KChange(
-        worker_key.clone(),
+        worker_key,
         Change::Upsert(ProgressMsg::Init(worker_count, resume_epoch)),
     );
     resume_progress.write(progress_init.clone());

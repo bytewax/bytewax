@@ -56,6 +56,7 @@ use crate::common::StringResult;
 /// state writes. Write that progress. Calculate GC deletes based on
 /// calculating the resume epoch if we were to resume right this
 /// instant.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
     probe: &mut ProbeHandle<u64>,
     worker_key: WorkerKey,
@@ -75,9 +76,7 @@ pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
     let store_changes = step_changes.backup();
     let backup_clock = store_changes.write(state_writer.clone());
     let worker_clock = backup_clock.concat(&capture_clock);
-    let progress_clock = worker_clock
-        .progress(worker_key.clone())
-        .write(progress_writer);
+    let progress_clock = worker_clock.progress(worker_key).write(progress_writer);
     // GC works on a progress stream. But we don't want to GC state
     // until the progress messages are written, thus we need to view
     // the progress of the "writing the progress" clock stream.

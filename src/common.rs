@@ -6,7 +6,7 @@ where
     D: FromPyObject<'a>,
 {
     dict.get_item(key)
-        .ok_or_else(|| PyValueError::new_err(format!("bad pickle contents for {}: {}", key, dict)))?
+        .ok_or_else(|| PyValueError::new_err(format!("bad pickle contents for {key}: {dict}")))?
         .extract()
 }
 
