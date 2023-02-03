@@ -43,8 +43,10 @@ use timely::dataflow::Scope;
 use timely::{Data, ExchangeData};
 
 pub(crate) mod clock;
+pub(crate) mod hopping_window;
 pub(crate) mod tumbling_window;
 
+use self::hopping_window::HoppingWindowConfig;
 use self::tumbling_window::TumblingWindowConfig;
 use clock::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig, ClockConfig};
 
@@ -97,6 +99,8 @@ pub(crate) trait WindowBuilder {
 impl PyConfigClass<Box<dyn WindowBuilder>> for Py<WindowConfig> {
     fn downcast(&self, py: Python) -> StringResult<Box<dyn WindowBuilder>> {
         if let Ok(conf) = self.extract::<TumblingWindowConfig>(py) {
+            Ok(Box::new(conf))
+        } else if let Ok(conf) = self.extract::<HoppingWindowConfig>(py) {
             Ok(Box::new(conf))
         } else {
             let pytype = self.as_ref(py).get_type();
@@ -477,5 +481,6 @@ pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<SystemClockConfig>()?;
     m.add_class::<WindowConfig>()?;
     m.add_class::<TumblingWindowConfig>()?;
+    m.add_class::<HoppingWindowConfig>()?;
     Ok(())
 }
