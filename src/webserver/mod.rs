@@ -46,7 +46,7 @@ pub(crate) async fn run_webserver(dataflow: Dataflow) {
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
-        .expect(&format!("Unable to create local webserver at port {port}"));
+        .unwrap_or_else(|_| panic!("Unable to create local webserver at port {port}"));
 }
 
 async fn get_dataflow(Extension(state): Extension<Arc<State>>) -> impl IntoResponse {

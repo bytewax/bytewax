@@ -258,7 +258,7 @@ impl KafkaInput {
 
         let partition_count = get_kafka_partition_count(&consumer, topic);
         if partition_count == 0 {
-            panic!("Topic {} does not exist, please create first", topic);
+            panic!("Topic {topic} does not exist, please create first");
         }
 
         let mut partitions = TopicPartitionList::new();

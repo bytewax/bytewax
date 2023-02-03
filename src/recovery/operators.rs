@@ -179,7 +179,7 @@ where
     D: Data,
 {
     fn progress(&self, worker_key: WorkerKey) -> ProgressStream<S> {
-        let mut op_builder = OperatorBuilder::new(format!("progress"), self.scope());
+        let mut op_builder = OperatorBuilder::new("progress".to_string(), self.scope());
 
         let mut input = op_builder.new_input(self, Pipeline);
 
@@ -227,7 +227,7 @@ where
                         // resume further back than is optimal.
                         let write_frontier = frontier.unwrap_or(*cap.time() + 1);
                         let msg = ProgressMsg::Advance(WorkerFrontier(write_frontier));
-                        let kchange = KChange(worker_key.clone(), Change::Upsert(msg));
+                        let kchange = KChange(worker_key, Change::Upsert(msg));
                         output_wrapper.activate().session(&cap).give(kchange);
                     }
                     // We should never delay to something like
@@ -525,7 +525,7 @@ where
                     incoming.swap(&mut tmp_summary);
 
                     store_buffer
-                        .entry(epoch.clone())
+                        .entry(*epoch)
                         .or_insert_with(Vec::new)
                         .append(&mut tmp_summary);
 
@@ -539,7 +539,7 @@ where
                     incoming.swap(&mut tmp_progress);
 
                     progress_buffer
-                        .entry(epoch.clone())
+                        .entry(*epoch)
                         .or_insert_with(Vec::new)
                         .append(&mut tmp_progress);
 

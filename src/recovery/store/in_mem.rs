@@ -5,6 +5,7 @@
 //! query it, since we don't make the assumption that real recovery
 //! stores have querying abilities.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::{btree_map, BTreeMap};
 use timely::progress::Timestamp;
@@ -366,23 +367,27 @@ impl InMemProgress {
         // casts. They do "bit folding" on downcasts and don't panic
         // when you're out of range, which is probably what you want.
         let in_ex: i128 = ex.0.into();
-        // Execution should never regress because the entire cluster
-        // is shut down before resuming.
-        assert!(!(in_ex < self.ex), "Execution regressed");
-        if in_ex > self.ex {
-            self.ex = in_ex;
-            self.frontiers = count
-                .iter()
-                .map(|worker| (worker, WorkerFrontier(epoch.0)))
-                .collect();
-        // It's ok if in_ex == self.ex since we might have multiple
-        // workers from the previous execution multiplexed into the
-        // same progress partition.
-        } else if in_ex == self.ex {
-            assert!(
-                count == self.worker_count(),
-                "Single execution has inconsistent worker count"
-            );
+
+        match in_ex.cmp(&self.ex) {
+            // Execution should never regress because the entire cluster
+            // is shut down before resuming.
+            Ordering::Less => panic!("Execution regressed"),
+            // It's ok if in_ex == self.ex since we might have multiple
+            // workers from the previous execution multiplexed into the
+            // same progress partition.
+            Ordering::Equal => {
+                assert!(
+                    count == self.worker_count(),
+                    "Single execution has inconsistent worker count"
+                );
+            }
+            Ordering::Greater => {
+                self.ex = in_ex;
+                self.frontiers = count
+                    .iter()
+                    .map(|worker| (worker, WorkerFrontier(epoch.0)))
+                    .collect();
+            }
         }
     }
 
