@@ -6,6 +6,7 @@ __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
 - Added `HoppingWindowConfig` for windowing operators.
+- Add `filter_map` operator.
 
 ## 0.15.0
 
