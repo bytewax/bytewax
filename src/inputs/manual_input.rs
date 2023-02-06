@@ -1,16 +1,12 @@
-use std::collections::HashMap;
 use std::task::Poll;
 
+use crate::add_pymethods;
 use crate::execution::{WorkerCount, WorkerIndex};
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyCoroIterator};
 use crate::recovery::model::StateBytes;
-use crate::{
-    common::{pickle_extract, StringResult},
-    py_unwrap, try_unwrap,
-};
+use crate::{common::StringResult, py_unwrap, try_unwrap};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
 use super::{InputBuilder, InputConfig, InputReader};
 
@@ -66,36 +62,14 @@ impl InputBuilder for ManualInputConfig {
     }
 }
 
-#[pymethods]
-impl ManualInputConfig {
-    #[new]
-    #[args(input_builder)]
-    pub(crate) fn new(input_builder: TdPyCallable) -> (Self, InputConfig) {
-        (Self { input_builder }, InputConfig {})
+add_pymethods!(
+    ManualInputConfig,
+    parent: InputConfig,
+    py_args: (input_builder),
+    args {
+        input_builder: TdPyCallable => Python::with_gil(TdPyCallable::pickle_new)
     }
-
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| {
-            HashMap::from([
-                ("type", "ManualInputConfig".into_py(py)),
-                ("input_builder", self.input_builder.clone().into_py(py)),
-            ])
-        })
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self, py: Python) -> (TdPyCallable,) {
-        (TdPyCallable::pickle_new(py),)
-    }
-
-    /// Unpickle from a PyDict of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        let dict: &PyDict = state.downcast()?;
-        self.input_builder = pickle_extract(dict, "input_builder")?;
-        Ok(())
-    }
-}
+);
 
 /// Construct a Python iterator for each worker from a builder
 /// function.

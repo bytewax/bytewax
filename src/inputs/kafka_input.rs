@@ -3,7 +3,7 @@ use std::task::Poll;
 use std::time::Duration;
 
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict};
+use pyo3::types::PyBytes;
 
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::base_consumer::BaseConsumer;
@@ -15,7 +15,8 @@ use rdkafka::{Offset, TopicPartitionList};
 use send_wrapper::SendWrapper;
 use serde::{Deserialize, Serialize};
 
-use crate::common::{pickle_extract, StringResult};
+use crate::add_pymethods;
+use crate::common::StringResult;
 use crate::execution::{WorkerCount, WorkerIndex};
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::model::StateBytes;
@@ -99,68 +100,24 @@ impl InputBuilder for KafkaInputConfig {
     }
 }
 
-#[pymethods]
-impl KafkaInputConfig {
-    #[new]
-    #[args(
+add_pymethods!(
+    KafkaInputConfig,
+    parent: InputConfig,
+    py_args: (
         brokers,
         topic,
         tail = true,
         starting_offset = "\"beginning\".to_string()",
         additional_properties = "None"
-    )]
-    fn new(
-        brokers: Vec<String>,
-        topic: String,
-        tail: bool,
-        starting_offset: String,
-        additional_properties: Option<HashMap<String, String>>,
-    ) -> (Self, InputConfig) {
-        (
-            Self {
-                brokers,
-                topic,
-                tail,
-                starting_offset,
-                additional_properties,
-            },
-            InputConfig {},
-        )
+    ),
+    args {
+        brokers: Vec<String> => Vec::new(),
+        topic: String =>  "UNINIT_PICKLED_STRING".to_string(),
+        tail: bool => false,
+        starting_offset: String => "UNINIT_PICKLED_STRING".to_string(),
+        additional_properties: Option<HashMap<String, String>> => None
     }
-    /// Pickle as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| {
-            HashMap::from([
-                ("type", "KafkaInputConfig".into_py(py)),
-                ("brokers", self.brokers.clone().into_py(py)),
-                ("topic", self.topic.clone().into_py(py)),
-                ("tail", self.tail.into_py(py)),
-                ("starting_offset", self.starting_offset.clone().into_py(py)),
-                (
-                    "additional_properties",
-                    self.additional_properties.clone().into_py(py),
-                ),
-            ])
-        })
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (Vec<String>, &str, bool, &str) {
-        let s = "UNINIT_PICKLED_STRING";
-        (Vec::new(), s, false, s)
-    }
-
-    /// Unpickle from a PyDict of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        let dict: &PyDict = state.downcast()?;
-        self.brokers = pickle_extract(dict, "brokers")?;
-        self.topic = pickle_extract(dict, "topic")?;
-        self.tail = pickle_extract(dict, "tail")?;
-        self.starting_offset = pickle_extract(dict, "starting_offset")?;
-        self.additional_properties = pickle_extract(dict, "additional_properties")?;
-        Ok(())
-    }
-}
+);
 
 /// Read from Kafka for an input source.
 // Using an rdkafka::admin::AdminClient did not always return partition counts

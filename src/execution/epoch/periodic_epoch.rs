@@ -1,14 +1,14 @@
-use std::collections::HashMap;
 use std::task::Poll;
 use std::time::Instant;
 
-use pyo3::{prelude::*, types::PyDict};
+use chrono::Duration;
+use pyo3::prelude::*;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
 
-use crate::common::pickle_extract;
+use crate::add_pymethods;
 use crate::common::StringResult;
 use crate::inputs::InputReader;
 use crate::recovery::model::*;
@@ -38,36 +38,14 @@ pub(crate) struct PeriodicEpochConfig {
     pub(crate) epoch_length: chrono::Duration,
 }
 
-#[pymethods]
-impl PeriodicEpochConfig {
-    #[new]
-    #[args(epoch_length)]
-    pub(crate) fn new(epoch_length: chrono::Duration) -> (Self, EpochConfig) {
-        (Self { epoch_length }, EpochConfig {})
+add_pymethods!(
+    PeriodicEpochConfig,
+    parent: EpochConfig,
+    py_args: (epoch_length),
+    args {
+        epoch_length: Duration => Duration::zero()
     }
-
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| {
-            HashMap::from([
-                ("type", "PeriodicEpochConfig".into_py(py)),
-                ("epoch_length", self.epoch_length.into_py(py)),
-            ])
-        })
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (chrono::Duration,) {
-        (chrono::Duration::zero(),)
-    }
-
-    /// Unpickle from a PyDict.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        let dict: &PyDict = state.downcast()?;
-        self.epoch_length = pickle_extract(dict, "epoch_length")?;
-        Ok(())
-    }
-}
+);
 
 impl<S> EpochBuilder<S> for PeriodicEpochConfig
 where

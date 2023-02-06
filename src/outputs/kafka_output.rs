@@ -1,6 +1,6 @@
+use crate::add_pymethods;
+use crate::py_unwrap;
 use crate::pyo3_extensions::TdPyAny;
-use crate::{common::pickle_extract, py_unwrap};
-use pyo3::types::PyDict;
 use pyo3::{exceptions::PyTypeError, prelude::*, types::PyBytes};
 use rdkafka::{
     producer::{BaseProducer, BaseRecord, Producer},
@@ -66,55 +66,16 @@ impl OutputBuilder for KafkaOutputConfig {
     }
 }
 
-#[pymethods]
-impl KafkaOutputConfig {
-    #[new]
-    #[args(brokers, topic, additional_properties = "None")]
-    fn new(
-        brokers: Vec<String>,
-        topic: String,
-        additional_properties: Option<HashMap<String, String>>,
-    ) -> (Self, OutputConfig) {
-        (
-            Self {
-                brokers,
-                topic,
-                additional_properties,
-            },
-            OutputConfig {},
-        )
+add_pymethods!(
+    KafkaOutputConfig,
+    parent: OutputConfig,
+    py_args: (brokers, topic, additional_properties = "None"),
+    args {
+        brokers: Vec<String> => Vec::new(),
+        topic: String => String::new(),
+        additional_properties: Option<HashMap<String, String>> => None
     }
-
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| {
-            HashMap::from([
-                ("type", "KafkaOutputConfig".into_py(py)),
-                ("brokers", self.brokers.clone().into_py(py)),
-                ("topic", self.topic.clone().into_py(py)),
-                (
-                    "additional_properties",
-                    self.additional_properties.clone().into_py(py),
-                ),
-            ])
-        })
-    }
-
-    /// Egregious hack see [`SqliteRecoveryConfig::__getnewargs__`].
-    fn __getnewargs__(&self) -> (Vec<String>, &str, Option<HashMap<String, String>>) {
-        let s = "UNINIT_PICKLED_STRING";
-        (Vec::new(), s, None)
-    }
-
-    /// Unpickle from a PyDict.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        let dict: &PyDict = state.downcast()?;
-        self.brokers = pickle_extract(dict, "brokers")?;
-        self.topic = pickle_extract(dict, "topic")?;
-        self.additional_properties = pickle_extract(dict, "additional_properties")?;
-        Ok(())
-    }
-}
+);
 
 /// Produce output to kafka stream
 pub(crate) struct KafkaOutput {
