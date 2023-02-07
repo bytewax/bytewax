@@ -165,13 +165,10 @@ impl<'r> Decode<'r, Sqlite> for WorkerCount {
 pub struct SqliteStateWriter {
     rt: Runtime,
     conn: SqlitePool,
-    table_name: String,
 }
 
 impl SqliteStateWriter {
     pub fn new(db_file: &Path) -> Self {
-        let table_name = "state".to_string();
-
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -184,28 +181,11 @@ impl SqliteStateWriter {
         tracing::debug!("Opening Sqlite connection to {db_file:?}");
         let conn = rt.block_on(future).unwrap();
 
-        // TODO: SQLite doesn't let you bind to table names. Can
-        // we do this in a slightly safer way? I'm not as worried
-        // because this value is not from items in the dataflow
-        // stream, but from the config which should be under
-        // developer control.
-        let sql = format!(
-            "CREATE TABLE IF NOT EXISTS {table_name} ( \
-             step_id TEXT, \
-             state_key TEXT, \
-             epoch INTEGER, \
-             snapshot BLOB, \
-             PRIMARY KEY (step_id, state_key, epoch) \
-             );"
-        );
-        let future = query(&sql).execute(&conn);
-        rt.block_on(future).unwrap();
+        tracing::debug!("Running any pending sqlite migrations");
+        rt.block_on(sqlx::migrate!().run(&conn))
+            .expect("Unable to run sqlite migrations");
 
-        Self {
-            rt,
-            conn,
-            table_name,
-        }
+        Self { rt, conn }
     }
 }
 
@@ -221,13 +201,11 @@ impl KWriter<StoreKey, Change<StateBytes>> for SqliteStateWriter {
                     Change::Upsert(snapshot) => Some(snapshot),
                     Change::Discard => None,
                 };
-                let sql = format!(
-                    "INSERT INTO {} (step_id, state_key, epoch, snapshot) \
-                     VALUES (?1, ?2, ?3, ?4) \
-                     ON CONFLICT (step_id, state_key, epoch) DO UPDATE \
-                     SET snapshot = EXCLUDED.snapshot",
-                    self.table_name,
-                );
+                let sql = "INSERT INTO state (step_id, state_key, epoch, snapshot) \
+                           VALUES (?1, ?2, ?3, ?4) \
+                           ON CONFLICT (step_id, state_key, epoch) DO UPDATE \
+                           SET snapshot = EXCLUDED.snapshot";
+
                 let future = query(&sql)
                     .bind(step_id)
                     .bind(state_key)
@@ -242,10 +220,8 @@ impl KWriter<StoreKey, Change<StateBytes>> for SqliteStateWriter {
                 self.rt.block_on(future).unwrap();
             }
             Change::Discard => {
-                let sql = format!(
-                    "DELETE FROM {} WHERE step_id = ?1 AND state_key = ?2 AND epoch = ?3",
-                    self.table_name
-                );
+                let sql = "DELETE FROM state \
+                           WHERE step_id = ?1 AND state_key = ?2 AND epoch = ?3";
                 let future = query(&sql)
                     .bind(step_id)
                     .bind(state_key)
@@ -267,8 +243,6 @@ pub(crate) struct SqliteStateReader {
 
 impl SqliteStateReader {
     pub(crate) fn new(db_file: &Path) -> Self {
-        let table_name = "state";
-
         // Bootstrap off writer to get table creation.
         let writer = SqliteStateWriter::new(db_file);
         let rt = writer.rt;
@@ -277,11 +251,9 @@ impl SqliteStateReader {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
 
         rt.spawn(async move {
-            let sql = format!(
-                "SELECT step_id, state_key, epoch, snapshot \
-                 FROM {table_name} \
-                 ORDER BY epoch ASC"
-            );
+            let sql = "SELECT step_id, state_key, epoch, snapshot \
+                       FROM state \
+                       ORDER BY epoch ASC";
             let mut stream = query(&sql)
                 .map(|row: SqliteRow| {
                     let step_id: StepId = row.get(0);
@@ -322,15 +294,10 @@ impl KReader<StoreKey, Change<StateBytes>> for SqliteStateReader {
 pub(crate) struct SqliteProgressWriter {
     rt: Runtime,
     conn: SqlitePool,
-    progress_table_name: String,
-    execution_table_name: String,
 }
 
 impl SqliteProgressWriter {
     pub(crate) fn new(db_file: &Path) -> Self {
-        let progress_table_name = "progress".to_string();
-        let execution_table_name = "execution".to_string();
-
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -345,35 +312,7 @@ impl SqliteProgressWriter {
         tracing::debug!("Opening Sqlite connection to {db_file:?}");
         let conn = rt.block_on(future).unwrap();
 
-        let sql = format!(
-            "CREATE TABLE IF NOT EXISTS {progress_table_name} ( \
-             execution INTEGER, \
-             worker_index INTEGER, \
-             frontier INTEGER, \
-             PRIMARY KEY (execution, worker_index) \
-             );"
-        );
-        let future = query(&sql).execute(&conn);
-        rt.block_on(future).unwrap();
-
-        let sql = format!(
-            "CREATE TABLE IF NOT EXISTS {execution_table_name} ( \
-             execution INTEGER, \
-             worker_index INTEGER, \
-             worker_count INTEGER, \
-             resume_epoch INTEGER, \
-             PRIMARY KEY (execution, worker_index) \
-             );"
-        );
-        let future = query(&sql).execute(&conn);
-        rt.block_on(future).unwrap();
-
-        Self {
-            rt,
-            conn,
-            progress_table_name,
-            execution_table_name,
-        }
+        Self { rt, conn }
     }
 }
 
@@ -386,15 +325,13 @@ impl KWriter<WorkerKey, ProgressMsg> for SqliteProgressWriter {
         match change {
             Change::Upsert(msg) => match msg {
                 ProgressMsg::Init(count, epoch) => {
-                    let sql = format!(
-                        "INSERT INTO {} \
-                         (execution, worker_index, worker_count, resume_epoch) \
-                         VALUES (?1, ?2, ?3, ?4) \
-                         ON CONFLICT (execution, worker_index) DO UPDATE \
-                         SET worker_count = EXCLUDED.worker_count, \
-                         resume_epoch = EXCLUDED.resume_epoch",
-                        self.execution_table_name,
-                    );
+                    let sql = "INSERT INTO execution \
+                               (execution, worker_index, worker_count, resume_epoch) \
+                               VALUES (?1, ?2, ?3, ?4) \
+                               ON CONFLICT (execution, worker_index) DO UPDATE \
+                               SET worker_count = EXCLUDED.worker_count, \
+                               resume_epoch = EXCLUDED.resume_epoch";
+
                     let future = query(&sql)
                         .bind(
                             <u64 as TryInto<i64>>::try_into(ex.0)
@@ -410,14 +347,11 @@ impl KWriter<WorkerKey, ProgressMsg> for SqliteProgressWriter {
                     self.rt.block_on(future).unwrap();
                 }
                 ProgressMsg::Advance(epoch) => {
-                    let sql = format!(
-                        "INSERT INTO {} \
-                         (execution, worker_index, frontier) \
-                         VALUES (?1, ?2, ?3) \
-                         ON CONFLICT (execution, worker_index) DO UPDATE \
-                         SET frontier = EXCLUDED.frontier",
-                        self.progress_table_name,
-                    );
+                    let sql = "INSERT INTO progress \
+                               (execution, worker_index, frontier) \
+                               VALUES (?1, ?2, ?3) \
+                               ON CONFLICT (execution, worker_index) DO UPDATE \
+                               SET frontier = EXCLUDED.frontier";
                     let future = query(&sql)
                         .bind(
                             <u64 as TryInto<i64>>::try_into(ex.0)
@@ -433,10 +367,7 @@ impl KWriter<WorkerKey, ProgressMsg> for SqliteProgressWriter {
                 }
             },
             Change::Discard => {
-                let sql = format!(
-                    "DELETE FROM {} WHERE execution = ?1 AND worker_index = ?2",
-                    self.progress_table_name
-                );
+                let sql = "DELETE FROM progress WHERE execution = ?1 AND worker_index = ?2";
                 let future = query(&sql)
                     .bind(
                         <u64 as TryInto<i64>>::try_into(ex.0)
@@ -459,9 +390,6 @@ pub(crate) struct SqliteProgressReader {
 
 impl SqliteProgressReader {
     pub(crate) fn new(db_file: &Path) -> Self {
-        let progress_table_name = "progress";
-        let execution_table_name = "execution";
-
         let writer = SqliteProgressWriter::new(db_file);
         let rt = writer.rt;
         let conn = writer.conn;
@@ -469,10 +397,8 @@ impl SqliteProgressReader {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
 
         rt.spawn(async move {
-            let sql = format!(
-                "SELECT execution, worker_index, worker_count, resume_epoch \
-                 FROM {execution_table_name}"
-            );
+            let sql = "SELECT execution, worker_index, worker_count, resume_epoch \
+                       FROM execution";
             let mut stream = query(&sql)
                 .map(|row: SqliteRow| {
                     let ex = Execution(
@@ -499,10 +425,8 @@ impl SqliteProgressReader {
                 tx.send(kchange).await.unwrap();
             }
 
-            let sql = format!(
-                "SELECT execution, worker_index, frontier \
-                 FROM {progress_table_name}"
-            );
+            let sql = "SELECT execution, worker_index, frontier FROM progress";
+
             let mut stream = query(&sql)
                 .map(|row: SqliteRow| {
                     let ex = Execution(
