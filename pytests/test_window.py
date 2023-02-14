@@ -2,9 +2,65 @@ from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.outputs import TestingOutputConfig
 from bytewax.testing import TestingInput
-from bytewax.window import EventClockConfig, HoppingWindowConfig, TumblingWindowConfig
+from bytewax.outputs import TestingOutputConfig
+from bytewax.window import (
+    EventClockConfig,
+    HoppingWindowConfig,
+    TumblingWindowConfig,
+    SessionWindow,
+)
+
+
+class Dt(datetime):
+    def after(self, s):
+        return self + timedelta(seconds=s)
+
+
+def test_session_window():
+    start_at = Dt(2022, 1, 1, tzinfo=timezone.utc)
+
+    flow = Dataflow()
+
+    inp = [
+        # Session 1
+        ("ALL", {"time": start_at.after(1), "val": "a"}),
+        ("ALL", {"time": start_at.after(5), "val": "b"}),
+        # Session 2
+        ("ALL", {"time": start_at.after(11), "val": "c"}),
+        ("ALL", {"time": start_at.after(12), "val": "d"}),
+        ("ALL", {"time": start_at.after(13), "val": "e"}),
+        ("ALL", {"time": start_at.after(14), "val": "f"}),
+        # Session 3
+        ("ALL", {"time": start_at.after(20), "val": "g"}),
+        # This is late, and should be ignored
+        ("ALL", {"time": start_at.after(1), "val": "h"}),
+    ]
+
+    flow.input("inp", TestingInput(inp))
+
+    clock_config = EventClockConfig(
+        lambda e: e["time"], wait_for_system_duration=timedelta(0)
+    )
+    window_config = SessionWindow(gap=timedelta(seconds=5))
+
+    def add(acc, x):
+        acc.append(x["val"])
+        return acc
+
+    flow.fold_window("sum", clock_config, window_config, list, add)
+
+    out = []
+    flow.capture(TestingOutputConfig(out))
+
+    run_main(flow)
+    assert sorted(out) == sorted(
+        [
+            ("ALL", ["a", "b"]),
+            ("ALL", ["c", "d", "e", "f"]),
+            ("ALL", ["g"]),
+        ]
+    )
 
 
 def test_hopping_window():

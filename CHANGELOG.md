@@ -9,7 +9,9 @@ notes on GitHub when we make a new release.__
   get an "interleaved executions" panic whenever you resumed a cluster
   after the first time.
 
-- Added `HoppingWindowConfig` for windowing operators.
+- Add `SessionWindow` for windowing operators.
+
+- Add `HoppingWindowConfig` for windowing operators.
 
 - Add `filter_map` operator.
 
