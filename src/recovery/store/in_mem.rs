@@ -460,7 +460,7 @@ fn worker_count_works() {
 
 #[test]
 #[should_panic]
-fn init_panics_on_regress() {
+fn init_panics_on_execution_regress() {
     let mut progress = InMemProgress::new(WorkerCount(2));
 
     let ex1 = Execution(1);
@@ -483,16 +483,41 @@ fn init_panics_on_inconsistent_worker_count() {
 
 #[test]
 #[should_panic]
-fn advance_panics_on_regress() {
+fn advance_panics_on_frontier_regress() {
     let mut progress = InMemProgress::new(WorkerCount(2));
 
     let ex1 = Execution(1);
     progress.init(ex1, WorkerCount(3), ResumeEpoch(1));
 
     progress.advance(ex1, WorkerIndex(0), WorkerFrontier(2));
+    progress.advance(ex1, WorkerIndex(0), WorkerFrontier(1));
+}
+
+#[test]
+#[should_panic]
+fn advance_panics_on_execution_skip() {
+    let mut progress = InMemProgress::new(WorkerCount(2));
+
+    let ex1 = Execution(1);
+    progress.init(ex1, WorkerCount(3), ResumeEpoch(1));
+
+    let ex2 = Execution(2);
+    progress.advance(ex2, WorkerIndex(0), WorkerFrontier(2));
+}
+
+#[test]
+fn advance_ignores_late_executions() {
+    let mut progress = InMemProgress::new(WorkerCount(2));
+
+    let ex1 = Execution(1);
+    progress.init(ex1, WorkerCount(3), ResumeEpoch(4));
 
     let ex0 = Execution(0);
-    progress.advance(ex0, WorkerIndex(1), WorkerFrontier(3));
+    progress.advance(ex0, WorkerIndex(0), WorkerFrontier(2));
+
+    let found = progress.resume_from();
+    let expected = ResumeFrom(Execution(2), ResumeEpoch(4));
+    assert_eq!(found, expected);
 }
 
 #[test]
