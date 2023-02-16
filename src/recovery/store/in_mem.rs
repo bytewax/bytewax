@@ -371,7 +371,7 @@ impl InMemProgress {
         match in_ex.cmp(&self.ex) {
             // Execution should never regress because the entire cluster
             // is shut down before resuming.
-            Ordering::Less => panic!("Execution regressed"),
+            Ordering::Less => panic!("Cluster execution regressed"),
             // It's ok if in_ex == self.ex since we might have multiple
             // workers from the previous execution multiplexed into the
             // same progress partition.
@@ -393,15 +393,28 @@ impl InMemProgress {
 
     fn advance(&mut self, ex: Execution, worker: WorkerIndex, epoch: WorkerFrontier) {
         let in_ex: i128 = ex.0.into();
-        // Execution should never interleave because the entire
-        // cluster is shut down before resuming.
-        assert!(in_ex == self.ex, "Interleaved executions");
-        let last_epoch = self
-            .frontiers
-            .insert(worker, epoch)
-            .expect("Advancing unknown worker");
-        // Double check Timely's sanity and recovery store ordering.
-        assert!(last_epoch <= epoch, "Worker regressed");
+        // Each progress partition has an ordered view of events on
+        // some number of workers, so we should always see an init to
+        // an execution before any advances in that execution
+        // (otherwise a single worker has written progress
+        // out-of-order). But it is possible during resume that
+        // progress partitions are interleaved, so we might read all
+        // progress for one worker, then "go back in time" and all
+        // progress for a second worker. But that's fine, those old
+        // advance messages can be discarded because we know there was
+        // a later execution anyway.
+        assert!(
+            in_ex <= self.ex,
+            "Advance without init in single progress partition"
+        );
+        if in_ex == self.ex {
+            let last_epoch = self
+                .frontiers
+                .insert(worker, epoch)
+                .expect("Advancing unknown worker");
+            // Double check Timely's sanity and recovery store ordering.
+            assert!(last_epoch <= epoch, "Worker frontier regressed");
+        }
     }
 
     /// Calculate the resume execution and epoch from the previous
@@ -414,7 +427,7 @@ impl InMemProgress {
         let next_ex = Execution(
             next_ex
                 .try_into()
-                .expect("Next execution ID would be oversized"),
+                .expect("Next execution ID would overflow u64"),
         );
 
         assert!(

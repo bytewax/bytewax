@@ -398,7 +398,7 @@ impl SqliteProgressReader {
 
         rt.spawn(async move {
             let sql = "SELECT execution, worker_index, worker_count, resume_epoch \
-                       FROM execution";
+                       FROM execution ORDER BY execution DESC LIMIT 1";
             let mut stream = query(&sql)
                 .map(|row: SqliteRow| {
                     let ex = Execution(
@@ -425,7 +425,10 @@ impl SqliteProgressReader {
                 tx.send(kchange).await.unwrap();
             }
 
-            let sql = "SELECT execution, worker_index, frontier FROM progress";
+            // TODO: We really could only select progress from the
+            // latest execution.
+            let sql =
+                "SELECT execution, worker_index, frontier FROM progress ORDER BY execution ASC";
 
             let mut stream = query(&sql)
                 .map(|row: SqliteRow| {
