@@ -7,9 +7,8 @@ from pytest import fixture, raises
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main, TestingEpochConfig
-from bytewax.outputs import TestingOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
-from bytewax.testing import TestingInput
+from bytewax.testing import TestingInput, TestingOutput
 from bytewax.window import EventClockConfig, TumblingWindow
 
 # Stateful operators must test recovery to ensure serde works.
@@ -33,7 +32,7 @@ def test_map():
     flow.map(add_one)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     run_main(flow)
 
@@ -54,7 +53,7 @@ def test_filter_map():
     flow.filter_map(make_odd)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     run_main(flow)
 
@@ -73,7 +72,7 @@ def test_flat_map():
     flow.flat_map(split_into_words)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     run_main(flow)
 
@@ -92,7 +91,7 @@ def test_filter():
     flow.filter(is_odd)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     run_main(flow)
 
@@ -109,7 +108,7 @@ def test_inspect():
     flow.inspect(seen.append)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     run_main(flow)
 
@@ -128,7 +127,7 @@ def test_inspect_epoch():
     flow.inspect_epoch(lambda epoch, item: seen.append((epoch, item)))
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     run_main(flow)
 
@@ -178,7 +177,7 @@ def test_reduce(recovery_config):
     flow.reduce("sessionizer", extend_session, session_complete)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
@@ -267,7 +266,7 @@ def test_stateful_map(recovery_config):
     flow.flat_map(remove_seen)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
@@ -312,7 +311,7 @@ def test_stateful_map_error_on_non_kv_tuple():
     flow.stateful_map("running_count", lambda: defaultdict(int), running_count)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     expect = (
         "Dataflow requires a `(key, value)` 2-tuple as input to every stateful "
@@ -350,7 +349,7 @@ def test_stateful_map_error_on_non_string_key():
     flow.stateful_map("running_count", lambda: defaultdict(int), running_count)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     with raises(
         TypeError,
@@ -394,9 +393,7 @@ def test_reduce_window(recovery_config):
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(0)
     )
-    window_config = TumblingWindow(
-        length=timedelta(seconds=10), start_at=start_at
-    )
+    window_config = TumblingWindow(length=timedelta(seconds=10), start_at=start_at)
 
     def add(acc, x):
         acc["val"] += x["val"]
@@ -411,7 +408,7 @@ def test_reduce_window(recovery_config):
     flow.map(extract_val)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
@@ -473,9 +470,7 @@ def test_fold_window(recovery_config):
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
     )
-    window_config = TumblingWindow(
-        length=timedelta(seconds=10), start_at=start_at
-    )
+    window_config = TumblingWindow(length=timedelta(seconds=10), start_at=start_at)
 
     def count(counts, event):
         typ = event["type"]
@@ -487,7 +482,7 @@ def test_fold_window(recovery_config):
     flow.fold_window("count", clock_config, window_config, dict, count)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
@@ -541,14 +536,12 @@ def test_collect_window(recovery_config):
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(0)
     )
-    window_config = TumblingWindow(
-        length=timedelta(seconds=10), start_at=start_at
-    )
+    window_config = TumblingWindow(length=timedelta(seconds=10), start_at=start_at)
 
     flow.collect_window("add", clock_config, window_config)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)

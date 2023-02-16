@@ -33,12 +33,12 @@ run your dataflow on a single worker in the current process.
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.testing import TestingInput
-from bytewax.outputs import StdOutputConfig
+from bytewax.connectors.stdio import StdOutput
 
 flow = Dataflow()
 flow.input("inp", TestingInput(range(3)))
 flow.map(lambda item: item + 1)
-flow.capture(StdOutputConfig())
+flow.dynamic_output("out", StdOutput())
 
 run_main(flow)
 ```
@@ -71,12 +71,12 @@ dataflow is complete.
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
 from bytewax.testing import doctest_ctx, TestingInput
-from bytewax.outputs import StdOutputConfig
+from bytewax.connectors.stdio import StdOutput
 
 flow = Dataflow()
 flow.input("inp", TestingInput(range(3)))
 flow.map(lambda item: item + 1)
-flow.capture(StdOutputConfig())
+flow.dynamic_output("out", StdOutput())
 
 spawn_cluster(
     flow,
@@ -108,13 +108,13 @@ command line tool which facilitates running a dataflow on Kubernetes.
 ```python doctest:SORT_OUTPUT
 from bytewax.dataflow import Dataflow
 from bytewax.execution import cluster_main
-from bytewax.outputs import TestingOutputConfig, StdOutputConfig
+from bytewax.connectors.stdio import StdOutput
 from bytewax.testing import doctest_ctx, TestingInput
 
 flow = Dataflow()
 flow.input("inp", TestingInput(range(3)))
 flow.map(lambda item: item + 1)
-flow.capture(StdOutputConfig())
+flow.dynamic_output("out", StdOutput())
 
 addresses = [
     "localhost:2101",

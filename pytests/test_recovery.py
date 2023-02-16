@@ -2,9 +2,8 @@ from pytest import fixture, raises
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main, TestingEpochConfig
-from bytewax.outputs import TestingEpochOutputConfig, TestingOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
-from bytewax.testing import TestingInput
+from bytewax.testing import TestingInput, TestingOutput
 
 epoch_config = TestingEpochConfig()
 
@@ -76,51 +75,45 @@ def test_recover_with_latest_state(recovery_config):
 
     out = []
     flow = build_keep_max_dataflow(inp, "BOOM1")
-    flow.capture(TestingEpochOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     # First execution.
     with raises(RuntimeError):
         run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
-    assert sorted(out) == sorted(
-        [
-            (0, ("a", 4)),
-            (1, ("b", 4)),
-        ]
-    )
+    assert out == [
+        ("a", 4),
+        ("b", 4),
+    ]
 
     # Disable first bomb.
     out = []
     flow = build_keep_max_dataflow(inp, "BOOM2")
-    flow.capture(TestingEpochOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     # Second execution.
     with raises(RuntimeError):
         run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
-    assert sorted(out) == sorted(
-        [
-            (2, ("a", 4)),
-            (3, ("b", 9)),
-        ]
-    )
+    assert out == [
+        ("a", 4),
+        ("b", 9),
+    ]
 
     # Disable second bomb.
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.capture(TestingEpochOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     # Recover.
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
-    assert sorted(out) == sorted(
-        [
-            (4, ("a", 9)),
-            (5, ("b", 9)),
-        ]
-    )
+    assert out == [
+        ("a", 9),
+        ("b", 9),
+    ]
 
 
 def test_recover_doesnt_gc_last_write(recovery_config):
@@ -147,38 +140,34 @@ def test_recover_doesnt_gc_last_write(recovery_config):
 
     out = []
     flow = build_keep_max_dataflow(inp, "BOOM1")
-    flow.capture(TestingEpochOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     # First execution.
     with raises(RuntimeError):
         run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
-    assert sorted(out) == sorted(
-        [
-            (0, ("a", 4)),
-            (1, ("b", 4)),
-            (2, ("b", 4)),
-            (3, ("b", 4)),
-            (4, ("b", 4)),
-        ]
-    )
+    assert out == [
+        ("a", 4),
+        ("b", 4),
+        ("b", 4),
+        ("b", 4),
+        ("b", 4),
+    ]
 
     # Disable bomb.
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.capture(TestingEpochOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     # Recover.
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
-    assert sorted(out) == sorted(
-        [
-            (5, ("b", 5)),
-            # Remembered "a": 4
-            (6, ("a", 4)),
-        ]
-    )
+    assert out == [
+        ("b", 5),
+        # Remembered "a": 4
+        ("a", 4),
+    ]
 
 
 def test_recover_respects_delete(recovery_config):
@@ -203,37 +192,33 @@ def test_recover_respects_delete(recovery_config):
 
     out = []
     flow = build_keep_max_dataflow(inp, "BOOM1")
-    flow.capture(TestingEpochOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     # First execution.
     with raises(RuntimeError):
         run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
-    assert sorted(out) == sorted(
-        [
-            (0, ("a", 4)),
-            (1, ("b", 4)),
-            (2, ("a", None)),
-            (3, ("b", 4)),
-        ]
-    )
+    assert out == [
+        ("a", 4),
+        ("b", 4),
+        ("a", None),
+        ("b", 4),
+    ]
 
     # Disable bomb.
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.capture(TestingEpochOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     # Recover.
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
-    assert sorted(out) == sorted(
-        [
-            (4, ("b", 5)),
-            # Notice not 4.
-            (5, ("a", 2)),
-        ]
-    )
+    assert out == [
+        ("b", 5),
+        # Notice not 4.
+        ("a", 2),
+    ]
 
 
 def test_continuation(entry_point, inp, out, recovery_config):
@@ -246,16 +231,14 @@ def test_continuation(entry_point, inp, out, recovery_config):
         ]
     )
     flow = build_keep_max_dataflow(inp, None)
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     entry_point(flow, recovery_config=recovery_config)
 
-    assert sorted(out) == sorted(
-        [
-            ("a", 4),
-            ("b", 4),
-        ]
-    )
+    assert sorted(out) == [
+        ("a", 4),
+        ("b", 4),
+    ]
 
     # Add new input. Don't clear because `TestingInputConfig` needs
     # the initial items so the resume epoch skips to here.
@@ -273,12 +256,10 @@ def test_continuation(entry_point, inp, out, recovery_config):
     entry_point(flow, recovery_config=recovery_config)
 
     # Incorporates new input.
-    assert sorted(out) == sorted(
-        [
-            ("a", 4),
-            ("b", 5),
-        ]
-    )
+    assert sorted(out) == [
+        ("a", 4),
+        ("b", 5),
+    ]
 
     # Add more new input. Don't clear because `TestingInputConfig` needs
     # the initial items so the resume epoch skips to here.
@@ -296,9 +277,7 @@ def test_continuation(entry_point, inp, out, recovery_config):
     entry_point(flow, recovery_config=recovery_config)
 
     # Incorporates new input.
-    assert sorted(out) == sorted(
-        [
-            ("a", 8),
-            ("b", 5),
-        ]
-    )
+    assert sorted(out) == [
+        ("a", 8),
+        ("b", 5),
+    ]

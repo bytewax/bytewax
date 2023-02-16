@@ -35,8 +35,7 @@ use crate::operators::reduce_window::ReduceWindowLogic;
 use crate::operators::stateful_map::StatefulMapLogic;
 use crate::operators::stateful_unary::StatefulUnary;
 use crate::operators::*;
-use crate::outputs::capture;
-use crate::outputs::OutputBuilder;
+use crate::outputs::{DynamicOutputOp, PartOutputOp};
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair};
 use crate::recovery::dataflows::*;
 use crate::recovery::model::*;
@@ -142,8 +141,8 @@ where
         let mut probe = ProbeHandle::new();
 
         let mut inputs = Vec::new();
+        let mut outputs = Vec::new();
         let mut step_changes = Vec::new();
-        let mut capture_clocks = Vec::new();
 
         // Start with an "empty" stream. We might overwrite it with
         // input later.
@@ -346,17 +345,35 @@ where
                     stream = output.map(wrap_state_pair);
                     step_changes.push(changes);
                 }
-                Step::Capture { output_config } => {
-                    let mut writer =
-                        output_config.build(py, worker_index, worker_count)?;
+                Step::PartOutput { step_id, output } => {
+                    let step_resume_state = resume_state.remove(&step_id);
 
-                    // TODO: Should capture itself emit a clock
-                    // stream?
-                    let capture =
-                        stream.inspect_time(move |epoch, item| capture(&mut writer, epoch, item));
+                    let (clock, changes) =
+                        stream.part_output(
+                            py,
+                            step_id,
+                            output,
+                            worker_index,
+                            worker_count,
+                            step_resume_state,
+                        )?;
 
-                    capture_clocks.push(capture.map(|_| ()));
-                    stream = capture;
+                    outputs.push(clock.clone());
+                    step_changes.push(changes);
+                    // Reset the stream to an empty stream.
+                    stream = None.to_stream(scope);
+                }
+                Step::DynamicOutput { step_id, output } => {
+                    let clock =
+                        stream.dynamic_output(
+                            py,
+                            step_id,
+                            output,
+                        )?;
+
+                    outputs.push(clock.clone());
+                    // Reset the stream to an empty stream.
+                    stream = None.to_stream(scope);
                 }
             }
         }
@@ -364,8 +381,8 @@ where
         if inputs.is_empty() {
             return Err(PyValueError::new_err("Dataflow needs to contain at least one input"));
         }
-        if capture_clocks.is_empty() {
-            return Err(PyValueError::new_err("Dataflow needs to contain at least one capture"));
+        if outputs.is_empty() {
+            return Err(PyValueError::new_err("Dataflow needs to contain at least one output"));
         }
         if !resume_state.is_empty() {
             tracing::warn!(
@@ -382,7 +399,7 @@ where
             progress_writer,
             state_writer,
             scope.concatenate(step_changes),
-            scope.concatenate(capture_clocks),
+            scope.concatenate(outputs),
         );
 
         Ok(probe)

@@ -2,10 +2,10 @@ from pathlib import Path
 
 from pytest import raises
 
-from bytewax.connectors.files import DirInput, FileInput
+from bytewax.connectors.files import DirInput, DirOutput, FileInput, FileOutput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.outputs import TestingOutputConfig
+from bytewax.testing import TestingInput, TestingOutput
 
 
 def test_dir_input():
@@ -14,7 +14,7 @@ def test_dir_input():
     flow.input("inp", DirInput(Path("examples/sample_data/cluster")))
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     run_main(flow)
 
@@ -52,12 +52,14 @@ def test_dir_input_raises_on_file():
 
 
 def test_file_input():
+    file_path = Path("examples/sample_data/cluster/partition-1.txt")
+
     flow = Dataflow()
 
-    flow.input("inp", FileInput("examples/sample_data/cluster/partition-1.txt"))
+    flow.input("inp", FileInput(file_path))
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.dynamic_output("out", TestingOutput(out))
 
     run_main(flow)
 
@@ -69,3 +71,57 @@ def test_file_input():
         "one5",
         "one6",
     ]
+
+
+def test_file_output(tmp_path):
+    file_path = tmp_path / "out.txt"
+
+    flow = Dataflow()
+
+    inp = [
+        ("1", "1"),
+        ("2", "2"),
+        ("3", "3"),
+    ]
+    flow.input("inp", TestingInput(inp))
+
+    flow.part_output("out", FileOutput(file_path))
+
+    run_main(flow)
+
+    with open(file_path, "r") as f:
+        out = f.readlines()
+        assert out == [
+            "1\n",
+            "2\n",
+            "3\n",
+        ]
+
+
+def test_dir_output(tmp_path):
+    flow = Dataflow()
+
+    inp = [
+        ("1", "1"),
+        ("2", "2"),
+        ("3", "3"),
+    ]
+    flow.input("inp", TestingInput(inp))
+
+    # Route each item to the partition index that is int version of
+    # the key (which must be a str).
+    flow.part_output("out", DirOutput(tmp_path, 3, assign_file=int))
+
+    run_main(flow)
+
+    with open(tmp_path / "part_0", "r") as f:
+        out = f.readlines()
+        assert out == ["3\n"]
+
+    with open(tmp_path / "part_1", "r") as f:
+        out = f.readlines()
+        assert out == ["1\n"]
+
+    with open(tmp_path / "part_2", "r") as f:
+        out = f.readlines()
+        assert out == ["2\n"]
