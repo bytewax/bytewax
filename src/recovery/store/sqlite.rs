@@ -469,10 +469,8 @@ impl SqliteProgressReader {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
 
         rt.spawn(async move {
-            let sql = format!(
-                "SELECT execution, worker_index, worker_count, resume_epoch \
-                 FROM {execution_table_name}"
-            );
+            let sql = "SELECT execution, worker_index, worker_count, resume_epoch \
+                       FROM execution ORDER BY execution DESC LIMIT 1";
             let mut stream = query(&sql)
                 .map(|row: SqliteRow| {
                     let ex = Execution(
@@ -499,10 +497,10 @@ impl SqliteProgressReader {
                 tx.send(kchange).await.unwrap();
             }
 
-            let sql = format!(
-                "SELECT execution, worker_index, frontier \
-                 FROM {progress_table_name}"
-            );
+            // TODO: We really could only select progress from the
+            // latest execution.
+            let sql =
+                "SELECT execution, worker_index, frontier FROM progress ORDER BY execution ASC";
             let mut stream = query(&sql)
                 .map(|row: SqliteRow| {
                     let ex = Execution(
