@@ -1,4 +1,6 @@
-Now that we've installed bytewax, let's begin with an end-to-end example. We'll start by building out a simple dataflow that performs count of words in a file.
+Now that we've installed bytewax, let's begin with an end-to-end
+example. We'll start by building out a simple dataflow that performs
+count of words in a file.
 
 To begin, save a copy of this text in a file called `wordcount.txt`:
 
@@ -19,16 +21,10 @@ import re
 from datetime import timedelta, datetime
 
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import ManualInputConfig
+from bytewax.connectors.files import FileInput
 from bytewax.outputs import StdOutputConfig
 from bytewax.execution import run_main
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
-
-
-def input_builder(worker_index, worker_count, resume_state):
-    state = None  # ignore recovery
-    for line in open("wordcount.txt"):
-        yield state, line
 
 
 def lower(line):
@@ -51,7 +47,7 @@ clock_config = SystemClockConfig()
 window_config = TumblingWindowConfig(length=timedelta(seconds=5))
 
 flow = Dataflow()
-flow.input("input", ManualInputConfig(input_builder))
+flow.input("inp", FileInput("wordcount.txt"))
 flow.map(lower)
 flow.flat_map(tokenize)
 flow.map(initial_count)
@@ -63,7 +59,8 @@ run_main(flow)
 
 ## Running the example
 
-Now that we have our program and our input, we can run our example via `python ./wordcount.py` and see the completed result:
+Now that we have our program and our input, we can run our example via
+`python ./wordcount.py` and see the completed result:
 
 ```{testoutput}
 ("'tis", 1)
@@ -100,9 +97,12 @@ Now that we have our program and our input, we can run our example via `python .
 
 ## Unpacking the program
 
-Now that we've run our first bytewax program, let's walk through the components that we used. 
+Now that we've run our first bytewax program, let's walk through the
+components that we used.
 
-In a dataflow program, each step added to the flow will occur in the order that it is added. For our wordcount dataflow, we'll want the following steps:
+In a dataflow program, each step added to the flow will occur in the
+order that it is added. For our wordcount dataflow, we'll want the
+following steps:
 
 - Take a line from the file
 - Lowercase all characters in the line
@@ -114,26 +114,25 @@ We'll start with how to get input we'll push through our dataflow.
 
 ### Take a line from the file
 
+Let's define the steps that we want to execute for each line of input
+that we receive. We will add these steps as chains of **operators** on
+a **dataflow object**, `bytewax.dataflow.Dataflow`.
+
 ```python
-def input_builder(worker_index, worker_count, resume_state):
-    # resume_state is used for recovery, we can ignore it for now
-    resume_state = None
-    for line in open("wordcount.txt"):
-        yield resume_state, line
-
-
 flow = Dataflow()
-flow.input("input", ManualInputConfig(input_builder))
+flow.input("input", FileInput("wordcount.txt"))
 ```
 
-To receive input, our program needs an **input iterator**. We've defined a [Python generator](https://docs.python.org/3/glossary.html#term-generator) that will read our input file. There are also more advanced ways to provide input, which you can read about later when we talk about [execution modes](/docs/getting-started/execution/).
+To emit input into our dataflow, our program needs an **input
+operator** that takes an **input object**. To start, we'll use one of
+our prepackaged inputs, `bytewax.connectors.files.FileInput`. This
+will read the text file line-by-line and emit each line into the
+dataflow at that point.
 
-This generator yields two-tuples of `resume_state` and a line from our file. The `resume_state` in this example is significant, but we'll talk more about it when we discuss [recovery](/docs/getting-started/recovery/).
-
-We then initialize a `ManualInputConfig` with the `input_builder` function.
-Now we can introduce our first operator, [input](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.input), that will generate the data for the flow.
-
-Let's define the steps that we want to execute for each line of input that we receive. We will add these steps to a **dataflow object**, `bytewax.dataflow.Dataflow()`.
+To read more about other options for input, see the [module docs for
+`bytewax.connectors`](/apidocs/bytewax.connectors/index) or on how to
+make your own custom inputs, see [the module docs for
+`bytewax.inputs`](/apidocs/bytewax.inputs).
 
 ### Lowercase all characters in the line
 

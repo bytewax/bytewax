@@ -1,33 +1,32 @@
-Here are some tips, tricks, and Python features that solve common questions and help you write succinct, easy-to-read code.
+Here are some tips, tricks, and Python features that solve common
+questions and help you write succinct, easy-to-read code.
 
 ## Quick Logic Functions
 
-All of the above examples define named custom logic functions and then pass them to an operator.
-Any callable value can be used as-is, though!
+All of the above examples define named custom logic functions and then
+pass them to an operator.  Any callable value can be used as-is,
+though!
 
-This means you can use the following existing callables to help you make code more concise:
+This means you can use the following existing callables to help you
+make code more concise:
 
 - [Built-in functions](https://docs.python.org/3/library/functions.html)
 - [Constructors](https://docs.python.org/3/tutorial/classes.html#class-objects)
 - [Methods](https://docs.python.org/3/glossary.html#term-method)
 
-You can also use [lambdas](https://docs.python.org/3/tutorial/controlflow.html#lambda-expressions) to quickly define one-off anonymous functions for simple custom logic.
+You can also use
+[lambdas](https://docs.python.org/3/tutorial/controlflow.html#lambda-expressions)
+to quickly define one-off anonymous functions for simple custom logic.
 
 The following sets of examples are equivalent.
 
 ```python
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.inputs import ManualInputConfig
+from bytewax.testing import TestingInput
 from bytewax.outputs import StdOutputConfig
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
 from datetime import timedelta, datetime
-
-# For all examples below
-def input_builder(worker_index, worker_count, resume_from):
-    resume_from = None  # Ignore recovery logic
-    for e in data:
-        yield resume_from, e
 ```
 
 ### For flat map:
@@ -37,9 +36,9 @@ def split_sentence(sentence):
     return sentence.split()
 
 
-data = ["hello world"]
+inp = ["hello world"]
 flow = Dataflow()
-flow.input("inp", ManualInputConfig(input_builder))
+flow.input("inp", TestingInput(inp))
 
 # Operate on input
 flow.flat_map(split_sentence)
@@ -54,9 +53,9 @@ world
 ````
 
 ```python
-data = ["hello world"]
+inp = ["hello world"]
 flow = Dataflow()
-flow.input("inp", ManualInputConfig(input_builder))
+flow.input("inp", TestingInput(inp))
 
 # Operate on input
 flow.flat_map(lambda s: s.split())
@@ -71,9 +70,9 @@ world
 ```
 
 ```python
-data = ["hello world"]
+inp = ["hello world"]
 flow = Dataflow()
-flow.input("inp", ManualInputConfig(input_builder))
+flow.input("inp", TestingInput(inp))
 
 # Operate on input
 flow.flat_map(str.split)
@@ -98,9 +97,9 @@ def add_to_list(l, items):
 clock = SystemClockConfig()
 window = TumblingWindowConfig(length=timedelta(seconds=5))
 
-data = [("a", ["x"]), ("a", ["y"])]
+inp = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
-flow.input("inp", ManualInputConfig(input_builder))
+flow.input("inp", TestingInput(inp))
 
 # Operate on input
 flow.reduce_window("reduce", clock, window, add_to_list)
@@ -114,9 +113,9 @@ run_main(flow)
 ```
 
 ```python
-data = [("a", ["x"]), ("a", ["y"])]
+inp = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
-flow.input("inp", ManualInputConfig(input_builder))
+flow.input("inp", TestingInput(inp))
 
 # Operate on input
 flow.reduce_window("reduce", clock, window, lambda l1, l2: l1 + l2)
@@ -132,9 +131,9 @@ run_main(flow)
 ```python
 import operator
 
-data = [("a", ["x"]), ("a", ["y"])]
+inp = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
-flow.input("inp", ManualInputConfig(input_builder))
+flow.input("inp", TestingInput(inp))
 
 # Operate on input
 flow.reduce_window("reduce", clock, window, operator.add)
@@ -149,9 +148,12 @@ run_main(flow)
 
 ## Subflows
 
-If you find yourself repeating a series of steps in your dataflows or want to give some steps a descriptive name, you can group those steps into a **subflow** function which adds a sequence of steps.
-You can then call that subflow function whenever you need that step sequence.
-This is just calling a function.
+If you find yourself repeating a series of steps in your dataflows or
+want to give some steps a descriptive name, you can group those steps
+into a **subflow** function which adds a sequence of steps.
+
+You can then call that subflow function whenever you need that step
+sequence.  This is just calling a function.
 
 ```python
 def user_reducer(all_events, new_events):
@@ -170,9 +172,9 @@ def collect_user_events(flow, clock, window):
 clock = SystemClockConfig()
 window = TumblingWindowConfig(length=timedelta(seconds=5))
 
-data = [{"user_id": "1", "type": "login"}, {"user_id": "1", "type": "logout"}]
+inp = [{"user_id": "1", "type": "login"}, {"user_id": "1", "type": "logout"}]
 flow = Dataflow()
-flow.input("inp", ManualInputConfig(input_builder))
+flow.input("inp", TestingInput(inp))
 
 # Operate on input
 collect_user_events(flow, clock, window)

@@ -13,6 +13,10 @@ from typing import Any, Iterable, Optional, Tuple
 PartIter = Iterable[Optional[Tuple[Any, Any]]]
 """A single partition.
 
+Each partition must contain unique data. If you re-read the same data
+in multiple partitions, it'll the dataflow will process duplicate
+items.
+
 It must yield a two-tuple of `(state, item)` where the state will be
 returned to you via the `resume_state` parameter of
 `CustomPartInput.build_part`.
