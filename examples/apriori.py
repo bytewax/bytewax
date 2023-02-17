@@ -4,9 +4,9 @@ from collections import Counter
 from datetime import timedelta
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main, spawn_cluster
+from bytewax.execution import run_main
 from bytewax.inputs import ManualInputConfig
-from bytewax.outputs import ManualOutputConfig, StdOutputConfig, TestingOutputConfig
+from bytewax.outputs import TestingOutputConfig
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 

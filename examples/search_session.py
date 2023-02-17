@@ -87,7 +87,8 @@ def has_search(session):
     return any(is_search(event) for event in session)
 
 
-# From a list of events in a user session, split by Search() and return a list of search sessions.
+# From a list of events in a user session, split by Search() and
+# return a list of search sessions.
 def split_into_searches(user_session):
     search_session = []
     for event in user_session:

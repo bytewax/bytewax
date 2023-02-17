@@ -11,7 +11,6 @@ repos:
     rev: 4.0.1
     hooks:
       - id: flake8
-        exclude: docs|examples
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:

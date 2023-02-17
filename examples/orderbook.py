@@ -31,11 +31,9 @@ def ws_input(product_ids, state):
 def input_builder(worker_index, worker_count, resume_state):
     state = resume_state or None
     prods_per_worker = int(len(PRODUCT_IDS) / worker_count)
-    product_ids = PRODUCT_IDS[
-        int(worker_index * prods_per_worker) : int(
-            worker_index * prods_per_worker + prods_per_worker
-        )
-    ]
+    start_idx = int(worker_index * prods_per_worker)
+    end_idx = int(worker_index * prods_per_worker + prods_per_worker)
+    product_ids = PRODUCT_IDS[start_idx:end_idx]
     return ws_input(product_ids, state)
 
 
@@ -112,9 +110,19 @@ class OrderBook:
 flow = Dataflow()
 flow.input("input", ManualInputConfig(input_builder))
 flow.map(json.loads)
-# {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'}
+# {
+#     'type': 'l2update',
+#     'product_id': 'BTC-USD',
+#     'changes': [['buy', '36905.39', '0.00334873']],
+#     'time': '2022-05-05T17:25:09.072519Z',
+# }
 flow.map(key_on_product)
-# ('BTC-USD', {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'})
+# ('BTC-USD', {
+#     'type': 'l2update',
+#     'product_id': 'BTC-USD',
+#     'changes': [['buy', '36905.39', '0.00334873']],
+#     'time': '2022-05-05T17:25:09.072519Z',
+# })
 flow.stateful_map("order_book", lambda: OrderBook(), OrderBook.update)
 # ('BTC-USD', (36905.39, 0.00334873, 36905.4, 1.6e-05, 0.010000000002037268))
 flow.filter(
