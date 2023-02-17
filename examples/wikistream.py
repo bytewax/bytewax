@@ -16,18 +16,18 @@ from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
 class WikiStreamInput(CustomPartInput):
-    def list_keys(self):
+    def list_parts(self):
         # Wikimedia's SSE stream has no way to request disjoint data,
         # so we have only one partition.
         return ["single-stream"]
 
-    def build_part(self, _for_key, _resume_state):
+    def build_part(self, for_key, resume_state):
         # Since there is no way to rewind to SSE data we missed while
         # resuming a dataflow, we're going to ignore `resume_state`
         # and drop missed data. That's fine as long as we know to
         # interpret the results with that in mind.
-        assert _for_key == "single-stream"
-        assert _resume_state == None
+        assert for_key == "single-stream"
+        assert resume_state == None
 
         pool = urllib3.PoolManager()
         resp = pool.request(

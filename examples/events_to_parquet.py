@@ -15,7 +15,7 @@ from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
 class FakeWebEventsInput(CustomPartInput):
-    def list_keys(self):
+    def list_parts(self):
         return ["singleton"]
 
     def build_part(self, for_key, resume_state):

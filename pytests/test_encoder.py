@@ -26,7 +26,7 @@ def test_encoding_custom_input():
     flow = Dataflow()
 
     class MyCustomInput(CustomPartInput):
-        def list_keys(self):
+        def list_parts(self):
             return ["one"]
 
         def build_part(self, for_key, resume_state):

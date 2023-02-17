@@ -14,7 +14,7 @@ class CoinbaseFeedInput(CustomPartInput):
     def __init__(self, product_ids):
         self.product_ids = product_ids
 
-    def list_keys(self):
+    def list_parts(self):
         return self.product_ids
 
     def build_part(self, for_key, resume_state):

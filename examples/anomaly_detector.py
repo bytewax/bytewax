@@ -7,12 +7,12 @@ from bytewax.outputs import ManualOutputConfig
 
 
 class RandomMetricInput(CustomPartInput):
-    def list_keys(self):
+    def list_parts(self):
         return ["singleton"]
 
-    def build_part(self, _for_key, _resume_state):
-        assert _for_key == "singleton"
-        assert _resume_state is None
+    def build_part(self, for_part, resume_state):
+        assert for_part == "singleton"
+        assert resume_state is None
 
         for _ in range(20):
             yield None, ("QPS", random.randrange(0, 10))
