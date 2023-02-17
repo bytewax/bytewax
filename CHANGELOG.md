@@ -9,9 +9,6 @@ notes on GitHub when we make a new release.__
   get an "interleaved executions" panic whenever you resumed a cluster
   after the first time.
 
-- Added `HoppingWindowConfig` for windowing operators.
-- Add `filter_map` operator.
-
 ## 0.15.0
 
 - Fixes issue with multi-worker recovery. If the cluster crashed
