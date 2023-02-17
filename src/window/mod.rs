@@ -43,13 +43,13 @@ use timely::dataflow::Scope;
 use timely::{Data, ExchangeData};
 
 pub(crate) mod clock;
-pub(crate) mod hopping_window;
 pub(crate) mod session_window;
+pub(crate) mod sliding_window;
 pub(crate) mod tumbling_window;
 
-use self::hopping_window::HoppingWindowConfig;
 use self::session_window::SessionWindow;
-use self::tumbling_window::TumblingWindowConfig;
+use self::sliding_window::SlidingWindow;
+use self::tumbling_window::TumblingWindow;
 use clock::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig, ClockConfig};
 
 // Re-export for convenience.
@@ -100,9 +100,9 @@ pub(crate) trait WindowBuilder {
 
 impl PyConfigClass<Box<dyn WindowBuilder>> for Py<WindowConfig> {
     fn downcast(&self, py: Python) -> PyResult<Box<dyn WindowBuilder>> {
-        if let Ok(conf) = self.extract::<TumblingWindowConfig>(py) {
+        if let Ok(conf) = self.extract::<TumblingWindow>(py) {
             Ok(Box::new(conf))
-        } else if let Ok(conf) = self.extract::<HoppingWindowConfig>(py) {
+        } else if let Ok(conf) = self.extract::<SlidingWindow>(py) {
             Ok(Box::new(conf))
         } else if let Ok(conf) = self.extract::<SessionWindow>(py) {
             Ok(Box::new(conf))
@@ -486,8 +486,8 @@ pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<EventClockConfig>()?;
     m.add_class::<SystemClockConfig>()?;
     m.add_class::<WindowConfig>()?;
-    m.add_class::<TumblingWindowConfig>()?;
-    m.add_class::<HoppingWindowConfig>()?;
+    m.add_class::<TumblingWindow>()?;
+    m.add_class::<SlidingWindow>()?;
     m.add_class::<SessionWindow>()?;
     Ok(())
 }

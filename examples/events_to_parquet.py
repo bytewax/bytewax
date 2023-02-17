@@ -11,7 +11,7 @@ from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
 from bytewax.inputs import PartInput
 from bytewax.outputs import ManualOutputConfig
-from bytewax.window import SystemClockConfig, TumblingWindowConfig
+from bytewax.window import SystemClockConfig, TumblingWindow
 
 
 class FakeWebEventsInput(PartInput):
@@ -69,7 +69,7 @@ def drop_page(page__events_df):
 
 
 cc = SystemClockConfig()
-wc = TumblingWindowConfig(length=timedelta(seconds=5))
+wc = TumblingWindow(length=timedelta(seconds=5))
 
 flow = Dataflow()
 flow.input("input", FakeWebEventsInput())

@@ -21,16 +21,16 @@ use super::*;
 ///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=WindowConfig)]
 #[derive(Clone)]
-pub(crate) struct TumblingWindowConfig {
+pub(crate) struct TumblingWindow {
     #[pyo3(get)]
     pub(crate) length: chrono::Duration,
     #[pyo3(get)]
     pub(crate) start_at: Option<DateTime<Utc>>,
 }
 
-impl WindowBuilder for TumblingWindowConfig {
+impl WindowBuilder for TumblingWindow {
     fn build(&self, _py: Python) -> PyResult<Builder> {
-        Ok(Box::new(super::hopping_window::HoppingWindower::builder(
+        Ok(Box::new(super::sliding_window::SlidingWindower::builder(
             self.length,
             self.length,
             self.start_at.unwrap_or_else(Utc::now),
@@ -39,7 +39,7 @@ impl WindowBuilder for TumblingWindowConfig {
 }
 
 add_pymethods!(
-    TumblingWindowConfig,
+    TumblingWindow,
     parent: WindowConfig,
     py_args: (length, start_at = "None"),
     args {

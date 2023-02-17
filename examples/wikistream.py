@@ -10,7 +10,7 @@ from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import PartInput
 from bytewax.outputs import StdOutputConfig
-from bytewax.window import SystemClockConfig, TumblingWindowConfig
+from bytewax.window import SystemClockConfig, TumblingWindow
 
 
 class WikiStreamInput(PartInput):
@@ -59,7 +59,7 @@ flow.map(initial_count)
 flow.reduce_window(
     "sum",
     SystemClockConfig(),
-    TumblingWindowConfig(length=timedelta(seconds=2)),
+    TumblingWindow(length=timedelta(seconds=2)),
     operator.add,
 )
 # ("server.name", sum_per_window)

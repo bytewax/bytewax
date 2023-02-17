@@ -5,7 +5,7 @@ from bytewax.connectors.files import FileInput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.outputs import ManualOutputConfig
-from bytewax.window import SystemClockConfig, TumblingWindowConfig
+from bytewax.window import SystemClockConfig, TumblingWindow
 
 
 # You can define your own functions which add groupings of steps to a
@@ -18,7 +18,7 @@ def calc_counts(flow):
     flow.reduce_window(
         "sum",
         SystemClockConfig(),
-        TumblingWindowConfig(length=timedelta(seconds=5)),
+        TumblingWindow(length=timedelta(seconds=5)),
         operator.add,
     )
 

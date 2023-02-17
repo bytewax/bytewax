@@ -104,10 +104,10 @@ macro_rules! log_func {
 ///
 /// #[pyclass(module="bytewax.config", extends=WindowConfig)]
 /// #[derive(Clone)]
-/// struct HoppingWindowConfig { length: Duration };
+/// struct SlidingWindow { length: Duration };
 ///
 /// add_pymethods!(
-///     HoppingWindowConfig,
+///     SlidingWindow,
 ///     parent: WindowConfig,
 ///     py_args: (length,),
 ///     args {

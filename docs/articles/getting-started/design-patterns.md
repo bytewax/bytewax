@@ -25,7 +25,7 @@ from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.testing import TestingInput
 from bytewax.outputs import StdOutputConfig
-from bytewax.window import SystemClockConfig, TumblingWindowConfig
+from bytewax.window import SystemClockConfig, TumblingWindow
 from datetime import timedelta, datetime
 ```
 
@@ -95,7 +95,7 @@ def add_to_list(l, items):
 
 
 clock = SystemClockConfig()
-window = TumblingWindowConfig(length=timedelta(seconds=5))
+window = TumblingWindow(length=timedelta(seconds=5))
 
 inp = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
@@ -170,7 +170,7 @@ def collect_user_events(flow, clock, window):
 
 
 clock = SystemClockConfig()
-window = TumblingWindowConfig(length=timedelta(seconds=5))
+window = TumblingWindow(length=timedelta(seconds=5))
 
 inp = [{"user_id": "1", "type": "login"}, {"user_id": "1", "type": "logout"}]
 flow = Dataflow()

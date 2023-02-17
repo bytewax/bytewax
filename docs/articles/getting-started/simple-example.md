@@ -24,7 +24,7 @@ from bytewax.dataflow import Dataflow
 from bytewax.connectors.files import FileInput
 from bytewax.outputs import StdOutputConfig
 from bytewax.execution import run_main
-from bytewax.window import SystemClockConfig, TumblingWindowConfig
+from bytewax.window import SystemClockConfig, TumblingWindow
 
 
 def lower(line):
@@ -44,7 +44,7 @@ def add(count1, count2):
 
 
 clock_config = SystemClockConfig()
-window_config = TumblingWindowConfig(length=timedelta(seconds=5))
+window_config = TumblingWindow(length=timedelta(seconds=5))
 
 flow = Dataflow()
 flow.input("inp", FileInput("wordcount.txt"))
@@ -197,7 +197,7 @@ def add(count1, count2):
 
 # Configuration for time based windows.
 clock_config = SystemClockConfig()
-window_config = TumblingWindowConfig(length=timedelta(seconds=5))
+window_config = TumblingWindow(length=timedelta(seconds=5))
 
 flow.map(initial_count)
 flow.reduce_window("sum", clock_config, window_config, add)
@@ -215,7 +215,7 @@ This map sets up the shape that `reduce_window` needs: two-tuples where the key 
 
 How does reduce_window know **when** to emit combined items? That is what `clock_config` and `window_config` are for.
 [SystemClockConfig](/apidocs/bytewax.window#bytewax.window.SystemClockConfig) is used to synchronize the flow's clock to the system one.
-[TumblingWindowConfig](/apidocs/bytewax.window#bytewax.window.TumblingWindowConfig) instructs the flow to close windows every `length` period, 5 seconds in our case.
+[TumblingWindow](/apidocs/bytewax.window#bytewax.window.TumblingWindow) instructs the flow to close windows every `length` period, 5 seconds in our case.
 `reduce_window` will emit the accumulated value every 5 seconds, and once the input is completely consumed.
 
 
