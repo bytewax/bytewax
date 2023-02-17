@@ -415,44 +415,55 @@ impl SqliteProgressReader {
                             .expect("SQLite int can't fit into epoch; might be negative"),
                     );
                     let msg = ProgressMsg::Init(count, epoch);
-                    KChange(key, Change::Upsert(msg))
+                    (key, msg)
                 })
                 .fetch(&conn)
                 .map(|result| result.expect("Error selecting from SQLite"));
 
-            while let Some(kchange) = stream.next().await {
+            let mut last_ex = None;
+
+            while let Some((key, msg)) = stream.next().await {
+                let WorkerKey(ex, _index) = key;
+                last_ex = Some(ex);
+
+                let kchange = KChange(key, Change::Upsert(msg));
                 tracing::trace!("Reading progress change {kchange:?}");
                 tx.send(kchange).await.unwrap();
             }
 
-            // TODO: We really could only select progress from the
-            // latest execution.
-            let sql =
-                "SELECT execution, worker_index, frontier FROM progress ORDER BY execution ASC";
+            if let Some(ex) = last_ex {
+                let sql =
+                    "SELECT execution, worker_index, frontier FROM progress WHERE execution = ?1 ORDER BY frontier ASC";
 
-            let mut stream = query(&sql)
-                .map(|row: SqliteRow| {
-                    let ex = Execution(
-                        row.get::<i64, _>(0)
-                            .try_into()
-                            .expect("SQLite int can't fit into execution; might be negative"),
-                    );
-                    let index: WorkerIndex = row.get(1);
-                    let key = WorkerKey(ex, index);
-                    let epoch = WorkerFrontier(
-                        row.get::<i64, _>(2)
-                            .try_into()
-                            .expect("SQLite int can't fit into epoch; might be negative"),
-                    );
-                    let msg = ProgressMsg::Advance(epoch);
-                    KChange(key, Change::Upsert(msg))
-                })
-                .fetch(&conn)
-                .map(|result| result.expect("Error selecting from SQLite"));
+                let mut stream = query(&sql)
+                    .bind(
+                        <u64 as TryInto<i64>>::try_into(ex.0)
+                            .expect("execution can't fit into SQLite int"),
+                    )
+                    .map(|row: SqliteRow| {
+                        let ex = Execution(
+                            row.get::<i64, _>(0)
+                                .try_into()
+                                .expect("SQLite int can't fit into execution; might be negative"),
+                        );
+                        let index: WorkerIndex = row.get(1);
+                        let key = WorkerKey(ex, index);
+                        let epoch = WorkerFrontier(
+                            row.get::<i64, _>(2)
+                                .try_into()
+                                .expect("SQLite int can't fit into epoch; might be negative"),
+                        );
+                        let msg = ProgressMsg::Advance(epoch);
+                        (key, msg)
+                    })
+                    .fetch(&conn)
+                    .map(|result| result.expect("Error selecting from SQLite"));
 
-            while let Some(kchange) = stream.next().await {
-                tracing::trace!("Reading progress change {kchange:?}");
-                tx.send(kchange).await.unwrap();
+                while let Some((key, msg)) = stream.next().await {
+                    let kchange = KChange(key, Change::Upsert(msg));
+                    tracing::trace!("Reading progress change {kchange:?}");
+                    tx.send(kchange).await.unwrap();
+                }
             }
         });
 
