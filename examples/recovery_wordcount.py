@@ -5,7 +5,7 @@ from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
-from bytewax.recovery import KafkaRecoveryConfig, SqliteRecoveryConfig
+from bytewax.recovery import SqliteRecoveryConfig
 
 
 def input_builder(worker_index, worker_count, resume_state):
@@ -58,13 +58,7 @@ flow.stateful_map("running_count", count_builder, add)
 flow.capture(StdOutputConfig())
 
 
-recovery_config = KafkaRecoveryConfig(
-    ["127.0.0.1:9092"],
-    "wordcount",
-)
-# recovery_config = SqliteRecoveryConfig(
-#     ".",
-# )
+recovery_config = SqliteRecoveryConfig(".")
 
 if __name__ == "__main__":
     spawn_cluster(

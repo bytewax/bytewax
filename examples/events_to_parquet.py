@@ -76,7 +76,13 @@ flow.map(json.loads)
 flow.map(add_date_columns)
 # {"page_url_path": "/path", "year": 2022, "month": 1, "day": 5, ... }
 flow.map(group_by_page)
-# ("/path", DataFrame([{"page_url_path": "/path", "year": 2022, "month": 1, "day": 5, ... }]))
+# ("/path", DataFrame([{
+#     "page_url_path": "/path",
+#     "year": 2022,
+#     "month": 1,
+#     "day": 5,
+#     ...
+# }]))
 flow.reduce_window("reducer", cc, wc, append_event)
 # ("/path", DataFrame([{"page_url_path": "/path", ...}, ...]))
 flow.map(drop_page)
