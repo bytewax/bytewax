@@ -59,9 +59,9 @@ def create_sensor_events(topic_name, servers=["localhost:9092"]):
 def create_fake_events(topic_name, servers=["localhost:9092"]):
     producer = create_local_kafka_producer(topic_name)
 
-    for event in fake_events.generate_web_events():
+    simulation = Simulation(user_pool_size=5, sessions_per_day=100)
+    for event in simulation.run(duration_seconds=10):
         producer.produce(topic_name, json.dumps(event).encode())
-        # print(f"Published message to message broker. {event}")
 
     producer.flush()
 
