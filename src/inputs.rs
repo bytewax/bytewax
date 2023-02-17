@@ -77,8 +77,8 @@ impl CustomPartInput {
 
         let part_count = TotalPartCount(keys.len());
 
-        // Can't use collect because of `?`s.
-        let mut parts = HashMap::new();
+        let parts = keys
+            .into_iter()
         // We are using the [`StateKey`] routing hash as the way to
         // divvy up partitions to workers. This is kinda an abuse of
         // behavior, but also means we don't have to find a way to
@@ -86,24 +86,22 @@ impl CustomPartInput {
         // restore system, which would be more difficult as we have to
         // find a way to treat this kind of state key differently. I
         // might regret this.
-        for key in keys
-            .into_iter()
             .filter(|key| key.is_local(index, worker_count))
-        {
-            let state = resume_state
-                .remove(&key)
-                .map(StateBytes::de::<TdPyAny>)
-                .unwrap_or_else(|| py.None().into());
-            tracing::info!("{index:?} building input {step_id:?} partition {key:?} with resume state {state:?}");
-            let iter: Py<PyIterator> = self
-                .0
-                .call_method1(py, "build_part", (key.clone(), state.clone_ref(py)))?
-                .as_ref(py)
-                .iter()?
-                .into();
-            let part = PartIter { iter, state };
-            parts.insert(key, part);
-        }
+            .map(|key| {
+                let state = resume_state
+                    .remove(&key)
+                    .map(StateBytes::de::<TdPyAny>)
+                    .unwrap_or_else(|| py.None().into());
+                tracing::info!("{index:?} building input {step_id:?} partition {key:?} with resume state {state:?}");
+                let iter: Py<PyIterator> = self
+                    .0
+                    .call_method1(py, "build_part", (key.clone(), state.clone_ref(py)))?
+                    .as_ref(py)
+                    .iter()?
+                    .into();
+                let part = PartIter { iter, state };
+                Ok((key, part))
+            }).collect::<PyResult<HashMap<StateKey, PartIter>>>()?;
 
         let remaining_keys: Vec<StateKey> = resume_state.into_keys().into_iter().collect();
         assert!(remaining_keys.is_empty(), "Partition keys in resume state that are not in partition list; changing partition counts? recovery state routing bug?");
