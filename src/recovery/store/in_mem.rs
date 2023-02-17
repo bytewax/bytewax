@@ -371,7 +371,7 @@ impl InMemProgress {
         match in_ex.cmp(&self.ex) {
             // Execution should never regress because the entire cluster
             // is shut down before resuming.
-            Ordering::Less => panic!("Execution regressed"),
+            Ordering::Less => panic!("Cluster execution regressed"),
             // It's ok if in_ex == self.ex since we might have multiple
             // workers from the previous execution multiplexed into the
             // same progress partition.
@@ -393,15 +393,28 @@ impl InMemProgress {
 
     fn advance(&mut self, ex: Execution, worker: WorkerIndex, epoch: WorkerFrontier) {
         let in_ex: i128 = ex.0.into();
-        // Execution should never interleave because the entire
-        // cluster is shut down before resuming.
-        assert!(in_ex == self.ex, "Interleaved executions");
-        let last_epoch = self
-            .frontiers
-            .insert(worker, epoch)
-            .expect("Advancing unknown worker");
-        // Double check Timely's sanity and recovery store ordering.
-        assert!(last_epoch <= epoch, "Worker regressed");
+        // Each progress partition has an ordered view of events on
+        // some number of workers, so we should always see an init to
+        // an execution before any advances in that execution
+        // (otherwise a single worker has written progress
+        // out-of-order). But it is possible during resume that
+        // progress partitions are interleaved, so we might read all
+        // progress for one worker, then "go back in time" and all
+        // progress for a second worker. But that's fine, those old
+        // advance messages can be discarded because we know there was
+        // a later execution anyway.
+        assert!(
+            in_ex <= self.ex,
+            "Advance without init in single progress partition"
+        );
+        if in_ex == self.ex {
+            let last_epoch = self
+                .frontiers
+                .insert(worker, epoch)
+                .expect("Advancing unknown worker");
+            // Double check Timely's sanity and recovery store ordering.
+            assert!(last_epoch <= epoch, "Worker frontier regressed");
+        }
     }
 
     /// Calculate the resume execution and epoch from the previous
@@ -414,7 +427,7 @@ impl InMemProgress {
         let next_ex = Execution(
             next_ex
                 .try_into()
-                .expect("Next execution ID would be oversized"),
+                .expect("Next execution ID would overflow u64"),
         );
 
         assert!(
@@ -447,7 +460,7 @@ fn worker_count_works() {
 
 #[test]
 #[should_panic]
-fn init_panics_on_regress() {
+fn init_panics_on_execution_regress() {
     let mut progress = InMemProgress::new(WorkerCount(2));
 
     let ex1 = Execution(1);
@@ -470,16 +483,41 @@ fn init_panics_on_inconsistent_worker_count() {
 
 #[test]
 #[should_panic]
-fn advance_panics_on_regress() {
+fn advance_panics_on_frontier_regress() {
     let mut progress = InMemProgress::new(WorkerCount(2));
 
     let ex1 = Execution(1);
     progress.init(ex1, WorkerCount(3), ResumeEpoch(1));
 
     progress.advance(ex1, WorkerIndex(0), WorkerFrontier(2));
+    progress.advance(ex1, WorkerIndex(0), WorkerFrontier(1));
+}
+
+#[test]
+#[should_panic]
+fn advance_panics_on_execution_skip() {
+    let mut progress = InMemProgress::new(WorkerCount(2));
+
+    let ex1 = Execution(1);
+    progress.init(ex1, WorkerCount(3), ResumeEpoch(1));
+
+    let ex2 = Execution(2);
+    progress.advance(ex2, WorkerIndex(0), WorkerFrontier(2));
+}
+
+#[test]
+fn advance_ignores_late_executions() {
+    let mut progress = InMemProgress::new(WorkerCount(2));
+
+    let ex1 = Execution(1);
+    progress.init(ex1, WorkerCount(3), ResumeEpoch(4));
 
     let ex0 = Execution(0);
-    progress.advance(ex0, WorkerIndex(1), WorkerFrontier(3));
+    progress.advance(ex0, WorkerIndex(0), WorkerFrontier(2));
+
+    let found = progress.resume_from();
+    let expected = ResumeFrom(Execution(2), ResumeEpoch(4));
+    assert_eq!(found, expected);
 }
 
 #[test]
