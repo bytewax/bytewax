@@ -21,7 +21,7 @@ use super::*;
 pub(crate) struct SystemClockConfig {}
 
 impl<V> ClockBuilder<V> for SystemClockConfig {
-    fn build(&self, _py: Python) -> StringResult<Builder<V>> {
+    fn build(&self, _py: Python) -> PyResult<Builder<V>> {
         Ok(Box::new(move |_resume_snapshot| {
             Box::new(SystemClock::new())
         }))

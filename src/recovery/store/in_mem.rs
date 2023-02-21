@@ -121,8 +121,8 @@ impl<V> InMemStore<V> {
 fn filter_last_works() {
     let mut store = InMemStore::new();
 
-    let key1 = FlowKey(StepId("op1".to_owned()), StateKey::Hash("a".to_owned()));
-    let key2 = FlowKey(StepId("op1".to_owned()), StateKey::Hash("b".to_owned()));
+    let key1 = FlowKey(StepId("op1".to_owned()), StateKey("a".to_owned()));
+    let key2 = FlowKey(StepId("op1".to_owned()), StateKey("b".to_owned()));
 
     let upx = Change::Upsert("x".to_owned());
     let upy = Change::Upsert("y".to_owned());
@@ -162,8 +162,8 @@ fn drain_garbage_works() {
 
     let mut store = InMemStore::new();
 
-    let key1 = FlowKey(StepId("op1".to_owned()), StateKey::Hash("a".to_owned()));
-    let key2 = FlowKey(StepId("op1".to_owned()), StateKey::Hash("b".to_owned()));
+    let key1 = FlowKey(StepId("op1".to_owned()), StateKey("a".to_owned()));
+    let key2 = FlowKey(StepId("op1".to_owned()), StateKey("b".to_owned()));
 
     let upx = Change::Upsert("x".to_owned());
     let upy = Change::Upsert("y".to_owned());
@@ -202,7 +202,7 @@ fn drain_garbage_includes_newest_discard() {
 
     let mut store = InMemStore::new();
 
-    let key1 = FlowKey(StepId("op1".to_owned()), StateKey::Hash("a".to_owned()));
+    let key1 = FlowKey(StepId("op1".to_owned()), StateKey("a".to_owned()));
 
     let upx = Change::Upsert("x".to_owned());
     let upy = Change::Upsert("y".to_owned());
@@ -230,7 +230,7 @@ fn drain_garbage_includes_newest_discard() {
 fn drain_garbage_drops_unused_keys() {
     let mut store = InMemStore::new();
 
-    let key1 = FlowKey(StepId("op1".to_owned()), StateKey::Hash("a".to_owned()));
+    let key1 = FlowKey(StepId("op1".to_owned()), StateKey("a".to_owned()));
 
     let upx = Change::Upsert("x".to_owned());
     let upy = Change::Upsert("y".to_owned());
@@ -255,7 +255,7 @@ fn drain_garbage_drops_unused_keys() {
 fn drain_works() {
     let mut store = InMemStore::new();
 
-    let key1 = FlowKey(StepId("op1".to_owned()), StateKey::Hash("a".to_owned()));
+    let key1 = FlowKey(StepId("op1".to_owned()), StateKey("a".to_owned()));
 
     let upx = Change::Upsert("x".to_owned());
     let upy = Change::Upsert("y".to_owned());
@@ -294,7 +294,7 @@ impl<V> KWriter<StoreKey, Change<V>> for InMemStore<V> {
 fn write_upserts() {
     let mut store = InMemStore::new();
 
-    let key1 = FlowKey(StepId("op1".to_owned()), StateKey::Hash("a".to_owned()));
+    let key1 = FlowKey(StepId("op1".to_owned()), StateKey("a".to_owned()));
 
     let upx = Change::Upsert("x".to_owned());
     let upy = Change::Upsert("y".to_owned());
@@ -316,7 +316,7 @@ fn write_upserts() {
 fn write_discard_drops_key() {
     let mut store = InMemStore::new();
 
-    let key1 = FlowKey(StepId("op1".to_owned()), StateKey::Hash("a".to_owned()));
+    let key1 = FlowKey(StepId("op1".to_owned()), StateKey("a".to_owned()));
 
     let upx = Change::Upsert("x".to_owned());
 

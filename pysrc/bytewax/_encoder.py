@@ -16,6 +16,8 @@ class DataflowEncoder(json.JSONEncoder):
     """
 
     def default(self, obj):
+        if hasattr(obj, "__json__"):
+            return obj.__json__()
         if hasattr(obj, "__getstate__"):
             return obj.__getstate__()
         if isinstance(obj, types.BuiltinFunctionType):

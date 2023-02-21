@@ -29,7 +29,7 @@ pub(crate) struct TumblingWindowConfig {
 }
 
 impl WindowBuilder for TumblingWindowConfig {
-    fn build(&self, _py: Python) -> StringResult<Builder> {
+    fn build(&self, _py: Python) -> PyResult<Builder> {
         Ok(Box::new(super::hopping_window::HoppingWindower::builder(
             self.length,
             self.length,

@@ -1,6 +1,7 @@
 pandas
 pyarrow
 fake-web-events
+confluent-kafka
 
 # orderbook
 websocket-client
@@ -13,5 +14,5 @@ sseclient-py
 urllib3
 
 # rp-events-stream
-river==0.10.1 
+river==0.10.1
 pandas

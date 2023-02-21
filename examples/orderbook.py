@@ -1,40 +1,39 @@
 import json
 
-from websocket import create_connection  # pip install websocket-client
+# pip install websocket-client
+from websocket import create_connection
 
 from bytewax import parse
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
-from bytewax.inputs import ManualInputConfig
+from bytewax.inputs import PartInput
 from bytewax.outputs import StdOutputConfig
 
-PRODUCT_IDS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 
+class CoinbaseFeedInput(PartInput):
+    def __init__(self, product_ids):
+        self.product_ids = product_ids
 
-def ws_input(product_ids, state):
-    ws = create_connection("wss://ws-feed.pro.coinbase.com")
-    ws.send(
-        json.dumps(
-            {
-                "type": "subscribe",
-                "product_ids": product_ids,
-                "channels": ["level2"],
-            }
+    def list_parts(self):
+        return self.product_ids
+
+    def build_part(self, for_key, resume_state):
+        assert resume_state is None
+
+        ws = create_connection("wss://ws-feed.pro.coinbase.com")
+        ws.send(
+            json.dumps(
+                {
+                    "type": "subscribe",
+                    "product_ids": [for_key],
+                    "channels": ["level2"],
+                }
+            )
         )
-    )
-    # The first msg is just a confirmation that we have subscribed.
-    print(ws.recv())
-    while True:
-        yield state, ws.recv()
-
-
-def input_builder(worker_index, worker_count, resume_state):
-    state = resume_state or None
-    prods_per_worker = int(len(PRODUCT_IDS) / worker_count)
-    start_idx = int(worker_index * prods_per_worker)
-    end_idx = int(worker_index * prods_per_worker + prods_per_worker)
-    product_ids = PRODUCT_IDS[start_idx:end_idx]
-    return ws_input(product_ids, state)
+        # The first msg is just a confirmation that we have subscribed.
+        print(ws.recv())
+        while True:
+            yield None, ws.recv()
 
 
 def key_on_product(data):
@@ -108,7 +107,7 @@ class OrderBook:
 
 
 flow = Dataflow()
-flow.input("input", ManualInputConfig(input_builder))
+flow.input("input", CoinbaseFeedInput(["BTC-USD", "ETH-USD", "SOL-USD"]))
 flow.map(json.loads)
 # {
 #     'type': 'l2update',

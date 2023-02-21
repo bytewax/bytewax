@@ -39,7 +39,7 @@ impl OutputBuilder for ManualEpochOutputConfig {
         py: Python,
         worker_index: WorkerIndex,
         worker_count: WorkerCount,
-    ) -> crate::common::StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
+    ) -> PyResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
         Ok(Box::new(ManualEpochOutput::new(
             py,
             self.output_builder.clone(),

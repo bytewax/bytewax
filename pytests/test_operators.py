@@ -6,14 +6,10 @@ from threading import Event
 from pytest import fixture, raises
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main, spawn_cluster, TestingEpochConfig
-from bytewax.inputs import (
-    ManualInputConfig,
-    TestingBuilderInputConfig,
-    TestingInputConfig,
-)
-from bytewax.outputs import ManualOutputConfig, TestingOutputConfig
+from bytewax.execution import run_main, TestingEpochConfig
+from bytewax.outputs import TestingOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.testing import TestingInput
 from bytewax.window import EventClockConfig, TumblingWindowConfig
 
 # Stateful operators must test recovery to ensure serde works.
@@ -29,7 +25,7 @@ def test_map():
     flow = Dataflow()
 
     inp = [0, 1, 2]
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     def add_one(item):
         return item + 1
@@ -48,7 +44,7 @@ def test_filter_map():
     flow = Dataflow()
 
     inp = [0, 1, 2, 3, 4, 5]
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     def make_odd(item):
         if item % 2 != 0:
@@ -69,7 +65,7 @@ def test_flat_map():
     flow = Dataflow()
 
     inp = ["split this"]
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     def split_into_words(sentence):
         return sentence.split()
@@ -88,7 +84,7 @@ def test_filter():
     flow = Dataflow()
 
     inp = [1, 2, 3]
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     def is_odd(item):
         return item % 2 != 0
@@ -107,7 +103,7 @@ def test_inspect():
     flow = Dataflow()
 
     inp = ["a"]
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     seen = []
     flow.inspect(seen.append)
@@ -126,7 +122,7 @@ def test_inspect_epoch():
     flow = Dataflow()
 
     inp = ["a"]
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     seen = []
     flow.inspect_epoch(lambda epoch, item: seen.append((epoch, item)))
@@ -152,7 +148,7 @@ def test_reduce(recovery_config):
         {"user": "a", "type": "logout"},
         {"user": "b", "type": "logout"},
     ]
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     armed = Event()
     armed.set()
@@ -217,49 +213,6 @@ def test_reduce(recovery_config):
     )
 
 
-def test_integer_state_key_routes_to_worker(mp_ctx):
-    with mp_ctx.Manager() as man:
-        proc_count = 3
-        worker_count_per_proc = 2
-        worker_count = proc_count * worker_count_per_proc
-
-        flow = Dataflow()
-
-        # Every worker emits the entire range of (worker_index, 1)
-        def input_builder(worker_index, worker_count, resume_state):
-            assert resume_state is None
-            for i in range(worker_count):
-                yield None, (i, 1)
-
-        flow.input("inp", ManualInputConfig(input_builder))
-
-        flow.reduce("count", lambda x, s: s + x, lambda s: s >= worker_count)
-
-        out = man.dict()
-        for worker_index in range(worker_count):
-            out[worker_index] = man.list()
-
-        def output_builder(worker_index, worker_count):
-            def output_handler(item):
-                out[worker_index].append(item)
-
-            return output_handler
-
-        flow.capture(ManualOutputConfig(output_builder))
-
-        spawn_cluster(
-            flow, proc_count=proc_count, worker_count_per_proc=worker_count_per_proc
-        )
-
-        # Every worker should add up to the total number of
-        # workers. We have to turn the manager versions of the data
-        # structure back into the comparable versions.
-        assert {k: list(v) for k, v in out.items()} == {
-            worker_index: [(worker_index, worker_count)]
-            for worker_index in range(worker_count)
-        }
-
-
 def test_stateful_map(recovery_config):
     flow = Dataflow()
 
@@ -271,7 +224,7 @@ def test_stateful_map(recovery_config):
         "c",
         "a",
     ]
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     armed = Event()
     armed.set()
@@ -349,7 +302,7 @@ def test_stateful_map_error_on_non_kv_tuple():
         {"user": "b", "type": "login"},
         {"user": "b", "type": "post"},
     ]
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     def running_count(type_to_count, event):
         type_to_count[event["type"]] += 1
@@ -380,7 +333,7 @@ def test_stateful_map_error_on_non_string_key():
         {"user": {"id": 2}, "type": "login"},
         {"user": {"id": 2}, "type": "post"},
     ]
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     def add_key(event):
         # Note that event["user"] is an entire dict, but keys must be
@@ -413,15 +366,16 @@ def test_reduce_window(recovery_config):
     start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
     flow = Dataflow()
 
-    def gen():
-        yield ("ALL", {"time": start_at, "val": 1})
-        yield ("ALL", {"time": start_at + timedelta(seconds=4), "val": 1})
-        yield ("ALL", {"time": start_at + timedelta(seconds=8), "val": 1})
-        yield ("ALL", {"time": start_at + timedelta(seconds=12), "val": 1})
-        yield "BOOM"
-        yield ("ALL", {"time": start_at + timedelta(seconds=13), "val": 1})
+    inp = [
+        ("ALL", {"time": start_at, "val": 1}),
+        ("ALL", {"time": start_at + timedelta(seconds=4), "val": 1}),
+        ("ALL", {"time": start_at + timedelta(seconds=8), "val": 1}),
+        ("ALL", {"time": start_at + timedelta(seconds=12), "val": 1}),
+        "BOOM",
+        ("ALL", {"time": start_at + timedelta(seconds=13), "val": 1}),
+    ]
 
-    flow.input("inp", TestingBuilderInputConfig(gen))
+    flow.input("inp", TestingInput(inp))
 
     armed = Event()
     armed.set()
@@ -480,21 +434,22 @@ def test_fold_window(recovery_config):
     start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
     flow = Dataflow()
 
-    def gen():
-        yield {"time": start_at, "user": "a", "type": "login"}
-        yield {"time": start_at + timedelta(seconds=4), "user": "a", "type": "post"}
-        yield {"time": start_at + timedelta(seconds=8), "user": "a", "type": "post"}
+    inp = [
+        {"time": start_at, "user": "a", "type": "login"},
+        {"time": start_at + timedelta(seconds=4), "user": "a", "type": "post"},
+        {"time": start_at + timedelta(seconds=8), "user": "a", "type": "post"},
         # First 10 sec window closes during processing this input.
-        yield {"time": start_at + timedelta(seconds=12), "user": "b", "type": "login"}
-        yield {"time": start_at + timedelta(seconds=16), "user": "a", "type": "post"}
+        {"time": start_at + timedelta(seconds=12), "user": "b", "type": "login"},
+        {"time": start_at + timedelta(seconds=16), "user": "a", "type": "post"},
         # Crash before closing the window.
         # It will be emitted during the second run.
-        yield "BOOM"
+        "BOOM",
         # Second 10 sec window closes during processing this input.
-        yield {"time": start_at + timedelta(seconds=20), "user": "b", "type": "post"}
-        yield {"time": start_at + timedelta(seconds=24), "user": "b", "type": "post"}
+        {"time": start_at + timedelta(seconds=20), "user": "b", "type": "post"},
+        {"time": start_at + timedelta(seconds=24), "user": "b", "type": "post"},
+    ]
 
-    flow.input("inp", TestingBuilderInputConfig(gen))
+    flow.input("inp", TestingInput(inp))
 
     armed = Event()
     armed.set()
@@ -558,15 +513,16 @@ def test_collect_window(recovery_config):
     start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
     flow = Dataflow()
 
-    def gen():
-        yield ("ALL", {"time": start_at, "val": 1})
-        yield ("ALL", {"time": start_at + timedelta(seconds=4), "val": 1})
-        yield ("ALL", {"time": start_at + timedelta(seconds=8), "val": 1})
-        yield ("ALL", {"time": start_at + timedelta(seconds=12), "val": 1})
-        yield "BOOM"
-        yield ("ALL", {"time": start_at + timedelta(seconds=13), "val": 1})
+    inp = [
+        ("ALL", {"time": start_at, "val": 1}),
+        ("ALL", {"time": start_at + timedelta(seconds=4), "val": 1}),
+        ("ALL", {"time": start_at + timedelta(seconds=8), "val": 1}),
+        ("ALL", {"time": start_at + timedelta(seconds=12), "val": 1}),
+        "BOOM",
+        ("ALL", {"time": start_at + timedelta(seconds=13), "val": 1}),
+    ]
 
-    flow.input("inp", TestingBuilderInputConfig(gen))
+    flow.input("inp", TestingInput(inp))
 
     armed = Event()
     armed.set()

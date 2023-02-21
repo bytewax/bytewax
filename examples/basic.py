@@ -1,14 +1,7 @@
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
-from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
-
-
-def input_builder(worker_index, worker_count, state):
-    # Ignore state recovery here
-    state = None
-    for i in range(10):
-        yield state, i
+from bytewax.testing import TestingInput
 
 
 def double(x):
@@ -24,7 +17,7 @@ def stringy(x):
 
 
 flow = Dataflow()
-flow.input("input", ManualInputConfig(input_builder))
+flow.input("inp", TestingInput(range(10)))
 flow.map(double)
 flow.map(minus_one)
 flow.map(stringy)

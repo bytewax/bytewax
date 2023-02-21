@@ -4,8 +4,8 @@ import time
 from bytewax import parse
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
-from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
+from bytewax.testing import TestingInput
 from bytewax.tracing import OtlpTracingConfig, setup_tracing
 
 tracer = setup_tracing(
@@ -17,11 +17,10 @@ tracer = setup_tracing(
 )
 
 
-def input_builder(worker_index, worker_count, state):
-    state = None
+def inp():
     for i in range(50):
         time.sleep(0.5)
-        yield state, i
+        yield i
 
 
 def double(x):
@@ -37,7 +36,7 @@ def stringy(x):
 
 
 flow = Dataflow()
-flow.input("input", ManualInputConfig(input_builder))
+flow.input("inp", TestingInput(inp))
 flow.map(double)
 flow.map(minus_one)
 flow.map(stringy)

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Duration, Utc};
-use pyo3::{pyclass, Python};
+use pyo3::prelude::*;
 
-use crate::{add_pymethods, common::StringResult, window::WindowConfig};
+use crate::{add_pymethods, window::WindowConfig};
 
 use super::{Builder, InsertError, StateBytes, WindowBuilder, WindowKey, Windower};
 
@@ -49,7 +49,7 @@ add_pymethods!(
 );
 
 impl WindowBuilder for HoppingWindowConfig {
-    fn build(&self, _py: Python) -> StringResult<Builder> {
+    fn build(&self, _py: Python) -> PyResult<Builder> {
         Ok(Box::new(HoppingWindower::builder(
             self.length,
             self.offset,

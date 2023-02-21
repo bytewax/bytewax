@@ -10,15 +10,23 @@ notes on GitHub when we make a new release.__
   after the first time.
 
 - Added `HoppingWindowConfig` for windowing operators.
+
 - Add `filter_map` operator.
+
+- *Breaking change* New partition-based input API. This replaces
+  `ManualInputConfig` with a new `bytewax.inputs.PartInput`. See
+  `bytewax.inputs` for more info.
+
+- *Breaking change* `KafkaInputConfig` has been moved to
+  `bytewax.connectors.kafka.KafkaInput`.
 
 ## 0.15.0
 
-- Fixes issue with multi-worker recovery. If the cluster crashed
-  before all workers had completed their first epoch, the cluster
-  would resume from the incorrect position. This requires a change to
-  the recovery store. You cannot resume from recovery data written
-  with an older version.
+- *Breaking change* Fixes issue with multi-worker recovery. If the
+  cluster crashed before all workers had completed their first epoch,
+  the cluster would resume from the incorrect position. This requires
+  a change to the recovery store. You cannot resume from recovery data
+  written with an older version.
 
 ## 0.14.0
 
@@ -31,9 +39,9 @@ notes on GitHub when we make a new release.__
 - Fixes issue with multi-worker recovery. Previously resume data was
   being routed to the wrong worker so state would be missing.
 
-- The above two changes require that the recovery format has been
-  changed for all recovery stores. You cannot resume from recovery
-  data written with an older version.
+- *Breaking change* The above two changes require that the recovery
+  format has been changed for all recovery stores. You cannot resume
+  from recovery data written with an older version.
 
 - Adds an introspection web server to dataflow workers.
 

@@ -26,7 +26,7 @@ impl OutputBuilder for StdOutputConfig {
         py: Python,
         _worker_index: WorkerIndex,
         _worker_count: WorkerCount,
-    ) -> crate::common::StringResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
+    ) -> PyResult<Box<dyn OutputWriter<u64, TdPyAny>>> {
         Ok(Box::new(py.allow_threads(StdOutput::new)))
     }
 }

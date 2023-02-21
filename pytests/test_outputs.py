@@ -1,14 +1,14 @@
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.inputs import TestingInputConfig
 from bytewax.outputs import StdOutputConfig, TestingOutputConfig
+from bytewax.testing import TestingInput
 
 
 def test_capture():
     flow = Dataflow()
 
     inp = ["a", "b"]
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     out = []
     flow.capture(TestingOutputConfig(out))
@@ -22,7 +22,7 @@ def test_capture_multiple():
     flow = Dataflow()
 
     inp = ["a", "b"]
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     out1 = []
     flow.capture(TestingOutputConfig(out1))
@@ -42,7 +42,7 @@ def test_std_output(capfd):
     flow = Dataflow()
 
     inp = ["a", "b"]
-    flow.input("inp", TestingInputConfig(inp))
+    flow.input("inp", TestingInput(inp))
 
     flow.capture(StdOutputConfig())
 

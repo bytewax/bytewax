@@ -3,6 +3,47 @@
 import multiprocessing.dummy
 from contextlib import contextmanager
 from threading import Lock
+from typing import Any, Iterable
+
+from bytewax.inputs import PartInput
+
+
+class TestingInput(PartInput):
+    """Produce input from a Python iterable. You only want to use this
+    for unit testing.
+
+    The iterable must be identical on all workers; this will
+    automatically distribute the items across workers and handle
+    recovery.
+
+    Be careful using a generator as the iterable; if you fail and
+    attempt to resume the dataflow without rebuilding it, the
+    half-consumed generator will be re-used on recovery and early
+    input will be lost so resume will see the correct data.
+
+    Args:
+
+        it: Iterable for input.
+
+    """
+
+    __test__ = False
+
+    def __init__(self, it: Iterable[Any]):
+        self.it = it
+
+    def list_parts(self):
+        return ["iter"]
+
+    def build_part(self, for_key, resume_state):
+        assert for_key == "iter"
+        resume_i = resume_state or -1
+        for i, x in enumerate(self.it):
+            # Resume to one after the last completed read.
+            if i <= resume_i:
+                continue
+            yield i, x
+
 
 _print_lock = Lock()
 

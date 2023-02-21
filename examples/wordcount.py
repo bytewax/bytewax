@@ -2,17 +2,11 @@ import operator
 import re
 from datetime import timedelta
 
+from bytewax.connectors.files import FileInput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
-
-
-def input_builder(worker_index, worker_count, resume_state):
-    state = None  # ignore recovery
-    for line in open("examples/sample_data/wordcount.txt"):
-        yield state, line
 
 
 def lower(line):
@@ -31,7 +25,7 @@ cc = SystemClockConfig()
 wc = TumblingWindowConfig(length=timedelta(seconds=5))
 
 flow = Dataflow()
-flow.input("input", ManualInputConfig(input_builder))
+flow.input("inp", FileInput("examples/sample_data/wordcount.txt"))
 # Full line WITH uppercase
 flow.map(lower)
 # full line lowercased

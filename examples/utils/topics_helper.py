@@ -1,28 +1,29 @@
+import concurrent.futures
 import json
 import math
 from datetime import datetime, timedelta, timezone
 from random import random
 from time import sleep
 
-import fake_events
+# pip install pandas confluent-kafka fake-web-events
 import pandas as pd
-from kafka import KafkaAdminClient, KafkaProducer
-from kafka.admin import NewTopic
+from confluent_kafka import Producer
+from confluent_kafka.admin import AdminClient, NewTopic
+from fake_web_events import Simulation
 
 
 def create_local_kafka_producer(topic_name, servers=["localhost:9092"]):
-    topic_name = topic_name
-    producer = KafkaProducer(bootstrap_servers=servers)
+    config = {
+        "bootstrap.servers": ",".join(servers),
+    }
 
-    try:
-        # Create Kafka topic
-        topic = NewTopic(name=topic_name, num_partitions=3, replication_factor=1)
-        admin = KafkaAdminClient(bootstrap_servers=servers)
-        admin.create_topics([topic])
-    except Exception:
-        print(f"Topic {topic_name} is already created")
+    # Create Kafka topic
+    admin = AdminClient(config)
+    topic = NewTopic(topic_name, num_partitions=3)
+    for future in admin.create_topics([topic]).values():
+        concurrent.futures.wait([future])
 
-    return producer
+    return Producer(config)
 
 
 def create_temperature_events(topic_name, servers=["localhost:9092"]):
@@ -32,8 +33,10 @@ def create_temperature_events(topic_name, servers=["localhost:9092"]):
         if random() > 0.8:
             dt = dt - timedelta(minutes=random())
         event = {"type": "temp", "value": i, "time": dt.isoformat()}
-        producer.send(topic_name, json.dumps(event).encode("utf-8"))
+        producer.produce(topic_name, json.dumps(event).encode("utf-8"))
         sleep(random())
+
+    producer.flush()
 
 
 def create_sensor_events(topic_name, servers=["localhost:9092"]):
@@ -47,16 +50,20 @@ def create_sensor_events(topic_name, servers=["localhost:9092"]):
             "value": i,
             "time": dt.isoformat(),
         }
-        producer.send(topic_name, json.dumps(event).encode("utf-8"))
+        producer.produce(topic_name, json.dumps(event).encode("utf-8"))
         sleep(random())
+
+    producer.flush()
 
 
 def create_fake_events(topic_name, servers=["localhost:9092"]):
     producer = create_local_kafka_producer(topic_name)
 
-    for event in fake_events.generate_web_events():
-        producer.send(topic_name, json.dumps(event).encode())
-        # print(f"Published message to message broker. {event}")
+    simulation = Simulation(user_pool_size=5, sessions_per_day=100)
+    for event in simulation.run(duration_seconds=10):
+        producer.produce(topic_name, json.dumps(event).encode())
+
+    producer.flush()
 
 
 def create_anomaly_stream(topic_name, servers=["localhost:9092"]):
@@ -64,7 +71,9 @@ def create_anomaly_stream(topic_name, servers=["localhost:9092"]):
 
     df = pd.read_csv("examples/sample_data/ec2_metrics.csv")
     for row in df[["index", "timestamp", "value", "instance"]].to_dict("records"):
-        producer.send(topic_name, json.dumps(row).encode())
+        producer.produce(topic_name, json.dumps(row).encode())
+
+    producer.flush()
 
 
 def create_driver_stream(topic_name, servers=["localhost:9092"]):
@@ -79,8 +88,6 @@ def create_driver_stream(topic_name, servers=["localhost:9092"]):
     ].to_dict("records"):
         row["event_timestamp"] = row["event_timestamp"].strftime("%Y-%m-%d %H:%M:%S")
         row["created"] = row["created"].strftime("%Y-%m-%d %H:%M:%S")
-        producer.send(topic_name, json.dumps(row).encode())
+        producer.produce(topic_name, json.dumps(row).encode())
 
-
-if __name__ == "__main__":
-    create_anomaly_stream("ec2_metrics")
+    producer.flush()

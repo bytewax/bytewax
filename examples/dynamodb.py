@@ -4,9 +4,9 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from bytewax.connectors.dynamodb.outputs import DynamoDBOutputConfig
+from bytewax.connectors.kafka import KafkaInput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.inputs import KafkaInputConfig
 from bytewax.recovery import KafkaRecoveryConfig
 from bytewax.window import EventClockConfig, TumblingWindowConfig
 
@@ -68,7 +68,7 @@ def format(event):
 
 
 flow = Dataflow()
-flow.input("inp", KafkaInputConfig(brokers=["localhost:9092"], topic="input_topic"))
+flow.input("inp", KafkaInput(["localhost:9092"], "input_topic"))
 flow.map(deserialize)
 # Here is where we use the event time processing, with
 # the fold_window operator.

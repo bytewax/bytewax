@@ -1,26 +1,11 @@
 import re
 
 from bytewax import parse
+from bytewax.connectors.files import FileInput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
-from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
-
-
-def input_builder(worker_index, worker_count, resume_state):
-    with open("examples/sample_data/wordcount.txt") as lines:
-        resume_state = resume_state or 0
-        for i, line in enumerate(lines):
-            if i < resume_state:
-                continue
-            if i % worker_count != worker_index:
-                continue
-            # "Fix" by commenting out these two lines below and re-run
-            if i == 3:
-                raise RuntimeError("boom")
-            resume_state += 1
-            yield (resume_state, line)
 
 
 def lower(line):
@@ -32,6 +17,8 @@ def tokenize(line):
 
 
 def initial_count(word):
+    if word == "arrows":
+        raise RuntimeError("BOOM")
     return word, 1
 
 
@@ -45,7 +32,7 @@ def add(running_count, new_count):
 
 
 flow = Dataflow()
-flow.input("input", ManualInputConfig(input_builder))
+flow.input("inp", FileInput("examples/sample_data/wordcount.txt"))
 # "Here, we have FULL sentences."
 flow.map(lower)
 # "here, we have lowercase sentences."

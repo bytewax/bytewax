@@ -5,7 +5,6 @@
 //! [`StateBytes`].
 
 use super::change::*;
-use super::progress::WorkerIndex;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
@@ -14,7 +13,6 @@ use std::cell::RefCell;
 use std::collections::hash_map;
 use std::collections::hash_map::Keys;
 use std::collections::HashMap;
-use std::fmt::Display;
 use std::hash::Hash;
 use std::rc::Rc;
 
@@ -24,12 +22,6 @@ use std::rc::Rc;
 /// between operators.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct StepId(pub(crate) String);
-
-impl Display for StepId {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        fmt.write_str(&self.0)
-    }
-}
 
 /// Key to route state within a dataflow step.
 ///
@@ -42,13 +34,8 @@ impl Display for StepId {
 /// be hashable, have equality, debug printable, and is serde-able and
 /// we can't guarantee those things are correct on any arbitrary
 /// Python type.
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum StateKey {
-    /// An arbitrary string key.
-    Hash(String),
-    /// Route to a specific worker.
-    Worker(WorkerIndex),
-}
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub(crate) struct StateKey(pub(crate) String);
 
 /// Key to route state within a whole dataflow.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,6 +113,10 @@ pub(crate) struct StepStateBytes(HashMap<StateKey, StateBytes>);
 impl StepStateBytes {
     pub(crate) fn remove(&mut self, key: &StateKey) -> Option<StateBytes> {
         self.0.remove(key)
+    }
+
+    pub(crate) fn into_keys(self) -> impl IntoIterator<Item = StateKey> {
+        self.0.into_keys()
     }
 }
 
