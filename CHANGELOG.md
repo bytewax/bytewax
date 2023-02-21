@@ -5,6 +5,8 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## 0.15.1
+
 - Fixes an issue with SQLite-based recovery. Previously you'd always
   get an "interleaved executions" panic whenever you resumed a cluster
   after the first time.
