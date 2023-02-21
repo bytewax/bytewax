@@ -1,5 +1,3 @@
-from threading import Event
-
 from pytest import fixture, raises
 
 from bytewax.dataflow import Dataflow
@@ -23,7 +21,7 @@ def recovery_config(tmp_path, request):
 # are implemented using it.
 
 
-def build_keep_max_dataflow(armed, inp):
+def build_keep_max_dataflow(inp, explode_on):
     """Builds a dataflow that keeps track of the largest value seen for
     each key, but also allows you to reset the max with a value of
     `None`. Input is `(key, value, should_explode)`. Will throw
@@ -35,9 +33,8 @@ def build_keep_max_dataflow(armed, inp):
     flow.input("inp", TestingInputConfig(inp))
 
     def trigger(item):
-        """Odd numbers cause exception if armed."""
         key, value, should_explode = item
-        if armed.is_set() and should_explode:
+        if should_explode == explode_on:
             raise RuntimeError("BOOM")
         return key, value
 
@@ -59,10 +56,6 @@ def build_keep_max_dataflow(armed, inp):
 
 
 def test_recover_with_latest_state(recovery_config):
-    armed = Event()
-    # Will explode on first run.
-    armed.set()
-
     # Epoch is incremented after each item.
     inp = [
         # Epoch 0
@@ -70,16 +63,22 @@ def test_recover_with_latest_state(recovery_config):
         # Epoch 1
         ("b", 4, False),
         # Epoch 2
-        # Will fail here on first pass.
-        ("a", 1, "BOOM"),
+        # Will fail here on first execution.
+        ("a", 1, "BOOM1"),
+        # Epoch 3
+        ("b", 9, False),
+        # Epoch 4
+        # Will fail here on second execution.
+        ("a", 9, "BOOM2"),
         # Epoch 3
         ("b", 1, False),
     ]
+
     out = []
-    flow = build_keep_max_dataflow(armed, inp)
+    flow = build_keep_max_dataflow(inp, "BOOM1")
     flow.capture(TestingEpochOutputConfig(out))
 
-    # First pass.
+    # First execution.
     with raises(RuntimeError):
         run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
@@ -90,9 +89,27 @@ def test_recover_with_latest_state(recovery_config):
         ]
     )
 
-    # Disable bomb.
-    armed.clear()
-    out.clear()
+    # Disable first bomb.
+    out = []
+    flow = build_keep_max_dataflow(inp, "BOOM2")
+    flow.capture(TestingEpochOutputConfig(out))
+
+    # Second execution.
+    with raises(RuntimeError):
+        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+
+    # Restarts from failed epoch.
+    assert sorted(out) == sorted(
+        [
+            (2, ("a", 4)),
+            (3, ("b", 9)),
+        ]
+    )
+
+    # Disable second bomb.
+    out = []
+    flow = build_keep_max_dataflow(inp, None)
+    flow.capture(TestingEpochOutputConfig(out))
 
     # Recover.
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
@@ -100,17 +117,13 @@ def test_recover_with_latest_state(recovery_config):
     # Restarts from failed epoch.
     assert sorted(out) == sorted(
         [
-            (2, ("a", 4)),
-            (3, ("b", 4)),
+            (4, ("a", 9)),
+            (5, ("b", 9)),
         ]
     )
 
 
 def test_recover_doesnt_gc_last_write(recovery_config):
-    armed = Event()
-    # Will explode on first run.
-    armed.set()
-
     # Epoch is incremented after each item.
     inp = [
         # Epoch 0
@@ -126,16 +139,17 @@ def test_recover_doesnt_gc_last_write(recovery_config):
         # Epoch 4
         ("b", 4, False),
         # Epoch 5
-        # Will fail here on first pass.
-        ("b", 5, "BOOM"),
+        # Will fail here on first execution.
+        ("b", 5, "BOOM1"),
         # Epoch 6
         ("a", 1, False),
     ]
+
     out = []
-    flow = build_keep_max_dataflow(armed, inp)
+    flow = build_keep_max_dataflow(inp, "BOOM1")
     flow.capture(TestingEpochOutputConfig(out))
 
-    # First pass.
+    # First execution.
     with raises(RuntimeError):
         run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
@@ -150,8 +164,9 @@ def test_recover_doesnt_gc_last_write(recovery_config):
     )
 
     # Disable bomb.
-    armed.clear()
-    out.clear()
+    out = []
+    flow = build_keep_max_dataflow(inp, None)
+    flow.capture(TestingEpochOutputConfig(out))
 
     # Recover.
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
@@ -167,10 +182,6 @@ def test_recover_doesnt_gc_last_write(recovery_config):
 
 
 def test_recover_respects_delete(recovery_config):
-    armed = Event()
-    # Will explode on first run.
-    armed.set()
-
     # Epoch is incremented after each item.
     inp = [
         # Epoch 0
@@ -183,17 +194,18 @@ def test_recover_respects_delete(recovery_config):
         # Epoch 3
         ("b", 2, False),
         # Epoch 4
-        # Will fail here on first pass.
-        ("b", 5, "BOOM"),
+        # Will fail here on first execution.
+        ("b", 5, "BOOM1"),
         # Epoch 5
         # Should be max for "a" on resume.
         ("a", 2, False),
     ]
+
     out = []
-    flow = build_keep_max_dataflow(armed, inp)
+    flow = build_keep_max_dataflow(inp, "BOOM1")
     flow.capture(TestingEpochOutputConfig(out))
 
-    # First pass.
+    # First execution.
     with raises(RuntimeError):
         run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
 
@@ -207,8 +219,9 @@ def test_recover_respects_delete(recovery_config):
     )
 
     # Disable bomb.
-    armed.clear()
-    out.clear()
+    out = []
+    flow = build_keep_max_dataflow(inp, None)
+    flow.capture(TestingEpochOutputConfig(out))
 
     # Recover.
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
@@ -224,10 +237,6 @@ def test_recover_respects_delete(recovery_config):
 
 
 def test_continuation(entry_point, inp, out, recovery_config):
-    # Not used for continuation, but we want to re-use
-    # build_keep_max_dataflow.
-    armed = Event()
-
     # Since we're modifying the input, use the fixture so it works
     # across processes. Currently, `inp = []`.
     inp.extend(
@@ -236,7 +245,7 @@ def test_continuation(entry_point, inp, out, recovery_config):
             ("b", 4, False),
         ]
     )
-    flow = build_keep_max_dataflow(armed, inp)
+    flow = build_keep_max_dataflow(inp, None)
     flow.capture(TestingOutputConfig(out))
 
     entry_point(flow, recovery_config=recovery_config)
@@ -267,6 +276,29 @@ def test_continuation(entry_point, inp, out, recovery_config):
     assert sorted(out) == sorted(
         [
             ("a", 4),
+            ("b", 5),
+        ]
+    )
+
+    # Add more new input. Don't clear because `TestingInputConfig` needs
+    # the initial items so the resume epoch skips to here.
+    inp.extend(
+        [
+            ("a", 8, False),
+            ("b", 1, False),
+        ]
+    )
+    # Unfortunately `ListProxy`, which we'd use in the cluster entry
+    # point, does not have `clear`.
+    del out[:]
+
+    # Continue again.
+    entry_point(flow, recovery_config=recovery_config)
+
+    # Incorporates new input.
+    assert sorted(out) == sorted(
+        [
+            ("a", 8),
             ("b", 5),
         ]
     )
