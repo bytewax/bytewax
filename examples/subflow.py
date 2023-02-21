@@ -35,7 +35,8 @@ def output_builder(worker_index, worker_count):
             print(f"There was one word with a count of {times_appearing}")
         else:
             print(
-                f"There were {num_words_with_the_same_count} different words with a count of {times_appearing}"
+                f"There were {num_words_with_the_same_count} different words "
+                f"with a count of {times_appearing}"
             )
 
     return format_and_print_output

@@ -39,12 +39,11 @@ from doctest import Example, OPTIONFLAGS_BY_NAME, OutputChecker, register_option
 from io import StringIO
 from pathlib import Path
 from traceback import print_exc
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator
 
 import myst_parser.main
 from _pytest._code.code import ReprFileLocation, TerminalRepr
 from _pytest._io import TerminalWriter
-from _pytest.capture import FDCapture
 from pytest import File, Item
 
 SORT_OUTPUT = register_optionflag("SORT_OUTPUT")
@@ -179,7 +178,7 @@ class TestCode:
                     # dictionary. See
                     # https://docs.python.org/3/library/functions.html#exec
                     exec(code, self.globs, self.globs)
-            except:
+            except:  # noqa: E722
                 print_exc(file=capture)
 
         found = capture.getvalue()
@@ -279,10 +278,11 @@ def _parse_checker_flags(info_args):
     flags = 0
     for arg in info_args:
         if arg.startswith("doctest:"):
-            name = arg[len("doctest:") :]
+            name = arg[len("doctest:") :]  # noqa: E203
             if name not in OPTIONFLAGS_BY_NAME:
                 raise ValueError(
-                    f"unknown doctest flag {name!r}; options are {sorted(OPTIONFLAGS_BY_NAME.keys())}"
+                    f"unknown doctest flag {name!r}; "
+                    f"options are {sorted(OPTIONFLAGS_BY_NAME.keys())}"
                 )
             bit = OPTIONFLAGS_BY_NAME[name]
             flags |= bit
@@ -320,9 +320,11 @@ class MdTestFile(File):
             missing.
 
             """
-            assert (
-                code is not None
-            ), f"Test output at {expected.text.path}:{expected.text.content_first_line} needs a proceeding code block"
+            assert code is not None, (
+                "Test output at "
+                f"{expected.text.path}:{expected.text.content_first_line} "
+                "needs a proceeding code block"
+            )
             if not code.checker_flags & doctest.SKIP:
                 yield MdTestItem.from_parent(
                     parent=self,

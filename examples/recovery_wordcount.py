@@ -45,9 +45,7 @@ flow.stateful_map("running_count", count_builder, add)
 flow.capture(StdOutputConfig())
 
 
-recovery_config = SqliteRecoveryConfig(
-    ".",
-)
+recovery_config = SqliteRecoveryConfig(".")
 
 if __name__ == "__main__":
     spawn_cluster(

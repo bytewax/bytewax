@@ -4,12 +4,12 @@
 ###################
 # ---IMPORTANT--- #
 ###################
-# To run this example you will need to run a Redpanda cluster - https://docs.redpanda.com/
-# and create a stream using the file in examples/utils/topics_helper.py
+# To run this example you will need to run a Redpanda cluster -
+# https://docs.redpanda.com/ and create a stream using the file in
+# examples/utils/topics_helper.py
 
 import json
 
-import pandas as pd
 from river import anomaly
 
 from bytewax.connectors.kafka import KafkaInput
@@ -82,7 +82,10 @@ def output_builder(worker_index, worker_count):
     def handler(event):
         instance, (index, t, value, score, is_anomalous) = event
         print(
-            f"{instance}: time = {t}, value = {value:.3f}, score = {score:.2f}, {is_anomalous}"
+            f"{instance}: time = {t}, "
+            f"value = {value:.3f}, "
+            f"score = {score:.2f}, "
+            f"{is_anomalous}"
         )
 
     return handler

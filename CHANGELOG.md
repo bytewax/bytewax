@@ -5,6 +5,10 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes an issue with SQLite-based recovery. Previously you'd always
+  get an "interleaved executions" panic whenever you resumed a cluster
+  after the first time.
+
 - Added `HoppingWindowConfig` for windowing operators.
 
 - Add `filter_map` operator.

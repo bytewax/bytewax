@@ -109,9 +109,19 @@ class OrderBook:
 flow = Dataflow()
 flow.input("input", CoinbaseFeedInput(["BTC-USD", "ETH-USD", "SOL-USD"]))
 flow.map(json.loads)
-# {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'}
+# {
+#     'type': 'l2update',
+#     'product_id': 'BTC-USD',
+#     'changes': [['buy', '36905.39', '0.00334873']],
+#     'time': '2022-05-05T17:25:09.072519Z',
+# }
 flow.map(key_on_product)
-# ('BTC-USD', {'type': 'l2update', 'product_id': 'BTC-USD', 'changes': [['buy', '36905.39', '0.00334873']], 'time': '2022-05-05T17:25:09.072519Z'})
+# ('BTC-USD', {
+#     'type': 'l2update',
+#     'product_id': 'BTC-USD',
+#     'changes': [['buy', '36905.39', '0.00334873']],
+#     'time': '2022-05-05T17:25:09.072519Z',
+# })
 flow.stateful_map("order_book", lambda: OrderBook(), OrderBook.update)
 # ('BTC-USD', (36905.39, 0.00334873, 36905.4, 1.6e-05, 0.010000000002037268))
 flow.filter(

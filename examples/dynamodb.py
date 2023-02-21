@@ -49,6 +49,7 @@ wc = TumblingWindowConfig(start_at=start_at, length=timedelta(seconds=5))
 # Configure the `fold_window` operator to use the event time.
 cc = EventClockConfig(get_event_time, wait_for_system_duration=timedelta(seconds=10))
 
+
 # Calculate the average of the values for each window, and
 # format the data as a map for DynamoDB
 def format(event):

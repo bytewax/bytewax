@@ -12,11 +12,14 @@ input_dir = Path("./examples/sample_data/cluster")
 output_dir = Path("./cluster_out/")
 recovery_dir = Path("./cluster_recovery/")
 
+
 flow = Dataflow()
 
 flow.input("inp", DirInput(input_dir))
 
+
 flow.map(str.upper)
+
 
 # Give the dataflow a way to fail mid-way.
 def trigger(item):
@@ -31,6 +34,7 @@ def output_builder(worker_index, worker_count):
     output_dir.mkdir(exist_ok=True)
     # Open a file that just this worker will write to.
     write_to = open(output_dir / f"worker{worker_index}.out", "a")
+
     # Build a function that can be called for each captured output.
     def write(item):
         write_to.write(f"{item}\n")
@@ -69,8 +73,10 @@ if __name__ == "__main__":
 
     # Then we can try out recovery if a worker crashes:
 
-    # $ FAIL=true python ./examples/manual_cluster.py -p0 -a localhost:2101 -a localhost:2102
-    # $ FAIL=true python ./examples/manual_cluster.py -p1 -a localhost:2101 -a localhost:2102
+    # $ FAIL=true python ./examples/manual_cluster.py -p0 -a localhost:2101 \
+    #     -a localhost:2102
+    # $ FAIL=true python ./examples/manual_cluster.py -p1 -a localhost:2101 \
+    #     -a localhost:2102
 
     # If you look at ./cluster_out/worker0.out you'll see partial
     # data.

@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 from bytewax import parse
@@ -21,6 +20,7 @@ def output_builder(worker_index, worker_count):
     output_dir.mkdir(exist_ok=True)
     # Open a file that just this worker will write to.
     write_to = open(output_dir / f"worker{worker_index}.out", "a")
+
     # Build a function that can be called for each captured output.
     def write(item):
         write_to.write(f"{item}\n")
@@ -41,7 +41,8 @@ if __name__ == "__main__":
     # Run these commands in your terminal to run a cluster of two containers:
 
     # $ tar -C ./ -cvf cluster.tar examples
-    # $ waxctl dataflow deploy ./cluster.tar --name k8s-cluster --python-file-name examples/k8s_cluster.py -p2
+    # $ waxctl dataflow deploy ./cluster.tar --name k8s-cluster \
+    #     --python-file-name examples/k8s_cluster.py -p2
 
     # Each worker will read the files in
     # ./examples/sample_data/cluster/*.txt which have lines like
