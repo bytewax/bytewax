@@ -14,7 +14,7 @@ PartIter = Iterable[Optional[Tuple[Any, Any]]]
 """A single partition.
 
 Each partition must contain unique data. If you re-read the same data
-in multiple partitions, it'll the dataflow will process duplicate
+in multiple partitions, the dataflow will process these duplicate
 items.
 
 It must yield a two-tuple of `(state, item)` where the state will be
