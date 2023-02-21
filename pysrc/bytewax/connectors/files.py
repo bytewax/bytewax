@@ -34,6 +34,11 @@ class DirInput(CustomPartInput):
     """
 
     def __init__(self, dir: Path, glob_pat: str = "*"):
+        if not dir.exists():
+            raise ValueError(f"input directory `{dir}` does not exist")
+        if not dir.is_dir():
+            raise ValueError(f"input directory `{dir}` is not a directory")
+
         self.dir = dir
         self.glob_pat = glob_pat
 

@@ -8,7 +8,7 @@ from bytewax.execution import cluster_main, TestingEpochConfig
 from bytewax.outputs import ManualOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
 
-input_dir = Path("./examples/sample_data/cluster/partition-1.txt")
+input_dir = Path("./examples/sample_data/cluster")
 output_dir = Path("./cluster_out/")
 recovery_dir = Path("./cluster_recovery/")
 
