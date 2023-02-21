@@ -2,11 +2,11 @@ import random
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
-from bytewax.inputs import CustomPartInput
+from bytewax.inputs import PartInput
 from bytewax.outputs import ManualOutputConfig
 
 
-class RandomMetricInput(CustomPartInput):
+class RandomMetricInput(PartInput):
     def list_parts(self):
         return ["singleton"]
 

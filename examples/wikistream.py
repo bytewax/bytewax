@@ -6,16 +6,14 @@ from datetime import timedelta
 import sseclient
 import urllib3
 
-from bytewax import parse
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main, spawn_cluster
-from bytewax.inputs import CustomPartInput
+from bytewax.execution import run_main
+from bytewax.inputs import PartInput
 from bytewax.outputs import StdOutputConfig
-from bytewax.recovery import SqliteRecoveryConfig
 from bytewax.window import SystemClockConfig, TumblingWindowConfig
 
 
-class WikiStreamInput(CustomPartInput):
+class WikiStreamInput(PartInput):
     def list_parts(self):
         # Wikimedia's SSE stream has no way to request disjoint data,
         # so we have only one partition.
@@ -27,7 +25,7 @@ class WikiStreamInput(CustomPartInput):
         # and drop missed data. That's fine as long as we know to
         # interpret the results with that in mind.
         assert for_key == "single-stream"
-        assert resume_state == None
+        assert resume_state is None
 
         pool = urllib3.PoolManager()
         resp = pool.request(
@@ -75,8 +73,4 @@ flow.capture(StdOutputConfig())
 
 
 if __name__ == "__main__":
-    run_main(
-        flow,
-        # recovery_config=SqliteRecoveryConfig("."),
-        # **parse.cluster_args(),
-    )
+    run_main(flow)

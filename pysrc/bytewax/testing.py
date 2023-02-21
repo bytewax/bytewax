@@ -5,10 +5,10 @@ from contextlib import contextmanager
 from threading import Lock
 from typing import Any, Iterable
 
-from bytewax.inputs import CustomPartInput
+from bytewax.inputs import PartInput
 
 
-class TestingInput(CustomPartInput):
+class TestingInput(PartInput):
     """Produce input from a Python iterable. You only want to use this
     for unit testing.
 

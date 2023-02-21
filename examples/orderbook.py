@@ -6,11 +6,11 @@ from websocket import create_connection
 from bytewax import parse
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
-from bytewax.inputs import CustomPartInput
+from bytewax.inputs import PartInput
 from bytewax.outputs import StdOutputConfig
 
 
-class CoinbaseFeedInput(CustomPartInput):
+class CoinbaseFeedInput(PartInput):
     def __init__(self, product_ids):
         self.product_ids = product_ids
 

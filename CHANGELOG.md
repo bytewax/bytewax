@@ -14,7 +14,7 @@ notes on GitHub when we make a new release.__
 - Add `filter_map` operator.
 
 - *Breaking change* New partition-based input API. This replaces
-  `ManualInputConfig` with a new `bytewax.inputs.CustomPartInput`. See
+  `ManualInputConfig` with a new `bytewax.inputs.PartInput`. See
   `bytewax.inputs` for more info.
 
 - *Breaking change* `KafkaInputConfig` has been moved to

@@ -6,7 +6,7 @@ from pytest import mark, raises, skip
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
-from bytewax.inputs import CustomPartInput
+from bytewax.inputs import PartInput
 from bytewax.outputs import ManualOutputConfig, TestingOutputConfig
 from bytewax.testing import TestingInput
 
@@ -106,7 +106,7 @@ def test_parts_hashed_to_workers(mp_ctx):
 
         flow = Dataflow()
 
-        class LabeledPartInput(CustomPartInput):
+        class LabeledPartInput(PartInput):
             def list_parts(self):
                 # We have to have len(partitions) >= worker_count
                 # otherwise we activate random load-balancing.

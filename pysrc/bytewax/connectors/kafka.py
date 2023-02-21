@@ -6,7 +6,7 @@ from typing import Dict, Iterable
 from confluent_kafka import Consumer, KafkaError, OFFSET_BEGINNING, TopicPartition
 from confluent_kafka.admin import AdminClient
 
-from bytewax.inputs import CustomPartInput
+from bytewax.inputs import PartInput
 
 
 def _stateful_read_part(consumer):
@@ -24,7 +24,7 @@ def _stateful_read_part(consumer):
             yield msg.offset(), item
 
 
-class KafkaInput(CustomPartInput):
+class KafkaInput(PartInput):
     """Use a single [Kafka](https://kafka.apache.org) topic as the
     input source.
 

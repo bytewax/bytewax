@@ -3,7 +3,7 @@
 """
 from pathlib import Path
 
-from bytewax.inputs import CustomPartInput
+from bytewax.inputs import PartInput
 
 
 def _stateful_read(path, resume_i):
@@ -15,7 +15,7 @@ def _stateful_read(path, resume_i):
             yield i, line.strip()
 
 
-class DirInput(CustomPartInput):
+class DirInput(PartInput):
     """Read all files in a filesystem directory line-by-line.
 
     The directory must exist and contain identical data on all
@@ -54,7 +54,7 @@ class DirInput(CustomPartInput):
         return _stateful_read(path, resume_i)
 
 
-class FileInput(CustomPartInput):
+class FileInput(PartInput):
     """Read a single file line-by-line from the filesystem.
 
     This file must exist and be identical on all workers.
