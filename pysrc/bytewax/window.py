@@ -74,4 +74,5 @@ from .bytewax import (  # noqa: F401
     SystemClockConfig,
     TumblingWindowConfig,
     WindowConfig,
+    SessionWindow
 )

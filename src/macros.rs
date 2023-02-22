@@ -131,7 +131,7 @@ macro_rules! add_pymethods {(
 
         /// Return a representation of this class as a PyDict.
         fn __getstate__(&self) -> std::collections::HashMap<&str, pyo3::Py<pyo3::PyAny>> {
-            Python::with_gil(|py| {
+            pyo3::Python::with_gil(|py| {
                 std::collections::HashMap::from([
                     ("type", pyo3::IntoPy::into_py(stringify!($struct), py)),
                     $((stringify!($arg), pyo3::IntoPy::into_py(self.$arg.clone(), py))),*
