@@ -22,6 +22,8 @@ use super::*;
 /// Args:
 ///
 ///   dt_getter: Python function to get a datetime from an event.
+///     The datetime returned must have tzinfo set to timezone.utc:
+///     > datetime(1970, 1, 1, tzinfo=timezone.utc)
 ///
 ///   wait_for_system_duration: How much (system) time to wait before considering an event late.
 ///
