@@ -82,10 +82,10 @@ There are multiple stateful operators available like `reduce`, `stateful_map` an
 import datetime
 from collections import defaultdict
 
-from bytewax.window import TumblingWindowConfig, SystemClockConfig
+from bytewax.window import TumblingWindow, SystemClockConfig
 
 cc = SystemClockConfig()
-wc = TumblingWindowConfig(length=datetime.timedelta(seconds=5))
+wc = TumblingWindow(length=datetime.timedelta(seconds=5))
 
 
 def build():

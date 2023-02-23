@@ -7,7 +7,7 @@ from bytewax.connectors.files import FileInput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.outputs import TestingOutputConfig
-from bytewax.window import SystemClockConfig, TumblingWindowConfig
+from bytewax.window import SystemClockConfig, TumblingWindow
 
 
 def lower(line):
@@ -40,7 +40,7 @@ product_counter: Counter = Counter()
 most_popular_products: dict[str, int] = {}
 
 cc = SystemClockConfig()
-wc = TumblingWindowConfig(length=timedelta(seconds=5))
+wc = TumblingWindow(length=timedelta(seconds=5))
 
 # first pass - count products
 out = []

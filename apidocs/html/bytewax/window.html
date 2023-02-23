@@ -140,8 +140,10 @@ from .bytewax import (  # noqa: F401
     ClockConfig,
     EventClockConfig,
     SystemClockConfig,
-    TumblingWindowConfig,
+    TumblingWindow,
+    SlidingWindow,
     WindowConfig,
+    SessionWindow
 )</code></pre>
 </details>
 </section>
@@ -205,6 +207,74 @@ windowing operator.</p></div>
 </dd>
 </dl>
 </dd>
+<dt id="bytewax.window.SessionWindow"><code class="language-python flex name class">
+<span>class <span class="ident">SessionWindow</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Session windowing with a fixed inactivity gap.
+Each time a new item is received, it is added to the latest
+window if the time since the latest event is &lt; gap.
+Otherwise a new window is created that starts at current clock's time.</p>
+<p>Args:</p>
+<p>gap (datetime.timedelta): Gap of inactivity before considering
+a session closed. The gap should not be negative.</p>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this as the <code>window_config</code> parameter to
+your windowing operator.</p></div>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.window.WindowConfig" href="/apidocs/bytewax.window#bytewax.window.WindowConfig">WindowConfig</a></li>
+</ul>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.window.SessionWindow.gap"><code class="language-python name">var <span class="ident">gap</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.window.SlidingWindow"><code class="language-python flex name class">
+<span>class <span class="ident">SlidingWindow</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Sliding windows of fixed duration.
+If offset == length, you get tumbling windows.
+If offset &lt; length, windows overlap.
+If offset &gt; length, there will be holes between windows.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>length</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
+<dd>Length of window.</dd>
+<dt><strong><code>offset</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
+<dd>Offset between windows.</dd>
+<dt><strong><code>start_at</code></strong> :&ensp;<code>datetime.datetime</code></dt>
+<dd>Instant of the first window. You
+can use this to align all windows to an hour,
+e.g. Defaults to system time of dataflow start.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>Config object. Pass this as the <code>window_config</code> parameter to
+your windowing operator.</p></div>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.window.WindowConfig" href="/apidocs/bytewax.window#bytewax.window.WindowConfig">WindowConfig</a></li>
+</ul>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.window.SlidingWindow.length"><code class="language-python name">var <span class="ident">length</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+<dt id="bytewax.window.SlidingWindow.offset"><code class="language-python name">var <span class="ident">offset</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+<dt id="bytewax.window.SlidingWindow.start_at"><code class="language-python name">var <span class="ident">start_at</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+</dl>
+</dd>
 <dt id="bytewax.window.SystemClockConfig"><code class="language-python flex name class">
 <span>class <span class="ident">SystemClockConfig</span></span>
 </code></dt>
@@ -220,8 +290,8 @@ your windowing operator.</p></div>
 <li><a title="bytewax.window.ClockConfig" href="/apidocs/bytewax.window#bytewax.window.ClockConfig">ClockConfig</a></li>
 </ul>
 </dd>
-<dt id="bytewax.window.TumblingWindowConfig"><code class="language-python flex name class">
-<span>class <span class="ident">TumblingWindowConfig</span></span>
+<dt id="bytewax.window.TumblingWindow"><code class="language-python flex name class">
+<span>class <span class="ident">TumblingWindow</span></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Tumbling windows of fixed duration.</p>
@@ -243,11 +313,11 @@ your windowing operator.</p></div>
 </ul>
 <h3>Instance variables</h3>
 <dl>
-<dt id="bytewax.window.TumblingWindowConfig.length"><code class="language-python name">var <span class="ident">length</span></code></dt>
+<dt id="bytewax.window.TumblingWindow.length"><code class="language-python name">var <span class="ident">length</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
-<dt id="bytewax.window.TumblingWindowConfig.start_at"><code class="language-python name">var <span class="ident">start_at</span></code></dt>
+<dt id="bytewax.window.TumblingWindow.start_at"><code class="language-python name">var <span class="ident">start_at</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
@@ -263,7 +333,9 @@ your windowing operator.</p></div>
 you'd like to use.</p></div>
 <h3>Subclasses</h3>
 <ul class="hlist">
-<li><a title="bytewax.window.TumblingWindowConfig" href="/apidocs/bytewax.window#bytewax.window.TumblingWindowConfig">TumblingWindowConfig</a></li>
+<li><a title="bytewax.window.SessionWindow" href="/apidocs/bytewax.window#bytewax.window.SessionWindow">SessionWindow</a></li>
+<li><a title="bytewax.window.SlidingWindow" href="/apidocs/bytewax.window#bytewax.window.SlidingWindow">SlidingWindow</a></li>
+<li><a title="bytewax.window.TumblingWindow" href="/apidocs/bytewax.window#bytewax.window.TumblingWindow">TumblingWindow</a></li>
 </ul>
 </dd>
 </dl>
@@ -298,13 +370,27 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.SessionWindow" href="/apidocs/bytewax.window#bytewax.window.SessionWindow">SessionWindow</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.SessionWindow.gap" href="/apidocs/bytewax.window#bytewax.window.SessionWindow.gap">gap</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.SlidingWindow" href="/apidocs/bytewax.window#bytewax.window.SlidingWindow">SlidingWindow</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.SlidingWindow.length" href="/apidocs/bytewax.window#bytewax.window.SlidingWindow.length">length</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.SlidingWindow.offset" href="/apidocs/bytewax.window#bytewax.window.SlidingWindow.offset">offset</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.SlidingWindow.start_at" href="/apidocs/bytewax.window#bytewax.window.SlidingWindow.start_at">start_at</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.SystemClockConfig" href="/apidocs/bytewax.window#bytewax.window.SystemClockConfig">SystemClockConfig</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.TumblingWindowConfig" href="/apidocs/bytewax.window#bytewax.window.TumblingWindowConfig">TumblingWindowConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.TumblingWindow" href="/apidocs/bytewax.window#bytewax.window.TumblingWindow">TumblingWindow</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.TumblingWindowConfig.length" href="/apidocs/bytewax.window#bytewax.window.TumblingWindowConfig.length">length</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.TumblingWindowConfig.start_at" href="/apidocs/bytewax.window#bytewax.window.TumblingWindowConfig.start_at">start_at</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.TumblingWindow.length" href="/apidocs/bytewax.window#bytewax.window.TumblingWindow.length">length</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.TumblingWindow.start_at" href="/apidocs/bytewax.window#bytewax.window.TumblingWindow.start_at">start_at</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">

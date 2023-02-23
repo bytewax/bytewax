@@ -434,7 +434,7 @@ impl Dataflow {
     /// ...     results[event["type"]] += 1
     /// ...     return results
     /// >>> clock_config = SystemClockConfig()
-    /// >>> window_config = TumblingWindowConfig(length=timedelta(seconds=10))
+    /// >>> window_config = TumblingWindow(length=timedelta(seconds=10))
     /// >>> out = []
     /// >>> flow = Dataflow(TestingInputConfig(gen()))
     /// >>> flow.map(extract_id)
@@ -510,7 +510,7 @@ impl Dataflow {
     /// >>> from bytewax.inputs import TestingInputConfig
     /// >>> from bytewax.outputs import StdOutputConfig
     /// >>> from bytewax.execution import run_main
-    /// >>> from bytewax.window import TestingClockConfig, TumblingWindowConfig
+    /// >>> from bytewax.window import TestingClockConfig, TumblingWindow
     /// >>> flow = Dataflow()
     /// >>> inp = [
     /// ...     {"user": "b", "type": "login"},  # 1:00pm
@@ -528,7 +528,7 @@ impl Dataflow {
     /// ...     item_incr=timedelta(minutes=1),
     /// ...     start=datetime(2022, 1, 1, 13),
     /// ... )
-    /// >>> window_config = TumblingWindowConfig(
+    /// >>> window_config = TumblingWindow(
     /// ...     length=timedelta(minutes=2),
     /// ... )
     /// >>> flow.reduce_window("count", clock_config, window_config, count)

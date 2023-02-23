@@ -1,0 +1,1872 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.connectors.kafka</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<p>Connectors for <a href="https://kafka.apache.org">Kafka</a>.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Connectors for [Kafka](https://kafka.apache.org).
+
+&#34;&#34;&#34;
+from typing import Dict, Iterable
+
+from confluent_kafka import Consumer, KafkaError, OFFSET_BEGINNING, TopicPartition
+from confluent_kafka.admin import AdminClient
+
+from bytewax.inputs import PartInput
+
+
+def _stateful_read_part(consumer):
+    while True:
+        msg = consumer.poll(0.001)  # seconds
+        if msg is None:
+            yield
+        elif msg.error() is not None:
+            if msg.error().code() == KafkaError._PARTITION_EOF:
+                return
+            else:
+                raise RuntimeError(msg.error())
+        else:
+            item = (msg.key(), msg.value())
+            yield msg.offset(), item
+
+
+class KafkaInput(PartInput):
+    &#34;&#34;&#34;Use a single [Kafka](https://kafka.apache.org) topic as the
+    input source.
+
+    Kafka messages are emitted into the dataflow as two-tuples of
+    `(key_bytes, payload_bytes)`.
+
+    Partitions are the unit of parallelism.
+
+    Args:
+
+        brokers: List of `host:port` strings of Kafka brokers.
+
+        topic: Topic to consume from.
+
+        tail: Whether to wait for new data on this topic when the end
+            is initially reached.
+
+        starting_offset: Can be either
+            `confluent_kafka.OFFSET_BEGINNING` or
+            `confluent_kafka.OFFSET_END`. Defaults to beginning of
+            topic.
+
+        add_config: Any additional configuration properties. See [the
+            `rdkafka`
+            documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+            for options.
+
+    &#34;&#34;&#34;
+
+    def __init__(
+        self,
+        brokers: Iterable[str],
+        topic: str,
+        tail: bool = True,
+        starting_offset: int = OFFSET_BEGINNING,
+        add_config: Dict[str, str] = None,
+    ):
+        add_config = add_config or {}
+
+        self.brokers = brokers
+        self.topic = topic
+        self.tail = tail
+        self.starting_offset = starting_offset
+        self.add_config = add_config
+
+    def list_parts(self):
+        config = {
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self.brokers),
+        }
+        config.update(self.add_config)
+        client = AdminClient(config)
+        cluster_metadata = client.list_topics(self.topic)
+        part_idxs = cluster_metadata.topics[self.topic].partitions.keys()
+
+        return [f&#34;{i}-{self.topic}&#34; for i in part_idxs]
+
+    def build_part(self, for_part, resume_state):
+        found_part_idx, found_topic = for_part.split(&#34;-&#34;, 1)
+        found_part_idx = int(found_part_idx)
+        # TODO: Warn and then return None. This might be an indication
+        # of dataflow continuation with a new topic (to enable
+        # re-partitioning), which is fine.
+        assert found_topic == self.topic, &#34;Can&#39;t resume from different Kafka topic&#34;
+
+        resume_offset = resume_state or self.starting_offset
+
+        config = {
+            # We&#39;ll manage our own &#34;consumer group&#34; via recovery
+            # system.
+            &#34;group.id&#34;: &#34;BYTEWAX_IGNORED&#34;,
+            &#34;enable.auto.commit&#34;: &#34;false&#34;,
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self.brokers),
+            &#34;enable.partition.eof&#34;: str(not self.tail),
+        }
+        config.update(self.add_config)
+        consumer = Consumer(config)
+        consumer.assign([TopicPartition(self.topic, found_part_idx, resume_offset)])
+
+        return _stateful_read_part(consumer)</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
+<dl>
+<dt id="bytewax.connectors.kafka.Consumer"><code class="language-python flex name class">
+<span>class <span class="ident">Consumer</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>A high-level Apache Kafka consumer</p>
+<p>.. py:function:: Consumer(config)</p>
+<p>Create a new Consumer instance using the provided configuration <em>dict</em> (including properties and callback functions). See :ref:<code>pythonclient_configuration</code> for more information.</p>
+<p>:param dict config: Configuration properties. At a minimum, <code>group.id</code> <strong>must</strong> be set and <code>bootstrap.servers</code> <strong>should</strong> be set.</p></div>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li>confluent_kafka.deserializing_consumer.DeserializingConsumer</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.connectors.kafka.Consumer.assign"><code class="language-python name flex">
+<span>def <span class="ident">assign</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: assign(partitions)</p>
+<p>Set the consumer partition assignment to the provided list of :py:class:<code><a title="bytewax.connectors.kafka.TopicPartition" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.TopicPartition">TopicPartition</a></code> and start consuming.</p>
+<p>:param list(TopicPartition) partitions: List of topic+partitions and optionally initial offsets to start consuming from.
+:raises: KafkaException
+:raises: RuntimeError if called on a closed consumer</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.assignment"><code class="language-python name flex">
+<span>def <span class="ident">assignment</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Returns the current partition assignment.</p>
+<p>:returns: List of assigned topic+partitions.
+:rtype: list(TopicPartition)
+:raises: KafkaException
+:raises: RuntimeError if called on a closed consumer</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.close"><code class="language-python name flex">
+<span>def <span class="ident">close</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Close down and terminate the Kafka Consumer.</p>
+<p>Actions performed:</p>
+<ul>
+<li>Stops consuming.</li>
+<li>Commits offsets, unless the consumer property 'enable.auto.commit' is set to False.</li>
+<li>Leaves the consumer group.</li>
+</ul>
+<p>.. note: Registered callbacks may be called from this method, see :py:func::<code>poll()</code> for more info.</p>
+<p>:rtype: None</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.commit"><code class="language-python name flex">
+<span>def <span class="ident">commit</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: commit([message=None], [offsets=None], [asynchronous=True])</p>
+<p>Commit a message or a list of offsets.</p>
+<p>The <code>message</code> and <code>offsets</code> parameters are mutually exclusive. If neither is set, the current partition assignment's offsets are used instead. Use this method to commit offsets if you have 'enable.auto.commit' set to False.</p>
+<p>:param confluent_kafka.Message message: Commit the message's offset+1. Note: By convention, committed offsets reflect the next message to be consumed, <strong>not</strong> the last message consumed.
+:param list(TopicPartition) offsets: List of topic+partitions+offsets to commit.
+:param bool asynchronous: If true, asynchronously commit, returning None immediately. If False, the commit() call will block until the commit succeeds or fails and the committed offsets will be returned (on success). Note that specific partitions may have failed and the .err field of each partition should be checked for success.
+:rtype: None|list(TopicPartition)
+:raises: KafkaException
+:raises: RuntimeError if called on a closed consumer</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.committed"><code class="language-python name flex">
+<span>def <span class="ident">committed</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: committed(partitions, [timeout=None])</p>
+<p>Retrieve committed offsets for the specified partitions.</p>
+<p>:param list(TopicPartition) partitions: List of topic+partitions to query for stored offsets.
+:param float timeout: Request timeout (seconds).
+:returns: List of topic+partitions with offset and possibly error set.
+:rtype: list(TopicPartition)
+:raises: KafkaException
+:raises: RuntimeError if called on a closed consumer</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.consume"><code class="language-python name flex">
+<span>def <span class="ident">consume</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: consume([num_messages=1], [timeout=-1])</p>
+<p>Consumes a list of messages (possibly empty on timeout). Callbacks may be executed as a side effect of calling this method.</p>
+<p>The application must check the returned :py:class:<code>Message</code> object's :py:func:<code>Message.error()</code> method to distinguish between proper messages (error() returns None) and errors for each :py:class:<code>Message</code> in the list (see error().code() for specifics). If the enable.partition.eof configuration property is set to True, partition EOF events will also be exposed as Messages with error().code() set to _PARTITION_EOF.</p>
+<p>.. note: Callbacks may be called from this method, such as <code>on_assign</code>, <code>on_revoke</code>, et.al.</p>
+<p>:param int num_messages: The maximum number of messages to return (default: 1).
+:param float timeout: The maximum time to block waiting for message, event or callback (default: infinite (-1)). (Seconds)
+:returns: A list of Message objects (possibly empty on timeout)
+:rtype: list(Message)
+:raises RuntimeError: if called on a closed consumer
+:raises KafkaError: in case of internal error
+:raises ValueError: if num_messages &gt; 1M</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.consumer_group_metadata"><code class="language-python name flex">
+<span>def <span class="ident">consumer_group_metadata</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: consumer_group_metadata()</p>
+<p>:returns: An opaque object representing the consumer's current group metadata for passing to the transactional producer's send_offsets_to_transaction() API.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.get_watermark_offsets"><code class="language-python name flex">
+<span>def <span class="ident">get_watermark_offsets</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: get_watermark_offsets(partition, [timeout=None], [cached=False])</p>
+<p>Retrieve low and high offsets for the specified partition.</p>
+<p>:param TopicPartition partition: Topic+partition to return offsets for.
+:param float timeout: Request timeout (seconds). Ignored if cached=True.
+:param bool cached: Instead of querying the broker, use cached information. Cached values: The low offset is updated periodically (if statistics.interval.ms is set) while the high offset is updated on each message fetched from the broker for this partition.
+:returns: Tuple of (low,high) on success or None on timeout. The high offset is the offset of the last message + 1.
+:rtype: tuple(int,int)
+:raises: KafkaException
+:raises: RuntimeError if called on a closed consumer</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.incremental_assign"><code class="language-python name flex">
+<span>def <span class="ident">incremental_assign</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: incremental_assign(partitions)</p>
+<p>Incrementally add the provided list of :py:class:<code><a title="bytewax.connectors.kafka.TopicPartition" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.TopicPartition">TopicPartition</a></code>s to the current partition assignment. This list must not contain duplicate entries, or any entry corresponding to an already assigned partition. When a COOPERATIVE assignor (i.e. incremental rebalancing) is being used, this method may be used in the on_assign callback to update the current assignment and specify start offsets. The application should pass a list of partitions identical to the list passed to the callback, even if the list is empty. Note that if you do not call incremental_assign in your on_assign handler, this will be done automatically and start offsets will be the last committed offsets, or determined via the auto offset reset policy (auto.offset.reset) if there are none. This method may also be used outside the context of a rebalance callback.</p>
+<p>:param list(TopicPartition) partitions: List of topic+partitions and optionally initial offsets to start consuming from.
+:raises: KafkaException
+:raises: RuntimeError if called on a closed consumer</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.incremental_unassign"><code class="language-python name flex">
+<span>def <span class="ident">incremental_unassign</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: incremental_unassign(partitions)</p>
+<p>Incrementally remove the provided list of :py:class:<code><a title="bytewax.connectors.kafka.TopicPartition" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.TopicPartition">TopicPartition</a></code> from the current partition assignment. This list must not contain dupliate entries and all entries specified must be part of the current assignment. When a COOPERATIVE assignor (i.e. incremental rebalancing) is being used, this method may be used in the on_revoke or on_lost callback to update the current assignment. The application should pass a list of partitions identical to the list passed to the callback. This method may also be used outside the context of a rebalance callback. The value of the <code><a title="bytewax.connectors.kafka.TopicPartition" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.TopicPartition">TopicPartition</a></code> offset field is ignored by this method.</p>
+<p>:param list(TopicPartition) partitions: List of topic+partitions to remove from the current assignment.
+:raises: KafkaException
+:raises: RuntimeError if called on a closed consumer</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.list_topics"><code class="language-python name flex">
+<span>def <span class="ident">list_topics</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: list_topics([topic=None], [timeout=-1])</p>
+<p>Request metadata from the cluster.
+This method provides the same information as
+listTopics(), describeTopics() and describeCluster() in
+the Java Admin client.</p>
+<p>:param str topic: If specified, only request information about this topic, else return results for all topics in cluster. Warning: If auto.create.topics.enable is set to true on the broker and an unknown topic is specified, it will be created.
+:param float timeout: The maximum response time before timing out, or -1 for infinite timeout.
+:rtype: ClusterMetadata
+:raises: KafkaException</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.memberid"><code class="language-python name flex">
+<span>def <span class="ident">memberid</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: memberid()</p>
+<p>Return this client's broker-assigned group member id.</p>
+<p>The member id is assigned by the group coordinator and is propagated to the consumer during rebalance.</p>
+<p>:returns: Member id string or None
+:rtype: string
+:raises: RuntimeError if called on a closed consumer</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.offsets_for_times"><code class="language-python name flex">
+<span>def <span class="ident">offsets_for_times</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: offsets_for_times(partitions, [timeout=None])</p>
+<p>Look up offsets by timestamp for the specified partitions.</p>
+<p>The returned offset for each partition is the earliest offset whose
+timestamp is greater than or equal to the given timestamp in the
+corresponding partition. If the provided timestamp exceeds that of the
+last message in the partition, a value of -1 will be returned.</p>
+<p>:param list(TopicPartition) partitions: topic+partitions with timestamps in the TopicPartition.offset field.
+:param float timeout: Request timeout (seconds).
+:returns: List of topic+partition with offset field set and possibly error set
+:rtype: list(TopicPartition)
+:raises: KafkaException
+:raises: RuntimeError if called on a closed consumer</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.pause"><code class="language-python name flex">
+<span>def <span class="ident">pause</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: pause(partitions)</p>
+<p>Pause consumption for the provided list of partitions.</p>
+<p>:param list(TopicPartition) partitions: List of topic+partitions to pause.
+:rtype: None
+:raises: KafkaException</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.poll"><code class="language-python name flex">
+<span>def <span class="ident">poll</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: poll([timeout=None])</p>
+<p>Consumes a single message, calls callbacks and returns events.</p>
+<p>The application must check the returned :py:class:<code>Message</code> object's :py:func:<code>Message.error()</code> method to distinguish between proper messages (error() returns None), or an event or error (see error().code() for specifics).</p>
+<p>.. note: Callbacks may be called from this method, such as <code>on_assign</code>, <code>on_revoke</code>, et.al.</p>
+<p>:param float timeout: Maximum time to block waiting for message, event or callback (default: infinite (None translated into -1 in the library)). (Seconds)
+:returns: A Message object or None on timeout
+:rtype: :py:class:<code>Message</code> or None
+:raises: RuntimeError if called on a closed consumer</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.position"><code class="language-python name flex">
+<span>def <span class="ident">position</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: position(partitions)</p>
+<p>Retrieve current positions (offsets) for the specified partitions.</p>
+<p>:param list(TopicPartition) partitions: List of topic+partitions to return current offsets for. The current offset is the offset of the last consumed message + 1.
+:returns: List of topic+partitions with offset and possibly error set.
+:rtype: list(TopicPartition)
+:raises: KafkaException
+:raises: RuntimeError if called on a closed consumer</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.resume"><code class="language-python name flex">
+<span>def <span class="ident">resume</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: resume(partitions)</p>
+<p>Resume consumption for the provided list of partitions.</p>
+<p>:param list(TopicPartition) partitions: List of topic+partitions to resume.
+:rtype: None
+:raises: KafkaException</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.seek"><code class="language-python name flex">
+<span>def <span class="ident">seek</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: seek(partition)</p>
+<p>Set consume position for partition to offset.
+The offset may be an absolute (&gt;=0) or a
+logical offset (:py:const:<code>OFFSET_BEGINNING</code> et.al).</p>
+<p>seek() may only be used to update the consume offset of an
+actively consumed partition (i.e., after :py:const:<code>assign()</code>),
+to set the starting offset of partition not being consumed instead
+pass the offset in an <code>assign()</code> call.</p>
+<p>:param TopicPartition partition: Topic+partition+offset to seek to.</p>
+<p>:raises: KafkaException</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.store_offsets"><code class="language-python name flex">
+<span>def <span class="ident">store_offsets</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: store_offsets([message=None], [offsets=None])</p>
+<p>Store offsets for a message or a list of offsets.</p>
+<p><code>message</code> and <code>offsets</code> are mutually exclusive. The stored offsets will be committed according to 'auto.commit.interval.ms' or manual offset-less :py:meth:<code>commit</code>. Note that 'enable.auto.offset.store' must be set to False when using this API.</p>
+<p>:param confluent_kafka.Message message: Store message's offset+1.
+:param list(TopicPartition) offsets: List of topic+partitions+offsets to store.
+:rtype: None
+:raises: KafkaException
+:raises: RuntimeError if called on a closed consumer</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.subscribe"><code class="language-python name flex">
+<span>def <span class="ident">subscribe</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: subscribe(topics, [on_assign=None], [on_revoke=None], [on_lost=None])</p>
+<p>Set subscription to supplied list of topics
+This replaces a previous subscription.</p>
+<p>Regexp pattern subscriptions are supported by prefixing the topic string with <code>"^"</code>, e.g.::</p>
+<pre><code>consumer.subscribe(["^my_topic.*", "^another[0-9]-?[a-z]+$", "not_a_regex"])
+</code></pre>
+<p>:param list(str) topics: List of topics (strings) to subscribe to.
+:param callable on_assign: callback to provide handling of customized offsets on completion of a successful partition re-assignment.
+:param callable on_revoke: callback to provide handling of offset commits to a customized store on the start of a rebalance operation.
+:param callable on_lost: callback to provide handling in the case the partition assignment has been lost. If not specified, lost partition events will be delivered to on_revoke, if specified. Partitions that have been lost may already be owned by other members in the group and therefore committing offsets, for example, may fail.</p>
+<p>:raises KafkaException:
+:raises: RuntimeError if called on a closed consumer</p>
+<p>.. py:function:: on_assign(consumer, partitions)
+.. py:function:: on_revoke(consumer, partitions)
+.. py:function:: on_lost(consumer, partitions)</p>
+<p>:param Consumer consumer: Consumer instance.
+:param list(TopicPartition) partitions: Absolute list of partitions being assigned or revoked.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.unassign"><code class="language-python name flex">
+<span>def <span class="ident">unassign</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Removes the current partition assignment and stops consuming.</p>
+<p>:raises KafkaException:
+:raises RuntimeError: if called on a closed consumer</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Consumer.unsubscribe"><code class="language-python name flex">
+<span>def <span class="ident">unsubscribe</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Remove current subscription.</p>
+<p>:raises: KafkaException
+:raises: RuntimeError if called on a closed consumer</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError"><code class="language-python flex name class">
+<span>class <span class="ident">KafkaError</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Kafka error and event object</p>
+<p>The KafkaError class serves multiple purposes</p>
+<ul>
+<li>Propagation of errors</li>
+<li>Propagation of events</li>
+<li>Exceptions</li>
+</ul>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>error_code</code></strong> :&ensp;<code><a title="bytewax.connectors.kafka.KafkaError" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError">KafkaError</a></code></dt>
+<dd>Error code indicating the type of error.</dd>
+<dt><strong><code>reason</code></strong> :&ensp;<code>str</code></dt>
+<dd>Alternative message to describe the error.</dd>
+<dt><strong><code>fatal</code></strong> :&ensp;<code>bool</code></dt>
+<dd>Set to true if a fatal error.</dd>
+<dt><strong><code>retriable</code></strong> :&ensp;<code>bool</code></dt>
+<dd>Set to true if operation is retriable.</dd>
+<dt><strong><code>txn_requires_abort</code></strong> :&ensp;<code>bool</code></dt>
+<dd>Set to true if this is an abortable</dd>
+</dl>
+<p>transaction error.
+Error and event constants:</p>
+<p>+----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| Constant
+| Description
+|
++====================================================+======================================================================================================+
+| _BAD_MSG
+| Local: Bad message format
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _BAD_COMPRESSION
+| Local: Invalid compressed data
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _DESTROY
+| Local: Broker handle destroyed
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _FAIL
+| Local: Communication failure with broker
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _TRANSPORT
+| Local: Broker transport failure
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _CRIT_SYS_RESOURCE
+| Local: Critical system resource failure
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _RESOLVE
+| Local: Host resolution failure
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _MSG_TIMED_OUT
+| Local: Message timed out
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _PARTITION_EOF
+| Broker: No more messages
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _UNKNOWN_PARTITION
+| Local: Unknown partition
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _FS
+| Local: File or filesystem error
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _UNKNOWN_TOPIC
+| Local: Unknown topic
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _ALL_BROKERS_DOWN
+| Local: All broker connections are down
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _INVALID_ARG
+| Local: Invalid argument or configuration
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _TIMED_OUT
+| Local: Timed out
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _QUEUE_FULL
+| Local: Queue full
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _ISR_INSUFF
+| Local: ISR count insufficient
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _NODE_UPDATE
+| Local: Broker node update
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _SSL
+| Local: SSL error
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _WAIT_COORD
+| Local: Waiting for coordinator
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _UNKNOWN_GROUP
+| Local: Unknown group
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _IN_PROGRESS
+| Local: Operation in progress
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _PREV_IN_PROGRESS
+| Local: Previous operation in progress
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _EXISTING_SUBSCRIPTION
+| Local: Existing subscription
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _ASSIGN_PARTITIONS
+| Local: Assign partitions
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _REVOKE_PARTITIONS
+| Local: Revoke partitions
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _CONFLICT
+| Local: Conflicting use
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _STATE
+| Local: Erroneous state
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _UNKNOWN_PROTOCOL
+| Local: Unknown protocol
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _NOT_IMPLEMENTED
+| Local: Not implemented
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _AUTHENTICATION
+| Local: Authentication failure
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _NO_OFFSET
+| Local: No offset stored
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _OUTDATED
+| Local: Outdated
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _TIMED_OUT_QUEUE
+| Local: Timed out in queue
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _UNSUPPORTED_FEATURE
+| Local: Required feature not supported by broker
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _WAIT_CACHE
+| Local: Awaiting cache update
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _INTR
+| Local: Operation interrupted
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _KEY_SERIALIZATION
+| Local: Key serialization error
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _VALUE_SERIALIZATION
+| Local: Value serialization error
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _KEY_DESERIALIZATION
+| Local: Key deserialization error
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _VALUE_DESERIALIZATION
+| Local: Value deserialization error
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _PARTIAL
+| Local: Partial response
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _READ_ONLY
+| Local: Read-only object
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _NOENT
+| Local: No such entry
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _UNDERFLOW
+| Local: Read underflow
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _INVALID_TYPE
+| Local: Invalid type
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _RETRY
+| Local: Retry operation
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _PURGE_QUEUE
+| Local: Purged in queue
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _PURGE_INFLIGHT
+| Local: Purged in flight
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _FATAL
+| Local: Fatal error
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _INCONSISTENT
+| Local: Inconsistent state
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _GAPLESS_GUARANTEE
+| Local: Gap-less ordering would not be guaranteed if proceeding
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _MAX_POLL_EXCEEDED
+| Local: Maximum application poll interval (max.poll.interval.ms) exceeded
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _UNKNOWN_BROKER
+| Local: Unknown broker
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _NOT_CONFIGURED
+| Local: Functionality not configured
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _FENCED
+| Local: This instance has been fenced by a newer instance
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _APPLICATION
+| Local: Application generated error
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _ASSIGNMENT_LOST
+| Local: Group partition assignment lost
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _NOOP
+| Local: No operation performed
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| _AUTO_OFFSET_RESET
+| Local: No offset to automatically reset to
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| UNKNOWN
+| Unknown broker error
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| NO_ERROR
+| Success
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| OFFSET_OUT_OF_RANGE
+| Broker: Offset out of range
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_MSG
+| Broker: Invalid message
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| UNKNOWN_TOPIC_OR_PART
+| Broker: Unknown topic or partition
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_MSG_SIZE
+| Broker: Invalid message size
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| LEADER_NOT_AVAILABLE
+| Broker: Leader not available
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| NOT_LEADER_FOR_PARTITION
+| Broker: Not leader for partition
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| REQUEST_TIMED_OUT
+| Broker: Request timed out
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| BROKER_NOT_AVAILABLE
+| Broker: Broker not available
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| REPLICA_NOT_AVAILABLE
+| Broker: Replica not available
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| MSG_SIZE_TOO_LARGE
+| Broker: Message size too large
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| STALE_CTRL_EPOCH
+| Broker: StaleControllerEpochCode
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| OFFSET_METADATA_TOO_LARGE
+| Broker: Offset metadata string too large
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| NETWORK_EXCEPTION
+| Broker: Broker disconnected before response received
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| COORDINATOR_LOAD_IN_PROGRESS
+| Broker: Coordinator load in progress
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| COORDINATOR_NOT_AVAILABLE
+| Broker: Coordinator not available
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| NOT_COORDINATOR
+| Broker: Not coordinator
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| TOPIC_EXCEPTION
+| Broker: Invalid topic
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| RECORD_LIST_TOO_LARGE
+| Broker: Message batch larger than configured server segment size
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| NOT_ENOUGH_REPLICAS
+| Broker: Not enough in-sync replicas
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| NOT_ENOUGH_REPLICAS_AFTER_APPEND
+| Broker: Message(s) written to insufficient number of in-sync replicas
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_REQUIRED_ACKS
+| Broker: Invalid required acks value
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| ILLEGAL_GENERATION
+| Broker: Specified group generation id is not valid
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INCONSISTENT_GROUP_PROTOCOL
+| Broker: Inconsistent group protocol
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_GROUP_ID
+| Broker: Invalid group.id
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| UNKNOWN_MEMBER_ID
+| Broker: Unknown member
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_SESSION_TIMEOUT
+| Broker: Invalid session timeout
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| REBALANCE_IN_PROGRESS
+| Broker: Group rebalance in progress
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_COMMIT_OFFSET_SIZE
+| Broker: Commit offset data size is not valid
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| TOPIC_AUTHORIZATION_FAILED
+| Broker: Topic authorization failed
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| GROUP_AUTHORIZATION_FAILED
+| Broker: Group authorization failed
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| CLUSTER_AUTHORIZATION_FAILED
+| Broker: Cluster authorization failed
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_TIMESTAMP
+| Broker: Invalid timestamp
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| UNSUPPORTED_SASL_MECHANISM
+| Broker: Unsupported SASL mechanism
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| ILLEGAL_SASL_STATE
+| Broker: Request not valid in current SASL state
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| UNSUPPORTED_VERSION
+| Broker: API version not supported
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| TOPIC_ALREADY_EXISTS
+| Broker: Topic already exists
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_PARTITIONS
+| Broker: Invalid number of partitions
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_REPLICATION_FACTOR
+| Broker: Invalid replication factor
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_REPLICA_ASSIGNMENT
+| Broker: Invalid replica assignment
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_CONFIG
+| Broker: Configuration is invalid
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| NOT_CONTROLLER
+| Broker: Not controller for cluster
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_REQUEST
+| Broker: Invalid request
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| UNSUPPORTED_FOR_MESSAGE_FORMAT
+| Broker: Message format on broker does not support request
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| POLICY_VIOLATION
+| Broker: Policy violation
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| OUT_OF_ORDER_SEQUENCE_NUMBER
+| Broker: Broker received an out of order sequence number
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| DUPLICATE_SEQUENCE_NUMBER
+| Broker: Broker received a duplicate sequence number
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_PRODUCER_EPOCH
+| Broker: Producer attempted an operation with an old epoch
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_TXN_STATE
+| Broker: Producer attempted a transactional operation in an invalid state
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_PRODUCER_ID_MAPPING
+| Broker: Producer attempted to use a producer id which is not currently assigned to its transactional |
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_TRANSACTION_TIMEOUT
+| Broker: Transaction timeout is larger than the maximum value allowed by the broker's max.transaction |
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| CONCURRENT_TRANSACTIONS
+| Broker: Producer attempted to update a transaction while another concurrent operation on the same tr |
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| TRANSACTION_COORDINATOR_FENCED
+| Broker: Indicates that the transaction coordinator sending a WriteTxnMarker is no longer the current |
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| TRANSACTIONAL_ID_AUTHORIZATION_FAILED
+| Broker: Transactional Id authorization failed
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| SECURITY_DISABLED
+| Broker: Security features are disabled
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| OPERATION_NOT_ATTEMPTED
+| Broker: Operation not attempted
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| KAFKA_STORAGE_ERROR
+| Broker: Disk error when trying to access log file on disk
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| LOG_DIR_NOT_FOUND
+| Broker: The user-specified log directory is not found in the broker config
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| SASL_AUTHENTICATION_FAILED
+| Broker: SASL Authentication failed
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| UNKNOWN_PRODUCER_ID
+| Broker: Unknown Producer Id
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| REASSIGNMENT_IN_PROGRESS
+| Broker: Partition reassignment is in progress
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| DELEGATION_TOKEN_AUTH_DISABLED
+| Broker: Delegation Token feature is not enabled
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| DELEGATION_TOKEN_NOT_FOUND
+| Broker: Delegation Token is not found on server
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| DELEGATION_TOKEN_OWNER_MISMATCH
+| Broker: Specified Principal is not valid Owner/Renewer
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| DELEGATION_TOKEN_REQUEST_NOT_ALLOWED
+| Broker: Delegation Token requests are not allowed on this connection
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| DELEGATION_TOKEN_AUTHORIZATION_FAILED
+| Broker: Delegation Token authorization failed
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| DELEGATION_TOKEN_EXPIRED
+| Broker: Delegation Token is expired
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_PRINCIPAL_TYPE
+| Broker: Supplied principalType is not supported
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| NON_EMPTY_GROUP
+| Broker: The group is not empty
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| GROUP_ID_NOT_FOUND
+| Broker: The group id does not exist
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| FETCH_SESSION_ID_NOT_FOUND
+| Broker: The fetch session ID was not found
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_FETCH_SESSION_EPOCH
+| Broker: The fetch session epoch is invalid
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| LISTENER_NOT_FOUND
+| Broker: No matching listener
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| TOPIC_DELETION_DISABLED
+| Broker: Topic deletion is disabled
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| FENCED_LEADER_EPOCH
+| Broker: Leader epoch is older than broker epoch
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| UNKNOWN_LEADER_EPOCH
+| Broker: Leader epoch is newer than broker epoch
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| UNSUPPORTED_COMPRESSION_TYPE
+| Broker: Unsupported compression type
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| STALE_BROKER_EPOCH
+| Broker: Broker epoch has changed
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| OFFSET_NOT_AVAILABLE
+| Broker: Leader high watermark is not caught up
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| MEMBER_ID_REQUIRED
+| Broker: Group member needs a valid member ID
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| PREFERRED_LEADER_NOT_AVAILABLE
+| Broker: Preferred leader was not available
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| GROUP_MAX_SIZE_REACHED
+| Broker: Consumer group has reached maximum size
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| FENCED_INSTANCE_ID
+| Broker: Static consumer fenced by other consumer with same group.instance.id
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| ELIGIBLE_LEADERS_NOT_AVAILABLE
+| Broker: Eligible partition leaders are not available
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| ELECTION_NOT_NEEDED
+| Broker: Leader election not needed for topic partition
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| NO_REASSIGNMENT_IN_PROGRESS
+| Broker: No partition reassignment is in progress
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| GROUP_SUBSCRIBED_TO_TOPIC
+| Broker: Deleting offsets of a topic while the consumer group is subscribed to it
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_RECORD
+| Broker: Broker failed to validate record
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| UNSTABLE_OFFSET_COMMIT
+| Broker: There are unstable offsets that need to be cleared
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| THROTTLING_QUOTA_EXCEEDED
+| Broker: Throttling quota has been exceeded
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| PRODUCER_FENCED
+| Broker: There is a newer producer with the same transactionalId which fences the current one
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| RESOURCE_NOT_FOUND
+| Broker: Request illegally referred to resource that does not exist
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| DUPLICATE_RESOURCE
+| Broker: Request illegally referred to the same resource twice
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| UNACCEPTABLE_CREDENTIAL
+| Broker: Requested credential would not meet criteria for acceptability
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INCONSISTENT_VOTER_SET
+| Broker: Indicates that the either the sender or recipient of a voter-only request is not one of the
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| INVALID_UPDATE_VERSION
+| Broker: Invalid update version
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| FEATURE_UPDATE_FAILED
+| Broker: Unable to update finalized features due to server error
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+
+| PRINCIPAL_DESERIALIZATION_FAILURE
+| Broker: Request principal deserialization failed during forwarding
+|
++----------------------------------------------------+------------------------------------------------------------------------------------------------------+</p></div>
+<h3>Class variables</h3>
+<dl>
+<dt id="bytewax.connectors.kafka.KafkaError.BROKER_NOT_AVAILABLE"><code class="language-python name">var <span class="ident">BROKER_NOT_AVAILABLE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.CLUSTER_AUTHORIZATION_FAILED"><code class="language-python name">var <span class="ident">CLUSTER_AUTHORIZATION_FAILED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.CONCURRENT_TRANSACTIONS"><code class="language-python name">var <span class="ident">CONCURRENT_TRANSACTIONS</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.COORDINATOR_LOAD_IN_PROGRESS"><code class="language-python name">var <span class="ident">COORDINATOR_LOAD_IN_PROGRESS</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.COORDINATOR_NOT_AVAILABLE"><code class="language-python name">var <span class="ident">COORDINATOR_NOT_AVAILABLE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_AUTHORIZATION_FAILED"><code class="language-python name">var <span class="ident">DELEGATION_TOKEN_AUTHORIZATION_FAILED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_AUTH_DISABLED"><code class="language-python name">var <span class="ident">DELEGATION_TOKEN_AUTH_DISABLED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_EXPIRED"><code class="language-python name">var <span class="ident">DELEGATION_TOKEN_EXPIRED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_NOT_FOUND"><code class="language-python name">var <span class="ident">DELEGATION_TOKEN_NOT_FOUND</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_OWNER_MISMATCH"><code class="language-python name">var <span class="ident">DELEGATION_TOKEN_OWNER_MISMATCH</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_REQUEST_NOT_ALLOWED"><code class="language-python name">var <span class="ident">DELEGATION_TOKEN_REQUEST_NOT_ALLOWED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.DUPLICATE_RESOURCE"><code class="language-python name">var <span class="ident">DUPLICATE_RESOURCE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.DUPLICATE_SEQUENCE_NUMBER"><code class="language-python name">var <span class="ident">DUPLICATE_SEQUENCE_NUMBER</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.ELECTION_NOT_NEEDED"><code class="language-python name">var <span class="ident">ELECTION_NOT_NEEDED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.ELIGIBLE_LEADERS_NOT_AVAILABLE"><code class="language-python name">var <span class="ident">ELIGIBLE_LEADERS_NOT_AVAILABLE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.FEATURE_UPDATE_FAILED"><code class="language-python name">var <span class="ident">FEATURE_UPDATE_FAILED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.FENCED_INSTANCE_ID"><code class="language-python name">var <span class="ident">FENCED_INSTANCE_ID</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.FENCED_LEADER_EPOCH"><code class="language-python name">var <span class="ident">FENCED_LEADER_EPOCH</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.FETCH_SESSION_ID_NOT_FOUND"><code class="language-python name">var <span class="ident">FETCH_SESSION_ID_NOT_FOUND</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.GROUP_AUTHORIZATION_FAILED"><code class="language-python name">var <span class="ident">GROUP_AUTHORIZATION_FAILED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.GROUP_ID_NOT_FOUND"><code class="language-python name">var <span class="ident">GROUP_ID_NOT_FOUND</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.GROUP_MAX_SIZE_REACHED"><code class="language-python name">var <span class="ident">GROUP_MAX_SIZE_REACHED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.GROUP_SUBSCRIBED_TO_TOPIC"><code class="language-python name">var <span class="ident">GROUP_SUBSCRIBED_TO_TOPIC</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.ILLEGAL_GENERATION"><code class="language-python name">var <span class="ident">ILLEGAL_GENERATION</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.ILLEGAL_SASL_STATE"><code class="language-python name">var <span class="ident">ILLEGAL_SASL_STATE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INCONSISTENT_GROUP_PROTOCOL"><code class="language-python name">var <span class="ident">INCONSISTENT_GROUP_PROTOCOL</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INCONSISTENT_VOTER_SET"><code class="language-python name">var <span class="ident">INCONSISTENT_VOTER_SET</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_COMMIT_OFFSET_SIZE"><code class="language-python name">var <span class="ident">INVALID_COMMIT_OFFSET_SIZE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_CONFIG"><code class="language-python name">var <span class="ident">INVALID_CONFIG</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_FETCH_SESSION_EPOCH"><code class="language-python name">var <span class="ident">INVALID_FETCH_SESSION_EPOCH</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_GROUP_ID"><code class="language-python name">var <span class="ident">INVALID_GROUP_ID</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_MSG"><code class="language-python name">var <span class="ident">INVALID_MSG</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_MSG_SIZE"><code class="language-python name">var <span class="ident">INVALID_MSG_SIZE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_PARTITIONS"><code class="language-python name">var <span class="ident">INVALID_PARTITIONS</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_PRINCIPAL_TYPE"><code class="language-python name">var <span class="ident">INVALID_PRINCIPAL_TYPE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_PRODUCER_EPOCH"><code class="language-python name">var <span class="ident">INVALID_PRODUCER_EPOCH</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_PRODUCER_ID_MAPPING"><code class="language-python name">var <span class="ident">INVALID_PRODUCER_ID_MAPPING</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_RECORD"><code class="language-python name">var <span class="ident">INVALID_RECORD</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_REPLICATION_FACTOR"><code class="language-python name">var <span class="ident">INVALID_REPLICATION_FACTOR</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_REPLICA_ASSIGNMENT"><code class="language-python name">var <span class="ident">INVALID_REPLICA_ASSIGNMENT</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_REQUEST"><code class="language-python name">var <span class="ident">INVALID_REQUEST</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_REQUIRED_ACKS"><code class="language-python name">var <span class="ident">INVALID_REQUIRED_ACKS</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_SESSION_TIMEOUT"><code class="language-python name">var <span class="ident">INVALID_SESSION_TIMEOUT</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_TIMESTAMP"><code class="language-python name">var <span class="ident">INVALID_TIMESTAMP</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_TRANSACTION_TIMEOUT"><code class="language-python name">var <span class="ident">INVALID_TRANSACTION_TIMEOUT</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_TXN_STATE"><code class="language-python name">var <span class="ident">INVALID_TXN_STATE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.INVALID_UPDATE_VERSION"><code class="language-python name">var <span class="ident">INVALID_UPDATE_VERSION</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.KAFKA_STORAGE_ERROR"><code class="language-python name">var <span class="ident">KAFKA_STORAGE_ERROR</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.LEADER_NOT_AVAILABLE"><code class="language-python name">var <span class="ident">LEADER_NOT_AVAILABLE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.LISTENER_NOT_FOUND"><code class="language-python name">var <span class="ident">LISTENER_NOT_FOUND</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.LOG_DIR_NOT_FOUND"><code class="language-python name">var <span class="ident">LOG_DIR_NOT_FOUND</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.MEMBER_ID_REQUIRED"><code class="language-python name">var <span class="ident">MEMBER_ID_REQUIRED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.MSG_SIZE_TOO_LARGE"><code class="language-python name">var <span class="ident">MSG_SIZE_TOO_LARGE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.NETWORK_EXCEPTION"><code class="language-python name">var <span class="ident">NETWORK_EXCEPTION</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.NON_EMPTY_GROUP"><code class="language-python name">var <span class="ident">NON_EMPTY_GROUP</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.NOT_CONTROLLER"><code class="language-python name">var <span class="ident">NOT_CONTROLLER</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.NOT_COORDINATOR"><code class="language-python name">var <span class="ident">NOT_COORDINATOR</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.NOT_ENOUGH_REPLICAS"><code class="language-python name">var <span class="ident">NOT_ENOUGH_REPLICAS</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.NOT_ENOUGH_REPLICAS_AFTER_APPEND"><code class="language-python name">var <span class="ident">NOT_ENOUGH_REPLICAS_AFTER_APPEND</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.NOT_LEADER_FOR_PARTITION"><code class="language-python name">var <span class="ident">NOT_LEADER_FOR_PARTITION</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.NO_ERROR"><code class="language-python name">var <span class="ident">NO_ERROR</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.NO_REASSIGNMENT_IN_PROGRESS"><code class="language-python name">var <span class="ident">NO_REASSIGNMENT_IN_PROGRESS</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.OFFSET_METADATA_TOO_LARGE"><code class="language-python name">var <span class="ident">OFFSET_METADATA_TOO_LARGE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.OFFSET_NOT_AVAILABLE"><code class="language-python name">var <span class="ident">OFFSET_NOT_AVAILABLE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.OFFSET_OUT_OF_RANGE"><code class="language-python name">var <span class="ident">OFFSET_OUT_OF_RANGE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.OPERATION_NOT_ATTEMPTED"><code class="language-python name">var <span class="ident">OPERATION_NOT_ATTEMPTED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.OUT_OF_ORDER_SEQUENCE_NUMBER"><code class="language-python name">var <span class="ident">OUT_OF_ORDER_SEQUENCE_NUMBER</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.POLICY_VIOLATION"><code class="language-python name">var <span class="ident">POLICY_VIOLATION</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.PREFERRED_LEADER_NOT_AVAILABLE"><code class="language-python name">var <span class="ident">PREFERRED_LEADER_NOT_AVAILABLE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.PRINCIPAL_DESERIALIZATION_FAILURE"><code class="language-python name">var <span class="ident">PRINCIPAL_DESERIALIZATION_FAILURE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.PRODUCER_FENCED"><code class="language-python name">var <span class="ident">PRODUCER_FENCED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.REASSIGNMENT_IN_PROGRESS"><code class="language-python name">var <span class="ident">REASSIGNMENT_IN_PROGRESS</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.REBALANCE_IN_PROGRESS"><code class="language-python name">var <span class="ident">REBALANCE_IN_PROGRESS</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.RECORD_LIST_TOO_LARGE"><code class="language-python name">var <span class="ident">RECORD_LIST_TOO_LARGE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.REPLICA_NOT_AVAILABLE"><code class="language-python name">var <span class="ident">REPLICA_NOT_AVAILABLE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.REQUEST_TIMED_OUT"><code class="language-python name">var <span class="ident">REQUEST_TIMED_OUT</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.RESOURCE_NOT_FOUND"><code class="language-python name">var <span class="ident">RESOURCE_NOT_FOUND</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.SASL_AUTHENTICATION_FAILED"><code class="language-python name">var <span class="ident">SASL_AUTHENTICATION_FAILED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.SECURITY_DISABLED"><code class="language-python name">var <span class="ident">SECURITY_DISABLED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.STALE_BROKER_EPOCH"><code class="language-python name">var <span class="ident">STALE_BROKER_EPOCH</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.STALE_CTRL_EPOCH"><code class="language-python name">var <span class="ident">STALE_CTRL_EPOCH</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.THROTTLING_QUOTA_EXCEEDED"><code class="language-python name">var <span class="ident">THROTTLING_QUOTA_EXCEEDED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.TOPIC_ALREADY_EXISTS"><code class="language-python name">var <span class="ident">TOPIC_ALREADY_EXISTS</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.TOPIC_AUTHORIZATION_FAILED"><code class="language-python name">var <span class="ident">TOPIC_AUTHORIZATION_FAILED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.TOPIC_DELETION_DISABLED"><code class="language-python name">var <span class="ident">TOPIC_DELETION_DISABLED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.TOPIC_EXCEPTION"><code class="language-python name">var <span class="ident">TOPIC_EXCEPTION</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.TRANSACTIONAL_ID_AUTHORIZATION_FAILED"><code class="language-python name">var <span class="ident">TRANSACTIONAL_ID_AUTHORIZATION_FAILED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.TRANSACTION_COORDINATOR_FENCED"><code class="language-python name">var <span class="ident">TRANSACTION_COORDINATOR_FENCED</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.UNACCEPTABLE_CREDENTIAL"><code class="language-python name">var <span class="ident">UNACCEPTABLE_CREDENTIAL</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.UNKNOWN"><code class="language-python name">var <span class="ident">UNKNOWN</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.UNKNOWN_LEADER_EPOCH"><code class="language-python name">var <span class="ident">UNKNOWN_LEADER_EPOCH</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.UNKNOWN_MEMBER_ID"><code class="language-python name">var <span class="ident">UNKNOWN_MEMBER_ID</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.UNKNOWN_PRODUCER_ID"><code class="language-python name">var <span class="ident">UNKNOWN_PRODUCER_ID</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.UNKNOWN_TOPIC_OR_PART"><code class="language-python name">var <span class="ident">UNKNOWN_TOPIC_OR_PART</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.UNSTABLE_OFFSET_COMMIT"><code class="language-python name">var <span class="ident">UNSTABLE_OFFSET_COMMIT</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.UNSUPPORTED_COMPRESSION_TYPE"><code class="language-python name">var <span class="ident">UNSUPPORTED_COMPRESSION_TYPE</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.UNSUPPORTED_FOR_MESSAGE_FORMAT"><code class="language-python name">var <span class="ident">UNSUPPORTED_FOR_MESSAGE_FORMAT</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.UNSUPPORTED_SASL_MECHANISM"><code class="language-python name">var <span class="ident">UNSUPPORTED_SASL_MECHANISM</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.UNSUPPORTED_VERSION"><code class="language-python name">var <span class="ident">UNSUPPORTED_VERSION</span></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.connectors.kafka.KafkaError.code"><code class="language-python name flex">
+<span>def <span class="ident">code</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Returns the error/event code for comparison toKafkaError.<ERR_CONSTANTS>.</p>
+<p>:returns: error/event code
+:rtype: int</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.fatal"><code class="language-python name flex">
+<span>def <span class="ident">fatal</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>:returns: True if this a fatal error, else False.
+:rtype: bool</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.name"><code class="language-python name flex">
+<span>def <span class="ident">name</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Returns the enum name for error/event.</p>
+<p>:returns: error/event enum name string
+:rtype: str</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.retriable"><code class="language-python name flex">
+<span>def <span class="ident">retriable</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>:returns: True if the operation that failed may be retried, else False.
+:rtype: bool</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.str"><code class="language-python name flex">
+<span>def <span class="ident">str</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Returns the human-readable error/event string.</p>
+<p>:returns: error/event message string
+:rtype: str</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaError.txn_requires_abort"><code class="language-python name flex">
+<span>def <span class="ident">txn_requires_abort</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>:returns: True if the error is an abortable transaction error in which case application must abort the current transaction with abort_transaction() and start a new transaction with begin_transaction() if it wishes to proceed with transactional operations. This will only return true for errors from the transactional producer API.
+:rtype: bool</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaInput"><code class="language-python flex name class">
+<span>class <span class="ident">KafkaInput</span></span>
+<span>(</span><span>brokers: Iterable[str], topic: str, tail: bool = True, starting_offset: int = -2, add_config: Dict[str, str] = None)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use a single <a href="https://kafka.apache.org">Kafka</a> topic as the
+input source.</p>
+<p>Kafka messages are emitted into the dataflow as two-tuples of
+<code>(key_bytes, payload_bytes)</code>.</p>
+<p>Partitions are the unit of parallelism.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>brokers</code></strong></dt>
+<dd>List of <code>host:port</code> strings of Kafka brokers.</dd>
+<dt><strong><code>topic</code></strong></dt>
+<dd>Topic to consume from.</dd>
+<dt><strong><code>tail</code></strong></dt>
+<dd>Whether to wait for new data on this topic when the end
+is initially reached.</dd>
+<dt><strong><code>starting_offset</code></strong></dt>
+<dd>Can be either
+<code>confluent_kafka.OFFSET_BEGINNING</code> or
+<code>confluent_kafka.OFFSET_END</code>. Defaults to beginning of
+topic.</dd>
+<dt><strong><code>add_config</code></strong></dt>
+<dd>Any additional configuration properties. See <a href="https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md">the
+<code>rdkafka</code>
+documentation</a>
+for options.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class KafkaInput(PartInput):
+    &#34;&#34;&#34;Use a single [Kafka](https://kafka.apache.org) topic as the
+    input source.
+
+    Kafka messages are emitted into the dataflow as two-tuples of
+    `(key_bytes, payload_bytes)`.
+
+    Partitions are the unit of parallelism.
+
+    Args:
+
+        brokers: List of `host:port` strings of Kafka brokers.
+
+        topic: Topic to consume from.
+
+        tail: Whether to wait for new data on this topic when the end
+            is initially reached.
+
+        starting_offset: Can be either
+            `confluent_kafka.OFFSET_BEGINNING` or
+            `confluent_kafka.OFFSET_END`. Defaults to beginning of
+            topic.
+
+        add_config: Any additional configuration properties. See [the
+            `rdkafka`
+            documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+            for options.
+
+    &#34;&#34;&#34;
+
+    def __init__(
+        self,
+        brokers: Iterable[str],
+        topic: str,
+        tail: bool = True,
+        starting_offset: int = OFFSET_BEGINNING,
+        add_config: Dict[str, str] = None,
+    ):
+        add_config = add_config or {}
+
+        self.brokers = brokers
+        self.topic = topic
+        self.tail = tail
+        self.starting_offset = starting_offset
+        self.add_config = add_config
+
+    def list_parts(self):
+        config = {
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self.brokers),
+        }
+        config.update(self.add_config)
+        client = AdminClient(config)
+        cluster_metadata = client.list_topics(self.topic)
+        part_idxs = cluster_metadata.topics[self.topic].partitions.keys()
+
+        return [f&#34;{i}-{self.topic}&#34; for i in part_idxs]
+
+    def build_part(self, for_part, resume_state):
+        found_part_idx, found_topic = for_part.split(&#34;-&#34;, 1)
+        found_part_idx = int(found_part_idx)
+        # TODO: Warn and then return None. This might be an indication
+        # of dataflow continuation with a new topic (to enable
+        # re-partitioning), which is fine.
+        assert found_topic == self.topic, &#34;Can&#39;t resume from different Kafka topic&#34;
+
+        resume_offset = resume_state or self.starting_offset
+
+        config = {
+            # We&#39;ll manage our own &#34;consumer group&#34; via recovery
+            # system.
+            &#34;group.id&#34;: &#34;BYTEWAX_IGNORED&#34;,
+            &#34;enable.auto.commit&#34;: &#34;false&#34;,
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self.brokers),
+            &#34;enable.partition.eof&#34;: str(not self.tail),
+        }
+        config.update(self.add_config)
+        consumer = Consumer(config)
+        consumer.assign([TopicPartition(self.topic, found_part_idx, resume_offset)])
+
+        return _stateful_read_part(consumer)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.inputs.PartInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput">PartInput</a></li>
+</ul>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code class="language-python"><b><a title="bytewax.inputs.PartInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput">PartInput</a></b></code>:
+<ul class="hlist">
+<li><code class="language-python"><a title="bytewax.inputs.PartInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput.build_part">build_part</a></code></li>
+<li><code class="language-python"><a title="bytewax.inputs.PartInput.list_parts" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput.list_parts">list_parts</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
+<dt id="bytewax.connectors.kafka.TopicPartition"><code class="language-python flex name class">
+<span>class <span class="ident">TopicPartition</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>TopicPartition is a generic type to hold a single partition and various information about it.</p>
+<p>It is typically used to provide a list of topics or partitions for various operations, such as :py:func:<code><a title="bytewax.connectors.kafka.Consumer.assign" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.assign">Consumer.assign()</a></code>.</p>
+<p>.. py:function:: TopicPartition(topic, [partition], [offset])</p>
+<p>Instantiate a TopicPartition object.</p>
+<p>:param string topic: Topic name
+:param int partition: Partition id
+:param int offset: Initial partition offset
+:rtype: TopicPartition</p></div>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.connectors.kafka.TopicPartition.error"><code class="language-python name">var <span class="ident">error</span></code></dt>
+<dd>
+<div class="desc"><p>:attribute error: Indicates an error (with :py:class:<code><a title="bytewax.connectors.kafka.KafkaError" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError">KafkaError</a></code>) unless None.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.TopicPartition.metadata"><code class="language-python name">var <span class="ident">metadata</span></code></dt>
+<dd>
+<div class="desc"><p>attribute metadata: Optional application metadata committed with the offset (string)</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.TopicPartition.offset"><code class="language-python name">var <span class="ident">offset</span></code></dt>
+<dd>
+<div class="desc"><p>:attribute offset: Offset (long)</p>
+<p>Either an absolute offset (&gt;=0) or a logical offset:
+:py:const:<code>OFFSET_BEGINNING</code>, :py:const:<code>OFFSET_END</code>, :py:const:<code>OFFSET_STORED</code>, :py:const:<code>OFFSET_INVALID</code></p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.TopicPartition.partition"><code class="language-python name">var <span class="ident">partition</span></code></dt>
+<dd>
+<div class="desc"><p>:attribute partition: Partition number (int)</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.TopicPartition.topic"><code class="language-python name">var <span class="ident">topic</span></code></dt>
+<dd>
+<div class="desc"><p>:attribute topic: Topic name (string)</p></div>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
+<ul class="api__sidebar-nav-classes">
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.Consumer" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer">Consumer</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.assign" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.assign">assign</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.assignment" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.assignment">assignment</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.close" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.close">close</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.commit" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.commit">commit</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.committed" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.committed">committed</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.consume" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.consume">consume</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.consumer_group_metadata" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.consumer_group_metadata">consumer_group_metadata</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.get_watermark_offsets" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.get_watermark_offsets">get_watermark_offsets</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.incremental_assign" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.incremental_assign">incremental_assign</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.incremental_unassign" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.incremental_unassign">incremental_unassign</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.list_topics" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.list_topics">list_topics</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.memberid" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.memberid">memberid</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.offsets_for_times" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.offsets_for_times">offsets_for_times</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.pause" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.pause">pause</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.poll" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.poll">poll</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.position" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.position">position</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.resume" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.resume">resume</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.seek" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.seek">seek</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.store_offsets" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.store_offsets">store_offsets</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.subscribe" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.subscribe">subscribe</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.unassign" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.unassign">unassign</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Consumer.unsubscribe" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Consumer.unsubscribe">unsubscribe</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.KafkaError" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError">KafkaError</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.BROKER_NOT_AVAILABLE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.BROKER_NOT_AVAILABLE">BROKER_NOT_AVAILABLE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.CLUSTER_AUTHORIZATION_FAILED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.CLUSTER_AUTHORIZATION_FAILED">CLUSTER_AUTHORIZATION_FAILED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.CONCURRENT_TRANSACTIONS" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.CONCURRENT_TRANSACTIONS">CONCURRENT_TRANSACTIONS</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.COORDINATOR_LOAD_IN_PROGRESS" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.COORDINATOR_LOAD_IN_PROGRESS">COORDINATOR_LOAD_IN_PROGRESS</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.COORDINATOR_NOT_AVAILABLE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.COORDINATOR_NOT_AVAILABLE">COORDINATOR_NOT_AVAILABLE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_AUTHORIZATION_FAILED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_AUTHORIZATION_FAILED">DELEGATION_TOKEN_AUTHORIZATION_FAILED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_AUTH_DISABLED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_AUTH_DISABLED">DELEGATION_TOKEN_AUTH_DISABLED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_EXPIRED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_EXPIRED">DELEGATION_TOKEN_EXPIRED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_NOT_FOUND" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_NOT_FOUND">DELEGATION_TOKEN_NOT_FOUND</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_OWNER_MISMATCH" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_OWNER_MISMATCH">DELEGATION_TOKEN_OWNER_MISMATCH</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_REQUEST_NOT_ALLOWED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.DELEGATION_TOKEN_REQUEST_NOT_ALLOWED">DELEGATION_TOKEN_REQUEST_NOT_ALLOWED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.DUPLICATE_RESOURCE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.DUPLICATE_RESOURCE">DUPLICATE_RESOURCE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.DUPLICATE_SEQUENCE_NUMBER" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.DUPLICATE_SEQUENCE_NUMBER">DUPLICATE_SEQUENCE_NUMBER</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.ELECTION_NOT_NEEDED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.ELECTION_NOT_NEEDED">ELECTION_NOT_NEEDED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.ELIGIBLE_LEADERS_NOT_AVAILABLE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.ELIGIBLE_LEADERS_NOT_AVAILABLE">ELIGIBLE_LEADERS_NOT_AVAILABLE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.FEATURE_UPDATE_FAILED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.FEATURE_UPDATE_FAILED">FEATURE_UPDATE_FAILED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.FENCED_INSTANCE_ID" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.FENCED_INSTANCE_ID">FENCED_INSTANCE_ID</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.FENCED_LEADER_EPOCH" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.FENCED_LEADER_EPOCH">FENCED_LEADER_EPOCH</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.FETCH_SESSION_ID_NOT_FOUND" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.FETCH_SESSION_ID_NOT_FOUND">FETCH_SESSION_ID_NOT_FOUND</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.GROUP_AUTHORIZATION_FAILED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.GROUP_AUTHORIZATION_FAILED">GROUP_AUTHORIZATION_FAILED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.GROUP_ID_NOT_FOUND" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.GROUP_ID_NOT_FOUND">GROUP_ID_NOT_FOUND</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.GROUP_MAX_SIZE_REACHED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.GROUP_MAX_SIZE_REACHED">GROUP_MAX_SIZE_REACHED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.GROUP_SUBSCRIBED_TO_TOPIC" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.GROUP_SUBSCRIBED_TO_TOPIC">GROUP_SUBSCRIBED_TO_TOPIC</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.ILLEGAL_GENERATION" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.ILLEGAL_GENERATION">ILLEGAL_GENERATION</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.ILLEGAL_SASL_STATE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.ILLEGAL_SASL_STATE">ILLEGAL_SASL_STATE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INCONSISTENT_GROUP_PROTOCOL" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INCONSISTENT_GROUP_PROTOCOL">INCONSISTENT_GROUP_PROTOCOL</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INCONSISTENT_VOTER_SET" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INCONSISTENT_VOTER_SET">INCONSISTENT_VOTER_SET</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_COMMIT_OFFSET_SIZE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_COMMIT_OFFSET_SIZE">INVALID_COMMIT_OFFSET_SIZE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_CONFIG" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_CONFIG">INVALID_CONFIG</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_FETCH_SESSION_EPOCH" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_FETCH_SESSION_EPOCH">INVALID_FETCH_SESSION_EPOCH</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_GROUP_ID" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_GROUP_ID">INVALID_GROUP_ID</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_MSG" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_MSG">INVALID_MSG</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_MSG_SIZE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_MSG_SIZE">INVALID_MSG_SIZE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_PARTITIONS" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_PARTITIONS">INVALID_PARTITIONS</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_PRINCIPAL_TYPE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_PRINCIPAL_TYPE">INVALID_PRINCIPAL_TYPE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_PRODUCER_EPOCH" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_PRODUCER_EPOCH">INVALID_PRODUCER_EPOCH</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_PRODUCER_ID_MAPPING" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_PRODUCER_ID_MAPPING">INVALID_PRODUCER_ID_MAPPING</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_RECORD" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_RECORD">INVALID_RECORD</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_REPLICATION_FACTOR" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_REPLICATION_FACTOR">INVALID_REPLICATION_FACTOR</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_REPLICA_ASSIGNMENT" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_REPLICA_ASSIGNMENT">INVALID_REPLICA_ASSIGNMENT</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_REQUEST" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_REQUEST">INVALID_REQUEST</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_REQUIRED_ACKS" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_REQUIRED_ACKS">INVALID_REQUIRED_ACKS</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_SESSION_TIMEOUT" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_SESSION_TIMEOUT">INVALID_SESSION_TIMEOUT</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_TIMESTAMP" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_TIMESTAMP">INVALID_TIMESTAMP</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_TRANSACTION_TIMEOUT" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_TRANSACTION_TIMEOUT">INVALID_TRANSACTION_TIMEOUT</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_TXN_STATE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_TXN_STATE">INVALID_TXN_STATE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.INVALID_UPDATE_VERSION" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.INVALID_UPDATE_VERSION">INVALID_UPDATE_VERSION</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.KAFKA_STORAGE_ERROR" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.KAFKA_STORAGE_ERROR">KAFKA_STORAGE_ERROR</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.LEADER_NOT_AVAILABLE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.LEADER_NOT_AVAILABLE">LEADER_NOT_AVAILABLE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.LISTENER_NOT_FOUND" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.LISTENER_NOT_FOUND">LISTENER_NOT_FOUND</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.LOG_DIR_NOT_FOUND" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.LOG_DIR_NOT_FOUND">LOG_DIR_NOT_FOUND</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.MEMBER_ID_REQUIRED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.MEMBER_ID_REQUIRED">MEMBER_ID_REQUIRED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.MSG_SIZE_TOO_LARGE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.MSG_SIZE_TOO_LARGE">MSG_SIZE_TOO_LARGE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.NETWORK_EXCEPTION" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.NETWORK_EXCEPTION">NETWORK_EXCEPTION</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.NON_EMPTY_GROUP" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.NON_EMPTY_GROUP">NON_EMPTY_GROUP</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.NOT_CONTROLLER" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.NOT_CONTROLLER">NOT_CONTROLLER</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.NOT_COORDINATOR" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.NOT_COORDINATOR">NOT_COORDINATOR</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.NOT_ENOUGH_REPLICAS" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.NOT_ENOUGH_REPLICAS">NOT_ENOUGH_REPLICAS</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.NOT_ENOUGH_REPLICAS_AFTER_APPEND" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.NOT_ENOUGH_REPLICAS_AFTER_APPEND">NOT_ENOUGH_REPLICAS_AFTER_APPEND</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.NOT_LEADER_FOR_PARTITION" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.NOT_LEADER_FOR_PARTITION">NOT_LEADER_FOR_PARTITION</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.NO_ERROR" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.NO_ERROR">NO_ERROR</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.NO_REASSIGNMENT_IN_PROGRESS" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.NO_REASSIGNMENT_IN_PROGRESS">NO_REASSIGNMENT_IN_PROGRESS</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.OFFSET_METADATA_TOO_LARGE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.OFFSET_METADATA_TOO_LARGE">OFFSET_METADATA_TOO_LARGE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.OFFSET_NOT_AVAILABLE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.OFFSET_NOT_AVAILABLE">OFFSET_NOT_AVAILABLE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.OFFSET_OUT_OF_RANGE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.OFFSET_OUT_OF_RANGE">OFFSET_OUT_OF_RANGE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.OPERATION_NOT_ATTEMPTED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.OPERATION_NOT_ATTEMPTED">OPERATION_NOT_ATTEMPTED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.OUT_OF_ORDER_SEQUENCE_NUMBER" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.OUT_OF_ORDER_SEQUENCE_NUMBER">OUT_OF_ORDER_SEQUENCE_NUMBER</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.POLICY_VIOLATION" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.POLICY_VIOLATION">POLICY_VIOLATION</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.PREFERRED_LEADER_NOT_AVAILABLE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.PREFERRED_LEADER_NOT_AVAILABLE">PREFERRED_LEADER_NOT_AVAILABLE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.PRINCIPAL_DESERIALIZATION_FAILURE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.PRINCIPAL_DESERIALIZATION_FAILURE">PRINCIPAL_DESERIALIZATION_FAILURE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.PRODUCER_FENCED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.PRODUCER_FENCED">PRODUCER_FENCED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.REASSIGNMENT_IN_PROGRESS" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.REASSIGNMENT_IN_PROGRESS">REASSIGNMENT_IN_PROGRESS</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.REBALANCE_IN_PROGRESS" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.REBALANCE_IN_PROGRESS">REBALANCE_IN_PROGRESS</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.RECORD_LIST_TOO_LARGE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.RECORD_LIST_TOO_LARGE">RECORD_LIST_TOO_LARGE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.REPLICA_NOT_AVAILABLE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.REPLICA_NOT_AVAILABLE">REPLICA_NOT_AVAILABLE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.REQUEST_TIMED_OUT" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.REQUEST_TIMED_OUT">REQUEST_TIMED_OUT</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.RESOURCE_NOT_FOUND" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.RESOURCE_NOT_FOUND">RESOURCE_NOT_FOUND</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.SASL_AUTHENTICATION_FAILED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.SASL_AUTHENTICATION_FAILED">SASL_AUTHENTICATION_FAILED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.SECURITY_DISABLED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.SECURITY_DISABLED">SECURITY_DISABLED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.STALE_BROKER_EPOCH" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.STALE_BROKER_EPOCH">STALE_BROKER_EPOCH</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.STALE_CTRL_EPOCH" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.STALE_CTRL_EPOCH">STALE_CTRL_EPOCH</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.THROTTLING_QUOTA_EXCEEDED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.THROTTLING_QUOTA_EXCEEDED">THROTTLING_QUOTA_EXCEEDED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.TOPIC_ALREADY_EXISTS" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.TOPIC_ALREADY_EXISTS">TOPIC_ALREADY_EXISTS</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.TOPIC_AUTHORIZATION_FAILED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.TOPIC_AUTHORIZATION_FAILED">TOPIC_AUTHORIZATION_FAILED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.TOPIC_DELETION_DISABLED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.TOPIC_DELETION_DISABLED">TOPIC_DELETION_DISABLED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.TOPIC_EXCEPTION" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.TOPIC_EXCEPTION">TOPIC_EXCEPTION</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.TRANSACTIONAL_ID_AUTHORIZATION_FAILED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.TRANSACTIONAL_ID_AUTHORIZATION_FAILED">TRANSACTIONAL_ID_AUTHORIZATION_FAILED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.TRANSACTION_COORDINATOR_FENCED" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.TRANSACTION_COORDINATOR_FENCED">TRANSACTION_COORDINATOR_FENCED</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.UNACCEPTABLE_CREDENTIAL" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.UNACCEPTABLE_CREDENTIAL">UNACCEPTABLE_CREDENTIAL</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.UNKNOWN" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.UNKNOWN">UNKNOWN</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.UNKNOWN_LEADER_EPOCH" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.UNKNOWN_LEADER_EPOCH">UNKNOWN_LEADER_EPOCH</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.UNKNOWN_MEMBER_ID" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.UNKNOWN_MEMBER_ID">UNKNOWN_MEMBER_ID</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.UNKNOWN_PRODUCER_ID" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.UNKNOWN_PRODUCER_ID">UNKNOWN_PRODUCER_ID</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.UNKNOWN_TOPIC_OR_PART" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.UNKNOWN_TOPIC_OR_PART">UNKNOWN_TOPIC_OR_PART</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.UNSTABLE_OFFSET_COMMIT" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.UNSTABLE_OFFSET_COMMIT">UNSTABLE_OFFSET_COMMIT</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.UNSUPPORTED_COMPRESSION_TYPE" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.UNSUPPORTED_COMPRESSION_TYPE">UNSUPPORTED_COMPRESSION_TYPE</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.UNSUPPORTED_FOR_MESSAGE_FORMAT" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.UNSUPPORTED_FOR_MESSAGE_FORMAT">UNSUPPORTED_FOR_MESSAGE_FORMAT</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.UNSUPPORTED_SASL_MECHANISM" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.UNSUPPORTED_SASL_MECHANISM">UNSUPPORTED_SASL_MECHANISM</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.UNSUPPORTED_VERSION" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.UNSUPPORTED_VERSION">UNSUPPORTED_VERSION</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.code" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.code">code</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.fatal" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.fatal">fatal</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.name" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.name">name</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.retriable" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.retriable">retriable</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.str" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.str">str</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaError.txn_requires_abort" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaError.txn_requires_abort">txn_requires_abort</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.KafkaInput" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaInput">KafkaInput</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.TopicPartition" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.TopicPartition">TopicPartition</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.TopicPartition.error" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.TopicPartition.error">error</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.TopicPartition.metadata" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.TopicPartition.metadata">metadata</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.TopicPartition.offset" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.TopicPartition.offset">offset</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.TopicPartition.partition" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.TopicPartition.partition">partition</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.TopicPartition.topic" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.TopicPartition.topic">topic</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>

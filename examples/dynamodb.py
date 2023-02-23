@@ -8,7 +8,7 @@ from bytewax.connectors.kafka import KafkaInput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.recovery import KafkaRecoveryConfig
-from bytewax.window import EventClockConfig, TumblingWindowConfig
+from bytewax.window import EventClockConfig, TumblingWindow
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -43,7 +43,7 @@ start_at = datetime.now(timezone.utc)
 start_at = start_at - timedelta(
     minutes=start_at.minute, seconds=start_at.second, microseconds=start_at.microsecond
 )
-wc = TumblingWindowConfig(start_at=start_at, length=timedelta(seconds=5))
+wc = TumblingWindow(start_at=start_at, length=timedelta(seconds=5))
 
 
 # Configure the `fold_window` operator to use the event time.

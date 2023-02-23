@@ -146,7 +146,7 @@ We need two config objects to do this:
 - `window_config`
 
 The `clock_config` is used to tell the window-based operators what reference clock to use, here we use the `SystemClockConfig` that just uses the system's clock.
-The `window_config` is used to define the time window we want to use. Here we'll use the `TumblingWindowConfig` that allows us to have tumbling windows defined by a length (`timedelta`), and we configure it to have windows of 5 seconds each.
+The `window_config` is used to define the time window we want to use. Here we'll use the `TumblingWindow` that allows us to have tumbling windows defined by a length (`timedelta`), and we configure it to have windows of 5 seconds each.
 
 So the old `reduce_epoch`:
 ```python doctest:SKIP
@@ -156,11 +156,11 @@ flow.reduce_epoch(add)
 becomes `reduce_window`:
 
 ```python doctest:SKIP
-from bytewax.window import SystemClockConfig, TumblingWindowConfig
+from bytewax.window import SystemClockConfig, TumblingWindow
 
 
 clock_config = SystemClockConfig()
-window_config = TumblingWindowConfig(length=timedelta(seconds=5))
+window_config = TumblingWindow(length=timedelta(seconds=5))
 flow.reduce_window("sum", clock_config, window_config, add)
 ```
 
@@ -204,7 +204,7 @@ from bytewax.dataflow import Dataflow
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
 from bytewax.execution import run_main
-from bytewax.window import SystemClockConfig, TumblingWindowConfig
+from bytewax.window import SystemClockConfig, TumblingWindow
 
 
 def input_builder(worker_index, worker_count, resume_state):
@@ -230,7 +230,7 @@ def add(count1, count2):
 
 
 clock_config = SystemClockConfig()
-window_config = TumblingWindowConfig(length=timedelta(seconds=5))
+window_config = TumblingWindow(length=timedelta(seconds=5))
 
 flow = Dataflow()
 flow.input("input", ManualInputConfig(input_builder))

@@ -7,7 +7,7 @@ use crate::{add_pymethods, window::WindowConfig};
 
 use super::{Builder, InsertError, StateBytes, WindowBuilder, WindowKey, Windower};
 
-/// Hopping windows of fixed duration.
+/// Sliding windows of fixed duration.
 /// If offset == length, you get tumbling windows.
 /// If offset < length, windows overlap.
 /// If offset > length, there will be holes between windows.
@@ -28,7 +28,7 @@ use super::{Builder, InsertError, StateBytes, WindowBuilder, WindowKey, Windower
 ///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=WindowConfig)]
 #[derive(Clone)]
-pub(crate) struct HoppingWindowConfig {
+pub(crate) struct SlidingWindow {
     #[pyo3(get)]
     pub(crate) length: Duration,
     #[pyo3(get)]
@@ -38,7 +38,7 @@ pub(crate) struct HoppingWindowConfig {
 }
 
 add_pymethods!(
-    HoppingWindowConfig,
+    SlidingWindow,
     parent: WindowConfig,
     py_args: (length, offset, start_at = "None"),
     args {
@@ -48,9 +48,9 @@ add_pymethods!(
     }
 );
 
-impl WindowBuilder for HoppingWindowConfig {
+impl WindowBuilder for SlidingWindow {
     fn build(&self, _py: Python) -> PyResult<Builder> {
-        Ok(Box::new(HoppingWindower::builder(
+        Ok(Box::new(SlidingWindower::builder(
             self.length,
             self.offset,
             self.start_at.unwrap_or_else(Utc::now),
@@ -58,14 +58,14 @@ impl WindowBuilder for HoppingWindowConfig {
     }
 }
 
-pub(crate) struct HoppingWindower {
+pub(crate) struct SlidingWindower {
     length: Duration,
     offset: Duration,
     start_at: DateTime<Utc>,
     close_times: HashMap<WindowKey, DateTime<Utc>>,
 }
 
-impl HoppingWindower {
+impl SlidingWindower {
     pub(crate) fn builder(
         length: Duration,
         offset: Duration,
@@ -90,14 +90,14 @@ impl HoppingWindower {
             .and_modify(|existing| {
                 assert!(
                     existing == &window_end,
-                    "HoppingWindower is not generating consistent boundaries"
+                    "SlidingWindower is not generating consistent boundaries"
                 )
             })
             .or_insert(window_end);
     }
 }
 
-impl Windower for HoppingWindower {
+impl Windower for SlidingWindower {
     fn insert(
         &mut self,
         watermark: &DateTime<Utc>,

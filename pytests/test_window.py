@@ -6,8 +6,8 @@ from bytewax.testing import TestingInput
 from bytewax.outputs import TestingOutputConfig
 from bytewax.window import (
     EventClockConfig,
-    HoppingWindowConfig,
-    TumblingWindowConfig,
+    SlidingWindow,
+    TumblingWindow,
     SessionWindow,
 )
 
@@ -63,7 +63,7 @@ def test_session_window():
     )
 
 
-def test_hopping_window():
+def test_sliding_window():
     start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
 
     flow = Dataflow()
@@ -85,7 +85,7 @@ def test_hopping_window():
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(0)
     )
-    window_config = HoppingWindowConfig(
+    window_config = SlidingWindow(
         length=timedelta(seconds=10), start_at=start_at, offset=timedelta(seconds=5)
     )
 
@@ -128,7 +128,7 @@ def test_tumbling_window():
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(0)
     )
-    window_config = TumblingWindowConfig(
+    window_config = TumblingWindow(
         length=timedelta(seconds=10), start_at=start_at
     )
 

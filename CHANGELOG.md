@@ -11,7 +11,9 @@ notes on GitHub when we make a new release.__
 
 - Add `SessionWindow` for windowing operators.
 
-- Add `HoppingWindowConfig` for windowing operators.
+- Add `SlidingWindow` for windowing operators.
+
+- *Breaking change* Rename `TumblingWindowConfig` to `TumblingWindow`
 
 - Add `filter_map` operator.
 

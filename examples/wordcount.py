@@ -6,7 +6,7 @@ from bytewax.connectors.files import FileInput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.outputs import StdOutputConfig
-from bytewax.window import SystemClockConfig, TumblingWindowConfig
+from bytewax.window import SystemClockConfig, TumblingWindow
 
 
 def lower(line):
@@ -22,7 +22,7 @@ def initial_count(word):
 
 
 cc = SystemClockConfig()
-wc = TumblingWindowConfig(length=timedelta(seconds=5))
+wc = TumblingWindow(length=timedelta(seconds=5))
 
 flow = Dataflow()
 flow.input("inp", FileInput("examples/sample_data/wordcount.txt"))
@@ -36,7 +36,7 @@ flow.map(initial_count)
 flow.reduce_window(
     "sum",
     SystemClockConfig(),
-    TumblingWindowConfig(length=timedelta(seconds=5)),
+    TumblingWindow(length=timedelta(seconds=5)),
     operator.add,
 )
 # ("word", count)
