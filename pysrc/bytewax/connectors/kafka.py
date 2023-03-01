@@ -25,8 +25,8 @@ def _stateful_read_part(consumer):
 
 
 class KafkaInput(PartInput):
-    """Use a single [Kafka](https://kafka.apache.org) topic as the
-    input source.
+    """Use [Kafka](https://kafka.apache.org) topics as an input
+    source.
 
     Kafka messages are emitted into the dataflow as two-tuples of
     `(key_bytes, payload_bytes)`.
@@ -37,7 +37,7 @@ class KafkaInput(PartInput):
 
         brokers: List of `host:port` strings of Kafka brokers.
 
-        topic: Topic to consume from.
+        topics: List of topics to consume from.
 
         tail: Whether to wait for new data on this topic when the end
             is initially reached.
@@ -57,7 +57,7 @@ class KafkaInput(PartInput):
     def __init__(
         self,
         brokers: Iterable[str],
-        topic: str,
+        topics: Iterable[str],
         tail: bool = True,
         starting_offset: int = OFFSET_BEGINNING,
         add_config: Dict[str, str] = None,
@@ -65,7 +65,7 @@ class KafkaInput(PartInput):
         add_config = add_config or {}
 
         self.brokers = brokers
-        self.topic = topic
+        self.topics = topics
         self.tail = tail
         self.starting_offset = starting_offset
         self.add_config = add_config
@@ -76,10 +76,12 @@ class KafkaInput(PartInput):
         }
         config.update(self.add_config)
         client = AdminClient(config)
-        cluster_metadata = client.list_topics(self.topic)
-        part_idxs = cluster_metadata.topics[self.topic].partitions.keys()
+        cluster_metadata = client.list_topics()
 
-        return [f"{i}-{self.topic}" for i in part_idxs]
+        for found_topic in self.topics:
+            part_idxs = cluster_metadata.topics[found_topic].partitions.keys()
+            for i in part_idxs:
+                yield f"{i}-{found_topic}"
 
     def build_part(self, for_part, resume_state):
         found_part_idx, found_topic = for_part.split("-", 1)
@@ -87,7 +89,9 @@ class KafkaInput(PartInput):
         # TODO: Warn and then return None. This might be an indication
         # of dataflow continuation with a new topic (to enable
         # re-partitioning), which is fine.
-        assert found_topic == self.topic, "Can't resume from different Kafka topic"
+        assert (
+            found_topic in self.topics
+        ), "Can't resume from different set of Kafka topics"
 
         resume_offset = resume_state or self.starting_offset
 
@@ -101,6 +105,6 @@ class KafkaInput(PartInput):
         }
         config.update(self.add_config)
         consumer = Consumer(config)
-        consumer.assign([TopicPartition(self.topic, found_part_idx, resume_offset)])
+        consumer.assign([TopicPartition(found_topic, found_part_idx, resume_offset)])
 
         return _stateful_read_part(consumer)

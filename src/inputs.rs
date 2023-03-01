@@ -71,8 +71,17 @@ impl PartInput {
         worker_count: WorkerCount,
         mut resume_state: StepStateBytes,
     ) -> PyResult<(PartBundle, TotalPartCount)> {
-        let mut keys: Vec<StateKey> = self.0.call_method0(py, "list_parts")?.extract(py)?;
-        keys.sort();
+        let keys = {
+            let mut keys = self
+                .0
+                .call_method0(py, "list_parts")?
+                .as_ref(py)
+                .iter()?
+                .map(|i| i.and_then(PyAny::extract::<StateKey>))
+                .collect::<PyResult<Vec<StateKey>>>()?;
+            keys.sort();
+            keys
+        };
 
         let part_count = TotalPartCount(keys.len());
 
