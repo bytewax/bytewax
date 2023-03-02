@@ -16,7 +16,7 @@
 //! sources are generated and epochs assigned. The only goal of the
 //! input system is "what's the next item for this input?"
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::task::Poll;
 
 use crate::execution::{WorkerCount, WorkerIndex};
@@ -71,17 +71,13 @@ impl PartInput {
         worker_count: WorkerCount,
         mut resume_state: StepStateBytes,
     ) -> PyResult<(PartBundle, TotalPartCount)> {
-        let keys = {
-            let mut keys = self
-                .0
-                .call_method0(py, "list_parts")?
-                .as_ref(py)
-                .iter()?
-                .map(|i| i.and_then(PyAny::extract::<StateKey>))
-                .collect::<PyResult<Vec<StateKey>>>()?;
-            keys.sort();
-            keys
-        };
+        let keys = self
+            .0
+            .call_method0(py, "list_parts")?
+            .as_ref(py)
+            .iter()?
+            .map(|i| i.and_then(PyAny::extract::<StateKey>))
+            .collect::<PyResult<BTreeSet<StateKey>>>()?;
 
         let part_count = TotalPartCount(keys.len());
 
