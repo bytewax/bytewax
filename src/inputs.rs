@@ -107,8 +107,9 @@ impl PartInput {
                 Ok((key, part))
             }).collect::<PyResult<HashMap<StateKey, PartIter>>>()?;
 
-        let remaining_keys: Vec<StateKey> = resume_state.into_keys().into_iter().collect();
-        assert!(remaining_keys.is_empty(), "Partition keys in resume state that are not in partition list; changing partition counts? recovery state routing bug?");
+        if !resume_state.is_empty() {
+            tracing::warn!("Resume state exists for unknown partitions {:?}; changing partition counts? recovery state routing bug?", resume_state.keys());
+        }
 
         Ok((PartBundle::new(parts), part_count))
     }
