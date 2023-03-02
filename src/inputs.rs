@@ -16,7 +16,7 @@
 //! sources are generated and epochs assigned. The only goal of the
 //! input system is "what's the next item for this input?"
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::task::Poll;
 
 use crate::execution::{WorkerCount, WorkerIndex};
@@ -71,8 +71,13 @@ impl PartInput {
         worker_count: WorkerCount,
         mut resume_state: StepStateBytes,
     ) -> PyResult<(PartBundle, TotalPartCount)> {
-        let mut keys: Vec<StateKey> = self.0.call_method0(py, "list_parts")?.extract(py)?;
-        keys.sort();
+        let keys = self
+            .0
+            .call_method0(py, "list_parts")?
+            .as_ref(py)
+            .iter()?
+            .map(|i| i.and_then(PyAny::extract::<StateKey>))
+            .collect::<PyResult<BTreeSet<StateKey>>>()?;
 
         let part_count = TotalPartCount(keys.len());
 
@@ -102,8 +107,9 @@ impl PartInput {
                 Ok((key, part))
             }).collect::<PyResult<HashMap<StateKey, PartIter>>>()?;
 
-        let remaining_keys: Vec<StateKey> = resume_state.into_keys().into_iter().collect();
-        assert!(remaining_keys.is_empty(), "Partition keys in resume state that are not in partition list; changing partition counts? recovery state routing bug?");
+        if !resume_state.is_empty() {
+            tracing::warn!("Resume state exists for unknown partitions {:?}; changing partition counts? recovery state routing bug?", resume_state.keys());
+        }
 
         Ok((PartBundle::new(parts), part_count))
     }
