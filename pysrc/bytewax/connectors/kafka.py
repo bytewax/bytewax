@@ -64,7 +64,11 @@ class KafkaInput(PartInput):
     ):
         add_config = add_config or {}
 
+        if isinstance(brokers, str):
+            raise TypeError("brokers must be an iterable and not a string")
         self.brokers = brokers
+        if isinstance(topics, str):
+            raise TypeError("topics must be an iterable and not a string")
         self.topics = topics
         self.tail = tail
         self.starting_offset = starting_offset
@@ -76,12 +80,19 @@ class KafkaInput(PartInput):
         }
         config.update(self.add_config)
         client = AdminClient(config)
-        cluster_metadata = client.list_topics()
-
-        for found_topic in self.topics:
-            part_idxs = cluster_metadata.topics[found_topic].partitions.keys()
+        for topic in self.topics:
+            # List topics one-by-one so if auto-create is turned on,
+            # we respect that.
+            cluster_metadata = client.list_topics(topic)
+            topic_metadata = cluster_metadata.topics[topic]
+            if topic_metadata.error is not None:
+                raise RuntimeError(
+                    f"error listing partitions for Kafka topic `{topic!r}`: "
+                    f"{topic_metadata.error.str()}"
+                )
+            part_idxs = topic_metadata.partitions.keys()
             for i in part_idxs:
-                yield f"{i}-{found_topic}"
+                yield f"{i}-{topic}"
 
     def build_part(self, for_part, resume_state):
         found_part_idx, found_topic = for_part.split("-", 1)
