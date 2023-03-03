@@ -34,7 +34,7 @@ class TestingInput(PartInput):
         self.it = it
 
     def list_parts(self):
-        return ["iter"]
+        return {"iter"}
 
     def build_part(self, for_key, resume_state):
         assert for_key == "iter"

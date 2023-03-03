@@ -20,6 +20,22 @@ from bytewax.inputs import PartInput
 from bytewax.outputs import DynamicOutput
 
 
+def _list_parts(client, topics):
+    for topic in topics:
+        # List topics one-by-one so if auto-create is turned on,
+        # we respect that.
+        cluster_metadata = client.list_topics(topic)
+        topic_metadata = cluster_metadata.topics[topic]
+        if topic_metadata.error is not None:
+            raise RuntimeError(
+                f"error listing partitions for Kafka topic `{topic!r}`: "
+                f"{topic_metadata.error.str()}"
+            )
+        part_idxs = topic_metadata.partitions.keys()
+        for i in part_idxs:
+            yield f"{i}-{topic}"
+
+
 class KafkaInput(PartInput):
     """Use [Kafka](https://kafka.apache.org) topics as an input
     source.
@@ -79,19 +95,7 @@ class KafkaInput(PartInput):
         config.update(self.add_config)
         client = AdminClient(config)
 
-        for topic in self.topics:
-            # List topics one-by-one so if auto-create is turned on,
-            # we respect that.
-            cluster_metadata = client.list_topics(topic)
-            topic_metadata = cluster_metadata.topics[topic]
-            if topic_metadata.error is not None:
-                raise RuntimeError(
-                    f"error listing partitions for Kafka topic `{topic!r}`: "
-                    f"{topic_metadata.error.str()}"
-                )
-            part_idxs = topic_metadata.partitions.keys()
-            for i in part_idxs:
-                yield f"{i}-{topic}"
+        return set(_list_parts(client, self.topics))
 
     def build_part(self, for_part, resume_state):
         part_idx, topic = for_part.split("-", 1)

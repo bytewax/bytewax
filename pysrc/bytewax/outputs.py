@@ -8,7 +8,7 @@ Subclass the types here to implement input for your own custom sink.
 """
 
 from abc import abstractmethod
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Optional, Set
 
 
 # TODO: Add ABC superclass. It messes up pickling. We should get rid
@@ -60,13 +60,13 @@ class PartOutput(Output):
     """
 
     @abstractmethod
-    def list_parts(self) -> Iterable[str]:
+    def list_parts(self) -> Set[str]:
         """List all partitions by a string key.
 
         This must consistently return the same keys when called by all
         workers in all executions.
 
-        Keys must be unique within this list.
+        Keys must be unique within this dataflow step.
 
         Returns:
 

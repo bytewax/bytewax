@@ -71,13 +71,7 @@ impl PartInput {
         worker_count: WorkerCount,
         mut resume_state: StepStateBytes,
     ) -> PyResult<(PartBundle, TotalPartCount)> {
-        let keys = self
-            .0
-            .call_method0(py, "list_parts")?
-            .as_ref(py)
-            .iter()?
-            .map(|i| i.and_then(PyAny::extract::<StateKey>))
-            .collect::<PyResult<BTreeSet<StateKey>>>()?;
+        let keys: BTreeSet<StateKey> = self.0.call_method0(py, "list_parts")?.extract(py)?;
 
         let part_count = TotalPartCount(keys.len());
 

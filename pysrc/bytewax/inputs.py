@@ -8,7 +8,7 @@ Subclass the types here to implement input for your own custom source.
 """
 
 from abc import abstractmethod
-from typing import Any, Iterable, Optional, Tuple
+from typing import Any, Iterable, Optional, Set, Tuple
 
 PartIter = Iterable[Optional[Tuple[Any, Any]]]
 """A single partition.
@@ -38,13 +38,13 @@ class PartInput:
     """An input source with a fixed number of independent partitions."""
 
     @abstractmethod
-    def list_parts(self) -> Iterable[str]:
+    def list_parts(self) -> Set[str]:
         """List all partitions for this input by a string key.
 
         This must consistently return the same keys when called by any
         worker in a cluster.
 
-        Keys must be unique within this list.
+        Keys must be unique within this dataflow step.
 
         Returns:
 

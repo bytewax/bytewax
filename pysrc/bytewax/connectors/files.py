@@ -50,9 +50,9 @@ class DirInput(PartInput):
         self.glob_pat = glob_pat
 
     def list_parts(self):
-        return [
+        return {
             str(path.relative_to(self.dir)) for path in self.dir.glob(self.glob_pat)
-        ]
+        }
 
     def build_part(self, for_part, resume_state):
         path = self.dir / for_part
@@ -78,7 +78,7 @@ class FileInput(PartInput):
         self.path = path
 
     def list_parts(self):
-        return [str(self.path)]
+        return {str(self.path)}
 
     def build_part(self, for_part, resume_state):
         # TODO: Warn and return None. Then we could support
@@ -155,7 +155,7 @@ class DirOutput(PartOutput):
         self.end = end
 
     def list_parts(self):
-        return [self.file_namer(i, self.file_count) for i in range(self.file_count)]
+        return {self.file_namer(i, self.file_count) for i in range(self.file_count)}
 
     def assign_part(self, item_key):
         i = self.assign_file(item_key) % self.file_count
@@ -196,7 +196,7 @@ class FileOutput(PartOutput):
         self.end = end
 
     def list_parts(self):
-        return [str(self.path)]
+        return {str(self.path)}
 
     def assign_part(self, item_key):
         return str(self.path)
