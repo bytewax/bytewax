@@ -102,8 +102,9 @@ class PartOutput(Output):
         """Build an output partition, resuming writing at the position
         encoded in the resume state.
 
-        Will be called once within each cluster for each partition
-        key.
+        Will be called once on one worker in an execution for each
+        partition key in order to distribute partitions across all
+        workers.
 
         Be careful of "off by one" errors in resume state. This should
         return a source that resumes from _the next item_, not the

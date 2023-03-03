@@ -153,7 +153,7 @@ class KafkaOutput(DynamicOutput):
 
         brokers: List of `host:port` strings of Kafka brokers.
 
-        topic: Topic to consume from.
+        topic: Topic to produce to.
 
         add_config: Any additional configuration properties. See [the
             `rdkafka`
