@@ -349,7 +349,7 @@ where
                     if let Ok(output) = output.extract(py) {
                         let step_resume_state = resume_state.remove(&step_id);
 
-                        let (clock, changes) =
+                        let (output, changes) =
                             stream.part_output(
                                 py,
                                 step_id,
@@ -358,22 +358,22 @@ where
                                 worker_count,
                                 step_resume_state,
                             )?;
+                        let clock = output.map(|_| ());
 
                         outputs.push(clock.clone());
                         step_changes.push(changes);
-                        // Reset the stream to an empty stream.
-                        stream = None.to_stream(scope);
+                        stream = output;
                     } else if let Ok(output) = output.extract(py) {
-                        let clock =
+                        let output =
                             stream.dynamic_output(
                                 py,
                                 step_id,
                                 output,
                             )?;
+                        let clock = output.map(|_| ());
 
                         outputs.push(clock.clone());
-                        // Reset the stream to an empty stream.
-                        stream = None.to_stream(scope);
+                        stream = output;
                     } else {
                         return Err(PyTypeError::new_err("unknown output type"))
                     }

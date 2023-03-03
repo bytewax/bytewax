@@ -575,3 +575,21 @@ def test_collect_window(recovery_config):
             ],
         )
     ]
+
+
+def test_output_emits_downstream():
+    flow = Dataflow()
+
+    inp = [0, 1, 2]
+    flow.input("inp", TestingInput(inp))
+
+    out1 = []
+    flow.output("out1", TestingOutput(out1))
+
+    out2 = []
+    flow.output("out2", TestingOutput(out2))
+
+    run_main(flow)
+
+    assert sorted(out1) == sorted(inp)
+    assert sorted(out2) == sorted(inp)

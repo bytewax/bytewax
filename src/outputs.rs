@@ -4,9 +4,9 @@
 //! Python module docstring. Read that first.
 
 use crate::execution::{WorkerCount, WorkerIndex};
-use crate::pyo3_extensions::{extract_state_pair, TdPyAny, TdPyCallable};
+use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny, TdPyCallable};
 use crate::recovery::model::*;
-use crate::recovery::operators::{ClockStream, FlowChangeStream, Route};
+use crate::recovery::operators::{FlowChangeStream, Route};
 use crate::unwrap_any;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -199,7 +199,7 @@ where
         worker_index: WorkerIndex,
         worker_count: WorkerCount,
         resume_state: StepStateBytes,
-    ) -> PyResult<(ClockStream<S>, FlowChangeStream<S>)>;
+    ) -> PyResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)>;
 }
 
 impl<S> PartOutputOp<S> for Stream<S, TdPyAny>
@@ -214,7 +214,7 @@ where
         worker_index: WorkerIndex,
         worker_count: WorkerCount,
         resume_state: StepStateBytes,
-    ) -> PyResult<(ClockStream<S>, FlowChangeStream<S>)> {
+    ) -> PyResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)> {
         let (mut bundle, assigner) = output.build(
             py,
             step_id.clone(),
@@ -227,7 +227,7 @@ where
 
         let mut op_builder = OperatorBuilder::new(step_id.0.clone(), self.scope());
 
-        let (mut clock_wrapper, clock_stream) = op_builder.new_output();
+        let (mut output_wrapper, output_stream) = op_builder.new_output();
         let (mut change_wrapper, change_stream) = op_builder.new_output();
 
         let ex_assigner = assigner.clone_ref(py);
@@ -239,7 +239,7 @@ where
                 ));
                 part_key.route()
             }),
-            // This is saying this input results in items on either
+            // This is saying this input results in items on any
             // output.
             vec![Antichain::from_elem(0), Antichain::from_elem(0)],
         );
@@ -250,7 +250,7 @@ where
 
             let mut tmp_incoming: Vec<(StateKey, TdPyAny)> = Vec::new();
 
-            let mut clock_ncater = FrontierNotificator::new();
+            let mut output_ncater = FrontierNotificator::new();
             let mut change_ncater = FrontierNotificator::new();
 
             move |input_frontiers| {
@@ -265,28 +265,29 @@ where
                         .or_insert_with(Vec::new)
                         .append(&mut tmp_incoming);
 
-                    clock_ncater.notify_at(cap.delayed_for_output(epoch, 0));
+                    output_ncater.notify_at(cap.delayed_for_output(epoch, 0));
                     change_ncater.notify_at(cap.delayed_for_output(epoch, 1));
                 });
 
-                clock_ncater.for_each(&[&input_frontiers[0]], |cap, _| {
+                output_ncater.for_each(&[&input_frontiers[0]], |cap, _| {
                     let epoch = cap.time();
 
                     if let Some(items) = incoming_buffer.remove(epoch) {
+                        let mut output_handle = output_wrapper.activate();
+                        let mut output_session = output_handle.session(&cap);
                         let res: PyResult<()> = Python::with_gil(|py| {
                             for (key, value) in items {
-                                let part_key = assigner.assign_part(py, key)?;
+                                let part_key = assigner.assign_part(py, key.clone())?;
                                 let sink = bundle.sinks.get_mut(&part_key).expect(
                                     "Item routed to non-local partition; output routing bug?",
                                 );
-                                sink.write(py, value)?;
+                                sink.write(py, value.clone_ref(py))?;
+                                output_session.give(wrap_state_pair((key, value)));
                             }
                             Ok(())
                         });
                         unwrap_any!(res);
                     }
-
-                    clock_wrapper.activate().session(&cap).give(());
                 });
 
                 change_ncater.for_each(&[&input_frontiers[0]], |cap, _| {
@@ -301,7 +302,7 @@ where
             }
         });
 
-        Ok((clock_stream, change_stream))
+        Ok((output_stream, change_stream))
     }
 }
 
@@ -368,7 +369,7 @@ where
         py: Python,
         step_id: StepId,
         output: DynamicOutput,
-    ) -> PyResult<ClockStream<S>>;
+    ) -> PyResult<Stream<S, TdPyAny>>;
 }
 
 impl<S> DynamicOutputOp<S> for Stream<S, TdPyAny>
@@ -380,14 +381,14 @@ where
         py: Python,
         step_id: StepId,
         output: DynamicOutput,
-    ) -> PyResult<ClockStream<S>> {
+    ) -> PyResult<Stream<S, TdPyAny>> {
         let mut sink = output.build(py)?;
 
         let mut tmp_incoming: Vec<TdPyAny> = Vec::new();
 
         let mut incoming_buffer: HashMap<S::Timestamp, Vec<TdPyAny>> = HashMap::new();
 
-        let clock_stream =
+        let output_stream =
             self.unary_notify(Pipeline, &step_id.0, None, move |input, output, ncater| {
                 input.for_each(|cap, incoming| {
                     let epoch = cap.time();
@@ -405,20 +406,20 @@ where
                 ncater.for_each(|cap, _, _| {
                     let epoch = cap.time();
 
+                    let mut output_session = output.session(&cap);
                     if let Some(items) = incoming_buffer.remove(epoch) {
                         let res: PyResult<()> = Python::with_gil(|py| {
                             for item in items {
-                                sink.write(py, item)?;
+                                sink.write(py, item.clone_ref(py))?;
+                                output_session.give(item);
                             }
                             Ok(())
                         });
                         unwrap_any!(res);
                     }
-
-                    output.session(&cap).give(());
                 });
             });
 
-        Ok(clock_stream)
+        Ok(output_stream)
     }
 }

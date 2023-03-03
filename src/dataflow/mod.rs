@@ -95,7 +95,7 @@ impl Dataflow {
     ///
     /// At least one output is required on every dataflow.
     ///
-    /// Emits no items downstream.
+    /// Emits items downstream unmodified.
     ///
     /// See `bytewax.outputs` for more information on how output works
     /// and `bytewax.connectors` for a buffet of our built-in
