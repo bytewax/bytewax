@@ -2,13 +2,12 @@ from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.testing import TestingInput
-from bytewax.outputs import TestingOutputConfig
+from bytewax.testing import TestingInput, TestingOutput
 from bytewax.window import (
     EventClockConfig,
+    SessionWindow,
     SlidingWindow,
     TumblingWindow,
-    SessionWindow,
 )
 
 
@@ -51,7 +50,7 @@ def test_session_window():
     flow.fold_window("sum", clock_config, window_config, list, add)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.output("out", TestingOutput(out))
 
     run_main(flow)
     assert sorted(out) == sorted(
@@ -96,7 +95,7 @@ def test_sliding_window():
     flow.fold_window("sum", clock_config, window_config, list, add)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.output("out", TestingOutput(out))
 
     run_main(flow)
     assert sorted(out) == sorted(
@@ -128,9 +127,7 @@ def test_tumbling_window():
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(0)
     )
-    window_config = TumblingWindow(
-        length=timedelta(seconds=10), start_at=start_at
-    )
+    window_config = TumblingWindow(length=timedelta(seconds=10), start_at=start_at)
 
     def add(acc, x):
         acc.append(x["val"])
@@ -139,7 +136,7 @@ def test_tumbling_window():
     flow.fold_window("sum", clock_config, window_config, list, add)
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.output("out", TestingOutput(out))
 
     run_main(flow)
 

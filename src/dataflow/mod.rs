@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use crate::common::pickle_extract;
 use crate::inputs::PartInput;
-use crate::outputs::OutputConfig;
+use crate::outputs::Output;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::model::StepId;
 use crate::window::clock::ClockConfig;
@@ -91,34 +91,24 @@ impl Dataflow {
         self.steps.push(Step::Input { step_id, input });
     }
 
-    /// Capture is how you specify output of a dataflow.
+    /// Write data to an output.
     ///
-    /// At least one capture is required on every dataflow.
+    /// At least one output is required on every dataflow.
     ///
-    /// It emits items downstream unmodified; you can capture midway
-    /// through a dataflow.
+    /// Emits items downstream unmodified.
     ///
-    /// See `bytewax.outputs` for more information on how output
-    /// works.
-    ///
-    /// >>> from bytewax.inputs import TestingInputConfig
-    /// >>> from bytewax.outputs import StdOutputConfig
-    /// >>> from bytewax.execution import run_main
-    /// >>> flow = Dataflow()
-    /// >>> flow.input("inp", TestingInputConfig(range(3)))
-    /// >>> flow.capture(StdOutputConfig())
-    /// >>> run_main(flow)
-    /// 0
-    /// 1
-    /// 2
+    /// See `bytewax.outputs` for more information on how output works
+    /// and `bytewax.connectors` for a buffet of our built-in
+    /// connector types.
     ///
     /// Args:
     ///
-    ///   output_config (bytewax.outputs.OutputConfig): Output
-    ///       config to use. See `bytewax.outputs`.
-    #[pyo3(text_signature = "(self, output_config)")]
-    fn capture(&mut self, output_config: Py<OutputConfig>) {
-        self.steps.push(Step::Capture { output_config });
+    ///   step_id (str): Uniquely identifies this step for recovery.
+    ///
+    ///   output: Output definition. See `bytewax.outputs`.
+    #[pyo3(text_signature = "(self, step_id, output)")]
+    fn output(&mut self, step_id: StepId, output: Output) {
+        self.steps.push(Step::Output { step_id, output });
     }
 
     /// Filter selectively keeps only some items.
@@ -747,8 +737,9 @@ pub(crate) enum Step {
         builder: TdPyCallable,
         mapper: TdPyCallable,
     },
-    Capture {
-        output_config: Py<OutputConfig>,
+    Output {
+        step_id: StepId,
+        output: Output,
     },
 }
 
@@ -813,8 +804,9 @@ impl<'source> FromPyObject<'source> for Step {
                 builder: pickle_extract(dict, "builder")?,
                 mapper: pickle_extract(dict, "mapper")?,
             }),
-            "Capture" => Ok(Self::Capture {
-                output_config: pickle_extract(dict, "output_config")?,
+            "Output" => Ok(Self::Output {
+                step_id: pickle_extract(dict, "step_id")?,
+                output: pickle_extract(dict, "output")?,
             }),
             &_ => Err(PyValueError::new_err(format!(
                 "bad python repr when unpickling Step: {dict:?}"
@@ -925,9 +917,10 @@ impl IntoPy<PyObject> for Step {
                 ("mapper", mapper.into_py(py)),
             ])
             .into_py(py),
-            Self::Capture { output_config } => HashMap::from([
-                ("type", "Capture".into_py(py)),
-                ("output_config", output_config.into_py(py)),
+            Self::Output { step_id, output } => HashMap::from([
+                ("type", "Output".into_py(py)),
+                ("step_id", step_id.into_py(py)),
+                ("output", output.into_py(py)),
             ])
             .into_py(py),
         }

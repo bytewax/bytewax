@@ -22,7 +22,7 @@ from datetime import timedelta, datetime
 
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.files import FileInput
-from bytewax.outputs import StdOutputConfig
+from bytewax.connectors.stdio import StdOutput
 from bytewax.execution import run_main
 from bytewax.window import SystemClockConfig, TumblingWindow
 
@@ -52,7 +52,7 @@ flow.map(lower)
 flow.flat_map(tokenize)
 flow.map(initial_count)
 flow.reduce_window("sum", clock_config, window_config, add)
-flow.capture(StdOutputConfig())
+flow.output("out", StdOutput())
 
 run_main(flow)
 ```
@@ -221,13 +221,13 @@ How does reduce_window know **when** to emit combined items? That is what `clock
 
 ### Print out the counts
 
-The last part of our dataflow program will use the [capture operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture) to mark the output of our reduction as the dataflow's final output.
+The last part of our dataflow program will use an [output operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.output) to mark the output of our reduction as the dataflow's final output.
 
 ```python
-flow.capture(StdOutputConfig())
+flow.output("out", StdOutput())
 ```
 
-This means that whatever items are flowing through this point in the dataflow will be passed on as output. We use [StdOutputConfig](/apidocs/bytewax.outputs#bytewax.outputs.StdOutputConfig) to route our output to the system's standard output.
+This means that whatever items are flowing through this point in the dataflow will be passed on as output. We use [StdOutput](/apidocs/bytewax.connectors.stdio#bytewax.connectors.stdio.StdOutput) to route our output to the system's standard output.
 
 ### Running
 

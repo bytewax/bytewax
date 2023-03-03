@@ -68,7 +68,6 @@ fn setup_tracing(
 fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
     dataflow::register(py, m)?;
     execution::register(py, m)?;
-    outputs::register(py, m)?;
     recovery::python::register(py, m)?;
     window::register(py, m)?;
     tracing::register(py, m)?;

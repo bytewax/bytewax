@@ -6,6 +6,7 @@ from threading import Lock
 from typing import Any, Iterable
 
 from bytewax.inputs import PartInput
+from bytewax.outputs import DynamicOutput
 
 
 class TestingInput(PartInput):
@@ -33,16 +34,44 @@ class TestingInput(PartInput):
         self.it = it
 
     def list_parts(self):
-        return ["iter"]
+        return {"iter"}
 
     def build_part(self, for_key, resume_state):
         assert for_key == "iter"
         resume_i = resume_state or -1
+
         for i, x in enumerate(self.it):
             # Resume to one after the last completed read.
             if i <= resume_i:
                 continue
             yield i, x
+
+
+class TestingOutput(DynamicOutput):
+    """Append each output item to a list. You only want to use this
+    for unit testing.
+
+    Can support at-least-once processing. The list is not cleared
+    between executions.
+
+    Be careful using this in multi-worker executions: all workers will
+    write to the same list. You'll probably want to use
+    `multiprocessing.Manager.List` to ensure all worker's writes are
+    visible in the test process.
+
+    Args:
+
+        ls: List to append to.
+
+    """
+
+    __test__ = False
+
+    def __init__(self, ls):
+        self.ls = ls
+
+    def build(self):
+        return self.ls.append
 
 
 _print_lock = Lock()

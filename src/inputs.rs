@@ -71,13 +71,7 @@ impl PartInput {
         worker_count: WorkerCount,
         mut resume_state: StepStateBytes,
     ) -> PyResult<(PartBundle, TotalPartCount)> {
-        let keys = self
-            .0
-            .call_method0(py, "list_parts")?
-            .as_ref(py)
-            .iter()?
-            .map(|i| i.and_then(PyAny::extract::<StateKey>))
-            .collect::<PyResult<BTreeSet<StateKey>>>()?;
+        let keys: BTreeSet<StateKey> = self.0.call_method0(py, "list_parts")?.extract(py)?;
 
         let part_count = TotalPartCount(keys.len());
 
@@ -108,7 +102,7 @@ impl PartInput {
             }).collect::<PyResult<HashMap<StateKey, PartIter>>>()?;
 
         if !resume_state.is_empty() {
-            tracing::warn!("Resume state exists for unknown partitions {:?}; changing partition counts? recovery state routing bug?", resume_state.keys());
+            tracing::warn!("Resume state exists for {step_id:?} for unknown partitions {:?}; changing partition counts? recovery state routing bug?", resume_state.keys());
         }
 
         Ok((PartBundle::new(parts), part_count))

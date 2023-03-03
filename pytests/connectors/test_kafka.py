@@ -2,18 +2,24 @@ import os
 import uuid
 from concurrent.futures import wait
 
-from confluent_kafka import Producer
+from confluent_kafka import (
+    Consumer,
+    KafkaError,
+    OFFSET_BEGINNING,
+    Producer,
+    TopicPartition,
+)
 from confluent_kafka.admin import AdminClient, NewTopic
 from pytest import fixture, mark, raises
 
-from bytewax.connectors.kafka import KafkaInput
+from bytewax.connectors.kafka import KafkaInput, KafkaOutput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.outputs import TestingOutputConfig
+from bytewax.testing import TestingInput, TestingOutput
 
 pytestmark = mark.skipif(
     "TEST_KAFKA_BROKER" not in os.environ,
-    reason="No Kafka broker set via `TEST_KAFKA_BROKER` env var",
+    reason="Set `TEST_KAFKA_BROKER` env var to run",
 )
 KAFKA_BROKER = os.environ.get("TEST_KAFKA_BROKER")
 
@@ -38,34 +44,29 @@ tmp_topic2 = tmp_topic
 
 def test_kafka_input(tmp_topic1, tmp_topic2):
     config = {
-        "bootstrap.servers": "localhost",
+        "bootstrap.servers": KAFKA_BROKER,
     }
     topics = [tmp_topic1, tmp_topic2]
-    prod = Producer(config)
+    producer = Producer(config)
+    inp = []
     for i, topic in enumerate(topics):
         for j in range(3):
             key = f"key-{i}-{j}".encode()
             value = f"value-{i}-{j}".encode()
-            prod.produce(topic, value, key)
-    prod.flush()
+            producer.produce(topic, value, key)
+            inp.append((key, value))
+    producer.flush()
 
     flow = Dataflow()
 
     flow.input("inp", KafkaInput([KAFKA_BROKER], topics, tail=False))
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.output("out", TestingOutput(out))
 
     run_main(flow)
 
-    assert sorted(out) == [
-        (b"key-0-0", b"value-0-0"),
-        (b"key-0-1", b"value-0-1"),
-        (b"key-0-2", b"value-0-2"),
-        (b"key-1-0", b"value-1-0"),
-        (b"key-1-1", b"value-1-1"),
-        (b"key-1-2", b"value-1-2"),
-    ]
+    assert sorted(out) == sorted(inp)
 
 
 def test_kafka_input_raises_on_topic_not_exist():
@@ -74,7 +75,7 @@ def test_kafka_input_raises_on_topic_not_exist():
     flow.input("inp", KafkaInput([KAFKA_BROKER], ["missing-topic"], tail=False))
 
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.output("out", TestingOutput(out))
 
     with raises(Exception) as exinfo:
         run_main(flow)
@@ -97,3 +98,45 @@ def test_kafka_input_raises_on_str_topics(tmp_topic):
         KafkaInput([KAFKA_BROKER], tmp_topic, tail=False)
 
     assert str(exinfo.value) == "topics must be an iterable and not a string"
+
+
+def test_kafka_output(tmp_topic):
+    flow = Dataflow()
+
+    inp = [
+        (b"key-0-0", b"value-0-0"),
+        (b"key-0-1", b"value-0-1"),
+        (b"key-0-2", b"value-0-2"),
+    ]
+    flow.input("inp", TestingInput(inp))
+
+    flow.output("out", KafkaOutput([KAFKA_BROKER], tmp_topic))
+
+    run_main(flow)
+
+    config = {
+        "bootstrap.servers": KAFKA_BROKER,
+        "group.id": "BYTEWAX_UNIT_TEST",
+        # Don't leave around a consumer group for this.
+        "enable.auto.commit": "false",
+        "enable.partition.eof": "true",
+    }
+    consumer = Consumer(config)
+    cluster_metadata = consumer.list_topics(tmp_topic)
+    topic_metadata = cluster_metadata.topics[tmp_topic]
+    # Assign does not activate consumer grouping.
+    consumer.assign(
+        [
+            TopicPartition(tmp_topic, i, OFFSET_BEGINNING)
+            for i in topic_metadata.partitions.keys()
+        ]
+    )
+    out = []
+    for msg in consumer.consume(num_messages=100, timeout=5.0):
+        if msg.error() is not None and msg.error().code() == KafkaError._PARTITION_EOF:
+            continue
+        assert msg.error() is None
+        out.append((msg.key(), msg.value()))
+    consumer.close()
+
+    assert sorted(out) == sorted(inp)

@@ -2,8 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.outputs import TestingOutputConfig
-from bytewax.testing import TestingInput
+from bytewax.testing import TestingInput, TestingOutput
 from bytewax.window import EventClockConfig, TumblingWindow
 
 
@@ -45,7 +44,7 @@ def test_event_time_processing():
     flow.fold_window("running_average", cc, wc, list, acc_values)
     flow.map(lambda x: {f"{x[0]}_avg": sum(x[1]) / len(x[1])})
     out = []
-    flow.capture(TestingOutputConfig(out))
+    flow.output("out", TestingOutput(out))
     run_main(flow)
 
     expected = [
