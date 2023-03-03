@@ -14,7 +14,7 @@ def test_dir_input():
     flow.input("inp", DirInput(Path("examples/sample_data/cluster")))
 
     out = []
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     run_main(flow)
 
@@ -59,7 +59,7 @@ def test_file_input():
     flow.input("inp", FileInput(file_path))
 
     out = []
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     run_main(flow)
 
@@ -85,7 +85,7 @@ def test_file_output(tmp_path):
     ]
     flow.input("inp", TestingInput(inp))
 
-    flow.part_output("out", FileOutput(file_path))
+    flow.output("out", FileOutput(file_path))
 
     run_main(flow)
 
@@ -110,7 +110,7 @@ def test_dir_output(tmp_path):
 
     # Route each item to the partition index that is int version of
     # the key (which must be a str).
-    flow.part_output("out", DirOutput(tmp_path, 3, assign_file=int))
+    flow.output("out", DirOutput(tmp_path, 3, assign_file=int))
 
     run_main(flow)
 

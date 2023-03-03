@@ -44,7 +44,7 @@ use crate::recovery::store::in_mem::{InMemProgress, StoreSummary};
 use crate::webserver::run_webserver;
 use crate::window::WindowBuilder;
 use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
@@ -345,35 +345,38 @@ where
                     stream = output.map(wrap_state_pair);
                     step_changes.push(changes);
                 }
-                Step::PartOutput { step_id, output } => {
-                    let step_resume_state = resume_state.remove(&step_id);
+                Step::Output { step_id, output } => {
+                    if let Ok(output) = output.extract(py) {
+                        let step_resume_state = resume_state.remove(&step_id);
 
-                    let (clock, changes) =
-                        stream.part_output(
-                            py,
-                            step_id,
-                            output,
-                            worker_index,
-                            worker_count,
-                            step_resume_state,
-                        )?;
+                        let (clock, changes) =
+                            stream.part_output(
+                                py,
+                                step_id,
+                                output,
+                                worker_index,
+                                worker_count,
+                                step_resume_state,
+                            )?;
 
-                    outputs.push(clock.clone());
-                    step_changes.push(changes);
-                    // Reset the stream to an empty stream.
-                    stream = None.to_stream(scope);
-                }
-                Step::DynamicOutput { step_id, output } => {
-                    let clock =
-                        stream.dynamic_output(
-                            py,
-                            step_id,
-                            output,
-                        )?;
+                        outputs.push(clock.clone());
+                        step_changes.push(changes);
+                        // Reset the stream to an empty stream.
+                        stream = None.to_stream(scope);
+                    } else if let Ok(output) = output.extract(py) {
+                        let clock =
+                            stream.dynamic_output(
+                                py,
+                                step_id,
+                                output,
+                            )?;
 
-                    outputs.push(clock.clone());
-                    // Reset the stream to an empty stream.
-                    stream = None.to_stream(scope);
+                        outputs.push(clock.clone());
+                        // Reset the stream to an empty stream.
+                        stream = None.to_stream(scope);
+                    } else {
+                        return Err(PyTypeError::new_err("unknown output type"))
+                    }
                 }
             }
         }

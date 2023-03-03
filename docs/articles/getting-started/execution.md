@@ -38,7 +38,7 @@ from bytewax.connectors.stdio import StdOutput
 flow = Dataflow()
 flow.input("inp", TestingInput(range(3)))
 flow.map(lambda item: item + 1)
-flow.dynamic_output("out", StdOutput())
+flow.output("out", StdOutput())
 
 run_main(flow)
 ```
@@ -76,7 +76,7 @@ from bytewax.connectors.stdio import StdOutput
 flow = Dataflow()
 flow.input("inp", TestingInput(range(3)))
 flow.map(lambda item: item + 1)
-flow.dynamic_output("out", StdOutput())
+flow.output("out", StdOutput())
 
 spawn_cluster(
     flow,
@@ -114,7 +114,7 @@ from bytewax.testing import doctest_ctx, TestingInput
 flow = Dataflow()
 flow.input("inp", TestingInput(range(3)))
 flow.map(lambda item: item + 1)
-flow.dynamic_output("out", StdOutput())
+flow.output("out", StdOutput())
 
 addresses = [
     "localhost:2101",

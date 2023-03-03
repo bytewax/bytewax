@@ -13,7 +13,7 @@ def test_run(entry_point, out):
     inp = range(3)
     flow.input("inp", TestingInput(inp))
     flow.map(lambda x: x + 1)
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     entry_point(flow)
 
@@ -38,7 +38,7 @@ def test_reraises_exception(entry_point, out, entry_point_name):
             return item
 
     flow.map(boom)
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     with raises(RuntimeError):
         entry_point(flow)
@@ -68,7 +68,7 @@ def test_can_be_ctrl_c(mp_ctx, entry_point):
                 return item
 
             flow.map(mapper)
-            flow.dynamic_output("out", TestingOutput(out))
+            flow.output("out", TestingOutput(out))
 
             try:
                 entry_point(flow)
@@ -89,7 +89,7 @@ def test_can_be_ctrl_c(mp_ctx, entry_point):
 def test_requires_input(entry_point):
     flow = Dataflow()
     out = []
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     with raises(ValueError):
         entry_point(flow)

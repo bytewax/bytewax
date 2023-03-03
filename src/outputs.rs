@@ -17,6 +17,43 @@ use timely::dataflow::operators::{FrontierNotificator, Map, Operator};
 use timely::dataflow::{Scope, Stream};
 use timely::progress::Antichain;
 
+/// Represents a `bytewax.outputs.Output` from Python.
+#[derive(Clone)]
+pub(crate) struct Output(Py<PyAny>);
+
+/// Do some eager type checking.
+impl<'source> FromPyObject<'source> for Output {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        let abc = ob
+            .py()
+            .import("bytewax.outputs")?
+            .getattr("Output")?
+            .extract()?;
+        if !ob.is_instance(abc)? {
+            Err(PyTypeError::new_err(
+                "output must derive from `bytewax.outputs.Output`",
+            ))
+        } else {
+            Ok(Self(ob.into()))
+        }
+    }
+}
+
+impl IntoPy<Py<PyAny>> for Output {
+    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
+        self.0
+    }
+}
+
+impl Output {
+    pub(crate) fn extract<'p, D>(&'p self, py: Python<'p>) -> PyResult<D>
+    where
+        D: FromPyObject<'p>,
+    {
+        self.0.extract(py)
+    }
+}
+
 /// Represents a `bytewax.outputs.PartOutput` from Python.
 #[derive(Clone)]
 pub(crate) struct PartOutput(Py<PyAny>);

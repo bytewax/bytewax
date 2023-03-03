@@ -44,7 +44,7 @@ def test_event_time_processing():
     flow.fold_window("running_average", cc, wc, list, acc_values)
     flow.map(lambda x: {f"{x[0]}_avg": sum(x[1]) / len(x[1])})
     out = []
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
     run_main(flow)
 
     expected = [

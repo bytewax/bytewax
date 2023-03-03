@@ -50,7 +50,7 @@ def test_session_window():
     flow.fold_window("sum", clock_config, window_config, list, add)
 
     out = []
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     run_main(flow)
     assert sorted(out) == sorted(
@@ -95,7 +95,7 @@ def test_sliding_window():
     flow.fold_window("sum", clock_config, window_config, list, add)
 
     out = []
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     run_main(flow)
     assert sorted(out) == sorted(
@@ -136,7 +136,7 @@ def test_tumbling_window():
     flow.fold_window("sum", clock_config, window_config, list, add)
 
     out = []
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     run_main(flow)
 

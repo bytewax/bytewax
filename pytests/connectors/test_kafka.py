@@ -62,7 +62,7 @@ def test_kafka_input(tmp_topic1, tmp_topic2):
     flow.input("inp", KafkaInput([KAFKA_BROKER], topics, tail=False))
 
     out = []
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     run_main(flow)
 
@@ -75,7 +75,7 @@ def test_kafka_input_raises_on_topic_not_exist():
     flow.input("inp", KafkaInput([KAFKA_BROKER], ["missing-topic"], tail=False))
 
     out = []
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     with raises(Exception) as exinfo:
         run_main(flow)
@@ -110,7 +110,7 @@ def test_kafka_output(tmp_topic):
     ]
     flow.input("inp", TestingInput(inp))
 
-    flow.dynamic_output("out", KafkaOutput([KAFKA_BROKER], tmp_topic))
+    flow.output("out", KafkaOutput([KAFKA_BROKER], tmp_topic))
 
     run_main(flow)
 

@@ -13,8 +13,7 @@ use std::collections::HashMap;
 
 use crate::common::pickle_extract;
 use crate::inputs::PartInput;
-use crate::outputs::DynamicOutput;
-use crate::outputs::PartOutput;
+use crate::outputs::Output;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::model::StepId;
 use crate::window::clock::ClockConfig;
@@ -92,49 +91,24 @@ impl Dataflow {
         self.steps.push(Step::Input { step_id, input });
     }
 
-    /// Write data to a partitioned output.
+    /// Write data to an output.
     ///
     /// At least one output is required on every dataflow.
     ///
-    /// It is a stateful operator. It requires incoming items
-    /// has items that are `(key: str, value)` tuples so we can ensure
-    /// that all relevant values are routed to the relevant state. It
-    /// also requires a step ID to recover the correct state.
-    ///
     /// Emits no items downstream.
     ///
-    /// See `bytewax.outputs.PartOutput` for more information on how
-    /// partitioned output works.
+    /// See `bytewax.outputs` for more information on how output works
+    /// and `bytewax.connectors` for a buffet of our built-in
+    /// connector types.
     ///
     /// Args:
     ///
     ///   step_id (str): Uniquely identifies this step for recovery.
     ///
-    ///   output: Partitioned output type. See
-    ///       `bytewax.outputs.PartOutput`.
+    ///   output: Output definition. See `bytewax.outputs`.
     #[pyo3(text_signature = "(self, step_id, output)")]
-    fn part_output(&mut self, step_id: StepId, output: PartOutput) {
-        self.steps.push(Step::PartOutput { step_id, output });
-    }
-
-    /// Write data to a dynamic output.
-    ///
-    /// At least one output is required on every dataflow.
-    ///
-    /// Emits no items downstream.
-    ///
-    /// Each worker will  See `bytewax.outputs.DynamicOutput` for more information on
-    /// how dynamic output works.
-    ///
-    /// Args:
-    ///
-    ///   step_id (str): Uniquely identifies this step.
-    ///
-    ///   output: Dynamic output type. See
-    ///       `bytewax.outputs.DynamicOutuput`.
-    #[pyo3(text_signature = "(self, step_id, output)")]
-    fn dynamic_output(&mut self, step_id: StepId, output: DynamicOutput) {
-        self.steps.push(Step::DynamicOutput { step_id, output });
+    fn output(&mut self, step_id: StepId, output: Output) {
+        self.steps.push(Step::Output { step_id, output });
     }
 
     /// Filter selectively keeps only some items.
@@ -763,13 +737,9 @@ pub(crate) enum Step {
         builder: TdPyCallable,
         mapper: TdPyCallable,
     },
-    PartOutput {
+    Output {
         step_id: StepId,
-        output: PartOutput,
-    },
-    DynamicOutput {
-        step_id: StepId,
-        output: DynamicOutput,
+        output: Output,
     },
 }
 
@@ -834,11 +804,7 @@ impl<'source> FromPyObject<'source> for Step {
                 builder: pickle_extract(dict, "builder")?,
                 mapper: pickle_extract(dict, "mapper")?,
             }),
-            "PartOutput" => Ok(Self::PartOutput {
-                step_id: pickle_extract(dict, "step_id")?,
-                output: pickle_extract(dict, "output")?,
-            }),
-            "DynamicOutput" => Ok(Self::DynamicOutput {
+            "Output" => Ok(Self::Output {
                 step_id: pickle_extract(dict, "step_id")?,
                 output: pickle_extract(dict, "output")?,
             }),
@@ -951,14 +917,8 @@ impl IntoPy<PyObject> for Step {
                 ("mapper", mapper.into_py(py)),
             ])
             .into_py(py),
-            Self::PartOutput { step_id, output } => HashMap::from([
-                ("type", "PartOutput".into_py(py)),
-                ("step_id", step_id.into_py(py)),
-                ("output", output.into_py(py)),
-            ])
-            .into_py(py),
-            Self::DynamicOutput { step_id, output } => HashMap::from([
-                ("type", "DynamicOutput".into_py(py)),
+            Self::Output { step_id, output } => HashMap::from([
+                ("type", "Output".into_py(py)),
                 ("step_id", step_id.into_py(py)),
                 ("output", output.into_py(py)),
             ])

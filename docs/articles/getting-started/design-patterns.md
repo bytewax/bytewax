@@ -43,7 +43,7 @@ flow.input("inp", TestingInput(inp))
 # Operate on input
 flow.flat_map(split_sentence)
 
-flow.dynamic_output("out", StdOutput())
+flow.output("out", StdOutput())
 run_main(flow)
 ```
 
@@ -60,7 +60,7 @@ flow.input("inp", TestingInput(inp))
 # Operate on input
 flow.flat_map(lambda s: s.split())
 
-flow.dynamic_output("out", StdOutput())
+flow.output("out", StdOutput())
 run_main(flow)
 ```
 
@@ -77,7 +77,7 @@ flow.input("inp", TestingInput(inp))
 # Operate on input
 flow.flat_map(str.split)
 
-flow.dynamic_output("out", StdOutput())
+flow.output("out", StdOutput())
 run_main(flow)
 ```
 
@@ -103,7 +103,7 @@ flow.input("inp", TestingInput(inp))
 
 # Operate on input
 flow.reduce_window("reduce", clock, window, add_to_list)
-flow.dynamic_output("out", StdOutput())
+flow.output("out", StdOutput())
 
 run_main(flow)
 ```
@@ -119,7 +119,7 @@ flow.input("inp", TestingInput(inp))
 
 # Operate on input
 flow.reduce_window("reduce", clock, window, lambda l1, l2: l1 + l2)
-flow.dynamic_output("out", StdOutput())
+flow.output("out", StdOutput())
 
 run_main(flow)
 ```
@@ -137,7 +137,7 @@ flow.input("inp", TestingInput(inp))
 
 # Operate on input
 flow.reduce_window("reduce", clock, window, operator.add)
-flow.dynamic_output("out", StdOutput())
+flow.output("out", StdOutput())
 
 run_main(flow)
 ```
@@ -178,7 +178,7 @@ flow.input("inp", TestingInput(inp))
 
 # Operate on input
 collect_user_events(flow, clock, window)
-flow.dynamic_output("out", StdOutput())
+flow.output("out", StdOutput())
 
 run_main(flow)
 ```

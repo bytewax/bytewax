@@ -75,7 +75,7 @@ def test_recover_with_latest_state(recovery_config):
 
     out = []
     flow = build_keep_max_dataflow(inp, "BOOM1")
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     # First execution.
     with raises(RuntimeError):
@@ -89,7 +89,7 @@ def test_recover_with_latest_state(recovery_config):
     # Disable first bomb.
     out = []
     flow = build_keep_max_dataflow(inp, "BOOM2")
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     # Second execution.
     with raises(RuntimeError):
@@ -104,7 +104,7 @@ def test_recover_with_latest_state(recovery_config):
     # Disable second bomb.
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     # Recover.
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
@@ -140,7 +140,7 @@ def test_recover_doesnt_gc_last_write(recovery_config):
 
     out = []
     flow = build_keep_max_dataflow(inp, "BOOM1")
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     # First execution.
     with raises(RuntimeError):
@@ -157,7 +157,7 @@ def test_recover_doesnt_gc_last_write(recovery_config):
     # Disable bomb.
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     # Recover.
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
@@ -192,7 +192,7 @@ def test_recover_respects_delete(recovery_config):
 
     out = []
     flow = build_keep_max_dataflow(inp, "BOOM1")
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     # First execution.
     with raises(RuntimeError):
@@ -208,7 +208,7 @@ def test_recover_respects_delete(recovery_config):
     # Disable bomb.
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     # Recover.
     run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
@@ -231,7 +231,7 @@ def test_continuation(entry_point, inp, out, recovery_config):
         ]
     )
     flow = build_keep_max_dataflow(inp, None)
-    flow.dynamic_output("out", TestingOutput(out))
+    flow.output("out", TestingOutput(out))
 
     entry_point(flow, recovery_config=recovery_config)
 

@@ -10,7 +10,7 @@ def test_std_output(capfd):
     inp = ["a", "b"]
     flow.input("inp", TestingInput(inp))
 
-    flow.dynamic_output("out", StdOutput())
+    flow.output("out", StdOutput())
 
     run_main(flow)
 

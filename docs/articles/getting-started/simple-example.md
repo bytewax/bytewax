@@ -52,7 +52,7 @@ flow.map(lower)
 flow.flat_map(tokenize)
 flow.map(initial_count)
 flow.reduce_window("sum", clock_config, window_config, add)
-flow.dynamic_output("out", StdOutput())
+flow.output("out", StdOutput())
 
 run_main(flow)
 ```
@@ -221,10 +221,10 @@ How does reduce_window know **when** to emit combined items? That is what `clock
 
 ### Print out the counts
 
-The last part of our dataflow program will use an [output operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.dynamic_output) to mark the output of our reduction as the dataflow's final output.
+The last part of our dataflow program will use an [output operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.output) to mark the output of our reduction as the dataflow's final output.
 
 ```python
-flow.dynamic_output("out", StdOutput())
+flow.output("out", StdOutput())
 ```
 
 This means that whatever items are flowing through this point in the dataflow will be passed on as output. We use [StdOutput](/apidocs/bytewax.connectors.stdio#bytewax.connectors.stdio.StdOutput) to route our output to the system's standard output.

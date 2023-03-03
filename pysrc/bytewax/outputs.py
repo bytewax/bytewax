@@ -10,6 +10,27 @@ Subclass the types here to implement input for your own custom sink.
 from abc import abstractmethod
 from typing import Any, Callable, Iterable, Optional
 
+
+# TODO: Add ABC superclass. It messes up pickling. We should get rid
+# of pickling...
+class Output:
+    """Base class for all output types. Do not subclass this.
+
+    If you want to implement a custom connector, instead subclass one
+    of the specific output sub-types below in this module.
+
+    """
+
+    def __json__(self):
+        """This is used by the Bytewax platform internally and should
+        not be overridden.
+
+        """
+        return {
+            "type": type(self).__name__,
+        }
+
+
 StatefulSink = Callable[[Any], Any]
 """Output sink that maintains state of its position.
 
@@ -29,9 +50,7 @@ Returns:
 """
 
 
-# TODO: Add ABC superclass. It messes up pickling. We should get rid
-# of pickling...
-class PartOutput:
+class PartOutput(Output):
     """An output with a fixed number of independent partitions.
 
     Will maintain the state of each sink and re-build using it during
@@ -113,15 +132,6 @@ class PartOutput:
         """
         ...
 
-    def __json__(self):
-        """This is used by the Bytewax platform internally and should
-        not be overridden.
-
-        """
-        return {
-            "type": type(self).__name__,
-        }
-
 
 StatelessSink = Callable[[Any], None]
 """Output sink that is stateless.
@@ -135,9 +145,7 @@ Args:
 """
 
 
-# TODO: Add ABC superclass. It messes up pickling. We should get rid
-# of pickling...
-class DynamicOutput:
+class DynamicOutput(Output):
     """An output that supports writing from any number of workers
     concurrently.
 
@@ -158,12 +166,3 @@ class DynamicOutput:
 
         """
         ...
-
-    def __json__(self):
-        """This is used by the Bytewax platform internally and should
-        not be overridden.
-
-        """
-        return {
-            "type": type(self).__name__,
-        }
