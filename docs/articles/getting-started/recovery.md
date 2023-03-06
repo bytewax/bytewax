@@ -55,9 +55,3 @@ and have it resume processing from where it failed:
 2. Restart your dataflow using the same recovery config. Bytewax will
    read the input state from the recovery store and resume output
    from the latest possible location in the stream.
-
-## Examples
-
-Here are some concrete examples of using the recovery machinery.
-
-- [Cart Join Example](/examples/cart-join)
