@@ -9,12 +9,12 @@ from pyarrow import parquet, Table
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
-from bytewax.inputs import PartInput
+from bytewax.inputs import PartitionedInput
 from bytewax.outputs import ManualOutputConfig
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 
-class FakeWebEventsInput(PartInput):
+class FakeWebEventsInput(PartitionedInput):
     def list_parts(self):
         return ["singleton"]
 

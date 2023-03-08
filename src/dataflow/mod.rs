@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 
 use crate::common::pickle_extract;
-use crate::inputs::PartInput;
+use crate::inputs::PartitionedInput;
 use crate::outputs::Output;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::model::StepId;
@@ -87,7 +87,7 @@ impl Dataflow {
     ///   input: Source. See `bytewax.connectors` and
     ///       `bytewax.inputs`.
     #[pyo3(text_signature = "(self, step_id, input)")]
-    fn input(&mut self, step_id: StepId, input: PartInput) {
+    fn input(&mut self, step_id: StepId, input: PartitionedInput) {
         self.steps.push(Step::Input { step_id, input });
     }
 
@@ -689,7 +689,7 @@ impl Dataflow {
 pub(crate) enum Step {
     Input {
         step_id: StepId,
-        input: PartInput,
+        input: PartitionedInput,
     },
     Map {
         mapper: TdPyCallable,

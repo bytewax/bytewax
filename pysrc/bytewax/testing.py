@@ -5,11 +5,11 @@ from contextlib import contextmanager
 from threading import Lock
 from typing import Any, Iterable
 
-from bytewax.inputs import PartInput
+from bytewax.inputs import PartitionedInput
 from bytewax.outputs import DynamicOutput
 
 
-class TestingInput(PartInput):
+class TestingInput(PartitionedInput):
     """Produce input from a Python iterable. You only want to use this
     for unit testing.
 

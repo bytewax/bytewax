@@ -35,7 +35,7 @@ use crate::operators::reduce_window::ReduceWindowLogic;
 use crate::operators::stateful_map::StatefulMapLogic;
 use crate::operators::stateful_unary::StatefulUnary;
 use crate::operators::*;
-use crate::outputs::{DynamicOutputOp, PartOutputOp};
+use crate::outputs::{DynamicOutputOp, PartitionedOutputOp};
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair};
 use crate::recovery::dataflows::*;
 use crate::recovery::model::*;
@@ -350,7 +350,7 @@ where
                         let step_resume_state = resume_state.remove(&step_id);
 
                         let (output, changes) =
-                            stream.part_output(
+                            stream.partitioned_output(
                                 py,
                                 step_id,
                                 output,

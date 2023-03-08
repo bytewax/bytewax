@@ -3,13 +3,14 @@
 //! For a user-centric version of input, read the `bytewax.inputs`
 //! Python module docstring. Read that first.
 //!
-//! [`PartInput`] defines an input source. [`PartBundle`] is what is
-//! passed to the source operators defined in
+//! [`PartitionedInput`] defines an input source. [`PartBundle`] is
+//! what is passed to the source operators defined in
 //! [`crate::execution::epoch`].
 //!
 //! Each [`PartIter`] is keyed by a [`StateKey`] so that the recovery
 //! system can round trip the state data back to
-//! [`PartInput::build_parts`] and be provided to the correct builder.
+//! [`PartitionedInput::build_parts`] and be provided to the correct
+//! builder.
 //!
 //! The one extra quirk here is that input is completely decoupled
 //! from epoch generation. See [`crate::execution`] for how Timely
@@ -28,21 +29,21 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 
-/// Represents a `bytewax.inputs.PartInput` from Python.
+/// Represents a `bytewax.inputs.PartitionedInput` from Python.
 #[derive(Clone)]
-pub(crate) struct PartInput(Py<PyAny>);
+pub(crate) struct PartitionedInput(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for PartInput {
+impl<'source> FromPyObject<'source> for PartitionedInput {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
             .import("bytewax.inputs")?
-            .getattr("PartInput")?
+            .getattr("PartitionedInput")?
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(PyTypeError::new_err(
-                "input must derive from `bytewax.inputs.PartInput`",
+                "input must derive from `bytewax.inputs.PartitionedInput`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -50,7 +51,7 @@ impl<'source> FromPyObject<'source> for PartInput {
     }
 }
 
-impl IntoPy<Py<PyAny>> for PartInput {
+impl IntoPy<Py<PyAny>> for PartitionedInput {
     fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
         self.0
     }
@@ -61,7 +62,7 @@ impl IntoPy<Py<PyAny>> for PartInput {
 /// Not just on this worker.
 pub(crate) struct TotalPartCount(pub(crate) usize);
 
-impl PartInput {
+impl PartitionedInput {
     /// Build all partitions for this input for this worker.
     pub(crate) fn build_parts(
         &self,
