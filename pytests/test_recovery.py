@@ -1,23 +1,12 @@
-from pytest import fixture, raises
+from datetime import timedelta
+
+from pytest import raises
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main, TestingEpochConfig
-from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.execution import run_main
 from bytewax.testing import TestingInput, TestingOutput
 
-epoch_config = TestingEpochConfig()
-
-
-@fixture(params=["SqliteRecoveryConfig"])
-def recovery_config(tmp_path, request):
-    if request.param == "SqliteRecoveryConfig":
-        yield SqliteRecoveryConfig(str(tmp_path))
-    else:
-        raise ValueError("unknown recovery config type: {request.param!r}")
-
-
-# We only need to test stateful_map since all other stateful operators
-# are implemented using it.
+ZERO_TD = timedelta(seconds=0)
 
 
 def build_keep_max_dataflow(inp, explode_on):
@@ -79,7 +68,7 @@ def test_recover_with_latest_state(recovery_config):
 
     # First execution.
     with raises(RuntimeError):
-        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     assert out == [
         ("a", 4),
@@ -93,7 +82,7 @@ def test_recover_with_latest_state(recovery_config):
 
     # Second execution.
     with raises(RuntimeError):
-        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
     assert out == [
@@ -107,7 +96,7 @@ def test_recover_with_latest_state(recovery_config):
     flow.output("out", TestingOutput(out))
 
     # Recover.
-    run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
     assert out == [
@@ -144,7 +133,7 @@ def test_recover_doesnt_gc_last_write(recovery_config):
 
     # First execution.
     with raises(RuntimeError):
-        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     assert out == [
         ("a", 4),
@@ -160,7 +149,7 @@ def test_recover_doesnt_gc_last_write(recovery_config):
     flow.output("out", TestingOutput(out))
 
     # Recover.
-    run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
     assert out == [
@@ -196,7 +185,7 @@ def test_recover_respects_delete(recovery_config):
 
     # First execution.
     with raises(RuntimeError):
-        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     assert out == [
         ("a", 4),
@@ -211,7 +200,7 @@ def test_recover_respects_delete(recovery_config):
     flow.output("out", TestingOutput(out))
 
     # Recover.
-    run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     # Restarts from failed epoch.
     assert out == [
@@ -233,7 +222,7 @@ def test_continuation(entry_point, inp, out, recovery_config):
     flow = build_keep_max_dataflow(inp, None)
     flow.output("out", TestingOutput(out))
 
-    entry_point(flow, recovery_config=recovery_config)
+    entry_point(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     assert sorted(out) == [
         ("a", 4),
@@ -253,7 +242,7 @@ def test_continuation(entry_point, inp, out, recovery_config):
     del out[:]
 
     # Continue.
-    entry_point(flow, recovery_config=recovery_config)
+    entry_point(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     # Incorporates new input.
     assert sorted(out) == [
@@ -274,7 +263,7 @@ def test_continuation(entry_point, inp, out, recovery_config):
     del out[:]
 
     # Continue again.
-    entry_point(flow, recovery_config=recovery_config)
+    entry_point(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     # Incorporates new input.
     assert sorted(out) == [

@@ -2,11 +2,29 @@
 """
 import multiprocessing.dummy
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Iterable
 
-from bytewax.inputs import PartitionedInput
-from bytewax.outputs import DynamicOutput
+from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.outputs import DynamicOutput, StatelessSink
+
+
+class _IterSource(StatefulSource):
+    def __init__(self, it, resume_state):
+        self._idx = resume_state or -1
+        self._it = enumerate(it)
+        # Resume to one after the last completed read.
+        for i in range(self._idx + 1):
+            next(self._it)
+
+    def next(self):
+        # next will raise StopIteration on its own.
+        self._idx, item = next(self._it)
+        return item
+
+    def snapshot(self):
+        return self._idx
 
 
 class TestingInput(PartitionedInput):
@@ -31,20 +49,22 @@ class TestingInput(PartitionedInput):
     __test__ = False
 
     def __init__(self, it: Iterable[Any]):
-        self.it = it
+        self._it = it
 
     def list_parts(self):
         return {"iter"}
 
     def build_part(self, for_key, resume_state):
         assert for_key == "iter"
-        resume_i = resume_state or -1
+        return _IterSource(self._it, resume_state)
 
-        for i, x in enumerate(self.it):
-            # Resume to one after the last completed read.
-            if i <= resume_i:
-                continue
-            yield i, x
+
+class _ListSink(StatelessSink):
+    def __init__(self, ls):
+        self._ls = ls
+
+    def write(self, item):
+        self._ls.append(item)
 
 
 class TestingOutput(DynamicOutput):
@@ -68,10 +88,38 @@ class TestingOutput(DynamicOutput):
     __test__ = False
 
     def __init__(self, ls):
-        self.ls = ls
+        self._ls = ls
 
-    def build(self):
-        return self.ls.append
+    def build(self, worker_index, worker_count):
+        return _ListSink(self._ls)
+
+
+def poll_next(source, timeout=timedelta(seconds=5)):
+    """Repeatedly poll an input source until it returns a value.
+
+    You'll want to use this in unit tests of sources when there's some
+    non-determinism in how items are read.
+
+    Args:
+
+        source: To call `source.next()` on.
+
+    Returns:
+
+        The next item found.
+
+    Raises:
+
+        TimeoutError: If no item was returned within the timeout.
+
+    """
+    item = None
+    start = datetime.now(timezone.utc)
+    while item is None:
+        if datetime.now(timezone.utc) - start > timeout:
+            raise TimeoutError()
+        item = source.next()
+    return item
 
 
 _print_lock = Lock()

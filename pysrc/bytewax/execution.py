@@ -2,18 +2,9 @@
 
 Run an instantiated `bytewax.dataflow.Dataflow` using one of the entry
 point functions in this module.
-
-
-Epoch Configs
--------------
-
-Epochs define the granularity of recovery in a bytewax dataflow. By default, we
-snapshot recovery every 10 seconds. You should only need to set this if you are
-testing the recovery system or are doing deep exactly-once integration work. Changing
-this does not change the semantics of any of the operators.
-
-
 """
+
+import datetime
 from typing import Any, Iterable, List, Optional, Tuple
 
 from multiprocess import get_context
@@ -21,13 +12,7 @@ from multiprocess import get_context
 from bytewax.dataflow import Dataflow
 from bytewax.recovery import RecoveryConfig
 
-from .bytewax import (  # noqa: F401
-    cluster_main,
-    EpochConfig,
-    PeriodicEpochConfig,
-    run_main,
-    TestingEpochConfig,
-)
+from .bytewax import cluster_main, run_main  # noqa: F401
 
 # Due to our package structure, we need to define __all__
 # in any submodule as pdoc will not find the documentation
@@ -38,9 +23,6 @@ __all__ = [
     "run_main",
     "cluster_main",
     "spawn_cluster",
-    "EpochConfig",
-    "PeriodicEpochConfig",
-    "TestingEpochConfig",
 ]
 
 
@@ -51,7 +33,7 @@ def _gen_addresses(proc_count: int) -> Iterable[str]:
 def spawn_cluster(
     flow: Dataflow,
     *,
-    epoch_config: Optional[EpochConfig] = None,
+    epoch_interval: Optional[datetime.timedelta] = None,
     recovery_config: Optional[RecoveryConfig] = None,
     proc_count: int = 1,
     worker_count_per_proc: int = 1,
@@ -90,8 +72,8 @@ def spawn_cluster(
 
         flow: Dataflow to run.
 
-        epoch_config: A custom epoch config. You probably don't need
-            this. See `EpochConfig` for more info.
+        epoch_interval: System time length of each epoch. Defaults to
+            10 seconds.
 
         recovery_config: State recovery config. See
             `bytewax.recovery`. If `None`, state will not be
@@ -114,7 +96,7 @@ def spawn_cluster(
                 cluster_main,
                 (flow,),
                 {
-                    "epoch_config": epoch_config,
+                    "epoch_interval": epoch_interval,
                     "recovery_config": recovery_config,
                     "addresses": addresses,
                     "proc_id": proc_id,

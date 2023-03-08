@@ -3,21 +3,14 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from threading import Event
 
-from pytest import fixture, raises
+from pytest import raises
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main, TestingEpochConfig
-from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.execution import run_main
 from bytewax.testing import TestingInput, TestingOutput
 from bytewax.window import EventClockConfig, TumblingWindow
 
-# Stateful operators must test recovery to ensure serde works.
-epoch_config = TestingEpochConfig()
-
-
-@fixture
-def recovery_config(tmp_path):
-    yield SqliteRecoveryConfig(str(tmp_path))
+ZERO_TD = timedelta(seconds=0)
 
 
 def test_map():
@@ -180,7 +173,7 @@ def test_reduce(recovery_config):
     flow.output("out", TestingOutput(out))
 
     with raises(RuntimeError):
-        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     assert sorted(out) == sorted([])
 
@@ -189,7 +182,7 @@ def test_reduce(recovery_config):
     out.clear()
 
     # Recover
-    run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     assert sorted(out) == sorted(
         [
@@ -269,7 +262,7 @@ def test_stateful_map(recovery_config):
     flow.output("out", TestingOutput(out))
 
     with raises(RuntimeError):
-        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     assert sorted(out) == sorted(
         [
@@ -283,7 +276,7 @@ def test_stateful_map(recovery_config):
     out.clear()
 
     # Recover
-    run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     assert sorted(out) == sorted(
         [
@@ -411,7 +404,7 @@ def test_reduce_window(recovery_config):
     flow.output("out", TestingOutput(out))
 
     with raises(RuntimeError):
-        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     # Only the first window closed here
     assert sorted(out) == sorted([("ALL", 3)])
@@ -421,7 +414,7 @@ def test_reduce_window(recovery_config):
     out.clear()
 
     # Recover
-    run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     # But it remembers the first item of the second window.
     assert sorted(out) == sorted([("ALL", 2)])
@@ -485,7 +478,7 @@ def test_fold_window(recovery_config):
     flow.output("out", TestingOutput(out))
 
     with raises(RuntimeError):
-        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     assert out == [
         ("a", {"login": 1, "post": 2}),
@@ -496,7 +489,7 @@ def test_fold_window(recovery_config):
     out.clear()
 
     # Recover
-    run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     assert len(out) == 3
     assert ("b", {"login": 1}) in out
@@ -544,7 +537,7 @@ def test_collect_window(recovery_config):
     flow.output("out", TestingOutput(out))
 
     with raises(RuntimeError):
-        run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     # Only the first window closed here
     assert out == [
@@ -563,7 +556,7 @@ def test_collect_window(recovery_config):
     out.clear()
 
     # Recover
-    run_main(flow, epoch_config=epoch_config, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     # But it remembers the first item of the second window.
     assert out == [

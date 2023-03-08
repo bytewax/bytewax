@@ -15,7 +15,7 @@ from pytest import fixture, mark, raises
 from bytewax.connectors.kafka import KafkaInput, KafkaOutput
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.testing import TestingInput, TestingOutput
+from bytewax.testing import poll_next, TestingInput, TestingOutput
 
 pytestmark = mark.skipif(
     "TEST_KAFKA_BROKER" not in os.environ,
@@ -32,7 +32,8 @@ def tmp_topic(request):
     client = AdminClient(config)
     topic_name = f"pytest_{request.node.name}_{uuid.uuid4()}"
     wait(
-        client.create_topics([NewTopic(topic_name, -1)], operation_timeout=5.0).values()
+        # 3 partitions.
+        client.create_topics([NewTopic(topic_name, 3)], operation_timeout=5.0).values()
     )
     yield topic_name
     wait(client.delete_topics([topic_name], operation_timeout=5.0).values())
@@ -42,7 +43,7 @@ tmp_topic1 = tmp_topic
 tmp_topic2 = tmp_topic
 
 
-def test_kafka_input(tmp_topic1, tmp_topic2):
+def test_input(tmp_topic1, tmp_topic2):
     config = {
         "bootstrap.servers": KAFKA_BROKER,
     }
@@ -69,7 +70,42 @@ def test_kafka_input(tmp_topic1, tmp_topic2):
     assert sorted(out) == sorted(inp)
 
 
-def test_kafka_input_raises_on_topic_not_exist():
+def test_input_resume_state(tmp_topic):
+    config = {
+        "bootstrap.servers": KAFKA_BROKER,
+    }
+    topics = [tmp_topic]
+    partition = 0
+    producer = Producer(config)
+    inp = []
+    for i, topic in enumerate(topics):
+        for j in range(3):
+            key = f"key-{i}-{j}".encode()
+            value = f"value-{i}-{j}".encode()
+            producer.produce(topic, value, key, partition=partition)
+            inp.append((key, value))
+    producer.flush()
+
+    inp = KafkaInput([KAFKA_BROKER], topics, tail=False)
+    part = inp.build_part(f"{partition}-{tmp_topic}", None)
+    assert part.snapshot() == OFFSET_BEGINNING
+    assert poll_next(part) == (b"key-0-0", b"value-0-0")
+    assert part.snapshot() == 1
+    assert poll_next(part) == (b"key-0-1", b"value-0-1")
+    assert part.snapshot() == 2
+    assert poll_next(part) == (b"key-0-2", b"value-0-2")
+    assert part.snapshot() == 3
+
+    inp = KafkaInput([KAFKA_BROKER], topics, tail=False)
+    part = inp.build_part(f"{partition}-{tmp_topic}", 2)
+    assert poll_next(part) == (b"key-0-2", b"value-0-2")
+    assert part.snapshot() == 3
+    with raises(StopIteration):
+        poll_next(part)
+    assert part.snapshot() == 3
+
+
+def test_input_raises_on_topic_not_exist():
     flow = Dataflow()
 
     flow.input("inp", KafkaInput([KAFKA_BROKER], ["missing-topic"], tail=False))
@@ -86,21 +122,21 @@ def test_kafka_input_raises_on_topic_not_exist():
     )
 
 
-def test_kafka_input_raises_on_str_brokers(tmp_topic):
+def test_input_raises_on_str_brokers(tmp_topic):
     with raises(TypeError) as exinfo:
         KafkaInput(KAFKA_BROKER, [tmp_topic], tail=False)
 
     assert str(exinfo.value) == "brokers must be an iterable and not a string"
 
 
-def test_kafka_input_raises_on_str_topics(tmp_topic):
+def test_input_raises_on_str_topics(tmp_topic):
     with raises(TypeError) as exinfo:
         KafkaInput([KAFKA_BROKER], tmp_topic, tail=False)
 
     assert str(exinfo.value) == "topics must be an iterable and not a string"
 
 
-def test_kafka_output(tmp_topic):
+def test_output(tmp_topic):
     flow = Dataflow()
 
     inp = [

@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 
 use crate::common::pickle_extract;
-use crate::inputs::PartitionedInput;
+use crate::inputs::Input;
 use crate::outputs::Output;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::model::StepId;
@@ -61,7 +61,7 @@ impl Dataflow {
         Ok(())
     }
 
-    /// Input introduces data into the dataflow.
+    ///
     ///
     /// At least one input is required on every dataflow.
     ///
@@ -69,25 +69,14 @@ impl Dataflow {
     ///
     /// See `bytewax.inputs` for more information on how input works.
     ///
-    /// >>> from bytewax.inputs import TestingInputConfig
-    /// >>> from bytewax.outputs import StdOutputConfig
-    /// >>> from bytewax.execution import run_main
-    /// >>> flow = Dataflow()
-    /// >>> flow.input("inp", TestingInputConfig(range(3)))
-    /// >>> flow.capture(StdOutputConfig())
-    /// >>> run_main(flow)
-    /// 0
-    /// 1
-    /// 2
-    ///
     /// Args:
     ///
     ///   step_id (str): Uniquely identifies this step for recovery.
     ///
-    ///   input: Source. See `bytewax.connectors` and
-    ///       `bytewax.inputs`.
+    ///   input: Partitioned input type. See
+    ///       `bytewax.inputs.PartitionedInput`.
     #[pyo3(text_signature = "(self, step_id, input)")]
-    fn input(&mut self, step_id: StepId, input: PartitionedInput) {
+    fn input(&mut self, step_id: StepId, input: Input) {
         self.steps.push(Step::Input { step_id, input });
     }
 
@@ -689,7 +678,7 @@ impl Dataflow {
 pub(crate) enum Step {
     Input {
         step_id: StepId,
-        input: PartitionedInput,
+        input: Input,
     },
     Map {
         mapper: TdPyCallable,

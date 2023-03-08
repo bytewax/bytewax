@@ -13,21 +13,9 @@
 //!
 //! See [`crate::recovery`] for a description of the recovery
 //! components added to the Timely dataflow.
-//!
-//! Source Architecture
-//! -------------------
-//!
-//! The input system described in [`crate::inputs`] only deals with
-//! "what is the next item of data for this worker?" The source
-//! operators here control the epochs used in the dataflow. They call
-//! out to [`crate::inputs::InputReader`] impls to actually get the
-//! next item.
-//!
-//! This system follows our standard pattern of having parallel Python
-//! config objects and Rust impl structs for each trait of behavior we
-//! want. E.g. [`PeriodicEpochConfig`] represents a token in Python
-//! for how to create a [`periodic_epoch_source`].
+
 use crate::dataflow::{Dataflow, Step};
+use crate::inputs::*;
 use crate::operators::collect_window::CollectWindowLogic;
 use crate::operators::fold_window::FoldWindowLogic;
 use crate::operators::reduce::ReduceLogic;
@@ -35,7 +23,7 @@ use crate::operators::reduce_window::ReduceWindowLogic;
 use crate::operators::stateful_map::StatefulMapLogic;
 use crate::operators::stateful_unary::StatefulUnary;
 use crate::operators::*;
-use crate::outputs::{DynamicOutputOp, PartitionedOutputOp};
+use crate::outputs::*;
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair};
 use crate::recovery::dataflows::*;
 use crate::recovery::model::*;
@@ -47,7 +35,6 @@ use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::cell::Cell;
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
@@ -62,16 +49,15 @@ use timely::progress::Timestamp;
 use timely::worker::Worker;
 use tracing::span::EnteredSpan;
 
-pub(crate) mod epoch;
-use self::epoch::EpochBuilder;
-use self::epoch::{
-    default_epoch_config, periodic_epoch::PeriodicEpochConfig, testing_epoch::TestingEpochConfig,
-    EpochConfig,
-};
-
 /// Integer representing the index of a worker in a cluster.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) struct WorkerIndex(pub(crate) usize);
+
+impl IntoPy<Py<PyAny>> for WorkerIndex {
+    fn into_py(self, py: Python) -> Py<PyAny> {
+        self.0.into_py(py)
+    }
+}
 
 /// Integer representing the number of workers in a cluster.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +67,12 @@ impl WorkerCount {
     /// Iterate through all workers in this cluster.
     pub(crate) fn iter(&self) -> impl Iterator<Item = WorkerIndex> {
         (0..self.0).map(WorkerIndex)
+    }
+}
+
+impl IntoPy<Py<PyAny>> for WorkerCount {
+    fn into_py(self, py: Python) -> Py<PyAny> {
+        self.0.into_py(py)
     }
 }
 
@@ -104,7 +96,7 @@ fn build_production_dataflow<A, PW, SW>(
     py: Python,
     worker: &mut Worker<A>,
     flow: Py<Dataflow>,
-    epoch_config: Py<EpochConfig>,
+    epoch_interval: EpochInterval,
     resume_from: ResumeFrom,
     mut resume_state: FlowStateBytes,
     mut resume_progress: InMemProgress,
@@ -189,47 +181,39 @@ where
                     step_id,
                     input,
                 } => {
-                    let step_resume_state = resume_state.remove(&step_id);
+                    if let Ok(input) = input.extract::<PartitionedInput>(py) {
+                        let step_resume_state = resume_state.remove(&step_id);
 
-                    let (parts, part_count) = input.build_parts(
-                        py,
-                        step_id.clone(),
-                        worker_index,
-                        worker_count,
-                        step_resume_state
-                    )?;
-                    let (output, changes) = epoch_config.build(
-                        py,
-                        scope,
-                        step_id.clone(),
-                        parts,
-                        resume_epoch,
-                        &probe,
-                    )?;
+                        let (output, changes) = input.partitioned_input(
+                            py,
+                            scope,
+                            step_id.clone(),
+                            epoch_interval.clone(),
+                            worker_index,
+                            worker_count,
+                            &probe,
+                            resume_epoch,
+                            step_resume_state,
+                        )?;
 
-                    // Re-balance input if we have a small number of
-                    // partitions. This will be a slight performance
-                    // penalty if there are no CPU-heavy tasks, but it
-                    // seems more intuitive to have all workers
-                    // contribute.
-                    let output = if part_count.0 < worker_count.0 {
-                        tracing::info!("Worker count < partition count; activating random load-balancing for input {step_id:?}");
-                        // TODO: Could do this via `let mut counter =
-                        // 0` when PR to make this FnMut lands in
-                        // Timely stable.
-                        let counter: Cell<u64> = Cell::new(0);
-                        output.exchange(move |_item| {
-                            let next = counter.get().wrapping_add(1);
-                            counter.set(next);
-                            next
-                        })
+                        inputs.push(output.clone());
+                        stream = output;
+                        step_changes.push(changes);
+                    } else if let Ok(input) = input.extract::<DynamicInput>(py) {
+                        let output = input.dynamic_input(
+                            py,
+                            scope,
+                            step_id.clone(),
+                            epoch_interval.clone(),
+                            &probe,
+                            resume_epoch,
+                        )?;
+
+                        inputs.push(output.clone());
+                        stream = output;
                     } else {
-                        output
-                    };
-
-                    inputs.push(output.clone());
-                    stream = output;
-                    step_changes.push(changes);
+                        return Err(PyTypeError::new_err("unknown input type"))
+                    }
                 }
                 Step::Map { mapper } => {
                     stream = stream.map(move |item| map(&mapper, item));
@@ -369,6 +353,8 @@ where
                                 py,
                                 step_id,
                                 output,
+                                worker_index,
+                                worker_count,
                             )?;
                         let clock = output.map(|_| ());
 
@@ -508,7 +494,7 @@ fn build_and_run_production_dataflow<A, PW, SW>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     flow: Py<Dataflow>,
-    epoch_config: Py<EpochConfig>,
+    epoch_interval: EpochInterval,
     resume_from: ResumeFrom,
     resume_state: FlowStateBytes,
     resume_progress: InMemProgress,
@@ -540,7 +526,7 @@ where
             py,
             worker,
             flow,
-            epoch_config,
+            epoch_interval,
             resume_from,
             resume_state,
             resume_progress,
@@ -572,7 +558,7 @@ fn worker_main<A: Allocate>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
     flow: Py<Dataflow>,
-    epoch_config: Option<Py<EpochConfig>>,
+    epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
     let worker_index = worker.index();
@@ -580,7 +566,9 @@ fn worker_main<A: Allocate>(
 
     tracing::info!("Worker {worker_index:?} of {worker_count:?} starting up");
 
-    let epoch_config = epoch_config.unwrap_or_else(default_epoch_config);
+    let epoch_interval = epoch_interval.unwrap_or_default();
+    tracing::info!("Using epoch interval of {epoch_interval:?}");
+
     let recovery_config = recovery_config.unwrap_or_else(default_recovery_config);
 
     let (progress_reader, state_reader) = Python::with_gil(|py| {
@@ -607,7 +595,7 @@ fn worker_main<A: Allocate>(
         worker,
         interrupt_flag,
         flow,
-        epoch_config,
+        epoch_interval,
         resume_from,
         resume_state,
         resume_progress,
@@ -650,19 +638,19 @@ fn worker_main<A: Allocate>(
 ///
 ///   flow: Dataflow to run.
 ///
-///   epoch_config: A custom epoch config. You probably don't need
-///       this. See `EpochConfig` for more info.
+///   epoch_interval (datetime.timedelta): System time length of each
+///       epoch. Defaults to 10 seconds.
 ///
 ///   recovery_config: State recovery config. See
 ///       `bytewax.recovery`. If `None`, state will not be
 ///       persisted.
 ///
-#[pyfunction(flow, "*", epoch_config = "None", recovery_config = "None")]
-#[pyo3(text_signature = "(flow, *, epoch_config, recovery_config)")]
+#[pyfunction(flow, "*", epoch_interval = "None", recovery_config = "None")]
+#[pyo3(text_signature = "(flow, *, epoch_interval, recovery_config)")]
 pub(crate) fn run_main(
     py: Python,
     flow: Py<Dataflow>,
-    epoch_config: Option<Py<EpochConfig>>,
+    epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
     let result = py.allow_threads(move || {
@@ -673,7 +661,13 @@ pub(crate) fn run_main(
             // panic recast issue below.
             timely::execute::execute_directly::<Result<(), PyErr>, _>(move |worker| {
                 let interrupt_flag = AtomicBool::new(false);
-                worker_main(worker, &interrupt_flag, flow, epoch_config, recovery_config)
+                worker_main(
+                    worker,
+                    &interrupt_flag,
+                    flow,
+                    epoch_interval,
+                    recovery_config,
+                )
             })
         })
     });
@@ -729,8 +723,8 @@ pub(crate) fn run_main(
 ///
 ///   proc_id: Index of this process in cluster; starts from 0.
 ///
-///   epoch_config: A custom epoch config. You probably don't need
-///       this. See `EpochConfig` for more info.
+///   epoch_interval (datetime.timedelta): System time length of each
+///       epoch. Defaults to 10 seconds.
 ///
 ///   recovery_config: State recovery config. See
 ///       `bytewax.recovery`. If `None`, state will not be
@@ -743,19 +737,19 @@ pub(crate) fn run_main(
     addresses,
     proc_id,
     "*",
-    epoch_config = "None",
+    epoch_interval = "None",
     recovery_config = "None",
     worker_count_per_proc = "1"
 )]
 #[pyo3(
-    text_signature = "(flow, addresses, proc_id, *, epoch_config, recovery_config, worker_count_per_proc)"
+    text_signature = "(flow, addresses, proc_id, *, epoch_interval, recovery_config, worker_count_per_proc)"
 )]
 pub(crate) fn cluster_main(
     py: Python,
     flow: Py<Dataflow>,
     addresses: Option<Vec<String>>,
     proc_id: usize,
-    epoch_config: Option<Py<EpochConfig>>,
+    epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
     worker_count_per_proc: usize,
 ) -> PyResult<()> {
@@ -809,7 +803,7 @@ pub(crate) fn cluster_main(
                     worker,
                     &should_shutdown_w,
                     flow.clone(),
-                    epoch_config.clone(),
+                    epoch_interval.clone(),
                     recovery_config.clone(),
                 )
             },
@@ -850,9 +844,6 @@ pub(crate) fn cluster_main(
 }
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<EpochConfig>()?;
-    m.add_class::<TestingEpochConfig>()?;
-    m.add_class::<PeriodicEpochConfig>()?;
     m.add_function(wrap_pyfunction!(run_main, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
     Ok(())

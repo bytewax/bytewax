@@ -76,12 +76,6 @@ impl<'source> FromPyObject<'source> for PartitionedOutput {
     }
 }
 
-impl IntoPy<Py<PyAny>> for PartitionedOutput {
-    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
-        self.0
-    }
-}
-
 impl PartitionedOutput {
     /// Turn a partitioned output definition into the components the
     /// Timely operator needs to work.
@@ -111,12 +105,11 @@ impl PartitionedOutput {
                     .map(StateBytes::de::<TdPyAny>)
                     .unwrap_or_else(|| py.None().into());
                 tracing::info!("{worker_index:?} building output {step_id:?} sink {key:?} with resume state {state:?}");
-                let sink: TdPyCallable = self
+                let sink = self
                     .0
                     .call_method1(py, "build_part", (key.clone(), state.clone_ref(py)))?
                     .extract(py)?;
-                let ssink = StatefulSink { sink, state };
-                Ok((key, ssink))
+                Ok((key, sink))
             }).collect::<PyResult<HashMap<StateKey, StatefulSink>>>()?;
 
         if !resume_state.is_empty() {
@@ -125,41 +118,66 @@ impl PartitionedOutput {
 
         let assign_part = self.0.getattr(py, "assign_part")?.extract(py)?;
 
-        Ok((StatefulBundle { sinks }, PartAssigner(assign_part)))
+        Ok((StatefulBundle { parts: sinks }, PartAssigner(assign_part)))
     }
 }
 
 /// Represents a `bytewax.outputs.StatefulSink` in Python.
-struct StatefulSink {
-    sink: TdPyCallable,
-    /// The last state seen.
-    state: TdPyAny,
+struct StatefulSink(Py<PyAny>);
+
+/// Do some eager type checking.
+impl<'source> FromPyObject<'source> for StatefulSink {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        let abc = ob
+            .py()
+            .import("bytewax.outputs")?
+            .getattr("StatefulSink")?
+            .extract()?;
+        if !ob.is_instance(abc)? {
+            Err(PyTypeError::new_err(
+                "stateful sink must derive from `bytewax.outputs.StatefulSink`",
+            ))
+        } else {
+            Ok(Self(ob.into()))
+        }
+    }
 }
 
 impl StatefulSink {
-    /// Write the next item to this sink and save the resulting state.
-    fn write(&mut self, py: Python, value: TdPyAny) -> PyResult<()> {
-        let res = self.sink.call1(py, (value,))?;
-        self.state = res.into();
+    fn write(&self, py: Python, item: TdPyAny) -> PyResult<()> {
+        let _ = self.0.call_method1(py, "write", (item,))?;
         Ok(())
     }
 
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser::<TdPyAny>(&self.state)
+    fn snapshot(&self, py: Python) -> PyResult<StateBytes> {
+        let state = self.0.call_method0(py, "snapshot")?.into();
+        Ok(StateBytes::ser::<TdPyAny>(&state))
+    }
+
+    fn close(&self, py: Python) -> PyResult<()> {
+        let _ = self.0.call_method0(py, "close")?;
+        Ok(())
     }
 }
 
 /// All partitions for an output on a worker.
 struct StatefulBundle {
-    sinks: HashMap<StateKey, StatefulSink>,
+    parts: HashMap<StateKey, StatefulSink>,
 }
 
 impl StatefulBundle {
-    fn snapshot(&self) -> Vec<(StateKey, StateBytes)> {
-        self.sinks
+    fn snapshot(&self, py: Python) -> PyResult<Vec<(StateKey, StateBytes)>> {
+        self.parts
             .iter()
-            .map(|(key, writer)| (key.clone(), writer.snapshot()))
+            .map(|(key, part)| Ok((key.clone(), part.snapshot(py)?)))
             .collect()
+    }
+
+    fn close(self, py: Python) -> PyResult<()> {
+        for part in self.parts.values() {
+            part.close(py)?
+        }
+        Ok(())
     }
 }
 
@@ -215,13 +233,14 @@ where
         worker_count: WorkerCount,
         resume_state: StepStateBytes,
     ) -> PyResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)> {
-        let (mut bundle, assigner) = output.build(
+        let (bundle, assigner) = output.build(
             py,
             step_id.clone(),
             worker_index,
             worker_count,
             resume_state,
         )?;
+        let mut bundle = Some(bundle);
 
         let kv_stream = self.map(extract_state_pair);
 
@@ -254,50 +273,60 @@ where
             let mut change_ncater = FrontierNotificator::new();
 
             move |input_frontiers| {
-                input_handle.for_each(|cap, incoming| {
-                    let epoch = cap.time();
+                bundle = bundle.take().and_then(|mut bundle| {
+                    input_handle.for_each(|cap, incoming| {
+                        let epoch = cap.time();
 
-                    assert!(tmp_incoming.is_empty());
-                    incoming.swap(&mut tmp_incoming);
+                        assert!(tmp_incoming.is_empty());
+                        incoming.swap(&mut tmp_incoming);
 
-                    incoming_buffer
-                        .entry(*epoch)
-                        .or_insert_with(Vec::new)
-                        .append(&mut tmp_incoming);
+                        incoming_buffer
+                            .entry(*epoch)
+                            .or_insert_with(Vec::new)
+                            .append(&mut tmp_incoming);
 
-                    output_ncater.notify_at(cap.delayed_for_output(epoch, 0));
-                    change_ncater.notify_at(cap.delayed_for_output(epoch, 1));
-                });
+                        output_ncater.notify_at(cap.delayed_for_output(epoch, 0));
+                        change_ncater.notify_at(cap.delayed_for_output(epoch, 1));
+                    });
 
-                output_ncater.for_each(&[&input_frontiers[0]], |cap, _| {
-                    let epoch = cap.time();
+                    output_ncater.for_each(&[&input_frontiers[0]], |cap, _| {
+                        unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                            let epoch = cap.time();
 
-                    if let Some(items) = incoming_buffer.remove(epoch) {
-                        let mut output_handle = output_wrapper.activate();
-                        let mut output_session = output_handle.session(&cap);
-                        let res: PyResult<()> = Python::with_gil(|py| {
-                            for (key, value) in items {
-                                let part_key = assigner.assign_part(py, key.clone())?;
-                                let sink = bundle.sinks.get_mut(&part_key).expect(
-                                    "Item routed to non-local partition; output routing bug?",
-                                );
-                                sink.write(py, value.clone_ref(py))?;
-                                output_session.give(wrap_state_pair((key, value)));
+                            if let Some(items) = incoming_buffer.remove(epoch) {
+                                let mut output_handle = output_wrapper.activate();
+                                let mut output_session = output_handle.session(&cap);
+                                for (key, value) in items {
+                                    let part_key = assigner.assign_part(py, key.clone())?;
+                                    let sink = bundle.parts.get_mut(&part_key).expect(
+                                        "Item routed to non-local partition; output routing bug?",
+                                    );
+                                    sink.write(py, value.clone_ref(py))?;
+                                    output_session.give(wrap_state_pair((key, value)));
+                                }
                             }
                             Ok(())
-                        });
-                        unwrap_any!(res);
-                    }
-                });
-
-                change_ncater.for_each(&[&input_frontiers[0]], |cap, _| {
-                    let kchanges = bundle.snapshot().into_iter().map(|(key, snapshot)| {
-                        KChange(FlowKey(step_id.clone(), key), Change::Upsert(snapshot))
+                        }))
                     });
-                    change_wrapper
-                        .activate()
-                        .session(&cap)
-                        .give_iterator(kchanges);
+
+                    change_ncater.for_each(&[&input_frontiers[0]], |cap, _| {
+                        let kchanges = unwrap_any!(Python::with_gil(|py| bundle.snapshot(py)))
+                            .into_iter()
+                            .map(|(key, snapshot)| {
+                                KChange(FlowKey(step_id.clone(), key), Change::Upsert(snapshot))
+                            });
+                        change_wrapper
+                            .activate()
+                            .session(&cap)
+                            .give_iterator(kchanges);
+                    });
+
+                    if input_frontiers.iter().all(|f| f.is_empty()) {
+                        unwrap_any!(Python::with_gil(|py| bundle.close(py)));
+                        None
+                    } else {
+                        Some(bundle)
+                    }
                 });
             }
         });
@@ -328,30 +357,43 @@ impl<'source> FromPyObject<'source> for DynamicOutput {
     }
 }
 
-impl IntoPy<Py<PyAny>> for DynamicOutput {
-    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
-        self.0
-    }
-}
-
 impl DynamicOutput {
-    /// Turn a dynamic output definition into the components the
-    /// Timely operator needs to work.
-    fn build(self, py: Python) -> PyResult<StatelessSink> {
-        let sink = self.0.call_method0(py, "build")?.extract(py)?;
-        Ok(StatelessSink { sink })
+    fn build(self, py: Python, index: WorkerIndex, count: WorkerCount) -> PyResult<StatelessSink> {
+        self.0
+            .call_method1(py, "build", (index, count))?
+            .extract(py)
     }
 }
 
 /// Represents a `bytewax.outputs.StatelessSink` in Python.
-struct StatelessSink {
-    sink: TdPyCallable,
+struct StatelessSink(Py<PyAny>);
+
+/// Do some eager type checking.
+impl<'source> FromPyObject<'source> for StatelessSink {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        let abc = ob
+            .py()
+            .import("bytewax.outputs")?
+            .getattr("StatelessSink")?
+            .extract()?;
+        if !ob.is_instance(abc)? {
+            Err(PyTypeError::new_err(
+                "stateless sink must derive from `bytewax.outputs.StatelessSink`",
+            ))
+        } else {
+            Ok(Self(ob.into()))
+        }
+    }
 }
 
 impl StatelessSink {
-    /// Write the next item to the sink.
-    fn write(&mut self, py: Python, item: TdPyAny) -> PyResult<()> {
-        let _ = self.sink.call1(py, (item,))?;
+    fn write(&self, py: Python, item: TdPyAny) -> PyResult<()> {
+        let _ = self.0.call_method1(py, "write", (item,))?;
+        Ok(())
+    }
+
+    fn close(self, py: Python) -> PyResult<()> {
+        let _ = self.0.call_method0(py, "close")?;
         Ok(())
     }
 }
@@ -369,6 +411,8 @@ where
         py: Python,
         step_id: StepId,
         output: DynamicOutput,
+        worker_index: WorkerIndex,
+        worker_count: WorkerCount,
     ) -> PyResult<Stream<S, TdPyAny>>;
 }
 
@@ -381,44 +425,58 @@ where
         py: Python,
         step_id: StepId,
         output: DynamicOutput,
+        worker_index: WorkerIndex,
+        worker_count: WorkerCount,
     ) -> PyResult<Stream<S, TdPyAny>> {
-        let mut sink = output.build(py)?;
+        let mut sink = Some(output.build(py, worker_index, worker_count)?);
 
-        let mut tmp_incoming: Vec<TdPyAny> = Vec::new();
+        let output_stream = self.unary_frontier(Pipeline, &step_id.0, |_init_cap, _info| {
+            let mut ncater = FrontierNotificator::new();
 
-        let mut incoming_buffer: HashMap<S::Timestamp, Vec<TdPyAny>> = HashMap::new();
+            let mut tmp_incoming: Vec<TdPyAny> = Vec::new();
 
-        let output_stream =
-            self.unary_notify(Pipeline, &step_id.0, None, move |input, output, ncater| {
-                input.for_each(|cap, incoming| {
-                    let epoch = cap.time();
+            let mut incoming_buffer: HashMap<S::Timestamp, Vec<TdPyAny>> = HashMap::new();
 
-                    assert!(tmp_incoming.is_empty());
-                    incoming.swap(&mut tmp_incoming);
+            move |input, output| {
+                sink = sink.take().and_then(|sink| {
+                    input.for_each(|cap, incoming| {
+                        let epoch = cap.time();
 
-                    incoming_buffer
-                        .entry(*epoch)
-                        .or_insert_with(Vec::new)
-                        .append(&mut tmp_incoming);
+                        assert!(tmp_incoming.is_empty());
+                        incoming.swap(&mut tmp_incoming);
 
-                    ncater.notify_at(cap.retain());
-                });
-                ncater.for_each(|cap, _, _| {
-                    let epoch = cap.time();
+                        incoming_buffer
+                            .entry(*epoch)
+                            .or_insert_with(Vec::new)
+                            .append(&mut tmp_incoming);
 
-                    let mut output_session = output.session(&cap);
-                    if let Some(items) = incoming_buffer.remove(epoch) {
-                        let res: PyResult<()> = Python::with_gil(|py| {
-                            for item in items {
-                                sink.write(py, item.clone_ref(py))?;
-                                output_session.give(item);
+                        ncater.notify_at(cap.retain());
+                    });
+
+                    ncater.for_each(&[input.frontier()], |cap, _| {
+                        unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                            let epoch = cap.time();
+
+                            let mut output_session = output.session(&cap);
+                            if let Some(items) = incoming_buffer.remove(epoch) {
+                                for item in items {
+                                    sink.write(py, item.clone_ref(py))?;
+                                    output_session.give(item);
+                                }
                             }
                             Ok(())
-                        });
-                        unwrap_any!(res);
+                        }))
+                    });
+
+                    if input.frontier().is_empty() {
+                        unwrap_any!(Python::with_gil(|py| sink.close(py)));
+                        None
+                    } else {
+                        Some(sink)
                     }
                 });
-            });
+            }
+        });
 
         Ok(output_stream)
     }
