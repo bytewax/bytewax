@@ -8,12 +8,12 @@ import urllib3
 
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
-from bytewax.inputs import PartInput
+from bytewax.inputs import PartitionedInput
 from bytewax.outputs import StdOutputConfig
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 
-class WikiStreamInput(PartInput):
+class WikiStreamInput(PartitionedInput):
     def list_parts(self):
         # Wikimedia's SSE stream has no way to request disjoint data,
         # so we have only one partition.

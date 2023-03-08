@@ -5,8 +5,8 @@ import os
 from pathlib import Path
 from typing import Callable
 
-from bytewax.inputs import PartInput
-from bytewax.outputs import PartOutput
+from bytewax.inputs import PartitionedInput
+from bytewax.outputs import PartitionedOutput
 
 
 def _stateful_read(path, resume_state):
@@ -20,7 +20,7 @@ def _stateful_read(path, resume_state):
             yield i, line.strip()
 
 
-class DirInput(PartInput):
+class DirInput(PartitionedInput):
     """Read all files in a filesystem directory line-by-line.
 
     The directory must exist and contain identical data on all
@@ -60,7 +60,7 @@ class DirInput(PartInput):
         return _stateful_read(path, resume_state)
 
 
-class FileInput(PartInput):
+class FileInput(PartitionedInput):
     """Read a single file line-by-line from the filesystem.
 
     This file must exist and be identical on all workers.
@@ -104,7 +104,7 @@ def _stateful_write_builder(path, resume_state, end):
     return write
 
 
-class DirOutput(PartOutput):
+class DirOutput(PartitionedOutput):
     """Write to a set of files in a filesystem directory line-by-line.
 
     Items consumed from the dataflow must look like two-tuples of
@@ -167,7 +167,7 @@ class DirOutput(PartOutput):
         return _stateful_write_builder(path, resume_state, self.end)
 
 
-class FileOutput(PartOutput):
+class FileOutput(PartitionedOutput):
     """Write to a single file line-by-line on the filesystem.
 
     Items consumed from the dataflow must look like a string. Use a

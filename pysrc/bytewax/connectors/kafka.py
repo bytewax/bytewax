@@ -16,7 +16,7 @@ from confluent_kafka import (
 )
 from confluent_kafka.admin import AdminClient
 
-from bytewax.inputs import PartInput
+from bytewax.inputs import PartitionedInput
 from bytewax.outputs import DynamicOutput
 
 
@@ -36,7 +36,7 @@ def _list_parts(client, topics):
             yield f"{i}-{topic}"
 
 
-class KafkaInput(PartInput):
+class KafkaInput(PartitionedInput):
     """Use [Kafka](https://kafka.apache.org) topics as an input
     source.
 

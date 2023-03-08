@@ -19,7 +19,7 @@ items.
 
 It must yield a two-tuple of `(state, item)` where the state will be
 returned to you via the `resume_state` parameter of
-`PartInput.build_part`.
+`PartitionedInput.build_part`.
 
 If this is a generator, it must do a kind of cooperative
 multi-tasking, never blocking but yielding a bare `None` if there is
@@ -34,7 +34,7 @@ Yields:
 
 # TODO: Add ABC superclass. It messes up pickling. We should get rid
 # of pickling...
-class PartInput:
+class PartitionedInput:
     """An input source with a fixed number of independent partitions."""
 
     @abstractmethod

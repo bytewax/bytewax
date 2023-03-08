@@ -54,21 +54,21 @@ impl Output {
     }
 }
 
-/// Represents a `bytewax.outputs.PartOutput` from Python.
+/// Represents a `bytewax.outputs.PartitionedOutput` from Python.
 #[derive(Clone)]
-pub(crate) struct PartOutput(Py<PyAny>);
+pub(crate) struct PartitionedOutput(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for PartOutput {
+impl<'source> FromPyObject<'source> for PartitionedOutput {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
             .import("bytewax.outputs")?
-            .getattr("PartOutput")?
+            .getattr("PartitionedOutput")?
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(PyTypeError::new_err(
-                "partitioned output must derive from `bytewax.outputs.PartOutput`",
+                "partitioned output must derive from `bytewax.outputs.PartitionedOutput`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -76,13 +76,13 @@ impl<'source> FromPyObject<'source> for PartOutput {
     }
 }
 
-impl IntoPy<Py<PyAny>> for PartOutput {
+impl IntoPy<Py<PyAny>> for PartitionedOutput {
     fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
         self.0
     }
 }
 
-impl PartOutput {
+impl PartitionedOutput {
     /// Turn a partitioned output definition into the components the
     /// Timely operator needs to work.
     fn build(
@@ -179,7 +179,7 @@ impl PartAssigner {
     }
 }
 
-pub(crate) trait PartOutputOp<S>
+pub(crate) trait PartitionedOutputOp<S>
 where
     S: Scope,
 {
@@ -191,26 +191,26 @@ where
     ///
     /// Will manage automatically distributing partition sinks. All
     /// you have to do is pass in the definition.
-    fn part_output(
+    fn partitioned_output(
         &self,
         py: Python,
         step_id: StepId,
-        output: PartOutput,
+        output: PartitionedOutput,
         worker_index: WorkerIndex,
         worker_count: WorkerCount,
         resume_state: StepStateBytes,
     ) -> PyResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)>;
 }
 
-impl<S> PartOutputOp<S> for Stream<S, TdPyAny>
+impl<S> PartitionedOutputOp<S> for Stream<S, TdPyAny>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn part_output(
+    fn partitioned_output(
         &self,
         py: Python,
         step_id: StepId,
-        output: PartOutput,
+        output: PartitionedOutput,
         worker_index: WorkerIndex,
         worker_count: WorkerCount,
         resume_state: StepStateBytes,

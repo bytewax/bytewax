@@ -17,12 +17,16 @@ notes on GitHub when we make a new release.__
 
 - Add `filter_map` operator.
 
-- *Breaking change* New partition-based input API. This replaces
-  `ManualInputConfig` with a new `bytewax.inputs.PartInput`. See
-  `bytewax.inputs` for more info.
+- *Breaking change* New partition-based input and output API. This
+  removes `ManualInputConfig` and `ManualOutputConfig`. See
+  `bytewax.inputs` and `bytewax.outputs` for more info.
 
-- *Breaking change* `KafkaInputConfig` has been moved to
-  `bytewax.connectors.kafka.KafkaInput`.
+- *Breaking change* `Dataflow.capture` operator is renamed to
+  `Dataflow.output`.
+
+- *Breaking change* `KafkaInputConfig` and `KafkaOutputConfig` have
+  been moved to `bytewax.connectors.kafka.KafkaInput` and
+  `bytewax.connectors.kafka.KafkaOutput`.
 
 ## 0.15.0
 

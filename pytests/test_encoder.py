@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from bytewax._encoder import encode_dataflow
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import PartInput
+from bytewax.inputs import PartitionedInput
 from bytewax.window import EventClockConfig, TumblingWindow
 
 
@@ -25,7 +25,7 @@ class OrderBook:
 def test_encoding_custom_input():
     flow = Dataflow()
 
-    class MyCustomInput(PartInput):
+    class MyCustomInput(PartitionedInput):
         def list_parts(self):
             return ["one"]
 

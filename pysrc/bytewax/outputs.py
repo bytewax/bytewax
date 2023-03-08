@@ -36,7 +36,8 @@ StatefulSink = Callable[[Any], Any]
 
 Called once for each `(key, value)` at this point in the dataflow.
 
-See `PartOutput.assign_part` for how the key is mapped to partition.
+See `PartitionedOutput.assign_part` for how the key is mapped to
+partition.
 
 Args:
 
@@ -50,7 +51,7 @@ Returns:
 """
 
 
-class PartOutput(Output):
+class PartitionedOutput(Output):
     """An output with a fixed number of independent partitions.
 
     Will maintain the state of each sink and re-build using it during
