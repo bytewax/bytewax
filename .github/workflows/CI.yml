@@ -37,8 +37,6 @@ jobs:
     - uses: messense/maturin-action@v1
       with:
         rust-toolchain: 1.61
-        manylinux: auto
-        container: off
         command: build
         args: --release -o dist --interpreter python${{ matrix.python-version }}
     - name: Run tests
@@ -48,6 +46,36 @@ jobs:
         pip install $WHEEL_FILE'[dev]' -v
         pytest pytests
         pytest docs
+    - name: Upload wheels
+      uses: actions/upload-artifact@v2
+      with:
+        name: wheels
+        path: dist
+
+  linux-arm64:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.7', '3.8', '3.9', '3.10']
+    container:
+      image: docker://messense/rust-musl-cross:aarch64-musl
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install system dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y protobuf-compiler
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: 1.61
+    - uses: messense/maturin-action@v1
+      with:
+        rust-toolchain: 1.61
+        target: aarch64-unknown-linux-musl
+        command: build
+        manylinux: 2014
+        container: off
+        args: --release -o dist --interpreter python${{ matrix.python-version }}
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:

@@ -1,4 +1,5 @@
 use crate::execution::{WorkerCount, WorkerIndex};
+use libc;
 use pyo3::{ffi::PySys_WriteStdout, prelude::*};
 use std::{collections::HashMap, ffi::CString};
 
@@ -70,7 +71,7 @@ impl OutputWriter<u64, TdPyAny> for StdOutput {
                 .extract()
                 .unwrap();
             let output = CString::new(format!("{item_str}\n")).unwrap();
-            let stdout_str = output.as_ptr() as *const i8;
+            let stdout_str = output.as_ptr() as *const libc::c_char;
             unsafe {
                 PySys_WriteStdout(stdout_str);
             }
