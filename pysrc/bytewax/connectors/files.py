@@ -16,7 +16,7 @@ class _FileSource(StatefulSource):
         self._f.seek(resume_offset)
 
     def next(self):
-        line = self._f.readline().removesuffix("\n")
+        line = self._f.readline().rstrip("\n")
         if len(line) <= 0:
             raise StopIteration()
         return line
