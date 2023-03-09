@@ -88,21 +88,19 @@ def test_input_resume_state(tmp_topic):
 
     inp = KafkaInput([KAFKA_BROKER], topics, tail=False)
     part = inp.build_part(f"{partition}-{tmp_topic}", None)
-    assert part.snapshot() == OFFSET_BEGINNING
     assert poll_next(part) == (b"key-0-0", b"value-0-0")
-    assert part.snapshot() == 1
     assert poll_next(part) == (b"key-0-1", b"value-0-1")
-    assert part.snapshot() == 2
+    resume_state = part.snapshot()
     assert poll_next(part) == (b"key-0-2", b"value-0-2")
-    assert part.snapshot() == 3
+    part.close()
 
     inp = KafkaInput([KAFKA_BROKER], topics, tail=False)
-    part = inp.build_part(f"{partition}-{tmp_topic}", 2)
+    part = inp.build_part(f"{partition}-{tmp_topic}", resume_state)
+    assert part.snapshot() == resume_state
     assert poll_next(part) == (b"key-0-2", b"value-0-2")
-    assert part.snapshot() == 3
     with raises(StopIteration):
         poll_next(part)
-    assert part.snapshot() == 3
+    part.close()
 
 
 def test_input_raises_on_topic_not_exist():

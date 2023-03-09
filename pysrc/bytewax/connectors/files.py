@@ -99,6 +99,7 @@ class _FileSink(StatefulSink):
         resume_offset = resume_state or 0
         self._f = open(path, "at")
         self._f.seek(resume_offset)
+        self._f.truncate()
         self._end = end
 
     def write(self, x):
