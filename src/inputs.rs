@@ -120,17 +120,16 @@ impl PartitionedInput {
         // find a way to treat this kind of state key differently. I
         // might regret this.
             .filter(|key| key.is_local(index, worker_count))
-            .map(|key| {
+            .flat_map(|key| {
                 let state = resume_state
                     .remove(&key)
-                    .map(StateBytes::de::<TdPyAny>)
-                    .unwrap_or_else(|| py.None().into());
+                    .map(StateBytes::de::<TdPyAny>);
                 tracing::info!("{index:?} building input {step_id:?} source {key:?} with resume state {state:?}");
-                let source = self
-                    .0
-                    .call_method1(py, "build_part", (key.clone(), state.clone_ref(py)))?
-                    .extract(py)?;
-                Ok((key, source))
+                match self.0.call_method1(py, "build_part", (key.clone(), state)).and_then(|part| part.extract(py)) {
+                    Err(err) => Some(Err(err)),
+                    Ok(None) => None,
+                    Ok(Some(part)) => Some(Ok((key, part))),
+                }
             }).collect::<PyResult<HashMap<StateKey, StatefulSource>>>()?;
 
         if !resume_state.is_empty() {
