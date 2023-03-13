@@ -205,6 +205,8 @@ where
                             scope,
                             step_id.clone(),
                             epoch_interval.clone(),
+                            worker_index,
+                            worker_count,
                             &probe,
                             resume_epoch,
                         )?;

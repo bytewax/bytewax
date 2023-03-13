@@ -361,8 +361,15 @@ impl<'source> FromPyObject<'source> for DynamicInput {
 }
 
 impl DynamicInput {
-    fn build(&self, py: Python) -> PyResult<StatelessSource> {
-        self.0.call_method0(py, "build")?.extract(py)
+    fn build(
+        &self,
+        py: Python,
+        index: WorkerIndex,
+        count: WorkerCount,
+    ) -> PyResult<StatelessSource> {
+        self.0
+            .call_method1(py, "build", (index, count))?
+            .extract(py)
     }
 
     /// Read items from a dynamic output.
@@ -375,13 +382,15 @@ impl DynamicInput {
         scope: &S,
         step_id: StepId,
         epoch_interval: EpochInterval,
+        index: WorkerIndex,
+        count: WorkerCount,
         probe: &ProbeHandle<u64>,
         start_at: ResumeEpoch,
     ) -> PyResult<Stream<S, TdPyAny>>
     where
         S: Scope<Timestamp = u64>,
     {
-        let source = self.build(py)?;
+        let source = self.build(py, index, count)?;
 
         let mut op_builder = OperatorBuilder::new(step_id.0.to_string(), scope.clone());
 
