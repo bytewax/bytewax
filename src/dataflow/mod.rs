@@ -68,13 +68,14 @@ impl Dataflow {
     /// Emits items downstream from the input source.
     ///
     /// See `bytewax.inputs` for more information on how input works.
+    /// See `bytewax.connectors` for a buffet of our built-in
+    /// connector types.
     ///
     /// Args:
     ///
     ///   step_id (str): Uniquely identifies this step for recovery.
     ///
-    ///   input: Partitioned input type. See
-    ///       `bytewax.inputs.PartitionedInput`.
+    ///   input (bytewax.inputs.Input): Input definition.
     #[pyo3(text_signature = "(self, step_id, input)")]
     fn input(&mut self, step_id: StepId, input: Input) {
         self.steps.push(Step::Input { step_id, input });
@@ -86,15 +87,15 @@ impl Dataflow {
     ///
     /// Emits items downstream unmodified.
     ///
-    /// See `bytewax.outputs` for more information on how output works
-    /// and `bytewax.connectors` for a buffet of our built-in
+    /// See `bytewax.outputs` for more information on how output
+    /// works. See `bytewax.connectors` for a buffet of our built-in
     /// connector types.
     ///
     /// Args:
     ///
     ///   step_id (str): Uniquely identifies this step for recovery.
     ///
-    ///   output: Output definition. See `bytewax.outputs`.
+    ///   output (bytewax.outputs.Output): Output definition.
     #[pyo3(text_signature = "(self, step_id, output)")]
     fn output(&mut self, step_id: StepId, output: Output) {
         self.steps.push(Step::Output { step_id, output });
