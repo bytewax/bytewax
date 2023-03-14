@@ -58,7 +58,7 @@ jobs:
       matrix:
         python-version: ['3.7', '3.8', '3.9', '3.10']
     container:
-      image: docker://messense/manylinux_2_28-cross:aarch64
+      image: docker://messense/rust-musl-cross:aarch64-musl
     steps:
     - uses: actions/checkout@v2
     - name: Install system dependencies
@@ -71,7 +71,7 @@ jobs:
     - uses: messense/maturin-action@v1
       with:
         rust-toolchain: 1.61
-        target: aarch64-unknown-linux-gnu
+        target: aarch64-unknown-linux-musl
         command: build
         manylinux: 2014
         container: off
