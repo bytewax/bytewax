@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 
 use crate::common::pickle_extract;
-use crate::inputs::PartitionedInput;
+use crate::inputs::Input;
 use crate::outputs::Output;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::model::StepId;
@@ -61,33 +61,23 @@ impl Dataflow {
         Ok(())
     }
 
-    /// Input introduces data into the dataflow.
+    ///
     ///
     /// At least one input is required on every dataflow.
     ///
     /// Emits items downstream from the input source.
     ///
     /// See `bytewax.inputs` for more information on how input works.
-    ///
-    /// >>> from bytewax.inputs import TestingInputConfig
-    /// >>> from bytewax.outputs import StdOutputConfig
-    /// >>> from bytewax.execution import run_main
-    /// >>> flow = Dataflow()
-    /// >>> flow.input("inp", TestingInputConfig(range(3)))
-    /// >>> flow.capture(StdOutputConfig())
-    /// >>> run_main(flow)
-    /// 0
-    /// 1
-    /// 2
+    /// See `bytewax.connectors` for a buffet of our built-in
+    /// connector types.
     ///
     /// Args:
     ///
     ///   step_id (str): Uniquely identifies this step for recovery.
     ///
-    ///   input: Source. See `bytewax.connectors` and
-    ///       `bytewax.inputs`.
+    ///   input (bytewax.inputs.Input): Input definition.
     #[pyo3(text_signature = "(self, step_id, input)")]
-    fn input(&mut self, step_id: StepId, input: PartitionedInput) {
+    fn input(&mut self, step_id: StepId, input: Input) {
         self.steps.push(Step::Input { step_id, input });
     }
 
@@ -97,15 +87,15 @@ impl Dataflow {
     ///
     /// Emits items downstream unmodified.
     ///
-    /// See `bytewax.outputs` for more information on how output works
-    /// and `bytewax.connectors` for a buffet of our built-in
+    /// See `bytewax.outputs` for more information on how output
+    /// works. See `bytewax.connectors` for a buffet of our built-in
     /// connector types.
     ///
     /// Args:
     ///
     ///   step_id (str): Uniquely identifies this step for recovery.
     ///
-    ///   output: Output definition. See `bytewax.outputs`.
+    ///   output (bytewax.outputs.Output): Output definition.
     #[pyo3(text_signature = "(self, step_id, output)")]
     fn output(&mut self, step_id: StepId, output: Output) {
         self.steps.push(Step::Output { step_id, output });
@@ -689,7 +679,7 @@ impl Dataflow {
 pub(crate) enum Step {
     Input {
         step_id: StepId,
-        input: PartitionedInput,
+        input: Input,
     },
     Map {
         mapper: TdPyCallable,

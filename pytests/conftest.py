@@ -2,6 +2,7 @@ from multiprocess import get_context
 from pytest import fixture
 
 from bytewax.execution import cluster_main, run_main, spawn_cluster
+from bytewax.recovery import SqliteRecoveryConfig
 
 
 @fixture
@@ -60,3 +61,8 @@ def inp(entry_point_name, request):
         yield []
     else:
         raise ValueError("unknown entry point name: {request.param!r}")
+
+
+@fixture
+def recovery_config(tmp_path):
+    yield SqliteRecoveryConfig(str(tmp_path))

@@ -7,7 +7,21 @@ package to be installed.
 """
 from google.cloud.bigquery import Client
 
-from bytewax.outputs import DynamicOutput
+from bytewax.outputs import DynamicOutput, StatelessSink
+
+
+class _BigQuerySink(StatelessSink):
+    def __init__(self, client, table_ref):
+        self._client = client
+        self._table = client.get_table(self.table_ref)
+
+    def write(self, insert_kwargs):
+        errors = self._client.insert_rows_json(table=self._table, **insert_kwargs)
+        if errors:
+            raise RuntimeError(f"Errors while inserting rows: {errors!r}")
+
+    def close(self):
+        self._client.close()
 
 
 class BigQueryOutput(DynamicOutput):
@@ -38,17 +52,10 @@ class BigQueryOutput(DynamicOutput):
 
     """
 
-    def __init__(self, table_ref, credentials=None):
-        self.table_ref = table_ref
-        self.credentials = credentials
+    def __init__(self, table_ref: str, credentials=None):
+        self._table_ref = table_ref
+        self._credentials = credentials
 
-    def build(self):
-        client = Client(credentials=self.credentials)
-        table = client.get_table(self.table_ref)
-
-        def write(item):
-            errors = client.insert_rows_json(table=table, **item)
-            if errors:
-                raise RuntimeError(f"Errors while inserting rows: {errors!r}")
-
-        return write
+    def build(self, worker_index, worker_count):
+        client = Client(credentials=self._credentials)
+        return _BigQuerySink(client, self._table_ref)

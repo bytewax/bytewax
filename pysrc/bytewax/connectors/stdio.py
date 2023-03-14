@@ -1,7 +1,12 @@
 """Connectors to console IO.
 
 """
-from bytewax.outputs import DynamicOutput
+from bytewax.outputs import DynamicOutput, StatelessSink
+
+
+class _PrintSink(StatelessSink):
+    def write(self, item):
+        print(item)
 
 
 class StdOutput(DynamicOutput):
@@ -17,5 +22,5 @@ class StdOutput(DynamicOutput):
 
     """
 
-    def build(self):
-        return print
+    def build(self, worker_index, worker_count):
+        return _PrintSink()

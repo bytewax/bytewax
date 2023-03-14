@@ -6,7 +6,19 @@ Importing this module requires the
 """
 import boto3
 
-from bytewax.outputs import DynamicOutput
+from bytewax.outputs import DynamicOutput, StatelessSink
+
+
+class _DynamoDBSink(StatelessSink):
+    def __init__(self, table_name):
+        self._dynamodb = boto3.resource("dynamodb")
+        self._table = self._dynamodb.Table(table_name)
+
+    def write(self, put_kwargs):
+        self._table.put_item(**put_kwargs)
+
+    def close(self):
+        self._dynamodb.close()
 
 
 class DynamoDBOutput(DynamicOutput):
@@ -25,18 +37,12 @@ class DynamoDBOutput(DynamicOutput):
 
     Args:
 
-        table: DynamoDB table name.
+        table_name: To write to.
 
     """
 
-    def __init__(self, table):
-        self.table = table
+    def __init__(self, table_name: str):
+        self._table_name = table_name
 
-    def build(self):
-        dynamodb = boto3.resource("dynamodb")
-        table = dynamodb.Table(self.table)
-
-        def write(item):
-            table.put_item(**item)
-
-        return write
+    def build(self, worker_index, worker_count):
+        return _DynamoDBSink(self._table_name)

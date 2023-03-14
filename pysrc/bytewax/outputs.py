@@ -8,7 +8,7 @@ Subclass the types here to implement input for your own custom sink.
 """
 
 from abc import abstractmethod
-from typing import Any, Callable, Optional, Set
+from typing import Any, Optional, Set
 
 
 # TODO: Add ABC superclass. It messes up pickling. We should get rid
@@ -31,24 +31,57 @@ class Output:
         }
 
 
-StatefulSink = Callable[[Any], Any]
-"""Output sink that maintains state of its position.
+# TODO: Add ABC superclass. It messes up pickling. We should get rid
+# of pickling...
+class StatefulSink:
+    """Output sink that maintains state of its position."""
 
-Called once for each `(key, value)` at this point in the dataflow.
+    @abstractmethod
+    def write(self, value) -> None:
+        """Write a single output value.
 
-See `PartitionedOutput.assign_part` for how the key is mapped to
-partition.
+        Called once with only `value` for each `(key, value)` at this
+        point in the dataflow.
 
-Args:
+        See `PartitionedOutput.assign_part` for how the key is mapped
+        to partition.
 
-    value: Value in the dataflow.
+        Args:
 
-Returns:
+            value: Value in the dataflow.
 
-    State which will be returned to you via the `resume_state`
-    parameter of the output builder (if any).
+        """
+        ...
 
-"""
+    @abstractmethod
+    def snapshot(self) -> Any:
+        """Snapshot the position of the next write of this sink.
+
+        This will be returned to you via the `resume_state` parameter
+        of your output builder.
+
+        Be careful of "off by one" errors in resume state. This should
+        return a state that, when built into a sink, resumes writing
+        _after the last written item_, not overwriting the same item.
+
+        This is guaranteed to never be called after `close()`.
+
+        Returns:
+
+            Resume state.
+
+        """
+        ...
+
+    def close(self) -> None:
+        """Do any cleanup on this sink when the dataflow completes on
+        a finite input.
+
+        This is not guaranteed to be called. It will not be called
+        during a crash.
+
+        """
+        pass
 
 
 class PartitionedOutput(Output):
@@ -107,10 +140,6 @@ class PartitionedOutput(Output):
         partition key in order to distribute partitions across all
         workers.
 
-        Be careful of "off by one" errors in resume state. This should
-        return a source that resumes from _the next item_, not the
-        same item that the state was paired with.
-
         Return `None` if for some reason this partition is no longer
         valid and can be skipped coherently. Raise an exception if
         not.
@@ -135,16 +164,32 @@ class PartitionedOutput(Output):
         ...
 
 
-StatelessSink = Callable[[Any], None]
-"""Output sink that is stateless.
+# TODO: Add ABC superclass. It messes up pickling. We should get rid
+# of pickling...
+class StatelessSink:
+    """Output sink that is stateless."""
 
-Called once for each item at this point in the dataflow.
+    @abstractmethod
+    def write(self, item) -> None:
+        """
 
-Args:
+        Called once for each item at this point in the dataflow.
 
-    item: Item in the dataflow.
+        Args:
 
-"""
+            item: Item in the dataflow.
+        """
+        ...
+
+    def close(self) -> None:
+        """Do any cleanup on this sink when the dataflow completes on
+        a finite input.
+
+        This is not guaranteed to be called. It will not be called
+        during a crash.
+
+        """
+        pass
 
 
 class DynamicOutput(Output):
@@ -157,10 +202,16 @@ class DynamicOutput(Output):
     """
 
     @abstractmethod
-    def build(self) -> StatelessSink:
+    def build(self, worker_index, worker_count) -> StatelessSink:
         """Build an output sink for a worker.
 
         Will be called once on each worker.
+
+        Args:
+
+            worker_index: Index of this worker.
+
+            worker_count: Total number of workers.
 
         Returns:
 

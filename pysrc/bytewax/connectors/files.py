@@ -5,19 +5,27 @@ import os
 from pathlib import Path
 from typing import Callable
 
-from bytewax.inputs import PartitionedInput
-from bytewax.outputs import PartitionedOutput
+from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.outputs import PartitionedOutput, StatefulSink
 
 
-def _stateful_read(path, resume_state):
-    resume_i = resume_state or -1
+class _FileSource(StatefulSource):
+    def __init__(self, path, resume_state):
+        resume_offset = resume_state or 0
+        self._f = open(path, "rt")
+        self._f.seek(resume_offset)
 
-    with open(path) as f:
-        for i, line in enumerate(f):
-            # Resume to one after the last completed read.
-            if i <= resume_i:
-                continue
-            yield i, line.strip()
+    def next(self):
+        line = self._f.readline().rstrip("\n")
+        if len(line) <= 0:
+            raise StopIteration()
+        return line
+
+    def snapshot(self):
+        return self._f.tell()
+
+    def close(self):
+        self._f.close()
 
 
 class DirInput(PartitionedInput):
@@ -46,18 +54,17 @@ class DirInput(PartitionedInput):
         if not dir.is_dir():
             raise ValueError(f"input directory `{dir}` is not a directory")
 
-        self.dir = dir
-        self.glob_pat = glob_pat
+        self._dir = dir
+        self._glob_pat = glob_pat
 
     def list_parts(self):
         return {
-            str(path.relative_to(self.dir)) for path in self.dir.glob(self.glob_pat)
+            str(path.relative_to(self._dir)) for path in self._dir.glob(self._glob_pat)
         }
 
     def build_part(self, for_part, resume_state):
-        path = self.dir / for_part
-
-        return _stateful_read(path, resume_state)
+        path = self._dir / for_part
+        return _FileSource(path, resume_state)
 
 
 class FileInput(PartitionedInput):
@@ -75,33 +82,37 @@ class FileInput(PartitionedInput):
     """
 
     def __init__(self, path: Path):
-        self.path = path
+        self._path = path
 
     def list_parts(self):
-        return {str(self.path)}
+        return {str(self._path)}
 
     def build_part(self, for_part, resume_state):
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
-        assert for_part == str(self.path), "Can't resume reading from different file"
+        assert for_part == str(self._path), "Can't resume reading from different file"
+        return _FileSource(self._path, resume_state)
 
-        return _stateful_read(self.path, resume_state)
 
+class _FileSink(StatefulSink):
+    def __init__(self, path, resume_state, end):
+        resume_offset = resume_state or 0
+        self._f = open(path, "at")
+        self._f.seek(resume_offset)
+        self._f.truncate()
+        self._end = end
 
-def _stateful_write_builder(path, resume_state, end):
-    resume_offset = resume_state or 0
+    def write(self, x):
+        self._f.write(x)
+        self._f.write(self._end)
+        self._f.flush()
+        os.fsync(self._f.fileno())
 
-    f = open(path, "a")
-    f.seek(resume_offset)
+    def snapshot(self):
+        return self._f.tell()
 
-    def write(x):
-        f.write(x)
-        f.write(end)
-        f.flush()
-        os.fsync(f.fileno())
-        return f.tell()
-
-    return write
+    def close(self):
+        self._f.close()
 
 
 class DirOutput(PartitionedOutput):
@@ -148,23 +159,22 @@ class DirOutput(PartitionedOutput):
         assign_file: Callable[[str], int] = hash,
         end: str = "\n",
     ):
-        self.dir = dir
-        self.file_count = file_count
-        self.file_namer = file_namer
-        self.assign_file = assign_file
-        self.end = end
+        self._dir = dir
+        self._file_count = file_count
+        self._file_namer = file_namer
+        self._assign_file = assign_file
+        self._end = end
 
     def list_parts(self):
-        return {self.file_namer(i, self.file_count) for i in range(self.file_count)}
+        return {self._file_namer(i, self._file_count) for i in range(self._file_count)}
 
     def assign_part(self, item_key):
-        i = self.assign_file(item_key) % self.file_count
-        return self.file_namer(i, self.file_count)
+        i = self._assign_file(item_key) % self._file_count
+        return self._file_namer(i, self._file_count)
 
     def build_part(self, for_part, resume_state):
-        path = self.dir / for_part
-
-        return _stateful_write_builder(path, resume_state, self.end)
+        path = self._dir / for_part
+        return _FileSink(path, resume_state, self._end)
 
 
 class FileOutput(PartitionedOutput):
@@ -192,18 +202,17 @@ class FileOutput(PartitionedOutput):
     """
 
     def __init__(self, path: Path, end: str = "\n"):
-        self.path = path
-        self.end = end
+        self._path = path
+        self._end = end
 
     def list_parts(self):
-        return {str(self.path)}
+        return {str(self._path)}
 
     def assign_part(self, item_key):
-        return str(self.path)
+        return str(self._path)
 
     def build_part(self, for_part, resume_state):
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
-        assert for_part == str(self.path), "Can't resume writing to different file"
-
-        return _stateful_write_builder(self.path, resume_state, self.end)
+        assert for_part == str(self._path), "Can't resume writing to different file"
+        return _FileSink(self._path, resume_state, self._end)

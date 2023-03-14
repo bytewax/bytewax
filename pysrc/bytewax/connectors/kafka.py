@@ -16,8 +16,8 @@ from confluent_kafka import (
 )
 from confluent_kafka.admin import AdminClient
 
-from bytewax.inputs import PartitionedInput
-from bytewax.outputs import DynamicOutput
+from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.outputs import DynamicOutput, StatelessSink
 
 
 def _list_parts(client, topics):
@@ -34,6 +34,38 @@ def _list_parts(client, topics):
         part_idxs = topic_metadata.partitions.keys()
         for i in part_idxs:
             yield f"{i}-{topic}"
+
+
+class _KafkaSource(StatefulSource):
+    def __init__(self, consumer, topic, part_idx, starting_offset, resume_state):
+        self._offset = resume_state or starting_offset
+        # Assign does not activate consumer grouping.
+        consumer.assign([TopicPartition(topic, part_idx, self._offset)])
+        self._consumer = consumer
+        self._topic = topic
+
+    def next(self):
+        msg = self._consumer.poll(0.001)  # seconds
+        if msg is None:
+            return
+        elif msg.error() is not None:
+            if msg.error().code() == KafkaError._PARTITION_EOF:
+                raise StopIteration()
+            else:
+                raise RuntimeError(
+                    f"error consuming from Kafka topic `{self.topic!r}`: {msg.error()}"
+                )
+        else:
+            item = (msg.key(), msg.value())
+            # Resume reading from the next message, not this one.
+            self._offset = msg.offset() + 1
+            return item
+
+    def snapshot(self):
+        return self._offset
+
+    def close(self):
+        self._consumer.close()
 
 
 class KafkaInput(PartitionedInput):
@@ -80,22 +112,22 @@ class KafkaInput(PartitionedInput):
 
         if isinstance(brokers, str):
             raise TypeError("brokers must be an iterable and not a string")
-        self.brokers = brokers
+        self._brokers = brokers
         if isinstance(topics, str):
             raise TypeError("topics must be an iterable and not a string")
-        self.topics = topics
-        self.tail = tail
-        self.starting_offset = starting_offset
-        self.add_config = add_config
+        self._topics = topics
+        self._tail = tail
+        self._starting_offset = starting_offset
+        self._add_config = add_config
 
     def list_parts(self):
         config = {
-            "bootstrap.servers": ",".join(self.brokers),
+            "bootstrap.servers": ",".join(self._brokers),
         }
-        config.update(self.add_config)
+        config.update(self._add_config)
         client = AdminClient(config)
 
-        return set(_list_parts(client, self.topics))
+        return set(_list_parts(client, self._topics))
 
     def build_part(self, for_part, resume_state):
         part_idx, topic = for_part.split("-", 1)
@@ -103,38 +135,35 @@ class KafkaInput(PartitionedInput):
         # TODO: Warn and then return None. This might be an indication
         # of dataflow continuation with a new topic (to enable
         # re-partitioning), which is fine.
-        assert topic in self.topics, "Can't resume from different set of Kafka topics"
-
-        resume_offset = resume_state or self.starting_offset
+        assert topic in self._topics, "Can't resume from different set of Kafka topics"
 
         config = {
             # We'll manage our own "consumer group" via recovery
             # system.
             "group.id": "BYTEWAX_IGNORED",
             "enable.auto.commit": "false",
-            "bootstrap.servers": ",".join(self.brokers),
-            "enable.partition.eof": str(not self.tail),
+            "bootstrap.servers": ",".join(self._brokers),
+            "enable.partition.eof": str(not self._tail),
         }
-        config.update(self.add_config)
+        config.update(self._add_config)
         consumer = Consumer(config)
-        # Assign does not activate consumer grouping.
-        consumer.assign([TopicPartition(topic, part_idx, resume_offset)])
+        return _KafkaSource(
+            consumer, topic, part_idx, self._starting_offset, resume_state
+        )
 
-        while True:
-            msg = consumer.poll(0.001)  # seconds
-            if msg is None:
-                yield
-            elif msg.error() is not None:
-                if msg.error().code() == KafkaError._PARTITION_EOF:
-                    consumer.close()
-                    return
-                else:
-                    raise RuntimeError(
-                        f"error consuming from Kafka topic `{topic!r}`: {msg.error()}"
-                    )
-            else:
-                item = (msg.key(), msg.value())
-                yield msg.offset(), item
+
+class _KafkaSink(StatelessSink):
+    def __init__(self, producer, topic):
+        self._producer = producer
+        self._topic = topic
+
+    def write(self, key_value):
+        key, value = key_value
+        self._producer.produce(self._topic, value, key)
+        self._producer.flush()
+
+    def close(self):
+        self._producer.flush()
 
 
 class KafkaOutput(DynamicOutput):
@@ -170,21 +199,14 @@ class KafkaOutput(DynamicOutput):
     ):
         add_config = add_config or {}
 
-        self.brokers = brokers
-        self.topic = topic
-        self.add_config = add_config
+        self._brokers = brokers
+        self._topic = topic
+        self._add_config = add_config
 
-    def build(self):
+    def build(self, worker_index, worker_count):
         config = {
-            "bootstrap.servers": ",".join(self.brokers),
+            "bootstrap.servers": ",".join(self._brokers),
         }
-        config.update(self.add_config)
+        config.update(self._add_config)
         producer = Producer(config)
-
-        def write(key_value):
-            key, value = key_value
-            producer.produce(self.topic, value, key)
-            producer.flush()
-            return None
-
-        return write
+        return _KafkaSink(producer, self._topic)
