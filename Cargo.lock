@@ -195,7 +195,6 @@ dependencies = [
  "bincode",
  "chrono",
  "futures",
- "libc",
  "opentelemetry",
  "opentelemetry-jaeger",
  "opentelemetry-otlp",

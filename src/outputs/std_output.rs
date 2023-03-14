@@ -1,7 +1,6 @@
 use crate::execution::{WorkerCount, WorkerIndex};
-use libc;
-use pyo3::{ffi::PySys_WriteStdout, prelude::*};
-use std::{collections::HashMap, ffi::CString};
+use pyo3::prelude::*;
+use std::collections::HashMap;
 
 use crate::pyo3_extensions::TdPyAny;
 
@@ -70,11 +69,13 @@ impl OutputWriter<u64, TdPyAny> for StdOutput {
                 .expect("Items written to std out need to implement `__str__`")
                 .extract()
                 .unwrap();
-            let output = CString::new(format!("{item_str}\n")).unwrap();
-            let stdout_str = output.as_ptr() as *const libc::c_char;
-            unsafe {
-                PySys_WriteStdout(stdout_str);
-            }
+            let builtins =
+                PyModule::import(py, "builtins").expect("unable to load builtin Python module");
+            builtins
+                .getattr("print")
+                .expect("unable to load builtin print")
+                .call1((item_str,))
+                .expect("unable to call builtin print");
         });
     }
 }
