@@ -3,6 +3,7 @@ extern crate scopeguard;
 
 use pyo3::prelude::*;
 use pyo3_extensions::PyConfigClass;
+use pyo3::create_exception;
 use std::thread;
 use std::time::Duration;
 
@@ -17,6 +18,7 @@ pub(crate) mod recovery;
 pub(crate) mod tracing;
 pub(crate) mod webserver;
 pub(crate) mod window;
+pub(crate) mod errors;
 
 #[macro_use]
 pub(crate) mod macros;
@@ -62,6 +64,10 @@ fn setup_tracing(
         tracer
     })
 }
+
+create_exception!(bytewax, BytewaxError, pyo3::exceptions::PyException);
+create_exception!(bytewax, BuildError, BytewaxError);
+create_exception!(bytewax, RunError, BytewaxError);
 
 #[pymodule]
 #[pyo3(name = "bytewax")]

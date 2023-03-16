@@ -15,15 +15,14 @@
 //! components added to the Timely dataflow.
 
 use crate::dataflow::{Dataflow, Step};
-use crate::inputs::*;
+use crate::errors::{tracked_err, PythonException};
 use crate::operators::collect_window::CollectWindowLogic;
 use crate::operators::fold_window::FoldWindowLogic;
 use crate::operators::reduce::ReduceLogic;
 use crate::operators::reduce_window::ReduceWindowLogic;
 use crate::operators::stateful_map::StatefulMapLogic;
 use crate::operators::stateful_unary::StatefulUnary;
-use crate::operators::*;
-use crate::outputs::*;
+use crate::{outputs::*, unwrap_any};
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair};
 use crate::recovery::dataflows::*;
 use crate::recovery::model::*;
@@ -32,10 +31,13 @@ use crate::recovery::store::in_mem::{InMemProgress, StoreSummary};
 use crate::webserver::run_webserver;
 use crate::window::WindowBuilder;
 use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
+use crate::{inputs::*, BytewaxError};
+use crate::{operators::*, BuildError};
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use std::panic::panic_any;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -154,8 +156,14 @@ where
                 } => {
                     let step_resume_state = resume_state.remove(&step_id);
 
-                    let clock_builder = clock_config.build(py)?;
-                    let windower_builder = window_config.build(py)?;
+                    let clock_builder = clock_config
+                            .build(py)
+                            .reraise("error building clock")?;
+                            // .raise::<BuildError>("error building clock")?;
+                    let windower_builder = window_config
+                            .build(py)
+                            .reraise("error building windower")?;
+                            // .raise::<BuildError>("error building windower builder")?;
 
                     let (output, changes) = stream.map(extract_state_pair).stateful_window_unary(
                         step_id,
@@ -194,7 +202,7 @@ where
                             &probe,
                             resume_epoch,
                             step_resume_state,
-                        )?;
+                        ).reraise("error building partitioned input")?;
 
                         inputs.push(output.clone());
                         stream = output;
@@ -209,12 +217,12 @@ where
                             worker_count,
                             &probe,
                             resume_epoch,
-                        )?;
+                        ).reraise("error building DynamicInput")?;
 
                         inputs.push(output.clone());
                         stream = output;
                     } else {
-                        return Err(PyTypeError::new_err("unknown input type"))
+                        return Err(tracked_err::<PyTypeError>("unknown input type"))
                     }
                 }
                 Step::Map { mapper } => {
@@ -240,8 +248,10 @@ where
                 } => {
                     let step_resume_state = resume_state.remove(&step_id);
 
-                    let clock_builder = clock_config.build(py)?;
-                    let windower_builder = window_config.build(py)?;
+                        let clock_builder = clock_config.build(py)
+                            .reraise("error building clock")?;
+                        let windower_builder = window_config.build(py)
+                            .reraise("error building windower")?;
 
                     let (output, changes) = stream.map(extract_state_pair).stateful_window_unary(
                         step_id,
@@ -293,8 +303,8 @@ where
                 } => {
                     let step_resume_state = resume_state.remove(&step_id);
 
-                    let clock_builder = clock_config.build(py)?;
-                    let windower_builder = window_config.build(py)?;
+                    let clock_builder = clock_config.build(py).reraise("error building clock builder")?;
+                    let windower_builder = window_config.build(py).reraise("error building clock builder")?;
 
                     let (output, changes) = stream.map(extract_state_pair).stateful_window_unary(
                         step_id,
@@ -343,7 +353,7 @@ where
                                 worker_index,
                                 worker_count,
                                 step_resume_state,
-                            )?;
+                        ).reraise("error building partitioned output")?;
                         let clock = output.map(|_| ());
 
                         outputs.push(clock.clone());
@@ -357,23 +367,24 @@ where
                                 output,
                                 worker_index,
                                 worker_count,
-                            )?;
+                        ).reraise("error building dynamic output")?;
                         let clock = output.map(|_| ());
 
                         outputs.push(clock.clone());
                         stream = output;
                     } else {
-                        return Err(PyTypeError::new_err("unknown output type"))
+                        return Err(tracked_err::<PyTypeError>("unknown output type"))
                     }
                 }
             }
         }
 
         if inputs.is_empty() {
-            return Err(PyValueError::new_err("Dataflow needs to contain at least one input"));
+            return Err(tracked_err::<PyValueError>("Dataflow needs to contain at least one input"));
         }
         if outputs.is_empty() {
-            return Err(PyValueError::new_err("Dataflow needs to contain at least one output"));
+            dbg!("Output empty");
+            return Err(tracked_err::<PyValueError>("Dataflow needs to contain at least one output"));
         }
         if !resume_state.is_empty() {
             tracing::warn!(
@@ -438,10 +449,13 @@ fn run_until_done<A: Allocate, T: Timestamp>(
     while !interrupt_flag.load(Ordering::Relaxed) && !probe.done() {
         worker.step();
         span.update();
-        Python::with_gil(|py| Python::check_signals(py)).map_err(|err| {
+        let check = Python::with_gil(|py| py.check_signals());
+        if check.is_err() {
             interrupt_flag.store(true, Ordering::Relaxed);
-            err
-        })?;
+            // The ? here will always exit since we just checked
+            // that `check` is Result::Err.
+            check.reraise("Error in worker")?;
+        }
     }
     Ok(())
 }
@@ -524,7 +538,7 @@ where
             rt.spawn(run_webserver(df));
         }
 
-        build_production_dataflow(
+        let res = build_production_dataflow(
             py,
             worker,
             flow,
@@ -535,11 +549,14 @@ where
             store_summary,
             progress_writer,
             state_writer,
-        )
+        ).reraise("error building Dataflow");
+        dbg!(&res.is_err());
+        res
     })?;
+    dbg!("HEY");
     span.exit();
 
-    run_until_done(worker, interrupt_flag, probe)?;
+    run_until_done(worker, interrupt_flag, probe).reraise("error running Dataflow")?;
 
     Ok(())
 }
@@ -593,6 +610,7 @@ fn worker_main<A: Allocate>(
         build_and_run_state_loading_dataflow(worker, interrupt_flag, resume_epoch, state_reader)?;
     span.exit();
 
+    dbg!("Prebuild");
     build_and_run_production_dataflow(
         worker,
         interrupt_flag,
@@ -604,7 +622,8 @@ fn worker_main<A: Allocate>(
         store_summary,
         progress_writer,
         state_writer,
-    )?;
+    ).reraise("error in worker")?;
+    dbg!("Postbuild");
 
     shutdown_worker(worker);
 
@@ -656,34 +675,57 @@ pub(crate) fn run_main(
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
     let result = py.allow_threads(move || {
-        std::panic::catch_unwind(|| {
+        let res = std::panic::catch_unwind(|| {
             // TODO: See if we can PR Timely to not cast result error
             // to a String. Then we could "raise" Python errors from
             // the builder directly. Probably also as part of the
             // panic recast issue below.
-            timely::execute::execute_directly::<Result<(), PyErr>, _>(move |worker| {
+            let res = timely::execute::execute_directly::<Result<(), PyErr>, _>(move |worker| {
                 let interrupt_flag = AtomicBool::new(false);
-                worker_main(
+                dbg!("CIAO1");
+                let res = worker_main(
                     worker,
                     &interrupt_flag,
                     flow,
                     epoch_interval,
                     recovery_config,
-                )
-            })
-        })
+                );
+                if let Err(err) = &res {
+                    dbg!("Exited worker main", err);
+                }
+                // Ok(res.unwrap_or_else(|err| panic_any(err)))
+                res
+            });
+            dbg!("Exited execute_driectly");
+            res
+        });
+            dbg!("Exited catch unwind");
+        res
     });
+    dbg!("Exited allow_thread", &result);
 
+    dbg!("CIAO2");
+    dbg!(&result);
     match result {
-        Ok(Ok(ok)) => Ok(ok),
-        Ok(Err(build_err_str)) => Err(PyValueError::new_err(build_err_str)),
+        Ok(res) => res.reraise("worker error"),
         Err(panic_err) => {
-            let pyerr = if let Some(pyerr) = panic_err.downcast_ref::<PyErr>() {
-                pyerr.clone_ref(py)
+            // Here the worker either crashed with a PyErr or panicked in Rust.
+            // We can differentiate the 2 situations by trying to downcast the panic
+            // to a PyErr. If that doesn't work, we assume the worker crashed
+            // on the Rust side of the moon.
+            let err = if let Some(err) = panic_err.downcast_ref::<PyErr>() {
+                // So if it already was a TdError, we just return a clone of it.
+                err.clone_ref(py)
+            } else if let Some(err) = panic_err.downcast_ref::<String>() {
+                // If it can be downcasted to a string, we turn it into a RuntimeError
+                // with the string as the message (this is the case with timely internal panics).
+                tracked_err::<PyRuntimeError>(err)
             } else {
-                PyRuntimeError::new_err("Panic in Rust code")
+                // If it's not even a string, we give up,
+                // something panicked with a custom payload.
+                tracked_err::<PyRuntimeError>("unknown error")
             };
-            Err(pyerr)
+            Err(err).reraise("Worker crashed")
         }
     }
 }

@@ -7,10 +7,10 @@ import sseclient
 import urllib3
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main, spawn_cluster
-from bytewax.inputs import PartitionedInput, DynamicInput, StatelessSource
+from bytewax.execution import run_main
+from bytewax.inputs import DynamicInput, StatelessSource
 from bytewax.connectors.stdio import StdOutput
-from bytewax.window import SystemClockConfig, TumblingWindow, ClockConfig
+from bytewax.window import SystemClockConfig, TumblingWindow
 
 
 class WikiSource(StatelessSource):
@@ -22,8 +22,6 @@ class WikiSource(StatelessSource):
 
     def next(self):
         if self.worker_index == 0:
-            # print("CIAO")
-            # raise Exception("BOOM")
             return next(self.events).data
 
     def close(self):
@@ -44,8 +42,7 @@ class WikiStreamInput(DynamicInput):
         self.events = self.client.events()
 
     def build(self, worker_index, worker_count):
-        return None
-        # return WikiSource(self.client, self.events, worker_index)
+        return WikiSource(self.client, self.events, worker_index)
 
 
 def initial_count(data_dict):
@@ -59,27 +56,23 @@ def keep_max(max_count, new_count):
 
 flow = Dataflow()
 flow.input("inp", WikiStreamInput())
-# "event_json"
-flow.map(json.loads)
-# {"server_name": "server.name", ...}
+# Remove on needed step here
+# flow.map(json.loads)
+# XXX: Error here
 flow.map(initial_count)
-# ("server.name", 1)
 flow.reduce_window(
     "sum",
-    ClockConfig(),
+    SystemClockConfig(),
     TumblingWindow(length=timedelta(seconds=2)),
     operator.add,
 )
-# ("server.name", sum_per_window)
 flow.stateful_map(
     "keep_max",
     lambda: 0,
     keep_max,
 )
-# ("server.name", max_per_window)
 flow.output("out", StdOutput())
 
 
 if __name__ == "__main__":
-    # spawn_cluster(flow)
     run_main(flow)

@@ -3,6 +3,7 @@
 //! For a user-centric version of input, read the `bytewax.inputs`
 //! Python module docstring. Read that first.
 
+use crate::errors::tracked_err;
 use crate::execution::{WorkerCount, WorkerIndex};
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::model::*;
@@ -307,8 +308,8 @@ impl<'source> FromPyObject<'source> for StatefulSource {
             .getattr("StatefulSource")?
             .extract()?;
         if !ob.is_instance(abc)? {
-            Err(PyTypeError::new_err(
-                "stateful source derive from `bytewax.inputs.StatefulSource`",
+            Err(tracked_err::<PyTypeError>(
+                "stateful source is not subclass of `bytewax.inputs.StatefulSource`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -466,8 +467,8 @@ impl<'source> FromPyObject<'source> for StatelessSource {
             .getattr("StatelessSource")?
             .extract()?;
         if !ob.is_instance(abc)? {
-            Err(PyTypeError::new_err(
-                "stateful source derive from `bytewax.inputs.StatelessSource`",
+            Err(tracked_err::<PyTypeError>(
+                "stateless source is not subclass of `bytewax.inputs.StatelessSource`",
             ))
         } else {
             Ok(Self(ob.into()))

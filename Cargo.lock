@@ -2067,8 +2067,6 @@ dependencies = [
 [[package]]
 name = "timely"
 version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "211e9686a84038d2b052c1f70d7423f8716330fb7108fe21a8a9b0c2929b80a7"
 dependencies = [
  "abomonation",
  "abomonation_derive",
@@ -2085,14 +2083,10 @@ dependencies = [
 [[package]]
 name = "timely_bytes"
 version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f8a545b35b019b8b63afb913214695f542cbbf39032c7b7349e1a15b7f2a2cf"
 
 [[package]]
 name = "timely_communication"
 version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3435bab8a9b9909b5bc907cc562b3659c62a05c1abbc1268e914b024b66dff60"
 dependencies = [
  "abomonation",
  "abomonation_derive",
@@ -2108,8 +2102,6 @@ dependencies = [
 [[package]]
 name = "timely_logging"
 version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9046af28827ac831479d245eb8afd9522599a3cbb22d6c42a82cb9e4ccdf858"
 
 [[package]]
 name = "tinyvec"
