@@ -1,6 +1,7 @@
 use std::panic::Location;
 
-use pyo3::{PyErr, PyResult, PyTypeInfo, Python};
+use pyo3::{exceptions::PyException, PyErr, PyResult, PyTypeInfo, Python};
+use tracing::subscriber::SetGlobalDefaultError;
 
 /// A trait that gives two method that can be used to return
 /// a python exception building a stacktrace.
@@ -59,26 +60,23 @@ impl<T> PythonException<T> for PyResult<T> {
     }
 }
 
-// pub(crate) trait PyUnwrap<T> {
-//     /// Unwraps using [`std::panic::panic_any`], needed to panic with any structure in Rust 2021.
-//     /// See [https://github.com/rust-lang/rust/issues/78500]
-//     fn pyunwrap(self) -> T;
-// }
-//
-// impl<T> PyUnwrap<T> for PyResult<T> {
-//     fn pyunwrap(self) -> T {
-//         match self {
-//             Ok(t) => t,
-//             Err(err) => std::panic::panic_any(err),
-//         }
-//     }
-// }
+impl<T> PythonException<T> for Result<T, SetGlobalDefaultError> {
+    fn into_pyresult(self) -> PyResult<T> {
+        self.map_err(|err| PyErr::new::<PyException, _>(err.to_string()))
+    }
 
-// impl<T> PyUnwrap<T> for PyErr {
-//     fn pyunwrap(self) -> T {
-//         std::panic::panic_any(self);
-//     }
-// }
+    #[track_caller]
+    fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T> {
+        let caller = Location::caller();
+        self._raise::<PyErrType>(msg, caller)
+    }
+
+    #[track_caller]
+    fn reraise(self, msg: &str) -> PyResult<T> {
+        let caller = Location::caller();
+        self._reraise(msg, caller)
+    }
+}
 
 /// Use this function to create a PyErr with location tracking.
 #[track_caller]

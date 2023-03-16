@@ -1,14 +1,12 @@
-#[macro_use(defer)]
-extern crate scopeguard;
-
+use pyo3::create_exception;
 use pyo3::prelude::*;
 use pyo3_extensions::PyConfigClass;
-use pyo3::create_exception;
 use std::thread;
 use std::time::Duration;
 
 pub(crate) mod common;
 pub(crate) mod dataflow;
+pub(crate) mod errors;
 pub(crate) mod execution;
 pub(crate) mod inputs;
 pub(crate) mod operators;
@@ -18,7 +16,6 @@ pub(crate) mod recovery;
 pub(crate) mod tracing;
 pub(crate) mod webserver;
 pub(crate) mod window;
-pub(crate) mod errors;
 
 #[macro_use]
 pub(crate) mod macros;
@@ -56,13 +53,11 @@ fn setup_tracing(
     py: Python,
     tracing_config: Option<Py<tracing::TracingConfig>>,
     log_level: Option<String>,
-) -> crate::tracing::BytewaxTracer {
+) -> PyResult<crate::tracing::BytewaxTracer> {
     let tracer = py.allow_threads(crate::tracing::BytewaxTracer::new);
     let builder = tracing_config.map(|conf| conf.downcast(py).unwrap());
-    py.allow_threads(|| {
-        tracer.setup(builder, log_level);
-        tracer
-    })
+    py.allow_threads(|| tracer.setup(builder, log_level))?;
+    Ok(tracer)
 }
 
 create_exception!(bytewax, BytewaxError, pyo3::exceptions::PyException);
