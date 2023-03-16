@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 use tracing::field::debug;
 
 use crate::{
+    errors::PythonException,
     pyo3_extensions::{TdPyAny, TdPyCallable},
     unwrap_any,
     window::*,
@@ -46,7 +47,11 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceWindowLogic {
                         None => value,
                         Some(acc) => {
                             tracing::trace!("Calling python reducer");
-                            unwrap_any!(self.reducer.call1(py, (acc, value))).into()
+                            unwrap_any!(self
+                                .reducer
+                                .call1(py, (acc, value))
+                                .reraise("error calling `reduce_window` reducer"))
+                            .into()
                         }
                     };
                     tracing::Span::current().record("updated_acc", debug(&updated_acc));

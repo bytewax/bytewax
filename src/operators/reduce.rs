@@ -6,6 +6,7 @@ use tracing::field::debug;
 
 use super::stateful_unary::*;
 use crate::{
+    errors::PythonException,
     pyo3_extensions::{TdPyAny, TdPyCallable},
     try_unwrap, unwrap_any,
 };
@@ -56,7 +57,8 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceLogic {
                     None => value,
                     Some(acc) => unwrap_any!(self
                         .reducer
-                        .call1(py, (acc.clone_ref(py), value.clone_ref(py))))
+                        .call1(py, (acc.clone_ref(py), value.clone_ref(py)))
+                        .reraise("error calling reducer"))
                     .into(),
                 };
                 tracing::Span::current().record("updated_acc", debug(&updated_acc));
@@ -68,12 +70,10 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceLogic {
                         .into();
                     should_emit_and_discard_acc_pybool
                         .extract(py)
-                        .map_err(|_err| {
-                            PyTypeError::new_err(format!(
-                                "return value of `is_complete` in reduce operator must be a bool; \
+                        .raise::<PyTypeError>(&format!(
+                            "return value of `is_complete` in reduce operator must be a bool; \
                             got `{should_emit_and_discard_acc_pybool:?}` instead"
-                            ))
-                        })
+                        ))
                 });
 
                 tracing::Span::current().record(

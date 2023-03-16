@@ -7,32 +7,26 @@ import sseclient
 import urllib3
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
 from bytewax.inputs import DynamicInput, StatelessSource
 from bytewax.connectors.stdio import StdOutput
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 
 class WikiSource(StatelessSource):
-    def __init__(self, client, events, worker_index):
-        self.worker_index = worker_index
-        if worker_index == 0:
-            self.client = client
-            self.events = events
+    def __init__(self, client, events):
+        self.client = client
+        self.events = events
 
     def next(self):
-        if self.worker_index == 0:
-            # XXX: Error here
-            raise Exception("BOOM")
-            return next(self.events).data
+        raise Exception("BOOM")
+        return next(self.events).data
 
     def close(self):
-        if self.worker_index == 0:
-            self.client.close()
+        self.client.close()
 
 
 class WikiStreamInput(DynamicInput):
-    def __init__(self):
+    def build(self, worker_index, worker_count):
         self.pool = urllib3.PoolManager()
         self.resp = self.pool.request(
              "GET",
@@ -42,9 +36,7 @@ class WikiStreamInput(DynamicInput):
          )
         self.client = sseclient.SSEClient(self.resp)
         self.events = self.client.events()
-
-    def build(self, worker_index, worker_count):
-        return WikiSource(self.client, self.events, worker_index)
+        return WikiSource(self.client, self.events)
 
 
 def initial_count(data_dict):
@@ -75,4 +67,7 @@ flow.output("out", StdOutput())
 
 
 if __name__ == "__main__":
-    run_main(flow)
+    from bytewax.execution import run_main
+    run_main(flow, epoch_interval=timedelta(seconds=0))
+    # from bytewax.execution import spawn_cluster
+    # spawn_cluster(flow, epoch_interval=timedelta(seconds=0))

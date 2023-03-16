@@ -19,7 +19,7 @@ pub(crate) mod otlp_tracing;
 pub(crate) use jaeger_tracing::JaegerConfig;
 pub(crate) use otlp_tracing::OtlpTracingConfig;
 
-use crate::pyo3_extensions::PyConfigClass;
+use crate::{errors::tracked_err, pyo3_extensions::PyConfigClass};
 
 /// Base class for tracing/logging configuration.
 ///
@@ -70,7 +70,7 @@ impl PyConfigClass<Box<dyn TracerBuilder + Send>> for Py<TracingConfig> {
             Ok(Box::new(jaeger_conf))
         } else {
             let pytype = self.as_ref(py).get_type();
-            Err(PyTypeError::new_err(format!(
+            Err(tracked_err::<PyTypeError>(&format!(
                 "Unknown tracing_config type: {pytype}"
             )))
         }

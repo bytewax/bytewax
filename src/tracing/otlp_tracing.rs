@@ -9,7 +9,7 @@ use opentelemetry::{
 use opentelemetry_otlp::WithExportConfig;
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 
-use crate::add_pymethods;
+use crate::{add_pymethods, errors::tracked_err};
 
 use super::{TracerBuilder, TracingConfig};
 
@@ -64,7 +64,9 @@ impl TracerBuilder for OtlpTracingConfig {
                     )])),
             )
             .install_batch(Tokio)
-            .map_err(|err| PyRuntimeError::new_err(format!("Error installing tracer: {err}")))
+            .map_err(|err| {
+                tracked_err::<PyRuntimeError>(&format!("Error installing tracer: {err}"))
+            })
     }
 }
 

@@ -6,6 +6,7 @@ use tracing::field::debug;
 
 use super::stateful_unary::*;
 use crate::{
+    errors::PythonException,
     pyo3_extensions::{TdPyAny, TdPyCallable},
     try_unwrap, unwrap_any,
 };
@@ -32,7 +33,10 @@ impl StatefulMapLogic {
                 .map(StateBytes::de::<Option<TdPyAny>>)
                 .unwrap_or_else(|| {
                     Python::with_gil(|py| {
-                        let initial_state: TdPyAny = unwrap_any!(builder.call1(py, ())).into();
+                        let initial_state: TdPyAny = unwrap_any!(builder
+                            .call1(py, ())
+                            .reraise("error calling `stateful_map` builder"))
+                        .into();
                         tracing::debug!(
                             builder = ?builder,
                             initial_state = ?initial_state,
@@ -63,21 +67,26 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for StatefulMapLogic {
             Python::with_gil(|py| {
                 let state = self.state.get_or_insert_with(|| {
                     tracing::trace!("Calling python builder");
-                    unwrap_any!(self.builder.call1(py, ())).into()
+                    unwrap_any!(self
+                        .builder
+                        .call1(py, ())
+                        .reraise("error calling `stateful_map` builder"))
+                    .into()
                 });
                 let (updated_state, updated_value): (Option<TdPyAny>, TdPyAny) = try_unwrap!({
                     let updated_state_value_pytuple: TdPyAny = self
                         .mapper
-                        .call1(py, (state.clone_ref(py), value.clone_ref(py)))?
+                        .call1(py, (state.clone_ref(py), value.clone_ref(py)))
+                        .reraise("error calling `stateful_map` mapper")?
                         .into();
-                    updated_state_value_pytuple.extract(py).map_err(|_err| {
-                        PyTypeError::new_err(format!(
+                    updated_state_value_pytuple
+                        .extract(py)
+                        .raise::<PyTypeError>(&format!(
                             "return value of `mapper` in stateful \
-                                        map operator must be a 2-tuple of \
-                                        `(updated_state, updated_value)`; \
-                                        got `{updated_state_value_pytuple:?}` instead"
+                                map operator must be a 2-tuple of \
+                                `(updated_state, updated_value)`; \
+                                got `{updated_state_value_pytuple:?}` instead"
                         ))
-                    })
                 });
                 tracing::Span::current().record("updated_state", debug(&updated_state));
                 tracing::Span::current().record("updated_value", debug(&updated_value));

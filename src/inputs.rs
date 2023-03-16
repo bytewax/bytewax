@@ -3,7 +3,7 @@
 //! For a user-centric version of input, read the `bytewax.inputs`
 //! Python module docstring. Read that first.
 
-use crate::errors::tracked_err;
+use crate::errors::{tracked_err, PythonException};
 use crate::execution::{WorkerCount, WorkerIndex};
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::model::*;
@@ -26,7 +26,7 @@ pub(crate) struct EpochInterval(Duration);
 impl<'source> FromPyObject<'source> for EpochInterval {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         match ob.extract::<chrono::Duration>()?.to_std() {
-            Err(err) => Err(PyValueError::new_err(format!(
+            Err(err) => Err(tracked_err::<PyValueError>(&format!(
                 "invalid epoch interval: {err}"
             ))),
             Ok(dur) => Ok(Self(dur)),
@@ -109,32 +109,50 @@ impl PartitionedInput {
         worker_count: WorkerCount,
         mut resume_state: StepStateBytes,
     ) -> PyResult<HashMap<StateKey, StatefulSource>> {
-        let keys: BTreeSet<StateKey> = self.0.call_method0(py, "list_parts")?.extract(py)?;
+        let keys: BTreeSet<StateKey> = self
+            .0
+            .call_method0(py, "list_parts")
+            .reraise("errror in `list_parts`")?
+            .extract(py)
+            .reraise("can't convert parts to set")?;
 
         let parts = keys
             .into_iter()
-        // We are using the [`StateKey`] routing hash as the way to
-        // divvy up partitions to workers. This is kinda an abuse of
-        // behavior, but also means we don't have to find a way to
-        // propogate the correct partition:worker mappings into the
-        // restore system, which would be more difficult as we have to
-        // find a way to treat this kind of state key differently. I
-        // might regret this.
+            // We are using the [`StateKey`] routing hash as the way to
+            // divvy up partitions to workers. This is kinda an abuse of
+            // behavior, but also means we don't have to find a way to
+            // propogate the correct partition:worker mappings into the
+            // restore system, which would be more difficult as we have to
+            // find a way to treat this kind of state key differently. I
+            // might regret this.
             .filter(|key| key.is_local(index, worker_count))
             .flat_map(|key| {
-                let state = resume_state
-                    .remove(&key)
-                    .map(StateBytes::de::<TdPyAny>);
-                tracing::info!("{index:?} building input {step_id:?} source {key:?} with resume state {state:?}");
-                match self.0.call_method1(py, "build_part", (key.clone(), state)).and_then(|part| part.extract(py)) {
+                let state = resume_state.remove(&key).map(StateBytes::de::<TdPyAny>);
+                tracing::info!(
+                    "{index:?} building input {step_id:?} \
+                    source {key:?} with resume state {state:?}"
+                );
+                match self
+                    .0
+                    .call_method1(py, "build_part", (key.clone(), state))
+                    .and_then(|part| part.extract(py))
+                {
                     Err(err) => Some(Err(err)),
                     Ok(None) => None,
                     Ok(Some(part)) => Some(Ok((key, part))),
                 }
-            }).collect::<PyResult<HashMap<StateKey, StatefulSource>>>()?;
+            })
+            .collect::<PyResult<HashMap<StateKey, StatefulSource>>>()
+            .reraise("error creating parts for input")?;
 
         if !resume_state.is_empty() {
-            tracing::warn!("Resume state exists for {step_id:?} for unknown partitions {:?}; changing partition counts? recovery state routing bug?", resume_state.keys());
+            tracing::warn!(
+                "Resume state exists for {step_id:?} \
+                for unknown partitions {:?}; \
+                changing partition counts? \
+                recovery state routing bug?",
+                resume_state.keys()
+            );
         }
 
         Ok(parts)
@@ -195,7 +213,10 @@ impl PartitionedInput {
                         let mut output_handle = output_wrapper.activate();
                         let mut output_session = output_handle.session(&output_cap);
                         for (key, part) in parts.iter() {
-                            match unwrap_any!(Python::with_gil(|py| part.next(py))) {
+                            match unwrap_any!(Python::with_gil(|py| part
+                                .next(py)
+                                .reraise("error getting part input")))
+                            {
                                 Poll::Pending => {}
                                 Poll::Ready(None) => {
                                     tracing::trace!(
@@ -230,7 +251,9 @@ impl PartitionedInput {
                                 let part = parts
                                     .get(&state_key)
                                     .expect("Unknown partition {state_key:?} to snapshot");
-                                let snap = unwrap_any!(Python::with_gil(|py| part.snapshot(py)));
+                                let snap = unwrap_any!(Python::with_gil(|py| part
+                                    .snapshot(py)
+                                    .reraise("error doing snapshot of input part")));
                                 (state_key, snap)
                             })
                             .map(|(state_key, snap)| (FlowKey(step_id_op.clone(), state_key), snap))
@@ -245,7 +268,9 @@ impl PartitionedInput {
                         let part = parts
                             .remove(&key)
                             .expect("Unknown partition {key:?} marked as EOF");
-                        unwrap_any!(Python::with_gil(|py| part.close(py)));
+                        unwrap_any!(Python::with_gil(|py| part
+                            .close(py)
+                            .reraise("error closing input part")));
                     }
 
                     if parts.is_empty() {
@@ -321,19 +346,26 @@ impl StatefulSource {
     fn next(&self, py: Python) -> PyResult<Poll<Option<TdPyAny>>> {
         match self.0.call_method0(py, "next") {
             Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(Poll::Ready(None)),
-            Err(err) => Err(err),
+            Err(err) => Err(err).reraise("error getting next input in stateful source"),
             Ok(none) if none.is_none(py) => Ok(Poll::Pending),
             Ok(item) => Ok(Poll::Ready(Some(item.into()))),
         }
     }
 
     fn snapshot(&self, py: Python) -> PyResult<StateBytes> {
-        let state = self.0.call_method0(py, "snapshot")?.into();
+        let state = self
+            .0
+            .call_method0(py, "snapshot")
+            .reraise("error doing snapshot of stateful source")?
+            .into();
         Ok(StateBytes::ser::<TdPyAny>(&state))
     }
 
     fn close(self, py: Python) -> PyResult<()> {
-        let _ = self.0.call_method0(py, "close")?;
+        let _ = self
+            .0
+            .call_method0(py, "close")
+            .reraise("error closing stateful source")?;
         Ok(())
     }
 }
@@ -390,7 +422,9 @@ impl DynamicInput {
     where
         S: Scope<Timestamp = u64>,
     {
-        let source = self.build(py, index, count)?;
+        let source = self
+            .build(py, index, count)
+            .reraise("error building DynamicInput")?;
 
         let mut op_builder = OperatorBuilder::new(step_id.0.to_string(), scope.clone());
 
@@ -407,13 +441,19 @@ impl DynamicInput {
             let mut epoch_started = Instant::now();
 
             move |_input_frontiers| {
+                // We can't return an error here, but we need to stop execution
+                // if we have an error in the user's code.
+                // When this happens we panic with unwrap_any! and reraise
+                // the exeption and adding a message to explain.
                 cap_src = cap_src.take().and_then(|(cap, source)| {
                     let epoch = cap.time();
 
                     let mut eof = false;
 
                     if !probe.less_than(epoch) {
-                        match unwrap_any!(Python::with_gil(|py| source.next(py))) {
+                        match unwrap_any!(
+                            Python::with_gil(|py| source.next(py)).reraise("error getting input")
+                        ) {
                             Poll::Pending => {}
                             Poll::Ready(None) => {
                                 eof = true;
@@ -431,7 +471,9 @@ impl DynamicInput {
 
                     if eof {
                         tracing::trace!("Input {step_id:?} reached EOF");
-                        unwrap_any!(Python::with_gil(|py| source.close(py)));
+                        unwrap_any!(
+                            Python::with_gil(|py| source.close(py)).reraise("error closing source")
+                        );
                         None
                     } else if advance {
                         let next_epoch = epoch + 1;
@@ -468,7 +510,7 @@ impl<'source> FromPyObject<'source> for StatelessSource {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "stateless source is not subclass of `bytewax.inputs.StatelessSource`",
+                "stateless source must derive `bytewax.inputs.StatelessSource`",
             ))
         } else {
             Ok(Self(ob.into()))
