@@ -1,5 +1,5 @@
 """
-This is an example dataflow that uses all the operators.
+This dataflow crashes because we never add an input operator.
 """
 
 from datetime import timedelta
@@ -61,7 +61,8 @@ def reducer(count, event_count):
 
 
 flow = Dataflow()
-flow.input("inp", NumberInput(10))
+# XXX: Error here
+# flow.input("inp", NumberInput(10))
 # Stateless operators
 flow.filter(filter_odd)
 flow.filter_map(filter_double)
