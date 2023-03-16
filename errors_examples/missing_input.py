@@ -2,85 +2,36 @@
 This dataflow crashes because we never add an input operator.
 """
 
+# Import functions that we don't need to break form the working example
+import working
+
 from datetime import timedelta
-from collections import defaultdict
 
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
-from bytewax.inputs import StatelessSource, DynamicInput
 from bytewax.window import TumblingWindow, SystemClockConfig, SessionWindow
 
 
-class NumberSource(StatelessSource):
-    def __init__(self, max, worker_index):
-        if worker_index == 0:
-            self.iterator = iter(range(max))
-
-    def next(self):
-        if self.iterator is not None:
-            return next(self.iterator)
-
-    def close(self):
-        pass
-
-
-class NumberInput(DynamicInput):
-    def __init__(self, max):
-        self.max = max
-
-    def build(self, worker_index, worker_count):
-        return NumberSource(self.max, worker_index)
-
-
-def filter_odd(x):
-    return x % 2 == 0
-
-
-def filter_double(x):
-    if x == 0:
-        return None
-    else:
-        return x * 2
-
-
-def expand(x):
-    return range(x)
-
-
-def minus_one(x):
-    return "ALL", [x - 1]
-
-
-def folder(acc, x):
-    acc[x[0]] += 1
-    return acc
-
-
-def reducer(count, event_count):
-    return count + event_count
-
 
 flow = Dataflow()
-# XXX: Error here
-# flow.input("inp", NumberInput(10))
+# flow.input("inp", working.NumberInput(10))
 # Stateless operators
-flow.filter(filter_odd)
-flow.filter_map(filter_double)
-flow.flat_map(expand)
-flow.inspect(lambda x: print(f"Inspecting {x}"))
-flow.inspect_epoch(lambda epoch, x: print(f"(epoch {epoch}) Inspecting {x}"))
-flow.map(minus_one)
+flow.filter(working.filter_op)
+flow.filter_map(working.filter_map_op)
+flow.flat_map(working.flat_map_op)
+flow.inspect(working.inspect_op)
+flow.inspect_epoch(working.inspect_epoch_op)
+flow.map(working.map_op)
 # Stateful operators
-flow.reduce("reduce", lambda acc, x: [*acc, x], lambda acc: True)
+flow.reduce("reduce", working.reduce_op, working.reduce_is_complete)
 cc = SystemClockConfig()
 wc = TumblingWindow(length=timedelta(seconds=1))
-flow.fold_window("fold_window", cc, wc, lambda: defaultdict(lambda: 0), folder)
+flow.fold_window("fold_window", cc, wc, working.folder_builder, working.folder_op)
 wc = SessionWindow(gap=timedelta(seconds=1))
-flow.reduce_window("reduce_window", cc, wc, reducer)
-flow.stateful_map("stateful_map", lambda: 0, lambda acc, x: (acc, x))
+flow.reduce_window("reduce_window", cc, wc, working.reduce_window_op)
+flow.stateful_map("stateful_map", working.stateful_map_builder, working.stateful_map_op)
 flow.map(lambda x: dict(x[1]))
 flow.output("out", StdOutput())
-
 
 if __name__ == "__main__":
     from bytewax.execution import run_main

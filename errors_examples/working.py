@@ -32,51 +32,79 @@ class NumberInput(DynamicInput):
         return NumberSource(self.max, worker_index)
 
 
-def filter_odd(x):
+def filter_op(x):
     return x % 2 == 0
 
 
-def filter_double(x):
+def filter_map_op(x):
     if x == 0:
         return None
     else:
         return x * 2
 
 
-def expand(x):
+def flat_map_op(x):
     return range(x)
 
 
-def minus_one(x):
+def inspect_op(x):
+    print(f"Inspect {x}")
+
+
+def inspect_epoch_op(epoch, x):
+    print(f"(epoch {epoch}) Inspect {x}")
+
+
+def map_op(x):
     return "ALL", [x - 1]
 
 
-def folder(acc, x):
+def reduce_op(acc, x):
+    return [*acc, x]
+
+
+def reduce_is_complete(x):
+    return True
+
+
+def folder_builder():
+    return defaultdict(lambda: 0)
+
+
+def folder_op(acc, x):
     acc[x[0]] += 1
     return acc
 
 
-def reducer(count, event_count):
+def reduce_window_op(count, event_count):
     return count + event_count
+
+
+def stateful_map_builder():
+    return 0
+
+
+def stateful_map_op(acc, x):
+    return acc, x
 
 
 flow = Dataflow()
 flow.input("inp", NumberInput(10))
 # Stateless operators
-flow.filter(filter_odd)
-flow.filter_map(filter_double)
-flow.flat_map(expand)
-flow.inspect(lambda x: print(f"Inspecting {x}"))
-flow.inspect_epoch(lambda epoch, x: print(f"(epoch {epoch}) Inspecting {x}"))
-flow.map(minus_one)
+flow.filter(filter_op)
+flow.filter_map(filter_map_op)
+flow.flat_map(flat_map_op)
+flow.inspect(inspect_op)
+flow.inspect_epoch(inspect_epoch_op)
+flow.map(map_op)
 # Stateful operators
-flow.reduce("reduce", lambda acc, x: [*acc, x], lambda acc: True)
+flow.reduce("reduce", reduce_op, reduce_is_complete)
 cc = SystemClockConfig()
 wc = TumblingWindow(length=timedelta(seconds=1))
-flow.fold_window("fold_window", cc, wc, lambda: defaultdict(lambda: 0), folder)
+flow.fold_window("fold_window", cc, wc, folder_builder, folder_op)
 wc = SessionWindow(gap=timedelta(seconds=1))
-flow.reduce_window("reduce_window", cc, wc, reducer)
-flow.stateful_map("stateful_map", lambda: 0, lambda acc, x: (acc, x))
+flow.reduce_window("reduce_window", cc, wc, reduce_window_op)
+flow.stateful_map("stateful_map", stateful_map_builder, stateful_map_op)
 flow.map(lambda x: dict(x[1]))
 flow.output("out", StdOutput())
 
