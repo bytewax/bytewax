@@ -1,7 +1,6 @@
 use std::panic::Location;
 
 use pyo3::{exceptions::PyException, PyErr, PyResult, PyTypeInfo, Python};
-use tracing::subscriber::SetGlobalDefaultError;
 
 /// A trait that gives two method that can be used to return
 /// a python exception building a stacktrace.
@@ -42,6 +41,7 @@ pub(crate) trait PythonException<T> {
     }
 }
 
+// The obvious implementation for PyResult
 impl<T> PythonException<T> for PyResult<T> {
     fn into_pyresult(self) -> PyResult<T> {
         self
@@ -60,7 +60,62 @@ impl<T> PythonException<T> for PyResult<T> {
     }
 }
 
-impl<T> PythonException<T> for Result<T, SetGlobalDefaultError> {
+// Some useful implementations for other kind of errors
+impl<T> PythonException<T> for Result<T, tracing::subscriber::SetGlobalDefaultError> {
+    fn into_pyresult(self) -> PyResult<T> {
+        self.map_err(|err| PyErr::new::<PyException, _>(err.to_string()))
+    }
+
+    #[track_caller]
+    fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T> {
+        let caller = Location::caller();
+        self._raise::<PyErrType>(msg, caller)
+    }
+
+    #[track_caller]
+    fn reraise(self, msg: &str) -> PyResult<T> {
+        let caller = Location::caller();
+        self._reraise(msg, caller)
+    }
+}
+
+impl<T> PythonException<T> for std::io::Result<T> {
+    fn into_pyresult(self) -> PyResult<T> {
+        self.map_err(|err| PyErr::new::<PyException, _>(err.to_string()))
+    }
+
+    #[track_caller]
+    fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T> {
+        let caller = Location::caller();
+        self._raise::<PyErrType>(msg, caller)
+    }
+
+    #[track_caller]
+    fn reraise(self, msg: &str) -> PyResult<T> {
+        let caller = Location::caller();
+        self._reraise(msg, caller)
+    }
+}
+
+impl<T> PythonException<T> for Result<T, opentelemetry::trace::TraceError> {
+    fn into_pyresult(self) -> PyResult<T> {
+        self.map_err(|err| PyErr::new::<PyException, _>(err.to_string()))
+    }
+
+    #[track_caller]
+    fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T> {
+        let caller = Location::caller();
+        self._raise::<PyErrType>(msg, caller)
+    }
+
+    #[track_caller]
+    fn reraise(self, msg: &str) -> PyResult<T> {
+        let caller = Location::caller();
+        self._reraise(msg, caller)
+    }
+}
+
+impl<T> PythonException<T> for Result<T, String> {
     fn into_pyresult(self) -> PyResult<T> {
         self.map_err(|err| PyErr::new::<PyException, _>(err.to_string()))
     }
