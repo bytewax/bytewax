@@ -59,6 +59,27 @@ impl<T> PythonException<T> for PyResult<T> {
     }
 }
 
+pub(crate) trait PyUnwrap<T> {
+    /// Unwraps using [`std::panic::panic_any`], needed to panic with any structure in Rust 2021.
+    /// See [https://github.com/rust-lang/rust/issues/78500]
+    fn pyunwrap(self) -> T;
+}
+
+impl<T> PyUnwrap<T> for PyResult<T> {
+    fn pyunwrap(self) -> T {
+        match self {
+            Ok(t) => t,
+            Err(_) => self.unwrap_or_else(|err| std::panic::panic_any(err)),
+        }
+    }
+}
+
+impl<T> PyUnwrap<T> for PyErr {
+    fn pyunwrap(self) -> T {
+        std::panic::panic_any(self);
+    }
+}
+
 /// Use this function to create a PyErr with location tracking.
 #[track_caller]
 pub(crate) fn tracked_err<PyErrType: PyTypeInfo>(msg: &str) -> PyErr {

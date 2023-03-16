@@ -3,12 +3,12 @@ import random
 from bytewax.dataflow import Dataflow
 from bytewax.execution import spawn_cluster
 from bytewax.inputs import PartitionedInput
-from bytewax.outputs import ManualOutputConfig
+from bytewax.connectors.stdio import StdOutput
 
 
 class RandomMetricInput(PartitionedInput):
     def list_parts(self):
-        return ["singleton"]
+        return {"singleton"}
 
     def build_part(self, for_part, resume_state):
         assert for_part == "singleton"
@@ -77,5 +77,5 @@ if __name__ == "__main__":
     # ("metric", value)
     flow.stateful_map("AnomalyDetector", lambda: ZTestDetector(2.0), ZTestDetector.push)
     # ("metric", (value, mu, sigma, is_anomalous))
-    flow.capture(ManualOutputConfig(output_builder))
+    flow.output("output", StdOutput())
     spawn_cluster(flow)

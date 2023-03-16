@@ -22,8 +22,6 @@ class WikiSource(StatelessSource):
 
     def next(self):
         if self.worker_index == 0:
-            # print("CIAO")
-            # raise Exception("BOOM")
             return next(self.events).data
 
     def close(self):
@@ -35,17 +33,16 @@ class WikiStreamInput(DynamicInput):
     def __init__(self):
         self.pool = urllib3.PoolManager()
         self.resp = self.pool.request(
-             "GET",
-             "https://stream.wikimedia.org/v2/stream/recentchange/",
-             preload_content=False,
-             headers={"Accept": "text/event-stream"},
-         )
+            "GET",
+            "https://stream.wikimedia.org/v2/stream/recentchange/",
+            preload_content=False,
+            headers={"Accept": "text/event-stream"},
+        )
         self.client = sseclient.SSEClient(self.resp)
         self.events = self.client.events()
 
     def build(self, worker_index, worker_count):
-        return None
-        # return WikiSource(self.client, self.events, worker_index)
+        return WikiSource(self.client, self.events, worker_index)
 
 
 def initial_count(data_dict):
@@ -66,7 +63,7 @@ flow.map(initial_count)
 # ("server.name", 1)
 flow.reduce_window(
     "sum",
-    ClockConfig(),
+    SystemClockConfig(),
     TumblingWindow(length=timedelta(seconds=2)),
     operator.add,
 )
@@ -81,5 +78,10 @@ flow.output("out", StdOutput())
 
 
 if __name__ == "__main__":
-    # spawn_cluster(flow)
-    run_main(flow)
+    spawn_cluster(flow)
+    # run_main(flow)
+
+
+if __name__ == "__main__":
+    spawn_cluster(flow)
+    # run_main(flow)

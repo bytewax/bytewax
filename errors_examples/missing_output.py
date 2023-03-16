@@ -9,19 +9,7 @@ import urllib3
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 from bytewax.inputs import DynamicInput, StatelessSource
-from bytewax.connectors.stdio import StdOutput
 from bytewax.window import SystemClockConfig, TumblingWindow
-
-import os
-from bytewax.tracing import setup_tracing, OtlpTracingConfig
-
-# tracer = setup_tracing(
-#     log_level="DEBUG",
-#     # tracing_config=OtlpTracingConfig(
-#     #     url=os.getenv("BYTEWAX_OTLP_URL", "grpc://127.0.0.1:4317"),
-#     #     service_name="Tracing-example",
-#     # ),
-# )
 
 
 class WikiSource(StatelessSource):
@@ -33,9 +21,7 @@ class WikiSource(StatelessSource):
 
     def next(self):
         if self.worker_index == 0:
-            data = next(self.events).data
-            # print(f"received {data[:10]}")
-            return data
+            return next(self.events).data
 
     def close(self):
         if self.worker_index == 0:
@@ -87,4 +73,4 @@ flow.stateful_map(
 
 
 if __name__ == "__main__":
-    run_main(flow, epoch_interval=timedelta(seconds=0))
+    run_main(flow)

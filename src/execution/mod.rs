@@ -15,14 +15,13 @@
 //! components added to the Timely dataflow.
 
 use crate::dataflow::{Dataflow, Step};
-use crate::errors::{tracked_err, PythonException};
+use crate::errors::{tracked_err, PyUnwrap, PythonException};
 use crate::operators::collect_window::CollectWindowLogic;
 use crate::operators::fold_window::FoldWindowLogic;
 use crate::operators::reduce::ReduceLogic;
 use crate::operators::reduce_window::ReduceWindowLogic;
 use crate::operators::stateful_map::StatefulMapLogic;
 use crate::operators::stateful_unary::StatefulUnary;
-use crate::{outputs::*, unwrap_any};
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair};
 use crate::recovery::dataflows::*;
 use crate::recovery::model::*;
@@ -33,10 +32,12 @@ use crate::window::WindowBuilder;
 use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
 use crate::{inputs::*, BytewaxError};
 use crate::{operators::*, BuildError};
+use crate::{outputs::*, unwrap_any};
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use std::io::Write;
 use std::panic::panic_any;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
@@ -383,7 +384,6 @@ where
             return Err(tracked_err::<PyValueError>("Dataflow needs to contain at least one input"));
         }
         if outputs.is_empty() {
-            dbg!("Output empty");
             return Err(tracked_err::<PyValueError>("Dataflow needs to contain at least one output"));
         }
         if !resume_state.is_empty() {
@@ -549,11 +549,10 @@ where
             store_summary,
             progress_writer,
             state_writer,
-        ).reraise("error building Dataflow");
-        dbg!(&res.is_err());
+        )
+        .reraise("error building Dataflow");
         res
     })?;
-    dbg!("HEY");
     span.exit();
 
     run_until_done(worker, interrupt_flag, probe).reraise("error running Dataflow")?;
@@ -610,7 +609,6 @@ fn worker_main<A: Allocate>(
         build_and_run_state_loading_dataflow(worker, interrupt_flag, resume_epoch, state_reader)?;
     span.exit();
 
-    dbg!("Prebuild");
     build_and_run_production_dataflow(
         worker,
         interrupt_flag,
@@ -622,8 +620,8 @@ fn worker_main<A: Allocate>(
         store_summary,
         progress_writer,
         state_writer,
-    ).reraise("error in worker")?;
-    dbg!("Postbuild");
+    )
+    .reraise("error in worker")?;
 
     shutdown_worker(worker);
 
@@ -675,59 +673,49 @@ pub(crate) fn run_main(
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
     let result = py.allow_threads(move || {
-        let res = std::panic::catch_unwind(|| {
-            // TODO: See if we can PR Timely to not cast result error
-            // to a String. Then we could "raise" Python errors from
-            // the builder directly. Probably also as part of the
-            // panic recast issue below.
-            let res = timely::execute::execute_directly::<Result<(), PyErr>, _>(move |worker| {
+        std::panic::catch_unwind(|| {
+            timely::execute::execute_directly::<(), _>(move |worker| {
                 let interrupt_flag = AtomicBool::new(false);
-                dbg!("CIAO1");
-                let res = worker_main(
+                worker_main(
                     worker,
                     &interrupt_flag,
                     flow,
                     epoch_interval,
                     recovery_config,
-                );
-                if let Err(err) = &res {
-                    dbg!("Exited worker main", err);
-                }
-                // Ok(res.unwrap_or_else(|err| panic_any(err)))
-                res
-            });
-            dbg!("Exited execute_driectly");
-            res
-        });
-            dbg!("Exited catch unwind");
-        res
+                )
+                // So here it should be enough to return the result,
+                // and handle it later (changing the generic type on execute_directly).
+                // But, in case we have a dataflow with a working input,
+                // and some errors while building the dataflow (like no output),
+                // timely keeps running step_or_park(None) on the worker
+                // and we never get the error (nor the output).
+                // The workaround is to unwrap here with the PyErr
+                // as payload, and handle it as you see in the '.map_err' below,
+                // but relying on catch_unwind is not ideal.
+                .pyunwrap();
+            })
+        })
     });
-    dbg!("Exited allow_thread", &result);
 
-    dbg!("CIAO2");
-    dbg!(&result);
-    match result {
-        Ok(res) => res.reraise("worker error"),
-        Err(panic_err) => {
-            // Here the worker either crashed with a PyErr or panicked in Rust.
-            // We can differentiate the 2 situations by trying to downcast the panic
-            // to a PyErr. If that doesn't work, we assume the worker crashed
-            // on the Rust side of the moon.
-            let err = if let Some(err) = panic_err.downcast_ref::<PyErr>() {
-                // So if it already was a TdError, we just return a clone of it.
-                err.clone_ref(py)
-            } else if let Some(err) = panic_err.downcast_ref::<String>() {
-                // If it can be downcasted to a string, we turn it into a RuntimeError
-                // with the string as the message (this is the case with timely internal panics).
-                tracked_err::<PyRuntimeError>(err)
-            } else {
-                // If it's not even a string, we give up,
-                // something panicked with a custom payload.
-                tracked_err::<PyRuntimeError>("unknown error")
-            };
-            Err(err).reraise("Worker crashed")
+    result.map_err(|panic_err| {
+        // The worker either panicked.
+        // If the panic has a PyErr payload, just raise the exception in Python.
+        // If the panic has a String payload, raise a PyRuntimeError with the message.
+        if let Some(err) = panic_err.downcast_ref::<PyErr>() {
+            // Panics with PyErr as payload should come from bytewax.
+            err.clone_ref(py)
+        } else if let Some(err) = panic_err.downcast_ref::<String>() {
+            // Panics with String payload usually comes from timely here.
+            tracked_err::<PyRuntimeError>(err)
+        } else if let Some(err) = panic_err.downcast_ref::<&str>() {
+            // Other kind of panics that can be downcasted to &str
+            tracked_err::<PyRuntimeError>(err)
+        } else {
+            // Give up trying to understand the error, and show the user
+            // a really helpful message.
+            tracked_err::<PyRuntimeError>("unknown error")
         }
-    }
+    })
 }
 
 /// Execute a dataflow in the current process as part of a cluster.
@@ -797,6 +785,7 @@ pub(crate) fn cluster_main(
     recovery_config: Option<Py<RecoveryConfig>>,
     worker_count_per_proc: usize,
 ) -> PyResult<()> {
+    dbg!("CIAO");
     py.allow_threads(move || {
         let addresses = addresses.unwrap_or_default();
         let (builders, other) = if addresses.is_empty() {
@@ -819,24 +808,39 @@ pub(crate) fn cluster_main(
 
         // Panic hook is per-process, so this won't work if you call
         // `cluster_main()` twice concurrently.
-        let default_hook = std::panic::take_hook();
+        // let default_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             should_shutdown_p.store(true, Ordering::Relaxed);
-
-            if let Some(pyerr) = info.payload().downcast_ref::<PyErr>() {
-                Python::with_gil(|py| pyerr.print(py));
+            let err = if let Some(err) = info.payload().downcast_ref::<PyErr>() {
+                // Panics with PyErr as payload should come from bytewax.
+                Python::with_gil(|py| err.clone_ref(py))
+            } else if let Some(err) = info.payload().downcast_ref::<String>() {
+                // Panics with String payload usually comes from timely here.
+                tracked_err::<PyRuntimeError>(err)
+            } else if let Some(err) = info.payload().downcast_ref::<&str>() {
+                // Other kind of panics that can be downcasted to &str
+                tracked_err::<PyRuntimeError>(err)
             } else {
-                default_hook(info);
-            }
+                // Give up trying to understand the error, and show the user
+                // a really helpful message.
+                tracked_err::<PyRuntimeError>("unknown error")
+            };
+            let msg = format!("{err}");
+            // Acquire stdout lock and write the string as bytes,
+            // so we avoid interleaving outputs from different threads (i think?).
+            let mut stderr = std::io::stderr().lock();
+            stderr
+                .write_all(format!("{msg}\n").as_bytes())
+                .unwrap_or_else(|err| eprintln!("Error printing error (that's not good): {err}"));
         }));
         // Don't chain panic hooks if we run multiple
         // dataflows. Really this is all a hack because the panic
         // hook is global state. There's some talk of per-thread
         // panic hooks which would help
         // here. https://internals.rust-lang.org/t/pre-rfc-should-std-set-hook-have-a-per-thread-version/9518/3
-        defer! {
-            let _ = std::panic::take_hook();
-        }
+        // defer! {
+        //     let _ = std::panic::take_hook();
+        // }
 
         let guards = timely::execute::execute_from::<_, PyResult<()>, _>(
             builders,
@@ -852,6 +856,7 @@ pub(crate) fn cluster_main(
                 )
             },
         )
+        // .raise::<PyRuntimeError>("error executing workers")?;
         .map_err(PyRuntimeError::new_err)?;
 
         // Recreating what Python does in Thread.join() to "block"
@@ -875,8 +880,9 @@ pub(crate) fn cluster_main(
             // although we still need it to tell the other workers to
             // do graceful shutdown.
             match maybe_worker_panic {
-                Ok(Ok(ok)) => Ok(ok),
-                Ok(Err(build_err)) => Err(build_err),
+                Ok(res) => res.reraise("ASD"),
+                // Ok(Ok(ok)) => Ok(ok),
+                // Ok(Err(build_err)) => Err(build_err),
                 Err(_panic_err) => Err(PyRuntimeError::new_err(
                     "Worker thread died; look for errors above",
                 )),
