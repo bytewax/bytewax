@@ -53,7 +53,7 @@ jobs:
         path: dist
 
   linux-arm64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     strategy:
       matrix:
         python-version: ['3.7', '3.8', '3.9', '3.10']
@@ -65,7 +65,7 @@ jobs:
       with:
         rust-toolchain: 1.61
         target: aarch64-unknown-linux-musl
-        manylinux: musllinux_1_1
+        manylinux: musllinux_1_2
         command: build
         args: --release -o dist --interpreter python${{ matrix.python-version }}
         before-script-linux: |
