@@ -1,6 +1,6 @@
 //! Newtypes around PyO3 types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
-use crate::py_unwrap;
+use crate::errors::PythonException;
 use crate::recovery::model::StateKey;
 use crate::try_unwrap;
 use crate::unwrap_any;
@@ -219,20 +219,16 @@ impl PartialEq for TdPyAny {
 /// routing into Timely's stateful operators.
 pub(crate) fn extract_state_pair(key_value_pytuple: TdPyAny) -> (StateKey, TdPyAny) {
     Python::with_gil(|py| {
-        let (key, value): (TdPyAny, TdPyAny) = py_unwrap!(
-            key_value_pytuple.extract(py),
-            format!(
-                "Dataflow requires a `(key, value)` 2-tuple as input to \
-                    every stateful operator for routing; got `{key_value_pytuple:?}` instead"
-            )
-        );
-        let key: StateKey = py_unwrap!(
-            key.extract(py),
-            format!(
-                "Stateful logic functions must return string or integer keys \
+        let (key, value): (TdPyAny, TdPyAny) =
+            unwrap_any!(key_value_pytuple.extract(py).raise::<PyTypeError>(&format!(
+                "Dataflow requires a `(key, value)` 2-tuple \
+                as input to every stateful operator for routing; \
+                got `{key_value_pytuple:?}` instead"
+            )));
+        let key: StateKey = unwrap_any!(key.extract(py).raise::<PyTypeError>(&format!(
+            "Stateful logic functions must return string or integer keys \
                     in `(key, value)`; got `{key:?}` instead"
-            )
-        );
+        )));
         (key, value)
     })
 }

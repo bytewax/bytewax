@@ -11,28 +11,25 @@ pub(crate) trait PythonException<T> {
 
     /// Make the existing exception part of the traceback and
     /// raise a custom exception with its own message.
-    fn raise<PyErrType>(self, msg: &str) -> PyResult<T>
+    #[track_caller]
+    fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T>
     where
-        PyErrType: PyTypeInfo;
-
-    /// Make the existing error part of the traceback and
-    /// raise a new exception with the same type and a different message.
-    fn reraise(self, msg: &str) -> PyResult<T>;
-
-    fn _raise<PyErrType>(self, msg: &str, caller: &Location) -> PyResult<T>
-    where
-        PyErrType: PyTypeInfo,
         Self: Sized,
     {
+        let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
             Python::with_gil(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, msg)))
         })
     }
 
-    fn _reraise(self, msg: &str, caller: &Location) -> PyResult<T>
+    /// Make the existing error part of the traceback and
+    /// raise a new exception with the same type and a different message.
+    #[track_caller]
+    fn reraise(self, msg: &str) -> PyResult<T>
     where
         Self: Sized,
     {
+        let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
             Python::with_gil(|py| {
                 PyErr::from_type(err.get_type(py), build_message(py, caller, &err, msg))
@@ -46,18 +43,6 @@ impl<T> PythonException<T> for PyResult<T> {
     fn into_pyresult(self) -> PyResult<T> {
         self
     }
-
-    #[track_caller]
-    fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T> {
-        let caller = Location::caller();
-        self._raise::<PyErrType>(msg, caller)
-    }
-
-    #[track_caller]
-    fn reraise(self, msg: &str) -> PyResult<T> {
-        let caller = Location::caller();
-        self._reraise(msg, caller)
-    }
 }
 
 // Some useful implementations for other kind of errors
@@ -65,35 +50,11 @@ impl<T> PythonException<T> for Result<T, tracing::subscriber::SetGlobalDefaultEr
     fn into_pyresult(self) -> PyResult<T> {
         self.map_err(|err| PyErr::new::<PyException, _>(err.to_string()))
     }
-
-    #[track_caller]
-    fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T> {
-        let caller = Location::caller();
-        self._raise::<PyErrType>(msg, caller)
-    }
-
-    #[track_caller]
-    fn reraise(self, msg: &str) -> PyResult<T> {
-        let caller = Location::caller();
-        self._reraise(msg, caller)
-    }
 }
 
 impl<T> PythonException<T> for std::io::Result<T> {
     fn into_pyresult(self) -> PyResult<T> {
         self.map_err(|err| PyErr::new::<PyException, _>(err.to_string()))
-    }
-
-    #[track_caller]
-    fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T> {
-        let caller = Location::caller();
-        self._raise::<PyErrType>(msg, caller)
-    }
-
-    #[track_caller]
-    fn reraise(self, msg: &str) -> PyResult<T> {
-        let caller = Location::caller();
-        self._reraise(msg, caller)
     }
 }
 
@@ -101,35 +62,11 @@ impl<T> PythonException<T> for Result<T, opentelemetry::trace::TraceError> {
     fn into_pyresult(self) -> PyResult<T> {
         self.map_err(|err| PyErr::new::<PyException, _>(err.to_string()))
     }
-
-    #[track_caller]
-    fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T> {
-        let caller = Location::caller();
-        self._raise::<PyErrType>(msg, caller)
-    }
-
-    #[track_caller]
-    fn reraise(self, msg: &str) -> PyResult<T> {
-        let caller = Location::caller();
-        self._reraise(msg, caller)
-    }
 }
 
 impl<T> PythonException<T> for Result<T, String> {
     fn into_pyresult(self) -> PyResult<T> {
         self.map_err(|err| PyErr::new::<PyException, _>(err.to_string()))
-    }
-
-    #[track_caller]
-    fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T> {
-        let caller = Location::caller();
-        self._raise::<PyErrType>(msg, caller)
-    }
-
-    #[track_caller]
-    fn reraise(self, msg: &str) -> PyResult<T> {
-        let caller = Location::caller();
-        self._reraise(msg, caller)
     }
 }
 

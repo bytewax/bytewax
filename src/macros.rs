@@ -51,32 +51,6 @@ macro_rules! try_unwrap {
 }
 
 #[macro_export]
-/// Unwraps the result of the expression using [`std::panic::panic_any`].
-/// The error is mapped to a [`PyTypeError`] with a custom error message,
-/// taken from the second parameter of the macro.
-/// This can be used to panic and send a proper error message to the python interpreter.
-/// The macro invocations requires that [`pyo3::exceptions::PyTypeError`]
-/// is in scope and that the Python interpreter is available to PyO3.
-///
-/// ```rust
-/// use bytewax::py_unwrap;
-/// use pyo3::exceptions::PyTypeError;
-///
-/// pyo3::prepare_freethreaded_python();
-///
-/// let something = "abc".parse::<u64>();
-/// let res = std::panic::catch_unwind(|| py_unwrap!(something, "A custom python error message"));
-/// assert!(res.is_err());
-/// ```
-macro_rules! py_unwrap {
-    ($pyfunc:expr, $err_msg:expr) => {
-        $pyfunc
-            .map_err(|_err| PyTypeError::new_err($err_msg))
-            .unwrap_or_else(|err| std::panic::panic_any(err))
-    };
-}
-
-#[macro_export]
 macro_rules! log_func {
     () => {{
         fn f() {}
