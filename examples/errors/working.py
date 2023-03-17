@@ -12,8 +12,8 @@ from bytewax.window import TumblingWindow, SystemClockConfig, SessionWindow
 
 
 class NumberSource(StatelessSource):
-    def __init__(self, max):
-        self.iterator = iter(range(max))
+    def __init__(self, iterator):
+        self.iterator = iterator
 
     def next(self):
         return next(self.iterator)
@@ -25,9 +25,13 @@ class NumberSource(StatelessSource):
 class NumberInput(DynamicInput):
     def __init__(self, max):
         self.max = max
+        self.iterator = iter(range(max))
 
     def build(self, worker_index, worker_count):
-        return NumberSource(self.max)
+        # This will duplicate data in each
+        # process but not in each worker
+        # since they share the iterator
+        return NumberSource(self.iterator)
 
 
 def filter_op(x):
@@ -115,4 +119,4 @@ if __name__ == "__main__":
     # from bytewax.execution import run_main
     # run_main(flow)
     from bytewax.execution import spawn_cluster
-    spawn_cluster(flow, proc_count=2, worker_count_per_proc=2)
+    spawn_cluster(flow, proc_count=1, worker_count_per_proc=1)

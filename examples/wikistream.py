@@ -26,6 +26,15 @@ class WikiSource(StatelessSource):
 
 class WikiStreamInput(DynamicInput):
     def build(self, worker_index, worker_count):
+        # This will duplicate data in each worker in each process,
+        # so this is currently supposed to run on a single worker.
+        # TODO: We can check for the number of workers,
+        #       but we have no way to check the number of processes.
+        #       We could add a new kind of input that is garantueed
+        #       to only run on one of the workers, regardless of how
+        #       the rest of the flow is executed.
+        assert worker_count == 1, "wikistream can only run on a single worker"
+
         pool = urllib3.PoolManager()
         resp = pool.request(
             "GET",
@@ -71,7 +80,7 @@ flow.output("out", StdOutput())
 
 
 if __name__ == "__main__":
-    # from bytewax.execution import run_main
-    # run_main(flow)
-    from bytewax.execution import spawn_cluster
-    spawn_cluster(flow)
+    from bytewax.execution import run_main
+    run_main(flow)
+    # from bytewax.execution import spawn_cluster
+    # spawn_cluster(flow)
