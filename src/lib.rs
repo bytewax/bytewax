@@ -1,4 +1,3 @@
-use pyo3::create_exception;
 use pyo3::prelude::*;
 use pyo3_extensions::PyConfigClass;
 use std::thread;
@@ -59,10 +58,6 @@ fn setup_tracing(
     py.allow_threads(|| tracer.setup(builder, log_level))?;
     Ok(tracer)
 }
-
-create_exception!(bytewax, BytewaxError, pyo3::exceptions::PyException);
-create_exception!(bytewax, BuildError, BytewaxError);
-create_exception!(bytewax, RunError, BytewaxError);
 
 #[pymodule]
 #[pyo3(name = "bytewax")]

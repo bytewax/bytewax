@@ -2,15 +2,18 @@ use std::panic::Location;
 
 use pyo3::{exceptions::PyException, PyErr, PyResult, PyTypeInfo, Python};
 
-/// A trait that gives two method that can be used to return
-/// a python exception building a stacktrace.
+/// A trait to build a python exception with a custom
+/// stacktrace from anything that can be converted into
+/// a PyResult.
 pub(crate) trait PythonException<T> {
-    /// This trait can be implemented by anything
-    /// that can be converted to a pyresult.
+    /// Only this needs to be implemented.
     fn into_pyresult(self) -> PyResult<T>;
 
     /// Make the existing exception part of the traceback
     /// and raise a custom exception with its own message.
+    ///
+    /// Example:
+    ///     func().raise::<PyTypeError>("Raise TypeError adding this message")?;
     #[track_caller]
     fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T>
     where
@@ -25,6 +28,9 @@ pub(crate) trait PythonException<T> {
     /// Make the existing error part of the traceback
     /// and raise a new exception with the same type
     /// and an additional message.
+    ///
+    /// Example:
+    ///     func().reraise("Reraise same exception adding this message")?;
     #[track_caller]
     fn reraise(self, msg: &str) -> PyResult<T>
     where

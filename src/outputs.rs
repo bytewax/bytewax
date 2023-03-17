@@ -32,7 +32,7 @@ impl<'source> FromPyObject<'source> for Output {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "output must derive from `bytewax.outputs.Output`",
+                "output must derive `bytewax.outputs.Output`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -69,7 +69,7 @@ impl<'source> FromPyObject<'source> for PartitionedOutput {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "partitioned output must derive from `bytewax.outputs.PartitionedOutput`",
+                "partitioned output must derive `bytewax.outputs.PartitionedOutput`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -91,7 +91,7 @@ impl PartitionedOutput {
         let keys: BTreeSet<StateKey> = self
             .0
             .call_method0(py, "list_parts")
-            .reraise("error listin output parts")?
+            .reraise("error calling PartitionedOutput.list_parts")?
             .extract(py)
             .reraise("error converting output parts to set")?;
 
@@ -117,7 +117,7 @@ impl PartitionedOutput {
                 let sink = self
                     .0
                     .call_method1(py, "build_part", (key.clone(), state.clone_ref(py)))
-                    .reraise("error building output part")?
+                    .reraise("error calling PartitionedOutput.build_part")?
                     .extract(py)?;
                 Ok((key, sink))
             })
@@ -153,7 +153,7 @@ impl<'source> FromPyObject<'source> for StatefulSink {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "stateful sink must derive from `bytewax.outputs.StatefulSink`",
+                "stateful sink must derive `bytewax.outputs.StatefulSink`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -368,7 +368,7 @@ impl<'source> FromPyObject<'source> for DynamicOutput {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "dynamic output must derive from `bytewax.outputs.DynamicOutput`",
+                "dynamic output must derive `bytewax.outputs.DynamicOutput`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -397,7 +397,7 @@ impl<'source> FromPyObject<'source> for StatelessSink {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "stateless sink must derive from `bytewax.outputs.StatelessSink`",
+                "stateless sink must derive `bytewax.outputs.StatelessSink`",
             ))
         } else {
             Ok(Self(ob.into()))
