@@ -266,14 +266,18 @@ mod tests {
     fn test_event_time_clock_serialization() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
-            let config = EventClockConfig {
-                // This will never be called in this test so can be
-                // junk.
-                dt_getter: TdPyCallable::pickle_new(py),
-                wait_for_system_duration: Duration::zero(),
-            };
+            let config = PyCell::new(
+                py,
+                EventClockConfig::py_new(
+                    // This will never be called in this test so can be
+                    // junk.
+                    TdPyCallable::pickle_new(py),
+                    Duration::zero(),
+                ),
+            )
+            .unwrap();
 
-            let mut event_clock = config.build(py).unwrap()(None);
+            let mut event_clock = config.borrow().build(py).unwrap()(None);
 
             let found = event_clock.watermark(&Poll::Ready(None));
             assert_eq!(
@@ -284,7 +288,7 @@ mod tests {
 
             let snapshot = event_clock.snapshot();
 
-            let mut event_clock = config.build(py).unwrap()(Some(snapshot));
+            let mut event_clock = config.borrow().build(py).unwrap()(Some(snapshot));
 
             let found = event_clock.watermark(&Poll::Pending);
             assert_eq!(
