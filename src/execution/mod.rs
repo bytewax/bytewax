@@ -687,52 +687,50 @@ pub(crate) fn run_main(
     epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
-    let result = py.allow_threads(move || {
+    let res = py.allow_threads(move || {
         std::panic::catch_unwind(|| {
             timely::execute::execute_directly::<(), _>(move |worker| {
                 let interrupt_flag = AtomicBool::new(false);
-                // So here it should be enough to return the result,
-                // and handle it later (changing the generic type on execute_directly).
-                // But, in case we have a dataflow with a working input,
-                // and some errors while building the dataflow (like no output),
-                // timely keeps running step_or_park(None) on the worker
-                // and we never get the error (nor the output).
-                // The workaround is to unwrap here with the PyErr
-                // as payload, and handle it as you see in the '.map_err' below,
-                // but relying on catch_unwind is not ideal.
+                // The error will be reraised in the building phase.
+                // If an error occur during the execution, it will
+                // cause a panic since timely doesn't offer a way
+                // to cleanly stop workers with a Result::Err.
+                // The panic will be caught by catch_unwind, so we
+                // unwrap with a PyErr payload.
                 unwrap_any!(worker_main(
                     worker,
                     &interrupt_flag,
                     flow,
                     epoch_interval,
                     recovery_config,
-                ));
+                )
+                .reraise("worker error"))
             })
         })
     });
 
-    result
-        .map_err(|panic_err| {
-            // The worker panicked.
-            // If the panic has a PyErr payload, just raise the exception in Python.
-            // If the panic has a String payload, raise a PyRuntimeError with the message.
-            if let Some(err) = panic_err.downcast_ref::<PyErr>() {
-                // Panics with PyErr as payload should come from bytewax.
-                err.clone_ref(py)
-            } else if let Some(msg) = panic_err.downcast_ref::<String>() {
-                // Panics with String payload usually comes from timely here.
-                tracked_err::<PyRuntimeError>(msg)
-            } else if let Some(msg) = panic_err.downcast_ref::<&str>() {
-                // Other kind of panics that can be downcasted to &str
-                tracked_err::<PyRuntimeError>(msg)
-            } else {
-                // Give up trying to understand the error, and show the user
-                // a really helpful message.
-                tracked_err::<PyRuntimeError>("unknown error")
-            }
-        })
-        // The worker might return an error without panicking.
-        .reraise("error during execution")
+    res.map_err(|panic_err| {
+        // The worker panicked.
+        // Print an empty line to separate rust panick message from the rest.
+        eprintln!("");
+        if let Some(err) = panic_err.downcast_ref::<PyErr>() {
+            // Panics with PyErr as payload should come from bytewax.
+            err.clone_ref(py)
+        } else if let Some(msg) = panic_err.downcast_ref::<String>() {
+            // Panics with String payload usually comes from timely here.
+            tracked_err::<PyRuntimeError>(msg)
+        } else if let Some(msg) = panic_err.downcast_ref::<&str>() {
+            // Panic with &str payload, usually from a direct call to `panic!`
+            // or `.expect`
+            tracked_err::<PyRuntimeError>(msg)
+        } else {
+            // Give up trying to understand the error, and show the user
+            // a really helpful message.
+            // We could show the debug representation of `panic_err`, but
+            // it would just be `Any { .. }`
+            tracked_err::<PyRuntimeError>("unknown error")
+        }
+    })
 }
 
 /// Execute a dataflow in the current process as part of a cluster.

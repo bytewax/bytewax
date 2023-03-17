@@ -253,7 +253,7 @@ impl PartitionedInput {
                                     .expect("Unknown partition {state_key:?} to snapshot");
                                 let snap = unwrap_any!(Python::with_gil(|py| part
                                     .snapshot(py)
-                                    .reraise("error doing snapshot of input part")));
+                                    .reraise("error snapshotting input part")));
                                 (state_key, snap)
                             })
                             .map(|(state_key, snap)| (FlowKey(step_id_op.clone(), state_key), snap))
@@ -356,7 +356,7 @@ impl StatefulSource {
         let state = self
             .0
             .call_method0(py, "snapshot")
-            .reraise("error doing snapshot of stateful source")?
+            .reraise("error calling StatefulSource.snapshot")?
             .into();
         Ok(StateBytes::ser::<TdPyAny>(&state))
     }

@@ -11,6 +11,7 @@ from bytewax.connectors.stdio import StdOutput
 
 
 def broken_map(x):
+    # XXX: Error here
     raise TypeError("A vague error message")
 
 

@@ -10,7 +10,6 @@
 //! not like generics.
 
 use std::collections::HashMap;
-use std::panic::panic_any;
 
 use crate::common::pickle_extract;
 use crate::errors::PythonException;
@@ -20,7 +19,6 @@ use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::model::StepId;
 use crate::window::clock::ClockConfig;
 use crate::window::WindowConfig;
-use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;

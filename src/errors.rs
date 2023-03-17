@@ -9,8 +9,8 @@ pub(crate) trait PythonException<T> {
     /// that can be converted to a pyresult.
     fn into_pyresult(self) -> PyResult<T>;
 
-    /// Make the existing exception part of the traceback and
-    /// raise a custom exception with its own message.
+    /// Make the existing exception part of the traceback
+    /// and raise a custom exception with its own message.
     #[track_caller]
     fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T>
     where
@@ -22,8 +22,9 @@ pub(crate) trait PythonException<T> {
         })
     }
 
-    /// Make the existing error part of the traceback and
-    /// raise a new exception with the same type and a different message.
+    /// Make the existing error part of the traceback
+    /// and raise a new exception with the same type
+    /// and an additional message.
     #[track_caller]
     fn reraise(self, msg: &str) -> PyResult<T>
     where

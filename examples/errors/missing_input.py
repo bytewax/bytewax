@@ -9,8 +9,8 @@ from bytewax.connectors.stdio import StdOutput
 
 
 flow = Dataflow()
+# XXX: Error here
 # flow.input("inp", working.NumberInput(10))
-# Stateless operators
 flow.map(working.stringify)
 flow.output("out", StdOutput())
 
