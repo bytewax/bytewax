@@ -48,7 +48,7 @@ pub(crate) struct EventClockConfig {
 impl ClockBuilder<TdPyAny> for EventClockConfig {
     fn build(&self, py: Python) -> PyResult<Builder<TdPyAny>> {
         let dt_getter = self.dt_getter.clone_ref(py);
-        let wait_for_system_duration = self.wait_for_system_duration.clone();
+        let wait_for_system_duration = self.wait_for_system_duration;
 
         Ok(Box::new(move |resume_snapshot: Option<StateBytes>| {
             let max_event_time_system_time =
@@ -96,7 +96,7 @@ struct TestTimeSource {
 
 impl TimeSource for TestTimeSource {
     fn now(&self) -> DateTime<Utc> {
-        self.now.clone()
+        self.now
     }
 }
 

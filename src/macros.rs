@@ -153,6 +153,8 @@ macro_rules! add_pymethods {(
 
         /// Unpickle from a PyDict
         fn __setstate__(&mut self, state: &pyo3::PyAny) -> pyo3::PyResult<()> {
+            // Prefixed with _ just in case there are no arguments,
+            // then would be unused.
             let _dict: &pyo3::types::PyDict = state.downcast()?;
             // This is like crate::common::pickle_extract
             // Duplicated here so that we can doctest this macro

@@ -114,10 +114,10 @@ impl SlidingWindower {
         );
 
         // Clone to not retain ownership of self in the closure.
-        let time = time.clone();
-        let align_to = self.align_to.clone();
-        let offset = self.offset.clone();
-        let length = self.length.clone();
+        let time = *time;
+        let align_to = self.align_to;
+        let offset = self.offset;
+        let length = self.length;
         (0..num_windows).flat_map(move |i| {
             let window_idx = first_window_idx + i;
             let window_open = align_to + offset * window_idx as i32;
