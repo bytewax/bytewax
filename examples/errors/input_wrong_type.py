@@ -12,13 +12,11 @@ from bytewax.inputs import StatelessSource, DynamicInput
 
 
 class NumberSource(StatelessSource):
-    def __init__(self, max, worker_index):
-        if worker_index == 0:
-            self.iterator = iter(range(max))
+    def __init__(self, max):
+        self.iterator = iter(range(max))
 
     def next(self):
-        if self.iterator is not None:
-            return next(self.iterator)
+        return next(self.iterator)
 
     def close(self):
         pass
@@ -32,7 +30,7 @@ class NumberInput(DynamicInput):
         # XXX: Error here
         return None
         # Should be:
-        # return NumberSource(self.max, worker_index)
+        # return NumberSource(self.max)
 
 
 flow = Dataflow()

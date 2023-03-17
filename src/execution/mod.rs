@@ -15,7 +15,7 @@
 //! components added to the Timely dataflow.
 
 use crate::dataflow::{Dataflow, Step};
-use crate::errors::{tracked_err, PythonException};
+use crate::errors::{prepend_tname, tracked_err, PythonException};
 use crate::operators::collect_window::CollectWindowLogic;
 use crate::operators::fold_window::FoldWindowLogic;
 use crate::operators::reduce::ReduceLogic;
@@ -840,11 +840,13 @@ pub(crate) fn cluster_main(
                 // and show the user what we have.
                 tracked_err::<PyRuntimeError>(&format!("{info}"))
             };
+            // Prepend the name of the thread to each line
+            let msg = prepend_tname(msg.to_string());
             // Acquire stdout lock and write the string as bytes,
             // so we avoid interleaving outputs from different threads (i think?).
             let mut stderr = std::io::stderr().lock();
             stderr
-                .write_all(format!("{msg}\n").as_bytes())
+                .write_all(msg.as_bytes())
                 .unwrap_or_else(|err| eprintln!("Error printing error (that's not good): {err}"));
         }));
 

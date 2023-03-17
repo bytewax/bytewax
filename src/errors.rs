@@ -94,6 +94,19 @@ fn get_traceback(py: Python, err: &PyErr) -> Option<String> {
     })
 }
 
+/// Prepend '({caller}) ' to the message
 fn prepend_caller(caller: &Location, msg: &str) -> String {
     format!("({caller}) {msg}")
+}
+
+/// Prepend the name of the current thread to each line,
+/// if present.
+pub(crate) fn prepend_tname(msg: String) -> String {
+    let tname = std::thread::current()
+        .name()
+        .unwrap_or("unnamed-thread")
+        .to_string();
+    msg.lines()
+        .map(|line| format!("<{tname}> {line}\n"))
+        .collect()
 }

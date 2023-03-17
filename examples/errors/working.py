@@ -12,13 +12,11 @@ from bytewax.window import TumblingWindow, SystemClockConfig, SessionWindow
 
 
 class NumberSource(StatelessSource):
-    def __init__(self, max, worker_index):
-        if worker_index == 0:
-            self.iterator = iter(range(max))
+    def __init__(self, max):
+        self.iterator = iter(range(max))
 
     def next(self):
-        if self.iterator is not None:
-            return next(self.iterator)
+        return next(self.iterator)
 
     def close(self):
         pass
@@ -29,7 +27,7 @@ class NumberInput(DynamicInput):
         self.max = max
 
     def build(self, worker_index, worker_count):
-        return NumberSource(self.max, worker_index)
+        return NumberSource(self.max)
 
 
 def filter_op(x):
@@ -114,7 +112,7 @@ flow.output("out", StdOutput())
 
 
 if __name__ == "__main__":
-    from bytewax.execution import run_main
-    run_main(flow)
-    # from bytewax.execution import spawn_cluster
-    # spawn_cluster(flow)
+    # from bytewax.execution import run_main
+    # run_main(flow)
+    from bytewax.execution import spawn_cluster
+    spawn_cluster(flow, proc_count=2, worker_count_per_proc=2)
