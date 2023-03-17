@@ -57,25 +57,20 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.7', '3.8', '3.9', '3.10']
-    container:
-      image: docker://messense/rust-musl-cross:aarch64-musl
     steps:
     - uses: actions/checkout@v2
-    - name: Install system dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y protobuf-compiler
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: 1.61
+    - name: Setup QEMU
+      uses: docker/setup-qemu-action@v1
     - uses: messense/maturin-action@v1
       with:
         rust-toolchain: 1.61
         target: aarch64-unknown-linux-musl
+        manylinux: musllinux_1_1
         command: build
-        manylinux: 2014
-        container: off
         args: --release -o dist --interpreter python${{ matrix.python-version }}
+        before-script-linux: |
+          apt update
+          apt install -y protobuf-compiler
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
