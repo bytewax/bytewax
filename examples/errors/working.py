@@ -88,6 +88,10 @@ def stateful_map_op(acc, x):
     return acc, x
 
 
+def stringify(x):
+    return f"{x}"
+
+
 flow = Dataflow()
 flow.input("inp", NumberInput(10))
 # Stateless operators
@@ -105,7 +109,7 @@ flow.fold_window("fold_window", cc, wc, folder_builder, folder_op)
 wc = SessionWindow(gap=timedelta(seconds=1))
 flow.reduce_window("reduce_window", cc, wc, reduce_window_op)
 flow.stateful_map("stateful_map", stateful_map_builder, stateful_map_op)
-flow.map(lambda x: dict(x[1]))
+flow.map(stringify)
 flow.output("out", StdOutput())
 
 

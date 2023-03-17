@@ -62,8 +62,6 @@ impl Dataflow {
         Ok(())
     }
 
-    ///
-    ///
     /// At least one input is required on every dataflow.
     ///
     /// Emits items downstream from the input source.

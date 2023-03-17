@@ -6,12 +6,9 @@ We cause the crash by raising an Exception in DynamicInput.next
 # Import functions that we don't need to break form the working example
 import working
 
-from datetime import timedelta
-
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
 from bytewax.inputs import StatelessSource, DynamicInput
-from bytewax.window import TumblingWindow, SystemClockConfig, SessionWindow
 
 
 class NumberSource(StatelessSource):
@@ -21,7 +18,7 @@ class NumberSource(StatelessSource):
 
     def next(self):
         # XXX: Error here
-        raise ValueError("An interesting exception here")
+        raise ValueError("An vague message")
         if self.iterator is not None:
             return next(self.iterator)
 
@@ -39,22 +36,7 @@ class NumberInput(DynamicInput):
 
 flow = Dataflow()
 flow.input("inp", NumberInput(10))
-# Stateless operators
-flow.filter(working.filter_op)
-flow.filter_map(working.filter_map_op)
-flow.flat_map(working.flat_map_op)
-flow.inspect(working.inspect_op)
-flow.inspect_epoch(working.inspect_epoch_op)
-flow.map(working.map_op)
-# Stateful operators
-flow.reduce("reduce", working.reduce_op, working.reduce_is_complete)
-cc = SystemClockConfig()
-wc = TumblingWindow(length=timedelta(seconds=1))
-flow.fold_window("fold_window", cc, wc, working.folder_builder, working.folder_op)
-wc = SessionWindow(gap=timedelta(seconds=1))
-flow.reduce_window("reduce_window", cc, wc, working.reduce_window_op)
-flow.stateful_map("stateful_map", working.stateful_map_builder, working.stateful_map_op)
-flow.map(lambda x: dict(x[1]))
+flow.map(working.stringify)
 flow.output("out", StdOutput())
 
 
