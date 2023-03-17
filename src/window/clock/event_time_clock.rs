@@ -123,7 +123,7 @@ where
             Poll::Pending => None,
         };
 
-        let (max_event_time_system_time, watermark) =
+        let res =
             // Re-calc the current watermark using the item that
             // previously produced the largest watermark, and also the
             // watermark from the current new item (if any).
@@ -148,8 +148,12 @@ where
             // Then find the max watermark. If the new item would
             // cause the watermark to go backwards, we'll filter it
             // out here.
-                .max_by_key(|(_, watermark)| *watermark)
-                .unzip();
+            .max_by_key(|(_, watermark)| *watermark);
+        // TODO: Could replace with [`Option::unzip`] when stable.
+        let (max_event_time_system_time, watermark) = match res {
+            Some((et_st, watermark)) => (Some(et_st), Some(watermark)),
+            None => (None, None),
+        };
 
         self.max_event_time_system_time = max_event_time_system_time;
         // If we've seen no items yet, the watermark is infinitely far
