@@ -1,19 +1,27 @@
-use chrono::{DateTime, Duration, Utc};
+use chrono::prelude::*;
+use chrono::Duration;
 use pyo3::prelude::*;
 
 use crate::add_pymethods;
 
-use super::*;
+use super::sliding_window::SlidingWindower;
+use super::Builder;
+use super::WindowBuilder;
+use super::WindowConfig;
 
 /// Tumbling windows of fixed duration.
 ///
+/// Each item will fall in exactly one window.
+///
+/// Window start times are inclusive, but end times are exclusive.
+///
 /// Args:
 ///
-///   length (datetime.timedelta): Length of window.
+///   length (datetime.timedelta): Length of windows.
 ///
-///   start_at (datetime.datetime): Instant of the first window. You
-///       can use this to align all windows to an hour,
-///       e.g. Defaults to system time of dataflow start.
+///   align_to (datetime.datetime): Align windows so this instant
+///     starts a window. You can use this to align all windows to hour
+///     boundaries, e.g.
 ///
 /// Returns:
 ///
@@ -23,17 +31,17 @@ use super::*;
 #[derive(Clone)]
 pub(crate) struct TumblingWindow {
     #[pyo3(get)]
-    pub(crate) length: chrono::Duration,
+    pub(crate) length: Duration,
     #[pyo3(get)]
-    pub(crate) start_at: Option<DateTime<Utc>>,
+    pub(crate) align_to: DateTime<Utc>,
 }
 
 impl WindowBuilder for TumblingWindow {
     fn build(&self, _py: Python) -> PyResult<Builder> {
-        Ok(Box::new(super::sliding_window::SlidingWindower::builder(
+        Ok(Box::new(SlidingWindower::builder(
             self.length,
             self.length,
-            self.start_at.unwrap_or_else(Utc::now),
+            self.align_to,
         )))
     }
 }
@@ -41,9 +49,9 @@ impl WindowBuilder for TumblingWindow {
 add_pymethods!(
     TumblingWindow,
     parent: WindowConfig,
-    py_args: (length, start_at = "None"),
+    py_args: (length, align_to),
     args {
         length: Duration => Duration::zero(),
-        start_at: Option<DateTime<Utc>> => None
+        align_to: DateTime<Utc> => DateTime::<Utc>::MIN_UTC
     }
 );

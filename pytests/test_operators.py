@@ -355,16 +355,16 @@ def test_stateful_map_error_on_non_string_key():
 
 
 def test_reduce_window(recovery_config):
-    start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
+    align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
     flow = Dataflow()
 
     inp = [
-        ("ALL", {"time": start_at, "val": 1}),
-        ("ALL", {"time": start_at + timedelta(seconds=4), "val": 1}),
-        ("ALL", {"time": start_at + timedelta(seconds=8), "val": 1}),
-        ("ALL", {"time": start_at + timedelta(seconds=12), "val": 1}),
+        ("ALL", {"time": align_to, "val": 1}),
+        ("ALL", {"time": align_to + timedelta(seconds=4), "val": 1}),
+        ("ALL", {"time": align_to + timedelta(seconds=8), "val": 1}),
+        ("ALL", {"time": align_to + timedelta(seconds=12), "val": 1}),
         "BOOM",
-        ("ALL", {"time": start_at + timedelta(seconds=13), "val": 1}),
+        ("ALL", {"time": align_to + timedelta(seconds=13), "val": 1}),
     ]
 
     flow.input("inp", TestingInput(inp))
@@ -386,7 +386,7 @@ def test_reduce_window(recovery_config):
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(0)
     )
-    window_config = TumblingWindow(length=timedelta(seconds=10), start_at=start_at)
+    window_config = TumblingWindow(length=timedelta(seconds=10), align_to=align_to)
 
     def add(acc, x):
         acc["val"] += x["val"]
@@ -421,22 +421,22 @@ def test_reduce_window(recovery_config):
 
 
 def test_fold_window(recovery_config):
-    start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
+    align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
     flow = Dataflow()
 
     inp = [
-        {"time": start_at, "user": "a", "type": "login"},
-        {"time": start_at + timedelta(seconds=4), "user": "a", "type": "post"},
-        {"time": start_at + timedelta(seconds=8), "user": "a", "type": "post"},
+        {"time": align_to, "user": "a", "type": "login"},
+        {"time": align_to + timedelta(seconds=4), "user": "a", "type": "post"},
+        {"time": align_to + timedelta(seconds=8), "user": "a", "type": "post"},
         # First 10 sec window closes during processing this input.
-        {"time": start_at + timedelta(seconds=12), "user": "b", "type": "login"},
-        {"time": start_at + timedelta(seconds=16), "user": "a", "type": "post"},
+        {"time": align_to + timedelta(seconds=12), "user": "b", "type": "login"},
+        {"time": align_to + timedelta(seconds=16), "user": "a", "type": "post"},
         # Crash before closing the window.
         # It will be emitted during the second run.
         "BOOM",
         # Second 10 sec window closes during processing this input.
-        {"time": start_at + timedelta(seconds=20), "user": "b", "type": "post"},
-        {"time": start_at + timedelta(seconds=24), "user": "b", "type": "post"},
+        {"time": align_to + timedelta(seconds=20), "user": "b", "type": "post"},
+        {"time": align_to + timedelta(seconds=24), "user": "b", "type": "post"},
     ]
 
     flow.input("inp", TestingInput(inp))
@@ -463,7 +463,7 @@ def test_fold_window(recovery_config):
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
     )
-    window_config = TumblingWindow(length=timedelta(seconds=10), start_at=start_at)
+    window_config = TumblingWindow(length=timedelta(seconds=10), align_to=align_to)
 
     def count(counts, event):
         typ = event["type"]
@@ -498,16 +498,16 @@ def test_fold_window(recovery_config):
 
 
 def test_collect_window(recovery_config):
-    start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
+    align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
     flow = Dataflow()
 
     inp = [
-        ("ALL", {"time": start_at, "val": 1}),
-        ("ALL", {"time": start_at + timedelta(seconds=4), "val": 1}),
-        ("ALL", {"time": start_at + timedelta(seconds=8), "val": 1}),
-        ("ALL", {"time": start_at + timedelta(seconds=12), "val": 1}),
+        ("ALL", {"time": align_to, "val": 1}),
+        ("ALL", {"time": align_to + timedelta(seconds=4), "val": 1}),
+        ("ALL", {"time": align_to + timedelta(seconds=8), "val": 1}),
+        ("ALL", {"time": align_to + timedelta(seconds=12), "val": 1}),
         "BOOM",
-        ("ALL", {"time": start_at + timedelta(seconds=13), "val": 1}),
+        ("ALL", {"time": align_to + timedelta(seconds=13), "val": 1}),
     ]
 
     flow.input("inp", TestingInput(inp))
@@ -529,7 +529,7 @@ def test_collect_window(recovery_config):
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(0)
     )
-    window_config = TumblingWindow(length=timedelta(seconds=10), start_at=start_at)
+    window_config = TumblingWindow(length=timedelta(seconds=10), align_to=align_to)
 
     flow.collect_window("add", clock_config, window_config)
 
@@ -544,9 +544,9 @@ def test_collect_window(recovery_config):
         (
             "ALL",
             [
-                {"time": start_at, "val": 1},
-                {"time": start_at + timedelta(seconds=4), "val": 1},
-                {"time": start_at + timedelta(seconds=8), "val": 1},
+                {"time": align_to, "val": 1},
+                {"time": align_to + timedelta(seconds=4), "val": 1},
+                {"time": align_to + timedelta(seconds=8), "val": 1},
             ],
         )
     ]
@@ -563,8 +563,8 @@ def test_collect_window(recovery_config):
         (
             "ALL",
             [
-                {"time": start_at + timedelta(seconds=12), "val": 1},
-                {"time": start_at + timedelta(seconds=13), "val": 1},
+                {"time": align_to + timedelta(seconds=12), "val": 1},
+                {"time": align_to + timedelta(seconds=13), "val": 1},
             ],
         )
     ]

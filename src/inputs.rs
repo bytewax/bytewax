@@ -156,7 +156,7 @@ impl PartitionedInput {
         index: WorkerIndex,
         count: WorkerCount,
         probe: &ProbeHandle<u64>,
-        start_at: ResumeEpoch,
+        align_to: ResumeEpoch,
         resume_state: StepStateBytes,
     ) -> PyResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)>
     where
@@ -176,8 +176,8 @@ impl PartitionedInput {
 
         let step_id_op = step_id.clone();
         op_builder.build(move |mut init_caps| {
-            let change_cap = init_caps.pop().map(|cap| cap.delayed(&start_at.0)).unwrap();
-            let output_cap = init_caps.pop().map(|cap| cap.delayed(&start_at.0)).unwrap();
+            let change_cap = init_caps.pop().map(|cap| cap.delayed(&align_to.0)).unwrap();
+            let output_cap = init_caps.pop().map(|cap| cap.delayed(&align_to.0)).unwrap();
 
             let mut caps = Some((output_cap, change_cap));
             let mut epoch_started = Instant::now();
@@ -384,7 +384,7 @@ impl DynamicInput {
         index: WorkerIndex,
         count: WorkerCount,
         probe: &ProbeHandle<u64>,
-        start_at: ResumeEpoch,
+        align_to: ResumeEpoch,
     ) -> PyResult<Stream<S, TdPyAny>>
     where
         S: Scope<Timestamp = u64>,
@@ -400,7 +400,7 @@ impl DynamicInput {
         let activator = scope.activator_for(&info.address[..]);
 
         op_builder.build(move |mut init_caps| {
-            let output_cap = init_caps.pop().map(|cap| cap.delayed(&start_at.0)).unwrap();
+            let output_cap = init_caps.pop().map(|cap| cap.delayed(&align_to.0)).unwrap();
 
             let mut cap_src = Some((output_cap, source));
             let mut epoch_started = Instant::now();

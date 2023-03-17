@@ -11,35 +11,30 @@ from bytewax.window import (
 )
 
 
-class Dt(datetime):
-    def after(self, s):
-        return self + timedelta(seconds=s)
-
-
 def test_session_window():
-    start_at = Dt(2022, 1, 1, tzinfo=timezone.utc)
+    align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
 
     flow = Dataflow()
 
     inp = [
         # Session 1
-        ("ALL", {"time": start_at.after(1), "val": "a"}),
-        ("ALL", {"time": start_at.after(5), "val": "b"}),
+        ("ALL", {"time": align_to + timedelta(seconds=1), "val": "a"}),
+        ("ALL", {"time": align_to + timedelta(seconds=5), "val": "b"}),
         # Session 2
-        ("ALL", {"time": start_at.after(11), "val": "c"}),
-        ("ALL", {"time": start_at.after(12), "val": "d"}),
-        ("ALL", {"time": start_at.after(13), "val": "e"}),
-        ("ALL", {"time": start_at.after(14), "val": "f"}),
+        ("ALL", {"time": align_to + timedelta(seconds=11), "val": "c"}),
+        ("ALL", {"time": align_to + timedelta(seconds=12), "val": "d"}),
+        ("ALL", {"time": align_to + timedelta(seconds=13), "val": "e"}),
+        ("ALL", {"time": align_to + timedelta(seconds=14), "val": "f"}),
         # Session 3
-        ("ALL", {"time": start_at.after(20), "val": "g"}),
+        ("ALL", {"time": align_to + timedelta(seconds=20), "val": "g"}),
         # This is late, and should be ignored
-        ("ALL", {"time": start_at.after(1), "val": "h"}),
+        ("ALL", {"time": align_to + timedelta(seconds=1), "val": "h"}),
     ]
 
     flow.input("inp", TestingInput(inp))
 
     clock_config = EventClockConfig(
-        lambda e: e["time"], wait_for_system_duration=timedelta(0)
+        lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
     )
     window_config = SessionWindow(gap=timedelta(seconds=5))
 
@@ -63,29 +58,37 @@ def test_session_window():
 
 
 def test_sliding_window():
-    start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
+    align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
 
     flow = Dataflow()
 
+    # Valign_to
+    #  a  b   c   def g
+    #  h
+    # -----)
+    # [---------)
+    #      [---------)
+    #           [---------)
+    #                [---------)
     inp = [
-        ("ALL", {"time": start_at + timedelta(seconds=1), "val": "a"}),
-        ("ALL", {"time": start_at + timedelta(seconds=4), "val": "b"}),
-        ("ALL", {"time": start_at + timedelta(seconds=8), "val": "c"}),
-        ("ALL", {"time": start_at + timedelta(seconds=12), "val": "d"}),
-        ("ALL", {"time": start_at + timedelta(seconds=13), "val": "e"}),
-        ("ALL", {"time": start_at + timedelta(seconds=14), "val": "f"}),
-        ("ALL", {"time": start_at + timedelta(seconds=16), "val": "g"}),
+        ("ALL", {"time": align_to + timedelta(seconds=1), "val": "a"}),
+        ("ALL", {"time": align_to + timedelta(seconds=4), "val": "b"}),
+        ("ALL", {"time": align_to + timedelta(seconds=8), "val": "c"}),
+        ("ALL", {"time": align_to + timedelta(seconds=12), "val": "d"}),
+        ("ALL", {"time": align_to + timedelta(seconds=13), "val": "e"}),
+        ("ALL", {"time": align_to + timedelta(seconds=14), "val": "f"}),
+        ("ALL", {"time": align_to + timedelta(seconds=16), "val": "g"}),
         # This is late, and should be ignored.
-        ("ALL", {"time": start_at + timedelta(seconds=1), "val": "h"}),
+        ("ALL", {"time": align_to + timedelta(seconds=1), "val": "h"}),
     ]
 
     flow.input("inp", TestingInput(inp))
 
     clock_config = EventClockConfig(
-        lambda e: e["time"], wait_for_system_duration=timedelta(0)
+        lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
     )
     window_config = SlidingWindow(
-        length=timedelta(seconds=10), start_at=start_at, offset=timedelta(seconds=5)
+        length=timedelta(seconds=10), align_to=align_to, offset=timedelta(seconds=5)
     )
 
     def add(acc, x):
@@ -100,6 +103,7 @@ def test_sliding_window():
     run_main(flow)
     assert sorted(out) == sorted(
         [
+            ("ALL", ["a", "b"]),
             ("ALL", ["a", "b", "c"]),
             ("ALL", ["c", "d", "e", "f"]),
             ("ALL", ["d", "e", "f", "g"]),
@@ -109,25 +113,25 @@ def test_sliding_window():
 
 
 def test_tumbling_window():
-    start_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
+    align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
 
     flow = Dataflow()
 
     inp = [
-        ("ALL", {"time": start_at, "val": "a"}),
-        ("ALL", {"time": start_at + timedelta(seconds=4), "val": "b"}),
-        ("ALL", {"time": start_at + timedelta(seconds=8), "val": "c"}),
+        ("ALL", {"time": align_to, "val": "a"}),
+        ("ALL", {"time": align_to + timedelta(seconds=4), "val": "b"}),
+        ("ALL", {"time": align_to + timedelta(seconds=8), "val": "c"}),
         # The 10 second window should close just before processing this item.
-        ("ALL", {"time": start_at + timedelta(seconds=12), "val": "d"}),
-        ("ALL", {"time": start_at + timedelta(seconds=16), "val": "e"}),
+        ("ALL", {"time": align_to + timedelta(seconds=12), "val": "d"}),
+        ("ALL", {"time": align_to + timedelta(seconds=16), "val": "e"}),
     ]
 
     flow.input("inp", TestingInput(inp))
 
     clock_config = EventClockConfig(
-        lambda e: e["time"], wait_for_system_duration=timedelta(0)
+        lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
     )
-    window_config = TumblingWindow(length=timedelta(seconds=10), start_at=start_at)
+    window_config = TumblingWindow(length=timedelta(seconds=10), align_to=align_to)
 
     def add(acc, x):
         acc.append(x["val"])

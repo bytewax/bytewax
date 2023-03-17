@@ -18,7 +18,7 @@ And a copy of the code in a file called `wordcount.py`.
 import operator
 import re
 
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.files import FileInput
@@ -44,7 +44,9 @@ def add(count1, count2):
 
 
 clock_config = SystemClockConfig()
-window_config = TumblingWindow(length=timedelta(seconds=5))
+window_config = TumblingWindow(
+    length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+)
 
 flow = Dataflow()
 flow.input("inp", FileInput("wordcount.txt"))
@@ -197,7 +199,9 @@ def add(count1, count2):
 
 # Configuration for time based windows.
 clock_config = SystemClockConfig()
-window_config = TumblingWindow(length=timedelta(seconds=5))
+window_config = TumblingWindow(
+    length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+)
 
 flow.map(initial_count)
 flow.reduce_window("sum", clock_config, window_config, add)

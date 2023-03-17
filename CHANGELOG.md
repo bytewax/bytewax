@@ -5,6 +5,12 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- *Breaking change* `{Sliding,Tumbling}Window.start_at` has been
+  renamed to `align_to` and both now require that argument. It's not
+  possible to recover windowing operators without it.
+
+- Fixes bugs with windows not closing properly.
+
 - Fixes an issue with SQLite-based recovery. Previously you'd always
   get an "interleaved executions" panic whenever you resumed a cluster
   after the first time.

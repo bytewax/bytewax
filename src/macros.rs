@@ -153,15 +153,15 @@ macro_rules! add_pymethods {(
 
         /// Unpickle from a PyDict
         fn __setstate__(&mut self, state: &pyo3::PyAny) -> pyo3::PyResult<()> {
-            let dict: &pyo3::types::PyDict = state.downcast()?;
+            let _dict: &pyo3::types::PyDict = state.downcast()?;
             // This is like crate::common::pickle_extract
             // Duplicated here so that we can doctest this macro
             // without making `pickle_extract` public.
             $(
-            self.$arg = dict
+            self.$arg = _dict
                 .get_item(stringify!($arg))
                 .ok_or_else(|| pyo3::exceptions::PyValueError::new_err(
-                    format!("bad pickle contents for {}: {}", stringify!($arg), dict)
+                    format!("bad pickle contents for {}: {}", stringify!($arg), _dict)
                 ))?
                 .extract()?;
             )*
