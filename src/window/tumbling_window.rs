@@ -5,9 +5,7 @@ use pyo3::prelude::*;
 use crate::add_pymethods;
 
 use super::sliding_window::SlidingWindower;
-use super::Builder;
-use super::WindowBuilder;
-use super::WindowConfig;
+use super::*;
 
 /// Tumbling windows of fixed duration.
 ///
@@ -20,8 +18,8 @@ use super::WindowConfig;
 ///   length (datetime.timedelta): Length of windows.
 ///
 ///   align_to (datetime.datetime): Align windows so this instant
-///     starts a window. You can use this to align all windows to hour
-///     boundaries, e.g.
+///     starts a window. This must be a constant. You can use this to
+///     align all windows to hour boundaries, e.g.
 ///
 /// Returns:
 ///

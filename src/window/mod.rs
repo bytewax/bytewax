@@ -30,7 +30,7 @@
 //! how to create a [`SystemClock`].
 use crate::operators::stateful_unary::*;
 use crate::pyo3_extensions::PyConfigClass;
-use chrono::{DateTime, Utc};
+use chrono::prelude::*;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};

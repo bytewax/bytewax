@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 
 use crate::{add_pymethods, window::WindowConfig};
 
-use super::{Builder, InsertError, StateBytes, WindowBuilder, WindowKey, Windower};
+use super::*;
 
 /// Sliding windows of fixed duration.
 ///
@@ -30,8 +30,8 @@ use super::{Builder, InsertError, StateBytes, WindowBuilder, WindowKey, Windower
 ///     adjacent windows.
 ///
 ///   align_to (datetime.datetime): Align windows so this instant
-///     starts a window. You can use this to align all windows to hour
-///     boundaries, e.g.
+///     starts a window. This must be a constant. You can use this to
+///     align all windows to hour boundaries, e.g.
 ///
 /// Returns:
 ///
