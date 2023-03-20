@@ -164,8 +164,8 @@ jobs:
         eval "$(pyenv init -)"
         pyenv activate bytewax-${{ matrix.python-version }}
         WHEEL_FILE=$(ls ./dist/*.whl)
-        C_INCLUDE_PATH=/opt/homebrew/Cellar/librdkafka/2.0.2/include
-        LIBRARY_PATH=/opt/homebrew/Cellar/librdkafka/2.0.2/lib
+        export C_INCLUDE_PATH=/opt/homebrew/Cellar/librdkafka/2.0.2/include
+        export LIBRARY_PATH=/opt/homebrew/Cellar/librdkafka/2.0.2/lib
         pip install $WHEEL_FILE'[dev]' -v --force-reinstall
         pytest pytests
         pytest docs
