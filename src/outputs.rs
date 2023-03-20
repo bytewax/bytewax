@@ -32,7 +32,7 @@ impl<'source> FromPyObject<'source> for Output {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "output must derive `bytewax.outputs.Output`",
+                "output must subclass `bytewax.outputs.Output`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -69,7 +69,7 @@ impl<'source> FromPyObject<'source> for PartitionedOutput {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "partitioned output must derive `bytewax.outputs.PartitionedOutput`",
+                "partitioned output must subclass `bytewax.outputs.PartitionedOutput`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -153,7 +153,7 @@ impl<'source> FromPyObject<'source> for StatefulSink {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "stateful sink must derive `bytewax.outputs.StatefulSink`",
+                "stateful sink must subclass `bytewax.outputs.StatefulSink`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -368,7 +368,7 @@ impl<'source> FromPyObject<'source> for DynamicOutput {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "dynamic output must derive `bytewax.outputs.DynamicOutput`",
+                "dynamic output must subclass `bytewax.outputs.DynamicOutput`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -397,7 +397,7 @@ impl<'source> FromPyObject<'source> for StatelessSink {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "stateless sink must derive `bytewax.outputs.StatelessSink`",
+                "stateless sink must subclass `bytewax.outputs.StatelessSink`",
             ))
         } else {
             Ok(Self(ob.into()))

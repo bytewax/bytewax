@@ -52,7 +52,7 @@ pub(crate) fn filter(predicate: &TdPyCallable, item: &TdPyAny) -> bool {
                 .extract(py)
                 .raise::<PyTypeError>(&format!(
                     "return value of `predicate` in filter \
-                operator must be a bool; got `{should_emit_pybool:?}` instead"
+                        operator must be a bool; got `{should_emit_pybool:?}` instead"
                 ))
         })
     })

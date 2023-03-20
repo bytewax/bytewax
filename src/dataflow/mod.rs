@@ -801,7 +801,7 @@ impl<'source> FromPyObject<'source> for Step {
                 "bad python repr when unpickling Step: {dict:?}"
             ))),
         }
-        .reraise("error unpiclink Dataflow step")
+        .reraise("error unpickling Dataflow step")
     }
 }
 

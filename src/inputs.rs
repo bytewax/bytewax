@@ -54,7 +54,7 @@ impl<'source> FromPyObject<'source> for Input {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(PyTypeError::new_err(
-                "input must derive `bytewax.inputs.Input`",
+                "input must subclass `bytewax.inputs.Input`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -91,7 +91,7 @@ impl<'source> FromPyObject<'source> for PartitionedInput {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(PyTypeError::new_err(
-                "partitioned input must derive `bytewax.inputs.PartitionedInput`",
+                "partitioned input must subclass `bytewax.inputs.PartitionedInput`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -143,7 +143,7 @@ impl PartitionedInput {
                 }
             })
             .collect::<PyResult<HashMap<StateKey, StatefulSource>>>()
-            .reraise("error creating parts for input")?;
+            .reraise("error creating input source partitions")?;
 
         if !resume_state.is_empty() {
             tracing::warn!(
@@ -215,7 +215,7 @@ impl PartitionedInput {
                         for (key, part) in parts.iter() {
                             match unwrap_any!(Python::with_gil(|py| part
                                 .next(py)
-                                .reraise("error getting part input")))
+                                .reraise("error getting next input item from partition source")))
                             {
                                 Poll::Pending => {}
                                 Poll::Ready(None) => {
@@ -334,7 +334,7 @@ impl<'source> FromPyObject<'source> for StatefulSource {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "stateful source must derive `bytewax.inputs.StatefulSource`",
+                "stateful source must subclass `bytewax.inputs.StatefulSource`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -384,7 +384,7 @@ impl<'source> FromPyObject<'source> for DynamicInput {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "dynamic input must derive `bytewax.inputs.DynamicInput`",
+                "dynamic input must subclass `bytewax.inputs.DynamicInput`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -510,7 +510,7 @@ impl<'source> FromPyObject<'source> for StatelessSource {
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "stateless source must derive `bytewax.inputs.StatelessSource`",
+                "stateless source must subclass `bytewax.inputs.StatelessSource`",
             ))
         } else {
             Ok(Self(ob.into()))

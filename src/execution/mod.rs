@@ -613,7 +613,7 @@ fn worker_main<A: Allocate>(
     let span = tracing::trace_span!("Resume epoch").entered();
     let resume_progress =
         build_and_run_progress_loading_dataflow(worker, interrupt_flag, progress_reader)
-            .reraise("error while resuming state")?;
+            .reraise("error while loading recovery progress")?;
     span.exit();
     let resume_from = resume_progress.resume_from();
     tracing::info!("Calculated {resume_from:?}");
@@ -622,7 +622,7 @@ fn worker_main<A: Allocate>(
     let ResumeFrom(_ex, resume_epoch) = resume_from;
     let (resume_state, store_summary) =
         build_and_run_state_loading_dataflow(worker, interrupt_flag, resume_epoch, state_reader)
-            .reraise("error loading state")?;
+            .reraise("error loading recovery state")?;
     span.exit();
 
     build_and_run_production_dataflow(
