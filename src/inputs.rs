@@ -346,7 +346,7 @@ impl StatefulSource {
     fn next(&self, py: Python) -> PyResult<Poll<Option<TdPyAny>>> {
         match self.0.call_method0(py, "next") {
             Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(Poll::Ready(None)),
-            Err(err) => Err(err).reraise("error getting next input in stateful source"),
+            Err(err) => Err(err),
             Ok(none) if none.is_none(py) => Ok(Poll::Pending),
             Ok(item) => Ok(Poll::Ready(Some(item.into()))),
         }
