@@ -20,16 +20,14 @@ classifiers = [
     "Topic :: System :: Distributed Computing",
 ]
 dependencies = ["multiprocess>=0.70", "dill>=0.3.5"]
-extras = ["bigquery", "dynamodb", "dev", "docs", "test"]
+extras = ["kafka", "dev", "docs", "test"]
 
 [project.optional-dependencies]
-bigquery = ["google-cloud-bigquery<=3.3.5"]
-dynamodb = ["boto3>=1.15.0"]
 kafka = ["confluent-kafka>=2.0.2"]
 test = ["pytest==7.1.0", "myst-docutils==0.17.0"]
 docs = ["pdoc3==0.10.0"]
 dev = [
-    "bytewax[bigquery,dynamodb,kafka,test,docs]",
+    "bytewax[kafka,test,docs]",
     "black==22.3.0",
     "flake8==4.0.1",
     "isort==5.10.1",
