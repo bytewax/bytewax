@@ -30,7 +30,7 @@
 //! how to create a [`SystemClock`].
 use crate::operators::stateful_unary::*;
 use crate::pyo3_extensions::PyConfigClass;
-use chrono::{DateTime, Utc};
+use chrono::prelude::*;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -157,7 +157,7 @@ pub(crate) trait Clock<V> {
 pub(crate) struct WindowKey(i64);
 
 /// An error that can occur when windowing an item.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum InsertError {
     /// The inserted item was late for a window.
     Late(WindowKey),
@@ -314,7 +314,7 @@ where
 impl<V, R, I, L, LB> StatefulLogic<V, Result<R, WindowError<V>>, Vec<Result<R, WindowError<V>>>>
     for WindowStatefulLogic<V, R, I, L, LB>
 where
-    V: Data,
+    V: Data + Debug,
     I: IntoIterator<Item = R>,
     L: WindowLogic<V, R, I>,
     LB: Fn(Option<StateBytes>) -> L,
@@ -323,17 +323,21 @@ where
         let mut output = Vec::new();
 
         let watermark = self.clock.watermark(&next_value);
+        tracing::trace!("Watermark at {watermark:?}");
 
         if let Poll::Ready(Some(value)) = next_value {
             let item_time = self.clock.time_for(&value);
+            tracing::trace!("{value:?} has time {item_time:?}");
 
             for window_result in self.windower.insert(&watermark, &item_time) {
                 let value = value.clone();
                 match window_result {
-                    Err(InsertError::Late(_window_key)) => {
+                    Err(InsertError::Late(window_key)) => {
+                        tracing::trace!("{value:?} late for {window_key:?}");
                         output.push(Err(WindowError::Late(value)));
                     }
                     Ok(window_key) => {
+                        tracing::trace!("{value:?} in {window_key:?}");
                         let logic = self
                             .current_state
                             .entry(window_key)

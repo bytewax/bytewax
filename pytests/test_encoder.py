@@ -123,8 +123,8 @@ def test_encoding_stateful_map():
 
 def test_encoding_fold_window():
     flow = Dataflow()
-    start_at = datetime(2005, 7, 14, 12, 30).replace(tzinfo=timezone.utc)
-    wc = TumblingWindow(start_at=start_at, length=timedelta(seconds=5))
+    align_to = datetime(2005, 7, 14, 12, 30).replace(tzinfo=timezone.utc)
+    wc = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
     cc = EventClockConfig(
         lambda x: datetime.fromisoformat(x["time"]),
         wait_for_system_duration=timedelta(seconds=10),
@@ -147,7 +147,7 @@ def test_encoding_fold_window():
                     "type": "FoldWindow",
                     "window_config": {
                         "length": "0:00:05",
-                        "start_at": "2005-07-14T12:30:00+00:00",
+                        "align_to": "2005-07-14T12:30:00+00:00",
                         "type": "TumblingWindow",
                     },
                 }

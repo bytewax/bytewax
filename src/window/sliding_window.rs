@@ -1,26 +1,38 @@
 use std::collections::HashMap;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::prelude::*;
+use chrono::Duration;
+use num::integer::Integer;
 use pyo3::prelude::*;
 
 use crate::{add_pymethods, window::WindowConfig};
 
-use super::{Builder, InsertError, StateBytes, WindowBuilder, WindowKey, Windower};
+use super::*;
 
 /// Sliding windows of fixed duration.
-/// If offset == length, you get tumbling windows.
-/// If offset < length, windows overlap.
-/// If offset > length, there will be holes between windows.
+///
+/// If offset == length, windows cover all time but do not
+/// overlap. Each item will fall in exactly one window. The
+/// `TumblingWindow` config will do this for you.
+///
+/// If offset < length, windows overlap. Each item will fall in
+/// multiple windows.
+///
+/// If offset > length, there will be gaps between windows. Each item
+/// can fall in up to one window, but might fall into none.
+///
+/// Window start times are inclusive, but end times are exclusive.
 ///
 /// Args:
 ///
-///   length (datetime.timedelta): Length of window.
+///   length (datetime.timedelta): Length of windows.
 ///
-///   offset (datetime.timedelta): Offset between windows.
+///   offset (datetime.timedelta): Duration between start times of
+///     adjacent windows.
 ///
-///   start_at (datetime.datetime): Instant of the first window. You
-///       can use this to align all windows to an hour,
-///       e.g. Defaults to system time of dataflow start.
+///   align_to (datetime.datetime): Align windows so this instant
+///     starts a window. This must be a constant. You can use this to
+///     align all windows to hour boundaries, e.g.
 ///
 /// Returns:
 ///
@@ -34,17 +46,17 @@ pub(crate) struct SlidingWindow {
     #[pyo3(get)]
     pub(crate) offset: Duration,
     #[pyo3(get)]
-    pub(crate) start_at: Option<DateTime<Utc>>,
+    pub(crate) align_to: DateTime<Utc>,
 }
 
 add_pymethods!(
     SlidingWindow,
     parent: WindowConfig,
-    py_args: (length, offset, start_at = "None"),
+    py_args: (length, offset, align_to),
     args {
         length: Duration => Duration::zero(),
         offset: Duration => Duration::zero(),
-        start_at: Option<DateTime<Utc>> => None
+        align_to: DateTime<Utc> => DateTime::<Utc>::MIN_UTC
     }
 );
 
@@ -53,7 +65,7 @@ impl WindowBuilder for SlidingWindow {
         Ok(Box::new(SlidingWindower::builder(
             self.length,
             self.offset,
-            self.start_at.unwrap_or_else(Utc::now),
+            self.align_to,
         )))
     }
 }
@@ -61,7 +73,7 @@ impl WindowBuilder for SlidingWindow {
 pub(crate) struct SlidingWindower {
     length: Duration,
     offset: Duration,
-    start_at: DateTime<Utc>,
+    align_to: DateTime<Utc>,
     close_times: HashMap<WindowKey, DateTime<Utc>>,
 }
 
@@ -69,7 +81,7 @@ impl SlidingWindower {
     pub(crate) fn builder(
         length: Duration,
         offset: Duration,
-        start_at: DateTime<Utc>,
+        align_to: DateTime<Utc>,
     ) -> impl Fn(Option<StateBytes>) -> Box<dyn Windower> {
         move |resume_snapshot| {
             let close_times = resume_snapshot
@@ -78,22 +90,53 @@ impl SlidingWindower {
             Box::new(Self {
                 length,
                 offset,
-                start_at,
+                align_to,
                 close_times,
             })
         }
     }
 
-    fn add_close_time(&mut self, key: WindowKey, window_end: DateTime<Utc>) {
+    /// Yields all windows and their close times that intersect a
+    /// given time. Close time is exclusive.
+    fn intersects(&self, time: &DateTime<Utc>) -> impl Iterator<Item = (WindowKey, DateTime<Utc>)> {
+        let since_close_of_first_window = *time - (self.align_to + self.length);
+        let first_window_idx = Integer::div_floor(
+            &since_close_of_first_window.num_milliseconds(),
+            &self.offset.num_milliseconds(),
+        ) + 1;
+
+        let num_windows = Integer::div_ceil(
+            &self.length.num_milliseconds(),
+            &self.offset.num_milliseconds(),
+        );
+
+        // Clone to not retain ownership of self in the closure.
+        let time = *time;
+        let align_to = self.align_to;
+        let offset = self.offset;
+        let length = self.length;
+        (0..num_windows).flat_map(move |i| {
+            let window_idx = first_window_idx + i;
+            let window_open = align_to + offset * window_idx as i32;
+            if time < window_open {
+                None
+            } else {
+                let window_close = window_open + length;
+                Some((WindowKey(window_idx), window_close))
+            }
+        })
+    }
+
+    fn insert_window(&mut self, key: WindowKey, close_time: DateTime<Utc>) {
         self.close_times
             .entry(key)
             .and_modify(|existing| {
                 assert!(
-                    existing == &window_end,
+                    existing == &close_time,
                     "SlidingWindower is not generating consistent boundaries"
                 )
             })
-            .or_insert(window_end);
+            .or_insert(close_time);
     }
 }
 
@@ -103,32 +146,14 @@ impl Windower for SlidingWindower {
         watermark: &DateTime<Utc>,
         item_time: &DateTime<Utc>,
     ) -> Vec<Result<WindowKey, InsertError>> {
-        let since_start_at = (*item_time - self.start_at).num_milliseconds();
-        let since_watermark = (*watermark - self.start_at).num_milliseconds();
-        let offset = self.offset.num_milliseconds();
-
-        let windows_count = since_start_at / offset + 1;
-        let first_window = (since_watermark / offset - 1).max(0);
-
-        (first_window..windows_count)
-            .map(|i| {
-                // First generate the WindowKey and calculate
-                // the window_end time
-                let key = WindowKey(i);
-                let window_start = self.start_at + Duration::milliseconds(i * offset);
-                let window_end = window_start + self.length;
-                // We only want to add items that happened between
-                // start and end of the window.
-                // If the watermark is past the end of the window,
-                // any item is late for this window.
-                if *item_time >= window_start && *item_time < window_end && *watermark <= window_end
-                {
-                    self.add_close_time(key, window_end);
-                    Ok(key)
-                } else {
-                    // We send `Late` even if the item came too early,
-                    // maybe we should differentate
+        self.intersects(item_time)
+            .map(|(key, close_time)| {
+                tracing::trace!("Intersects with {key:?} closing at {close_time:?}");
+                if close_time < *watermark {
                     Err(InsertError::Late(key))
+                } else {
+                    self.insert_window(key, close_time);
+                    Ok(key)
                 }
             })
             .collect()
@@ -157,10 +182,841 @@ impl Windower for SlidingWindower {
     }
 
     fn next_close(&self) -> Option<DateTime<Utc>> {
-        self.close_times.values().cloned().min()
+        self.close_times.values().min().cloned()
     }
 
     fn snapshot(&self) -> StateBytes {
         StateBytes::ser::<HashMap<WindowKey, DateTime<Utc>>>(&self.close_times)
     }
+}
+
+#[test]
+fn test_intersect_overlap_offset_divisible_by_length_bulk_positive() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(5),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //              9:00:13
+    //              I
+    // [0--------)
+    //      [1--------)
+    //           [2--------)
+    //                [3--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 13);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 15)),
+            (WindowKey(2), Utc.ymd(2023, 3, 16).and_hms(9, 0, 20)),
+        ],
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_divisible_by_length_bulk_negative() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(5),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //             8:59:57
+    //             I
+    // [--------3)
+    //      [--------2)
+    //           [--------1)
+    //                [0--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(8, 59, 57);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(-2), Utc.ymd(2023, 3, 16).and_hms(9, 0, 0)),
+            (WindowKey(-1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 5)),
+        ],
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_divisible_by_length_bulk_zero_negative() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(5),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //              9:00:03
+    //              I
+    // [--------2)
+    //      [--------1)
+    //           [0--------)
+    //                [1--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 3);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(-1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 5)),
+            (WindowKey(0), Utc.ymd(2023, 3, 16).and_hms(9, 0, 10)),
+        ],
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_divisible_by_length_bulk_zero_positive() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(5),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //             9:00:07
+    //             I
+    // [--------1)
+    //      [0--------)
+    //           [1--------)
+    //                [2--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 7);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(0), Utc.ymd(2023, 3, 16).and_hms(9, 0, 10)),
+            (WindowKey(1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 15)),
+        ],
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_divisible_by_length_edge_positive() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(5),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                9:00:15
+    //                I
+    // [0--------)
+    //      [1--------)
+    //           [2--------)
+    //                [3--------)
+    //                     [4--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 15);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(2), Utc.ymd(2023, 3, 16).and_hms(9, 0, 20)),
+            (WindowKey(3), Utc.ymd(2023, 3, 16).and_hms(9, 0, 25)),
+        ]
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_divisible_by_length_edge_negative() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(5),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //           8:59:55
+    //           I
+    // [--------3)
+    //      [--------2)
+    //           [--------1)
+    //                [0--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(8, 59, 55);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(-2), Utc.ymd(2023, 3, 16).and_hms(9, 0, 0)),
+            (WindowKey(-1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 05)),
+        ]
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_divisible_by_length_edge_start_zero() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(5),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //           9:00:00
+    //           I
+    // [--------2)
+    //      [--------1)
+    //           [0--------)
+    //                [1--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 0);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(-1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 5)),
+            (WindowKey(0), Utc.ymd(2023, 3, 16).and_hms(9, 0, 10)),
+        ]
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_divisible_by_length_edge_end_zero() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(5),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //           9:00:10
+    //           I
+    // [0--------)
+    //      [1--------)
+    //           [2--------)
+    //                [3--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 10);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 15)),
+            (WindowKey(2), Utc.ymd(2023, 3, 16).and_hms(9, 0, 20)),
+        ]
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_indivisible_by_length_bulk_positive() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(3),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //            9:00:11
+    //            I
+    // [0--------)
+    //    [1--------)
+    //       [2--------)
+    //          [3--------)
+    //             [4--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 11);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 13)),
+            (WindowKey(2), Utc.ymd(2023, 3, 16).and_hms(9, 0, 16)),
+            (WindowKey(3), Utc.ymd(2023, 3, 16).and_hms(9, 0, 19)),
+        ],
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_indivisible_by_length_bulk_negative() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(3),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //            8:59:59
+    //            I
+    // [--------4)
+    //    [--------3)
+    //       [--------2)
+    //          [--------1)
+    //             [0--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(8, 59, 59);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(-3), Utc.ymd(2023, 3, 16).and_hms(9, 0, 1)),
+            (WindowKey(-2), Utc.ymd(2023, 3, 16).and_hms(9, 0, 4)),
+            (WindowKey(-1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 7)),
+        ],
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_indivisible_by_length_bulk_zero() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(3),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //            9:00:05
+    //            I
+    // [--------2)
+    //    [--------1)
+    //       [0--------)
+    //          [1--------)
+    //             [2--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 5);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(-1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 7)),
+            (WindowKey(0), Utc.ymd(2023, 3, 16).and_hms(9, 0, 10)),
+            (WindowKey(1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 13)),
+        ],
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_indivisible_by_length_edge_start_positive() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(7),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //               9:00:14
+    //               I
+    // [0--------)
+    //        [1--------)
+    //               [2--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 14);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 17)),
+            (WindowKey(2), Utc.ymd(2023, 3, 16).and_hms(9, 0, 24)),
+        ],
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_indivisible_by_length_edge_start_negative() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(7),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //        8:59:53
+    //        I
+    // [--------2)
+    //        [--------1)
+    //               [0--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(8, 59, 53);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(-2), Utc.ymd(2023, 3, 16).and_hms(8, 59, 56)),
+            (WindowKey(-1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 3)),
+        ],
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_indivisible_by_length_edge_start_zero() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(7),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //        9:00:00
+    //        I
+    // [--------1)
+    //        [0--------)
+    //               [1--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 0);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![
+            (WindowKey(-1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 3)),
+            (WindowKey(0), Utc.ymd(2023, 3, 16).and_hms(9, 0, 10)),
+        ],
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_indivisible_by_length_edge_end_positive() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(7),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                  9:00:17
+    //                  I
+    // [0--------)
+    //        [1--------)
+    //               [2--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 17);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(2), Utc.ymd(2023, 3, 16).and_hms(9, 0, 24))],
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_indivisible_by_length_edge_end_negative() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(7),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //           8:59:56
+    //           I
+    // [--------2)
+    //        [--------1)
+    //               [0--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(8, 59, 56);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(-1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 3)),],
+    );
+}
+
+#[test]
+fn test_intersect_overlap_offset_indivisible_by_length_edge_end_zero() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(7),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                  9:00:10
+    //                  I
+    // [--------1)
+    //        [0--------)
+    //               [1--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 10);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 17))],
+    );
+}
+
+#[test]
+fn test_intersect_tumble_bulk_positive() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(10),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                9:00:15
+    //                I
+    // [0--------)
+    //           [1--------)
+    //                     [2--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 15);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 20))],
+    );
+}
+
+#[test]
+fn test_intersect_tumble_bulk_negative() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(10),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                8:59:55
+    //                I
+    // [--------2)
+    //           [--------1)
+    //                     [0--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(8, 59, 55);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(-1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 0))],
+    );
+}
+
+#[test]
+fn test_intersect_tumble_bulk_zero() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(10),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                9:00:05
+    //                I
+    // [--------1)
+    //           [0--------)
+    //                     [1--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 5);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(0), Utc.ymd(2023, 3, 16).and_hms(9, 0, 10))],
+    );
+}
+
+#[test]
+fn test_intersect_tumble_edge_positive() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(10),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                     9:00:20
+    //                     I
+    // [0--------)
+    //           [1--------)
+    //                     [2--------)
+    //                               [3--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 20);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(2), Utc.ymd(2023, 3, 16).and_hms(9, 0, 30))],
+    );
+}
+
+#[test]
+fn test_intersect_tumble_edge_negative() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(10),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                     8:59:50
+    //                     I
+    // [--------3)
+    //           [--------2)
+    //                     [--------1)
+    //                               [0--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(8, 59, 50);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(-1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 0))],
+    );
+}
+
+#[test]
+fn test_intersect_tumble_edge_zero_start() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(10),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //           9:00:00
+    //           I
+    // [--------1)
+    //           [0--------)
+    //                     [1--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 0);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(0), Utc.ymd(2023, 3, 16).and_hms(9, 0, 10))],
+    );
+}
+
+#[test]
+fn test_intersect_tumble_edge_zero_end() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(10),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                     9:00:10
+    //                     I
+    // [--------1)
+    //           [0--------)
+    //                     [1--------)
+    //                               [2--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 10);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 20))],
+    );
+}
+
+#[test]
+fn test_intersect_gap_bulk_positive() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(13),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                   9:00:18
+    //                   I
+    // [0--------)
+    //              [1--------)
+    //                           [2--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 18);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 23))],
+    );
+}
+
+#[test]
+fn test_intersect_gap_bulk_negative() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(13),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                   8:59:48
+    //                   I
+    // [--------2)
+    //              [--------1)
+    //                           [0--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(8, 59, 48);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(-1), Utc.ymd(2023, 3, 16).and_hms(8, 59, 57))],
+    );
+}
+
+#[test]
+fn test_intersect_gap_bulk_zero() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(13),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                   9:00:03
+    //                   I
+    // [--------1)
+    //              [0--------)
+    //                           [1--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 3);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(0), Utc.ymd(2023, 3, 16).and_hms(9, 0, 10))],
+    );
+}
+
+#[test]
+fn test_intersect_gap_gap_positive() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(13),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //             9:00:20
+    //             I
+    // [0--------)
+    //              [1--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 12);
+    assert_eq!(windower.intersects(&item_time).collect::<Vec<_>>(), vec![]);
+}
+
+#[test]
+fn test_intersect_gap_gap_negative() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(13),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //             8:59:59
+    //             I
+    // [--------1)
+    //              [0--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(8, 59, 59);
+    assert_eq!(windower.intersects(&item_time).collect::<Vec<_>>(), vec![]);
+}
+
+#[test]
+fn test_intersect_gap_edge_start_positive() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(13),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //              9:00:13
+    //              I
+    // [0--------)
+    //              [1--------)
+    //                           [2--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 13);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(1), Utc.ymd(2023, 3, 16).and_hms(9, 0, 23))],
+    );
+}
+
+#[test]
+fn test_intersect_gap_edge_start_negative() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(13),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //              8:59:47
+    //              I
+    // [--------2)
+    //              [--------1)
+    //                           [0--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(8, 59, 47);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(-1), Utc.ymd(2023, 3, 16).and_hms(8, 59, 57))],
+    );
+}
+
+#[test]
+fn test_intersect_gap_edge_start_zero() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(13),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //              9:00:00
+    //              I
+    // [--------1)
+    //              [0--------)
+    //                           [1--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 0);
+    assert_eq!(
+        windower.intersects(&item_time).collect::<Vec<_>>(),
+        vec![(WindowKey(0), Utc.ymd(2023, 3, 16).and_hms(9, 0, 10))],
+    );
+}
+
+#[test]
+fn test_intersect_gap_edge_end_positive() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(13),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                        9:00:23
+    //                        I
+    // [0--------)
+    //              [1--------)
+    //                           [2--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 23);
+    assert_eq!(windower.intersects(&item_time).collect::<Vec<_>>(), vec![]);
+}
+
+#[test]
+fn test_intersect_gap_edge_end_negative() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(13),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                        8:59:57
+    //                        I
+    // [--------2)
+    //              [--------1)
+    //                           [0--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(8, 59, 57);
+    assert_eq!(windower.intersects(&item_time).collect::<Vec<_>>(), vec![]);
+}
+
+#[test]
+fn test_intersect_gap_edge_end_zero() {
+    let windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(13),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                        9:00:10
+    //                        I
+    // [--------1)
+    //              [0--------)
+    //                           [1--------)
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 10);
+    assert_eq!(windower.intersects(&item_time).collect::<Vec<_>>(), vec![]);
+}
+
+#[test]
+fn test_insert() {
+    let mut windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(5),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //                  9:00:17
+    //                  W
+    //              9:00:13
+    //              I
+    // [0--------)
+    //      [1--------)
+    //           [2--------)
+    //                [3--------)
+    let watermark = Utc.ymd(2023, 3, 16).and_hms(9, 0, 17);
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 13);
+    assert_eq!(
+        windower.insert(&watermark, &item_time),
+        vec![Err(InsertError::Late(WindowKey(1))), Ok(WindowKey(2))]
+    );
+}
+
+#[test]
+fn test_drain_closed() {
+    let mut windower = SlidingWindower {
+        length: Duration::seconds(10),
+        offset: Duration::seconds(5),
+        align_to: Utc.ymd(2023, 3, 16).and_hms(9, 0, 0),
+        close_times: HashMap::new(),
+    };
+
+    //     9:00:04      9:00:17
+    //     W1           W2
+    //              9:00:13
+    //              I
+    // [0--------)
+    //      [1--------)
+    //           [2--------)
+    //                [3--------)
+    let watermark1 = Utc.ymd(2023, 3, 16).and_hms(9, 0, 04);
+    let item_time = Utc.ymd(2023, 3, 16).and_hms(9, 0, 13);
+    let _ = windower.insert(&watermark1, &item_time);
+
+    let watermark2 = Utc.ymd(2023, 3, 16).and_hms(9, 0, 17);
+    assert_eq!(windower.drain_closed(&watermark2), vec![WindowKey(1)]);
 }

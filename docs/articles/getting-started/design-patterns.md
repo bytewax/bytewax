@@ -26,7 +26,7 @@ from bytewax.execution import run_main
 from bytewax.testing import TestingInput
 from bytewax.connectors.stdio import StdOutput
 from bytewax.window import SystemClockConfig, TumblingWindow
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 ```
 
 ### For flat map:
@@ -95,7 +95,9 @@ def add_to_list(l, items):
 
 
 clock = SystemClockConfig()
-window = TumblingWindow(length=timedelta(seconds=5))
+window = TumblingWindow(
+    length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+)
 
 inp = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
@@ -170,7 +172,9 @@ def collect_user_events(flow, clock, window):
 
 
 clock = SystemClockConfig()
-window = TumblingWindow(length=timedelta(seconds=5))
+window = TumblingWindow(
+    length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+)
 
 inp = [{"user_id": "1", "type": "login"}, {"user_id": "1", "type": "logout"}]
 flow = Dataflow()
