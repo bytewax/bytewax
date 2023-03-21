@@ -1,86 +1,85 @@
-import json
-import operator
-from datetime import timedelta
+def get_flow():
+    import json
+    import operator
+    from datetime import timedelta, datetime
 
-# pip install sseclient-py urllib3
-import sseclient
-import urllib3
+    # pip install sseclient-py urllib3
+    import sseclient
+    import urllib3
 
-from bytewax.dataflow import Dataflow
-from bytewax.inputs import DynamicInput, StatelessSource
-from bytewax.connectors.stdio import StdOutput
-from bytewax.window import SystemClockConfig, TumblingWindow
+    from bytewax.dataflow import Dataflow
+    from bytewax.inputs import DynamicInput, StatelessSource
+    from bytewax.connectors.stdio import StdOutput
+    from bytewax.window import SystemClockConfig, SessionWindow
 
+    class EmptySource(StatelessSource):
+        def next(self):
+            return None
 
-class WikiSource(StatelessSource):
-    def __init__(self, client, events):
-        self.client = client
-        self.events = events
+        def close(self):
+            pass
 
-    def next(self):
-        return next(self.events).data
+    class WikiSource(StatelessSource):
+        def __init__(self):
+            pool = urllib3.PoolManager()
+            resp = pool.request(
+                "GET",
+                "https://stream.wikimedia.org/v2/stream/recentchange/",
+                preload_content=False,
+                headers={"Accept": "text/event-stream"},
+            )
+            self.client = sseclient.SSEClient(resp)
+            self.events = self.client.events()
 
-    def close(self):
-        self.client.close()
+        def next(self):
+            return next(self.events).data
 
+        def close(self):
+            self.client.close()
 
-class WikiStreamInput(DynamicInput):
-    def build(self, worker_index, worker_count):
-        # This will duplicate data in each worker in each process,
-        # so this is currently supposed to run on a single worker.
-        # TODO: We can check for the number of workers,
-        #       but we have no way to check the number of processes.
-        #       We could add a new kind of input that is garantueed
-        #       to only run on one of the workers, regardless of how
-        #       the rest of the flow is executed.
-        assert worker_count == 1, "wikistream can only run on a single worker"
+    class WikiStreamInput(DynamicInput):
+        def build(self, worker_index, worker_count):
+            # We can't properly partition the input,
+            # so we only get data in the first worker.
+            if worker_index == 0:
+                return WikiSource()
+            else:
+                return EmptySource()
 
-        pool = urllib3.PoolManager()
-        resp = pool.request(
-            "GET",
-            "https://stream.wikimedia.org/v2/stream/recentchange/",
-            preload_content=False,
-            headers={"Accept": "text/event-stream"},
-        )
-        client = sseclient.SSEClient(resp)
+    def initial_count(data_dict):
+        return data_dict["server_name"], 1
 
-        return WikiSource(client, client.events())
+    def keep_max(max_count, new_count):
+        new_max = max(max_count, new_count)
+        return new_max, new_max
 
-
-def initial_count(data_dict):
-    return data_dict["server_name"], 1
-
-
-def keep_max(max_count, new_count):
-    new_max = max(max_count, new_count)
-    return new_max, new_max
-
-
-flow = Dataflow()
-flow.input("inp", WikiStreamInput())
-# "event_json"
-flow.map(json.loads)
-# {"server_name": "server.name", ...}
-flow.map(initial_count)
-# ("server.name", 1)
-flow.reduce_window(
-    "sum",
-    SystemClockConfig(),
-    TumblingWindow(length=timedelta(seconds=2)),
-    operator.add,
-)
-# ("server.name", sum_per_window)
-flow.stateful_map(
-    "keep_max",
-    lambda: 0,
-    keep_max,
-)
-# ("server.name", max_per_window)
-flow.output("out", StdOutput())
+    flow = Dataflow()
+    flow.input("inp", WikiStreamInput())
+    # "event_json"
+    flow.map(json.loads)
+    # {"server_name": "server.name", ...}
+    flow.map(initial_count)
+    # ("server.name", 1)
+    flow.reduce_window(
+        "sum",
+        SystemClockConfig(),
+        SessionWindow(gap=timedelta(seconds=2)),
+        operator.add,
+    )
+    # ("server.name", sum_per_window)
+    flow.stateful_map(
+        "keep_max",
+        lambda: 0,
+        keep_max,
+    )
+    # ("server.name", max_per_window)
+    flow.output("out", StdOutput())
+    return flow
 
 
 if __name__ == "__main__":
-    from bytewax.execution import run_main
-    run_main(flow)
+    from bytewax.run import run
+
+    run(compile(get_flow, __file__, "exec"))
     # from bytewax.execution import spawn_cluster
     # spawn_cluster(flow)

@@ -68,8 +68,8 @@ dataflow is complete.
 `spawn_cluster()` blocks until all output has been collected.
 
 ```python doctest:SORT_OUTPUT
+from bytewax.run import run
 from bytewax.dataflow import Dataflow
-from bytewax.execution import spawn_cluster
 from bytewax.testing import doctest_ctx, TestingInput
 from bytewax.connectors.stdio import StdOutput
 
@@ -78,11 +78,10 @@ flow.input("inp", TestingInput(range(3)))
 flow.map(lambda item: item + 1)
 flow.output("out", StdOutput())
 
-spawn_cluster(
-    flow,
-    proc_count=2,
-    worker_count_per_proc=2,
-    mp_ctx=doctest_ctx,  # Outside a doctest, you'd skip this.
+run(
+    content,
+    processes=2,
+    workers_per_process=2,
 )
 ```
 
