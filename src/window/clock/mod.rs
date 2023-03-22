@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use pyo3::{exceptions::PyTypeError, prelude::*};
 
-use crate::pyo3_extensions::{PyConfigClass, TdPyAny};
+use crate::{pyo3_extensions::{PyConfigClass, TdPyAny}, errors::tracked_err};
 
 use self::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig};
 
@@ -65,7 +65,7 @@ impl PyConfigClass<Box<dyn ClockBuilder<TdPyAny>>> for Py<ClockConfig> {
             Ok(Box::new(conf))
         } else {
             let pytype = self.as_ref(py).get_type();
-            Err(PyTypeError::new_err(format!(
+            Err(tracked_err::<PyTypeError>(&format!(
                 "Unknown clock_config type: {pytype}"
             )))
         }

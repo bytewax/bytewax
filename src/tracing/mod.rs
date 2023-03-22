@@ -9,7 +9,10 @@
 use std::collections::HashMap;
 
 use opentelemetry::sdk::trace::Tracer;
-use pyo3::{exceptions::PyTypeError, prelude::*};
+use pyo3::{
+    exceptions::{PyRuntimeError, PyTypeError},
+    prelude::*,
+};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{filter::Targets, layer::SubscriberExt, Layer, Registry};
 
@@ -19,7 +22,10 @@ pub(crate) mod otlp_tracing;
 pub(crate) use jaeger_tracing::JaegerConfig;
 pub(crate) use otlp_tracing::OtlpTracingConfig;
 
-use crate::pyo3_extensions::PyConfigClass;
+use crate::{
+    errors::{tracked_err, PythonException},
+    pyo3_extensions::PyConfigClass,
+};
 
 /// Base class for tracing/logging configuration.
 ///
@@ -70,7 +76,7 @@ impl PyConfigClass<Box<dyn TracerBuilder + Send>> for Py<TracingConfig> {
             Ok(Box::new(jaeger_conf))
         } else {
             let pytype = self.as_ref(py).get_type();
-            Err(PyTypeError::new_err(format!(
+            Err(tracked_err::<PyTypeError>(&format!(
                 "Unknown tracing_config type: {pytype}"
             )))
         }
@@ -106,6 +112,36 @@ impl Default for BytewaxTracer {
     }
 }
 
+async fn setup(
+    log_level: LevelFilter,
+    tracer: Option<Box<dyn TracerBuilder + Send>>,
+) -> PyResult<()> {
+    let logs = tracing_subscriber::fmt::Layer::default()
+        .compact()
+        // Show source file
+        .with_file(true)
+        // Display source code line numbers
+        .with_line_number(true)
+        // Display the thread ID an event was recorded on
+        .with_thread_names(true)
+        .with_filter(Targets::new().with_target("bytewax", log_level));
+
+    // If the conf was not none, setup the global subscriber with both log and
+    // telemetry layer, otherwise just setup logging.
+    if let Some(tracer) = tracer {
+        let tracer = tracer.build().reraise("error building tracer")?;
+        let telemetry = tracing_opentelemetry::layer()
+            .with_tracer(tracer)
+            // Send all traces from bytewax
+            .with_filter(Targets::new().with_target("bytewax", LevelFilter::TRACE));
+        tracing::subscriber::set_global_default(Registry::default().with(logs).with(telemetry))
+            .raise::<PyRuntimeError>("error setting global default tracer")
+    } else {
+        tracing::subscriber::set_global_default(Registry::default().with(logs))
+            .raise::<PyRuntimeError>("error setting global default tracer")
+    }
+}
+
 impl BytewaxTracer {
     pub fn new() -> Self {
         let rt = tokio::runtime::Builder::new_multi_thread()
@@ -122,44 +158,17 @@ impl BytewaxTracer {
         &self,
         tracer: Option<Box<dyn TracerBuilder + Send>>,
         log_level: Option<String>,
-    ) {
+    ) -> PyResult<()> {
         // Prepare the log layer
         let log_level = get_log_level(log_level);
 
-        // We need an async block to properly initialize the tracing runtime.
+        // We need an async fn block to properly initialize the tracing runtime
+        // and be able to propagate errors.
         self.rt
-            .block_on(self.rt.spawn(async move {
-                let logs = tracing_subscriber::fmt::Layer::default()
-                    .compact()
-                    // Show source file
-                    .with_file(true)
-                    // Display source code line numbers
-                    .with_line_number(true)
-                    // Display the thread ID an event was recorded on
-                    .with_thread_names(true)
-                    .with_filter(Targets::new().with_target("bytewax", log_level));
-
-                let tracer = tracer.map(|tracer| tracer.build().unwrap());
-                let telemetry = tracer.map(|tracer| {
-                    tracing_opentelemetry::layer()
-                        .with_tracer(tracer)
-                        // Send all traces from bytewax
-                        .with_filter(Targets::new().with_target("bytewax", LevelFilter::TRACE))
-                });
-
-                // If the conf was not none, setup the global subscriber with both log and
-                // telemetry layer, otherwise just setup logging.
-                if let Some(telemetry) = telemetry {
-                    tracing::subscriber::set_global_default(
-                        Registry::default().with(logs).with(telemetry),
-                    )
-                    .unwrap();
-                } else {
-                    tracing::subscriber::set_global_default(Registry::default().with(logs))
-                        .unwrap();
-                };
-            }))
-            .unwrap();
+            .block_on(self.rt.spawn(setup(log_level, tracer)))
+            .map_err(|err| {
+                tracked_err::<PyRuntimeError>(&format!("error setting up tracing: {err}"))
+            })?
     }
 }
 

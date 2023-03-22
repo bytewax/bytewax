@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 use tracing::field::debug;
 
 use crate::{
+    errors::PythonException,
     pyo3_extensions::{TdPyAny, TdPyCallable},
     unwrap_any,
     window::*,
@@ -44,14 +45,18 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for FoldWindowLogic {
     fn with_next(&mut self, next_value: Option<(TdPyAny, DateTime<Utc>)>) -> Option<TdPyAny> {
         match next_value {
             Some((value, _item_time)) => Python::with_gil(|py| {
-                let acc: TdPyAny = self
-                    .acc
-                    .take()
-                    .unwrap_or_else(|| unwrap_any!(self.builder.call1(py, ())).into());
+                let acc: TdPyAny = self.acc.take().unwrap_or_else(|| {
+                    unwrap_any!(self
+                        .builder
+                        .call1(py, ())
+                        .reraise("error calling FoldWindow builder"))
+                    .into()
+                });
                 // Call the folder with the initialized accumulator.
                 let updated_acc = unwrap_any!(self
                     .folder
-                    .call1(py, (acc.clone_ref(py), value.clone_ref(py))))
+                    .call1(py, (acc.clone_ref(py), value.clone_ref(py)))
+                    .reraise("error calling FoldWindow folder"))
                 .into();
                 tracing::Span::current().record("updated_acc", debug(&updated_acc));
                 self.acc = Some(updated_acc);

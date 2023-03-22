@@ -15,7 +15,7 @@
 //! components added to the Timely dataflow.
 
 use crate::dataflow::{Dataflow, Step};
-use crate::inputs::*;
+use crate::errors::{prepend_tname, tracked_err, PythonException};
 use crate::operators::collect_window::CollectWindowLogic;
 use crate::operators::fold_window::FoldWindowLogic;
 use crate::operators::reduce::ReduceLogic;
@@ -32,10 +32,12 @@ use crate::recovery::store::in_mem::{InMemProgress, StoreSummary};
 use crate::webserver::run_webserver;
 use crate::window::WindowBuilder;
 use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
+use crate::{inputs::*, unwrap_any};
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use std::io::Write;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -154,8 +156,12 @@ where
                 } => {
                     let step_resume_state = resume_state.remove(&step_id);
 
-                    let clock_builder = clock_config.build(py)?;
-                    let windower_builder = window_config.build(py)?;
+                    let clock_builder = clock_config
+                        .build(py)
+                        .reraise("error building CollectWindow clock")?;
+                    let windower_builder = window_config
+                        .build(py)
+                        .reraise("error building CollectWindow windower")?;
 
                     let (output, changes) = stream.map(extract_state_pair).stateful_window_unary(
                         step_id,
@@ -177,44 +183,45 @@ where
                         .map(wrap_state_pair);
                     step_changes.push(changes);
                 }
-                Step::Input {
-                    step_id,
-                    input,
-                } => {
+                Step::Input { step_id, input } => {
                     if let Ok(input) = input.extract::<PartitionedInput>(py) {
                         let step_resume_state = resume_state.remove(&step_id);
 
-                        let (output, changes) = input.partitioned_input(
-                            py,
-                            scope,
-                            step_id.clone(),
-                            epoch_interval.clone(),
-                            worker_index,
-                            worker_count,
-                            &probe,
-                            resume_epoch,
-                            step_resume_state,
-                        )?;
+                        let (output, changes) = input
+                            .partitioned_input(
+                                py,
+                                scope,
+                                step_id.clone(),
+                                epoch_interval.clone(),
+                                worker_index,
+                                worker_count,
+                                &probe,
+                                resume_epoch,
+                                step_resume_state,
+                            )
+                            .reraise("error building PartitionedInput")?;
 
                         inputs.push(output.clone());
                         stream = output;
                         step_changes.push(changes);
                     } else if let Ok(input) = input.extract::<DynamicInput>(py) {
-                        let output = input.dynamic_input(
-                            py,
-                            scope,
-                            step_id.clone(),
-                            epoch_interval.clone(),
-                            worker_index,
-                            worker_count,
-                            &probe,
-                            resume_epoch,
-                        )?;
+                        let output = input
+                            .dynamic_input(
+                                py,
+                                scope,
+                                step_id.clone(),
+                                epoch_interval.clone(),
+                                worker_index,
+                                worker_count,
+                                &probe,
+                                resume_epoch,
+                            )
+                            .reraise("error building DynamicInput")?;
 
                         inputs.push(output.clone());
                         stream = output;
                     } else {
-                        return Err(PyTypeError::new_err("unknown input type"))
+                        return Err(tracked_err::<PyTypeError>("unknown input type"));
                     }
                 }
                 Step::Map { mapper } => {
@@ -240,8 +247,12 @@ where
                 } => {
                     let step_resume_state = resume_state.remove(&step_id);
 
-                    let clock_builder = clock_config.build(py)?;
-                    let windower_builder = window_config.build(py)?;
+                    let clock_builder = clock_config
+                        .build(py)
+                        .reraise("error building FoldWindow clock")?;
+                    let windower_builder = window_config
+                        .build(py)
+                        .reraise("error building FoldWindow windower")?;
 
                     let (output, changes) = stream.map(extract_state_pair).stateful_window_unary(
                         step_id,
@@ -293,8 +304,12 @@ where
                 } => {
                     let step_resume_state = resume_state.remove(&step_id);
 
-                    let clock_builder = clock_config.build(py)?;
-                    let windower_builder = window_config.build(py)?;
+                    let clock_builder = clock_config
+                        .build(py)
+                        .reraise("error building ReduceWindow clock")?;
+                    let windower_builder = window_config
+                        .build(py)
+                        .reraise("error building ReduceWindow windower")?;
 
                     let (output, changes) = stream.map(extract_state_pair).stateful_window_unary(
                         step_id,
@@ -335,49 +350,51 @@ where
                     if let Ok(output) = output.extract(py) {
                         let step_resume_state = resume_state.remove(&step_id);
 
-                        let (output, changes) =
-                            stream.partitioned_output(
+                        let (output, changes) = stream
+                            .partitioned_output(
                                 py,
                                 step_id,
                                 output,
                                 worker_index,
                                 worker_count,
                                 step_resume_state,
-                            )?;
+                            )
+                            .reraise("error building PartitionedOutput")?;
                         let clock = output.map(|_| ());
 
                         outputs.push(clock.clone());
                         step_changes.push(changes);
                         stream = output;
                     } else if let Ok(output) = output.extract(py) {
-                        let output =
-                            stream.dynamic_output(
-                                py,
-                                step_id,
-                                output,
-                                worker_index,
-                                worker_count,
-                            )?;
+                        let output = stream
+                            .dynamic_output(py, step_id, output, worker_index, worker_count)
+                            .reraise("error building DynamicOutput")?;
                         let clock = output.map(|_| ());
 
                         outputs.push(clock.clone());
                         stream = output;
                     } else {
-                        return Err(PyTypeError::new_err("unknown output type"))
+                        return Err(tracked_err::<PyTypeError>("unknown output type"));
                     }
                 }
             }
         }
 
         if inputs.is_empty() {
-            return Err(PyValueError::new_err("Dataflow needs to contain at least one input"));
+            return Err(tracked_err::<PyValueError>(
+                "Dataflow needs to contain at least one input",
+            ));
         }
         if outputs.is_empty() {
-            return Err(PyValueError::new_err("Dataflow needs to contain at least one output"));
+            return Err(tracked_err::<PyValueError>(
+                "Dataflow needs to contain at least one output",
+            ));
         }
         if !resume_state.is_empty() {
             tracing::warn!(
-                "Resume state exists for unknown steps {:?}; did you delete or rename a step and forget to remove or migrate state data?",
+                "Resume state exists for unknown steps {:?}; \
+                    did you delete or rename a step and forget \
+                    to remove or migrate state data?",
                 resume_state.keys(),
             );
         }
@@ -438,10 +455,13 @@ fn run_until_done<A: Allocate, T: Timestamp>(
     while !interrupt_flag.load(Ordering::Relaxed) && !probe.done() {
         worker.step();
         span.update();
-        Python::with_gil(|py| Python::check_signals(py)).map_err(|err| {
+        let check = Python::with_gil(|py| py.check_signals());
+        if check.is_err() {
             interrupt_flag.store(true, Ordering::Relaxed);
-            err
-        })?;
+            // The ? here will always exit since we just checked
+            // that `check` is Result::Err.
+            check.reraise("interrupt signal received")?;
+        }
     }
     Ok(())
 }
@@ -511,16 +531,23 @@ where
 {
     let span = tracing::trace_span!("Building dataflow").entered();
 
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
-        .thread_name("webserver-threads")
-        .enable_all()
-        .build()
-        .unwrap();
+    // Avoid initializing the tokio runtime for the webserver if we don't need it.
+    let rt = if worker.index() == 0 && std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
+        Some(unwrap_any!(tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("webserver-threads")
+            .enable_all()
+            .build()
+            .raise::<PyRuntimeError>(
+                "error initializing tokio runtime for webserver"
+            )))
+    } else {
+        None
+    };
 
     let probe = Python::with_gil(|py| {
         let df = flow.extract(py).unwrap();
-        if worker.index() == 0 && std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
+        if let Some(rt) = rt {
             rt.spawn(run_webserver(df));
         }
 
@@ -536,10 +563,11 @@ where
             progress_writer,
             state_writer,
         )
+        .reraise("error building Dataflow")
     })?;
     span.exit();
 
-    run_until_done(worker, interrupt_flag, probe)?;
+    run_until_done(worker, interrupt_flag, probe).reraise("error running Dataflow")?;
 
     Ok(())
 }
@@ -575,14 +603,17 @@ fn worker_main<A: Allocate>(
 
     let (progress_reader, state_reader) = Python::with_gil(|py| {
         build_recovery_readers(py, worker_index, worker_count, recovery_config.clone())
+            .reraise("error building recovery readers")
     })?;
     let (progress_writer, state_writer) = Python::with_gil(|py| {
         build_recovery_writers(py, worker_index, worker_count, recovery_config)
+            .reraise("error building recovery writers")
     })?;
 
     let span = tracing::trace_span!("Resume epoch").entered();
     let resume_progress =
-        build_and_run_progress_loading_dataflow(worker, interrupt_flag, progress_reader)?;
+        build_and_run_progress_loading_dataflow(worker, interrupt_flag, progress_reader)
+            .reraise("error while loading recovery progress")?;
     span.exit();
     let resume_from = resume_progress.resume_from();
     tracing::info!("Calculated {resume_from:?}");
@@ -590,7 +621,8 @@ fn worker_main<A: Allocate>(
     let span = tracing::trace_span!("State loading").entered();
     let ResumeFrom(_ex, resume_epoch) = resume_from;
     let (resume_state, store_summary) =
-        build_and_run_state_loading_dataflow(worker, interrupt_flag, resume_epoch, state_reader)?;
+        build_and_run_state_loading_dataflow(worker, interrupt_flag, resume_epoch, state_reader)
+            .reraise("error loading recovery state")?;
     span.exit();
 
     build_and_run_production_dataflow(
@@ -655,37 +687,50 @@ pub(crate) fn run_main(
     epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
-    let result = py.allow_threads(move || {
+    let res = py.allow_threads(move || {
         std::panic::catch_unwind(|| {
-            // TODO: See if we can PR Timely to not cast result error
-            // to a String. Then we could "raise" Python errors from
-            // the builder directly. Probably also as part of the
-            // panic recast issue below.
-            timely::execute::execute_directly::<Result<(), PyErr>, _>(move |worker| {
+            timely::execute::execute_directly::<(), _>(move |worker| {
                 let interrupt_flag = AtomicBool::new(false);
-                worker_main(
+                // The error will be reraised in the building phase.
+                // If an error occur during the execution, it will
+                // cause a panic since timely doesn't offer a way
+                // to cleanly stop workers with a Result::Err.
+                // The panic will be caught by catch_unwind, so we
+                // unwrap with a PyErr payload.
+                unwrap_any!(worker_main(
                     worker,
                     &interrupt_flag,
                     flow,
                     epoch_interval,
                     recovery_config,
                 )
+                .reraise("worker error"))
             })
         })
     });
 
-    match result {
-        Ok(Ok(ok)) => Ok(ok),
-        Ok(Err(build_err_str)) => Err(PyValueError::new_err(build_err_str)),
-        Err(panic_err) => {
-            let pyerr = if let Some(pyerr) = panic_err.downcast_ref::<PyErr>() {
-                pyerr.clone_ref(py)
-            } else {
-                PyRuntimeError::new_err("Panic in Rust code")
-            };
-            Err(pyerr)
+    res.map_err(|panic_err| {
+        // The worker panicked.
+        // Print an empty line to separate rust panick message from the rest.
+        eprintln!("");
+        if let Some(err) = panic_err.downcast_ref::<PyErr>() {
+            // Panics with PyErr as payload should come from bytewax.
+            err.clone_ref(py)
+        } else if let Some(msg) = panic_err.downcast_ref::<String>() {
+            // Panics with String payload usually comes from timely here.
+            tracked_err::<PyRuntimeError>(msg)
+        } else if let Some(msg) = panic_err.downcast_ref::<&str>() {
+            // Panic with &str payload, usually from a direct call to `panic!`
+            // or `.expect`
+            tracked_err::<PyRuntimeError>(msg)
+        } else {
+            // Give up trying to understand the error, and show the user
+            // a really helpful message.
+            // We could show the debug representation of `panic_err`, but
+            // it would just be `Any { .. }`
+            tracked_err::<PyRuntimeError>("unknown error")
         }
-    }
+    })
 }
 
 /// Execute a dataflow in the current process as part of a cluster.
@@ -769,32 +814,39 @@ pub(crate) fn cluster_main(
             }
         }
         .try_build()
-        .map_err(PyRuntimeError::new_err)?;
+        .raise::<PyRuntimeError>("error building timely communication pipeline")?;
 
         let should_shutdown = Arc::new(AtomicBool::new(false));
         let should_shutdown_w = should_shutdown.clone();
         let should_shutdown_p = should_shutdown.clone();
 
-        // Panic hook is per-process, so this won't work if you call
-        // `cluster_main()` twice concurrently.
-        let default_hook = std::panic::take_hook();
+        // Custom hook to print the proper stacktrace to stderr
+        // before panicking if possible.
         std::panic::set_hook(Box::new(move |info| {
             should_shutdown_p.store(true, Ordering::Relaxed);
-
-            if let Some(pyerr) = info.payload().downcast_ref::<PyErr>() {
-                Python::with_gil(|py| pyerr.print(py));
+            let msg = if let Some(err) = info.payload().downcast_ref::<PyErr>() {
+                // Panics with PyErr as payload should come from bytewax.
+                Python::with_gil(|py| err.clone_ref(py))
+            } else if let Some(msg) = info.payload().downcast_ref::<String>() {
+                // Panics with String payload usually comes from timely here.
+                tracked_err::<PyRuntimeError>(msg)
+            } else if let Some(msg) = info.payload().downcast_ref::<&str>() {
+                // Other kind of panics that can be downcasted to &str
+                tracked_err::<PyRuntimeError>(msg)
             } else {
-                default_hook(info);
-            }
+                // Give up trying to understand the error,
+                // and show the user what we have.
+                tracked_err::<PyRuntimeError>(&format!("{info}"))
+            };
+            // Prepend the name of the thread to each line
+            let msg = prepend_tname(msg.to_string());
+            // Acquire stdout lock and write the string as bytes,
+            // so we avoid interleaving outputs from different threads (i think?).
+            let mut stderr = std::io::stderr().lock();
+            stderr
+                .write_all(msg.as_bytes())
+                .unwrap_or_else(|err| eprintln!("Error printing error (that's not good): {err}"));
         }));
-        // Don't chain panic hooks if we run multiple
-        // dataflows. Really this is all a hack because the panic
-        // hook is global state. There's some talk of per-thread
-        // panic hooks which would help
-        // here. https://internals.rust-lang.org/t/pre-rfc-should-std-set-hook-have-a-per-thread-version/9518/3
-        defer! {
-            let _ = std::panic::take_hook();
-        }
 
         let guards = timely::execute::execute_from::<_, PyResult<()>, _>(
             builders,
@@ -810,7 +862,7 @@ pub(crate) fn cluster_main(
                 )
             },
         )
-        .map_err(PyRuntimeError::new_err)?;
+        .raise::<PyRuntimeError>("error during execution")?;
 
         // Recreating what Python does in Thread.join() to "block"
         // but also check interrupt handlers.
@@ -833,8 +885,7 @@ pub(crate) fn cluster_main(
             // although we still need it to tell the other workers to
             // do graceful shutdown.
             match maybe_worker_panic {
-                Ok(Ok(ok)) => Ok(ok),
-                Ok(Err(build_err)) => Err(build_err),
+                Ok(res) => res.reraise("error executing worker"),
                 Err(_panic_err) => Err(PyRuntimeError::new_err(
                     "Worker thread died; look for errors above",
                 )),

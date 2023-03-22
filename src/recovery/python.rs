@@ -7,6 +7,7 @@ use super::store::kafka::*;
 use super::store::noop::*;
 use super::store::sqlite::*;
 use crate::add_pymethods;
+use crate::errors::tracked_err;
 use pyo3::exceptions::*;
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -354,7 +355,7 @@ pub(crate) fn build_recovery_readers(
 
         Ok((Box::new(progress_reader), Box::new(state_reader)))
     } else {
-        Err(PyTypeError::new_err(format!(
+        Err(tracked_err::<PyTypeError>(&format!(
             "Unknown recovery_config type: {}",
             config.get_type(),
         )))

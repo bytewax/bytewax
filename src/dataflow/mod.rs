@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 
 use crate::common::pickle_extract;
+use crate::errors::PythonException;
 use crate::inputs::Input;
 use crate::outputs::Output;
 use crate::pyo3_extensions::TdPyCallable;
@@ -57,12 +58,10 @@ impl Dataflow {
     /// Unpickle from a PyDict of arguments.
     fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
         let dict: &PyDict = state.downcast()?;
-        self.steps = pickle_extract(dict, "steps")?;
+        self.steps = pickle_extract(dict, "steps").reraise("error unpickling Dataflow steps")?;
         Ok(())
     }
 
-    ///
-    ///
     /// At least one input is required on every dataflow.
     ///
     /// Emits items downstream from the input source.
@@ -802,6 +801,7 @@ impl<'source> FromPyObject<'source> for Step {
                 "bad python repr when unpickling Step: {dict:?}"
             ))),
         }
+        .reraise("error unpickling Dataflow step")
     }
 }
 

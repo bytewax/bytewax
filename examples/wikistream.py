@@ -7,25 +7,33 @@ import sseclient
 import urllib3
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
-from bytewax.inputs import PartitionedInput
-from bytewax.outputs import StdOutputConfig
+from bytewax.inputs import DynamicInput, StatelessSource
+from bytewax.connectors.stdio import StdOutput
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 
-class WikiStreamInput(PartitionedInput):
-    def list_parts(self):
-        # Wikimedia's SSE stream has no way to request disjoint data,
-        # so we have only one partition.
-        return ["single-stream"]
+class WikiSource(StatelessSource):
+    def __init__(self, client, events):
+        self.client = client
+        self.events = events
 
-    def build_part(self, for_key, resume_state):
-        # Since there is no way to rewind to SSE data we missed while
-        # resuming a dataflow, we're going to ignore `resume_state`
-        # and drop missed data. That's fine as long as we know to
-        # interpret the results with that in mind.
-        assert for_key == "single-stream"
-        assert resume_state is None
+    def next(self):
+        return next(self.events).data
+
+    def close(self):
+        self.client.close()
+
+
+class WikiStreamInput(DynamicInput):
+    def build(self, worker_index, worker_count):
+        # This will duplicate data in each worker in each process,
+        # so this is currently supposed to run on a single worker.
+        # TODO: We can check for the number of workers,
+        #       but we have no way to check the number of processes.
+        #       We could add a new kind of input that is garantueed
+        #       to only run on one of the workers, regardless of how
+        #       the rest of the flow is executed.
+        assert worker_count == 1, "wikistream can only run on a single worker"
 
         pool = urllib3.PoolManager()
         resp = pool.request(
@@ -36,8 +44,7 @@ class WikiStreamInput(PartitionedInput):
         )
         client = sseclient.SSEClient(resp)
 
-        for event in client.events():
-            yield None, event.data
+        return WikiSource(client, client.events())
 
 
 def initial_count(data_dict):
@@ -69,8 +76,11 @@ flow.stateful_map(
     keep_max,
 )
 # ("server.name", max_per_window)
-flow.capture(StdOutputConfig())
+flow.output("out", StdOutput())
 
 
 if __name__ == "__main__":
+    from bytewax.execution import run_main
     run_main(flow)
+    # from bytewax.execution import spawn_cluster
+    # spawn_cluster(flow)

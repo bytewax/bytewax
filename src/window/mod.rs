@@ -28,6 +28,7 @@
 //! config objects and Rust impl structs for each trait of behavior we
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
+use crate::errors::tracked_err;
 use crate::operators::stateful_unary::*;
 use crate::pyo3_extensions::PyConfigClass;
 use chrono::prelude::*;
@@ -108,7 +109,7 @@ impl PyConfigClass<Box<dyn WindowBuilder>> for Py<WindowConfig> {
             Ok(Box::new(conf))
         } else {
             let pytype = self.as_ref(py).get_type();
-            Err(PyTypeError::new_err(format!(
+            Err(tracked_err::<PyTypeError>(&format!(
                 "Unknown window_config type: {pytype}"
             )))
         }

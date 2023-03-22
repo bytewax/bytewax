@@ -3,6 +3,7 @@
 //! For a user-centric version of output, read the `bytewax.output`
 //! Python module docstring. Read that first.
 
+use crate::errors::{tracked_err, PythonException};
 use crate::execution::{WorkerCount, WorkerIndex};
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny, TdPyCallable};
 use crate::recovery::model::*;
@@ -30,8 +31,8 @@ impl<'source> FromPyObject<'source> for Output {
             .getattr("Output")?
             .extract()?;
         if !ob.is_instance(abc)? {
-            Err(PyTypeError::new_err(
-                "output must derive from `bytewax.outputs.Output`",
+            Err(tracked_err::<PyTypeError>(
+                "output must subclass `bytewax.outputs.Output`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -67,8 +68,8 @@ impl<'source> FromPyObject<'source> for PartitionedOutput {
             .getattr("PartitionedOutput")?
             .extract()?;
         if !ob.is_instance(abc)? {
-            Err(PyTypeError::new_err(
-                "partitioned output must derive from `bytewax.outputs.PartitionedOutput`",
+            Err(tracked_err::<PyTypeError>(
+                "partitioned output must subclass `bytewax.outputs.PartitionedOutput`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -87,33 +88,50 @@ impl PartitionedOutput {
         worker_count: WorkerCount,
         mut resume_state: StepStateBytes,
     ) -> PyResult<(StatefulBundle, PartAssigner)> {
-        let keys: BTreeSet<StateKey> = self.0.call_method0(py, "list_parts")?.extract(py)?;
+        let keys: BTreeSet<StateKey> = self
+            .0
+            .call_method0(py, "list_parts")
+            .reraise("error calling PartitionedOutput.list_parts")?
+            .extract(py)
+            .reraise("error converting output parts to set")?;
 
         let sinks = keys
             .into_iter()
-        // We are using the [`StateKey`] routing hash as the way to
-        // divvy up partitions to workers. This is kinda an abuse of
-        // behavior, but also means we don't have to find a way to
-        // propogate the correct partition:worker mappings into the
-        // restore system, which would be more difficult as we have to
-        // find a way to treat this kind of state key differently. I
-        // might regret this.
+            // We are using the [`StateKey`] routing hash as the way to
+            // divvy up partitions to workers. This is kinda an abuse of
+            // behavior, but also means we don't have to find a way to
+            // propogate the correct partition:worker mappings into the
+            // restore system, which would be more difficult as we have to
+            // find a way to treat this kind of state key differently. I
+            // might regret this.
             .filter(|key| key.is_local(worker_index, worker_count))
             .map(|key| {
                 let state = resume_state
                     .remove(&key)
                     .map(StateBytes::de::<TdPyAny>)
                     .unwrap_or_else(|| py.None().into());
-                tracing::info!("{worker_index:?} building output {step_id:?} sink {key:?} with resume state {state:?}");
+                tracing::info!(
+                    "{worker_index:?} building output {step_id:?} \
+                    sink {key:?} with resume state {state:?}"
+                );
                 let sink = self
                     .0
-                    .call_method1(py, "build_part", (key.clone(), state.clone_ref(py)))?
+                    .call_method1(py, "build_part", (key.clone(), state.clone_ref(py)))
+                    .reraise("error calling PartitionedOutput.build_part")?
                     .extract(py)?;
                 Ok((key, sink))
-            }).collect::<PyResult<HashMap<StateKey, StatefulSink>>>()?;
+            })
+            .collect::<PyResult<HashMap<StateKey, StatefulSink>>>()
+            .reraise("error building output parts")?;
 
         if !resume_state.is_empty() {
-            tracing::warn!("Resume state exists for {step_id:?} for unknown partitions {:?}; changing partition counts? recovery state routing bug?", resume_state.keys());
+            tracing::warn!(
+                "Resume state exists for {step_id:?} \
+                for unknown partitions {:?}; \
+                changing partition counts? \
+                recovery state routing bug?",
+                resume_state.keys()
+            );
         }
 
         let assign_part = self.0.getattr(py, "assign_part")?.extract(py)?;
@@ -134,8 +152,8 @@ impl<'source> FromPyObject<'source> for StatefulSink {
             .getattr("StatefulSink")?
             .extract()?;
         if !ob.is_instance(abc)? {
-            Err(PyTypeError::new_err(
-                "stateful sink must derive from `bytewax.outputs.StatefulSink`",
+            Err(tracked_err::<PyTypeError>(
+                "stateful sink must subclass `bytewax.outputs.StatefulSink`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -301,7 +319,8 @@ where
                                     let sink = bundle.parts.get_mut(&part_key).expect(
                                         "Item routed to non-local partition; output routing bug?",
                                     );
-                                    sink.write(py, value.clone_ref(py))?;
+                                    sink.write(py, value.clone_ref(py))
+                                        .reraise("error writing to output")?;
                                     output_session.give(wrap_state_pair((key, value)));
                                 }
                             }
@@ -348,8 +367,8 @@ impl<'source> FromPyObject<'source> for DynamicOutput {
             .getattr("DynamicOutput")?
             .extract()?;
         if !ob.is_instance(abc)? {
-            Err(PyTypeError::new_err(
-                "dynamic output must derive from `bytewax.outputs.DynamicOutput`",
+            Err(tracked_err::<PyTypeError>(
+                "dynamic output must subclass `bytewax.outputs.DynamicOutput`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -377,8 +396,8 @@ impl<'source> FromPyObject<'source> for StatelessSink {
             .getattr("StatelessSink")?
             .extract()?;
         if !ob.is_instance(abc)? {
-            Err(PyTypeError::new_err(
-                "stateless sink must derive from `bytewax.outputs.StatelessSink`",
+            Err(tracked_err::<PyTypeError>(
+                "stateless sink must subclass `bytewax.outputs.StatelessSink`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -460,7 +479,8 @@ where
                             let mut output_session = output.session(&cap);
                             if let Some(items) = incoming_buffer.remove(epoch) {
                                 for item in items {
-                                    sink.write(py, item.clone_ref(py))?;
+                                    sink.write(py, item.clone_ref(py))
+                                        .reraise("error writing to dynamic output")?;
                                     output_session.give(item);
                                 }
                             }
@@ -469,7 +489,8 @@ where
                     });
 
                     if input.frontier().is_empty() {
-                        unwrap_any!(Python::with_gil(|py| sink.close(py)));
+                        unwrap_any!(Python::with_gil(|py| sink.close(py))
+                            .reraise("error closing dynamic output"));
                         None
                     } else {
                         Some(sink)
