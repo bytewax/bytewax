@@ -450,39 +450,21 @@ where
         let mut sink = Some(output.build(py, worker_index, worker_count)?);
 
         let output_stream = self.unary_frontier(Pipeline, &step_id.0, |_init_cap, _info| {
-            let mut ncater = FrontierNotificator::new();
-
             let mut tmp_incoming: Vec<TdPyAny> = Vec::new();
-
-            let mut incoming_buffer: HashMap<S::Timestamp, Vec<TdPyAny>> = HashMap::new();
 
             move |input, output| {
                 sink = sink.take().and_then(|sink| {
                     input.for_each(|cap, incoming| {
-                        let epoch = cap.time();
-
                         assert!(tmp_incoming.is_empty());
                         incoming.swap(&mut tmp_incoming);
 
-                        incoming_buffer
-                            .entry(*epoch)
-                            .or_insert_with(Vec::new)
-                            .append(&mut tmp_incoming);
-
-                        ncater.notify_at(cap.retain());
-                    });
-
-                    ncater.for_each(&[input.frontier()], |cap, _| {
                         unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                            let epoch = cap.time();
-
                             let mut output_session = output.session(&cap);
-                            if let Some(items) = incoming_buffer.remove(epoch) {
-                                for item in items {
-                                    sink.write(py, item.clone_ref(py))
-                                        .reraise("error writing to dynamic output")?;
-                                    output_session.give(item);
-                                }
+
+                            for item in tmp_incoming.drain(..) {
+                                sink.write(py, item.clone_ref(py))
+                                    .reraise("error writing to dynamic output")?;
+                                output_session.give(item);
                             }
                             Ok(())
                         }))
