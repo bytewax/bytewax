@@ -163,18 +163,19 @@ impl Windower for SlidingWindower {
     /// closed, return them, and remove them from internal state.
     fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<WindowKey> {
         let mut future_close_times = HashMap::new();
-        let mut closed_ids = Vec::new();
+        let mut closed_keys = Vec::new();
 
-        for (id, close_at) in self.close_times.iter() {
+        for (key, close_at) in self.close_times.iter() {
             if close_at < watermark {
-                closed_ids.push(*id);
+                tracing::trace!("{key:?} closed at {close_at:?}");
+                closed_keys.push(*key);
             } else {
-                future_close_times.insert(*id, *close_at);
+                future_close_times.insert(*key, *close_at);
             }
         }
 
         self.close_times = future_close_times;
-        closed_ids
+        closed_keys
     }
 
     fn is_empty(&self) -> bool {
