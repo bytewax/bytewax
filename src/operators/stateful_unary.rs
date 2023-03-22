@@ -88,6 +88,8 @@ where
     fn fate(&self) -> LogicFate;
 
     /// Return the next system time this operator should be awoken at.
+    ///
+    /// This will be called after each awakening.
     fn next_awake(&self) -> Option<DateTime<Utc>>;
 
     /// Snapshot the internal state of this operator.
@@ -412,6 +414,12 @@ where
                             output_session
                                 .give_iterator(output.into_iter().map(|item| (key.clone(), item)));
 
+                            if let Some(next_awake) = logic.next_awake() {
+                                current_next_awake.insert(key.clone(), next_awake);
+                            } else {
+                                current_next_awake.remove(&key);
+                            }
+
                             awoken_keys_buffer.insert(key);
                         }
 
@@ -437,14 +445,8 @@ where
                                     }
                                     LogicFate::Retain => {
                                         let logic_snapshot = logic.snapshot();
-                                        let next_awake = logic.next_awake();
-
-                                        if let Some(next_awake) = next_awake {
-                                            current_next_awake
-                                                .insert(state_key.clone(), next_awake);
-                                        } else {
-                                            current_next_awake.remove(&state_key);
-                                        }
+                                        let next_awake =
+                                            current_next_awake.get(&state_key).cloned();
 
                                         current_logic.insert(state_key.clone(), logic);
 
