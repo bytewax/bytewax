@@ -45,6 +45,7 @@ def _get_flow(file_path, name, dataflow_args=[]):
     return flow
 
 
+#  Take kwargs and serialize them to a list of arguments for Popen
 def _make_command(
     file_path,
     dataflow_name,
@@ -148,10 +149,9 @@ def get_recovery_config(
 
 
 def run(
-    flow_content,
-    # file_path,
-    # dataflow_name,
-    # dataflow_args,
+    file_path,
+    dataflow_name,
+    dataflow_args,
     processes,
     workers_per_process,
     snapshot_every=10,
@@ -161,12 +161,7 @@ def run(
     sqlite_directory=None,
 ):
     proc_id = os.getenv("__BYTEWAX_PROC_ID", None)
-    # flow = _get_flow(file_path, dataflow_name, dataflow_args)
-    # with open(file_path, "rb") as f:
-    #     flow_content = f.read()
-    flow = None
-    eval(flow_content)
-
+    flow = _get_flow(file_path, dataflow_name, dataflow_args)
     epoch_interval = timedelta(seconds=snapshot_every)
     recovery_config = get_recovery_config(
         recovery_engine,

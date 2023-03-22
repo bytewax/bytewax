@@ -77,12 +77,6 @@ flow = Dataflow()
 flow.input("inp", TestingInput(range(3)))
 flow.map(lambda item: item + 1)
 flow.output("out", StdOutput())
-
-run(
-    content,
-    processes=2,
-    workers_per_process=2,
-)
 ```
 
 ```{testoutput}

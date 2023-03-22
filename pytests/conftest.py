@@ -39,23 +39,13 @@ def entry_point(entry_point_name):
 
 
 @fixture
-def out(entry_point_name, request):
-    if entry_point_name.startswith("run_main"):
-        yield []
-    elif entry_point_name.startswith("cluster_main"):
-        yield []
-    else:
-        raise ValueError("unknown entry point name: {request.param!r}")
+def out():
+    yield []
 
 
 @fixture
-def inp(entry_point_name, request):
-    if entry_point_name.startswith("run_main"):
-        yield []
-    elif entry_point_name.startswith("cluster_main"):
-        yield []
-    else:
-        raise ValueError("unknown entry point name: {request.param!r}")
+def inp():
+    yield []
 
 
 @fixture
