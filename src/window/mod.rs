@@ -372,7 +372,9 @@ where
     }
 
     fn next_awake(&self) -> Option<DateTime<Utc>> {
-        self.windower.next_close()
+        let next_awake = self.windower.next_close();
+        tracing::trace!("Next awake {next_awake:?}");
+        next_awake
     }
 
     fn snapshot(&self) -> StateBytes {
