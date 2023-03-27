@@ -5,10 +5,14 @@ This is an example dataflow that uses all the operators.
 from datetime import timedelta, datetime, timezone
 from collections import defaultdict
 
+from bytewax.execution import run_main
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
 from bytewax.inputs import StatelessSource, DynamicInput
 from bytewax.window import TumblingWindow, SystemClockConfig, SessionWindow
+from bytewax.tracing import setup_tracing
+
+tracer = setup_tracing(log_level="WARN")
 
 
 class NumberSource(StatelessSource):
@@ -95,7 +99,7 @@ def stringify(x):
 
 
 flow = Dataflow()
-flow.input("inp", NumberInput(10))
+flow.input("inp", NumberInput(3))
 # Stateless operators
 flow.filter(filter_op)
 flow.filter_map(filter_map_op)
@@ -116,10 +120,4 @@ flow.stateful_map("stateful_map", stateful_map_builder, stateful_map_op)
 flow.map(stringify)
 flow.output("out", StdOutput())
 
-
-if __name__ == "__main__":
-    # from bytewax.execution import run_main
-    # run_main(flow)
-    from bytewax.execution import spawn_cluster
-
-    spawn_cluster(flow, proc_count=1, worker_count_per_proc=1)
+run_main(flow)

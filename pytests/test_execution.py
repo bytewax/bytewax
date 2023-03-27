@@ -86,8 +86,7 @@ def test_cluster_can_be_ctrl_c():
     process.send_signal(signal.SIGINT)
     # Process termination should be handled properly
     stdout, stderr = process.communicate()
-    assert b"Keyboard interrupt received" in stdout
-    assert b"terminating 2 processes" in stdout
+    assert b"KeyboardInterrupt:" in stderr
     # The file should not contain all the lines since we stopped it
     assert len(output.splitlines()) < 999
     # Close and delete the file

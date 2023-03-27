@@ -35,7 +35,7 @@ use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
 use crate::{inputs::*, unwrap_any};
 use pyo3::exceptions::{PyKeyboardInterrupt, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyString, PyTuple, PyType};
+use pyo3::types::{PyDict, PyString, PyTuple, PyType};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::io::Write;
@@ -696,6 +696,41 @@ pub(crate) fn run_main(
     epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
+    _run_main(py, flow, epoch_interval, recovery_config, true)
+}
+
+pub(crate) fn _run_main(
+    py: Python,
+    flow: Py<Dataflow>,
+    epoch_interval: Option<EpochInterval>,
+    recovery_config: Option<Py<RecoveryConfig>>,
+    called_from_python: bool,
+) -> PyResult<()> {
+    // Here we check if the function was called while importing in our `run`.
+    // If it is, we make this a noop, since it will be run by the `run` function.
+    let spec = py.eval("__spec__", None, None)?;
+    if !spec.is_none() && called_from_python {
+        // If `__spec__` exists, it's `.name` is "bytewax.run" and the flag is set to true,
+        // `run_main` is being called from python while importing with our script.
+        // In this case, this function will be a noop since it will
+        // be called in a moment by `run`.
+        if spec
+            .getattr("name")
+            // If we can't get __spec__.name, it means this function is being
+            // imported in a custom way, we don't currently support this.
+            // TODO: Maybe we should just execute it instead?
+            .reraise(
+                "error getting `__spec__.name`, customizing \
+            the import of the dataflow is not supported",
+            )?
+            .to_string()
+            == "bytewax.run"
+        {
+            tracing::warn!("Ignoring run_main during import. Hint: check that `__name__ == '__main__'` before calling `run_main`");
+            return Ok(());
+        }
+    }
+
     let res = py.allow_threads(move || {
         std::panic::catch_unwind(|| {
             timely::execute::execute_directly::<(), _>(move |worker| {
@@ -921,7 +956,8 @@ fn get_flow(
     let util = py.import("importlib.util")?;
     let spec_from_file_location = util.getattr("spec_from_file_location")?;
     let module_from_spec = util.getattr("module_from_spec")?;
-    let spec = spec_from_file_location.call(("dataflow", file_path), None)?;
+
+    let spec = spec_from_file_location.call(("__dataflow__", file_path), None)?;
     let module = module_from_spec.call1((spec,))?;
     spec.getattr("loader")?
         .getattr("exec_module")?
@@ -956,30 +992,6 @@ pub(crate) fn run(
     epoch_interval: Option<f64>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
-    // let args = std::env::args();
-    // let matches = clap::Command::new("bytewax")
-    //     .no_binary_name(true)
-    //     .arg(clap::arg!(file_path: <FILE_PATH>).required(true))
-    //     .arg(clap::arg!(dataflow_name: -d --"dataflow-name" <DATAFLOW_NAME>))
-    //     .arg(clap::arg!(process: -p --processes <PROCESSES>))
-    //     .arg(clap::arg!(workers_per_process: -w --"workers-per-process" <WORKERS_PER_PROCESS>))
-    //     .arg(clap::arg!(dataflow_args: --"dataflow-args" <DATAFLOW_ARGS>))
-    //     .arg(clap::arg!(recovery_engine: -r --"recovery-engine" <RECOVERY_ENGINE>))
-    //     .arg(clap::arg!(--"kafka-brokers" <KAFKA_BROKERS>))
-    //     .arg(clap::arg!(--"kafka-topic" <KAFKA_TOPIC>))
-    //     .arg(clap::arg!(--"sqlite-directory" <SQLITE_DIRECTORY>))
-    //     .arg(clap::arg!(-s --"epoch-interval" <EPOCH_INTERVAL>))
-    //     .get_matches_from(args.skip(3));
-    // let file_path = matches.get_one::<String>("file_path").unwrap();
-    // let dataflow_name = matches.get_one::<String>("dataflow_name").unwrap();
-    // let dataflow_args = matches
-    //     .get_one::<String>("dataflow_args")
-    //     .map(|a| vec![a.clone()]);
-    // let epoch_interval = matches.get_one::<f64>("epoch_interval");
-    // let processes = matches.get_one::<usize>("processes").map(|x| *x);
-    // let workers_per_process = matches.get_one::<usize>("workers_per_process").map(|x| *x);
-    // let recovery_config = None;
-
     let proc_id = std::env::var("__BYTEWAX_PROC_ID").ok();
     let flow = Py::new(
         py,
@@ -997,7 +1009,7 @@ pub(crate) fn run(
     let epoch_config = EpochInterval::new(epoch_interval);
 
     if proc_id.is_none() && processes.is_none() && workers_per_process.is_none() {
-        run_main(py, flow, Some(epoch_config), recovery_config)?;
+        _run_main(py, flow, Some(epoch_config), recovery_config, false)?;
     } else {
         let processes = processes.unwrap();
         let addresses = (0..processes)
