@@ -17,8 +17,6 @@ chrono = { version = "0.4", features = [ "serde" ] }
 futures = { version = "0.3.21" }
 num = { version = "0.4.0" }
 pyo3 = { version = "0.17.2", features = ["macros", "chrono"] }
-scopeguard = { version = "1.1.0" }
-send_wrapper = { version = "0.6.0" }
 serde = { version = "1.0.134" }
 serde_test = { version = "1.0.134" }
 sqlx = { version = "0.6.1", features = [ "runtime-tokio-rustls", "postgres", "sqlite", "chrono" ] }

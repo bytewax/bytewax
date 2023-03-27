@@ -1,10 +1,11 @@
 from bytewax.dataflow import Dataflow
-from bytewax.execution import spawn_cluster
-from bytewax.outputs import StdOutputConfig
+from bytewax.connectors.stdio import StdOutput
 from bytewax.testing import TestingInput
 
 
 def double(x):
+    import time
+    time.sleep(0.1)
     return x * 2
 
 
@@ -17,12 +18,8 @@ def stringy(x):
 
 
 flow = Dataflow()
-flow.input("inp", TestingInput(range(10)))
+flow.input("inp", TestingInput(range(20)))
 flow.map(double)
 flow.map(minus_one)
 flow.map(stringy)
-flow.capture(StdOutputConfig())
-
-
-if __name__ == "__main__":
-    spawn_cluster(flow)
+flow.output("out", StdOutput())

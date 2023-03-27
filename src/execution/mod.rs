@@ -24,7 +24,7 @@ use crate::operators::stateful_map::StatefulMapLogic;
 use crate::operators::stateful_unary::StatefulUnary;
 use crate::operators::*;
 use crate::outputs::*;
-use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair};
+use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny};
 use crate::recovery::dataflows::*;
 use crate::recovery::model::*;
 use crate::recovery::python::*;
@@ -34,10 +34,13 @@ use crate::window::WindowBuilder;
 use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
 use crate::{inputs::*, unwrap_any};
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
-use pyo3::prelude::*;
+use pyo3::types::{PyString, PyTuple};
+use pyo3::{intern, prelude::*};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::io::Write;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -902,8 +905,136 @@ pub(crate) fn cluster_main(
     })
 }
 
+fn get_flow(
+    py: Python,
+    file_path: &PathBuf,
+    dataflow_name: &String,
+    dataflow_args: Vec<String>,
+) -> PyResult<Dataflow> {
+    let util = py.import("importlib.util")?;
+    let spec_from_file_location = util.getattr("spec_from_file_location")?;
+    let module_from_spec = util.getattr("module_from_spec")?;
+    let spec = spec_from_file_location.call(("dataflow", file_path), None)?;
+    let module = module_from_spec.call1((spec,))?;
+    spec.getattr("loader")?
+        .getattr("exec_module")?
+        .call1((module,))?;
+    let dataflow_name = PyString::new(py, &dataflow_name);
+    let mut flow = module.getattr(dataflow_name)?;
+    if flow.is_callable() {
+        let tuple: &PyTuple = PyTuple::new(py, dataflow_args);
+        flow = flow.call(tuple, None)?;
+    }
+    let flow = flow.extract::<Dataflow>()?;
+    Ok(flow)
+}
+
+#[pyfunction(
+    file_path,
+    dataflow_name,
+    dataflow_args,
+    processes,
+    workers_per_process,
+    "*",
+    epoch_interval = "None",
+    recovery_config = "None"
+)]
+pub(crate) fn run(
+    py: Python,
+    file_path: PathBuf,
+    dataflow_name: String,
+    dataflow_args: Option<Vec<String>>,
+    processes: Option<u8>,
+    workers_per_process: Option<u8>,
+    epoch_interval: Option<f64>,
+    recovery_config: Option<Py<RecoveryConfig>>,
+) -> PyResult<()> {
+    let args: Vec<String> = std::env::args().collect();
+    dbg!(args);
+
+    let proc_id = std::env::var("__BYTEWAX_PROC_ID").ok();
+    let flow = Py::new(
+        py,
+        get_flow(
+            py,
+            &file_path,
+            &dataflow_name,
+            dataflow_args.unwrap_or(vec![]),
+        )?,
+    )?;
+
+    let epoch_interval = epoch_interval
+        .map(|dur| Duration::from_secs_f64(dur))
+        .unwrap_or_else(|| Duration::from_secs(10));
+    let epoch_config = EpochInterval::new(epoch_interval);
+
+    if proc_id.is_none() && processes.is_none() && workers_per_process.is_none() {
+        run_main(py, flow, Some(epoch_config), recovery_config)?;
+    } else {
+        let processes = processes.unwrap();
+        let addresses = (0..processes)
+            .map(|proc_id| format!("localhost:{}", proc_id as u64 + 2101))
+            .collect();
+        let workers_per_process = workers_per_process.unwrap();
+        if let Some(proc_id) = proc_id {
+            cluster_main(
+                py,
+                flow,
+                Some(addresses),
+                proc_id.parse().unwrap(),
+                Some(epoch_config),
+                recovery_config,
+                workers_per_process.into(),
+            )?;
+        } else {
+            let file_path = file_path.into_os_string().into_string().unwrap();
+            let mut ps: Vec<_> = (0..processes)
+                .map(|proc_id| {
+                    Command::new("python")
+                        .env("__BYTEWAX_PROC_ID", proc_id.to_string())
+                        .args([
+                            "-m",
+                            "bytewax.run",
+                            &file_path,
+                            "-w",
+                            &workers_per_process.to_string(),
+                            "-p",
+                            &processes.to_string(),
+                            "-d",
+                            &dataflow_name,
+                            "--epoch-interval",
+                            &epoch_interval.as_secs_f64().to_string(),
+                        ])
+                        .spawn()
+                        .unwrap()
+                })
+                .collect();
+            loop {
+                if ps.iter_mut().all(|ps| match ps.try_wait() {
+                    Ok(None) => false,
+                    _ => true,
+                }) {
+                    break;
+                }
+                let check = Python::with_gil(|py| py.check_signals());
+                if check.is_err() {
+                    for process in ps.iter_mut() {
+                        process.kill()?;
+                    }
+                    // The ? here will always exit since we just checked
+                    // that `check` is Result::Err.
+                    check
+                        .reraise("interrupt signal received, all processes have been shut down")?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_main, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
+    m.add_function(wrap_pyfunction!(run, m)?)?;
     Ok(())
 }

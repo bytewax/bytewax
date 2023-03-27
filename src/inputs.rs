@@ -24,6 +24,12 @@ use timely::dataflow::{ProbeHandle, Scope, Stream};
 #[derive(Debug, Clone)]
 pub(crate) struct EpochInterval(Duration);
 
+impl EpochInterval {
+    pub(crate) fn new(dur: Duration) -> Self {
+        Self(dur)
+    }
+}
+
 impl<'source> FromPyObject<'source> for EpochInterval {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         match ob.extract::<chrono::Duration>()?.to_std() {
