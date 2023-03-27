@@ -129,5 +129,5 @@ flow.filter(
 )  # filter on 0.1% spread as a per
 flow.capture(StdOutputConfig())
 
-if __name__ == "__main__":
-    spawn_cluster(flow, **parse.cluster_args())
+# if __name__ == "__main__":
+#     spawn_cluster(flow, **parse.cluster_args())

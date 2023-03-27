@@ -2,7 +2,7 @@
 This should crash because we try to setup tracing twice.
 """
 
-import working
+from examples.errors import working
 
 from bytewax.tracing import setup_tracing
 

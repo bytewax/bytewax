@@ -2,9 +2,8 @@
 This dataflow crashes for an Exception while getting the next input.
 We cause the crash by raising an Exception in DynamicInput.next
 """
-
 # Import functions that we don't need to break form the working example
-import working
+from examples.errors import working
 
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput

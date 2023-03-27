@@ -3,7 +3,7 @@ This dataflow crashes because we never add an output to it.
 """
 
 # Import functions that we don't need to break form the working example
-import working
+from examples.errors import working
 
 from bytewax.dataflow import Dataflow
 

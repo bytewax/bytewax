@@ -4,7 +4,7 @@ We cause the crash by returning None in DynamicInput.build.
 """
 
 # Import functions that we don't need to break form the working example
-import working
+from examples.errors import working
 
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput

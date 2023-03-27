@@ -2,7 +2,7 @@
 This dataflow crashes because we never add an input operator.
 """
 
-import working
+from examples.errors import working
 
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput

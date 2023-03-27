@@ -2,7 +2,7 @@
 This is an example dataflow that uses all the operators.
 """
 
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 from collections import defaultdict
 
 from bytewax.dataflow import Dataflow
@@ -106,7 +106,9 @@ flow.map(map_op)
 # Stateful operators
 flow.reduce("reduce", reduce_op, reduce_is_complete)
 cc = SystemClockConfig()
-wc = TumblingWindow(length=timedelta(seconds=1))
+wc = TumblingWindow(
+    length=timedelta(seconds=1), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+)
 flow.fold_window("fold_window", cc, wc, folder_builder, folder_op)
 wc = SessionWindow(gap=timedelta(seconds=1))
 flow.reduce_window("reduce_window", cc, wc, reduce_window_op)
@@ -119,4 +121,5 @@ if __name__ == "__main__":
     # from bytewax.execution import run_main
     # run_main(flow)
     from bytewax.execution import spawn_cluster
+
     spawn_cluster(flow, proc_count=1, worker_count_per_proc=1)

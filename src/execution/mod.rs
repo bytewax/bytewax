@@ -24,7 +24,7 @@ use crate::operators::stateful_map::StatefulMapLogic;
 use crate::operators::stateful_unary::StatefulUnary;
 use crate::operators::*;
 use crate::outputs::*;
-use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny};
+use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair};
 use crate::recovery::dataflows::*;
 use crate::recovery::model::*;
 use crate::recovery::python::*;
@@ -33,14 +33,14 @@ use crate::webserver::run_webserver;
 use crate::window::WindowBuilder;
 use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
 use crate::{inputs::*, unwrap_any};
-use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
-use pyo3::types::{PyString, PyTuple};
-use pyo3::{intern, prelude::*};
+use pyo3::exceptions::{PyKeyboardInterrupt, PyRuntimeError, PyTypeError, PyValueError};
+use pyo3::prelude::*;
+use pyo3::types::{PyString, PyTuple, PyType};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -723,8 +723,15 @@ pub(crate) fn run_main(
         // Print an empty line to separate rust panick message from the rest.
         eprintln!("");
         if let Some(err) = panic_err.downcast_ref::<PyErr>() {
-            // Panics with PyErr as payload should come from bytewax.
-            err.clone_ref(py)
+            // Special case for keyboard interrupt.
+            if err.get_type(py).is(PyType::new::<PyKeyboardInterrupt>(py)) {
+                tracked_err::<PyKeyboardInterrupt>(
+                    "interrupt signal received, all processes have been shut down",
+                )
+            } else {
+                // Panics with PyErr as payload should come from bytewax.
+                err.clone_ref(py)
+            }
         } else if let Some(msg) = panic_err.downcast_ref::<String>() {
             // Panics with String payload usually comes from timely here.
             tracked_err::<PyRuntimeError>(msg)
@@ -949,15 +956,36 @@ pub(crate) fn run(
     epoch_interval: Option<f64>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
-    let args: Vec<String> = std::env::args().collect();
-    dbg!(args);
+    // let args = std::env::args();
+    // let matches = clap::Command::new("bytewax")
+    //     .no_binary_name(true)
+    //     .arg(clap::arg!(file_path: <FILE_PATH>).required(true))
+    //     .arg(clap::arg!(dataflow_name: -d --"dataflow-name" <DATAFLOW_NAME>))
+    //     .arg(clap::arg!(process: -p --processes <PROCESSES>))
+    //     .arg(clap::arg!(workers_per_process: -w --"workers-per-process" <WORKERS_PER_PROCESS>))
+    //     .arg(clap::arg!(dataflow_args: --"dataflow-args" <DATAFLOW_ARGS>))
+    //     .arg(clap::arg!(recovery_engine: -r --"recovery-engine" <RECOVERY_ENGINE>))
+    //     .arg(clap::arg!(--"kafka-brokers" <KAFKA_BROKERS>))
+    //     .arg(clap::arg!(--"kafka-topic" <KAFKA_TOPIC>))
+    //     .arg(clap::arg!(--"sqlite-directory" <SQLITE_DIRECTORY>))
+    //     .arg(clap::arg!(-s --"epoch-interval" <EPOCH_INTERVAL>))
+    //     .get_matches_from(args.skip(3));
+    // let file_path = matches.get_one::<String>("file_path").unwrap();
+    // let dataflow_name = matches.get_one::<String>("dataflow_name").unwrap();
+    // let dataflow_args = matches
+    //     .get_one::<String>("dataflow_args")
+    //     .map(|a| vec![a.clone()]);
+    // let epoch_interval = matches.get_one::<f64>("epoch_interval");
+    // let processes = matches.get_one::<usize>("processes").map(|x| *x);
+    // let workers_per_process = matches.get_one::<usize>("workers_per_process").map(|x| *x);
+    // let recovery_config = None;
 
     let proc_id = std::env::var("__BYTEWAX_PROC_ID").ok();
     let flow = Py::new(
         py,
         get_flow(
             py,
-            &file_path,
+            &file_path.into(),
             &dataflow_name,
             dataflow_args.unwrap_or(vec![]),
         )?,
@@ -987,24 +1015,12 @@ pub(crate) fn run(
                 workers_per_process.into(),
             )?;
         } else {
-            let file_path = file_path.into_os_string().into_string().unwrap();
             let mut ps: Vec<_> = (0..processes)
                 .map(|proc_id| {
-                    Command::new("python")
+                    let mut args = std::env::args();
+                    Command::new(args.next().unwrap())
                         .env("__BYTEWAX_PROC_ID", proc_id.to_string())
-                        .args([
-                            "-m",
-                            "bytewax.run",
-                            &file_path,
-                            "-w",
-                            &workers_per_process.to_string(),
-                            "-p",
-                            &processes.to_string(),
-                            "-d",
-                            &dataflow_name,
-                            "--epoch-interval",
-                            &epoch_interval.as_secs_f64().to_string(),
-                        ])
+                        .args(args.collect::<Vec<String>>())
                         .spawn()
                         .unwrap()
                 })
