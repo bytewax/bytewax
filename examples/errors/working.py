@@ -8,16 +8,17 @@ from collections import defaultdict
 from bytewax.execution import run_main
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
-from bytewax.inputs import StatelessSource, DynamicInput
+from bytewax.inputs import StatelessSource, DynamicInput, EmptySource
 from bytewax.window import TumblingWindow, SystemClockConfig, SessionWindow
 from bytewax.tracing import setup_tracing
 
-tracer = setup_tracing(log_level="WARN")
+
+tracer = setup_tracing()
 
 
 class NumberSource(StatelessSource):
-    def __init__(self, iterator):
-        self.iterator = iterator
+    def __init__(self, max):
+        self.iterator = iter(range(max))
 
     def next(self):
         return next(self.iterator)
@@ -29,13 +30,13 @@ class NumberSource(StatelessSource):
 class NumberInput(DynamicInput):
     def __init__(self, max):
         self.max = max
-        self.iterator = iter(range(max))
 
     def build(self, worker_index, worker_count):
-        # This will duplicate data in each
-        # process but not in each worker
-        # since they share the iterator
-        return NumberSource(self.iterator)
+        # Only generate data on the first worker
+        if worker_index == 0:
+            return NumberSource(self.max)
+        else:
+            return EmptySource()
 
 
 def filter_op(x):

@@ -222,3 +222,17 @@ class DynamicInput(Input):
 
         """
         ...
+
+
+class EmptySource(StatelessSource):
+    """A stateless source that immediately stops sending messages.
+
+    If you only want to get data on a specific worker, you
+    can use this input source for the rest of the workers.
+    """
+
+    def next(self):
+        raise StopIteration()
+
+    def close(self):
+        pass

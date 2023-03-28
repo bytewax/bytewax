@@ -35,7 +35,7 @@ use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
 use crate::{inputs::*, unwrap_any};
 use pyo3::exceptions::{PyKeyboardInterrupt, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyString, PyTuple, PyType};
+use pyo3::types::{PyString, PyTuple, PyType};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::io::Write;
@@ -699,19 +699,18 @@ pub(crate) fn run_main(
     _run_main(py, flow, epoch_interval, recovery_config, true)
 }
 
-pub(crate) fn _run_main(
-    py: Python,
-    flow: Py<Dataflow>,
-    epoch_interval: Option<EpochInterval>,
-    recovery_config: Option<Py<RecoveryConfig>>,
-    called_from_python: bool,
-) -> PyResult<()> {
+fn should_run(py: Python, called_from_python: bool) -> PyResult<bool> {
     // Here we check if the function was called while importing in our `run`.
     // If it is, we make this a noop, since it will be run by the `run` function.
-    let spec = py.eval("__spec__", None, None)?;
+
+    // This call should never fail, since it should return
+    // None if __spec__ doesn't exists, so we unwrap.
+    let spec = py.eval("__spec__", None, None).unwrap();
+
     if !spec.is_none() && called_from_python {
-        // If `__spec__` exists, it's `.name` is "bytewax.run" and the flag is set to true,
-        // `run_main` is being called from python while importing with our script.
+        // If `__spec__` exists, `__spec__.name` is "bytewax.run" and the
+        // called_from_python flag is set to true, `run_main` is being
+        // called from python while importing with our script.
         // In this case, this function will be a noop since it will
         // be called in a moment by `run`.
         if spec
@@ -719,16 +718,29 @@ pub(crate) fn _run_main(
             // If we can't get __spec__.name, it means this function is being
             // imported in a custom way, we don't currently support this.
             // TODO: Maybe we should just execute it instead?
-            .reraise(
-                "error getting `__spec__.name`, customizing \
-            the import of the dataflow is not supported",
+            .raise::<PyRuntimeError>(
+                "error getting `__spec__.name`. \
+                Hint: avoid calling run_main/cluster_main while importing.",
             )?
             .to_string()
             == "bytewax.run"
         {
-            tracing::warn!("Ignoring run_main during import. Hint: check that `__name__ == '__main__'` before calling `run_main`");
-            return Ok(());
+            return Ok(false);
         }
+    }
+    Ok(true)
+}
+
+pub(crate) fn _run_main(
+    py: Python,
+    flow: Py<Dataflow>,
+    epoch_interval: Option<EpochInterval>,
+    recovery_config: Option<Py<RecoveryConfig>>,
+    called_from_python: bool,
+) -> PyResult<()> {
+    if !should_run(py, called_from_python)? {
+        tracing::debug!("Ignoring run_main during import.");
+        return Ok(());
     }
 
     let res = py.allow_threads(move || {
@@ -851,6 +863,33 @@ pub(crate) fn cluster_main(
     recovery_config: Option<Py<RecoveryConfig>>,
     worker_count_per_proc: usize,
 ) -> PyResult<()> {
+    _cluster_main(
+        py,
+        flow,
+        addresses,
+        proc_id,
+        epoch_interval,
+        recovery_config,
+        worker_count_per_proc,
+        true,
+    )
+}
+
+pub(crate) fn _cluster_main(
+    py: Python,
+    flow: Py<Dataflow>,
+    addresses: Option<Vec<String>>,
+    proc_id: usize,
+    epoch_interval: Option<EpochInterval>,
+    recovery_config: Option<Py<RecoveryConfig>>,
+    worker_count_per_proc: usize,
+    called_from_python: bool,
+) -> PyResult<()> {
+    if !should_run(py, called_from_python)? {
+        tracing::debug!("Ignoring cluster_main during import.");
+        return Ok(());
+    }
+
     py.allow_threads(move || {
         let addresses = addresses.unwrap_or_default();
         let (builders, other) = if addresses.is_empty() {
@@ -899,18 +938,18 @@ pub(crate) fn cluster_main(
                 .unwrap_or_else(|err| eprintln!("Error printing error (that's not good): {err}"));
         }));
 
-        let guards = timely::execute::execute_from::<_, PyResult<()>, _>(
+        let guards = timely::execute::execute_from::<_, (), _>(
             builders,
             other,
             timely::WorkerConfig::default(),
             move |worker| {
-                worker_main(
+                unwrap_any!(worker_main(
                     worker,
                     &should_shutdown_w,
                     flow.clone(),
                     epoch_interval.clone(),
                     recovery_config.clone(),
-                )
+                ))
             },
         )
         .raise::<PyRuntimeError>("error during execution")?;
@@ -935,12 +974,9 @@ pub(crate) fn cluster_main(
             // thread and not need to print in panic::set_hook above,
             // although we still need it to tell the other workers to
             // do graceful shutdown.
-            match maybe_worker_panic {
-                Ok(res) => res.reraise("error executing worker"),
-                Err(_panic_err) => Err(PyRuntimeError::new_err(
-                    "Worker thread died; look for errors above",
-                )),
-            }?;
+            maybe_worker_panic.map_err(|_| {
+                tracked_err::<PyRuntimeError>("Worker thread died; look for errors above")
+            })?;
         }
 
         Ok(())
@@ -1011,13 +1047,14 @@ pub(crate) fn run(
     if proc_id.is_none() && processes.is_none() && workers_per_process.is_none() {
         _run_main(py, flow, Some(epoch_config), recovery_config, false)?;
     } else {
-        let processes = processes.unwrap();
+        // If processes is none, but workers is not, we assume 1 process
+        let processes = processes.unwrap_or(1);
         let addresses = (0..processes)
             .map(|proc_id| format!("localhost:{}", proc_id as u64 + 2101))
             .collect();
         let workers_per_process = workers_per_process.unwrap();
         if let Some(proc_id) = proc_id {
-            cluster_main(
+            _cluster_main(
                 py,
                 flow,
                 Some(addresses),
@@ -1025,6 +1062,7 @@ pub(crate) fn run(
                 Some(epoch_config),
                 recovery_config,
                 workers_per_process.into(),
+                false,
             )?;
         } else {
             let mut ps: Vec<_> = (0..processes)
