@@ -696,50 +696,8 @@ pub(crate) fn run_main(
     epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
-    _run_main(py, flow, epoch_interval, recovery_config, true)
-}
-
-fn should_run(py: Python, called_from_python: bool) -> PyResult<bool> {
-    // Here we check if the function was called while importing in our `run`.
-    // If it is, we make this a noop, since it will be run by the `run` function.
-
-    // This call should never fail, since it should return
-    // None if __spec__ doesn't exists, so we unwrap.
-    let spec = py.eval("__spec__", None, None).unwrap();
-
-    if !spec.is_none() && called_from_python {
-        // If `__spec__` exists, `__spec__.name` is "bytewax.run" and the
-        // called_from_python flag is set to true, `run_main` is being
-        // called from python while importing with our script.
-        // In this case, this function will be a noop since it will
-        // be called in a moment by `run`.
-        if spec
-            .getattr("name")
-            // If we can't get __spec__.name, it means this function is being
-            // imported in a custom way, we don't currently support this.
-            // TODO: Maybe we should just execute it instead?
-            .raise::<PyRuntimeError>(
-                "error getting `__spec__.name`. \
-                Hint: avoid calling run_main/cluster_main while importing.",
-            )?
-            .to_string()
-            == "bytewax.run"
-        {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
-pub(crate) fn _run_main(
-    py: Python,
-    flow: Py<Dataflow>,
-    epoch_interval: Option<EpochInterval>,
-    recovery_config: Option<Py<RecoveryConfig>>,
-    called_from_python: bool,
-) -> PyResult<()> {
-    if !should_run(py, called_from_python)? {
-        tracing::debug!("Ignoring run_main during import.");
+    if is_in_bytewax_run(py)? {
+        tracing::debug!("Ignoring run_main in `bytewax.run`");
         return Ok(());
     }
 
@@ -863,30 +821,8 @@ pub(crate) fn cluster_main(
     recovery_config: Option<Py<RecoveryConfig>>,
     worker_count_per_proc: usize,
 ) -> PyResult<()> {
-    _cluster_main(
-        py,
-        flow,
-        addresses,
-        proc_id,
-        epoch_interval,
-        recovery_config,
-        worker_count_per_proc,
-        true,
-    )
-}
-
-pub(crate) fn _cluster_main(
-    py: Python,
-    flow: Py<Dataflow>,
-    addresses: Option<Vec<String>>,
-    proc_id: usize,
-    epoch_interval: Option<EpochInterval>,
-    recovery_config: Option<Py<RecoveryConfig>>,
-    worker_count_per_proc: usize,
-    called_from_python: bool,
-) -> PyResult<()> {
-    if !should_run(py, called_from_python)? {
-        tracing::debug!("Ignoring cluster_main during import.");
+    if is_in_bytewax_run(py)? && std::env::var("__BYTEWAX_RUN").is_err() {
+        tracing::debug!("Ignoring cluster_main in `bytewax.run`");
         return Ok(());
     }
 
@@ -938,18 +874,18 @@ pub(crate) fn _cluster_main(
                 .unwrap_or_else(|err| eprintln!("Error printing error (that's not good): {err}"));
         }));
 
-        let guards = timely::execute::execute_from::<_, (), _>(
+        let guards = timely::execute::execute_from::<_, PyResult<()>, _>(
             builders,
             other,
             timely::WorkerConfig::default(),
             move |worker| {
-                unwrap_any!(worker_main(
+                worker_main(
                     worker,
                     &should_shutdown_w,
                     flow.clone(),
                     epoch_interval.clone(),
                     recovery_config.clone(),
-                ))
+                )
             },
         )
         .raise::<PyRuntimeError>("error during execution")?;
@@ -976,13 +912,18 @@ pub(crate) fn _cluster_main(
             // do graceful shutdown.
             maybe_worker_panic.map_err(|_| {
                 tracked_err::<PyRuntimeError>("Worker thread died; look for errors above")
-            })?;
+            })??;
         }
 
         Ok(())
     })
 }
 
+/// Get a Dataflow from a file_path.
+/// dataflow_name is the accessor we use to get the dataflow object.
+/// It can represent either a variable or a callable.
+/// If it's a callable we call it with dataflow_args as arguments.
+/// The resulting object should be a Dataflow, or this will return a PyErr.
 fn get_flow(
     py: Python,
     file_path: &PathBuf,
@@ -1004,103 +945,126 @@ fn get_flow(
         let tuple: &PyTuple = PyTuple::new(py, dataflow_args);
         flow = flow.call(tuple, None)?;
     }
-    let flow = flow.extract::<Dataflow>()?;
-    Ok(flow)
+    flow.extract::<Dataflow>()
 }
 
+/// Spawns a cluster on a single machine.
+/// This is only supposed to be used through `python -m bytewax.run`,
+/// and not directly called inside python code.
+///
+/// See `python -m bytewax.run --help` for more info
 #[pyfunction(
     file_path,
-    dataflow_name,
-    dataflow_args,
-    processes,
-    workers_per_process,
     "*",
+    processes = 1,
+    workers_per_process = 1,
+    dataflow_name = "String::from(\"flow\")",
+    dataflow_args = "None",
     epoch_interval = "None",
     recovery_config = "None"
 )]
-pub(crate) fn run(
+pub(crate) fn spawn_cluster(
     py: Python,
     file_path: PathBuf,
     dataflow_name: String,
     dataflow_args: Option<Vec<String>>,
-    processes: Option<u8>,
-    workers_per_process: Option<u8>,
+    processes: u8,
+    workers_per_process: u8,
     epoch_interval: Option<f64>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
-    let proc_id = std::env::var("__BYTEWAX_PROC_ID").ok();
-    let flow = Py::new(
-        py,
-        get_flow(
-            py,
-            &file_path.into(),
-            &dataflow_name,
-            dataflow_args.unwrap_or(vec![]),
-        )?,
-    )?;
+    if !is_in_bytewax_run(py)? {
+        return Err(tracked_err::<PyRuntimeError>(&format!(
+            "You shouldn't use spawn_cluster directly, \
+            see `python -m bytewax.run --help` instead"
+        )));
+    }
 
+    let proc_id = std::env::var("__BYTEWAX_PROC_ID").ok();
     let epoch_interval = epoch_interval
         .map(|dur| Duration::from_secs_f64(dur))
         .unwrap_or_else(|| Duration::from_secs(10));
     let epoch_config = EpochInterval::new(epoch_interval);
 
-    if proc_id.is_none() && processes.is_none() && workers_per_process.is_none() {
-        _run_main(py, flow, Some(epoch_config), recovery_config, false)?;
-    } else {
-        // If processes is none, but workers is not, we assume 1 process
-        let processes = processes.unwrap_or(1);
-        let addresses = (0..processes)
-            .map(|proc_id| format!("localhost:{}", proc_id as u64 + 2101))
-            .collect();
-        let workers_per_process = workers_per_process.unwrap();
-        if let Some(proc_id) = proc_id {
-            _cluster_main(
+    let addresses = (0..processes)
+        .map(|proc_id| format!("localhost:{}", proc_id as u64 + 2101))
+        .collect();
+
+    if let Some(proc_id) = proc_id {
+        let flow = Py::new(
+            py,
+            get_flow(
                 py,
-                flow,
-                Some(addresses),
-                proc_id.parse().unwrap(),
-                Some(epoch_config),
-                recovery_config,
-                workers_per_process.into(),
-                false,
-            )?;
-        } else {
-            let mut ps: Vec<_> = (0..processes)
-                .map(|proc_id| {
-                    let mut args = std::env::args();
-                    Command::new(args.next().unwrap())
-                        .env("__BYTEWAX_PROC_ID", proc_id.to_string())
-                        .args(args.collect::<Vec<String>>())
-                        .spawn()
-                        .unwrap()
-                })
-                .collect();
-            loop {
-                if ps.iter_mut().all(|ps| match ps.try_wait() {
-                    Ok(None) => false,
-                    _ => true,
-                }) {
-                    break;
+                &file_path.into(),
+                &dataflow_name,
+                dataflow_args.unwrap_or(vec![]),
+            )?,
+        )?;
+        cluster_main(
+            py,
+            flow,
+            Some(addresses),
+            proc_id.parse().unwrap(),
+            Some(epoch_config),
+            recovery_config,
+            workers_per_process.into(),
+        )?;
+    } else {
+        let mut ps: Vec<_> = (0..processes)
+            .map(|proc_id| {
+                let mut args = std::env::args();
+                Command::new(args.next().unwrap())
+                    .env("__BYTEWAX_PROC_ID", proc_id.to_string())
+                    // cluster_main won't run if we don't add this flag.
+                    .env("__BYTEWAX_RUN", "true".to_string())
+                    .args(args.collect::<Vec<String>>())
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        loop {
+            if ps.iter_mut().all(|ps| match ps.try_wait() {
+                Ok(None) => false,
+                _ => true,
+            }) {
+                break;
+            }
+            let check = Python::with_gil(|py| py.check_signals());
+            if check.is_err() {
+                for process in ps.iter_mut() {
+                    process.kill()?;
                 }
-                let check = Python::with_gil(|py| py.check_signals());
-                if check.is_err() {
-                    for process in ps.iter_mut() {
-                        process.kill()?;
-                    }
-                    // The ? here will always exit since we just checked
-                    // that `check` is Result::Err.
-                    check
-                        .reraise("interrupt signal received, all processes have been shut down")?;
-                }
+                // The ? here will always exit since we just checked
+                // that `check` is Result::Err.
+                check.reraise("interrupt signal received, all processes have been shut down")?;
             }
         }
     }
     Ok(())
 }
 
+/// Check the __spec__ variable (https://docs.python.org/3/reference/import.html#spec__)
+/// If __spec__.name == "bytewax.run" it means the module was called from there.
+fn is_in_bytewax_run(py: Python) -> PyResult<bool> {
+    // This call should never fail, since it should return
+    // None if __spec__ doesn't exists, so we can unwrap.
+    let spec = py.eval("__spec__", None, None).unwrap();
+
+    // if `__spec__` is None, this is not during an import.
+    // if `__spec__.name` is "bytewax.run", this was called from there.
+    Ok(!spec.is_none()
+        && spec
+            .getattr("name")
+            // If we can't get __spec__.name, it means this function is being
+            // imported in a custom way.
+            .raise::<PyRuntimeError>("error getting `__spec__.name`")?
+            .to_string()
+            == "bytewax.run")
+}
+
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_main, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
-    m.add_function(wrap_pyfunction!(run, m)?)?;
+    m.add_function(wrap_pyfunction!(spawn_cluster, m)?)?;
     Ok(())
 }

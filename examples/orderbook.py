@@ -3,9 +3,8 @@ import json
 # pip install websocket-client
 from websocket import create_connection
 
-from bytewax import parse
 from bytewax.dataflow import Dataflow
-from bytewax.execution import spawn_cluster
+from bytewax.execution import run_main
 from bytewax.inputs import PartitionedInput
 from bytewax.outputs import StdOutputConfig
 
@@ -129,5 +128,5 @@ flow.filter(
 )  # filter on 0.1% spread as a per
 flow.capture(StdOutputConfig())
 
-# if __name__ == "__main__":
-#     spawn_cluster(flow, **parse.cluster_args())
+if __name__ == "__main__":
+    run_main(flow)

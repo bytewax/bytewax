@@ -4,8 +4,6 @@ from bytewax.testing import TestingInput
 
 
 def double(x):
-    import time
-    time.sleep(0.1)
     return x * 2
 
 
@@ -18,7 +16,7 @@ def stringy(x):
 
 
 flow = Dataflow()
-flow.input("inp", TestingInput(range(20)))
+flow.input("inp", TestingInput(range(10)))
 flow.map(double)
 flow.map(minus_one)
 flow.map(stringy)

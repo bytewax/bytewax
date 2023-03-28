@@ -3,7 +3,6 @@ This is an example dataflow that uses all the operators.
 """
 
 from datetime import timedelta, datetime, timezone
-from collections import defaultdict
 
 from bytewax.execution import run_main
 from bytewax.dataflow import Dataflow
@@ -12,8 +11,7 @@ from bytewax.inputs import StatelessSource, DynamicInput, EmptySource
 from bytewax.window import TumblingWindow, SystemClockConfig, SessionWindow
 from bytewax.tracing import setup_tracing
 
-
-tracer = setup_tracing()
+tracer = setup_tracing(log_level="DEBUG")
 
 
 class NumberSource(StatelessSource):
@@ -75,16 +73,19 @@ def reduce_is_complete(x):
 
 
 def folder_builder():
-    return defaultdict(lambda: 0)
+    return {}
 
 
 def folder_op(acc, x):
-    acc[x[0]] += 1
+    if x[0] in acc:
+        acc[x[0]] += 1
+    else:
+        acc[x[0]] = 1
     return acc
 
 
 def reduce_window_op(count, event_count):
-    return count + event_count
+    return count, event_count
 
 
 def stateful_map_builder():
@@ -100,7 +101,7 @@ def stringify(x):
 
 
 flow = Dataflow()
-flow.input("inp", NumberInput(3))
+flow.input("inp", NumberInput(10))
 # Stateless operators
 flow.filter(filter_op)
 flow.filter_map(filter_map_op)
