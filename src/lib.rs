@@ -12,6 +12,7 @@ pub(crate) mod operators;
 pub(crate) mod outputs;
 pub(crate) mod pyo3_extensions;
 pub(crate) mod recovery;
+pub(crate) mod timely;
 pub(crate) mod tracing;
 pub(crate) mod webserver;
 pub(crate) mod window;

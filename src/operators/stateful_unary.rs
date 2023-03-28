@@ -23,8 +23,8 @@ use timely::{
     Data, ExchangeData,
 };
 
-use crate::recovery::model::*;
-use crate::recovery::operators::Route;
+use crate::{recovery::model::*, timely::FrontierEx};
+use crate::{recovery::operators::Route, timely::InBuffer};
 
 // Re-export for convenience. If you want to write a stateful
 // operator, just use * this module.
@@ -238,7 +238,7 @@ where
             // have new data; pull out of here in epoch order to
             // process. This spans activations and will have epochs
             // removed from it as the input frontier progresses.
-            let mut incoming_buffer: HashMap<S::Timestamp, Vec<(StateKey, V)>> = HashMap::new();
+            let mut inbuf = InBuffer::new();
             // Persistent across activations buffer of what keys were
             // awoken during the most recent epoch. This is used to
             // only snapshot state of keys that could have resulted in
@@ -250,9 +250,6 @@ where
             // once, then drain and re-use each activation of this
             // operator.
 
-            // Timely requires us to swap incoming data into a buffer
-            // we own. This is drained and re-used each activation.
-            let mut tmp_incoming: Vec<(StateKey, V)> = Vec::new();
             // Temp ordered set of epochs that can be processed
             // because all their input has been finalized or it's the
             // frontier epoch. This is filled from buffered data and
@@ -264,10 +261,6 @@ where
             let mut tmp_awake_logic_with: Vec<(StateKey, Poll<Option<V>>)> = Vec::new();
 
             move |input_frontiers| {
-                // Will there be no more data?
-                let eof = input_frontiers.iter().all(|f| f.is_empty());
-                let is_closed = |e: &S::Timestamp| input_frontiers.iter().all(|f| !f.less_equal(e));
-
                 if let (Some(output_cap), Some(state_update_cap)) =
                     (output_cap.as_mut(), change_cap.as_mut())
                 {
@@ -281,13 +274,7 @@ where
                     // state cache in epoch order.
                     input_handle.for_each(|cap, incoming| {
                         let epoch = cap.time();
-                        assert!(tmp_incoming.is_empty());
-                        incoming.swap(&mut tmp_incoming);
-
-                        incoming_buffer
-                            .entry(*epoch)
-                            .or_insert_with(Vec::new)
-                            .append(&mut tmp_incoming);
+                        inbuf.extend(*epoch, incoming);
                     });
 
                     // TODO: Is this the right way to get the epoch
@@ -296,9 +283,7 @@ where
                     // this. Is the current capability reasonable for
                     // when the frontiers are closed?
                     let frontier_epoch = input_frontiers
-                        .iter()
-                        .flat_map(|mf| mf.frontier().iter().min().cloned())
-                        .min()
+                        .simplify()
                         .unwrap_or_else(|| *output_cap.time());
 
                     // Now let's find out which epochs we should wake
@@ -310,13 +295,15 @@ where
                     // closed. Thus, we haven't run the "epoch closed"
                     // code yet. Make sure that close code is run if
                     // that epoch is now closed on this activation.
-                    tmp_closed_epochs.extend(Some(*output_cap.time()).filter(is_closed));
+                    tmp_closed_epochs
+                        .extend(Some(*output_cap.time()).filter(|e| input_frontiers.is_closed(e)));
                     // Try to process all the epochs we have input
                     // for. Filter out epochs that are not closed; the
                     // state at the beginning of those epochs are not
                     // truly known yet, so we can't apply input in
                     // those epochs yet.
-                    tmp_closed_epochs.extend(incoming_buffer.keys().cloned().filter(is_closed));
+                    tmp_closed_epochs
+                        .extend(inbuf.epochs().filter(|e| input_frontiers.is_closed(e)));
                     // Eagerly execute the current frontier (even
                     // though it's not closed).
                     tmp_closed_epochs.insert(frontier_epoch);
@@ -332,7 +319,7 @@ where
                         output_cap.downgrade(epoch);
                         state_update_cap.downgrade(epoch);
 
-                        let incoming_state_key_values = incoming_buffer.remove(epoch);
+                        let incoming_state_key_values = inbuf.remove(epoch);
 
                         // Now let's find all the key-value pairs to
                         // awaken logic with.
@@ -347,7 +334,7 @@ where
 
                         // Then extend the values with any "awake"
                         // activations after the input.
-                        if eof {
+                        if input_frontiers.is_eof() {
                             // If this is the last activation, signal
                             // that all keys have
                             // terminated. Repurpose
@@ -429,7 +416,7 @@ where
                         // ignore it here. Snapshot and output state
                         // changes. Remove will ensure we slowly drain
                         // the buffer.
-                        if is_closed(epoch) {
+                        if input_frontiers.is_closed(epoch) {
                             for state_key in awoken_keys_buffer.drain() {
                                 let logic = current_logic
                                     .remove(&state_key)
@@ -484,7 +471,7 @@ where
                     }
                 }
 
-                if eof {
+                if input_frontiers.is_eof() {
                     output_cap = None;
                     change_cap = None;
                 }
