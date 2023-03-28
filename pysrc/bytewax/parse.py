@@ -9,60 +9,6 @@ from typing import Any, Dict, Iterable
 LOG_LEVELS = ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"]
 
 
-def cluster_args(args: Iterable[str] = None) -> Dict[str, Any]:
-    """Parse command line arguments to generate arguments for
-    `bytewax.run_cluster()`.
-
-    See documentation for `bytewax.run_cluster()` for semantics of
-    these variables.
-
-    >>> from bytewax import Dataflow, run_cluster
-    >>> from bytewax.testing import doctest_ctx
-    >>> flow = Dataflow()
-    >>> flow.capture()
-    >>> args = "-w2 -n2".split()
-    >>> out = run_cluster(
-    ...     flow,
-    ...     enumerate(range(3)),
-    ...     mp_ctx=doctest_ctx,
-    ...     **cluster_args(args),
-    ... )
-    >>> sorted(out)
-    [(0, 0), (1, 1), (2, 2)]
-
-    Args:
-
-        args: List of arguments to parse. Defaults to `sys.argv`.
-
-    Returns:
-
-        kwargs to pass to `bytewax.run_cluster()`.
-
-    """
-    p = ArgumentParser()
-    p.add_argument(
-        "-w",
-        dest="worker_count_per_proc",
-        type=int,
-        help="Number of worker threads per process",
-        default=1,
-    )
-    p.add_argument(
-        "-n",
-        dest="proc_count",
-        type=int,
-        help="Number of processes to start",
-        default=1,
-    )
-    out = p.parse_args(args)
-
-    kwargs = {
-        "proc_count": out.proc_count,
-        "worker_count_per_proc": out.worker_count_per_proc,
-    }
-    return kwargs
-
-
 def proc_env(env: Dict[str, str] = os.environ) -> Dict[str, Any]:
     """Parse environment variables to generate arguments for
     `bytewax.cluster_main()` when you are manually launching a

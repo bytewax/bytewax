@@ -78,7 +78,7 @@ command line tool which facilitates running a dataflow on Kubernetes.
 from bytewax.dataflow import Dataflow
 from bytewax.execution import cluster_main
 from bytewax.connectors.stdio import StdOutput
-from bytewax.testing import doctest_ctx, TestingInput
+from bytewax.testing import TestingInput
 
 flow = Dataflow()
 flow.input("inp", TestingInput(range(3)))
@@ -130,7 +130,7 @@ when executing it with `bytewax.run`:
 ```python doctest:SORT_OUTPUT
 from bytewax.execution import run_main
 from bytewax.dataflow import Dataflow
-from bytewax.testing import doctest_ctx, TestingInput
+from bytewax.testing import TestingInput
 from bytewax.connectors.stdio import StdOutput
 
 flow = Dataflow()

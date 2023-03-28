@@ -1,6 +1,5 @@
 """Helper tools for testing dataflows.
 """
-import multiprocessing.dummy
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from threading import Lock
@@ -74,11 +73,6 @@ class TestingOutput(DynamicOutput):
     Can support at-least-once processing. The list is not cleared
     between executions.
 
-    Be careful using this in multi-worker executions: all workers will
-    write to the same list. You'll probably want to use
-    `multiprocessing.Manager.List` to ensure all worker's writes are
-    visible in the test process.
-
     Args:
 
         ls: List to append to.
@@ -141,29 +135,3 @@ def test_print(*args, **kwargs):
     """
     with _print_lock:
         print(*args, flush=True, **kwargs)
-
-
-doctest_ctx = multiprocessing.dummy
-"""Use this `multiprocessing` context when running in doctests.
-
-Pass to `bytewax.spawn_cluster()` and `bytewax.run_cluster()`.
-
-Spawning subprocesses is fraught in doctest contexts, so use this to
-demonstrate the API works, but not actually run via multiple
-processes. We have other normal `pytest` tests which actually test
-behavior. Don't worry.
-
-"""
-
-
-@contextmanager
-def _Manager():
-    """`multiprocessing.dummy.Manager()` doesn't support being a context
-    manager like a real `multiprocessing.Manager()` does... So let's
-    monkey patch it.
-
-    """
-    yield doctest_ctx
-
-
-doctest_ctx.Manager = _Manager

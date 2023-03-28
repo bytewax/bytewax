@@ -1,15 +1,4 @@
-from bytewax.parse import cluster_args, proc_args, proc_env
-
-
-def test_cluster_args():
-    args = ["-w2", "-n2"]
-
-    found = cluster_args(args)
-
-    assert found == {
-        "worker_count_per_proc": 2,
-        "proc_count": 2,
-    }
+from bytewax.parse import proc_args, proc_env
 
 
 def test_proc_args():
