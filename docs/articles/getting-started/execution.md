@@ -122,8 +122,13 @@ you pass the python file as an argument to `bytewax.execution.run`:
 python -m bytewax.run dataflow.py
 ```
 
+See `python -m bytewax.run --help` for all the possible options.
+
+If you manually call `run_main` inside the file, it will be ignored
+when executing it with `bytewax.run`:
+
 ```python doctest:SORT_OUTPUT
-from bytewax.run import run
+from bytewax.execution import run_main
 from bytewax.dataflow import Dataflow
 from bytewax.testing import doctest_ctx, TestingInput
 from bytewax.connectors.stdio import StdOutput
@@ -133,6 +138,7 @@ flow.input("inp", TestingInput(range(3)))
 flow.map(lambda item: item + 1)
 flow.output("out", StdOutput())
 
+# This will be called but won't run the dataflow, the script will.
 run_main(flow)
 ```
 

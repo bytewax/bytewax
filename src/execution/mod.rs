@@ -874,18 +874,18 @@ pub(crate) fn cluster_main(
                 .unwrap_or_else(|err| eprintln!("Error printing error (that's not good): {err}"));
         }));
 
-        let guards = timely::execute::execute_from::<_, PyResult<()>, _>(
+        let guards = timely::execute::execute_from::<_, (), _>(
             builders,
             other,
             timely::WorkerConfig::default(),
             move |worker| {
-                worker_main(
+                unwrap_any!(worker_main(
                     worker,
                     &should_shutdown_w,
                     flow.clone(),
                     epoch_interval.clone(),
                     recovery_config.clone(),
-                )
+                ))
             },
         )
         .raise::<PyRuntimeError>("error during execution")?;
@@ -912,7 +912,7 @@ pub(crate) fn cluster_main(
             // do graceful shutdown.
             maybe_worker_panic.map_err(|_| {
                 tracked_err::<PyRuntimeError>("Worker thread died; look for errors above")
-            })??;
+            })?;
         }
 
         Ok(())

@@ -69,7 +69,7 @@ def test_cluster_can_be_ctrl_c():
             "2",
             # Set epoch interval to 0 so that the output
             # is written to the file as soon as possible
-            "-s",
+            "--epoch-interval",
             "0",
         ],
         # Use PIPE to check the content of stdout
