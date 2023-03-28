@@ -115,7 +115,7 @@ impl NoopRecoveryConfig {
 ///   your execution entry point.
 #[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
 #[pyo3(text_signature = "(db_dir)")]
-pub(crate) struct SqliteRecoveryConfig {
+struct SqliteRecoveryConfig {
     #[pyo3(get)]
     db_dir: PathBuf,
 }
@@ -181,7 +181,7 @@ impl SqliteRecoveryConfig {
 ///   your execution entry point.
 #[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
 #[pyo3(text_signature = "(brokers, topic_prefix)")]
-pub(crate) struct KafkaRecoveryConfig {
+struct KafkaRecoveryConfig {
     #[pyo3(get)]
     brokers: Vec<String>,
     #[pyo3(get)]
