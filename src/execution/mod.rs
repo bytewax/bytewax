@@ -16,7 +16,7 @@
 
 mod runner;
 
-use runner::Runner;
+use runner::DataflowRunner;
 use timely::dataflow::operators::{Concatenate, Filter, Inspect, Map, ResultStream, ToStream};
 
 use crate::dataflow::{Dataflow, Step};
@@ -35,17 +35,11 @@ use crate::recovery::dataflows::attach_recovery_to_dataflow;
 use crate::recovery::model::{
     Change, KChange, KWriter, ProgressMsg, ProgressWriter, ResumeFrom, StateWriter, WorkerKey,
 };
-use crate::recovery::python::{
-    build_recovery_readers, build_recovery_writers, default_recovery_config,
-};
 use crate::recovery::{
-    dataflows::{build_progress_loading_dataflow, build_state_loading_dataflow},
-    model::{FlowStateBytes, ProgressReader, ResumeEpoch, StateReader},
+    model::FlowStateBytes,
     python::RecoveryConfig,
     store::in_mem::{InMemProgress, StoreSummary},
 };
-use crate::unwrap_any;
-use crate::webserver::run_webserver;
 use crate::window::clock::ClockBuilder;
 use crate::window::{StatefulWindowUnary, WindowBuilder};
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
@@ -54,13 +48,9 @@ use pyo3::types::{PyString, PyTuple};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use timely::communication::Allocate;
 use timely::dataflow::ProbeHandle;
-use timely::progress::Timestamp;
 use timely::worker::Worker;
 use tracing::span::EnteredSpan;
 
@@ -463,207 +453,6 @@ impl PeriodicSpan {
     }
 }
 
-/// Run a dataflow which uses sources until complete.
-fn run_until_done<A: Allocate, T: Timestamp>(
-    worker: &mut Worker<A>,
-    interrupt_flag: &AtomicBool,
-    probe: ProbeHandle<T>,
-) -> PyResult<()> {
-    let mut span = PeriodicSpan::new(Duration::from_secs(10));
-    while !interrupt_flag.load(Ordering::Relaxed) && !probe.done() {
-        worker.step();
-        span.update();
-        let check = Python::with_gil(|py| py.check_signals());
-        if check.is_err() {
-            interrupt_flag.store(true, Ordering::Relaxed);
-            // The ? here will always exit since we just checked
-            // that `check` is Result::Err.
-            check.reraise("interrupt signal received")?;
-        }
-    }
-    Ok(())
-}
-
-fn build_and_run_progress_loading_dataflow<A, R>(
-    worker: &mut Worker<A>,
-    interrupt_flag: &AtomicBool,
-    progress_reader: R,
-) -> PyResult<InMemProgress>
-where
-    A: Allocate,
-    R: ProgressReader + 'static,
-{
-    let (probe, progress_store) = build_progress_loading_dataflow(worker, progress_reader);
-
-    run_until_done(worker, interrupt_flag, probe)?;
-
-    let resume_progress = Rc::try_unwrap(progress_store)
-        .expect("Resume epoch dataflow still has reference to progress_store")
-        .into_inner();
-
-    Ok(resume_progress)
-}
-
-fn build_and_run_state_loading_dataflow<A, R>(
-    worker: &mut Worker<A>,
-    interrupt_flag: &AtomicBool,
-    resume_epoch: ResumeEpoch,
-    state_reader: R,
-) -> PyResult<(FlowStateBytes, StoreSummary)>
-where
-    A: Allocate,
-    R: StateReader + 'static,
-{
-    let (probe, resume_state, summary) =
-        build_state_loading_dataflow(worker, state_reader, resume_epoch);
-
-    run_until_done(worker, interrupt_flag, probe)?;
-
-    Ok((
-        Rc::try_unwrap(resume_state)
-            .expect("State loading dataflow still has reference to resume_state")
-            .into_inner(),
-        Rc::try_unwrap(summary)
-            .expect("State loading dataflow still has reference to summary")
-            .into_inner(),
-    ))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn build_and_run_production_dataflow<A, PW, SW>(
-    worker: &mut Worker<A>,
-    interrupt_flag: &AtomicBool,
-    flow: Py<Dataflow>,
-    epoch_interval: EpochInterval,
-    resume_from: ResumeFrom,
-    resume_state: FlowStateBytes,
-    resume_progress: InMemProgress,
-    store_summary: StoreSummary,
-    progress_writer: PW,
-    state_writer: SW,
-) -> PyResult<()>
-where
-    A: Allocate,
-    PW: ProgressWriter + 'static,
-    SW: StateWriter + 'static,
-{
-    let span = tracing::trace_span!("Building dataflow").entered();
-
-    // Avoid initializing the tokio runtime for the webserver if we don't need it.
-    let rt = if worker.index() == 0 && std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
-        Some(unwrap_any!(tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("webserver-threads")
-            .enable_all()
-            .build()
-            .raise::<PyRuntimeError>(
-                "error initializing tokio runtime for webserver"
-            )))
-    } else {
-        None
-    };
-
-    let probe = Python::with_gil(|py| {
-        if let Some(rt) = rt {
-            let df = flow.extract(py).unwrap();
-            rt.spawn(run_webserver(df));
-        }
-
-        build_production_dataflow(
-            py,
-            worker,
-            flow,
-            epoch_interval,
-            resume_from,
-            resume_state,
-            resume_progress,
-            store_summary,
-            progress_writer,
-            state_writer,
-        )
-        .reraise("error building Dataflow")
-    })?;
-    span.exit();
-
-    run_until_done(worker, interrupt_flag, probe).reraise("error running Dataflow")?;
-
-    Ok(())
-}
-
-fn worker_main<A: Allocate>(
-    worker: &mut Worker<A>,
-    interrupt_flag: &AtomicBool,
-    flow: Py<Dataflow>,
-    epoch_interval: Option<EpochInterval>,
-    recovery_config: Option<Py<RecoveryConfig>>,
-) -> PyResult<()> {
-    let worker_index = worker.index();
-    let worker_count = worker.peers();
-
-    tracing::info!("Worker {worker_index:?} of {worker_count:?} starting up");
-
-    let epoch_interval = epoch_interval.clone().unwrap_or_default();
-    tracing::info!("Using epoch interval of {epoch_interval:?}");
-
-    let recovery_config = recovery_config
-        .clone()
-        .unwrap_or_else(default_recovery_config);
-
-    let (progress_reader, state_reader) = Python::with_gil(|py| {
-        build_recovery_readers(py, worker_index, worker_count, recovery_config.clone())
-            .reraise("error building recovery readers")
-    })?;
-    let (progress_writer, state_writer) = Python::with_gil(|py| {
-        build_recovery_writers(py, worker_index, worker_count, recovery_config)
-            .reraise("error building recovery writers")
-    })?;
-
-    let span = tracing::trace_span!("Resume epoch").entered();
-    let resume_progress =
-        build_and_run_progress_loading_dataflow(worker, interrupt_flag, progress_reader)
-            .reraise("error while loading recovery progress")?;
-    span.exit();
-    let resume_from = resume_progress.resume_from();
-    tracing::info!("Calculated {resume_from:?}");
-
-    let span = tracing::trace_span!("State loading").entered();
-    let ResumeFrom(_ex, resume_epoch) = resume_from;
-    let (resume_state, store_summary) =
-        build_and_run_state_loading_dataflow(worker, interrupt_flag, resume_epoch, state_reader)
-            .reraise("error loading recovery state")?;
-    span.exit();
-
-    build_and_run_production_dataflow(
-        worker,
-        interrupt_flag,
-        flow,
-        epoch_interval,
-        resume_from,
-        resume_state,
-        resume_progress,
-        store_summary,
-        progress_writer,
-        state_writer,
-    )?;
-
-    shutdown_worker(worker);
-
-    tracing::info!("Worker {worker_index:?} of {worker_count:?} shut down");
-
-    Ok(())
-}
-
-/// Terminate all dataflows in this worker.
-///
-/// We need this because otherwise all of Timely's entry points
-/// (e.g. [`timely::execute::execute_from`]) wait until all work is
-/// complete and we will hang.
-fn shutdown_worker<A: Allocate>(worker: &mut Worker<A>) {
-    for dataflow_id in worker.installed_dataflows() {
-        worker.drop_dataflow(dataflow_id);
-    }
-}
-
 /// Get a Dataflow from a file_path.
 /// dataflow_builder is the accessor we use to get the dataflow object.
 /// It can represent either a variable or a callable.
@@ -672,7 +461,7 @@ fn shutdown_worker<A: Allocate>(worker: &mut Worker<A>) {
 fn get_flow(
     py: Python,
     file_path: &PathBuf,
-    dataflow_builder: &String,
+    dataflow_builder: &str,
     dataflow_args: Vec<String>,
 ) -> PyResult<Dataflow> {
     let util = py.import("importlib.util")?;
@@ -690,7 +479,7 @@ fn get_flow(
         .getattr("exec_module")
         .reraise("error importing dataflow file")?
         .call1((module,))?;
-    let dataflow_builder = PyString::new(py, &dataflow_builder);
+    let dataflow_builder = PyString::new(py, dataflow_builder);
     let builder = module.getattr(dataflow_builder)?;
     if builder.is_callable() {
         let tuple: &PyTuple = PyTuple::new(py, dataflow_args);
@@ -769,7 +558,7 @@ pub(crate) fn run_main(
             Remove or comment the line.",
         ));
     }
-    Runner::new(flow, 1, 1, epoch_interval, recovery_config).simple(py)
+    DataflowRunner::new(flow, 1, 1, epoch_interval, recovery_config).simple(py)
 }
 
 /// Execute a dataflow in the current process as part of a cluster.
@@ -845,7 +634,7 @@ pub(crate) fn cluster_main(
             bytewax.run. Remove or comment the line",
         ));
     }
-    Runner::new(
+    DataflowRunner::new(
         flow,
         1,
         worker_count_per_proc,
@@ -881,10 +670,10 @@ pub(crate) fn spawn_cluster(
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
     if !is_in_bytewax_run(py)? {
-        return Err(tracked_err::<PyRuntimeError>(&format!(
+        return Err(tracked_err::<PyRuntimeError>(
             "You shouldn't use spawn_cluster directly, \
-            see `python -m bytewax.run --help` instead"
-        )));
+            see `python -m bytewax.run --help` instead",
+        ));
     }
     let epoch_interval = epoch_interval.map(|dur| EpochInterval::new(Duration::from_secs_f64(dur)));
 
@@ -892,13 +681,13 @@ pub(crate) fn spawn_cluster(
         py,
         get_flow(
             py,
-            &file_path.into(),
+            &file_path,
             &dataflow_builder,
             dataflow_args.unwrap_or(vec![]),
         )?,
     )?;
 
-    Runner::new(
+    DataflowRunner::new(
         flow,
         processes.unwrap_or(1),
         workers_per_process.unwrap_or(1),

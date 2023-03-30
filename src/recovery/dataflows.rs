@@ -40,8 +40,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use timely::dataflow::{operators::*, Scope};
-use timely::{communication::Allocate, dataflow::ProbeHandle, worker::Worker};
+use timely::dataflow::{operators::*, ProbeHandle, Scope};
 
 use super::model::*;
 use super::operators::*;
@@ -92,86 +91,4 @@ pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
     // Rate limit the whole dataflow on GC, not just on main
     // execution.
     gc_clock.probe_with(probe);
-}
-
-/// Compile a dataflow which loads the progress data from the previous
-/// cluster.
-///
-/// Each resume cluster worker is assigned to read the entire progress
-/// data from some previous cluster worker.
-///
-/// Read state out of the cell once the probe is done. Each resume
-/// cluster worker will have the progress info of all workers in the
-/// previous cluster.
-#[allow(clippy::type_complexity)]
-pub(crate) fn build_progress_loading_dataflow<A, R>(
-    timely_worker: &mut Worker<A>,
-    // TODO: Allow multiple (or none) FrontierReaders so you can recover a
-    // different-sized cluster.
-    reader: R,
-) -> (ProbeHandle<()>, Rc<RefCell<InMemProgress>>)
-where
-    A: Allocate,
-    R: ProgressReader + 'static,
-{
-    let count = WorkerCount(timely_worker.peers());
-
-    timely_worker.dataflow(|scope| {
-        let mut probe = ProbeHandle::new();
-        let resume_progress = Rc::new(RefCell::new(InMemProgress::new(count)));
-
-        read(scope, reader, &probe)
-            .broadcast_write(resume_progress.clone())
-            .probe_with(&mut probe);
-
-        (probe, resume_progress)
-    })
-}
-
-/// Compile a dataflow which loads state data from the previous
-/// cluster.
-///
-/// Loads up to, but not including, the resume epoch, since the resume
-/// epoch is where input will begin during this recovered cluster.
-///
-/// Read state out of the cells once the probe is done.
-#[allow(clippy::type_complexity)]
-pub(crate) fn build_state_loading_dataflow<A, R>(
-    timely_worker: &mut Worker<A>,
-    reader: R,
-    resume_epoch: ResumeEpoch,
-) -> (
-    ProbeHandle<u64>,
-    Rc<RefCell<FlowStateBytes>>,
-    Rc<RefCell<StoreSummary>>,
-)
-where
-    A: Allocate,
-    R: StateReader + 'static,
-{
-    timely_worker.dataflow(|scope| {
-        let mut probe = ProbeHandle::new();
-        let resume_state = Rc::new(RefCell::new(FlowStateBytes::new()));
-        let summary = Rc::new(RefCell::new(InMemStore::new()));
-
-        let store_change_stream = read(scope, reader, &probe);
-
-        store_change_stream
-            // The resume epoch is the epoch we are starting at,
-            // so only load state from before < that point. Not
-            // <=.
-            .filter(move |KChange(StoreKey(epoch, _flow_key), _change)| epoch.0 < resume_epoch.0)
-            .recover()
-            .write(resume_state.clone())
-            .probe_with(&mut probe);
-
-        // Might need to GC writes from some workers even if we
-        // shouldn't be loading any state.
-        store_change_stream
-            .summary()
-            .write(summary.clone())
-            .probe_with(&mut probe);
-
-        (probe, resume_state, summary)
-    })
 }

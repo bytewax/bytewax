@@ -95,7 +95,7 @@ impl<T> PythonException<T> for Result<T, opentelemetry::trace::TraceError> {
 
 impl<T> PythonException<T> for Result<T, String> {
     fn into_pyresult(self) -> PyResult<T> {
-        self.map_err(|err| PyErr::new::<PyException, _>(err.to_string()))
+        self.map_err(PyErr::new::<PyException, _>)
     }
 }
 
