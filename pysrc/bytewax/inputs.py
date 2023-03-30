@@ -178,7 +178,7 @@ class StatelessSource:
             StopIteration: When the source is complete.
 
         """
-        ...
+        raise NotImplementedError("StatelessSource subclass must implement next")
 
     def close(self) -> None:
         """Do any cleanup on this source when the dataflow completes
@@ -221,18 +221,4 @@ class DynamicInput(Input):
             Input source.
 
         """
-        ...
-
-
-class EmptySource(StatelessSource):
-    """A stateless source that immediately stops sending messages.
-
-    If you only want to get data on a specific worker, you
-    can use this input source for the rest of the workers.
-    """
-
-    def next(self):
-        raise StopIteration()
-
-    def close(self):
-        pass
+        raise NotImplementedError("DynamicInput subclass must implement build")

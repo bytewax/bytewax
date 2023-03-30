@@ -9,7 +9,7 @@ RUN python3.7 --version
 
 # Install pip and venv
 RUN apt-get update
-RUN apt install python3-pip -y 
+RUN apt install python3-pip -y
 RUN apt-get install python3.7-venv -y
 
 # Install cargo
@@ -75,5 +75,4 @@ RUN apt install python3.8-dev -y
 RUN apt install python3.9-dev -y
 RUN apt install python3.10-dev -y
 
-RUN pip install dill
 RUN apt install git -y

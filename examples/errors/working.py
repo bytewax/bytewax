@@ -6,34 +6,11 @@ from datetime import timedelta, datetime, timezone
 
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
-from bytewax.inputs import StatelessSource, DynamicInput, EmptySource
 from bytewax.window import TumblingWindow, SystemClockConfig, SessionWindow
 from bytewax.tracing import setup_tracing
+from bytewax.testing import TestingInput
 
 tracer = setup_tracing(log_level="INFO")
-
-
-class NumberSource(StatelessSource):
-    def __init__(self, max):
-        self.iterator = iter(range(max))
-
-    def next(self):
-        return next(self.iterator)
-
-    def close(self):
-        pass
-
-
-class NumberInput(DynamicInput):
-    def __init__(self, max):
-        self.max = max
-
-    def build(self, worker_index, worker_count):
-        # Only generate data on the first worker
-        if worker_index == 0:
-            return NumberSource(self.max)
-        else:
-            return EmptySource()
 
 
 def filter_op(x):
@@ -101,7 +78,7 @@ def stringify(x):
 
 def get_flow():
     flow = Dataflow()
-    flow.input("inp", NumberInput(10))
+    flow.input("inp", TestingInput(range(10)))
     # Stateless operators
     flow.filter(filter_op)
     flow.filter_map(filter_map_op)

@@ -160,8 +160,6 @@ Bytewax image includes a small number of modules installed:
 Package      Version
 ------------ ---------
 bytewax      0.8.0
-dill         0.3.4
-multiprocess 0.70.12.2
 pip          22.0.4
 setuptools   62.0.0
 wheel        0.37.1
