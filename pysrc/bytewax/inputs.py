@@ -53,7 +53,7 @@ class StatefulSource:
             StopIteration: When the source is complete.
 
         """
-        ...
+        raise NotImplementedError("StatefulSource subclass must implement next")
 
     @abstractmethod
     def snapshot(self) -> Any:
@@ -114,7 +114,7 @@ class PartitionedInput(Input):
             Partition keys.
 
         """
-        ...
+        raise NotImplementedError("PartitionedInput subclass must implement list_parts")
 
     @abstractmethod
     def build_part(
@@ -153,7 +153,7 @@ class PartitionedInput(Input):
             The built partition, or `None`.
 
         """
-        ...
+        raise NotImplementedError("PartitionedInput subclass must implement build_part")
 
 
 # TODO: Add ABC superclass. It messes up pickling. We should get rid

@@ -665,31 +665,36 @@ fn shutdown_worker<A: Allocate>(worker: &mut Worker<A>) {
 }
 
 /// Get a Dataflow from a file_path.
-/// dataflow_name is the accessor we use to get the dataflow object.
+/// dataflow_builder is the accessor we use to get the dataflow object.
 /// It can represent either a variable or a callable.
 /// If it's a callable we call it with dataflow_args as arguments.
 /// The resulting object should be a Dataflow, or this will return a PyErr.
 fn get_flow(
     py: Python,
     file_path: &PathBuf,
-    dataflow_name: &String,
+    dataflow_builder: &String,
     dataflow_args: Vec<String>,
 ) -> PyResult<Dataflow> {
     let util = py.import("importlib.util")?;
     let spec_from_file_location = util.getattr("spec_from_file_location")?;
     let module_from_spec = util.getattr("module_from_spec")?;
 
-    let spec = spec_from_file_location.call(("__dataflow__", file_path), None)?;
+    let module_name = file_path
+        .file_stem()
+        // file_stem returns None if the path is a directory, we want a python file.
+        .ok_or_else(|| tracked_err::<PyRuntimeError>("the path passed has to be a python file"))?
+        .to_string_lossy();
+    let spec = spec_from_file_location.call((module_name, file_path), None)?;
     let module = module_from_spec.call1((spec,))?;
     spec.getattr("loader")?
         .getattr("exec_module")
         .reraise("error importing dataflow file")?
         .call1((module,))?;
-    let dataflow_name = PyString::new(py, &dataflow_name);
-    let flow_getter = module.getattr(dataflow_name)?;
-    if flow_getter.is_callable() {
+    let dataflow_builder = PyString::new(py, &dataflow_builder);
+    let builder = module.getattr(dataflow_builder)?;
+    if builder.is_callable() {
         let tuple: &PyTuple = PyTuple::new(py, dataflow_args);
-        flow_getter.call(tuple, None)?.extract::<Dataflow>()
+        builder.call(tuple, None)?.extract::<Dataflow>()
     } else {
         Err(tracked_err::<PyRuntimeError>(
             "the dataflow getter function is not a function",
@@ -760,8 +765,8 @@ pub(crate) fn run_main(
 ) -> PyResult<()> {
     if is_in_bytewax_run(py)? {
         return Err(tracked_err::<PyRuntimeError>(
-            "run_main detected while importing dataflow in bytewax.run. \
-            Remove or comment the line",
+            "run_main call detected while importing dataflow in bytewax.run. \
+            Remove or comment the line.",
         ));
     }
     Runner::new(flow, 1, 1, epoch_interval, recovery_config).simple(py)
@@ -860,7 +865,7 @@ pub(crate) fn cluster_main(
     "*",
     processes = 1,
     workers_per_process = 1,
-    dataflow_name = "String::from(\"flow\")",
+    dataflow_builder = "String::from(\"get_flow\")",
     dataflow_args = "None",
     epoch_interval = "None",
     recovery_config = "None"
@@ -868,7 +873,7 @@ pub(crate) fn cluster_main(
 pub(crate) fn spawn_cluster(
     py: Python,
     file_path: PathBuf,
-    dataflow_name: String,
+    dataflow_builder: String,
     dataflow_args: Option<Vec<String>>,
     processes: Option<usize>,
     workers_per_process: Option<usize>,
@@ -888,7 +893,7 @@ pub(crate) fn spawn_cluster(
         get_flow(
             py,
             &file_path.into(),
-            &dataflow_name,
+            &dataflow_builder,
             dataflow_args.unwrap_or(vec![]),
         )?,
     )?;

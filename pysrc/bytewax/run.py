@@ -13,18 +13,16 @@ def _parse_args():
     parser.add_argument("file_path", metavar="FILE_PATH", type=pathlib.Path)
     parser.add_argument(
         "-d",
-        "--dataflow-name",
+        "--dataflow-builder",
         type=str,
-        default="flow",
-        help="Name of the Dataflow getter. "
-        "Either a variable or a function name in the Python file",
+        default="get_flow",
+        help="Name of the function that returns the Dataflow.",
     )
     parser.add_argument(
         "--dataflow-args",
         type=str,
         nargs="*",
-        help="Args for the dataflow getter function, "
-        "if --dataflow-name is a function",
+        help="Args for the dataflow builder function.",
     )
     scaling = parser.add_argument_group("Scaling")
     scaling.add_argument(
