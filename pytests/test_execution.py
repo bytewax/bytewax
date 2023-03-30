@@ -1,8 +1,8 @@
-import pathlib
 import subprocess
 import tempfile
 import signal
 
+from pathlib import Path
 from pytest import raises
 
 from bytewax.dataflow import Dataflow
@@ -43,12 +43,11 @@ def test_reraises_exception(entry_point):
 
 
 def test_cluster_can_be_ctrl_c():
-    """Test that we can stop cluster execution by sending SIGINT (ctrl+c).
-    """
+    """Test that we can stop cluster execution by sending SIGINT (ctrl+c)."""
     # Create a tmp file we can use to check the output
     tmp_file = tempfile.NamedTemporaryFile()
     # The dataflow we want to run is in ./test_flows/simple.py
-    flow_path = f"{pathlib.Path(__file__).parent.resolve()}/test_flows/simple.py"
+    flow_path = f"{Path(__file__).parent.resolve()}/test_flows/simple.py"
     process = subprocess.Popen(
         [
             "python",

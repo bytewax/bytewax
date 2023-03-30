@@ -4,18 +4,7 @@ We cause the crash by returning None in DynamicInput.build.
 """
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
-from bytewax.inputs import StatelessSource, DynamicInput
-
-
-class NumberSource(StatelessSource):
-    def __init__(self, max):
-        self.iterator = iter(range(max))
-
-    def next(self):
-        return next(self.iterator)
-
-    def close(self):
-        pass
+from bytewax.inputs import DynamicInput
 
 
 class NumberInput(DynamicInput):
@@ -25,21 +14,15 @@ class NumberInput(DynamicInput):
     def build(self, worker_index, worker_count):
         # XXX: Error here
         return None
-        # Should be:
-        # return NumberSource(self.max)
 
 
 def stringify(x):
     return f"{x}"
 
 
-flow = Dataflow()
-flow.input("inp", NumberInput(10))
-flow.map(stringify)
-flow.output("out", StdOutput())
-
-
-if __name__ == "__main__":
-    from bytewax.execution import run_main
-
-    run_main(flow)
+def get_flow():
+    flow = Dataflow()
+    flow.input("inp", NumberInput(10))
+    flow.map(stringify)
+    flow.output("out", StdOutput())
+    return flow

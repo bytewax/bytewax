@@ -32,13 +32,9 @@ def stringify(x):
     return f"{x}"
 
 
-flow = Dataflow()
-flow.input("inp", NumberInput(10))
-flow.map(stringify)
-flow.output("out", StdOutput())
-
-
-if __name__ == "__main__":
-    from bytewax.execution import run_main
-
-    run_main(flow)
+def get_flow():
+    flow = Dataflow()
+    flow.input("inp", NumberInput(10))
+    flow.map(stringify)
+    flow.output("out", StdOutput())
+    return flow

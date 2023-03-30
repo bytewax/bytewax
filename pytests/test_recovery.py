@@ -3,8 +3,7 @@ from datetime import timedelta
 from pytest import raises
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
-from bytewax.testing import TestingInput, TestingOutput
+from bytewax.testing import TestingInput, TestingOutput, run_main
 
 ZERO_TD = timedelta(seconds=0)
 

@@ -14,7 +14,7 @@ from pytest import fixture, mark, raises
 
 from bytewax.connectors.kafka import KafkaInput, KafkaOutput
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
+from bytewax.testing import run_main
 from bytewax.testing import poll_next, TestingInput, TestingOutput
 
 pytestmark = mark.skipif(

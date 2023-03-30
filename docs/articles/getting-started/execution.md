@@ -33,8 +33,7 @@ run your dataflow on a single worker in the current process.
 
 ```python doctest:SORT_OUTPUT
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
-from bytewax.testing import TestingInput
+from bytewax.testing import TestingInput, run_main
 from bytewax.connectors.stdio import StdOutput
 
 flow = Dataflow()
@@ -124,11 +123,11 @@ python -m bytewax.run dataflow.py
 
 See `python -m bytewax.run --help` for all the possible options.
 
-If you manually call `run_main` inside the file, it will be ignored
-when executing it with `bytewax.run`:
+You should remove/comment any call to `run_main` inside the file,
+or the dataflow will crash since the execution will be handled
+by the run script.
 
 ```python doctest:SORT_OUTPUT
-from bytewax.execution import run_main
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingInput
 from bytewax.connectors.stdio import StdOutput
@@ -137,13 +136,4 @@ flow = Dataflow()
 flow.input("inp", TestingInput(range(3)))
 flow.map(lambda item: item + 1)
 flow.output("out", StdOutput())
-
-# This will be called but won't run the dataflow, the script will.
-run_main(flow)
-```
-
-```{testoutput}
-1
-2
-3
 ```

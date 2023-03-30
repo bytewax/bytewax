@@ -1,12 +1,19 @@
 """Helper tools for testing dataflows.
 """
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Iterable
 
 from bytewax.inputs import PartitionedInput, StatefulSource
 from bytewax.outputs import DynamicOutput, StatelessSink
+
+from .bytewax import run_main
+
+__all__ = [
+    "run_main",
+    "TestingInput",
+    "TestingOutput",
+]
 
 
 class _IterSource(StatefulSource):

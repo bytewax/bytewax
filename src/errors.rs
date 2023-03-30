@@ -1,6 +1,9 @@
 use std::panic::Location;
 
-use pyo3::{exceptions::PyException, PyErr, PyResult, PyTypeInfo, Python};
+use pyo3::{
+    exceptions::{PyException, PyRuntimeError},
+    PyErr, PyResult, PyTypeInfo, Python,
+};
 
 /// A trait to build a python exception with a custom
 /// stacktrace from anything that can be converted into
@@ -39,7 +42,26 @@ pub(crate) trait PythonException<T> {
         let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
             Python::with_gil(|py| {
-                PyErr::from_type(err.get_type(py), build_message(py, caller, &err, msg))
+                // Python treats KeyError differently then others:
+                // the message is always quoted, so that in case the key
+                // is an empty string, you see:
+                //
+                //   KeyError: ''
+                //
+                // instead of:
+                //
+                //   KeyError:
+                //
+                // This means that our message will be quoted if we reraise
+                // it as it is. So in this case we raise a RuntimeError instead.
+                if err
+                    .get_type(py)
+                    .is(pyo3::types::PyType::new::<pyo3::exceptions::PyKeyError>(py))
+                {
+                    PyRuntimeError::new_err(build_message(py, caller, &err, msg))
+                } else {
+                    PyErr::from_type(err.get_type(py), build_message(py, caller, &err, msg))
+                }
             })
         })
     }

@@ -1,8 +1,9 @@
 import argparse
 import pathlib
 
-from bytewax.execution import spawn_cluster
 from bytewax.recovery import SqliteRecoveryConfig, KafkaRecoveryConfig
+
+from .bytewax import spawn_cluster
 
 
 def _parse_args():
@@ -14,8 +15,8 @@ def _parse_args():
         "-d",
         "--dataflow-name",
         type=str,
-        default="flow",
-        help="Name of the Dataflow variable",
+        default="get_flow",
+        help="Name of the Dataflow getter function",
     )
     parser.add_argument(
         "--dataflow-args",
@@ -28,14 +29,12 @@ def _parse_args():
         "-p",
         "--processes",
         type=int,
-        default=1,
         help="Number of separate processes to run",
     )
     scaling.add_argument(
         "-w",
         "--workers-per-process",
         type=int,
-        default=1,
         help="Number of workers for each process",
     )
     # Config options for recovery

@@ -23,7 +23,7 @@ from datetime import timedelta, datetime, timezone
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.files import FileInput
 from bytewax.connectors.stdio import StdOutput
-from bytewax.execution import run_main
+from bytewax.testing import run_main
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 

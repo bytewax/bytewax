@@ -85,7 +85,7 @@ impl NoopRecoveryConfig {
 /// Use a distinct directory per dataflow so recovery data is not
 /// mixed.
 ///
-/// >>> from bytewax.execution import run_main
+/// >>> from bytewax.testing import run_main
 /// >>> from bytewax.inputs import TestingInputConfig
 /// >>> from bytewax.outputs import StdOutputConfig
 /// >>> flow = Dataflow()
@@ -145,7 +145,7 @@ impl SqliteRecoveryConfig {
 /// Use a distinct topic prefix per dataflow so recovery data is not
 /// mixed.
 ///
-/// >>> from bytewax.execution import run_main
+/// >>> from bytewax.testing import run_main
 /// >>> from bytewax.inputs import TestingInputConfig
 /// >>> from bytewax.outputs import StdOutputConfig
 /// >>> flow = Dataflow()

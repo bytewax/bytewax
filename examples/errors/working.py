@@ -4,7 +4,6 @@ This is an example dataflow that uses all the operators.
 
 from datetime import timedelta, datetime, timezone
 
-from bytewax.execution import run_main
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
 from bytewax.inputs import StatelessSource, DynamicInput, EmptySource
@@ -100,26 +99,26 @@ def stringify(x):
     return f"{x}"
 
 
-flow = Dataflow()
-flow.input("inp", NumberInput(10))
-# Stateless operators
-flow.filter(filter_op)
-flow.filter_map(filter_map_op)
-flow.flat_map(flat_map_op)
-flow.inspect(inspect_op)
-flow.inspect_epoch(inspect_epoch_op)
-flow.map(map_op)
-# Stateful operators
-flow.reduce("reduce", reduce_op, reduce_is_complete)
-cc = SystemClockConfig()
-wc = TumblingWindow(
-    length=timedelta(seconds=1), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
-)
-flow.fold_window("fold_window", cc, wc, folder_builder, folder_op)
-wc = SessionWindow(gap=timedelta(seconds=1))
-flow.reduce_window("reduce_window", cc, wc, reduce_window_op)
-flow.stateful_map("stateful_map", stateful_map_builder, stateful_map_op)
-flow.map(stringify)
-flow.output("out", StdOutput())
-
-run_main(flow)
+def get_flow():
+    flow = Dataflow()
+    flow.input("inp", NumberInput(10))
+    # Stateless operators
+    flow.filter(filter_op)
+    flow.filter_map(filter_map_op)
+    flow.flat_map(flat_map_op)
+    flow.inspect(inspect_op)
+    flow.inspect_epoch(inspect_epoch_op)
+    flow.map(map_op)
+    # Stateful operators
+    flow.reduce("reduce", reduce_op, reduce_is_complete)
+    cc = SystemClockConfig()
+    wc = TumblingWindow(
+        length=timedelta(seconds=1), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+    )
+    flow.fold_window("fold_window", cc, wc, folder_builder, folder_op)
+    wc = SessionWindow(gap=timedelta(seconds=1))
+    flow.reduce_window("reduce_window", cc, wc, reduce_window_op)
+    flow.stateful_map("stateful_map", stateful_map_builder, stateful_map_op)
+    flow.map(stringify)
+    flow.output("out", StdOutput())
+    return flow

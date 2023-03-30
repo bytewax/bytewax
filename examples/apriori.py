@@ -5,9 +5,9 @@ from datetime import timedelta
 
 from bytewax.connectors.files import FileInput
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
 from bytewax.outputs import TestingOutputConfig
 from bytewax.window import SystemClockConfig, TumblingWindow
+from bytewax.testing import run_main
 
 
 def lower(line):
