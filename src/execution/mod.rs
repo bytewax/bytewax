@@ -14,41 +14,51 @@
 //! See [`crate::recovery`] for a description of the recovery
 //! components added to the Timely dataflow.
 
+mod runner;
+
+use runner::Runner;
+use timely::dataflow::operators::{Concatenate, Filter, Inspect, Map, ResultStream, ToStream};
+
 use crate::dataflow::{Dataflow, Step};
-use crate::errors::{prepend_tname, tracked_err, PythonException};
+use crate::errors::{tracked_err, PythonException};
+use crate::inputs::{DynamicInput, EpochInterval, PartitionedInput};
 use crate::operators::collect_window::CollectWindowLogic;
 use crate::operators::fold_window::FoldWindowLogic;
 use crate::operators::reduce::ReduceLogic;
 use crate::operators::reduce_window::ReduceWindowLogic;
 use crate::operators::stateful_map::StatefulMapLogic;
 use crate::operators::stateful_unary::StatefulUnary;
-use crate::operators::*;
-use crate::outputs::*;
+use crate::operators::{filter, flat_map, inspect, inspect_epoch, map};
+use crate::outputs::{DynamicOutputOp, PartitionedOutputOp};
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair};
-use crate::recovery::dataflows::*;
-use crate::recovery::model::*;
-use crate::recovery::python::*;
-use crate::recovery::store::in_mem::{InMemProgress, StoreSummary};
+use crate::recovery::dataflows::attach_recovery_to_dataflow;
+use crate::recovery::model::{
+    Change, KChange, KWriter, ProgressMsg, ProgressWriter, ResumeFrom, StateWriter, WorkerKey,
+};
+use crate::recovery::python::{
+    build_recovery_readers, build_recovery_writers, default_recovery_config,
+};
+use crate::recovery::{
+    dataflows::{build_progress_loading_dataflow, build_state_loading_dataflow},
+    model::{FlowStateBytes, ProgressReader, ResumeEpoch, StateReader},
+    python::RecoveryConfig,
+    store::in_mem::{InMemProgress, StoreSummary},
+};
+use crate::unwrap_any;
 use crate::webserver::run_webserver;
-use crate::window::WindowBuilder;
-use crate::window::{clock::ClockBuilder, StatefulWindowUnary};
-use crate::{inputs::*, unwrap_any};
-use pyo3::exceptions::{PyKeyboardInterrupt, PyRuntimeError, PyTypeError, PyValueError};
+use crate::window::clock::ClockBuilder;
+use crate::window::{StatefulWindowUnary, WindowBuilder};
+use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyString, PyTuple, PyType};
+use pyo3::types::{PyString, PyTuple};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 use timely::communication::Allocate;
-use timely::dataflow::operators::*;
 use timely::dataflow::ProbeHandle;
 use timely::progress::Timestamp;
 use timely::worker::Worker;
@@ -134,7 +144,6 @@ where
     // build asymmetry within each operator.
     worker.dataflow(|scope| {
         let flow = flow.as_ref(py).borrow();
-
         let mut probe = ProbeHandle::new();
 
         let mut inputs = Vec::new();
@@ -555,8 +564,8 @@ where
     };
 
     let probe = Python::with_gil(|py| {
-        let df = flow.extract(py).unwrap();
         if let Some(rt) = rt {
+            let df = flow.extract(py).unwrap();
             rt.spawn(run_webserver(df));
         }
 
@@ -581,18 +590,6 @@ where
     Ok(())
 }
 
-/// Terminate all dataflows in this worker.
-///
-/// We need this because otherwise all of Timely's entry points
-/// (e.g. [`timely::execute::execute_from`]) wait until all work is
-/// complete and we will hang.
-fn shutdown_worker<A: Allocate>(worker: &mut Worker<A>) {
-    for dataflow_id in worker.installed_dataflows() {
-        worker.drop_dataflow(dataflow_id);
-    }
-}
-
-/// What a worker thread should do during its lifetime.
 fn worker_main<A: Allocate>(
     worker: &mut Worker<A>,
     interrupt_flag: &AtomicBool,
@@ -605,10 +602,12 @@ fn worker_main<A: Allocate>(
 
     tracing::info!("Worker {worker_index:?} of {worker_count:?} starting up");
 
-    let epoch_interval = epoch_interval.unwrap_or_default();
+    let epoch_interval = epoch_interval.clone().unwrap_or_default();
     tracing::info!("Using epoch interval of {epoch_interval:?}");
 
-    let recovery_config = recovery_config.unwrap_or_else(default_recovery_config);
+    let recovery_config = recovery_config
+        .clone()
+        .unwrap_or_else(default_recovery_config);
 
     let (progress_reader, state_reader) = Python::with_gil(|py| {
         build_recovery_readers(py, worker_index, worker_count, recovery_config.clone())
@@ -654,260 +653,16 @@ fn worker_main<A: Allocate>(
     Ok(())
 }
 
-/// Dataflow runner
-struct Runner ;
-
-impl Runner {
-    /// Run a dataflow in a single worker on a single process
-    /// without setting up communication between processes.
-    pub fn simple(
-        py: Python,
-        flow: Py<Dataflow>,
-        epoch_interval: Option<EpochInterval>,
-        recovery_config: Option<Py<RecoveryConfig>>,
-    ) -> PyResult<()> {
-        let res = py.allow_threads(move || {
-            std::panic::catch_unwind(|| {
-                timely::execute::execute_directly::<(), _>(move |worker| {
-                    let interrupt_flag = AtomicBool::new(false);
-                    // The error will be reraised in the building phase.
-                    // If an error occur during the execution, it will
-                    // cause a panic since timely doesn't offer a way
-                    // to cleanly stop workers with a Result::Err.
-                    // The panic will be caught by catch_unwind, so we
-                    // unwrap with a PyErr payload.
-                    unwrap_any!(worker_main(
-                        worker,
-                        &interrupt_flag,
-                        flow,
-                        epoch_interval,
-                        recovery_config,
-                    )
-                    .reraise("worker error"))
-                })
-            })
-        });
-
-        res.map_err(|panic_err| {
-            // The worker panicked.
-            // Print an empty line to separate rust panick message from the rest.
-            eprintln!("");
-            if let Some(err) = panic_err.downcast_ref::<PyErr>() {
-                // Special case for keyboard interrupt.
-                if err.get_type(py).is(PyType::new::<PyKeyboardInterrupt>(py)) {
-                    tracked_err::<PyKeyboardInterrupt>(
-                        "interrupt signal received, all processes have been shut down",
-                    )
-                } else {
-                    // Panics with PyErr as payload should come from bytewax.
-                    err.clone_ref(py)
-                }
-            } else if let Some(msg) = panic_err.downcast_ref::<String>() {
-                // Panics with String payload usually comes from timely here.
-                tracked_err::<PyRuntimeError>(msg)
-            } else if let Some(msg) = panic_err.downcast_ref::<&str>() {
-                // Panic with &str payload, usually from a direct call to `panic!`
-                // or `.expect`
-                tracked_err::<PyRuntimeError>(msg)
-            } else {
-                // Give up trying to understand the error, and show the user
-                // a really helpful message.
-                // We could show the debug representation of `panic_err`, but
-                // it would just be `Any { .. }`
-                tracked_err::<PyRuntimeError>("unknown error")
-            }
-        })
+/// Terminate all dataflows in this worker.
+///
+/// We need this because otherwise all of Timely's entry points
+/// (e.g. [`timely::execute::execute_from`]) wait until all work is
+/// complete and we will hang.
+fn shutdown_worker<A: Allocate>(worker: &mut Worker<A>) {
+    for dataflow_id in worker.installed_dataflows() {
+        worker.drop_dataflow(dataflow_id);
     }
-
-    /// Run multiple processes with automated communication setup.
-    /// Can only run processes on the same machine.
-    pub(crate) fn cluster_multiple(
-        py: Python,
-        file_path: PathBuf,
-        dataflow_name: String,
-        dataflow_args: Option<Vec<String>>,
-        processes: Option<u8>,
-        workers_per_process: Option<u8>,
-        epoch_interval: Option<f64>,
-        recovery_config: Option<Py<RecoveryConfig>>,
-    ) -> PyResult<()> {
-        let proc_id = std::env::var("__BYTEWAX_PROC_ID").ok();
-        let epoch_interval = epoch_interval
-            .map(|dur| Duration::from_secs_f64(dur))
-            .unwrap_or_else(|| Duration::from_secs(10));
-        let epoch_config = EpochInterval::new(epoch_interval);
-
-        let flow = Py::new(
-            py,
-            Self::get_flow(
-                py,
-                &file_path.into(),
-                &dataflow_name,
-                dataflow_args.unwrap_or(vec![]),
-            )?,
-        )?;
-
-        if processes.is_none() && workers_per_process.is_none() {
-            Self::simple(py, flow, Some(epoch_config), recovery_config)
-        } else {
-            let processes = processes.unwrap_or(1);
-            let workers_per_process = workers_per_process.unwrap_or(1);
-            let addresses = (0..processes)
-                .map(|proc_id| format!("localhost:{}", proc_id as u64 + 2101))
-                .collect();
-
-            if let Some(proc_id) = proc_id {
-                Self::cluster_single(
-                    py,
-                    flow,
-                    Some(addresses),
-                    proc_id.parse().unwrap(),
-                    Some(epoch_config),
-                    recovery_config,
-                    workers_per_process.into(),
-                )?;
-            } else {
-                let mut ps: Vec<_> = (0..processes)
-                    .map(|proc_id| {
-                        let mut args = std::env::args();
-                        Command::new(args.next().unwrap())
-                            .env("__BYTEWAX_PROC_ID", proc_id.to_string())
-                            .args(args.collect::<Vec<String>>())
-                            .spawn()
-                            .unwrap()
-                    })
-                    .collect();
-                loop {
-                    if ps.iter_mut().all(|ps| match ps.try_wait() {
-                        Ok(None) => false,
-                        _ => true,
-                    }) {
-                        break;
-                    }
-
-                    let check = Python::with_gil(|py| py.check_signals());
-                    if check.is_err() {
-                        for process in ps.iter_mut() {
-                            process.kill()?;
-                        }
-
-                        // The ? here will always exit since we just checked
-                        // that `check` is Result::Err.
-                        check.reraise(
-                            "interrupt signal received, all processes have been shut down",
-                        )?;
-                    }
-                }
-            }
-            Ok(())
-        }
-    }
-
-    /// Run a single process with one or more workers.
-    /// Requires manual configuration of process id and addresses
-    /// of other processes.
-    pub(crate) fn cluster_single(
-        py: Python,
-        flow: Py<Dataflow>,
-        addresses: Option<Vec<String>>,
-        proc_id: usize,
-        epoch_interval: Option<EpochInterval>,
-        recovery_config: Option<Py<RecoveryConfig>>,
-        worker_count_per_proc: usize,
-    ) -> PyResult<()> {
-        py.allow_threads(move || {
-            let addresses = addresses.unwrap_or_default();
-            let (builders, other) = if addresses.is_empty() {
-                timely::CommunicationConfig::Process(worker_count_per_proc)
-            } else {
-                timely::CommunicationConfig::Cluster {
-                    threads: worker_count_per_proc,
-                    process: proc_id,
-                    addresses,
-                    report: false,
-                    log_fn: Box::new(|_| None),
-                }
-            }
-            .try_build()
-            .raise::<PyRuntimeError>("error building timely communication pipeline")?;
-
-            let should_shutdown = Arc::new(AtomicBool::new(false));
-            let should_shutdown_w = should_shutdown.clone();
-            let should_shutdown_p = should_shutdown.clone();
-
-            // Custom hook to print the proper stacktrace to stderr
-            // before panicking if possible.
-            std::panic::set_hook(Box::new(move |info| {
-                should_shutdown_p.store(true, Ordering::Relaxed);
-                let msg = if let Some(err) = info.payload().downcast_ref::<PyErr>() {
-                    // Panics with PyErr as payload should come from bytewax.
-                    Python::with_gil(|py| err.clone_ref(py))
-                } else if let Some(msg) = info.payload().downcast_ref::<String>() {
-                    // Panics with String payload usually comes from timely here.
-                    tracked_err::<PyRuntimeError>(msg)
-                } else if let Some(msg) = info.payload().downcast_ref::<&str>() {
-                    // Other kind of panics that can be downcasted to &str
-                    tracked_err::<PyRuntimeError>(msg)
-                } else {
-                    // Give up trying to understand the error,
-                    // and show the user what we have.
-                    tracked_err::<PyRuntimeError>(&format!("{info}"))
-                };
-                // Prepend the name of the thread to each line
-                let msg = prepend_tname(msg.to_string());
-                // Acquire stdout lock and write the string as bytes,
-                // so we avoid interleaving outputs from different threads (i think?).
-                let mut stderr = std::io::stderr().lock();
-                stderr.write_all(msg.as_bytes()).unwrap_or_else(|err| {
-                    eprintln!("Error printing error (that's not good): {err}")
-                });
-            }));
-
-            let guards = timely::execute::execute_from::<_, (), _>(
-                builders,
-                other,
-                timely::WorkerConfig::default(),
-                move |worker| {
-                    unwrap_any!(worker_main(
-                        worker,
-                        &should_shutdown_w,
-                        flow.clone(),
-                        epoch_interval.clone(),
-                        recovery_config.clone(),
-                    ))
-                },
-            )
-            .raise::<PyRuntimeError>("error during execution")?;
-
-            // Recreating what Python does in Thread.join() to "block"
-            // but also check interrupt handlers.
-            // https://github.com/python/cpython/blob/204946986feee7bc80b233350377d24d20fcb1b8/Modules/_threadmodule.c#L81
-            while guards
-                .guards()
-                .iter()
-                .any(|worker_thread| !worker_thread.is_finished())
-            {
-                thread::sleep(Duration::from_millis(1));
-                Python::with_gil(|py| Python::check_signals(py)).map_err(|err| {
-                    should_shutdown.store(true, Ordering::Relaxed);
-                    err
-                })?;
-            }
-            for maybe_worker_panic in guards.join() {
-                // TODO: See if we can PR Timely to not cast panic info to
-                // String. Then we could re-raise Python exception in main
-                // thread and not need to print in panic::set_hook above,
-                // although we still need it to tell the other workers to
-                // do graceful shutdown.
-                maybe_worker_panic.map_err(|_| {
-                    tracked_err::<PyRuntimeError>("Worker thread died; look for errors above")
-                })?;
-            }
-
-            Ok(())
-        })
-    }
-
+}
 
 /// Get a Dataflow from a file_path.
 /// dataflow_name is the accessor we use to get the dataflow object.
@@ -942,8 +697,6 @@ fn get_flow(
     }
 }
 
-}
-
 /// Check the __spec__ variable (https://docs.python.org/3/reference/import.html#spec__)
 /// If __spec__.name == "bytewax.run" it means the module was called from there.
 fn is_in_bytewax_run(py: Python) -> PyResult<bool> {
@@ -959,8 +712,8 @@ fn is_in_bytewax_run(py: Python) -> PyResult<bool> {
             // If we can't get __spec__.name, it means this function is being
             // imported in a custom way.
             .raise::<PyRuntimeError>("error getting `__spec__.name`")?
-        .to_string()
-        == "bytewax.run")
+            .to_string()
+            == "bytewax.run")
 }
 
 // TODO: pytest --doctest-modules does not find doctests in PyO3 code.
@@ -1011,7 +764,7 @@ pub(crate) fn run_main(
             Remove or comment the line",
         ));
     }
-    Runner::simple(py, flow, epoch_interval, recovery_config)
+    Runner::new(flow, 1, 1, epoch_interval, recovery_config).simple(py)
 }
 
 /// Execute a dataflow in the current process as part of a cluster.
@@ -1087,15 +840,14 @@ pub(crate) fn cluster_main(
             bytewax.run. Remove or comment the line",
         ));
     }
-    Runner::cluster_single(
-        py,
+    Runner::new(
         flow,
-        addresses,
-        proc_id,
+        1,
+        worker_count_per_proc,
         epoch_interval,
         recovery_config,
-        worker_count_per_proc,
     )
+    .cluster_single(py, addresses, proc_id)
 }
 
 /// Spawns a cluster on a single machine.
@@ -1108,7 +860,7 @@ pub(crate) fn cluster_main(
     "*",
     processes = 1,
     workers_per_process = 1,
-    dataflow_name = "String::from(\"get_flow\")",
+    dataflow_name = "String::from(\"flow\")",
     dataflow_args = "None",
     epoch_interval = "None",
     recovery_config = "None"
@@ -1118,8 +870,8 @@ pub(crate) fn spawn_cluster(
     file_path: PathBuf,
     dataflow_name: String,
     dataflow_args: Option<Vec<String>>,
-    processes: Option<u8>,
-    workers_per_process: Option<u8>,
+    processes: Option<usize>,
+    workers_per_process: Option<usize>,
     epoch_interval: Option<f64>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
@@ -1129,16 +881,26 @@ pub(crate) fn spawn_cluster(
             see `python -m bytewax.run --help` instead"
         )));
     }
-    Runner::cluster_multiple(
+    let epoch_interval = epoch_interval.map(|dur| EpochInterval::new(Duration::from_secs_f64(dur)));
+
+    let flow = Py::new(
         py,
-        file_path,
-        dataflow_name,
-        dataflow_args,
-        processes,
-        workers_per_process,
+        get_flow(
+            py,
+            &file_path.into(),
+            &dataflow_name,
+            dataflow_args.unwrap_or(vec![]),
+        )?,
+    )?;
+
+    Runner::new(
+        flow,
+        processes.unwrap_or(1),
+        workers_per_process.unwrap_or(1),
         epoch_interval,
         recovery_config,
     )
+    .cluster_multiple(py)
 }
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {

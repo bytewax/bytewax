@@ -10,7 +10,7 @@ from bytewax.inputs import StatelessSource, DynamicInput, EmptySource
 from bytewax.window import TumblingWindow, SystemClockConfig, SessionWindow
 from bytewax.tracing import setup_tracing
 
-tracer = setup_tracing(log_level="DEBUG")
+tracer = setup_tracing(log_level="INFO")
 
 
 class NumberSource(StatelessSource):

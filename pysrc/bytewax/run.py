@@ -1,7 +1,7 @@
 import argparse
 import pathlib
 
-from bytewax.recovery import SqliteRecoveryConfig, KafkaRecoveryConfig
+from bytewax.recovery import SqliteRecoveryConfig
 
 from .bytewax import spawn_cluster
 
@@ -15,14 +15,16 @@ def _parse_args():
         "-d",
         "--dataflow-name",
         type=str,
-        default="get_flow",
-        help="Name of the Dataflow getter function",
+        default="flow",
+        help="Name of the Dataflow getter. "
+        "Either a variable or a function name in the Python file",
     )
     parser.add_argument(
         "--dataflow-args",
         type=str,
         nargs="*",
-        help="Args to pass to the dataflow getter",
+        help="Args for the dataflow getter function, "
+        "if --dataflow-name is a function",
     )
     scaling = parser.add_argument_group("Scaling")
     scaling.add_argument(
@@ -40,15 +42,10 @@ def _parse_args():
     # Config options for recovery
     recovery = parser.add_argument_group("Recovery")
     recovery.add_argument(
-        "-r", "--recovery-engine", type=str, choices=["kafka", "sqlite"]
+        "--sqlite-directory",
+        type=pathlib.Path,
+        help="Passing this argument enables sqlite recovery in the specified folder",
     )
-    kafka_config = parser.add_argument_group("Kafka recovery config")
-    kafka_config.add_argument(
-        "--kafka-brokers", type=list[str], default=["localhost:9092"]
-    )
-    kafka_config.add_argument("--kafka-topic", type=str)
-    sqlite_config = parser.add_argument_group("SQLite recovery config")
-    sqlite_config.add_argument("--sqlite-directory", type=pathlib.Path)
 
     # Epoch configuration
     parser.add_argument(
@@ -62,35 +59,12 @@ def _parse_args():
     return args
 
 
-def _get_recovery_config(
-    recovery_engine=None,
-    kafka_topic=None,
-    kafka_brokers=None,
-    sqlite_directory=None,
-):
-    recovery_config = None
-    if recovery_engine is not None:
-        if recovery_engine == "kafka":
-            recovery_config = KafkaRecoveryConfig(
-                brokers=kafka_brokers, topic_prefix=kafka_topic
-            )
-        elif recovery_engine == "sqlite":
-            recovery_config = SqliteRecoveryConfig(sqlite_directory or "./")
-    return recovery_config
-
-
 def _main():
     kwargs = vars(_parse_args())
-    recovery_engine = kwargs.pop("recovery_engine")
-    kafka_topic = kwargs.pop("kafka_topic")
-    kafka_brokers = kwargs.pop("kafka_brokers")
     sqlite_directory = kwargs.pop("sqlite_directory")
-    recovery_config = _get_recovery_config(
-        recovery_engine,
-        kafka_topic,
-        kafka_brokers,
-        sqlite_directory,
-    )
+    recovery_config = None
+    if sqlite_directory:
+        recovery_config = SqliteRecoveryConfig(sqlite_directory or "./")
     kwargs["recovery_config"] = recovery_config
     spawn_cluster(**kwargs)
 
