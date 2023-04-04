@@ -1,7 +1,7 @@
 from pytest import fixture
 
 from bytewax.testing import run_main
-from bytewax.execution import cluster_main
+from bytewax.run import cluster_main
 from bytewax.recovery import SqliteRecoveryConfig
 from bytewax.tracing import setup_tracing
 

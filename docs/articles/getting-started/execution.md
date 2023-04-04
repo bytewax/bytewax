@@ -75,7 +75,7 @@ command line tool which facilitates running a dataflow on Kubernetes.
 
 ```python doctest:SORT_OUTPUT
 from bytewax.dataflow import Dataflow
-from bytewax.execution import cluster_main
+from bytewax.run import cluster_main
 from bytewax.connectors.stdio import StdOutput
 from bytewax.testing import TestingInput
 

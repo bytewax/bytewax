@@ -654,6 +654,8 @@ pub(crate) fn cluster_main(
     "*",
     processes = 1,
     workers_per_process = 1,
+    process_id = "None",
+    addresses = "None",
     dataflow_builder = "String::from(\"get_flow\")",
     dataflow_args = "None",
     epoch_interval = "None",
@@ -666,6 +668,8 @@ pub(crate) fn spawn_cluster(
     dataflow_args: Option<Vec<String>>,
     processes: Option<usize>,
     workers_per_process: Option<usize>,
+    process_id: Option<usize>,
+    addresses: Option<Vec<String>>,
     epoch_interval: Option<f64>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
@@ -687,14 +691,27 @@ pub(crate) fn spawn_cluster(
         )?,
     )?;
 
-    DataflowRunner::new(
+    if (processes.is_some() || workers_per_process.is_some())
+        && (process_id.is_some() || addresses.is_some())
+    {
+        return Err(tracked_err::<PyRuntimeError>(
+            "Can't specify both 'processes/workers_per_process' and 'process_id/addresses'",
+        ));
+    }
+
+    let runner = DataflowRunner::new(
         flow,
         processes.unwrap_or(1),
         workers_per_process.unwrap_or(1),
         epoch_interval,
         recovery_config,
-    )
-    .cluster_multiple(py)
+    );
+
+    if process_id.is_some() {
+        runner.cluster_single(py, addresses, process_id.unwrap())
+    } else {
+        runner.cluster_multiple(py)
+    }
 }
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {

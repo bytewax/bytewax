@@ -3,7 +3,11 @@ import pathlib
 
 from bytewax.recovery import SqliteRecoveryConfig
 
-from .bytewax import spawn_cluster
+from .bytewax import spawn_cluster, cluster_main
+
+__all__ = [
+    "cluster_main"
+]
 
 
 def _parse_args():
@@ -11,20 +15,25 @@ def _parse_args():
         prog="python -m bytewax.run", description="Run a bytewax dataflow"
     )
     parser.add_argument("file_path", metavar="FILE_PATH", type=pathlib.Path)
-    parser.add_argument(
+    run = parser.add_argument_group("Run options")
+    run.add_argument(
         "-d",
         "--dataflow-builder",
         type=str,
         default="get_flow",
         help="Name of the function that returns the Dataflow.",
     )
-    parser.add_argument(
+    run.add_argument(
         "--dataflow-args",
         type=str,
         nargs="*",
         help="Args for the dataflow builder function.",
     )
-    scaling = parser.add_argument_group("Scaling")
+    scaling = parser.add_argument_group(
+        "Scaling",
+        "You should use either '-p/-w' to spawn multiple processes on this same machine,"
+        " or '-i/-a' to spawn a single process on different machines",
+    )
     scaling.add_argument(
         "-p",
         "--processes",
@@ -37,6 +46,13 @@ def _parse_args():
         type=int,
         help="Number of workers for each process",
     )
+    scaling.add_argument("-i", "--process-id", type=int, help="Process id")
+    scaling.add_argument(
+        "-a", "--addresses",
+        action="append",
+        help="Addresses of other processes"
+    )
+
     # Config options for recovery
     recovery = parser.add_argument_group("Recovery")
     recovery.add_argument(
@@ -44,9 +60,7 @@ def _parse_args():
         type=pathlib.Path,
         help="Passing this argument enables sqlite recovery in the specified folder",
     )
-
-    # Epoch configuration
-    parser.add_argument(
+    recovery.add_argument(
         "--epoch-interval",
         type=int,
         default=10,
@@ -54,6 +68,11 @@ def _parse_args():
     )
 
     args = parser.parse_args()
+    print(args)
+    if (args.processes is not None or args.workers_per_process is not None) and (
+        args.process_id is not None or args.addresses is not None
+    ):
+        parser.error("Can't use both '-w/-p' and '-a/-i'")
     return args
 
 
