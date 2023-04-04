@@ -4,16 +4,22 @@ use std::collections::{BTreeSet, HashMap};
 
 use timely::communication::message::RefOrMut;
 use timely::dataflow::operators::Capability;
+use timely::order::TotalOrder;
 use timely::progress::frontier::MutableAntichain;
+use timely::progress::Timestamp;
 
 /// Helper class for buffering input in a Timely operator.
-pub(crate) struct InBuffer<D> {
+pub(crate) struct InBuffer<T, D>
+where
+    T: Timestamp,
+{
     tmp: Vec<D>,
-    buffer: HashMap<u64, Vec<D>>,
+    buffer: HashMap<T, Vec<D>>,
 }
 
-impl<D> InBuffer<D>
+impl<T, D> InBuffer<T, D>
 where
+    T: Timestamp,
     D: Clone,
 {
     pub(crate) fn new() -> Self {
@@ -24,7 +30,7 @@ where
     }
 
     /// Buffer that this input was received on this epoch.
-    pub(crate) fn extend(&mut self, epoch: u64, incoming: RefOrMut<Vec<D>>) {
+    pub(crate) fn extend(&mut self, epoch: T, incoming: RefOrMut<Vec<D>>) {
         assert!(self.tmp.is_empty());
         incoming.swap(&mut self.tmp);
         self.buffer
@@ -37,26 +43,29 @@ where
     ///
     /// It's your job to decide if this epoch will see more data using
     /// some sort of notificator or checking the frontier.
-    pub(crate) fn remove(&mut self, epoch: &u64) -> Option<Vec<D>> {
+    pub(crate) fn remove(&mut self, epoch: &T) -> Option<Vec<D>> {
         self.buffer.remove(epoch)
     }
 
     /// Return an iterator of all the epochs currently buffered.
-    pub(crate) fn epochs(&self) -> impl Iterator<Item = u64> + '_ {
-        self.buffer.keys().copied()
+    pub(crate) fn epochs(&self) -> impl Iterator<Item = T> + '_ {
+        self.buffer.keys().cloned()
     }
 }
 
 /// Extension trait for frontiers.
-pub(crate) trait FrontierEx {
+pub(crate) trait FrontierEx<T>
+where
+    T: Timestamp + TotalOrder,
+{
     /// Collapse a frontier into a single epoch value.
     ///
     /// We can do this because we're using a totally ordered epoch in
     /// our dataflows.
-    fn simplify(&self) -> Option<u64>;
+    fn simplify(&self) -> Option<T>;
 
     /// Is a given epoch closed based on this frontier?
-    fn is_closed(&self, epoch: &u64) -> bool {
+    fn is_closed(&self, epoch: &T) -> bool {
         self.simplify().iter().all(|frontier| *epoch < *frontier)
     }
 
@@ -66,30 +75,39 @@ pub(crate) trait FrontierEx {
     }
 }
 
-impl FrontierEx for MutableAntichain<u64> {
-    fn simplify(&self) -> Option<u64> {
-        self.frontier().iter().min().copied()
+impl<T> FrontierEx<T> for MutableAntichain<T>
+where
+    T: Timestamp + TotalOrder,
+{
+    fn simplify(&self) -> Option<T> {
+        self.frontier().iter().min().cloned()
     }
 }
 
 /// To allow collapsing frontiers of all inputs in an operator.
-impl FrontierEx for [MutableAntichain<u64>] {
-    fn simplify(&self) -> Option<u64> {
+impl<T> FrontierEx<T> for [MutableAntichain<T>]
+where
+    T: Timestamp + TotalOrder,
+{
+    fn simplify(&self) -> Option<T> {
         self.iter().flat_map(FrontierEx::simplify).min()
     }
 }
 
 /// Extension trait for vectors of capabilities.
-pub(crate) trait CapabilityVecEx {
+pub(crate) trait CapabilityVecEx<T> {
     /// Run [`Capability::downgrade`] on all capabilities.
     ///
     /// Since capabilities retain their output port, you can do this
     /// on the vec of initial caps.
-    fn downgrade_all(&mut self, epoch: &u64);
+    fn downgrade_all(&mut self, epoch: &T);
 }
 
-impl CapabilityVecEx for Vec<Capability<u64>> {
-    fn downgrade_all(&mut self, epoch: &u64) {
+impl<T> CapabilityVecEx<T> for Vec<Capability<T>>
+where
+    T: Timestamp,
+{
+    fn downgrade_all(&mut self, epoch: &T) {
         self.iter_mut().for_each(|cap| cap.downgrade(epoch));
     }
 }
@@ -97,23 +115,28 @@ impl CapabilityVecEx for Vec<Capability<u64>> {
 /// Manages running logic functions and iteratively downgrading
 /// capabilities based on the current operator's input frontiers.
 ///
-/// Any state that you need full ownership on EOF, you can put in the
-/// state variable and have full ownership of it in the EOF
-/// logic. Otherwise, you can close over it mutably in the epoch
-/// logics.
+/// Any state that you need full ownership on EOF or shared mutability
+/// between logics, you can put in the state variable. Otherwise, you
+/// can close over it mutably in a single epoch logic.
 ///
 /// This is like [`timely::dataflow::operators::Notificator`] but does
 /// _not_ wait until the epoch is fully closed to run logic.
-pub(crate) struct EagerNotificator<D> {
+pub(crate) struct EagerNotificator<T, D>
+where
+    T: Timestamp + TotalOrder,
+{
     /// We have to retain separate capabilities per-output. This seems
     /// to be only documented in
     /// https://github.com/TimelyDataflow/timely-dataflow/pull/187
-    caps_state: Option<(Vec<Capability<u64>>, D)>,
-    queue: BTreeSet<u64>,
+    caps_state: Option<(Vec<Capability<T>>, D)>,
+    queue: BTreeSet<T>,
 }
 
-impl<D> EagerNotificator<D> {
-    pub(crate) fn stateful_new(init_caps: Vec<Capability<u64>>, init_state: D) -> Self {
+impl<T, D> EagerNotificator<T, D>
+where
+    T: Timestamp + TotalOrder,
+{
+    pub(crate) fn new(init_caps: Vec<Capability<T>>, init_state: D) -> Self {
         Self {
             caps_state: Some((init_caps, init_state)),
             queue: BTreeSet::new(),
@@ -126,7 +149,7 @@ impl<D> EagerNotificator<D> {
     /// We need to use the "notify at" pattern of Timely's built in
     /// [`timely::dataflow::operators::Notificator`] because otherwise
     /// we don't the largest epoch to process as closed on EOF.
-    pub(crate) fn notify_at(&mut self, epoch: u64) {
+    pub(crate) fn notify_at(&mut self, epoch: T) {
         self.queue.insert(epoch);
     }
 
@@ -142,11 +165,11 @@ impl<D> EagerNotificator<D> {
     ///
     /// Automatically downgrades capabilities for each output to the
     /// relevant epochs.
-    pub(crate) fn stateful_for_each(
+    pub(crate) fn for_each(
         &mut self,
-        input_frontiers: &[MutableAntichain<u64>],
-        mut epoch_eager_logic: impl FnMut(&[Capability<u64>], &mut D),
-        mut epoch_close_logic: impl FnMut(&[Capability<u64>], &mut D),
+        input_frontiers: &[MutableAntichain<T>],
+        mut epoch_eager_logic: impl FnMut(&[Capability<T>], &mut D),
+        mut epoch_close_logic: impl FnMut(&[Capability<T>], &mut D),
         eof_logic: impl FnOnce(D),
     ) {
         if let Some(frontier) = input_frontiers.simplify() {
@@ -201,29 +224,5 @@ impl<D> EagerNotificator<D> {
             }
             // Ignore if we re-activate multiple times after EOF.
         }
-    }
-}
-
-/// A version where you don't need to close any state.
-impl EagerNotificator<()> {
-    pub(crate) fn new(init_caps: Vec<Capability<u64>>) -> Self {
-        Self::stateful_new(init_caps, ())
-    }
-
-    /// Just like [`stateful_for_each`] but hides the state if you're
-    /// not using it so there's less symbol line noise.
-    pub(crate) fn for_each(
-        &mut self,
-        input_frontiers: &[MutableAntichain<u64>],
-        mut epoch_eager_logic: impl FnMut(&[Capability<u64>]),
-        mut epoch_close_logic: impl FnMut(&[Capability<u64>]),
-    ) {
-        self.stateful_for_each(
-            input_frontiers,
-            |caps, ()| epoch_eager_logic(caps),
-            |caps, ()| epoch_close_logic(caps),
-            // Do nothing on frontier close.
-            |()| {},
-        );
     }
 }

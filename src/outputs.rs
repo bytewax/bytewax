@@ -282,7 +282,7 @@ where
 
         op_builder.build(move |init_caps| {
             let mut inbuf = InBuffer::new();
-            let mut ncater = EagerNotificator::stateful_new(init_caps, bundle);
+            let mut ncater = EagerNotificator::new(init_caps, bundle);
 
             move |input_frontiers| {
                 input_handle.for_each(|cap, incoming| {
@@ -291,7 +291,7 @@ where
                     ncater.notify_at(*epoch);
                 });
 
-                ncater.stateful_for_each(
+                ncater.for_each(
                     input_frontiers,
                     |caps, bundle| {
                         unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
