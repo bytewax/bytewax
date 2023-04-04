@@ -68,7 +68,6 @@ def _parse_args():
     )
 
     args = parser.parse_args()
-    print(args)
     if (args.processes is not None or args.workers_per_process is not None) and (
         args.process_id is not None or args.addresses is not None
     ):
