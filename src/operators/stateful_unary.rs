@@ -12,7 +12,7 @@
 //! store.
 
 use std::{
-    collections::{hash_map::Entry, BTreeSet, HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     task::Poll,
 };
 
@@ -84,12 +84,18 @@ where
     /// need a way to communicate back up wheither it should be
     /// retained.
     ///
-    /// This will be called at the end of each epoch.
+    /// This will be called after each awakening.
     fn fate(&self) -> LogicFate;
 
-    /// Return the next system time this operator should be awoken at.
+    /// Return the next system time this operator should be awoken at,
+    /// if any.
     ///
     /// This will be called after each awakening.
+    ///
+    /// Any previously recorded awake times are forgotten after each
+    /// call. The logic internally needs to keep track of multiple
+    /// awake times (if it needs that) and keep returning the next
+    /// one.
     fn next_awake(&self) -> Option<DateTime<Utc>>;
 
     /// Snapshot the internal state of this operator.
@@ -267,6 +273,9 @@ where
                     assert!(output_cap.time() == state_update_cap.time());
                     assert!(tmp_closed_epochs.is_empty());
                     assert!(tmp_awake_logic_with.is_empty());
+                    // Do not assert awoken_keys_buffer is empty,
+                    // because we might have worked on the current
+                    // epoch in the last activation.
 
                     let now = chrono::offset::Utc::now();
 
@@ -277,14 +286,14 @@ where
                         inbuf.extend(*epoch, incoming);
                     });
 
-                    // TODO: Is this the right way to get the epoch
-                    // from a frontier? I haven't seen any examples
-                    // with non-comparable timestamps to understand
-                    // this. Is the current capability reasonable for
-                    // when the frontiers are closed?
+                    let last_output_epoch = *output_cap.time();
                     let frontier_epoch = input_frontiers
                         .simplify()
-                        .unwrap_or_else(|| *output_cap.time());
+                        // If we're at EOF and there's no "current
+                        // epoch", use the last seen epoch to still
+                        // allow output. EagerNotificator does not
+                        // allow this.
+                        .unwrap_or(last_output_epoch);
 
                     // Now let's find out which epochs we should wake
                     // up the logic for.
@@ -295,8 +304,9 @@ where
                     // closed. Thus, we haven't run the "epoch closed"
                     // code yet. Make sure that close code is run if
                     // that epoch is now closed on this activation.
-                    tmp_closed_epochs
-                        .extend(Some(*output_cap.time()).filter(|e| input_frontiers.is_closed(e)));
+                    if input_frontiers.is_closed(&last_output_epoch) {
+                        tmp_closed_epochs.insert(last_output_epoch);
+                    }
                     // Try to process all the epochs we have input
                     // for. Filter out epochs that are not closed; the
                     // state at the beginning of those epochs are not
@@ -308,29 +318,32 @@ where
                     // though it's not closed).
                     tmp_closed_epochs.insert(frontier_epoch);
 
-                    // For each epoch in order:
-                    for epoch in tmp_closed_epochs.iter() {
+                    // For each epoch in order. This drains
+                    // tmp_closed_epochs to be re-used on next
+                    // activation.
+                    while let Some(epoch) = tmp_closed_epochs.pop_first() {
                         // Since the frontier has advanced to at least
                         // this epoch (because we're going through
                         // them in order), say that we'll not be
                         // sending output at any older epochs. This
                         // also asserts "apply changes in epoch order"
                         // to the state cache.
-                        output_cap.downgrade(epoch);
-                        state_update_cap.downgrade(epoch);
-
-                        let incoming_state_key_values = inbuf.remove(epoch);
+                        output_cap.downgrade(&epoch);
+                        state_update_cap.downgrade(&epoch);
 
                         // Now let's find all the key-value pairs to
                         // awaken logic with.
 
                         // Include all the incoming data.
-                        tmp_awake_logic_with.extend(
-                            incoming_state_key_values
-                                .unwrap_or_default()
-                                .into_iter()
-                                .map(|(state_key, value)| (state_key, Poll::Ready(Some(value)))),
-                        );
+                        if let Some(incoming_state_key_values) = inbuf.remove(&epoch) {
+                            tmp_awake_logic_with.extend(
+                                incoming_state_key_values
+                                    .into_iter()
+                                    .map(|(state_key, value)| {
+                                        (state_key, Poll::Ready(Some(value)))
+                                    }),
+                            );
+                        }
 
                         // Then extend the values with any "awake"
                         // activations after the input.
@@ -370,7 +383,7 @@ where
                             tmp_awake_logic_with.extend(
                                 current_next_awake
                                     .iter()
-                                    .filter(|(_state_key, next_awake)| next_awake <= &&now)
+                                    .filter(|(_state_key, next_awake)| **next_awake <= now)
                                     .map(|(state_key, _next_awake)| {
                                         (state_key.clone(), Poll::Pending)
                                     }),
@@ -378,34 +391,44 @@ where
                         }
 
                         let mut output_handle = output_wrapper.activate();
-                        let mut change_handle = change_wrapper.activate();
                         let mut output_session = output_handle.session(&output_cap);
-                        let mut change_session = change_handle.session(&state_update_cap);
 
                         // Drain to re-use allocation.
                         for (key, next_value) in tmp_awake_logic_with.drain(..) {
-                            // Remove any scheduled awake times this
-                            // current one will satisfy.
-                            if let Entry::Occupied(next_awake_at_entry) =
-                                current_next_awake.entry(key.clone())
-                            {
-                                if next_awake_at_entry.get() <= &now {
-                                    next_awake_at_entry.remove();
-                                }
-                            }
-
-                            let logic = current_logic
-                                .entry(key.clone())
-                                .or_insert_with(|| logic_builder(None));
+                            // Ok, let's actually run the logic code!
+                            // Pull out or build the logic for the
+                            // current key.
+                            let mut logic = current_logic
+                                .remove(&key)
+                                .unwrap_or_else(|| logic_builder(None));
                             let output = logic.on_awake(next_value);
                             output_session
                                 .give_iterator(output.into_iter().map(|item| (key.clone(), item)));
 
-                            if let Some(next_awake) = logic.next_awake() {
-                                current_next_awake.insert(key.clone(), next_awake);
-                            } else {
-                                current_next_awake.remove(&key);
-                            }
+                            // Figure out if we should discard it.
+                            let fate = logic.fate();
+                            match fate {
+                                LogicFate::Discard => {
+                                    // Remove any pending awake times,
+                                    // since that's part of the state.
+                                    current_next_awake.remove(&key);
+
+                                    // Do not re-insert the
+                                    // logic. It'll be dropped.
+                                }
+                                LogicFate::Retain => {
+                                    // If we don't discard it, ask
+                                    // when to wake up next and
+                                    // overwrite that.
+                                    if let Some(next_awake) = logic.next_awake() {
+                                        current_next_awake.insert(key.clone(), next_awake);
+                                    } else {
+                                        current_next_awake.remove(&key);
+                                    }
+
+                                    current_logic.insert(key.clone(), logic);
+                                }
+                            };
 
                             awoken_keys_buffer.insert(key);
                         }
@@ -416,45 +439,39 @@ where
                         // ignore it here. Snapshot and output state
                         // changes. Remove will ensure we slowly drain
                         // the buffer.
-                        if input_frontiers.is_closed(epoch) {
+                        if input_frontiers.is_closed(&epoch) {
+                            let mut change_handle = change_wrapper.activate();
+                            let mut change_session = change_handle.session(&state_update_cap);
+
+                            // Go through all keys awoken in this
+                            // epoch. This might involve keys from the
+                            // previous activation.
                             for state_key in awoken_keys_buffer.drain() {
-                                let logic = current_logic
-                                    .remove(&state_key)
-                                    .expect("No logic for activated key");
-
-                                let change = match logic.fate() {
-                                    LogicFate::Discard => {
-                                        // Do not re-insert the
-                                        // logic. It'll be dropped.
-                                        current_next_awake.remove(&state_key);
-
-                                        Change::Discard
-                                    }
-                                    LogicFate::Retain => {
-                                        let logic_snapshot = logic.snapshot();
-                                        let next_awake =
-                                            current_next_awake.get(&state_key).cloned();
-
-                                        current_logic.insert(state_key.clone(), logic);
-
-                                        let state = (logic_snapshot, next_awake);
-                                        let snapshot =
-                                            StateBytes::ser::<(StateBytes, Option<DateTime<Utc>>)>(
-                                                &state,
-                                            );
-                                        Change::Upsert(snapshot)
-                                    }
+                                // Now snapshot the logic and next
+                                // awake at value, if any.
+                                let change = if let Some(logic) = current_logic.get(&state_key) {
+                                    let logic_snapshot = logic.snapshot();
+                                    let next_awake = current_next_awake.get(&state_key).cloned();
+                                    let state = (logic_snapshot, next_awake);
+                                    let snapshot = StateBytes::ser::<(
+                                        StateBytes,
+                                        Option<DateTime<Utc>>,
+                                    )>(&state);
+                                    Change::Upsert(snapshot)
+                                } else {
+                                    // It's ok if there's no logic,
+                                    // because on that logic's last
+                                    // awake it might have had a
+                                    // LogicFate::Discard and been
+                                    // dropped.
+                                    Change::Discard
                                 };
-
                                 let flow_key = FlowKey(step_id.clone(), state_key);
                                 let kchange = KChange(flow_key, change);
                                 change_session.give(kchange);
                             }
                         }
                     }
-                    // Clear to re-use buffer.
-                    // TODO: One day I hope BTreeSet has drain.
-                    tmp_closed_epochs.clear();
 
                     // Schedule operator activation at the soonest
                     // requested logic awake time for any key.
