@@ -15,9 +15,11 @@ def stringy(x):
     return f"<dance>{x}</dance>"
 
 
-flow = Dataflow()
-flow.input("inp", TestingInput(range(10)))
-flow.map(double)
-flow.map(minus_one)
-flow.map(stringy)
-flow.output("out", StdOutput())
+def get_flow():
+    flow = Dataflow()
+    flow.input("inp", TestingInput(range(10)))
+    flow.map(double)
+    flow.map(minus_one)
+    flow.map(stringy)
+    flow.output("out", StdOutput())
+    return flow
