@@ -158,18 +158,18 @@ where
     /// Call this on each operator activation with the current input
     /// frontiers.
     ///
-    /// Eager logic could be called multiple times for an epoch. Epoch
-    /// close logic will be called once when each epoch closes. EOF
-    /// logic will be called once when the input is finished and will
-    /// drop the state.
+    /// Eager logic could be called multiple times for an epoch. Close
+    /// logic will be called once when each epoch closes. EOF logic
+    /// will be called once when the input is finished and will drop
+    /// the state.
     ///
     /// Automatically downgrades capabilities for each output to the
     /// relevant epochs.
     pub(crate) fn for_each(
         &mut self,
         input_frontiers: &[MutableAntichain<T>],
-        mut epoch_eager_logic: impl FnMut(&[Capability<T>], &mut D),
-        mut epoch_close_logic: impl FnMut(&[Capability<T>], &mut D),
+        mut eager_logic: impl FnMut(&[Capability<T>], &mut D),
+        mut close_logic: impl FnMut(&[Capability<T>], &mut D),
         eof_logic: impl FnOnce(D),
     ) {
         if let Some(frontier) = input_frontiers.simplify() {
@@ -191,15 +191,15 @@ where
                 for epoch in lt_frontier {
                     caps.downgrade_all(&epoch);
 
-                    epoch_eager_logic(&caps, &mut state);
-                    epoch_close_logic(&caps, &mut state);
+                    eager_logic(&caps, &mut state);
+                    close_logic(&caps, &mut state);
                 }
 
                 // Now eagerly execute the frontier. No need to call
                 // logic if we haven't any data at the frontier yet.
                 caps.downgrade_all(&frontier);
                 if self.queue.contains(&frontier) {
-                    epoch_eager_logic(&caps, &mut state);
+                    eager_logic(&caps, &mut state);
                 }
 
                 (caps, state)
@@ -214,8 +214,8 @@ where
                 while let Some(epoch) = self.queue.pop_first() {
                     caps.downgrade_all(&epoch);
 
-                    epoch_eager_logic(&caps, &mut state);
-                    epoch_close_logic(&caps, &mut state);
+                    eager_logic(&caps, &mut state);
+                    close_logic(&caps, &mut state);
                 }
 
                 // This drops the state.
