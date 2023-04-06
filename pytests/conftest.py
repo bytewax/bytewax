@@ -3,6 +3,21 @@ from pytest import fixture
 
 from bytewax.execution import cluster_main, run_main, spawn_cluster
 from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.tracing import setup_tracing
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--bytewax-log-level",
+        action="store",
+        choices=["ERROR", "WARN", "INFO", "DEBUG", "TRACE"],
+    )
+
+
+def pytest_configure(config):
+    log_level = config.getoption("--bytewax-log-level")
+    if log_level:
+        setup_tracing(log_level=log_level)
 
 
 @fixture

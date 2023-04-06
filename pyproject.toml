@@ -23,7 +23,7 @@ dependencies = ["multiprocess>=0.70", "dill>=0.3.5"]
 extras = ["kafka", "dev", "docs", "test"]
 
 [project.optional-dependencies]
-kafka = ["confluent-kafka>=2.0.2"]
+kafka = ["confluent-kafka<=2.0.2"]
 test = ["pytest==7.1.0", "myst-docutils==0.17.0"]
 docs = ["pdoc3==0.10.0"]
 dev = [
