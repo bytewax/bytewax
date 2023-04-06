@@ -270,3 +270,35 @@ def test_continuation(entry_point, inp, out, recovery_config):
         ("a", 8),
         ("b", 5),
     ]
+
+
+def test_continuation_with_no_new_input(entry_point, inp, out, recovery_config):
+    # Since we're modifying the input, use the fixture so it works
+    # across processes. Currently, `inp = []`.
+    inp.extend(
+        [
+            ("a", 4, False),
+            ("b", 4, False),
+        ]
+    )
+    flow = build_keep_max_dataflow(inp, None)
+    flow.output("out", TestingOutput(out))
+
+    entry_point(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+
+    assert sorted(out) == [
+        ("a", 4),
+        ("b", 4),
+    ]
+
+    # Don't add new input.
+
+    # Unfortunately `ListProxy`, which we'd use in the cluster entry
+    # point, does not have `clear`.
+    del out[:]
+
+    # Continue.
+    entry_point(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+
+    # Since no new input, no output.
+    assert sorted(out) == []
