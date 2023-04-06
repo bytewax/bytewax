@@ -174,6 +174,10 @@ where
     D: Data,
 {
     fn progress(&self, resume_epoch: ResumeEpoch, worker_key: WorkerKey) -> ProgressStream<S> {
+        // We can't use a notificator for progress because it's
+        // possible a worker, due to partitioning, will have no input
+        // data. We still need to write out that the worker made it
+        // through the resume epoch in that case.
         let mut op_builder = OperatorBuilder::new("progress".to_string(), self.scope());
 
         let mut input = op_builder.new_input(self, Pipeline);
@@ -204,46 +208,48 @@ where
                 });
 
                 cap = cap.take().and_then(|cap| {
-                    let frontier = input_frontiers
-                        .simplify()
-                        // This is hella gross. During a resume, there
-                        // will be a flash where the frontier is 0,
-                        // even though we try to immediately delay the
-                        // capabilities on all inputs to the resume
-                        // epoch. We need to filter that out. So it
-                        // does not appear the dataflow has "gone
-                        // backwards".
-                        .map(|f| std::cmp::max(f, resume_epoch.0));
-                    // Do not delay cap before the write; we will
-                    // delay downstream progress messages longer than
-                    // necessary if so. This would manifest as
-                    // resuming from an epoch that seems "too
-                    // early". Write out the progress at the end of
-                    // each epoch and where the frontier has moved.
-                    let should_write = frontier.map_or(true, |f| f > *cap.time());
-                    if should_write {
-                        // There's no way to guarantee this is
-                        // actually the resume epoch on the next
-                        // execution, but mark that this worker is
-                        // ready to resume there on EOF. It's also
-                        // possible that this results in a "too small"
-                        // resume epoch: if for some reason this
-                        // operator isn't activated during every
-                        // epoch, we might miss the "largest" epoch
-                        // and so we'll mark down the resume epoch as
-                        // one too small. That's fine, we just might
-                        // resume further back than is optimal.
+                    let frontier = input_frontiers.simplify();
+                    // EOF counts as progress. This will also filter
+                    // out the flash of 0 epoch upon resume.
+                    let frontier_progressed = frontier.map_or(true, |f| f > *cap.time());
+                    if frontier_progressed {
+                        // There's no way to guarantee that "last
+                        // frontier + 1" is actually the resume epoch
+                        // on the next execution, but mark that this
+                        // worker is ready to resume there on
+                        // EOF. It's also possible that this results
+                        // in a "too small" resume epoch: if for some
+                        // reason this operator isn't activated during
+                        // every epoch, we might miss the "largest"
+                        // epoch and so we'll mark down the resume
+                        // epoch as one too small. That's fine, we
+                        // just might resume further back than is
+                        // optimal.
                         let write_frontier = frontier.unwrap_or(*cap.time() + 1);
                         let msg = ProgressMsg::Advance(WorkerFrontier(write_frontier));
                         let kchange = KChange(worker_key, Change::Upsert(msg));
+                        // Do not delay cap before the write; we will
+                        // delay downstream progress messages longer than
+                        // necessary if so. This would manifest as
+                        // resuming from an epoch that seems "too
+                        // early". Write out the progress at the end of
+                        // each epoch and where the frontier has moved.
                         output_wrapper.activate().session(&cap).give(kchange);
+
+                        // If EOF, drop caps after the write.
+                        frontier.map(|f| {
+                            // We should never delay to something like
+                            // frontier + 1, otherwise chained progress
+                            // operators will "drift" forward and GC will
+                            // happen too early. If the frontier is empty,
+                            // also drop the capability.
+                            cap.delayed(&f)
+                        })
+                    // If there was no frontier progress on this
+                    // awake, maintain the current cap and do nothing.
+                    } else {
+                        Some(cap)
                     }
-                    // We should never delay to something like
-                    // frontier + 1, otherwise chained progress
-                    // operators will "drift" forward and GC will
-                    // happen too early. If the frontier is empty,
-                    // also drop the capability.
-                    frontier.map(|f| cap.delayed(&f))
                 });
 
                 // Wake up constantly, because we never know when
