@@ -8,13 +8,14 @@ use crate::execution::{WorkerCount, WorkerIndex};
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny, TdPyCallable};
 use crate::recovery::model::*;
 use crate::recovery::operators::{FlowChangeStream, Route};
+use crate::timely::{EagerNotificator, InBuffer};
 use crate::unwrap_any;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use std::collections::{BTreeSet, HashMap};
 use timely::dataflow::channels::pact::{Exchange, Pipeline};
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::{FrontierNotificator, Map, Operator};
+use timely::dataflow::operators::{Map, Operator};
 use timely::dataflow::{Scope, Stream};
 use timely::progress::Antichain;
 
@@ -258,8 +259,6 @@ where
             worker_count,
             resume_state,
         )?;
-        let mut bundle = Some(bundle);
-
         let kv_stream = self.map(extract_state_pair);
 
         let mut op_builder = OperatorBuilder::new(step_id.0.clone(), self.scope());
@@ -281,44 +280,33 @@ where
             vec![Antichain::from_elem(0), Antichain::from_elem(0)],
         );
 
-        op_builder.build(move |_init_caps| {
-            let mut incoming_buffer: HashMap<S::Timestamp, Vec<(StateKey, TdPyAny)>> =
-                HashMap::new();
-
-            let mut tmp_incoming: Vec<(StateKey, TdPyAny)> = Vec::new();
-
-            let mut output_ncater = FrontierNotificator::new();
-            let mut change_ncater = FrontierNotificator::new();
+        op_builder.build(move |init_caps| {
+            let mut inbuf = InBuffer::new();
+            let mut ncater = EagerNotificator::new(init_caps, bundle);
 
             move |input_frontiers| {
-                bundle = bundle.take().and_then(|mut bundle| {
-                    input_handle.for_each(|cap, incoming| {
-                        let epoch = cap.time();
+                input_handle.for_each(|cap, incoming| {
+                    let epoch = cap.time();
+                    inbuf.extend(*epoch, incoming);
+                    ncater.notify_at(*epoch);
+                });
 
-                        assert!(tmp_incoming.is_empty());
-                        incoming.swap(&mut tmp_incoming);
+                ncater.for_each(
+                    input_frontiers,
+                    |caps, bundle| {
+                        unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
+                            let output_cap = &caps[0];
+                            let epoch = output_cap.time();
 
-                        incoming_buffer
-                            .entry(*epoch)
-                            .or_insert_with(Vec::new)
-                            .append(&mut tmp_incoming);
-
-                        output_ncater.notify_at(cap.delayed_for_output(epoch, 0));
-                        change_ncater.notify_at(cap.delayed_for_output(epoch, 1));
-                    });
-
-                    output_ncater.for_each(&[&input_frontiers[0]], |cap, _| {
-                        unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                            let epoch = cap.time();
-
-                            if let Some(items) = incoming_buffer.remove(epoch) {
+                            if let Some(items) = inbuf.remove(epoch) {
                                 let mut output_handle = output_wrapper.activate();
-                                let mut output_session = output_handle.session(&cap);
+                                let mut output_session = output_handle.session(output_cap);
                                 for (key, value) in items {
                                     let part_key = assigner.assign_part(py, key.clone())?;
                                     let sink = bundle.parts.get_mut(&part_key).expect(
                                         "Item routed to non-local partition; output routing bug?",
                                     );
+
                                     sink.write(py, value.clone_ref(py))
                                         .reraise("error writing to output")?;
                                     output_session.give(wrap_state_pair((key, value)));
@@ -326,9 +314,10 @@ where
                             }
                             Ok(())
                         }))
-                    });
+                    },
+                    |caps, bundle| {
+                        let change_cap = &caps[1];
 
-                    change_ncater.for_each(&[&input_frontiers[0]], |cap, _| {
                         let kchanges = unwrap_any!(Python::with_gil(|py| bundle.snapshot(py)))
                             .into_iter()
                             .map(|(key, snapshot)| {
@@ -336,17 +325,11 @@ where
                             });
                         change_wrapper
                             .activate()
-                            .session(&cap)
+                            .session(change_cap)
                             .give_iterator(kchanges);
-                    });
-
-                    if input_frontiers.iter().all(|f| f.is_empty()) {
-                        unwrap_any!(Python::with_gil(|py| bundle.close(py)));
-                        None
-                    } else {
-                        Some(bundle)
-                    }
-                });
+                    },
+                    |bundle| unwrap_any!(Python::with_gil(|py| bundle.close(py))),
+                );
             }
         });
 
@@ -450,39 +433,21 @@ where
         let mut sink = Some(output.build(py, worker_index, worker_count)?);
 
         let output_stream = self.unary_frontier(Pipeline, &step_id.0, |_init_cap, _info| {
-            let mut ncater = FrontierNotificator::new();
-
             let mut tmp_incoming: Vec<TdPyAny> = Vec::new();
-
-            let mut incoming_buffer: HashMap<S::Timestamp, Vec<TdPyAny>> = HashMap::new();
 
             move |input, output| {
                 sink = sink.take().and_then(|sink| {
                     input.for_each(|cap, incoming| {
-                        let epoch = cap.time();
-
                         assert!(tmp_incoming.is_empty());
                         incoming.swap(&mut tmp_incoming);
 
-                        incoming_buffer
-                            .entry(*epoch)
-                            .or_insert_with(Vec::new)
-                            .append(&mut tmp_incoming);
-
-                        ncater.notify_at(cap.retain());
-                    });
-
-                    ncater.for_each(&[input.frontier()], |cap, _| {
                         unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                            let epoch = cap.time();
-
                             let mut output_session = output.session(&cap);
-                            if let Some(items) = incoming_buffer.remove(epoch) {
-                                for item in items {
-                                    sink.write(py, item.clone_ref(py))
-                                        .reraise("error writing to dynamic output")?;
-                                    output_session.give(item);
-                                }
+
+                            for item in tmp_incoming.drain(..) {
+                                sink.write(py, item.clone_ref(py))
+                                    .reraise("error writing to dynamic output")?;
+                                output_session.give(item);
                             }
                             Ok(())
                         }))

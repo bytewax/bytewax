@@ -59,6 +59,7 @@ use super::store::in_mem::*;
 pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
     probe: &mut ProbeHandle<u64>,
     worker_key: WorkerKey,
+    resume_epoch: ResumeEpoch,
     resume_progress: InMemProgress,
     store_summary: StoreSummary,
     progress_writer: PW,
@@ -75,11 +76,15 @@ pub(crate) fn attach_recovery_to_dataflow<S, PW, SW>(
     let store_changes = step_changes.backup();
     let backup_clock = store_changes.write(state_writer.clone());
     let worker_clock = backup_clock.concat(&capture_clock);
-    let progress_clock = worker_clock.progress(worker_key).write(progress_writer);
+    let progress_clock = worker_clock
+        .progress(resume_epoch, worker_key)
+        .write(progress_writer);
     // GC works on a progress stream. But we don't want to GC state
     // until the progress messages are written, thus we need to view
     // the progress of the "writing the progress" clock stream.
-    let cluster_progress = progress_clock.progress(worker_key).broadcast();
+    let cluster_progress = progress_clock
+        .progress(resume_epoch, worker_key)
+        .broadcast();
     let gc_clock = store_changes
         .summary()
         .garbage_collect(cluster_progress, resume_progress, store_summary)

@@ -6,10 +6,9 @@
 //! [`crate::operators::stateful_unary`].
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
-
 use std::hash::Hash;
 use std::hash::Hasher;
+
 use timely::dataflow::channels::pact::Exchange;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::flow_controlled::iterator_source;
@@ -23,6 +22,11 @@ use timely::order::TotalOrder;
 use timely::progress::Timestamp;
 use timely::Data;
 use timely::ExchangeData;
+
+use crate::timely::CapabilityVecEx;
+use crate::timely::EagerNotificator;
+use crate::timely::FrontierEx;
+use crate::timely::InBuffer;
 
 use super::model::*;
 use super::store::in_mem::*;
@@ -161,7 +165,7 @@ where
     /// Doesn't emit the "empty frontier" (even though that is the
     /// true frontier) on dataflow termination to allow dataflow
     /// continuation.
-    fn progress(&self, worker_key: WorkerKey) -> ProgressStream<S>;
+    fn progress(&self, resume_epoch: ResumeEpoch, worker_key: WorkerKey) -> ProgressStream<S>;
 }
 
 impl<S, D> Progress<S, D> for Stream<S, D>
@@ -169,7 +173,11 @@ where
     S: Scope<Timestamp = u64>,
     D: Data,
 {
-    fn progress(&self, worker_key: WorkerKey) -> ProgressStream<S> {
+    fn progress(&self, resume_epoch: ResumeEpoch, worker_key: WorkerKey) -> ProgressStream<S> {
+        // We can't use a notificator for progress because it's
+        // possible a worker, due to partitioning, will have no input
+        // data. We still need to write out that the worker made it
+        // through the resume epoch in that case.
         let mut op_builder = OperatorBuilder::new("progress".to_string(), self.scope());
 
         let mut input = op_builder.new_input(self, Pipeline);
@@ -182,9 +190,13 @@ where
         // Sort of "emit at end of epoch" but Timely doesn't give us
         // that.
         op_builder.build(move |mut init_caps| {
-            let mut tmp_incoming = Vec::new();
-
+            // Since we might emit downstream without any incoming
+            // items, like reporting progress on EOF, ensure we FFWD
+            // to the resume epoch.
+            init_caps.downgrade_all(&resume_epoch.0);
             let mut cap = init_caps.pop();
+
+            let mut tmp_incoming = Vec::new();
 
             move |input_frontiers| {
                 input.for_each(|_cap, incoming| {
@@ -196,37 +208,48 @@ where
                 });
 
                 cap = cap.take().and_then(|cap| {
-                    let frontier = input_frontiers[0].frontier().iter().min().copied();
-                    // Do not delay cap before the write; we will
-                    // delay downstream progress messages longer than
-                    // necessary if so. This would manifest as
-                    // resuming from an epoch that seems "too
-                    // early". Write out the progress at the end of
-                    // each epoch and where the frontier has moved.
-                    let should_write = frontier.map_or(true, |f| f > *cap.time());
-                    if should_write {
-                        // There's no way to guarantee this is
-                        // actually the resume epoch on the next
-                        // execution, but mark that this worker is
-                        // ready to resume there on EOF. It's also
-                        // possible that this results in a "too small"
-                        // resume epoch: if for some reason this
-                        // operator isn't activated during every
-                        // epoch, we might miss the "largest" epoch
-                        // and so we'll mark down the resume epoch as
-                        // one too small. That's fine, we just might
-                        // resume further back than is optimal.
+                    let frontier = input_frontiers.simplify();
+                    // EOF counts as progress. This will also filter
+                    // out the flash of 0 epoch upon resume.
+                    let frontier_progressed = frontier.map_or(true, |f| f > *cap.time());
+                    if frontier_progressed {
+                        // There's no way to guarantee that "last
+                        // frontier + 1" is actually the resume epoch
+                        // on the next execution, but mark that this
+                        // worker is ready to resume there on
+                        // EOF. It's also possible that this results
+                        // in a "too small" resume epoch: if for some
+                        // reason this operator isn't activated during
+                        // every epoch, we might miss the "largest"
+                        // epoch and so we'll mark down the resume
+                        // epoch as one too small. That's fine, we
+                        // just might resume further back than is
+                        // optimal.
                         let write_frontier = frontier.unwrap_or(*cap.time() + 1);
                         let msg = ProgressMsg::Advance(WorkerFrontier(write_frontier));
                         let kchange = KChange(worker_key, Change::Upsert(msg));
+                        // Do not delay cap before the write; we will
+                        // delay downstream progress messages longer than
+                        // necessary if so. This would manifest as
+                        // resuming from an epoch that seems "too
+                        // early". Write out the progress at the end of
+                        // each epoch and where the frontier has moved.
                         output_wrapper.activate().session(&cap).give(kchange);
+
+                        // If EOF, drop caps after the write.
+                        frontier.map(|f| {
+                            // We should never delay to something like
+                            // frontier + 1, otherwise chained progress
+                            // operators will "drift" forward and GC will
+                            // happen too early. If the frontier is empty,
+                            // also drop the capability.
+                            cap.delayed(&f)
+                        })
+                    // If there was no frontier progress on this
+                    // awake, maintain the current cap and do nothing.
+                    } else {
+                        Some(cap)
                     }
-                    // We should never delay to something like
-                    // frontier + 1, otherwise chained progress
-                    // operators will "drift" forward and GC will
-                    // happen too early. If the frontier is empty,
-                    // also drop the capability.
-                    frontier.map(|f| cap.delayed(&f))
                 });
 
                 // Wake up constantly, because we never know when
@@ -244,6 +267,7 @@ where
 pub(crate) trait Write<S, K, V, W>
 where
     S: Scope,
+    S::Timestamp: TotalOrder,
     K: ExchangeData + Route,
     V: ExchangeData,
     W: KWriter<K, V> + 'static,
@@ -258,48 +282,50 @@ where
 impl<S, K, V, W> Write<S, K, V, W> for KChangeStream<S, K, V>
 where
     S: Scope,
+    S::Timestamp: TotalOrder,
     K: ExchangeData + Route,
     V: ExchangeData,
     W: KWriter<K, V> + 'static,
 {
     fn write(&self, mut writer: W) -> ClockStream<S> {
-        let mut tmp_incoming = Vec::new();
-        let mut incoming_buffer = HashMap::new();
-
         // This is effectively "aggregate" but with `KChange`s not `(K,
         // V)`. It's just slightly longer, but clearer to write it out
         // ourselves.
-        self.unary_notify(
+        self.unary_frontier(
             Exchange::new(|KChange(key, _change): &KChange<K, V>| key.route()),
             "write",
-            None,
-            move |input, output, ncater| {
-                input.for_each(|cap, incoming| {
-                    let epoch = cap.time();
+            move |init_cap, _info| {
+                let mut inbuf = InBuffer::new();
+                let mut ncater = EagerNotificator::new(vec![init_cap], ());
 
-                    assert!(tmp_incoming.is_empty());
-                    incoming.swap(&mut tmp_incoming);
+                move |input, output| {
+                    input.for_each(|cap, incoming| {
+                        let epoch = cap.time();
+                        inbuf.extend(epoch.clone(), incoming);
+                        ncater.notify_at(epoch.clone());
+                    });
 
-                    incoming_buffer
-                        .entry(epoch.clone())
-                        .or_insert_with(Vec::new)
-                        .append(&mut tmp_incoming);
+                    // Use notificator so writes are in epoch order per
+                    // key.
+                    ncater.for_each(
+                        &[input.frontier().clone()],
+                        |caps, ()| {
+                            let cap = &caps[0];
+                            let epoch = cap.time();
 
-                    ncater.notify_at(cap.retain());
-                });
+                            if let Some(incoming) = inbuf.remove(epoch) {
+                                writer.write_many(incoming);
+                            }
+                        },
+                        |caps, ()| {
+                            let cap = &caps[0];
 
-                // Use notificator so writes are in epoch order per
-                // key.
-                ncater.for_each(|cap, _count, _ncater| {
-                    let epoch = cap.time();
-
-                    if let Some(incoming) = incoming_buffer.remove(epoch) {
-                        writer.write_many(incoming);
-
-                        let mut session = output.session(&cap);
-                        session.give(());
-                    }
-                });
+                            let mut session = output.session(&cap);
+                            session.give(());
+                        },
+                        |()| {},
+                    );
+                }
             },
         )
     }
@@ -308,6 +334,7 @@ where
 pub(crate) trait BroadcastWrite<S, K, V, W>
 where
     S: Scope,
+    S::Timestamp: TotalOrder,
     K: ExchangeData,
     V: ExchangeData,
     W: KWriter<K, V> + 'static,
@@ -320,40 +347,43 @@ where
 impl<S, K, V, W> BroadcastWrite<S, K, V, W> for KChangeStream<S, K, V>
 where
     S: Scope,
+    S::Timestamp: TotalOrder,
     K: ExchangeData,
     V: ExchangeData,
     W: KWriter<K, V> + 'static,
 {
     fn broadcast_write(&self, mut writer: W) -> ClockStream<S> {
-        let mut tmp_incoming = Vec::new();
-        let mut incoming_buffer = HashMap::new();
-
         self.broadcast()
-            .unary_notify(Pipeline, "write", None, move |input, output, ncater| {
-                input.for_each(|cap, incoming| {
-                    let epoch = cap.time();
+            .unary_frontier(Pipeline, "write", move |init_cap, _info| {
+                let mut inbuf = InBuffer::new();
+                let mut ncater = EagerNotificator::new(vec![init_cap], ());
 
-                    assert!(tmp_incoming.is_empty());
-                    incoming.swap(&mut tmp_incoming);
+                move |input, output| {
+                    input.for_each(|cap, incoming| {
+                        let epoch = cap.time();
+                        inbuf.extend(epoch.clone(), incoming);
+                        ncater.notify_at(epoch.clone());
+                    });
 
-                    incoming_buffer
-                        .entry(epoch.clone())
-                        .or_insert_with(Vec::new)
-                        .append(&mut tmp_incoming);
+                    ncater.for_each(
+                        &[input.frontier().clone()],
+                        |caps, ()| {
+                            let cap = &caps[0];
+                            let epoch = cap.time();
 
-                    ncater.notify_at(cap.retain());
-                });
+                            if let Some(incoming) = inbuf.remove(epoch) {
+                                writer.write_many(incoming);
+                            }
+                        },
+                        |caps, ()| {
+                            let cap = &caps[0];
 
-                ncater.for_each(|cap, _count, _ncater| {
-                    let epoch = cap.time();
-
-                    if let Some(incoming) = incoming_buffer.remove(epoch) {
-                        writer.write_many(incoming);
-
-                        let mut session = output.session(&cap);
-                        session.give(());
-                    }
-                });
+                            let mut session = output.session(cap);
+                            session.give(());
+                        },
+                        |()| {},
+                    );
+                }
             })
     }
 }
@@ -408,33 +438,47 @@ where
 
 impl<S> Recover<S> for StoreChangeStream<S>
 where
-    S: Scope,
+    S: Scope<Timestamp = u64>,
 {
     fn recover(&self) -> FlowChangeStream<S> {
-        let mut tmp_incoming = Vec::new();
-        let mut state = InMemStore::new();
+        let state = InMemStore::new();
 
-        self.unary_notify(
+        self.unary_frontier(
             Exchange::new(|KChange(StoreKey(_epoch, flow_key), _change)| flow_key.route()),
             "recover",
-            None,
-            move |input, output, ncater| {
-                input.for_each(|cap, incoming| {
-                    assert!(tmp_incoming.is_empty());
-                    incoming.swap(&mut tmp_incoming);
+            move |init_cap, _info| {
+                let mut inbuf = InBuffer::new();
+                let mut ncater = EagerNotificator::new(vec![init_cap], state);
 
-                    state.write_many(tmp_incoming.drain(..).collect());
-                    // Remove all but the newest changes so we don't
-                    // have to have the whole recovery store in mem.
-                    state.filter_last();
+                move |input, output| {
+                    input.for_each(|cap, incoming| {
+                        let epoch = cap.time();
+                        inbuf.extend(*epoch, incoming);
+                        ncater.notify_at(*epoch);
+                    });
 
-                    ncater.notify_at(cap.retain());
-                });
+                    ncater.for_each(
+                        &[input.frontier().clone()],
+                        |caps, state| {
+                            let cap = &caps[0];
+                            let epoch = cap.time();
 
-                ncater.for_each(|cap, _count, _ncater| {
-                    let mut session = output.session(&cap);
-                    session.give_iterator(state.drain_flatten().into_iter());
-                });
+                            if let Some(changes) = inbuf.remove(epoch) {
+                                state.write_many(changes);
+                                // Remove all but the newest changes so we don't
+                                // have to have the whole recovery store in mem.
+                                state.filter_last();
+                            }
+                        },
+                        |caps, state| {
+                            let cap = &caps[0];
+
+                            let mut session = output.session(&cap);
+                            session.give_iterator(state.drain_flatten().into_iter());
+                        },
+                        |_state| {},
+                    );
+                }
             },
         )
     }
@@ -491,71 +535,65 @@ where
     fn garbage_collect(
         &self,
         progress_stream: ProgressStream<S>,
-        mut cluster_progress: InMemProgress,
-        mut summary: StoreSummary,
+        cluster_progress: InMemProgress,
+        summary: StoreSummary,
     ) -> StoreChangeStream<S> {
-        let mut tmp_summary = Vec::new();
-        let mut tmp_progress = Vec::new();
-
-        let mut store_buffer = HashMap::new();
-        let mut progress_buffer = HashMap::new();
-
         // This is effectively "binary aggregate with epoch" but Timely
         // doesn't give us that.
-        self.binary_notify(
+        self.binary_frontier(
             &progress_stream,
             Exchange::new(|KChange(StoreKey(_epoch, flow_key), _change)| flow_key.route()),
             Pipeline,
             "garbage_collect",
-            None,
-            move |summary_input, progress_input, output, ncater| {
-                summary_input.for_each(|cap, incoming| {
-                    let epoch = cap.time();
+            move |init_cap, _info| {
+                let mut summary_inbuf = InBuffer::new();
+                let mut progress_inbuf = InBuffer::new();
+                let mut ncater = EagerNotificator::new(vec![init_cap], (summary, cluster_progress));
 
-                    assert!(tmp_summary.is_empty());
-                    incoming.swap(&mut tmp_summary);
+                move |summary_input, progress_input, output| {
+                    summary_input.for_each(|cap, incoming| {
+                        let epoch = cap.time();
+                        summary_inbuf.extend(*epoch, incoming);
+                        ncater.notify_at(*epoch);
+                    });
 
-                    store_buffer
-                        .entry(*epoch)
-                        .or_insert_with(Vec::new)
-                        .append(&mut tmp_summary);
+                    progress_input.for_each(|cap, incoming| {
+                        let epoch = cap.time();
+                        progress_inbuf.extend(*epoch, incoming);
+                        ncater.notify_at(*epoch);
+                    });
 
-                    ncater.notify_at(cap.retain());
-                });
+                    ncater.for_each(
+                        &[
+                            summary_input.frontier().clone(),
+                            progress_input.frontier().clone(),
+                        ],
+                        |caps, (summary, cluster_progress)| {
+                            let cap = &caps[0];
+                            let epoch = cap.time();
 
-                progress_input.for_each(|cap, incoming| {
-                    let epoch = cap.time();
+                            if let Some(store_changes) = summary_inbuf.remove(epoch) {
+                                summary.write_many(store_changes);
+                            }
+                            if let Some(progress_changes) = progress_inbuf.remove(epoch) {
+                                cluster_progress.write_many(progress_changes);
+                            }
+                        },
+                        |caps, (summary, cluster_progress)| {
+                            let cap = &caps[0];
 
-                    assert!(tmp_progress.is_empty());
-                    incoming.swap(&mut tmp_progress);
-
-                    progress_buffer
-                        .entry(*epoch)
-                        .or_insert_with(Vec::new)
-                        .append(&mut tmp_progress);
-
-                    ncater.notify_at(cap.retain());
-                });
-
-                ncater.for_each(|cap, _count, _ncater| {
-                    let epoch = cap.time();
-
-                    if let Some(store_changes) = store_buffer.remove(epoch) {
-                        summary.write_many(store_changes);
-                    }
-                    if let Some(progress_changes) = progress_buffer.remove(epoch) {
-                        cluster_progress.write_many(progress_changes);
-                    }
-
-                    let ResumeFrom(_ex, resume_epoch) = cluster_progress.resume_from();
-                    let mut session = output.session(&cap);
-                    session.give_iterator(
-                        summary
-                            .drain_garbage(&resume_epoch)
-                            .into_iter()
-                            .map(|key| KChange(key, Change::Discard)),
+                            let ResumeFrom(_ex, resume_epoch) = cluster_progress.resume_from();
+                            let mut session = output.session(&cap);
+                            session.give_iterator(
+                                summary
+                                    .drain_garbage(&resume_epoch)
+                                    .into_iter()
+                                    .map(|key| KChange(key, Change::Discard)),
+                            );
+                        },
+                        |(_summary, _cluster_progress)| {},
                     );
-                });
+                }
             },
         )
     }
