@@ -23,7 +23,10 @@ use timely::{
     Data, ExchangeData,
 };
 
-use crate::{recovery::model::*, timely::FrontierEx};
+use crate::{
+    recovery::model::*,
+    timely::{CapabilityVecEx, FrontierEx},
+};
 use crate::{recovery::operators::Route, timely::InBuffer};
 
 // Re-export for convenience. If you want to write a stateful
@@ -151,6 +154,7 @@ where
         &self,
         step_id: StepId,
         logic_builder: LB,
+        resume_epoch: ResumeEpoch,
         resume_state: StepStateBytes,
     ) -> (StatefulStream<S, R>, FlowChangeStream<S>)
     where
@@ -170,6 +174,7 @@ where
         &self,
         step_id: StepId,
         logic_builder: LB,
+        resume_epoch: ResumeEpoch,
         resume_state: StepStateBytes,
     ) -> (StatefulStream<S, R>, FlowChangeStream<S>)
     where
@@ -199,6 +204,18 @@ where
         let activator = self.scope().activator_for(&info.address[..]);
 
         op_builder.build(move |mut init_caps| {
+            // Since we might emit downstream without any incoming
+            // items, like on window timeout, ensure we FFWD to the
+            // resume epoch.
+            init_caps.downgrade_all(&resume_epoch.0);
+            // We have to retain separate capabilities
+            // per-output. This seems to be only documented in
+            // https://github.com/TimelyDataflow/timely-dataflow/pull/187
+            // In reverse order because of how [`Vec::pop`] removes
+            // from back.
+            let mut change_cap = init_caps.pop();
+            let mut output_cap = init_caps.pop();
+
             // Logic struct for each key. There is only a single logic
             // for each key representing the state at the frontier
             // epoch; we only modify state carefully in epoch order
@@ -227,14 +244,6 @@ where
                     current_next_awake.remove(&key);
                 }
             }
-
-            // We have to retain separate capabilities
-            // per-output. This seems to be only documented in
-            // https://github.com/TimelyDataflow/timely-dataflow/pull/187
-            // In reverse order because of how [`Vec::pop`] removes
-            // from back.
-            let mut change_cap = init_caps.pop();
-            let mut output_cap = init_caps.pop();
 
             // Here we have "buffers" that store items across
             // activations.
@@ -315,8 +324,13 @@ where
                     tmp_closed_epochs
                         .extend(inbuf.epochs().filter(|e| input_frontiers.is_closed(e)));
                     // Eagerly execute the current frontier (even
-                    // though it's not closed).
-                    tmp_closed_epochs.insert(frontier_epoch);
+                    // though it's not closed) as long as it could
+                    // actually get data. All inputs will have a flash
+                    // of their frontier being 0 before the resume
+                    // epoch.
+                    if frontier_epoch >= resume_epoch.0 {
+                        tmp_closed_epochs.insert(frontier_epoch);
+                    }
 
                     // For each epoch in order. This drains
                     // tmp_closed_epochs to be re-used on next

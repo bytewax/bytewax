@@ -8,6 +8,7 @@ use crate::execution::{WorkerCount, WorkerIndex};
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::model::*;
 use crate::recovery::operators::{FlowChangeStream, Route};
+use crate::timely::CapabilityVecEx;
 use crate::unwrap_any;
 use pyo3::exceptions::{PyStopIteration, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -195,8 +196,10 @@ impl PartitionedInput {
 
         let step_id_op = step_id.clone();
         op_builder.build(move |mut init_caps| {
-            let change_cap = init_caps.pop().map(|cap| cap.delayed(&start_at.0)).unwrap();
-            let output_cap = init_caps.pop().map(|cap| cap.delayed(&start_at.0)).unwrap();
+            // Inputs must init to the resume epoch.
+            init_caps.downgrade_all(&start_at.0);
+            let change_cap = init_caps.pop().unwrap();
+            let output_cap = init_caps.pop().unwrap();
 
             let mut caps = Some((output_cap, change_cap));
             let mut epoch_started = Instant::now();
@@ -435,7 +438,9 @@ impl DynamicInput {
         let activator = scope.activator_for(&info.address[..]);
 
         op_builder.build(move |mut init_caps| {
-            let output_cap = init_caps.pop().map(|cap| cap.delayed(&start_at.0)).unwrap();
+            // Inputs must init to the resume epoch.
+            init_caps.downgrade_all(&start_at.0);
+            let output_cap = init_caps.pop().unwrap();
 
             let mut cap_src = Some((output_cap, source));
             let mut epoch_started = Instant::now();

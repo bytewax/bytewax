@@ -31,6 +31,7 @@
 use crate::errors::tracked_err;
 use crate::operators::stateful_unary::*;
 use crate::pyo3_extensions::PyConfigClass;
+use crate::recovery::model::ResumeEpoch;
 use chrono::prelude::*;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -441,6 +442,7 @@ where
         clock_builder: CB,
         windower_builder: WB,
         logic_builder: LB,
+        resume_epoch: ResumeEpoch,
         resume_state: StepStateBytes,
     ) -> (
         StatefulStream<S, Result<R, WindowError<V>>>,
@@ -467,6 +469,7 @@ where
         clock_builder: CB,
         windower_builder: WB,
         logic_builder: LB,
+        resume_epoch: ResumeEpoch,
         resume_state: StepStateBytes,
     ) -> (
         StatefulStream<S, Result<R, WindowError<V>>>,
@@ -483,6 +486,7 @@ where
         self.stateful_unary(
             step_id,
             WindowStatefulLogic::builder(clock_builder, windower_builder, logic_builder),
+            resume_epoch,
             resume_state,
         )
     }

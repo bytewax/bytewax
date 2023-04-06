@@ -168,6 +168,7 @@ where
                         clock_builder,
                         windower_builder,
                         CollectWindowLogic::builder(),
+                        resume_epoch,
                         step_resume_state,
                     );
 
@@ -259,6 +260,7 @@ where
                         clock_builder,
                         windower_builder,
                         FoldWindowLogic::new(builder, folder),
+                        resume_epoch,
                         step_resume_state,
                     );
 
@@ -291,6 +293,7 @@ where
                     let (output, changes) = stream.map(extract_state_pair).stateful_unary(
                         step_id,
                         ReduceLogic::builder(reducer, is_complete),
+                        resume_epoch,
                         step_resume_state,
                     );
                     stream = output.map(wrap_state_pair);
@@ -316,6 +319,7 @@ where
                         clock_builder,
                         windower_builder,
                         ReduceWindowLogic::builder(reducer),
+                        resume_epoch,
                         step_resume_state,
                     );
 
@@ -341,6 +345,7 @@ where
                     let (output, changes) = stream.map(extract_state_pair).stateful_unary(
                         step_id,
                         StatefulMapLogic::builder(builder, mapper),
+                        resume_epoch,
                         step_resume_state,
                     );
                     stream = output.map(wrap_state_pair);
@@ -402,6 +407,7 @@ where
         attach_recovery_to_dataflow(
             &mut probe,
             worker_key,
+            resume_epoch,
             resume_progress,
             store_summary,
             progress_writer,

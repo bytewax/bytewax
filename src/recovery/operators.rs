@@ -23,6 +23,7 @@ use timely::progress::Timestamp;
 use timely::Data;
 use timely::ExchangeData;
 
+use crate::timely::CapabilityVecEx;
 use crate::timely::EagerNotificator;
 use crate::timely::FrontierEx;
 use crate::timely::InBuffer;
@@ -164,7 +165,7 @@ where
     /// Doesn't emit the "empty frontier" (even though that is the
     /// true frontier) on dataflow termination to allow dataflow
     /// continuation.
-    fn progress(&self, worker_key: WorkerKey) -> ProgressStream<S>;
+    fn progress(&self, resume_epoch: ResumeEpoch, worker_key: WorkerKey) -> ProgressStream<S>;
 }
 
 impl<S, D> Progress<S, D> for Stream<S, D>
@@ -172,7 +173,7 @@ where
     S: Scope<Timestamp = u64>,
     D: Data,
 {
-    fn progress(&self, worker_key: WorkerKey) -> ProgressStream<S> {
+    fn progress(&self, resume_epoch: ResumeEpoch, worker_key: WorkerKey) -> ProgressStream<S> {
         let mut op_builder = OperatorBuilder::new("progress".to_string(), self.scope());
 
         let mut input = op_builder.new_input(self, Pipeline);
@@ -185,9 +186,13 @@ where
         // Sort of "emit at end of epoch" but Timely doesn't give us
         // that.
         op_builder.build(move |mut init_caps| {
-            let mut tmp_incoming = Vec::new();
-
+            // Since we might emit downstream without any incoming
+            // items, like reporting progress on EOF, ensure we FFWD
+            // to the resume epoch.
+            init_caps.downgrade_all(&resume_epoch.0);
             let mut cap = init_caps.pop();
+
+            let mut tmp_incoming = Vec::new();
 
             move |input_frontiers| {
                 input.for_each(|_cap, incoming| {
@@ -199,7 +204,16 @@ where
                 });
 
                 cap = cap.take().and_then(|cap| {
-                    let frontier = input_frontiers.simplify();
+                    let frontier = input_frontiers
+                        .simplify()
+                        // This is hella gross. During a resume, there
+                        // will be a flash where the frontier is 0,
+                        // even though we try to immediately delay the
+                        // capabilities on all inputs to the resume
+                        // epoch. We need to filter that out. So it
+                        // does not appear the dataflow has "gone
+                        // backwards".
+                        .map(|f| std::cmp::max(f, resume_epoch.0));
                     // Do not delay cap before the write; we will
                     // delay downstream progress messages longer than
                     // necessary if so. This would manifest as

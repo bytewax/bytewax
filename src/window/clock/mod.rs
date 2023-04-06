@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use pyo3::{exceptions::PyTypeError, prelude::*};
 
-use crate::{pyo3_extensions::{PyConfigClass, TdPyAny}, errors::tracked_err};
+use crate::{
+    errors::tracked_err,
+    pyo3_extensions::{PyConfigClass, TdPyAny},
+};
 
 use self::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig};
 

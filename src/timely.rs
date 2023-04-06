@@ -90,7 +90,7 @@ where
     T: Timestamp + TotalOrder,
 {
     fn simplify(&self) -> Option<T> {
-        self.iter().flat_map(FrontierEx::simplify).min()
+        self.iter().flat_map(|ma| ma.simplify()).min()
     }
 }
 
