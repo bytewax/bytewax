@@ -159,7 +159,7 @@ class DirOutput(PartitionedOutput):
         dir: Path,
         file_count: int,
         file_namer: Callable[[int, int], str] = lambda i, _n: f"part_{i}",
-        assign_file: Callable[[str], int] = adler32,
+        assign_file: Callable[[str], int] = lambda key: adler32(key.encode()),
         end: str = "\n",
     ):
         self._dir = dir
