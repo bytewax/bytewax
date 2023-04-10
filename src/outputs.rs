@@ -210,10 +210,6 @@ impl PartAssigner {
     fn assign_part(&self, py: Python, key: StateKey) -> PyResult<StateKey> {
         self.0.call1(py, (key,))?.extract(py)
     }
-
-    fn clone_ref(&self, py: Python) -> Self {
-        Self(self.0.clone_ref(py))
-    }
 }
 
 pub(crate) trait PartitionedOutputOp<S>
@@ -259,20 +255,20 @@ where
             worker_count,
             resume_state,
         )?;
-        let kv_stream = self.map(extract_state_pair);
+        let kv_stream = self.map(extract_state_pair).map(move |(key, value)| {
+            let part_key =
+                unwrap_any!(Python::with_gil(|py| assigner.assign_part(py, key.clone())));
+            (part_key, key, value)
+        });
 
         let mut op_builder = OperatorBuilder::new(step_id.0.clone(), self.scope());
 
         let (mut output_wrapper, output_stream) = op_builder.new_output();
         let (mut change_wrapper, change_stream) = op_builder.new_output();
 
-        let ex_assigner = assigner.clone_ref(py);
         let mut input_handle = op_builder.new_input_connection(
             &kv_stream,
-            Exchange::new(move |(key, _value): &(StateKey, TdPyAny)| {
-                let part_key = unwrap_any!(Python::with_gil(
-                    |py| ex_assigner.assign_part(py, key.clone())
-                ));
+            Exchange::new(|(part_key, _key, _value): &(StateKey, StateKey, TdPyAny)| {
                 part_key.route()
             }),
             // This is saying this input results in items on any
@@ -280,6 +276,7 @@ where
             vec![Antichain::from_elem(0), Antichain::from_elem(0)],
         );
 
+        let bundle_keys: Vec<StateKey> = bundle.parts.keys().cloned().collect();
         op_builder.build(move |init_caps| {
             let mut inbuf = InBuffer::new();
             let mut ncater = EagerNotificator::new(init_caps, bundle);
@@ -301,11 +298,10 @@ where
                             if let Some(items) = inbuf.remove(epoch) {
                                 let mut output_handle = output_wrapper.activate();
                                 let mut output_session = output_handle.session(output_cap);
-                                for (key, value) in items {
-                                    let part_key = assigner.assign_part(py, key.clone())?;
-                                    let sink = bundle.parts.get_mut(&part_key).expect(
-                                        "Item routed to non-local partition; output routing bug?",
-                                    );
+                                for (part_key, key, value) in items {
+                                    let sink = bundle.parts.get_mut(&part_key).unwrap_or_else(|| {
+                                        panic!("{key:?} routed to partition {part_key:?} but this worker only has partitions {bundle_keys:?}; inconsistent `assign_part`?");
+                                    });
 
                                     sink.write(py, value.clone_ref(py))
                                         .reraise("error writing to output")?;

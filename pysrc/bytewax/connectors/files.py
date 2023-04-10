@@ -4,6 +4,7 @@
 import os
 from pathlib import Path
 from typing import Callable
+from zlib import adler32
 
 from bytewax.inputs import PartitionedInput, StatefulSource
 from bytewax.outputs import PartitionedOutput, StatefulSink
@@ -145,7 +146,9 @@ class DirOutput(PartitionedOutput):
 
         assign_file: Will be called with the key of each consumed item
             and must return the file index the value will be written
-            to. Defaults to calling `hash`.
+            to. Will wrap to the file count if you return a larger
+            value. Defaults to calling `zlib.adler32` as a simple
+            globally-consistent hash.
 
         end: String to write after each item. Defaults to `"\n"`.
 
@@ -156,7 +159,7 @@ class DirOutput(PartitionedOutput):
         dir: Path,
         file_count: int,
         file_namer: Callable[[int, int], str] = lambda i, _n: f"part_{i}",
-        assign_file: Callable[[str], int] = hash,
+        assign_file: Callable[[str], int] = adler32,
         end: str = "\n",
     ):
         self._dir = dir
