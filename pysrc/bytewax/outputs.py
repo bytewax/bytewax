@@ -114,6 +114,18 @@ class PartitionedOutput(Output):
         """Define how incoming `(key, value)` pairs should be routed
         to partitions.
 
+        This must be globally consistent and return the same partition
+        assignment on every call.
+
+        .. caution:: Do not use Python's built in `hash` function
+            here! It is [_not consistent between processes by
+            default_](https://docs.python.org/3/using/cmdline.html#cmdoption-R)
+            and using it will cause incorrect partitioning in cluster
+            executions.
+
+            You can start by using `zlib.adler32` as a quick drop-in
+            replacement.
+
         Args:
 
             item_key: Key that is about to be written.
