@@ -47,19 +47,13 @@ def test_cluster_can_be_ctrl_c():
     # Create a tmp file we can use to check the output
     tmp_file = tempfile.NamedTemporaryFile()
     # The dataflow we want to run is in ./test_flows/simple.py
-    flow_path = f"{Path(__file__).parent.resolve()}/test_flows/simple.py"
+    flow_path = f"pytests.test_flows.simple:get_flow:{tmp_file.name}"
     process = subprocess.Popen(
         [
             "python",
             "-m",
             "bytewax.run",
             flow_path,
-            # We get the flow with the `get_flow` function
-            "-d",
-            "get_flow",
-            # And we pass the file name as an argument
-            "--dataflow-args",
-            f"{tmp_file.name}",
             # Spawn 2 processes
             "-p",
             "2",

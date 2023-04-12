@@ -5,7 +5,7 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
-- *Breaking change* Reworker the execution model. `run_main` has been moved
+- *Breaking change* Rework the execution model. `run_main` has been moved
   to `bytewax.testing` as it's only supposed to be used when testing or
   prototyping. Production dataflows should be ran by calling the `bytewax.run`
   module with `python -m bytewax.run <dataflow-path>`.

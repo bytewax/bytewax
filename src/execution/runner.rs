@@ -1,20 +1,11 @@
 use std::{
     cell::RefCell,
-    process::Command,
     rc::Rc,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    thread,
+    sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
-use pyo3::{
-    exceptions::{PyKeyboardInterrupt, PyRuntimeError},
-    types::PyType,
-    Py, PyErr, PyResult, Python,
-};
+use pyo3::{Py, PyResult, Python};
 use timely::{
     communication::Allocate,
     dataflow::{
@@ -24,22 +15,19 @@ use timely::{
     progress::Timestamp,
     worker::Worker,
 };
-use tokio::runtime::Runtime;
 
 use crate::{
     dataflow::Dataflow,
-    errors::{prepend_tname, tracked_err, PythonException},
+    errors::PythonException,
     inputs::EpochInterval,
     recovery::{
         model::{
             FlowStateBytes, KChange, ProgressReader, ResumeEpoch, ResumeFrom, StateReader, StoreKey,
         },
         operators::{read, BroadcastWrite, Recover, Summary, Write},
-        python::{default_recovery_config, RecoveryBuilder, RecoveryConfig},
+        python::{RecoveryBuilder, RecoveryConfig},
         store::in_mem::{InMemProgress, InMemStore, StoreSummary},
     },
-    unwrap_any,
-    webserver::run_webserver,
 };
 
 use super::{build_production_dataflow, PeriodicSpan, WorkerCount, WorkerIndex};

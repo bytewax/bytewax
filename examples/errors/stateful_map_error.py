@@ -14,10 +14,8 @@ def broken_map(x, boh):
     return x["not here"]
 
 
-def get_flow():
-    flow = Dataflow()
-    flow.input("inp", TestingInput(range(10)))
-    flow.map(lambda x: ("ALL", x))
-    flow.stateful_map("broken", lambda: {}, broken_map)
-    flow.output("out", StdOutput())
-    return flow
+flow = Dataflow()
+flow.input("inp", TestingInput(range(10)))
+flow.map(lambda x: ("ALL", x))
+flow.stateful_map("broken", lambda: {}, broken_map)
+flow.output("out", StdOutput())

@@ -48,7 +48,7 @@ use crate::window::clock::ClockBuilder;
 use crate::window::{StatefulWindowUnary, WindowBuilder};
 use pyo3::exceptions::{PyKeyboardInterrupt, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyTuple, PyType};
+use pyo3::types::PyType;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::process::Command;
@@ -460,75 +460,6 @@ impl PeriodicSpan {
     }
 }
 
-/// Get a Dataflow from a py_module path.
-/// We mimick what Flask does here. We first look for a global
-/// variable with a common name (flow or dataflow), and if it's a Dataflow
-/// instance, we return that.
-/// Otherwise we look for all the variables defined in the module, and if there's
-/// one and only one Dataflow instance, we return that.
-/// Last accepted thing is a builder function, called either 'get_flow' or
-/// 'create_flow', and we call that with the provided arguments if any.
-/// If that returns an instance of a Dataflow, we use that, otherwise
-/// we bail with an error message.
-fn get_flow(py: Python, py_module: &str, dataflow_args: Vec<String>) -> PyResult<Dataflow> {
-    let module = py
-        .import(py_module)
-        .reraise(&format!("Error while importing '{py_module}'"))?;
-
-    // Search for the most common names first.
-    for name in ["flow", "dataflow"] {
-        if let Ok(flow) = module.getattr(name) {
-            let instance = flow.extract::<Dataflow>();
-            if instance.is_ok() {
-                return instance;
-            }
-        }
-    }
-
-    // Otherwise find the only object that is a Dataflow instance.
-    let matches: Vec<Dataflow> = module
-        .dict()
-        .values()
-        .into_iter()
-        .filter_map(|v| v.extract::<Dataflow>().ok())
-        .collect();
-
-    match &matches[..] {
-        [] => {}
-        [flow] => return Ok(flow.clone()),
-        _ => {
-            return Err(tracked_err::<PyRuntimeError>(&format!(
-                "Detected multiple Dataflows in module '{}'. \
-                Use '{}:name' to specify the correct one.",
-                py_module, py_module
-            )))
-        }
-    }
-
-    // Search for app factory functions.
-    let tuple: &PyTuple = PyTuple::new(py, dataflow_args);
-    for factory_fn in ["create_flow", "get_flow"] {
-        if let Ok(factory) = module.getattr(factory_fn) {
-            if factory.is_callable() {
-                let instance = factory
-                    .call(tuple, None)
-                    .reraise(&format!(
-                        "Error calling dataflow factory function '{factory_fn}'"
-                    ))?
-                    .extract::<Dataflow>();
-                if instance.is_ok() {
-                    return instance;
-                }
-            }
-        }
-    }
-
-    Err(tracked_err::<PyRuntimeError>(&format!(
-        "Can't find a Dataflow instance in '{}'",
-        py_module
-    )))
-}
-
 /// Start the tokio runtime for the webserver.
 /// Keep a reference to the runtime for as long as you need it running.
 fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
@@ -603,12 +534,6 @@ pub(crate) fn run_main(
     epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
-    if is_in_bytewax_run(py)? {
-        return Err(tracked_err::<PyRuntimeError>(
-            "run_main call detected while importing dataflow in bytewax.run. \
-            Remove or comment the line.",
-        ));
-    }
     tracing::info!("Running single worker on single process");
     let res = py.allow_threads(move || {
         std::panic::catch_unwind(|| {
@@ -731,12 +656,6 @@ pub(crate) fn cluster_main(
     recovery_config: Option<Py<RecoveryConfig>>,
     worker_count_per_proc: usize,
 ) -> PyResult<()> {
-    if is_in_bytewax_run(py)? {
-        return Err(tracked_err::<PyRuntimeError>(
-            "cluster_main call detected while importing dataflow in \
-            bytewax.run. Remove or comment the line",
-        ));
-    }
     tracing::info!(
         "Running {} workers on process {}",
         worker_count_per_proc,
@@ -851,21 +770,18 @@ pub(crate) fn cluster_main(
 ///
 /// See `python -m bytewax.run --help` for more info
 #[pyfunction(
-    py_module,
+    flow,
     "*",
     processes = 1,
     workers_per_process = 1,
     process_id = "None",
     addresses = "None",
-    dataflow_builder = "String::from(\"get_flow\")",
-    dataflow_args = "None",
     epoch_interval = "None",
     recovery_config = "None"
 )]
 pub(crate) fn spawn_cluster(
     py: Python,
-    py_module: String,
-    dataflow_args: Option<Vec<String>>,
+    flow: Py<Dataflow>,
     processes: Option<usize>,
     workers_per_process: Option<usize>,
     process_id: Option<usize>,
@@ -880,11 +796,6 @@ pub(crate) fn spawn_cluster(
         ));
     }
     let epoch_interval = epoch_interval.map(|dur| EpochInterval::new(Duration::from_secs_f64(dur)));
-
-    let flow = Py::new(
-        py,
-        get_flow(py, &py_module, dataflow_args.unwrap_or(vec![]))?,
-    )?;
 
     if (processes.is_some() || workers_per_process.is_some())
         && (process_id.is_some() || addresses.is_some())

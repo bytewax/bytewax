@@ -20,9 +20,7 @@ def stringify(x):
     return f"{x}"
 
 
-def get_flow():
-    flow = Dataflow()
-    flow.input("inp", NumberInput(10))
-    flow.map(stringify)
-    flow.output("out", StdOutput())
-    return flow
+flow = Dataflow()
+flow.input("inp", NumberInput(10))
+flow.map(stringify)
+flow.output("out", StdOutput())

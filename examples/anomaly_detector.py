@@ -70,11 +70,9 @@ def output_builder(worker_index, worker_count):
     return inspector
 
 
-def get_flow():
-    flow = Dataflow()
-    flow.input("inp", RandomMetricInput())
-    # ("metric", value)
-    flow.stateful_map("AnomalyDetector", lambda: ZTestDetector(2.0), ZTestDetector.push)
-    # ("metric", (value, mu, sigma, is_anomalous))
-    flow.output("output", StdOutput())
-    return flow
+flow = Dataflow()
+flow.input("inp", RandomMetricInput())
+# ("metric", value)
+flow.stateful_map("AnomalyDetector", lambda: ZTestDetector(2.0), ZTestDetector.push)
+# ("metric", (value, mu, sigma, is_anomalous))
+flow.output("output", StdOutput())

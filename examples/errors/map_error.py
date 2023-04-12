@@ -14,9 +14,7 @@ def broken_map(x):
     raise TypeError("A vague error message")
 
 
-def get_flow():
-    flow = Dataflow()
-    flow.input("inp", TestingInput(range(10)))
-    flow.map(broken_map)
-    flow.output("out", StdOutput())
-    return flow
+flow = Dataflow()
+flow.input("inp", TestingInput(range(10)))
+flow.map(broken_map)
+flow.output("out", StdOutput())

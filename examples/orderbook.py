@@ -140,10 +140,3 @@ flow.filter(
     lambda x: x[-1]["spread"] / x[-1]["ask"] > 0.0001
 )  # filter on 0.1% spread as a per
 flow.output("out", StdOutput())
-
-
-# def get_flow():
-#     return flow
-
-# if __name__ == "__main__":
-#     run_main(flow)

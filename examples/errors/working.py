@@ -76,26 +76,24 @@ def stringify(x):
     return f"{x}"
 
 
-def get_flow():
-    flow = Dataflow()
-    flow.input("inp", TestingInput(range(10)))
-    # Stateless operators
-    flow.filter(filter_op)
-    flow.filter_map(filter_map_op)
-    flow.flat_map(flat_map_op)
-    flow.inspect(inspect_op)
-    flow.inspect_epoch(inspect_epoch_op)
-    flow.map(map_op)
-    # Stateful operators
-    flow.reduce("reduce", reduce_op, reduce_is_complete)
-    cc = SystemClockConfig()
-    wc = TumblingWindow(
-        length=timedelta(seconds=1), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
-    )
-    flow.fold_window("fold_window", cc, wc, folder_builder, folder_op)
-    wc = SessionWindow(gap=timedelta(seconds=1))
-    flow.reduce_window("reduce_window", cc, wc, reduce_window_op)
-    flow.stateful_map("stateful_map", stateful_map_builder, stateful_map_op)
-    flow.map(stringify)
-    flow.output("out", StdOutput())
-    return flow
+flow = Dataflow()
+flow.input("inp", TestingInput(range(10)))
+# Stateless operators
+flow.filter(filter_op)
+flow.filter_map(filter_map_op)
+flow.flat_map(flat_map_op)
+flow.inspect(inspect_op)
+flow.inspect_epoch(inspect_epoch_op)
+flow.map(map_op)
+# Stateful operators
+flow.reduce("reduce", reduce_op, reduce_is_complete)
+cc = SystemClockConfig()
+wc = TumblingWindow(
+    length=timedelta(seconds=1), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+)
+flow.fold_window("fold_window", cc, wc, folder_builder, folder_op)
+wc = SessionWindow(gap=timedelta(seconds=1))
+flow.reduce_window("reduce_window", cc, wc, reduce_window_op)
+flow.stateful_map("stateful_map", stateful_map_builder, stateful_map_op)
+flow.map(stringify)
+flow.output("out", StdOutput())

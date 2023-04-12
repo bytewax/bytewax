@@ -7,13 +7,11 @@ Subclass the types here to implement input for your own custom source.
 
 """
 
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 from typing import Any, Optional, Set
 
 
-# TODO: Add ABC superclass. It messes up pickling. We should get rid
-# of pickling...
-class Input:
+class Input(ABC):
     """Base class for all input types. Do not subclass this.
 
     If you want to implement a custom connector, instead subclass one
@@ -31,9 +29,7 @@ class Input:
         }
 
 
-# TODO: Add ABC superclass. It messes up pickling. We should get rid
-# of pickling...
-class StatefulSource:
+class StatefulSource(ABC):
     """Input source that maintains state of its position."""
 
     @abstractmethod
@@ -53,7 +49,7 @@ class StatefulSource:
             StopIteration: When the source is complete.
 
         """
-        raise NotImplementedError("StatefulSource subclass must implement next")
+        ...
 
     @abstractmethod
     def snapshot(self) -> Any:
@@ -114,7 +110,7 @@ class PartitionedInput(Input):
             Partition keys.
 
         """
-        raise NotImplementedError("PartitionedInput subclass must implement list_parts")
+        ...
 
     @abstractmethod
     def build_part(
@@ -153,12 +149,10 @@ class PartitionedInput(Input):
             The built partition, or `None`.
 
         """
-        raise NotImplementedError("PartitionedInput subclass must implement build_part")
+        ...
 
 
-# TODO: Add ABC superclass. It messes up pickling. We should get rid
-# of pickling...
-class StatelessSource:
+class StatelessSource(ABC):
     """Input source that is stateless."""
 
     @abstractmethod
@@ -178,7 +172,7 @@ class StatelessSource:
             StopIteration: When the source is complete.
 
         """
-        raise NotImplementedError("StatelessSource subclass must implement next")
+        ...
 
     def close(self) -> None:
         """Do any cleanup on this source when the dataflow completes
@@ -221,4 +215,4 @@ class DynamicInput(Input):
             Input source.
 
         """
-        raise NotImplementedError("DynamicInput subclass must implement build")
+        ...
