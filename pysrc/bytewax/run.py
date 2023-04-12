@@ -1,10 +1,10 @@
 import argparse
-import pathlib
 import importlib
+import pathlib
 
 from bytewax.recovery import SqliteRecoveryConfig
 
-from .bytewax import spawn_cluster, cluster_main
+from .bytewax import cluster_main, spawn_cluster
 
 __all__ = ["cluster_main"]
 
@@ -39,7 +39,12 @@ def import_from_string(import_str):
         for attr_str in attrs_str.split("."):
             if ":" in attr_str:
                 attr_str, _, arg = attr_str.partition(":")
-                instance = getattr(instance, attr_str)(arg)
+                func = getattr(instance, attr_str)
+                if not callable(func):
+                    raise ImportFromStringError(
+                        f"Factory function `{attr_str}` is not a function"
+                    ) from None
+                instance = func(arg)
             else:
                 instance = getattr(instance, attr_str)
     except AttributeError:

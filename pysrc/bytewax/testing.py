@@ -121,24 +121,3 @@ def poll_next(source, timeout=timedelta(seconds=5)):
             raise TimeoutError()
         item = source.next()
     return item
-
-
-_print_lock = Lock()
-
-
-def test_print(*args, **kwargs):
-    """A version of `print()` which takes an in-process lock to prevent
-    multiple worker threads from writing simultaneously which results
-    in interleaved output.
-
-    You'd use this if you're integration testing a dataflow and want
-    more deterministic output. Remember that even with this, the items
-    from multi-worker output might be "out-of-order" because each
-    worker is racing each other. You probably want to sort your output
-    in some way.
-
-    Arguments are passed through to `print()` unmodified.
-
-    """
-    with _print_lock:
-        print(*args, flush=True, **kwargs)
