@@ -1,6 +1,6 @@
+from bytewax.connectors.files import FileOutput
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingInput
-from bytewax.connectors.files import FileOutput
 
 
 def get_flow(path):

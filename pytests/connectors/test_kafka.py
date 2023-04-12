@@ -14,8 +14,7 @@ from pytest import fixture, mark, raises
 
 from bytewax.connectors.kafka import KafkaInput, KafkaOutput
 from bytewax.dataflow import Dataflow
-from bytewax.testing import run_main
-from bytewax.testing import poll_next, TestingInput, TestingOutput
+from bytewax.testing import poll_next, run_main, TestingInput, TestingOutput
 
 pytestmark = mark.skipif(
     "TEST_KAFKA_BROKER" not in os.environ,

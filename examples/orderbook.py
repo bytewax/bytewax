@@ -3,9 +3,9 @@ import json
 # pip install websocket-client
 from websocket import create_connection
 
+from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import PartitionedInput, StatefulSource
-from bytewax.connectors.stdio import StdOutput
 
 
 class CoinfbaseSource(StatefulSource):

@@ -2,9 +2,9 @@
 This dataflow crashes for an Exception while getting the next input.
 We cause the crash by raising an Exception in DynamicInput.next
 """
-from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
-from bytewax.inputs import StatelessSource, DynamicInput
+from bytewax.dataflow import Dataflow
+from bytewax.inputs import DynamicInput, StatelessSource
 
 
 class NumberSource(StatelessSource):

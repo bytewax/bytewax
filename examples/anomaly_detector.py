@@ -1,8 +1,8 @@
 import random
 
+from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import PartitionedInput
-from bytewax.connectors.stdio import StdOutput
 
 
 class RandomMetricInput(PartitionedInput):

@@ -2,8 +2,8 @@
 This dataflow crashes when building the input source.
 We cause the crash by returning None in DynamicInput.build.
 """
-from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
+from bytewax.dataflow import Dataflow
 from bytewax.inputs import DynamicInput
 
 

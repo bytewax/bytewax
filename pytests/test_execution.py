@@ -1,8 +1,8 @@
+import signal
 import subprocess
 import tempfile
-import signal
-
 from pathlib import Path
+
 from pytest import raises
 
 from bytewax.dataflow import Dataflow

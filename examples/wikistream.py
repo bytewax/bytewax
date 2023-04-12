@@ -6,10 +6,10 @@ from datetime import timedelta
 import sseclient
 import urllib3
 
+from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import PartitionedInput, StatefulSource
-from bytewax.connectors.stdio import StdOutput
-from bytewax.window import SystemClockConfig, SessionWindow
+from bytewax.window import SessionWindow, SystemClockConfig
 
 
 class WikiSource(StatefulSource):

@@ -2,13 +2,13 @@
 This is an example dataflow that uses all the operators.
 """
 
-from datetime import timedelta, datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
-from bytewax.window import TumblingWindow, SystemClockConfig, SessionWindow
-from bytewax.tracing import setup_tracing
+from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingInput
+from bytewax.tracing import setup_tracing
+from bytewax.window import SessionWindow, SystemClockConfig, TumblingWindow
 
 tracer = setup_tracing(log_level="INFO")
 

@@ -1,5 +1,5 @@
-from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
+from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingInput
 
 

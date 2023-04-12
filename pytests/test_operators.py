@@ -6,7 +6,7 @@ from threading import Event
 from pytest import raises
 
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput, TestingOutput, run_main
+from bytewax.testing import run_main, TestingInput, TestingOutput
 from bytewax.window import EventClockConfig, TumblingWindow
 
 ZERO_TD = timedelta(seconds=0)

@@ -2,8 +2,8 @@
 This dataflow crashes because we never add an input operator.
 """
 
-from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
+from bytewax.dataflow import Dataflow
 
 
 def stringify(x):

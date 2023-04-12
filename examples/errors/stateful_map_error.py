@@ -4,8 +4,8 @@ of the `map` operator.
 We cause the crash by raising an exception in one of the maps.
 """
 
-from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
+from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingInput
 
 
