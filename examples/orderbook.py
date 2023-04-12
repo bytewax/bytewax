@@ -4,7 +4,6 @@ import json
 from websocket import create_connection
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
 from bytewax.inputs import PartitionedInput, StatefulSource
 from bytewax.connectors.stdio import StdOutput
 
@@ -142,5 +141,9 @@ flow.filter(
 )  # filter on 0.1% spread as a per
 flow.output("out", StdOutput())
 
-if __name__ == "__main__":
-    run_main(flow)
+
+# def get_flow():
+#     return flow
+
+# if __name__ == "__main__":
+#     run_main(flow)

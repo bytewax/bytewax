@@ -14,20 +14,13 @@ def _parse_args():
     parser = argparse.ArgumentParser(
         prog="python -m bytewax.run", description="Run a bytewax dataflow"
     )
-    parser.add_argument("file_path", metavar="FILE_PATH", type=pathlib.Path)
+    parser.add_argument("py_module", metavar="PY_MODULE", type=str)
     run = parser.add_argument_group("Run options")
-    run.add_argument(
-        "-d",
-        "--dataflow-builder",
-        type=str,
-        default="get_flow",
-        help="Name of the function that returns the Dataflow.",
-    )
     run.add_argument(
         "--dataflow-args",
         type=str,
         nargs="*",
-        help="Args for the dataflow builder function.",
+        help="Arguments for the get_flow/create_flow function.",
     )
     scaling = parser.add_argument_group(
         "Scaling",
@@ -75,7 +68,7 @@ def _parse_args():
     return args
 
 
-def _main():
+if __name__ == "__main__":
     kwargs = vars(_parse_args())
     sqlite_directory = kwargs.pop("sqlite_directory")
     recovery_config = None
@@ -83,7 +76,3 @@ def _main():
         recovery_config = SqliteRecoveryConfig(sqlite_directory or "./")
     kwargs["recovery_config"] = recovery_config
     spawn_cluster(**kwargs)
-
-
-if __name__ == "__main__":
-    _main()
