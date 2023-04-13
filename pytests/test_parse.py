@@ -41,5 +41,5 @@ def test_parse_args_environ(tmpdir):
     with patch.object(sys, "argv", testargs):
         with patch.object(os, "environ", testenv):
             parsed = _parse_args()
-            assert parsed.process_id == "0"
+            assert parsed.process_id == 0
             assert parsed.addresses == "localhost:1234;localhost:5678"
