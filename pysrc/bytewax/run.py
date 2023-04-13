@@ -206,7 +206,14 @@ def _parse_args():
     if args.processes is not None and (
         args.process_id is not None or args.addresses is not None
     ):
-        parser.error("Can't use both '-p' and '-a/-i'")
+        import warnings
+
+        warnings.warn(
+            "Both '-p' and '-a/-i' specified. "
+            "Ignoring the '-p' option, but this should be fixed"
+        )
+        args.processes = None
+        # parser.error("Can't use both '-p' and '-a/-i'")
 
     return args
 
