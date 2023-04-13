@@ -119,7 +119,7 @@ def _parse_args():
     )
     scaling = parser.add_argument_group(
         "Scaling",
-        "You should use either '-p/-w' to spawn multiple processes "
+        "You should use either '-p' to spawn multiple processes "
         "on this same machine, or '-i/-a' to spawn a single process "
         "on different machines",
     )
@@ -203,10 +203,10 @@ def _parse_args():
     # The dataflow should either run as a local multiprocess cluster,
     # or a single process with urls for the others, so we manually
     # validate the options to avoid confusion.
-    if (args.processes is not None or args.workers_per_process is not None) and (
+    if args.processes is not None and (
         args.process_id is not None or args.addresses is not None
     ):
-        parser.error("Can't use both '-w/-p' and '-a/-i'")
+        parser.error("Can't use both '-p' and '-a/-i'")
 
     return args
 

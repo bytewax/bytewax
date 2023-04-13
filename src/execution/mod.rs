@@ -797,11 +797,9 @@ pub(crate) fn spawn_cluster(
     }
     let epoch_interval = epoch_interval.map(|dur| EpochInterval::new(Duration::from_secs_f64(dur)));
 
-    if (processes.is_some() || workers_per_process.is_some())
-        && (process_id.is_some() || addresses.is_some())
-    {
+    if processes.is_some() && (process_id.is_some() || addresses.is_some()) {
         return Err(tracked_err::<PyRuntimeError>(
-            "Can't specify both 'processes/workers_per_process' and 'process_id/addresses'",
+            "Can't specify both 'processes' and 'process_id/addresses'",
         ));
     }
 
