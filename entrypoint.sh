@@ -2,7 +2,7 @@
 
 cd $BYTEWAX_WORKDIR
 . /venv/bin/activate
-python -m bytewax.run $BYTEWAX_IMPORT_STR
+python -m bytewax.run $BYTEWAX_PYTHON_FILE_PATH
 
 echo 'Process ended.'
 

@@ -3,7 +3,6 @@ import importlib
 import pathlib
 import os
 import sys
-import re
 
 from bytewax.recovery import SqliteRecoveryConfig
 
@@ -72,13 +71,15 @@ class EnvDefault(argparse.Action):
         setattr(namespace, self.dest, values)
 
 
-def prepare_import(import_str):
+def _prepare_import(import_str):
     """Given a filename this will try to calculate the python path, add it
     to the search path and return the actual module name that is expected.
 
     This was taken from Flask's codebase.
     """
     path, _, flow_name = import_str.partition(":")
+    if flow_name == "":
+        flow_name = "flow"
     path = os.path.realpath(path)
 
     fname, ext = os.path.splitext(path)
@@ -115,8 +116,6 @@ def _parse_args():
         "<module_name>:<dataflow_variable_name_or_factory_function>\n"
         "<module_name>:<dataflow_factory_function>:<string_argument_for_factory>\n"
         "Example: 'src.dataflow:flow' or 'src.dataflow:get_flow:string_argument'",
-        action=EnvDefault,
-        envvar="BYTEWAX_IMPORT_STR",
     )
     scaling = parser.add_argument_group(
         "Scaling",
@@ -176,7 +175,7 @@ def _parse_args():
     )
 
     args = parser.parse_args()
-    args.import_str = prepare_import(args.import_str)
+    args.import_str = _prepare_import(args.import_str)
 
     # First of all check if a process_id was set with a different
     # env var, used in the helm chart for deploy
