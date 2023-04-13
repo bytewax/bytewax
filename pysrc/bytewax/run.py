@@ -2,6 +2,8 @@ import argparse
 import importlib
 import pathlib
 import os
+import sys
+import re
 
 from bytewax.recovery import SqliteRecoveryConfig
 
@@ -18,8 +20,10 @@ def import_from_string(import_str):
     if not isinstance(import_str, str):
         return import_str
 
-    help_msg = f"Import string '{import_str}' must be in format "
-    "'<module>:<attribute>' or '<module>:<factory function>:<optional string arg>."
+    help_msg = (
+        f"Import string '{import_str}' must be in format "
+        "'<module>:<attribute>' or '<module>:<factory function>:<optional string arg>."
+    )
 
     if import_str.count(":") > 2:
         raise ImportFromStringError(help_msg)
@@ -66,6 +70,38 @@ class EnvDefault(argparse.Action):
 
     def __call__(self, parser, namespace, values, option_string=None):
         setattr(namespace, self.dest, values)
+
+
+def prepare_import(import_str):
+    """Given a filename this will try to calculate the python path, add it
+    to the search path and return the actual module name that is expected.
+
+    This was taken from Flask's codebase.
+    """
+    path, _, flow_name = import_str.partition(":")
+    path = os.path.realpath(path)
+
+    fname, ext = os.path.splitext(path)
+    if ext == ".py":
+        path = fname
+
+    if os.path.basename(path) == "__init__":
+        path = os.path.dirname(path)
+
+    module_name = []
+
+    # move up until outside package structure (no __init__.py)
+    while True:
+        path, name = os.path.split(path)
+        module_name.append(name)
+
+        if not os.path.exists(os.path.join(path, "__init__.py")):
+            break
+
+    if sys.path[0] != path:
+        sys.path.insert(0, path)
+
+    return ".".join(module_name[::-1]) + f":{flow_name}"
 
 
 def _parse_args():
@@ -116,7 +152,7 @@ def _parse_args():
         "-a",
         "--addresses",
         help="Addresses of other processes, separated by semicolumn:\n"
-        "-a \"localhost:2021;localhost:2022;localhost:2023\" ",
+        '-a "localhost:2021;localhost:2022;localhost:2023" ',
         action=EnvDefault,
         envvar="BYTEWAX_ADDRESSES",
     )
@@ -140,6 +176,7 @@ def _parse_args():
     )
 
     args = parser.parse_args()
+    args.import_str = prepare_import(args.import_str)
 
     # First of all check if a process_id was set with a different
     # env var, used in the helm chart for deploy
