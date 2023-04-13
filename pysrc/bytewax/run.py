@@ -182,9 +182,9 @@ def _parse_args():
     env = os.environ
     if args.process_id is None:
         if "BYTEWAX_POD_NAME" in env and "BYTEWAX_STATEFULSET_NAME" in env:
-            args.process_id = env["BYTEWAX_POD_NAME"].replace(
+            args.process_id = int(env["BYTEWAX_POD_NAME"].replace(
                 env["BYTEWAX_STATEFULSET_NAME"] + "-", ""
-            )
+            ))
 
     # If process_id is set, check if the addresses parameter is correctly set.
     # Again, we check for a different env var that can be used by the helm chart,
