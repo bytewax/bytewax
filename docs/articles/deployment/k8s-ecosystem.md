@@ -60,8 +60,8 @@ Also, the image shows that the init-container is reading the content of the Conf
 In the above diagram, the application container has these environment variables:
 
 ```yaml
-        - name: BYTEWAX_PYTHON_FILE_PATH
-          value: /var/bytewax/basic.py
+        - name: BYTEWAX_IMPORT_STR
+          value: basic:flow
         - name: BYTEWAX_WORKDIR
           value: /var/bytewax
         - name: BYTEWAX_WORKERS_PER_PROCESS

@@ -1,6 +1,7 @@
 import argparse
 import importlib
 import pathlib
+import os
 
 from bytewax.recovery import SqliteRecoveryConfig
 
@@ -55,6 +56,18 @@ def import_from_string(import_str):
     return instance
 
 
+class EnvDefault(argparse.Action):
+    """Action that uses env variable as default if nothing else was set."""
+
+    def __init__(self, envvar, default=None, **kwargs):
+        if envvar:
+            default = os.environ.get(envvar, default)
+        super(EnvDefault, self).__init__(default=default, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+
+
 def _parse_args():
     parser = argparse.ArgumentParser(
         prog="python -m bytewax.run", description="Run a bytewax dataflow"
@@ -62,9 +75,12 @@ def _parse_args():
     parser.add_argument(
         "import_str",
         type=str,
-        help="dataflow import string in the format "
-        "<module name>:<dataflow variable name or factory function> "
-        "or <module>:<dataflow factory function>:<string argument for factory>)",
+        help="Dataflow import string in the formats:\n"
+        "<module_name>:<dataflow_variable_name_or_factory_function>\n"
+        "<module_name>:<dataflow_factory_function>:<string_argument_for_factory>\n"
+        "Example: 'src.dataflow:flow' or 'src.dataflow:get_flow:string_argument'",
+        action=EnvDefault,
+        envvar="BYTEWAX_IMPORT_STR",
     )
     scaling = parser.add_argument_group(
         "Scaling",
@@ -77,16 +93,32 @@ def _parse_args():
         "--processes",
         type=int,
         help="Number of separate processes to run",
+        action=EnvDefault,
+        envvar="BYTEWAX_PROCESSES",
     )
     scaling.add_argument(
         "-w",
         "--workers-per-process",
         type=int,
         help="Number of workers for each process",
+        action=EnvDefault,
+        envvar="BYTEWAX_WORKERS_PER_PROCESS",
     )
-    scaling.add_argument("-i", "--process-id", type=int, help="Process id")
     scaling.add_argument(
-        "-a", "--addresses", action="append", help="Addresses of other processes"
+        "-i",
+        "--process-id",
+        type=int,
+        help="Process id",
+        action=EnvDefault,
+        envvar="BYTEWAX_PROCESS_ID",
+    )
+    scaling.add_argument(
+        "-a",
+        "--addresses",
+        help="Addresses of other processes, separated by comma:\n"
+        "-a localhost:2021,localhost:2022,localhost:2023 ",
+        action=EnvDefault,
+        envvar="BYTEWAX_ADDRESSES",
     )
 
     # Config options for recovery
@@ -95,12 +127,16 @@ def _parse_args():
         "--sqlite-directory",
         type=pathlib.Path,
         help="Passing this argument enables sqlite recovery in the specified folder",
+        action=EnvDefault,
+        envvar="BYTEWAX_SQLITE_DIRECTORY",
     )
     recovery.add_argument(
         "--epoch-interval",
         type=int,
         default=10,
         help="Number of seconds between state snapshots",
+        action=EnvDefault,
+        envvar="BYTEWAX_EPOCH_INTERVAL",
     )
 
     args = parser.parse_args()
@@ -113,10 +149,18 @@ def _parse_args():
 
 if __name__ == "__main__":
     kwargs = vars(_parse_args())
+
+    # Prepare recovery config
     sqlite_directory = kwargs.pop("sqlite_directory")
-    recovery_config = None
+    kwargs["recovery_config"] = None
     if sqlite_directory:
-        recovery_config = SqliteRecoveryConfig(sqlite_directory or "./")
-    kwargs["recovery_config"] = recovery_config
+        kwargs["recovery_config"] = SqliteRecoveryConfig(sqlite_directory or "./")
+
+    # Prepare addresses
+    addresses = kwargs.pop("addresses")
+    if addresses:
+        kwargs["addresses"] = addresses.split(",")
+
+    # Import the dataflow
     kwargs["flow"] = import_from_string(kwargs.pop("import_str"))
     spawn_cluster(**kwargs)
