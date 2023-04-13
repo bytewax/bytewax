@@ -115,8 +115,8 @@ def _parse_args():
     scaling.add_argument(
         "-a",
         "--addresses",
-        help="Addresses of other processes, separated by comma:\n"
-        "-a localhost:2021,localhost:2022,localhost:2023 ",
+        help="Addresses of other processes, separated by semicolumn:\n"
+        "-a \"localhost:2021;localhost:2022;localhost:2023\" ",
         action=EnvDefault,
         envvar="BYTEWAX_ADDRESSES",
     )
@@ -140,10 +140,38 @@ def _parse_args():
     )
 
     args = parser.parse_args()
+
+    # First of all check if a process_id was set with a different
+    # env var, used in the helm chart for deploy
+    env = os.environ
+    if args.process_id is None:
+        if "BYTEWAX_POD_NAME" in env and "BYTEWAX_STATEFULSET_NAME" in env:
+            args.process_id = env["BYTEWAX_POD_NAME"].replace(
+                env["BYTEWAX_STATEFULSET_NAME"] + "-", ""
+            )
+
+    # If process_id is set, check if the addresses parameter is correctly set.
+    # Again, we check for a different env var that can be used by the helm chart,
+    # which specifies a file with host addresses. We read the file and populate
+    # the argument if needed.
+    # Not using else since we might have modified the condition inside the first if.
+    if args.process_id is not None and args.addresses is None:
+        if "BYTEWAX_HOSTFILE_PATH" in env:
+            with open(env["BYTEWAX_HOSTFILE_PATH"]) as hostfile:
+                args.addresses = ";".join(
+                    [address.strip() for address in hostfile if address.strip() != ""]
+                )
+        else:
+            parser.error("the addresses option is required if a process_id is passed")
+
+    # The dataflow should either run as a local multiprocess cluster,
+    # or a single process with urls for the others, so we manually
+    # validate the options to avoid confusion.
     if (args.processes is not None or args.workers_per_process is not None) and (
         args.process_id is not None or args.addresses is not None
     ):
         parser.error("Can't use both '-w/-p' and '-a/-i'")
+
     return args
 
 
@@ -159,7 +187,7 @@ if __name__ == "__main__":
     # Prepare addresses
     addresses = kwargs.pop("addresses")
     if addresses:
-        kwargs["addresses"] = addresses.split(",")
+        kwargs["addresses"] = addresses.split(";")
 
     # Import the dataflow
     kwargs["flow"] = import_from_string(kwargs.pop("import_str"))

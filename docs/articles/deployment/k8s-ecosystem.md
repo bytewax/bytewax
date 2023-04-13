@@ -87,7 +87,7 @@ The environment variables can be grouped into two groups:
 
 #### Environments Variables used in `entrypoint.sh` script:
 
-- `BYTEWAX_PYTHON_FILE_PATH`: path of the python script to run.
+- `BYTEWAX_IMPORT_STR`: path of the python script to run.
 - `BYTEWAX_WORKDIR`: working directory with all the ConfigMap content.
 - `BYTEWAX_KEEP_CONTAINER_ALIVE`: if is set to `true`, after the dataflow program ends an infinite loop is going to keep the container running.
 

@@ -85,7 +85,7 @@ Bytewax images are structured in this way:
 
 cd $BYTEWAX_WORKDIR
 . /venv/bin/activate
-python -m bytewax.run $BYTEWAX_PYTHON_FILE_PATH
+python -m bytewax.run $BYTEWAX_IMPORT_STR
 
 echo 'Process ended.'
 
