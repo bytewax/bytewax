@@ -5,50 +5,99 @@
 </header>
 <section class="api__article-intro" id="section-intro">
 <p>Connectors for <a href="https://kafka.apache.org">Kafka</a>.</p>
+<p>Importing this module requires the
+<a href="https://github.com/confluentinc/confluent-kafka-python"><code>confluent-kafka</code></a>
+package to be installed.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Connectors for [Kafka](https://kafka.apache.org).
 
+Importing this module requires the
+[`confluent-kafka`](https://github.com/confluentinc/confluent-kafka-python)
+package to be installed.
+
 &#34;&#34;&#34;
 from typing import Dict, Iterable
 
-from confluent_kafka import Consumer, KafkaError, OFFSET_BEGINNING, TopicPartition
+from confluent_kafka import (
+    Consumer,
+    KafkaError,
+    OFFSET_BEGINNING,
+    Producer,
+    TopicPartition,
+)
 from confluent_kafka.admin import AdminClient
 
-from bytewax.inputs import PartInput
+from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.outputs import DynamicOutput, StatelessSink
 
 
-def _stateful_read_part(consumer):
-    while True:
-        msg = consumer.poll(0.001)  # seconds
+def _list_parts(client, topics):
+    for topic in topics:
+        # List topics one-by-one so if auto-create is turned on,
+        # we respect that.
+        cluster_metadata = client.list_topics(topic)
+        topic_metadata = cluster_metadata.topics[topic]
+        if topic_metadata.error is not None:
+            raise RuntimeError(
+                f&#34;error listing partitions for Kafka topic `{topic!r}`: &#34;
+                f&#34;{topic_metadata.error.str()}&#34;
+            )
+        part_idxs = topic_metadata.partitions.keys()
+        for i in part_idxs:
+            yield f&#34;{i}-{topic}&#34;
+
+
+class _KafkaSource(StatefulSource):
+    def __init__(self, consumer, topic, part_idx, starting_offset, resume_state):
+        self._offset = resume_state or starting_offset
+        # Assign does not activate consumer grouping.
+        consumer.assign([TopicPartition(topic, part_idx, self._offset)])
+        self._consumer = consumer
+        self._topic = topic
+
+    def next(self):
+        msg = self._consumer.poll(0.001)  # seconds
         if msg is None:
-            yield
+            return
         elif msg.error() is not None:
             if msg.error().code() == KafkaError._PARTITION_EOF:
-                return
+                raise StopIteration()
             else:
-                raise RuntimeError(msg.error())
+                raise RuntimeError(
+                    f&#34;error consuming from Kafka topic `{self.topic!r}`: {msg.error()}&#34;
+                )
         else:
             item = (msg.key(), msg.value())
-            yield msg.offset(), item
+            # Resume reading from the next message, not this one.
+            self._offset = msg.offset() + 1
+            return item
+
+    def snapshot(self):
+        return self._offset
+
+    def close(self):
+        self._consumer.close()
 
 
-class KafkaInput(PartInput):
-    &#34;&#34;&#34;Use a single [Kafka](https://kafka.apache.org) topic as the
-    input source.
+class KafkaInput(PartitionedInput):
+    &#34;&#34;&#34;Use [Kafka](https://kafka.apache.org) topics as an input
+    source.
 
     Kafka messages are emitted into the dataflow as two-tuples of
-    `(key_bytes, payload_bytes)`.
+    `(key_bytes, value_bytes)`.
 
     Partitions are the unit of parallelism.
+
+    Can support exactly-once processing.
 
     Args:
 
         brokers: List of `host:port` strings of Kafka brokers.
 
-        topic: Topic to consume from.
+        topics: List of topics to consume from.
 
         tail: Whether to wait for new data on this topic when the end
             is initially reached.
@@ -68,53 +117,113 @@ class KafkaInput(PartInput):
     def __init__(
         self,
         brokers: Iterable[str],
-        topic: str,
+        topics: Iterable[str],
         tail: bool = True,
         starting_offset: int = OFFSET_BEGINNING,
         add_config: Dict[str, str] = None,
     ):
         add_config = add_config or {}
 
-        self.brokers = brokers
-        self.topic = topic
-        self.tail = tail
-        self.starting_offset = starting_offset
-        self.add_config = add_config
+        if isinstance(brokers, str):
+            raise TypeError(&#34;brokers must be an iterable and not a string&#34;)
+        self._brokers = brokers
+        if isinstance(topics, str):
+            raise TypeError(&#34;topics must be an iterable and not a string&#34;)
+        self._topics = topics
+        self._tail = tail
+        self._starting_offset = starting_offset
+        self._add_config = add_config
 
     def list_parts(self):
         config = {
-            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self.brokers),
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
         }
-        config.update(self.add_config)
+        config.update(self._add_config)
         client = AdminClient(config)
-        cluster_metadata = client.list_topics(self.topic)
-        part_idxs = cluster_metadata.topics[self.topic].partitions.keys()
 
-        return [f&#34;{i}-{self.topic}&#34; for i in part_idxs]
+        return set(_list_parts(client, self._topics))
 
     def build_part(self, for_part, resume_state):
-        found_part_idx, found_topic = for_part.split(&#34;-&#34;, 1)
-        found_part_idx = int(found_part_idx)
+        part_idx, topic = for_part.split(&#34;-&#34;, 1)
+        part_idx = int(part_idx)
         # TODO: Warn and then return None. This might be an indication
         # of dataflow continuation with a new topic (to enable
         # re-partitioning), which is fine.
-        assert found_topic == self.topic, &#34;Can&#39;t resume from different Kafka topic&#34;
-
-        resume_offset = resume_state or self.starting_offset
+        assert topic in self._topics, &#34;Can&#39;t resume from different set of Kafka topics&#34;
 
         config = {
             # We&#39;ll manage our own &#34;consumer group&#34; via recovery
             # system.
             &#34;group.id&#34;: &#34;BYTEWAX_IGNORED&#34;,
             &#34;enable.auto.commit&#34;: &#34;false&#34;,
-            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self.brokers),
-            &#34;enable.partition.eof&#34;: str(not self.tail),
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+            &#34;enable.partition.eof&#34;: str(not self._tail),
         }
-        config.update(self.add_config)
+        config.update(self._add_config)
         consumer = Consumer(config)
-        consumer.assign([TopicPartition(self.topic, found_part_idx, resume_offset)])
+        return _KafkaSource(
+            consumer, topic, part_idx, self._starting_offset, resume_state
+        )
 
-        return _stateful_read_part(consumer)</code></pre>
+
+class _KafkaSink(StatelessSink):
+    def __init__(self, producer, topic):
+        self._producer = producer
+        self._topic = topic
+
+    def write(self, key_value):
+        key, value = key_value
+        self._producer.produce(self._topic, value, key)
+        self._producer.flush()
+
+    def close(self):
+        self._producer.flush()
+
+
+class KafkaOutput(DynamicOutput):
+    &#34;&#34;&#34;Use a single [Kafka](https://kafka.apache.org) topic as an
+    output sink.
+
+    Items consumed from the dataflow must look like two-tuples of
+    `(key_bytes, value_bytes)`. Default partition routing is used.
+
+    Workers are the unit of parallelism.
+
+    Can support at-least-once processing. Messages from the resume
+    epoch will be duplicated right after resume.
+
+    Args:
+
+        brokers: List of `host:port` strings of Kafka brokers.
+
+        topic: Topic to produce to.
+
+        add_config: Any additional configuration properties. See [the
+            `rdkafka`
+            documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+            for options.
+
+    &#34;&#34;&#34;
+
+    def __init__(
+        self,
+        brokers: Iterable[str],
+        topic: str,
+        add_config: Dict[str, str] = None,
+    ):
+        add_config = add_config or {}
+
+        self._brokers = brokers
+        self._topic = topic
+        self._add_config = add_config
+
+    def build(self, worker_index, worker_count):
+        config = {
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+        }
+        config.update(self._add_config)
+        producer = Producer(config)
+        return _KafkaSink(producer, self._topic)</code></pre>
 </details>
 </section>
 <section>
@@ -1528,20 +1637,21 @@ Error and event constants:</p>
 </dd>
 <dt id="bytewax.connectors.kafka.KafkaInput"><code class="language-python flex name class">
 <span>class <span class="ident">KafkaInput</span></span>
-<span>(</span><span>brokers: Iterable[str], topic: str, tail: bool = True, starting_offset: int = -2, add_config: Dict[str, str] = None)</span>
+<span>(</span><span>brokers: Iterable[str], topics: Iterable[str], tail: bool = True, starting_offset: int = -2, add_config: Dict[str, str] = None)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Use a single <a href="https://kafka.apache.org">Kafka</a> topic as the
-input source.</p>
+<div class="desc"><p>Use <a href="https://kafka.apache.org">Kafka</a> topics as an input
+source.</p>
 <p>Kafka messages are emitted into the dataflow as two-tuples of
-<code>(key_bytes, payload_bytes)</code>.</p>
+<code>(key_bytes, value_bytes)</code>.</p>
 <p>Partitions are the unit of parallelism.</p>
+<p>Can support exactly-once processing.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>brokers</code></strong></dt>
 <dd>List of <code>host:port</code> strings of Kafka brokers.</dd>
-<dt><strong><code>topic</code></strong></dt>
-<dd>Topic to consume from.</dd>
+<dt><strong><code>topics</code></strong></dt>
+<dd>List of topics to consume from.</dd>
 <dt><strong><code>tail</code></strong></dt>
 <dd>Whether to wait for new data on this topic when the end
 is initially reached.</dd>
@@ -1560,20 +1670,22 @@ for options.</dd>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class KafkaInput(PartInput):
-    &#34;&#34;&#34;Use a single [Kafka](https://kafka.apache.org) topic as the
-    input source.
+<pre class="language-python line-numbers"><code class="language-python">class KafkaInput(PartitionedInput):
+    &#34;&#34;&#34;Use [Kafka](https://kafka.apache.org) topics as an input
+    source.
 
     Kafka messages are emitted into the dataflow as two-tuples of
-    `(key_bytes, payload_bytes)`.
+    `(key_bytes, value_bytes)`.
 
     Partitions are the unit of parallelism.
+
+    Can support exactly-once processing.
 
     Args:
 
         brokers: List of `host:port` strings of Kafka brokers.
 
-        topic: Topic to consume from.
+        topics: List of topics to consume from.
 
         tail: Whether to wait for new data on this topic when the end
             is initially reached.
@@ -1593,67 +1705,397 @@ for options.</dd>
     def __init__(
         self,
         brokers: Iterable[str],
-        topic: str,
+        topics: Iterable[str],
         tail: bool = True,
         starting_offset: int = OFFSET_BEGINNING,
         add_config: Dict[str, str] = None,
     ):
         add_config = add_config or {}
 
-        self.brokers = brokers
-        self.topic = topic
-        self.tail = tail
-        self.starting_offset = starting_offset
-        self.add_config = add_config
+        if isinstance(brokers, str):
+            raise TypeError(&#34;brokers must be an iterable and not a string&#34;)
+        self._brokers = brokers
+        if isinstance(topics, str):
+            raise TypeError(&#34;topics must be an iterable and not a string&#34;)
+        self._topics = topics
+        self._tail = tail
+        self._starting_offset = starting_offset
+        self._add_config = add_config
 
     def list_parts(self):
         config = {
-            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self.brokers),
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
         }
-        config.update(self.add_config)
+        config.update(self._add_config)
         client = AdminClient(config)
-        cluster_metadata = client.list_topics(self.topic)
-        part_idxs = cluster_metadata.topics[self.topic].partitions.keys()
 
-        return [f&#34;{i}-{self.topic}&#34; for i in part_idxs]
+        return set(_list_parts(client, self._topics))
 
     def build_part(self, for_part, resume_state):
-        found_part_idx, found_topic = for_part.split(&#34;-&#34;, 1)
-        found_part_idx = int(found_part_idx)
+        part_idx, topic = for_part.split(&#34;-&#34;, 1)
+        part_idx = int(part_idx)
         # TODO: Warn and then return None. This might be an indication
         # of dataflow continuation with a new topic (to enable
         # re-partitioning), which is fine.
-        assert found_topic == self.topic, &#34;Can&#39;t resume from different Kafka topic&#34;
-
-        resume_offset = resume_state or self.starting_offset
+        assert topic in self._topics, &#34;Can&#39;t resume from different set of Kafka topics&#34;
 
         config = {
             # We&#39;ll manage our own &#34;consumer group&#34; via recovery
             # system.
             &#34;group.id&#34;: &#34;BYTEWAX_IGNORED&#34;,
             &#34;enable.auto.commit&#34;: &#34;false&#34;,
-            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self.brokers),
-            &#34;enable.partition.eof&#34;: str(not self.tail),
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+            &#34;enable.partition.eof&#34;: str(not self._tail),
         }
-        config.update(self.add_config)
+        config.update(self._add_config)
         consumer = Consumer(config)
-        consumer.assign([TopicPartition(self.topic, found_part_idx, resume_offset)])
-
-        return _stateful_read_part(consumer)</code></pre>
+        return _KafkaSource(
+            consumer, topic, part_idx, self._starting_offset, resume_state
+        )</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.inputs.PartInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput">PartInput</a></li>
+<li><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></li>
+<li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
+<li>abc.ABC</li>
 </ul>
 <h3>Inherited members</h3>
 <ul class="hlist">
-<li><code class="language-python"><b><a title="bytewax.inputs.PartInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput">PartInput</a></b></code>:
+<li><code class="language-python"><b><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></b></code>:
 <ul class="hlist">
-<li><code class="language-python"><a title="bytewax.inputs.PartInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput.build_part">build_part</a></code></li>
-<li><code class="language-python"><a title="bytewax.inputs.PartInput.list_parts" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput.list_parts">list_parts</a></code></li>
+<li><code class="language-python"><a title="bytewax.inputs.PartitionedInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.build_part">build_part</a></code></li>
+<li><code class="language-python"><a title="bytewax.inputs.PartitionedInput.list_parts" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.list_parts">list_parts</a></code></li>
 </ul>
 </li>
 </ul>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaOutput"><code class="language-python flex name class">
+<span>class <span class="ident">KafkaOutput</span></span>
+<span>(</span><span>brokers: Iterable[str], topic: str, add_config: Dict[str, str] = None)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use a single <a href="https://kafka.apache.org">Kafka</a> topic as an
+output sink.</p>
+<p>Items consumed from the dataflow must look like two-tuples of
+<code>(key_bytes, value_bytes)</code>. Default partition routing is used.</p>
+<p>Workers are the unit of parallelism.</p>
+<p>Can support at-least-once processing. Messages from the resume
+epoch will be duplicated right after resume.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>brokers</code></strong></dt>
+<dd>List of <code>host:port</code> strings of Kafka brokers.</dd>
+<dt><strong><code>topic</code></strong></dt>
+<dd>Topic to produce to.</dd>
+<dt><strong><code>add_config</code></strong></dt>
+<dd>Any additional configuration properties. See <a href="https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md">the
+<code>rdkafka</code>
+documentation</a>
+for options.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class KafkaOutput(DynamicOutput):
+    &#34;&#34;&#34;Use a single [Kafka](https://kafka.apache.org) topic as an
+    output sink.
+
+    Items consumed from the dataflow must look like two-tuples of
+    `(key_bytes, value_bytes)`. Default partition routing is used.
+
+    Workers are the unit of parallelism.
+
+    Can support at-least-once processing. Messages from the resume
+    epoch will be duplicated right after resume.
+
+    Args:
+
+        brokers: List of `host:port` strings of Kafka brokers.
+
+        topic: Topic to produce to.
+
+        add_config: Any additional configuration properties. See [the
+            `rdkafka`
+            documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+            for options.
+
+    &#34;&#34;&#34;
+
+    def __init__(
+        self,
+        brokers: Iterable[str],
+        topic: str,
+        add_config: Dict[str, str] = None,
+    ):
+        add_config = add_config or {}
+
+        self._brokers = brokers
+        self._topic = topic
+        self._add_config = add_config
+
+    def build(self, worker_index, worker_count):
+        config = {
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+        }
+        config.update(self._add_config)
+        producer = Producer(config)
+        return _KafkaSink(producer, self._topic)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.outputs.DynamicOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput">DynamicOutput</a></li>
+<li><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></li>
+<li>abc.ABC</li>
+</ul>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code class="language-python"><b><a title="bytewax.outputs.DynamicOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput">DynamicOutput</a></b></code>:
+<ul class="hlist">
+<li><code class="language-python"><a title="bytewax.outputs.DynamicOutput.build" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput.build">build</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
+<dt id="bytewax.connectors.kafka.Producer"><code class="language-python flex name class">
+<span>class <span class="ident">Producer</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Asynchronous Kafka Producer</p>
+<p>.. py:function:: Producer(config)</p>
+<p>:param dict config: Configuration properties. At a minimum <code>bootstrap.servers</code> <strong>should</strong> be set</p>
+<p>Create a new Producer instance using the provided configuration dict.</p>
+<p>.. py:function:: <strong>len</strong>(self)</p>
+<p>Producer implements <strong>len</strong> that can be used as len(producer) to obtain number of messages waiting.
+:returns: Number of messages and Kafka protocol requests waiting to be delivered to broker.
+:rtype: int</p></div>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li>confluent_kafka.serializing_producer.SerializingProducer</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.connectors.kafka.Producer.abort_transaction"><code class="language-python name flex">
+<span>def <span class="ident">abort_transaction</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: abort_transaction([timeout])</p>
+<p>Aborts the current transaction.
+This function should also be used to recover from non-fatal
+abortable transaction errors when KafkaError.txn_requires_abort()
+is True.</p>
+<p>Any outstanding messages will be purged and fail with
+_PURGE_INFLIGHT or _PURGE_QUEUE.</p>
+<p>Note: This function will block until all outstanding messages
+are purged and the transaction abort request has been
+successfully handled by the transaction coordinator, or until
+the timeout expires, which ever comes first. On timeout the
+application may call the function again.</p>
+<p>Note: Will automatically call purge() and flush()
+to ensure
+all queued and in-flight messages are purged before attempting
+to abort the transaction.</p>
+<p>:param float timeout: The maximum amount of time to block
+waiting for transaction to abort in seconds.</p>
+<p>:raises: KafkaError: Use exc.args[0].retriable() to check if the
+operation may be retried.
+Treat any other error as a fatal error.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Producer.begin_transaction"><code class="language-python name flex">
+<span>def <span class="ident">begin_transaction</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: begin_transaction()</p>
+<p>Begin a new transaction.</p>
+<p>init_transactions() must have been called successfully (once)
+before this function is called.</p>
+<p>Any messages produced or offsets sent to a transaction, after
+the successful return of this function will be part of the
+transaction and committed or aborted atomically.</p>
+<p>Complete the transaction by calling commit_transaction() or
+Abort the transaction by calling abort_transaction().</p>
+<p>:raises: KafkaError: Use exc.args[0].retriable() to check if the
+operation may be retried, else treat the
+error as a fatal error.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Producer.commit_transaction"><code class="language-python name flex">
+<span>def <span class="ident">commit_transaction</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: commit_transaction([timeout])</p>
+<p>Commmit the current transaction.
+Any outstanding messages will be flushed (delivered) before
+actually committing the transaction.</p>
+<p>If any of the outstanding messages fail permanently the current
+transaction will enter the abortable error state and this
+function will return an abortable error, in this case the
+application must call abort_transaction() before attempting
+a new transaction with begin_transaction().</p>
+<p>Note: This function will block until all outstanding messages
+are delivered and the transaction commit request has been
+successfully handled by the transaction coordinator, or until
+the timeout expires, which ever comes first. On timeout the
+application may call the function again.</p>
+<p>Note: Will automatically call flush() to ensure all queued
+messages are delivered before attempting to commit the
+transaction. Delivery reports and other callbacks may thus be
+triggered from this method.</p>
+<p>:param float timeout: The amount of time to block in seconds.</p>
+<p>:raises: KafkaError: Use exc.args[0].retriable() to check if the
+operation may be retried, or
+exc.args[0].txn_requires_abort() if the current
+transaction has failed and must be aborted by calling
+abort_transaction() and then start a new transaction
+with begin_transaction().
+Treat any other error as a fatal error.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Producer.flush"><code class="language-python name flex">
+<span>def <span class="ident">flush</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: flush([timeout])</p>
+<p>Wait for all messages in the Producer queue to be delivered.
+This is a convenience method that calls :py:func:<code>poll()</code> until :py:func:<code>len()</code> is zero or the optional timeout elapses.</p>
+<p>:param: float timeout: Maximum time to block (requires librdkafka &gt;= v0.9.4). (Seconds)
+:returns: Number of messages still in queue.</p>
+<div class="admonition note">
+<p class="admonition-title">Note:&ensp;See :py:func:<code>poll()</code> for a description on what callbacks may be triggered.</p>
+</div></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Producer.init_transactions"><code class="language-python name flex">
+<span>def <span class="ident">init_transactions</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function: init_transactions([timeout])</p>
+<p>Initializes transactions for the producer instance.</p>
+<p>This function ensures any transactions initiated by previous
+instances of the producer with the same <code>transactional.id</code> are
+completed.
+If the previous instance failed with a transaction in progress
+the previous transaction will be aborted.
+This function needs to be called before any other transactional
+or produce functions are called when the <code>transactional.id</code> is
+configured.</p>
+<p>If the last transaction had begun completion (following
+transaction commit) but not yet finished, this function will
+await the previous transaction's completion.</p>
+<p>When any previous transactions have been fenced this function
+will acquire the internal producer id and epoch, used in all
+future transactional messages issued by this producer instance.</p>
+<p>Upon successful return from this function the application has to
+perform at least one of the following operations within
+<code>transaction.timeout.ms</code> to avoid timing out the transaction
+on the broker:
+* produce() (et.al)
+* send_offsets_to_transaction()
+* commit_transaction()
+* abort_transaction()</p>
+<p>:param float timeout: Maximum time to block in seconds.</p>
+<p>:raises: KafkaError: Use exc.args[0].retriable() to check if the
+operation may be retried, else treat the
+error as a fatal error.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Producer.list_topics"><code class="language-python name flex">
+<span>def <span class="ident">list_topics</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: list_topics([topic=None], [timeout=-1])</p>
+<p>Request metadata from the cluster.
+This method provides the same information as
+listTopics(), describeTopics() and describeCluster() in
+the Java Admin client.</p>
+<p>:param str topic: If specified, only request information about this topic, else return results for all topics in cluster. Warning: If auto.create.topics.enable is set to true on the broker and an unknown topic is specified, it will be created.
+:param float timeout: The maximum response time before timing out, or -1 for infinite timeout.
+:rtype: ClusterMetadata
+:raises: KafkaException</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Producer.poll"><code class="language-python name flex">
+<span>def <span class="ident">poll</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: poll([timeout])</p>
+<p>Polls the producer for events and calls the corresponding callbacks (if registered).</p>
+<p>Callbacks:</p>
+<ul>
+<li><code>on_delivery</code> callbacks from :py:func:<code>produce()</code></li>
+<li>&hellip;</li>
+</ul>
+<p>:param float timeout: Maximum time to block waiting for events. (Seconds)
+:returns: Number of events processed (callbacks served)
+:rtype: int</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Producer.produce"><code class="language-python name flex">
+<span>def <span class="ident">produce</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: produce(topic, [value], [key], [partition], [on_delivery], [timestamp], [headers])</p>
+<p>Produce message to topic.
+This is an asynchronous operation, an application may use the <code>callback</code> (alias <code>on_delivery</code>) argument to pass a function (or lambda) that will be called from :py:func:<code>poll()</code> when the message has been successfully delivered or permanently fails delivery.</p>
+<p>Currently message headers are not supported on the message returned to the callback. The <code>msg.headers()</code> will return None even if the original message had headers set.</p>
+<p>:param str topic: Topic to produce message to
+:param str|bytes value: Message payload
+:param str|bytes key: Message key
+:param int partition: Partition to produce to, else uses the configured built-in partitioner.
+:param func on_delivery(err,msg): Delivery report callback to call (from :py:func:<code>poll()</code> or :py:func:<code>flush()</code>) on successful or failed delivery
+:param int timestamp: Message timestamp (CreateTime) in milliseconds since epoch UTC (requires librdkafka &gt;= v0.9.4, api.version.request=true, and broker &gt;= 0.10.0.0). Default value is current time.</p>
+<p>:param dict|list headers: Message headers to set on the message. The header key must be a string while the value must be binary, unicode or None. Accepts a list of (key,value) or a dict. (Requires librdkafka &gt;= v0.11.4 and broker version &gt;= 0.11.0.0)
+:rtype: None
+:raises BufferError: if the internal producer message queue is full (<code>queue.buffering.max.messages</code> exceeded)
+:raises KafkaException: for other errors, see exception code
+:raises NotImplementedError: if timestamp is specified without underlying library support.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Producer.purge"><code class="language-python name flex">
+<span>def <span class="ident">purge</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: purge([in_queue=True], [in_flight=True], [blocking=True])</p>
+<p>Purge messages currently handled by the producer instance.
+The application will need to call poll() or flush() afterwards to serve the delivery report callbacks of the purged messages.</p>
+<p>:param: bool in_queue: Purge messages from internal queues. By default, true.
+:param: bool in_flight: Purge messages in flight to or from the broker. By default, true.
+:param: bool blocking: If set to False, will not wait on background thread queue purging to finish. By default, true.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.Producer.send_offsets_to_transaction"><code class="language-python name flex">
+<span>def <span class="ident">send_offsets_to_transaction</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: send_offsets_to_transaction(positions, group_metadata, [timeout])</p>
+<p>Sends a list of topic partition offsets to the consumer group
+coordinator for group_metadata and marks the offsets as part
+of the current transaction.
+These offsets will be considered committed only if the
+transaction is committed successfully.</p>
+<p>The offsets should be the next message your application will
+consume, i.e., the last processed message's offset + 1 for each
+partition.
+Either track the offsets manually during processing or use
+consumer.position() (on the consumer) to get the current offsets
+for the partitions assigned to the consumer.</p>
+<p>Use this method at the end of a consume-transform-produce loop
+prior to committing the transaction with commit_transaction().</p>
+<p>Note: The consumer must disable auto commits
+(set <code>enable.auto.commit</code> to false on the consumer).</p>
+<p>Note: Logical and invalid offsets (e.g., OFFSET_INVALID) in
+offsets will be ignored. If there are no valid offsets in
+offsets the function will return successfully and no action
+will be taken.</p>
+<p>:param list(TopicPartition) offsets: current consumer/processing
+position(offsets) for the
+list of partitions.
+:param object group_metadata: consumer group metadata retrieved
+from the input consumer's
+get_consumer_group_metadata().
+:param float timeout: Amount of time to block in seconds.</p>
+<p>:raises: KafkaError: Use exc.args[0].retriable() to check if the
+operation may be retried, or
+exc.args[0].txn_requires_abort() if the current
+transaction has failed and must be aborted by calling
+abort_transaction() and then start a new transaction
+with begin_transaction().
+Treat any other error as a fatal error.</p></div>
+</dd>
+</dl>
 </dd>
 <dt id="bytewax.connectors.kafka.TopicPartition"><code class="language-python flex name class">
 <span>class <span class="ident">TopicPartition</span></span>
@@ -1854,6 +2296,24 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 </li>
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.KafkaInput" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaInput">KafkaInput</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.KafkaOutput" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaOutput">KafkaOutput</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.Producer" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Producer">Producer</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Producer.abort_transaction" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Producer.abort_transaction">abort_transaction</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Producer.begin_transaction" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Producer.begin_transaction">begin_transaction</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Producer.commit_transaction" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Producer.commit_transaction">commit_transaction</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Producer.flush" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Producer.flush">flush</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Producer.init_transactions" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Producer.init_transactions">init_transactions</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Producer.list_topics" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Producer.list_topics">list_topics</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Producer.poll" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Producer.poll">poll</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Producer.produce" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Producer.produce">produce</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Producer.purge" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Producer.purge">purge</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.Producer.send_offsets_to_transaction" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.Producer.send_offsets_to_transaction">send_offsets_to_transaction</a></li>
+</ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.TopicPartition" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.TopicPartition">TopicPartition</a></h4>

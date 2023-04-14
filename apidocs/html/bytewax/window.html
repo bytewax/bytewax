@@ -139,11 +139,11 @@ adjust epochs.
 from .bytewax import (  # noqa: F401
     ClockConfig,
     EventClockConfig,
+    SessionWindow,
+    SlidingWindow,
     SystemClockConfig,
     TumblingWindow,
-    SlidingWindow,
     WindowConfig,
-    SessionWindow
 )</code></pre>
 </details>
 </section>
@@ -173,24 +173,29 @@ you'd like to use.</p></div>
 </dd>
 <dt id="bytewax.window.EventClockConfig"><code class="language-python flex name class">
 <span>class <span class="ident">EventClockConfig</span></span>
-<span>(</span><span>dt_getter, wait_for_system_duration)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Use datetimes from events as clock.</p>
+<div class="desc"><p>Use a getter function to lookup the timestamp for each item.</p>
+<p>The watermark is the largest item timestamp seen thus far, minus
+the waiting duration, plus the system time duration that has
+elapsed since that item was seen. This effectively means items
+will be correctly processed as long as they are not out of order
+more than the waiting duration in system time.</p>
 <p>If the dataflow has no more input, all windows are closed.</p>
-<p>The watermark is the system time since the last element
-plus the value of <code>late</code> plus the delay of the latest received element.
-It is updated every time an event with a newer datetime is processed.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>dt_getter</code></strong></dt>
-<dd>Python function to get a datetime from an event.</dd>
+<dd>Python function to get a datetime from an event. The
+datetime returned must have tzinfo set to
+<code>timezone.utc</code>. E.g. <code>datetime(1970, 1, 1,
+tzinfo=timezone.utc)</code></dd>
 <dt><strong><code>wait_for_system_duration</code></strong></dt>
-<dd>How much (system) time to wait before considering an event late.</dd>
+<dd>How much system time to wait before
+considering an event late.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
-<p>Config object. Pass this as the <code>clock_config</code> parameter to your
-windowing operator.</p></div>
+<p>Config object. Pass this as the <code>clock_config</code> parameter to
+your windowing operator.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li><a title="bytewax.window.ClockConfig" href="/apidocs/bytewax.window#bytewax.window.ClockConfig">ClockConfig</a></li>
@@ -237,20 +242,26 @@ your windowing operator.</p></div>
 <span>class <span class="ident">SlidingWindow</span></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Sliding windows of fixed duration.
-If offset == length, you get tumbling windows.
-If offset &lt; length, windows overlap.
-If offset &gt; length, there will be holes between windows.</p>
+<div class="desc"><p>Sliding windows of fixed duration.</p>
+<p>If offset == length, windows cover all time but do not
+overlap. Each item will fall in exactly one window. The
+<code><a title="bytewax.window.TumblingWindow" href="/apidocs/bytewax.window#bytewax.window.TumblingWindow">TumblingWindow</a></code> config will do this for you.</p>
+<p>If offset &lt; length, windows overlap. Each item will fall in
+multiple windows.</p>
+<p>If offset &gt; length, there will be gaps between windows. Each item
+can fall in up to one window, but might fall into none.</p>
+<p>Window start times are inclusive, but end times are exclusive.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>length</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
-<dd>Length of window.</dd>
+<dd>Length of windows.</dd>
 <dt><strong><code>offset</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
-<dd>Offset between windows.</dd>
-<dt><strong><code>start_at</code></strong> :&ensp;<code>datetime.datetime</code></dt>
-<dd>Instant of the first window. You
-can use this to align all windows to an hour,
-e.g. Defaults to system time of dataflow start.</dd>
+<dd>Duration between start times of
+adjacent windows.</dd>
+<dt><strong><code>align_to</code></strong> :&ensp;<code>datetime.datetime</code></dt>
+<dd>Align windows so this instant
+starts a window. This must be a constant. You can use this to
+align all windows to hour boundaries, e.g.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>window_config</code> parameter to
@@ -261,15 +272,15 @@ your windowing operator.</p></div>
 </ul>
 <h3>Instance variables</h3>
 <dl>
+<dt id="bytewax.window.SlidingWindow.align_to"><code class="language-python name">var <span class="ident">align_to</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
 <dt id="bytewax.window.SlidingWindow.length"><code class="language-python name">var <span class="ident">length</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
 <dt id="bytewax.window.SlidingWindow.offset"><code class="language-python name">var <span class="ident">offset</span></code></dt>
-<dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
-</dd>
-<dt id="bytewax.window.SlidingWindow.start_at"><code class="language-python name">var <span class="ident">start_at</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
@@ -279,8 +290,8 @@ your windowing operator.</p></div>
 <span>class <span class="ident">SystemClockConfig</span></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Use the system time inside the windowing operator to determine
-times.</p>
+<div class="desc"><p>Use the current system time as the timestamp for each item.</p>
+<p>The watermark is also the current system time.</p>
 <p>If the dataflow has no more input, all windows are closed.</p>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>clock_config</code> parameter to
@@ -295,14 +306,16 @@ your windowing operator.</p></div>
 </code></dt>
 <dd>
 <div class="desc"><p>Tumbling windows of fixed duration.</p>
+<p>Each item will fall in exactly one window.</p>
+<p>Window start times are inclusive, but end times are exclusive.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>length</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
-<dd>Length of window.</dd>
-<dt><strong><code>start_at</code></strong> :&ensp;<code>datetime.datetime</code></dt>
-<dd>Instant of the first window. You
-can use this to align all windows to an hour,
-e.g. Defaults to system time of dataflow start.</dd>
+<dd>Length of windows.</dd>
+<dt><strong><code>align_to</code></strong> :&ensp;<code>datetime.datetime</code></dt>
+<dd>Align windows so this instant
+starts a window. This must be a constant. You can use this to
+align all windows to hour boundaries, e.g.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>window_config</code> parameter to
@@ -313,11 +326,11 @@ your windowing operator.</p></div>
 </ul>
 <h3>Instance variables</h3>
 <dl>
-<dt id="bytewax.window.TumblingWindow.length"><code class="language-python name">var <span class="ident">length</span></code></dt>
+<dt id="bytewax.window.TumblingWindow.align_to"><code class="language-python name">var <span class="ident">align_to</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
-<dt id="bytewax.window.TumblingWindow.start_at"><code class="language-python name">var <span class="ident">start_at</span></code></dt>
+<dt id="bytewax.window.TumblingWindow.length"><code class="language-python name">var <span class="ident">length</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
@@ -378,9 +391,9 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.SlidingWindow" href="/apidocs/bytewax.window#bytewax.window.SlidingWindow">SlidingWindow</a></h4>
 <ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.SlidingWindow.align_to" href="/apidocs/bytewax.window#bytewax.window.SlidingWindow.align_to">align_to</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.window.SlidingWindow.length" href="/apidocs/bytewax.window#bytewax.window.SlidingWindow.length">length</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.window.SlidingWindow.offset" href="/apidocs/bytewax.window#bytewax.window.SlidingWindow.offset">offset</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.SlidingWindow.start_at" href="/apidocs/bytewax.window#bytewax.window.SlidingWindow.start_at">start_at</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
@@ -389,8 +402,8 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.window.TumblingWindow" href="/apidocs/bytewax.window#bytewax.window.TumblingWindow">TumblingWindow</a></h4>
 <ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.TumblingWindow.align_to" href="/apidocs/bytewax.window#bytewax.window.TumblingWindow.align_to">align_to</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.window.TumblingWindow.length" href="/apidocs/bytewax.window#bytewax.window.TumblingWindow.length">length</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.window.TumblingWindow.start_at" href="/apidocs/bytewax.window#bytewax.window.TumblingWindow.start_at">start_at</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">

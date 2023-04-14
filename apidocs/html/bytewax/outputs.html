@@ -4,99 +4,241 @@
 <h1 class="api__article-title">Module <strong>bytewax.outputs</strong></h1>
 </header>
 <section class="api__article-intro" id="section-intro">
-<p>Dataflow output sinks.</p>
-<p>Bytewax provides pre-packaged output configuration options for common
-sinks you might want to write dataflow output to.</p>
-<h2 id="use">Use</h2>
-<p>Create an <code><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></code> subclass for the sink you want to write to.
-Then pass that config object to the <code><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code>
-operator.</p>
+<p>Low-level output interfaces.</p>
+<p>If you want pre-built connectors for various external systems, see
+<code><a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a></code>. That is also a rich source of examples.</p>
+<p>Subclass the types here to implement input for your own custom sink.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Dataflow output sinks.
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Low-level output interfaces.
 
-Bytewax provides pre-packaged output configuration options for common
-sinks you might want to write dataflow output to.
+If you want pre-built connectors for various external systems, see
+`bytewax.connectors`. That is also a rich source of examples.
 
-Use
----
+Subclass the types here to implement input for your own custom sink.
 
-Create an `OutputConfig` subclass for the sink you want to write to.
-Then pass that config object to the `bytewax.dataflow.Dataflow.capture`
-operator.
 &#34;&#34;&#34;
 
-from .bytewax import (  # noqa: F401
-    KafkaOutputConfig,
-    ManualEpochOutputConfig,
-    ManualOutputConfig,
-    OutputConfig,
-    StdOutputConfig,
-)
+from abc import abstractmethod, ABC
+from typing import Any, Optional, Set
 
 
-class TestingEpochOutputConfig(ManualEpochOutputConfig):
-    &#34;&#34;&#34;
-    Append each output `(epoch, item)` to a list.
-    You only want to use this for unit testing.
+class Output(ABC):
+    &#34;&#34;&#34;Base class for all output types. Do not subclass this.
 
-    Because the list is in-memory, you will need to carefuly
-    coordinate use or assertions on this list when using multiple
-    workers.
-
-    Args:
-
-        ls: Append each `(epoch, item)` to this list.
-
-    Returns:
-
-        Config object.
-        Pass this to the `bytewax.dataflow.Dataflow.capture` operator.
+    If you want to implement a custom connector, instead subclass one
+    of the specific output sub-types below in this module.
 
     &#34;&#34;&#34;
 
-    # This is needed to avoid pytest trying to load this class as
-    # a test since its name starts with &#34;Test&#34;
-    __test__ = False
+    def __json__(self):
+        &#34;&#34;&#34;This is used by the Bytewax platform internally and should
+        not be overridden.
 
-    def __new__(cls, ls):
         &#34;&#34;&#34;
-        In classes defined by PyO3 we can only use __new__, not __init__
+        return {
+            &#34;type&#34;: type(self).__name__,
+        }
+
+
+class StatefulSink(ABC):
+    &#34;&#34;&#34;Output sink that maintains state of its position.&#34;&#34;&#34;
+
+    @abstractmethod
+    def write(self, value) -&gt; None:
+        &#34;&#34;&#34;Write a single output value.
+
+        Called once with only `value` for each `(key, value)` at this
+        point in the dataflow.
+
+        See `PartitionedOutput.assign_part` for how the key is mapped
+        to partition.
+
+        Args:
+
+            value: Value in the dataflow.
+
         &#34;&#34;&#34;
-        return super().__new__(cls, lambda wi, wn: ls.append)
+        ...
+
+    @abstractmethod
+    def snapshot(self) -&gt; Any:
+        &#34;&#34;&#34;Snapshot the position of the next write of this sink.
+
+        This will be returned to you via the `resume_state` parameter
+        of your output builder.
+
+        Be careful of &#34;off by one&#34; errors in resume state. This should
+        return a state that, when built into a sink, resumes writing
+        _after the last written item_, not overwriting the same item.
+
+        This is guaranteed to never be called after `close()`.
+
+        Returns:
+
+            Resume state.
+
+        &#34;&#34;&#34;
+        ...
+
+    def close(self) -&gt; None:
+        &#34;&#34;&#34;Do any cleanup on this sink when the dataflow completes on
+        a finite input.
+
+        This is not guaranteed to be called. It will not be called
+        during a crash.
+
+        &#34;&#34;&#34;
+        pass
 
 
-class TestingOutputConfig(ManualOutputConfig):
+class PartitionedOutput(Output):
+    &#34;&#34;&#34;An output with a fixed number of independent partitions.
+
+    Will maintain the state of each sink and re-build using it during
+    resume. If the sink supports seeking and overwriting, this output
+    can support exactly-once processing.
+
     &#34;&#34;&#34;
-    Append each output item to a list.
-    You only want to use this for unit testing.
 
-    Because the list is in-memory, you will need to carefuly
-    coordinate use or assertions on this list when using multiple
-    workers.
+    @abstractmethod
+    def list_parts(self) -&gt; Set[str]:
+        &#34;&#34;&#34;List all partitions by a string key.
 
-    Args:
+        This must consistently return the same keys when called by all
+        workers in all executions.
 
-        ls: Append each `item` to this list.
+        Keys must be unique within this dataflow step.
 
-    Returns:
+        Returns:
 
-        Config object.
-        Pass this to the `bytewax.dataflow.Dataflow.capture` operator.
+            Partition keys.
+
+        &#34;&#34;&#34;
+        ...
+
+    @abstractmethod
+    def assign_part(self, item_key: str) -&gt; str:
+        &#34;&#34;&#34;Define how incoming `(key, value)` pairs should be routed
+        to partitions.
+
+        This must be globally consistent and return the same partition
+        assignment on every call.
+
+        .. caution:: Do not use Python&#39;s built in `hash` function
+            here! It is [_not consistent between processes by
+            default_](https://docs.python.org/3/using/cmdline.html#cmdoption-R)
+            and using it will cause incorrect partitioning in cluster
+            executions.
+
+            You can start by using `zlib.adler32` as a quick drop-in
+            replacement.
+
+        Args:
+
+            item_key: Key that is about to be written.
+
+        Returns:
+
+            Partition key the value for this key should be written
+            to. Must be one of the partition keys returned by
+            `list_parts`.
+
+        &#34;&#34;&#34;
+        ...
+
+    @abstractmethod
+    def build_part(
+        self,
+        for_part: str,
+        resume_state: Optional[Any],
+    ) -&gt; Optional[StatefulSink]:
+        &#34;&#34;&#34;Build an output partition, resuming writing at the position
+        encoded in the resume state.
+
+        Will be called once on one worker in an execution for each
+        partition key in order to distribute partitions across all
+        workers.
+
+        Return `None` if for some reason this partition is no longer
+        valid and can be skipped coherently. Raise an exception if
+        not.
+
+        Do not pre-build state about a partition in the
+        constructor. All state must be derived from `resume_state` for
+        recovery to work properly.
+
+        Args:
+
+            for_part: Which partition to build.
+
+            resume_state: State data containing where in the output
+                stream this partition should be begin writing during
+                this execution.
+
+        Returns:
+
+            The built partition, or `None`.
+
+        &#34;&#34;&#34;
+        ...
+
+
+class StatelessSink(ABC):
+    &#34;&#34;&#34;Output sink that is stateless.&#34;&#34;&#34;
+
+    @abstractmethod
+    def write(self, item) -&gt; None:
+        &#34;&#34;&#34;
+
+        Called once for each item at this point in the dataflow.
+
+        Args:
+
+            item: Item in the dataflow.
+        &#34;&#34;&#34;
+        ...
+
+    def close(self) -&gt; None:
+        &#34;&#34;&#34;Do any cleanup on this sink when the dataflow completes on
+        a finite input.
+
+        This is not guaranteed to be called. It will not be called
+        during a crash.
+
+        &#34;&#34;&#34;
+        pass
+
+
+class DynamicOutput(Output):
+    &#34;&#34;&#34;An output that supports writing from any number of workers
+    concurrently.
+
+    Does not support storing any resume state. Thus these kind of
+    outputs only naively can support at-least-once processing.
 
     &#34;&#34;&#34;
 
-    # This is needed to avoid pytest trying to load this class as
-    # a test since its name starts with &#34;Test&#34;
-    __test__ = False
+    @abstractmethod
+    def build(self, worker_index, worker_count) -&gt; StatelessSink:
+        &#34;&#34;&#34;Build an output sink for a worker.
 
-    def __new__(cls, ls):
+        Will be called once on each worker.
+
+        Args:
+
+            worker_index: Index of this worker.
+
+            worker_count: Total number of workers.
+
+        Returns:
+
+            Output sink.
+
         &#34;&#34;&#34;
-        In classes defined by PyO3 we can only use __new__, not __init__
-        &#34;&#34;&#34;
-        return super().__new__(cls, lambda wi, wn: ls.append)</code></pre>
+        ...</code></pre>
 </details>
 </section>
 <section>
@@ -108,271 +250,679 @@ class TestingOutputConfig(ManualOutputConfig):
 <section>
 <h2 class="api__article-subtitle" id="header-classes">Classes</h2>
 <dl>
-<dt id="bytewax.outputs.KafkaOutputConfig"><code class="language-python flex name class">
-<span>class <span class="ident">KafkaOutputConfig</span></span>
-<span>(</span><span>brokers, topic, additional_properties)</span>
+<dt id="bytewax.outputs.DynamicOutput"><code class="language-python flex name class">
+<span>class <span class="ident">DynamicOutput</span></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Use <a href="https://kafka.apache.org">Kafka</a> as the output.</p>
-<p>A <code>capture</code> using KafkaOutput expects to receive data
-structured as two-tuples of bytes (key, payload) to form a Kafka
-record. Key may be <code>None</code>.</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>brokers</code></strong> :&ensp;<code>List[str]</code></dt>
-<dd>List of <code>host:port</code> strings of Kafka
-brokers.</dd>
-<dt><strong><code>topic</code></strong> :&ensp;<code>str</code></dt>
-<dd>Topic to which producer will send records.</dd>
-<dt><strong><code>additional_properties</code></strong> :&ensp;<code>dict</code></dt>
-<dd>Any additional configuration properties.
-Note that consumer group settings will be ignored.
-See <a href="https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md">https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md</a>
-for more options.</dd>
-</dl>
-<h2 id="returns">Returns</h2>
-<p>Config object. Pass this as the <code>output_config</code> argument to the
-<code>bytewax.dataflow.Dataflow.output</code>.</p></div>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></li>
-</ul>
-<h3>Instance variables</h3>
-<dl>
-<dt id="bytewax.outputs.KafkaOutputConfig.additional_properties"><code class="language-python name">var <span class="ident">additional_properties</span></code></dt>
-<dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
-</dd>
-<dt id="bytewax.outputs.KafkaOutputConfig.brokers"><code class="language-python name">var <span class="ident">brokers</span></code></dt>
-<dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
-</dd>
-<dt id="bytewax.outputs.KafkaOutputConfig.topic"><code class="language-python name">var <span class="ident">topic</span></code></dt>
-<dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
-</dd>
-</dl>
-</dd>
-<dt id="bytewax.outputs.ManualEpochOutputConfig"><code class="language-python flex name class">
-<span>class <span class="ident">ManualEpochOutputConfig</span></span>
-<span>(</span><span>output_builder)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Call a Python callback function with each output epoch and item.</p>
-<p>You probably want to use <code><a title="bytewax.outputs.ManualOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></code> unless you know you
-need specific epoch assignments for deep integration work.</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>output_builder</code></strong></dt>
-<dd><code>output_builder(worker_index: int,
-worker_count: int) =&gt; output_handler(epoch_item:
-Tuple[int, Any])</code> Builder function which returns a handler
-function for each worker thread, called with <code>(epoch,
-item)</code> whenever an item passes by this capture operator on
-this worker.</dd>
-</dl>
-<h2 id="returns">Returns</h2>
-<p>Config object. Pass this to the
-<code><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></li>
-</ul>
-<h3>Subclasses</h3>
-<ul class="hlist">
-<li><a title="bytewax.outputs.TestingEpochOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.TestingEpochOutputConfig">TestingEpochOutputConfig</a></li>
-</ul>
-</dd>
-<dt id="bytewax.outputs.ManualOutputConfig"><code class="language-python flex name class">
-<span>class <span class="ident">ManualOutputConfig</span></span>
-<span>(</span><span>output_builder)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Call a Python callback function with each output item.</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>output_builder</code></strong></dt>
-<dd><code>output_builder(worker_index: int,
-worker_count: int) =&gt; output_handler(item: Any)</code> Builder
-function which returns a handler function for each worker
-thread, called with <code>item</code> whenever an item passes by this
-capture operator on this worker.</dd>
-</dl>
-<h2 id="returns">Returns</h2>
-<p>Config object. Pass this to the
-<code><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></li>
-</ul>
-<h3>Subclasses</h3>
-<ul class="hlist">
-<li><a title="bytewax.connectors.bigquery.outputs.BigQueryOutputConfig" href="/apidocs/bytewax.connectors/bigquery/outputs#bytewax.connectors.bigquery.outputs.BigQueryOutputConfig">BigQueryOutputConfig</a></li>
-<li><a title="bytewax.connectors.dynamodb.outputs.DynamoDBOutputConfig" href="/apidocs/bytewax.connectors/dynamodb/outputs#bytewax.connectors.dynamodb.outputs.DynamoDBOutputConfig">DynamoDBOutputConfig</a></li>
-<li><a title="bytewax.outputs.TestingOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.TestingOutputConfig">TestingOutputConfig</a></li>
-</ul>
-<h3>Instance variables</h3>
-<dl>
-<dt id="bytewax.outputs.ManualOutputConfig.output_builder"><code class="language-python name">var <span class="ident">output_builder</span></code></dt>
-<dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
-</dd>
-</dl>
-</dd>
-<dt id="bytewax.outputs.OutputConfig"><code class="language-python flex name class">
-<span>class <span class="ident">OutputConfig</span></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Base class for an output config.</p>
-<p>These define how a certain stream of data should be output.</p>
-<p>Ues a specific subclass of this that matches the output
-destination you'd like to write to.</p></div>
-<h3>Subclasses</h3>
-<ul class="hlist">
-<li><a title="bytewax.outputs.KafkaOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.KafkaOutputConfig">KafkaOutputConfig</a></li>
-<li><a title="bytewax.outputs.ManualEpochOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualEpochOutputConfig">ManualEpochOutputConfig</a></li>
-<li><a title="bytewax.outputs.ManualOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></li>
-<li><a title="bytewax.outputs.StdOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.StdOutputConfig">StdOutputConfig</a></li>
-</ul>
-</dd>
-<dt id="bytewax.outputs.StdOutputConfig"><code class="language-python flex name class">
-<span>class <span class="ident">StdOutputConfig</span></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Write the output items to standard out.</p>
-<p>Items must have a valid <code>__str__</code>. If not, map the items into a
-string before capture.</p>
-<h2 id="returns">Returns</h2>
-<p>Config object. Pass this to the
-<code><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></li>
-</ul>
-</dd>
-<dt id="bytewax.outputs.TestingEpochOutputConfig"><code class="language-python flex name class">
-<span>class <span class="ident">TestingEpochOutputConfig</span></span>
-<span>(</span><span>ls)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Append each output <code>(epoch, item)</code> to a list.
-You only want to use this for unit testing.</p>
-<p>Because the list is in-memory, you will need to carefuly
-coordinate use or assertions on this list when using multiple
-workers.</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>ls</code></strong></dt>
-<dd>Append each <code>(epoch, item)</code> to this list.</dd>
-</dl>
-<h2 id="returns">Returns</h2>
-<p>Config object.
-Pass this to the <code><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
+<div class="desc"><p>An output that supports writing from any number of workers
+concurrently.</p>
+<p>Does not support storing any resume state. Thus these kind of
+outputs only naively can support at-least-once processing.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class TestingEpochOutputConfig(ManualEpochOutputConfig):
-    &#34;&#34;&#34;
-    Append each output `(epoch, item)` to a list.
-    You only want to use this for unit testing.
+<pre class="language-python line-numbers"><code class="language-python">class DynamicOutput(Output):
+    &#34;&#34;&#34;An output that supports writing from any number of workers
+    concurrently.
 
-    Because the list is in-memory, you will need to carefuly
-    coordinate use or assertions on this list when using multiple
-    workers.
-
-    Args:
-
-        ls: Append each `(epoch, item)` to this list.
-
-    Returns:
-
-        Config object.
-        Pass this to the `bytewax.dataflow.Dataflow.capture` operator.
+    Does not support storing any resume state. Thus these kind of
+    outputs only naively can support at-least-once processing.
 
     &#34;&#34;&#34;
 
-    # This is needed to avoid pytest trying to load this class as
-    # a test since its name starts with &#34;Test&#34;
-    __test__ = False
+    @abstractmethod
+    def build(self, worker_index, worker_count) -&gt; StatelessSink:
+        &#34;&#34;&#34;Build an output sink for a worker.
 
-    def __new__(cls, ls):
+        Will be called once on each worker.
+
+        Args:
+
+            worker_index: Index of this worker.
+
+            worker_count: Total number of workers.
+
+        Returns:
+
+            Output sink.
+
         &#34;&#34;&#34;
-        In classes defined by PyO3 we can only use __new__, not __init__
-        &#34;&#34;&#34;
-        return super().__new__(cls, lambda wi, wn: ls.append)</code></pre>
+        ...</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.ManualEpochOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualEpochOutputConfig">ManualEpochOutputConfig</a></li>
-<li><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></li>
+<li><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></li>
+<li>abc.ABC</li>
 </ul>
-</dd>
-<dt id="bytewax.outputs.TestingOutputConfig"><code class="language-python flex name class">
-<span>class <span class="ident">TestingOutputConfig</span></span>
-<span>(</span><span>ls)</span>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="bytewax.connectors.kafka.KafkaOutput" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaOutput">KafkaOutput</a></li>
+<li><a title="bytewax.connectors.stdio.StdOutput" href="/apidocs/bytewax.connectors/stdio#bytewax.connectors.stdio.StdOutput">StdOutput</a></li>
+<li><a title="bytewax.testing.TestingOutput" href="/apidocs/bytewax.testing#bytewax.testing.TestingOutput">TestingOutput</a></li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.outputs.DynamicOutput.build"><code class="language-python name flex">
+<span>def <span class="ident">build</span></span>(<span>self, worker_index, worker_count) ‑> <a title="bytewax.outputs.StatelessSink" href="/apidocs/bytewax.outputs#bytewax.outputs.StatelessSink">StatelessSink</a></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Append each output item to a list.
-You only want to use this for unit testing.</p>
-<p>Because the list is in-memory, you will need to carefuly
-coordinate use or assertions on this list when using multiple
-workers.</p>
+<div class="desc"><p>Build an output sink for a worker.</p>
+<p>Will be called once on each worker.</p>
 <h2 id="args">Args</h2>
 <dl>
-<dt><strong><code>ls</code></strong></dt>
-<dd>Append each <code>item</code> to this list.</dd>
+<dt><strong><code>worker_index</code></strong></dt>
+<dd>Index of this worker.</dd>
+<dt><strong><code>worker_count</code></strong></dt>
+<dd>Total number of workers.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
-<p>Config object.
-Pass this to the <code><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">Dataflow.capture()</a></code> operator.</p></div>
+<p>Output sink.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class TestingOutputConfig(ManualOutputConfig):
-    &#34;&#34;&#34;
-    Append each output item to a list.
-    You only want to use this for unit testing.
+<pre class="language-python line-numbers"><code class="language-python">@abstractmethod
+def build(self, worker_index, worker_count) -&gt; StatelessSink:
+    &#34;&#34;&#34;Build an output sink for a worker.
 
-    Because the list is in-memory, you will need to carefuly
-    coordinate use or assertions on this list when using multiple
-    workers.
+    Will be called once on each worker.
 
     Args:
 
-        ls: Append each `item` to this list.
+        worker_index: Index of this worker.
+
+        worker_count: Total number of workers.
 
     Returns:
 
-        Config object.
-        Pass this to the `bytewax.dataflow.Dataflow.capture` operator.
+        Output sink.
+
+    &#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.outputs.Output"><code class="language-python flex name class">
+<span>class <span class="ident">Output</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for all output types. Do not subclass this.</p>
+<p>If you want to implement a custom connector, instead subclass one
+of the specific output sub-types below in this module.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class Output(ABC):
+    &#34;&#34;&#34;Base class for all output types. Do not subclass this.
+
+    If you want to implement a custom connector, instead subclass one
+    of the specific output sub-types below in this module.
 
     &#34;&#34;&#34;
 
-    # This is needed to avoid pytest trying to load this class as
-    # a test since its name starts with &#34;Test&#34;
-    __test__ = False
+    def __json__(self):
+        &#34;&#34;&#34;This is used by the Bytewax platform internally and should
+        not be overridden.
 
-    def __new__(cls, ls):
         &#34;&#34;&#34;
-        In classes defined by PyO3 we can only use __new__, not __init__
-        &#34;&#34;&#34;
-        return super().__new__(cls, lambda wi, wn: ls.append)</code></pre>
+        return {
+            &#34;type&#34;: type(self).__name__,
+        }</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.ManualOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></li>
-<li><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></li>
+<li>abc.ABC</li>
 </ul>
-<h3>Inherited members</h3>
+<h3>Subclasses</h3>
 <ul class="hlist">
-<li><code class="language-python"><b><a title="bytewax.outputs.ManualOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></b></code>:
+<li><a title="bytewax.outputs.DynamicOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput">DynamicOutput</a></li>
+<li><a title="bytewax.outputs.PartitionedOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput">PartitionedOutput</a></li>
+</ul>
+</dd>
+<dt id="bytewax.outputs.PartitionedOutput"><code class="language-python flex name class">
+<span>class <span class="ident">PartitionedOutput</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>An output with a fixed number of independent partitions.</p>
+<p>Will maintain the state of each sink and re-build using it during
+resume. If the sink supports seeking and overwriting, this output
+can support exactly-once processing.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class PartitionedOutput(Output):
+    &#34;&#34;&#34;An output with a fixed number of independent partitions.
+
+    Will maintain the state of each sink and re-build using it during
+    resume. If the sink supports seeking and overwriting, this output
+    can support exactly-once processing.
+
+    &#34;&#34;&#34;
+
+    @abstractmethod
+    def list_parts(self) -&gt; Set[str]:
+        &#34;&#34;&#34;List all partitions by a string key.
+
+        This must consistently return the same keys when called by all
+        workers in all executions.
+
+        Keys must be unique within this dataflow step.
+
+        Returns:
+
+            Partition keys.
+
+        &#34;&#34;&#34;
+        ...
+
+    @abstractmethod
+    def assign_part(self, item_key: str) -&gt; str:
+        &#34;&#34;&#34;Define how incoming `(key, value)` pairs should be routed
+        to partitions.
+
+        This must be globally consistent and return the same partition
+        assignment on every call.
+
+        .. caution:: Do not use Python&#39;s built in `hash` function
+            here! It is [_not consistent between processes by
+            default_](https://docs.python.org/3/using/cmdline.html#cmdoption-R)
+            and using it will cause incorrect partitioning in cluster
+            executions.
+
+            You can start by using `zlib.adler32` as a quick drop-in
+            replacement.
+
+        Args:
+
+            item_key: Key that is about to be written.
+
+        Returns:
+
+            Partition key the value for this key should be written
+            to. Must be one of the partition keys returned by
+            `list_parts`.
+
+        &#34;&#34;&#34;
+        ...
+
+    @abstractmethod
+    def build_part(
+        self,
+        for_part: str,
+        resume_state: Optional[Any],
+    ) -&gt; Optional[StatefulSink]:
+        &#34;&#34;&#34;Build an output partition, resuming writing at the position
+        encoded in the resume state.
+
+        Will be called once on one worker in an execution for each
+        partition key in order to distribute partitions across all
+        workers.
+
+        Return `None` if for some reason this partition is no longer
+        valid and can be skipped coherently. Raise an exception if
+        not.
+
+        Do not pre-build state about a partition in the
+        constructor. All state must be derived from `resume_state` for
+        recovery to work properly.
+
+        Args:
+
+            for_part: Which partition to build.
+
+            resume_state: State data containing where in the output
+                stream this partition should be begin writing during
+                this execution.
+
+        Returns:
+
+            The built partition, or `None`.
+
+        &#34;&#34;&#34;
+        ...</code></pre>
+</details>
+<h3>Ancestors</h3>
 <ul class="hlist">
-<li><code class="language-python"><a title="bytewax.outputs.ManualOutputConfig.output_builder" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig.output_builder">output_builder</a></code></li>
+<li><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></li>
+<li>abc.ABC</li>
 </ul>
-</li>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="bytewax.connectors.files.DirOutput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirOutput">DirOutput</a></li>
+<li><a title="bytewax.connectors.files.FileOutput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileOutput">FileOutput</a></li>
 </ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.outputs.PartitionedOutput.assign_part"><code class="language-python name flex">
+<span>def <span class="ident">assign_part</span></span>(<span>self, item_key: str) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Define how incoming <code>(key, value)</code> pairs should be routed
+to partitions.</p>
+<p>This must be globally consistent and return the same partition
+assignment on every call.</p>
+<div class="admonition caution">
+<p class="admonition-title">Caution:&ensp;Do not use Python's built in <code>hash</code> function</p>
+<p>here! It is <a href="https://docs.python.org/3/using/cmdline.html#cmdoption-R"><em>not consistent between processes by
+default</em></a>
+and using it will cause incorrect partitioning in cluster
+executions.</p>
+<p>You can start by using <code>zlib.adler32</code> as a quick drop-in
+replacement.</p>
+</div>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>item_key</code></strong></dt>
+<dd>Key that is about to be written.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>Partition key the value for this key should be written
+to. Must be one of the partition keys returned by
+<code>list_parts</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@abstractmethod
+def assign_part(self, item_key: str) -&gt; str:
+    &#34;&#34;&#34;Define how incoming `(key, value)` pairs should be routed
+    to partitions.
+
+    This must be globally consistent and return the same partition
+    assignment on every call.
+
+    .. caution:: Do not use Python&#39;s built in `hash` function
+        here! It is [_not consistent between processes by
+        default_](https://docs.python.org/3/using/cmdline.html#cmdoption-R)
+        and using it will cause incorrect partitioning in cluster
+        executions.
+
+        You can start by using `zlib.adler32` as a quick drop-in
+        replacement.
+
+    Args:
+
+        item_key: Key that is about to be written.
+
+    Returns:
+
+        Partition key the value for this key should be written
+        to. Must be one of the partition keys returned by
+        `list_parts`.
+
+    &#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+<dt id="bytewax.outputs.PartitionedOutput.build_part"><code class="language-python name flex">
+<span>def <span class="ident">build_part</span></span>(<span>self, for_part: str, resume_state: Optional[Any]) ‑> Optional[<a title="bytewax.outputs.StatefulSink" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSink">StatefulSink</a>]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Build an output partition, resuming writing at the position
+encoded in the resume state.</p>
+<p>Will be called once on one worker in an execution for each
+partition key in order to distribute partitions across all
+workers.</p>
+<p>Return <code>None</code> if for some reason this partition is no longer
+valid and can be skipped coherently. Raise an exception if
+not.</p>
+<p>Do not pre-build state about a partition in the
+constructor. All state must be derived from <code>resume_state</code> for
+recovery to work properly.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>for_part</code></strong></dt>
+<dd>Which partition to build.</dd>
+<dt><strong><code>resume_state</code></strong></dt>
+<dd>State data containing where in the output
+stream this partition should be begin writing during
+this execution.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>The built partition, or <code>None</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@abstractmethod
+def build_part(
+    self,
+    for_part: str,
+    resume_state: Optional[Any],
+) -&gt; Optional[StatefulSink]:
+    &#34;&#34;&#34;Build an output partition, resuming writing at the position
+    encoded in the resume state.
+
+    Will be called once on one worker in an execution for each
+    partition key in order to distribute partitions across all
+    workers.
+
+    Return `None` if for some reason this partition is no longer
+    valid and can be skipped coherently. Raise an exception if
+    not.
+
+    Do not pre-build state about a partition in the
+    constructor. All state must be derived from `resume_state` for
+    recovery to work properly.
+
+    Args:
+
+        for_part: Which partition to build.
+
+        resume_state: State data containing where in the output
+            stream this partition should be begin writing during
+            this execution.
+
+    Returns:
+
+        The built partition, or `None`.
+
+    &#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+<dt id="bytewax.outputs.PartitionedOutput.list_parts"><code class="language-python name flex">
+<span>def <span class="ident">list_parts</span></span>(<span>self) ‑> Set[str]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>List all partitions by a string key.</p>
+<p>This must consistently return the same keys when called by all
+workers in all executions.</p>
+<p>Keys must be unique within this dataflow step.</p>
+<h2 id="returns">Returns</h2>
+<p>Partition keys.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@abstractmethod
+def list_parts(self) -&gt; Set[str]:
+    &#34;&#34;&#34;List all partitions by a string key.
+
+    This must consistently return the same keys when called by all
+    workers in all executions.
+
+    Keys must be unique within this dataflow step.
+
+    Returns:
+
+        Partition keys.
+
+    &#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.outputs.StatefulSink"><code class="language-python flex name class">
+<span>class <span class="ident">StatefulSink</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Output sink that maintains state of its position.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class StatefulSink(ABC):
+    &#34;&#34;&#34;Output sink that maintains state of its position.&#34;&#34;&#34;
+
+    @abstractmethod
+    def write(self, value) -&gt; None:
+        &#34;&#34;&#34;Write a single output value.
+
+        Called once with only `value` for each `(key, value)` at this
+        point in the dataflow.
+
+        See `PartitionedOutput.assign_part` for how the key is mapped
+        to partition.
+
+        Args:
+
+            value: Value in the dataflow.
+
+        &#34;&#34;&#34;
+        ...
+
+    @abstractmethod
+    def snapshot(self) -&gt; Any:
+        &#34;&#34;&#34;Snapshot the position of the next write of this sink.
+
+        This will be returned to you via the `resume_state` parameter
+        of your output builder.
+
+        Be careful of &#34;off by one&#34; errors in resume state. This should
+        return a state that, when built into a sink, resumes writing
+        _after the last written item_, not overwriting the same item.
+
+        This is guaranteed to never be called after `close()`.
+
+        Returns:
+
+            Resume state.
+
+        &#34;&#34;&#34;
+        ...
+
+    def close(self) -&gt; None:
+        &#34;&#34;&#34;Do any cleanup on this sink when the dataflow completes on
+        a finite input.
+
+        This is not guaranteed to be called. It will not be called
+        during a crash.
+
+        &#34;&#34;&#34;
+        pass</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>abc.ABC</li>
+</ul>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li>bytewax.connectors.files._FileSink</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.outputs.StatefulSink.close"><code class="language-python name flex">
+<span>def <span class="ident">close</span></span>(<span>self) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Do any cleanup on this sink when the dataflow completes on
+a finite input.</p>
+<p>This is not guaranteed to be called. It will not be called
+during a crash.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def close(self) -&gt; None:
+    &#34;&#34;&#34;Do any cleanup on this sink when the dataflow completes on
+    a finite input.
+
+    This is not guaranteed to be called. It will not be called
+    during a crash.
+
+    &#34;&#34;&#34;
+    pass</code></pre>
+</details>
+</dd>
+<dt id="bytewax.outputs.StatefulSink.snapshot"><code class="language-python name flex">
+<span>def <span class="ident">snapshot</span></span>(<span>self) ‑> Any</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Snapshot the position of the next write of this sink.</p>
+<p>This will be returned to you via the <code>resume_state</code> parameter
+of your output builder.</p>
+<p>Be careful of "off by one" errors in resume state. This should
+return a state that, when built into a sink, resumes writing
+<em>after the last written item</em>, not overwriting the same item.</p>
+<p>This is guaranteed to never be called after <code>close()</code>.</p>
+<h2 id="returns">Returns</h2>
+<p>Resume state.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@abstractmethod
+def snapshot(self) -&gt; Any:
+    &#34;&#34;&#34;Snapshot the position of the next write of this sink.
+
+    This will be returned to you via the `resume_state` parameter
+    of your output builder.
+
+    Be careful of &#34;off by one&#34; errors in resume state. This should
+    return a state that, when built into a sink, resumes writing
+    _after the last written item_, not overwriting the same item.
+
+    This is guaranteed to never be called after `close()`.
+
+    Returns:
+
+        Resume state.
+
+    &#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+<dt id="bytewax.outputs.StatefulSink.write"><code class="language-python name flex">
+<span>def <span class="ident">write</span></span>(<span>self, value) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Write a single output value.</p>
+<p>Called once with only <code>value</code> for each <code>(key, value)</code> at this
+point in the dataflow.</p>
+<p>See <code><a title="bytewax.outputs.PartitionedOutput.assign_part" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.assign_part">PartitionedOutput.assign_part()</a></code> for how the key is mapped
+to partition.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>value</code></strong></dt>
+<dd>Value in the dataflow.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@abstractmethod
+def write(self, value) -&gt; None:
+    &#34;&#34;&#34;Write a single output value.
+
+    Called once with only `value` for each `(key, value)` at this
+    point in the dataflow.
+
+    See `PartitionedOutput.assign_part` for how the key is mapped
+    to partition.
+
+    Args:
+
+        value: Value in the dataflow.
+
+    &#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.outputs.StatelessSink"><code class="language-python flex name class">
+<span>class <span class="ident">StatelessSink</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Output sink that is stateless.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class StatelessSink(ABC):
+    &#34;&#34;&#34;Output sink that is stateless.&#34;&#34;&#34;
+
+    @abstractmethod
+    def write(self, item) -&gt; None:
+        &#34;&#34;&#34;
+
+        Called once for each item at this point in the dataflow.
+
+        Args:
+
+            item: Item in the dataflow.
+        &#34;&#34;&#34;
+        ...
+
+    def close(self) -&gt; None:
+        &#34;&#34;&#34;Do any cleanup on this sink when the dataflow completes on
+        a finite input.
+
+        This is not guaranteed to be called. It will not be called
+        during a crash.
+
+        &#34;&#34;&#34;
+        pass</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>abc.ABC</li>
+</ul>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li>bytewax.connectors.kafka._KafkaSink</li>
+<li>bytewax.connectors.stdio._PrintSink</li>
+<li>bytewax.testing._ListSink</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.outputs.StatelessSink.close"><code class="language-python name flex">
+<span>def <span class="ident">close</span></span>(<span>self) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Do any cleanup on this sink when the dataflow completes on
+a finite input.</p>
+<p>This is not guaranteed to be called. It will not be called
+during a crash.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def close(self) -&gt; None:
+    &#34;&#34;&#34;Do any cleanup on this sink when the dataflow completes on
+    a finite input.
+
+    This is not guaranteed to be called. It will not be called
+    during a crash.
+
+    &#34;&#34;&#34;
+    pass</code></pre>
+</details>
+</dd>
+<dt id="bytewax.outputs.StatelessSink.write"><code class="language-python name flex">
+<span>def <span class="ident">write</span></span>(<span>self, item) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Called once for each item at this point in the dataflow.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>item</code></strong></dt>
+<dd>Item in the dataflow.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@abstractmethod
+def write(self, item) -&gt; None:
+    &#34;&#34;&#34;
+
+    Called once for each item at this point in the dataflow.
+
+    Args:
+
+        item: Item in the dataflow.
+    &#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+</dl>
 </dd>
 </dl>
 </section>
@@ -396,33 +946,36 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.KafkaOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.KafkaOutputConfig">KafkaOutputConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.DynamicOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput">DynamicOutput</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.KafkaOutputConfig.additional_properties" href="/apidocs/bytewax.outputs#bytewax.outputs.KafkaOutputConfig.additional_properties">additional_properties</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.KafkaOutputConfig.brokers" href="/apidocs/bytewax.outputs#bytewax.outputs.KafkaOutputConfig.brokers">brokers</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.KafkaOutputConfig.topic" href="/apidocs/bytewax.outputs#bytewax.outputs.KafkaOutputConfig.topic">topic</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.DynamicOutput.build" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput.build">build</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.ManualEpochOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualEpochOutputConfig">ManualEpochOutputConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.ManualOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig">ManualOutputConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.PartitionedOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput">PartitionedOutput</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.ManualOutputConfig.output_builder" href="/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig.output_builder">output_builder</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.PartitionedOutput.assign_part" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.assign_part">assign_part</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.PartitionedOutput.build_part" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.build_part">build_part</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.PartitionedOutput.list_parts" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.list_parts">list_parts</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.StatefulSink" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSink">StatefulSink</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatefulSink.close" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSink.close">close</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatefulSink.snapshot" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSink.snapshot">snapshot</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatefulSink.write" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSink.write">write</a></li>
+</ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.StdOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.StdOutputConfig">StdOutputConfig</a></h4>
-</li>
-<li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.TestingEpochOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.TestingEpochOutputConfig">TestingEpochOutputConfig</a></h4>
-</li>
-<li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.TestingOutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.TestingOutputConfig">TestingOutputConfig</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.StatelessSink" href="/apidocs/bytewax.outputs#bytewax.outputs.StatelessSink">StatelessSink</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatelessSink.close" href="/apidocs/bytewax.outputs#bytewax.outputs.StatelessSink.close">close</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatelessSink.write" href="/apidocs/bytewax.outputs#bytewax.outputs.StatelessSink.write">write</a></li>
+</ul>
 </li>
 </ul>
 </li>

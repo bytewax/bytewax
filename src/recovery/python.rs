@@ -155,19 +155,22 @@ impl RecoveryBuilder for NoopRecoveryConfig {
 /// Use a distinct directory per dataflow so recovery data is not
 /// mixed.
 ///
-/// >>> from bytewax.testing import run_main
-/// >>> from bytewax.inputs import TestingInputConfig
-/// >>> from bytewax.outputs import StdOutputConfig
+/// >>> from tempfile import TemporaryDirectory
+/// >>> from bytewax.testing import run_main, TestingInput
+/// >>> from bytewax.connectors.stdio import StdOutput
+/// >>> from bytewax.dataflow import Dataflow
 /// >>> flow = Dataflow()
-/// >>> flow.input("inp", TestingInputConfig(range(3)))
-/// >>> flow.capture(StdOutputConfig())
+/// >>> flow.input("inp", TestingInput(range(3)))
+/// >>> flow.output("out", StdOutput())
 /// >>> tmp_dir = TemporaryDirectory()  # We'll store this somewhere temporary for this test.
-/// >>> recovery_config = SqliteRecoveryConfig(tmp_dir)
+/// >>> recovery_config = SqliteRecoveryConfig(tmp_dir.name)
 /// >>> run_main(
 /// ...     flow,
 /// ...     recovery_config=recovery_config,
-/// ... )  # doctest: +ELLIPSIS
-/// (...)
+/// ... )
+/// 0
+/// 1
+/// 2
 ///
 /// DB files and tables will automatically be created if there's no
 /// previous recovery data.
@@ -257,12 +260,12 @@ impl RecoveryBuilder for SqliteRecoveryConfig {
 /// Use a distinct topic prefix per dataflow so recovery data is not
 /// mixed.
 ///
-/// >>> from bytewax.testing import run_main
-/// >>> from bytewax.inputs import TestingInputConfig
-/// >>> from bytewax.outputs import StdOutputConfig
+/// >>> from bytewax.testing import run_main, TestingInput
+/// >>> from bytewax.connectors.stdio import StdOutput
+/// >>> from bytewax.dataflow import Dataflow
 /// >>> flow = Dataflow()
-/// >>> flow.inp("inp", TestingInputConfig(range(3)))
-/// >>> flow.capture(StdOutputConfig())
+/// >>> flow.input("inp", TestingInput(range(3)))
+/// >>> flow.output("out", StdOutput())
 /// >>> recovery_config = KafkaRecoveryConfig(
 /// ...     ["localhost:9092"],
 /// ...     "sample-dataflow",
@@ -271,7 +274,6 @@ impl RecoveryBuilder for SqliteRecoveryConfig {
 /// ...     flow,
 /// ...     recovery_config=recovery_config,
 /// ... )  # doctest: +ELLIPSIS
-/// (...)
 ///
 /// If there's no previous recovery data, topics will automatically be
 /// created with the correct number of partitions and log compaction

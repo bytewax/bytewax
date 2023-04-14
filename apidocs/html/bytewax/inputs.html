@@ -21,44 +21,103 @@ Subclass the types here to implement input for your own custom source.
 
 &#34;&#34;&#34;
 
-from abc import abstractmethod
-from typing import Any, Iterable, Optional, Tuple
-
-PartIter = Iterable[Optional[Tuple[Any, Any]]]
-&#34;&#34;&#34;A single partition.
-
-Each partition must contain unique data. If you re-read the same data
-in multiple partitions, the dataflow will process these duplicate
-items.
-
-It must yield a two-tuple of `(state, item)` where the state will be
-returned to you via the `resume_state` parameter of
-`PartInput.build_part`.
-
-If this is a generator, it must do a kind of cooperative
-multi-tasking, never blocking but yielding a bare `None` if there is
-no new input.
-
-Yields:
-
-    Either a new item and state, or `None`.
-
-&#34;&#34;&#34;
+from abc import ABC, abstractmethod
+from typing import Any, Optional, Set
 
 
-# TODO: Add ABC superclass. It messes up pickling. We should get rid
-# of pickling...
-class PartInput:
-    &#34;&#34;&#34;An input source with a fixed number of independent partitions.&#34;&#34;&#34;
+class Input(ABC):
+    &#34;&#34;&#34;Base class for all input types. Do not subclass this.
+
+    If you want to implement a custom connector, instead subclass one
+    of the specific input sub-types below in this module.
+
+    &#34;&#34;&#34;
+
+    def __json__(self):
+        &#34;&#34;&#34;This is used by the Bytewax platform internally and should
+        not be overridden.
+
+        &#34;&#34;&#34;
+        return {
+            &#34;type&#34;: type(self).__name__,
+        }
+
+
+class StatefulSource(ABC):
+    &#34;&#34;&#34;Input source that maintains state of its position.&#34;&#34;&#34;
 
     @abstractmethod
-    def list_parts(self) -&gt; Iterable[str]:
-        &#34;&#34;&#34;List all partitions for this input by a string key.
+    def next(self) -&gt; Optional[Any]:
+        &#34;&#34;&#34;Attempt to get the next input item.
 
-        This must consistently return the same keys when called by any
-        worker in a cluster.
+        This must participate in a kind of cooperative multi-tasking,
+        never blocking but returning a bare `None` if there is no item
+        to emit currently.
 
-        Keys must be unique within this list.
+        Returns:
+
+            An item or `None`.
+
+        Raises:
+
+            StopIteration: When the source is complete.
+
+        &#34;&#34;&#34;
+        ...
+
+    @abstractmethod
+    def snapshot(self) -&gt; Any:
+        &#34;&#34;&#34;Snapshot the position of the next read of this source.
+
+        This will be returned to you via the `resume_state` parameter
+        of your input builder.
+
+        Be careful of &#34;off by one&#34; errors in resume state. This should
+        return a state that, when built into a source, resumes reading
+        _after the last read item item_, not the same item that
+        `next()` last returned.
+
+        This is guaranteed to never be called after `close()`.
+
+        Returns:
+
+            Resume state.
+
+        &#34;&#34;&#34;
+        ...
+
+    def close(self) -&gt; None:
+        &#34;&#34;&#34;Do any cleanup on this source when the dataflow completes
+        on a finite input.
+
+        This is not guaranteed to be called. It will not be called
+        during a crash.
+
+        &#34;&#34;&#34;
+        pass
+
+
+class PartitionedInput(Input):
+    &#34;&#34;&#34;An input with a fixed number of independent partitions.
+
+    Will maintain the state of each source and re-build using it
+    during resume. If the source supports seeking, this input can
+    support exactly-once processing.
+
+    Each partition must contain unique data. If you re-read the same data
+    in multiple partitions, the dataflow will process these duplicate
+    items.
+
+    &#34;&#34;&#34;
+
+    @abstractmethod
+    def list_parts(self) -&gt; Set[str]:
+        &#34;&#34;&#34;List all partitions by a string key.
+
+        This must consistently return the same keys when called by all
+        workers in all executions.
+
+        Keys must be unique within this dataflow step.
 
         Returns:
 
@@ -72,13 +131,16 @@ class PartInput:
         self,
         for_part: str,
         resume_state: Optional[Any],
-    ) -&gt; Optional[PartIter]:
-        &#34;&#34;&#34;Build an input source for a given partition, resuming from
-        the position encoded in the resume state.
+    ) -&gt; Optional[StatefulSource]:
+        &#34;&#34;&#34;Build an input partition, resuming from the position
+        encoded in the resume state.
 
-        Be careful of &#34;off by one&#34; errors in resume state. This should
-        return a source that resumes from _the next item_, not the
-        same item that the state was paired with.
+        Will be called once within each cluster for each partition
+        key.
+
+        Will be called once on one worker in an execution for each
+        partition key in order to distribute partitions across all
+        workers.
 
         Return `None` if for some reason this partition is no longer
         valid and can be skipped coherently. Raise an exception if
@@ -93,7 +155,8 @@ class PartInput:
             for_part: Which partition to build.
 
             resume_state: State data containing where in the input
-                stream this partition should be begin on this invocation.
+                stream this partition should be begin reading during
+                this execution.
 
         Returns:
 
@@ -102,63 +165,251 @@ class PartInput:
         &#34;&#34;&#34;
         ...
 
-    def __json__(self):
-        &#34;&#34;&#34;This is used by the Bytewax platform internally and should
-        not be overridden.
+
+class StatelessSource(ABC):
+    &#34;&#34;&#34;Input source that is stateless.&#34;&#34;&#34;
+
+    @abstractmethod
+    def next(self) -&gt; Optional[Any]:
+        &#34;&#34;&#34;Attempt to get the next input item.
+
+        This must participate in a kind of cooperative multi-tasking,
+        never blocking but yielding a bare `None` if there is no new
+        input.
+
+        Returns:
+
+            An item or `None`.
+
+        Raises:
+
+            StopIteration: When the source is complete.
 
         &#34;&#34;&#34;
-        return {
-            &#34;type&#34;: type(self).__name__,
-        }</code></pre>
+        ...
+
+    def close(self) -&gt; None:
+        &#34;&#34;&#34;Do any cleanup on this source when the dataflow completes
+        on a finite input.
+
+        This is not guaranteed to be called. It will not be called
+        during a crash.
+
+        &#34;&#34;&#34;
+        pass
+
+
+class DynamicInput(Input):
+    &#34;&#34;&#34;An input that supports reading distinct items from any number
+    of workers concurrently.
+
+    Does not support storing any resume state. Thus these kind of
+    inputs only naively can support at-most-once processing.
+
+    The source must somehow support supplying disjoint data for each
+    worker. If you re-read the same items on multiple workers, the
+    dataflow will process these as duplicate items.
+
+    &#34;&#34;&#34;
+
+    @abstractmethod
+    def build(self, worker_index, worker_count) -&gt; StatelessSource:
+        &#34;&#34;&#34;Build an input source for a worker
+
+        Will be called once on each worker.
+
+        Args:
+
+            worker_index: Index of this worker.
+
+            worker_count: Total number of workers.
+
+        Returns:
+
+            Input source.
+
+        &#34;&#34;&#34;
+        ...</code></pre>
 </details>
 </section>
 <section>
 </section>
 <section>
-<h2 class="api__article-subtitle" id="header-variables">Global variables</h2>
-<dl>
-<dt id="bytewax.inputs.PartIter"><code class="language-python name">var <span class="ident">PartIter</span></code></dt>
-<dd>
-<div class="desc"><p>A single partition.</p>
-<p>Each partition must contain unique data. If you re-read the same data
-in multiple partitions, the dataflow will process these duplicate
-items.</p>
-<p>It must yield a two-tuple of <code>(state, item)</code> where the state will be
-returned to you via the <code>resume_state</code> parameter of
-<code><a title="bytewax.inputs.PartInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput.build_part">PartInput.build_part()</a></code>.</p>
-<p>If this is a generator, it must do a kind of cooperative
-multi-tasking, never blocking but yielding a bare <code>None</code> if there is
-no new input.</p>
-<h2 id="yields">Yields</h2>
-<p>Either a new item and state, or <code>None</code>.</p></div>
-</dd>
-</dl>
 </section>
 <section>
 </section>
 <section>
 <h2 class="api__article-subtitle" id="header-classes">Classes</h2>
 <dl>
-<dt id="bytewax.inputs.PartInput"><code class="language-python flex name class">
-<span>class <span class="ident">PartInput</span></span>
+<dt id="bytewax.inputs.DynamicInput"><code class="language-python flex name class">
+<span>class <span class="ident">DynamicInput</span></span>
 </code></dt>
 <dd>
-<div class="desc"><p>An input source with a fixed number of independent partitions.</p></div>
+<div class="desc"><p>An input that supports reading distinct items from any number
+of workers concurrently.</p>
+<p>Does not support storing any resume state. Thus these kind of
+inputs only naively can support at-most-once processing.</p>
+<p>The source must somehow support supplying disjoint data for each
+worker. If you re-read the same items on multiple workers, the
+dataflow will process these as duplicate items.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class PartInput:
-    &#34;&#34;&#34;An input source with a fixed number of independent partitions.&#34;&#34;&#34;
+<pre class="language-python line-numbers"><code class="language-python">class DynamicInput(Input):
+    &#34;&#34;&#34;An input that supports reading distinct items from any number
+    of workers concurrently.
+
+    Does not support storing any resume state. Thus these kind of
+    inputs only naively can support at-most-once processing.
+
+    The source must somehow support supplying disjoint data for each
+    worker. If you re-read the same items on multiple workers, the
+    dataflow will process these as duplicate items.
+
+    &#34;&#34;&#34;
 
     @abstractmethod
-    def list_parts(self) -&gt; Iterable[str]:
-        &#34;&#34;&#34;List all partitions for this input by a string key.
+    def build(self, worker_index, worker_count) -&gt; StatelessSource:
+        &#34;&#34;&#34;Build an input source for a worker
 
-        This must consistently return the same keys when called by any
-        worker in a cluster.
+        Will be called once on each worker.
 
-        Keys must be unique within this list.
+        Args:
+
+            worker_index: Index of this worker.
+
+            worker_count: Total number of workers.
+
+        Returns:
+
+            Input source.
+
+        &#34;&#34;&#34;
+        ...</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
+<li>abc.ABC</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.inputs.DynamicInput.build"><code class="language-python name flex">
+<span>def <span class="ident">build</span></span>(<span>self, worker_index, worker_count) ‑> <a title="bytewax.inputs.StatelessSource" href="/apidocs/bytewax.inputs#bytewax.inputs.StatelessSource">StatelessSource</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Build an input source for a worker</p>
+<p>Will be called once on each worker.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>worker_index</code></strong></dt>
+<dd>Index of this worker.</dd>
+<dt><strong><code>worker_count</code></strong></dt>
+<dd>Total number of workers.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>Input source.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@abstractmethod
+def build(self, worker_index, worker_count) -&gt; StatelessSource:
+    &#34;&#34;&#34;Build an input source for a worker
+
+    Will be called once on each worker.
+
+    Args:
+
+        worker_index: Index of this worker.
+
+        worker_count: Total number of workers.
+
+    Returns:
+
+        Input source.
+
+    &#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.inputs.Input"><code class="language-python flex name class">
+<span>class <span class="ident">Input</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for all input types. Do not subclass this.</p>
+<p>If you want to implement a custom connector, instead subclass one
+of the specific input sub-types below in this module.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class Input(ABC):
+    &#34;&#34;&#34;Base class for all input types. Do not subclass this.
+
+    If you want to implement a custom connector, instead subclass one
+    of the specific input sub-types below in this module.
+
+    &#34;&#34;&#34;
+
+    def __json__(self):
+        &#34;&#34;&#34;This is used by the Bytewax platform internally and should
+        not be overridden.
+
+        &#34;&#34;&#34;
+        return {
+            &#34;type&#34;: type(self).__name__,
+        }</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>abc.ABC</li>
+</ul>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="bytewax.inputs.DynamicInput" href="/apidocs/bytewax.inputs#bytewax.inputs.DynamicInput">DynamicInput</a></li>
+<li><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></li>
+</ul>
+</dd>
+<dt id="bytewax.inputs.PartitionedInput"><code class="language-python flex name class">
+<span>class <span class="ident">PartitionedInput</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>An input with a fixed number of independent partitions.</p>
+<p>Will maintain the state of each source and re-build using it
+during resume. If the source supports seeking, this input can
+support exactly-once processing.</p>
+<p>Each partition must contain unique data. If you re-read the same data
+in multiple partitions, the dataflow will process these duplicate
+items.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class PartitionedInput(Input):
+    &#34;&#34;&#34;An input with a fixed number of independent partitions.
+
+    Will maintain the state of each source and re-build using it
+    during resume. If the source supports seeking, this input can
+    support exactly-once processing.
+
+    Each partition must contain unique data. If you re-read the same data
+    in multiple partitions, the dataflow will process these duplicate
+    items.
+
+    &#34;&#34;&#34;
+
+    @abstractmethod
+    def list_parts(self) -&gt; Set[str]:
+        &#34;&#34;&#34;List all partitions by a string key.
+
+        This must consistently return the same keys when called by all
+        workers in all executions.
+
+        Keys must be unique within this dataflow step.
 
         Returns:
 
@@ -172,13 +423,16 @@ no new input.</p>
         self,
         for_part: str,
         resume_state: Optional[Any],
-    ) -&gt; Optional[PartIter]:
-        &#34;&#34;&#34;Build an input source for a given partition, resuming from
-        the position encoded in the resume state.
+    ) -&gt; Optional[StatefulSource]:
+        &#34;&#34;&#34;Build an input partition, resuming from the position
+        encoded in the resume state.
 
-        Be careful of &#34;off by one&#34; errors in resume state. This should
-        return a source that resumes from _the next item_, not the
-        same item that the state was paired with.
+        Will be called once within each cluster for each partition
+        key.
+
+        Will be called once on one worker in an execution for each
+        partition key in order to distribute partitions across all
+        workers.
 
         Return `None` if for some reason this partition is no longer
         valid and can be skipped coherently. Raise an exception if
@@ -193,24 +447,21 @@ no new input.</p>
             for_part: Which partition to build.
 
             resume_state: State data containing where in the input
-                stream this partition should be begin on this invocation.
+                stream this partition should be begin reading during
+                this execution.
 
         Returns:
 
             The built partition, or `None`.
 
         &#34;&#34;&#34;
-        ...
-
-    def __json__(self):
-        &#34;&#34;&#34;This is used by the Bytewax platform internally and should
-        not be overridden.
-
-        &#34;&#34;&#34;
-        return {
-            &#34;type&#34;: type(self).__name__,
-        }</code></pre>
+        ...</code></pre>
 </details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
+<li>abc.ABC</li>
+</ul>
 <h3>Subclasses</h3>
 <ul class="hlist">
 <li><a title="bytewax.connectors.files.DirInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirInput">DirInput</a></li>
@@ -220,15 +471,17 @@ no new input.</p>
 </ul>
 <h3>Methods</h3>
 <dl>
-<dt id="bytewax.inputs.PartInput.build_part"><code class="language-python name flex">
-<span>def <span class="ident">build_part</span></span>(<span>self, for_part: str, resume_state: Optional[Any]) ‑> Optional[Iterable[Optional[Tuple[Any, Any]]]]</span>
+<dt id="bytewax.inputs.PartitionedInput.build_part"><code class="language-python name flex">
+<span>def <span class="ident">build_part</span></span>(<span>self, for_part: str, resume_state: Optional[Any]) ‑> Optional[<a title="bytewax.inputs.StatefulSource" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource">StatefulSource</a>]</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Build an input source for a given partition, resuming from
-the position encoded in the resume state.</p>
-<p>Be careful of "off by one" errors in resume state. This should
-return a source that resumes from <em>the next item</em>, not the
-same item that the state was paired with.</p>
+<div class="desc"><p>Build an input partition, resuming from the position
+encoded in the resume state.</p>
+<p>Will be called once within each cluster for each partition
+key.</p>
+<p>Will be called once on one worker in an execution for each
+partition key in order to distribute partitions across all
+workers.</p>
 <p>Return <code>None</code> if for some reason this partition is no longer
 valid and can be skipped coherently. Raise an exception if
 not.</p>
@@ -241,7 +494,8 @@ recovery to work properly.</p>
 <dd>Which partition to build.</dd>
 <dt><strong><code>resume_state</code></strong></dt>
 <dd>State data containing where in the input
-stream this partition should be begin on this invocation.</dd>
+stream this partition should be begin reading during
+this execution.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>The built partition, or <code>None</code>.</p></div>
@@ -254,13 +508,16 @@ def build_part(
     self,
     for_part: str,
     resume_state: Optional[Any],
-) -&gt; Optional[PartIter]:
-    &#34;&#34;&#34;Build an input source for a given partition, resuming from
-    the position encoded in the resume state.
+) -&gt; Optional[StatefulSource]:
+    &#34;&#34;&#34;Build an input partition, resuming from the position
+    encoded in the resume state.
 
-    Be careful of &#34;off by one&#34; errors in resume state. This should
-    return a source that resumes from _the next item_, not the
-    same item that the state was paired with.
+    Will be called once within each cluster for each partition
+    key.
+
+    Will be called once on one worker in an execution for each
+    partition key in order to distribute partitions across all
+    workers.
 
     Return `None` if for some reason this partition is no longer
     valid and can be skipped coherently. Raise an exception if
@@ -275,7 +532,8 @@ def build_part(
         for_part: Which partition to build.
 
         resume_state: State data containing where in the input
-            stream this partition should be begin on this invocation.
+            stream this partition should be begin reading during
+            this execution.
 
     Returns:
 
@@ -285,14 +543,14 @@ def build_part(
     ...</code></pre>
 </details>
 </dd>
-<dt id="bytewax.inputs.PartInput.list_parts"><code class="language-python name flex">
-<span>def <span class="ident">list_parts</span></span>(<span>self) ‑> Iterable[str]</span>
+<dt id="bytewax.inputs.PartitionedInput.list_parts"><code class="language-python name flex">
+<span>def <span class="ident">list_parts</span></span>(<span>self) ‑> Set[str]</span>
 </code></dt>
 <dd>
-<div class="desc"><p>List all partitions for this input by a string key.</p>
-<p>This must consistently return the same keys when called by any
-worker in a cluster.</p>
-<p>Keys must be unique within this list.</p>
+<div class="desc"><p>List all partitions by a string key.</p>
+<p>This must consistently return the same keys when called by all
+workers in all executions.</p>
+<p>Keys must be unique within this dataflow step.</p>
 <h2 id="returns">Returns</h2>
 <p>Partition keys.</p></div>
 <details class="source">
@@ -300,17 +558,306 @@ worker in a cluster.</p>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@abstractmethod
-def list_parts(self) -&gt; Iterable[str]:
-    &#34;&#34;&#34;List all partitions for this input by a string key.
+def list_parts(self) -&gt; Set[str]:
+    &#34;&#34;&#34;List all partitions by a string key.
 
-    This must consistently return the same keys when called by any
-    worker in a cluster.
+    This must consistently return the same keys when called by all
+    workers in all executions.
 
-    Keys must be unique within this list.
+    Keys must be unique within this dataflow step.
 
     Returns:
 
         Partition keys.
+
+    &#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.inputs.StatefulSource"><code class="language-python flex name class">
+<span>class <span class="ident">StatefulSource</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Input source that maintains state of its position.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class StatefulSource(ABC):
+    &#34;&#34;&#34;Input source that maintains state of its position.&#34;&#34;&#34;
+
+    @abstractmethod
+    def next(self) -&gt; Optional[Any]:
+        &#34;&#34;&#34;Attempt to get the next input item.
+
+        This must participate in a kind of cooperative multi-tasking,
+        never blocking but returning a bare `None` if there is no item
+        to emit currently.
+
+        Returns:
+
+            An item or `None`.
+
+        Raises:
+
+            StopIteration: When the source is complete.
+
+        &#34;&#34;&#34;
+        ...
+
+    @abstractmethod
+    def snapshot(self) -&gt; Any:
+        &#34;&#34;&#34;Snapshot the position of the next read of this source.
+
+        This will be returned to you via the `resume_state` parameter
+        of your input builder.
+
+        Be careful of &#34;off by one&#34; errors in resume state. This should
+        return a state that, when built into a source, resumes reading
+        _after the last read item item_, not the same item that
+        `next()` last returned.
+
+        This is guaranteed to never be called after `close()`.
+
+        Returns:
+
+            Resume state.
+
+        &#34;&#34;&#34;
+        ...
+
+    def close(self) -&gt; None:
+        &#34;&#34;&#34;Do any cleanup on this source when the dataflow completes
+        on a finite input.
+
+        This is not guaranteed to be called. It will not be called
+        during a crash.
+
+        &#34;&#34;&#34;
+        pass</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>abc.ABC</li>
+</ul>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li>bytewax.connectors.files._FileSource</li>
+<li>bytewax.connectors.kafka._KafkaSource</li>
+<li>bytewax.testing._IterSource</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.inputs.StatefulSource.close"><code class="language-python name flex">
+<span>def <span class="ident">close</span></span>(<span>self) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Do any cleanup on this source when the dataflow completes
+on a finite input.</p>
+<p>This is not guaranteed to be called. It will not be called
+during a crash.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def close(self) -&gt; None:
+    &#34;&#34;&#34;Do any cleanup on this source when the dataflow completes
+    on a finite input.
+
+    This is not guaranteed to be called. It will not be called
+    during a crash.
+
+    &#34;&#34;&#34;
+    pass</code></pre>
+</details>
+</dd>
+<dt id="bytewax.inputs.StatefulSource.next"><code class="language-python name flex">
+<span>def <span class="ident">next</span></span>(<span>self) ‑> Optional[Any]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Attempt to get the next input item.</p>
+<p>This must participate in a kind of cooperative multi-tasking,
+never blocking but returning a bare <code>None</code> if there is no item
+to emit currently.</p>
+<h2 id="returns">Returns</h2>
+<p>An item or <code>None</code>.</p>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>StopIteration</code></dt>
+<dd>When the source is complete.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@abstractmethod
+def next(self) -&gt; Optional[Any]:
+    &#34;&#34;&#34;Attempt to get the next input item.
+
+    This must participate in a kind of cooperative multi-tasking,
+    never blocking but returning a bare `None` if there is no item
+    to emit currently.
+
+    Returns:
+
+        An item or `None`.
+
+    Raises:
+
+        StopIteration: When the source is complete.
+
+    &#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+<dt id="bytewax.inputs.StatefulSource.snapshot"><code class="language-python name flex">
+<span>def <span class="ident">snapshot</span></span>(<span>self) ‑> Any</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Snapshot the position of the next read of this source.</p>
+<p>This will be returned to you via the <code>resume_state</code> parameter
+of your input builder.</p>
+<p>Be careful of "off by one" errors in resume state. This should
+return a state that, when built into a source, resumes reading
+<em>after the last read item item</em>, not the same item that
+<code>next()</code> last returned.</p>
+<p>This is guaranteed to never be called after <code>close()</code>.</p>
+<h2 id="returns">Returns</h2>
+<p>Resume state.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@abstractmethod
+def snapshot(self) -&gt; Any:
+    &#34;&#34;&#34;Snapshot the position of the next read of this source.
+
+    This will be returned to you via the `resume_state` parameter
+    of your input builder.
+
+    Be careful of &#34;off by one&#34; errors in resume state. This should
+    return a state that, when built into a source, resumes reading
+    _after the last read item item_, not the same item that
+    `next()` last returned.
+
+    This is guaranteed to never be called after `close()`.
+
+    Returns:
+
+        Resume state.
+
+    &#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.inputs.StatelessSource"><code class="language-python flex name class">
+<span>class <span class="ident">StatelessSource</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Input source that is stateless.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class StatelessSource(ABC):
+    &#34;&#34;&#34;Input source that is stateless.&#34;&#34;&#34;
+
+    @abstractmethod
+    def next(self) -&gt; Optional[Any]:
+        &#34;&#34;&#34;Attempt to get the next input item.
+
+        This must participate in a kind of cooperative multi-tasking,
+        never blocking but yielding a bare `None` if there is no new
+        input.
+
+        Returns:
+
+            An item or `None`.
+
+        Raises:
+
+            StopIteration: When the source is complete.
+
+        &#34;&#34;&#34;
+        ...
+
+    def close(self) -&gt; None:
+        &#34;&#34;&#34;Do any cleanup on this source when the dataflow completes
+        on a finite input.
+
+        This is not guaranteed to be called. It will not be called
+        during a crash.
+
+        &#34;&#34;&#34;
+        pass</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>abc.ABC</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.inputs.StatelessSource.close"><code class="language-python name flex">
+<span>def <span class="ident">close</span></span>(<span>self) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Do any cleanup on this source when the dataflow completes
+on a finite input.</p>
+<p>This is not guaranteed to be called. It will not be called
+during a crash.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def close(self) -&gt; None:
+    &#34;&#34;&#34;Do any cleanup on this source when the dataflow completes
+    on a finite input.
+
+    This is not guaranteed to be called. It will not be called
+    during a crash.
+
+    &#34;&#34;&#34;
+    pass</code></pre>
+</details>
+</dd>
+<dt id="bytewax.inputs.StatelessSource.next"><code class="language-python name flex">
+<span>def <span class="ident">next</span></span>(<span>self) ‑> Optional[Any]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Attempt to get the next input item.</p>
+<p>This must participate in a kind of cooperative multi-tasking,
+never blocking but yielding a bare <code>None</code> if there is no new
+input.</p>
+<h2 id="returns">Returns</h2>
+<p>An item or <code>None</code>.</p>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>StopIteration</code></dt>
+<dd>When the source is complete.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@abstractmethod
+def next(self) -&gt; Optional[Any]:
+    &#34;&#34;&#34;Attempt to get the next input item.
+
+    This must participate in a kind of cooperative multi-tasking,
+    never blocking but yielding a bare `None` if there is no new
+    input.
+
+    Returns:
+
+        An item or `None`.
+
+    Raises:
+
+        StopIteration: When the source is complete.
 
     &#34;&#34;&#34;
     ...</code></pre>
@@ -337,19 +884,37 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
-<h3 class="api__sidebar-nav-title"><a href="#header-variables">Global variables</a></h3>
-<ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.PartIter" href="/apidocs/bytewax.inputs#bytewax.inputs.PartIter">PartIter</a></li>
-</ul>
-</li>
-<li class="api__sidebar-nav-item">
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.PartInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput">PartInput</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.DynamicInput" href="/apidocs/bytewax.inputs#bytewax.inputs.DynamicInput">DynamicInput</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.PartInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput.build_part">build_part</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.PartInput.list_parts" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput.list_parts">list_parts</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.DynamicInput.build" href="/apidocs/bytewax.inputs#bytewax.inputs.DynamicInput.build">build</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.PartitionedInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.build_part">build_part</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.PartitionedInput.list_parts" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.list_parts">list_parts</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.StatefulSource" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource">StatefulSource</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatefulSource.close" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource.close">close</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatefulSource.next" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource.next">next</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatefulSource.snapshot" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource.snapshot">snapshot</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.StatelessSource" href="/apidocs/bytewax.inputs#bytewax.inputs.StatelessSource">StatelessSource</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatelessSource.close" href="/apidocs/bytewax.inputs#bytewax.inputs.StatelessSource.close">close</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatelessSource.next" href="/apidocs/bytewax.inputs#bytewax.inputs.StatelessSource.next">next</a></li>
 </ul>
 </li>
 </ul>

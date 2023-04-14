@@ -1,7 +1,6 @@
 """Helper tools for testing dataflows.
 """
 from datetime import datetime, timedelta, timezone
-from threading import Lock
 from typing import Any, Iterable
 
 from bytewax.inputs import PartitionedInput, StatefulSource

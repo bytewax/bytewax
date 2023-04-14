@@ -1,0 +1,418 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.run</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">import argparse
+import importlib
+import pathlib
+import os
+import sys
+import ast
+import traceback
+import inspect
+
+from bytewax.recovery import SqliteRecoveryConfig
+
+from .bytewax import cluster_main, cli_main
+
+__all__ = [&#34;cluster_main&#34;]
+
+
+class BytewaxRunError(Exception):
+    pass
+
+
+def locate_dataflow(module_name, dataflow_name):
+    &#34;&#34;&#34;Import a module and try to find a Dataflow within it.
+
+    Check if the given string is a variable name or a function.
+    Call a function to get the dataflow instance, or return the
+    variable directly.
+
+    This is adapted from Flask&#39;s codebase.
+    &#34;&#34;&#34;
+    from bytewax.dataflow import Dataflow
+
+    try:
+        __import__(module_name)
+    except ImportError:
+        # Reraise the ImportError if it occurred within the imported module.
+        # Determine this by checking whether the trace has a depth &gt; 1.
+        if sys.exc_info()[2].tb_next:
+            raise BytewaxRunError(
+                f&#34;While importing {module_name!r}, an ImportError was&#34;
+                f&#34; raised:\n\n{traceback.format_exc()}&#34;
+            ) from None
+        else:
+            raise BytewaxRunError(f&#34;Could not import {module_name!r}.&#34;) from None
+
+    module = sys.modules[module_name]
+
+    # Parse dataflow_name as a single expression to determine if it&#39;s a valid
+    # attribute name or function call.
+    try:
+        expr = ast.parse(dataflow_name.strip(), mode=&#34;eval&#34;).body
+    except SyntaxError:
+        raise BytewaxRunError(
+            f&#34;Failed to parse {dataflow_name!r} as an attribute name or function call.&#34;
+        ) from None
+
+    if isinstance(expr, ast.Name):
+        name = expr.id
+        args = []
+        kwargs = {}
+    elif isinstance(expr, ast.Call):
+        # Ensure the function name is an attribute name only.
+        if not isinstance(expr.func, ast.Name):
+            raise BytewaxRunError(
+                f&#34;Function reference must be a simple name: {dataflow_name!r}.&#34;
+            )
+
+        name = expr.func.id
+
+        # Parse the positional and keyword arguments as literals.
+        try:
+            args = [ast.literal_eval(arg) for arg in expr.args]
+            kwargs = {kw.arg: ast.literal_eval(kw.value) for kw in expr.keywords}
+        except ValueError:
+            # literal_eval gives cryptic error messages, show a generic
+            # message with the full expression instead.
+            raise BytewaxRunError(
+                f&#34;Failed to parse arguments as literal values: {dataflow_name!r}.&#34;
+            ) from None
+    else:
+        raise BytewaxRunError(
+            f&#34;Failed to parse {dataflow_name!r} as an attribute name or function call.&#34;
+        )
+
+    try:
+        attr = getattr(module, name)
+    except AttributeError as e:
+        raise BytewaxRunError(
+            f&#34;Failed to find attribute {name!r} in {module.__name__!r}.&#34;
+        ) from e
+
+    # If the attribute is a function, call it with any args and kwargs
+    # to get the real application.
+    if inspect.isfunction(attr):
+        try:
+            dataflow = attr(*args, **kwargs)
+        except TypeError as e:
+            if not _called_with_wrong_args(attr):
+                raise
+
+            raise BytewaxRunError(
+                f&#34;The factory {dataflow_name!r} in module&#34;
+                f&#34; {module.__name__!r} could not be called with the&#34;
+                &#34; specified arguments.&#34;
+            ) from e
+    else:
+        dataflow = attr
+
+    if isinstance(dataflow, Dataflow):
+        return dataflow
+
+    raise BytewaxRunError(
+        &#34;A valid Bytewax dataflow was not obtained from&#34;
+        f&#34; &#39;{module.__name__}:{dataflow_name}&#39;.&#34;
+    )
+
+
+def _called_with_wrong_args(f):
+    &#34;&#34;&#34;Check whether calling a function raised a ``TypeError`` because
+    the call failed or because something in the factory raised the
+    error.
+
+    This is taken from Flask&#39;s codebase.
+
+    :param f: The function that was called.
+    :return: ``True`` if the call failed.
+    &#34;&#34;&#34;
+    tb = sys.exc_info()[2]
+
+    try:
+        while tb is not None:
+            if tb.tb_frame.f_code is f.__code__:
+                # In the function, it was called successfully.
+                return False
+
+            tb = tb.tb_next
+
+        # Didn&#39;t reach the function.
+        return True
+    finally:
+        # Delete tb to break a circular reference.
+        # https://docs.python.org/2/library/sys.html#sys.exc_info
+        del tb
+
+
+class EnvDefault(argparse.Action):
+    &#34;&#34;&#34;Action that uses env variable as default if nothing else was set.&#34;&#34;&#34;
+
+    def __init__(self, envvar, default=None, **kwargs):
+        if envvar:
+            default = os.environ.get(envvar, default)
+        super(EnvDefault, self).__init__(default=default, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+
+
+def _prepare_import(import_str):
+    &#34;&#34;&#34;Given a filename this will try to calculate the python path, add it
+    to the search path and return the actual module name that is expected.
+
+    This is adapted from Flask&#39;s codebase.
+    &#34;&#34;&#34;
+    path, _, flow_name = import_str.partition(&#34;:&#34;)
+    if flow_name == &#34;&#34;:
+        flow_name = &#34;flow&#34;
+    path = os.path.realpath(path)
+
+    fname, ext = os.path.splitext(path)
+    if ext == &#34;.py&#34;:
+        path = fname
+
+    if os.path.basename(path) == &#34;__init__&#34;:
+        path = os.path.dirname(path)
+
+    module_name = []
+
+    # move up until outside package structure (no __init__.py)
+    while True:
+        path, name = os.path.split(path)
+        module_name.append(name)
+
+        if not os.path.exists(os.path.join(path, &#34;__init__.py&#34;)):
+            break
+
+    if sys.path[0] != path:
+        sys.path.insert(0, path)
+
+    return &#34;.&#34;.join(module_name[::-1]) + f&#34;:{flow_name}&#34;
+
+
+def _parse_args():
+    parser = argparse.ArgumentParser(
+        prog=&#34;python -m bytewax.run&#34;, description=&#34;Run a bytewax dataflow&#34;
+    )
+    parser.add_argument(
+        &#34;import_str&#34;,
+        type=str,
+        help=&#34;Dataflow import string in the formats:\n&#34;
+        &#34;&lt;module_name&gt;:&lt;dataflow_variable_name_or_factory_function&gt;\n&#34;
+        &#34;&lt;module_name&gt;:&lt;dataflow_factory_function&gt;:&lt;string_argument_for_factory&gt;\n&#34;
+        &#34;Example: &#39;src.dataflow:flow&#39; or &#39;src.dataflow:get_flow:string_argument&#39;&#34;,
+    )
+    scaling = parser.add_argument_group(
+        &#34;Scaling&#34;,
+        &#34;You should use either &#39;-p&#39; to spawn multiple processes &#34;
+        &#34;on this same machine, or &#39;-i/-a&#39; to spawn a single process &#34;
+        &#34;on different machines&#34;,
+    )
+    scaling.add_argument(
+        &#34;-p&#34;,
+        &#34;--processes&#34;,
+        type=int,
+        help=&#34;Number of separate processes to run&#34;,
+        action=EnvDefault,
+        envvar=&#34;BYTEWAX_PROCESSES&#34;,
+    )
+    scaling.add_argument(
+        &#34;-w&#34;,
+        &#34;--workers-per-process&#34;,
+        type=int,
+        help=&#34;Number of workers for each process&#34;,
+        action=EnvDefault,
+        envvar=&#34;BYTEWAX_WORKERS_PER_PROCESS&#34;,
+    )
+    scaling.add_argument(
+        &#34;-i&#34;,
+        &#34;--process-id&#34;,
+        type=int,
+        help=&#34;Process id&#34;,
+        action=EnvDefault,
+        envvar=&#34;BYTEWAX_PROCESS_ID&#34;,
+    )
+    scaling.add_argument(
+        &#34;-a&#34;,
+        &#34;--addresses&#34;,
+        help=&#34;Addresses of other processes, separated by semicolumn:\n&#34;
+        &#39;-a &#34;localhost:2021;localhost:2022;localhost:2023&#34; &#39;,
+        action=EnvDefault,
+        envvar=&#34;BYTEWAX_ADDRESSES&#34;,
+    )
+
+    # Config options for recovery
+    recovery = parser.add_argument_group(&#34;Recovery&#34;)
+    recovery.add_argument(
+        &#34;--sqlite-directory&#34;,
+        type=pathlib.Path,
+        help=&#34;Passing this argument enables sqlite recovery in the specified folder&#34;,
+        action=EnvDefault,
+        envvar=&#34;BYTEWAX_SQLITE_DIRECTORY&#34;,
+    )
+    recovery.add_argument(
+        &#34;--epoch-interval&#34;,
+        type=int,
+        default=10,
+        help=&#34;Number of seconds between state snapshots&#34;,
+        action=EnvDefault,
+        envvar=&#34;BYTEWAX_EPOCH_INTERVAL&#34;,
+    )
+
+    args = parser.parse_args()
+    args.import_str = _prepare_import(args.import_str)
+
+    # First of all check if a process_id was set with a different
+    # env var, used in the helm chart for deploy
+    env = os.environ
+    if args.process_id is None:
+        if &#34;BYTEWAX_POD_NAME&#34; in env and &#34;BYTEWAX_STATEFULSET_NAME&#34; in env:
+            args.process_id = int(
+                env[&#34;BYTEWAX_POD_NAME&#34;].replace(
+                    env[&#34;BYTEWAX_STATEFULSET_NAME&#34;] + &#34;-&#34;, &#34;&#34;
+                )
+            )
+
+    # If process_id is set, check if the addresses parameter is correctly set.
+    # Again, we check for a different env var that can be used by the helm chart,
+    # which specifies a file with host addresses. We read the file and populate
+    # the argument if needed.
+    # Not using else since we might have modified the condition inside the first if.
+    if args.process_id is not None and args.addresses is None:
+        if &#34;BYTEWAX_HOSTFILE_PATH&#34; in env:
+            with open(env[&#34;BYTEWAX_HOSTFILE_PATH&#34;]) as hostfile:
+                args.addresses = &#34;;&#34;.join(
+                    [address.strip() for address in hostfile if address.strip() != &#34;&#34;]
+                )
+        else:
+            parser.error(&#34;the addresses option is required if a process_id is passed&#34;)
+
+    # The dataflow should either run as a local multiprocess cluster,
+    # or a single process with urls for the others, so we manually
+    # validate the options to avoid confusion.
+    if args.processes is not None and (
+        args.process_id is not None or args.addresses is not None
+    ):
+        import warnings
+
+        warnings.warn(
+            &#34;Both &#39;-p&#39; and &#39;-a/-i&#39; specified. &#34;
+            &#34;Ignoring the &#39;-p&#39; option, but this should be fixed&#34;
+        )
+        args.processes = None
+
+    return args
+
+
+if __name__ == &#34;__main__&#34;:
+    kwargs = vars(_parse_args())
+
+    # Prepare recovery config
+    sqlite_directory = kwargs.pop(&#34;sqlite_directory&#34;)
+    kwargs[&#34;recovery_config&#34;] = None
+    if sqlite_directory:
+        kwargs[&#34;recovery_config&#34;] = SqliteRecoveryConfig(sqlite_directory or &#34;./&#34;)
+
+    # Prepare addresses
+    addresses = kwargs.pop(&#34;addresses&#34;)
+    if addresses:
+        kwargs[&#34;addresses&#34;] = addresses.split(&#34;;&#34;)
+
+    # Import the dataflow
+    module_str, _, attrs_str = kwargs.pop(&#34;import_str&#34;).partition(&#34;:&#34;)
+    kwargs[&#34;flow&#34;] = locate_dataflow(module_str, attrs_str)
+    cli_main(**kwargs)</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-functions">Functions</h2>
+<dl>
+<dt id="bytewax.run.cluster_main"><code class="language-python name flex">
+<span>def <span class="ident">cluster_main</span></span>(<span>flow, addresses, proc_id, *, epoch_interval, recovery_config, worker_count_per_proc)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Execute a dataflow in the current process as part of a cluster.</p>
+<p>You have to coordinate starting up all the processes in the
+cluster and ensuring they each are assigned a unique ID and know
+the addresses of other processes. You'd commonly use this for
+starting processes as part of a Kubernetes cluster.</p>
+<p>Blocks until execution is complete.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.dataflow import Dataflow
+&gt;&gt;&gt; from bytewax.testing import TestingInput
+&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
+&gt;&gt;&gt; flow.capture(StdOutput())
+&gt;&gt;&gt; addresses = []  # In a real example, you'd find the &quot;host:port&quot; of all other Bytewax workers.
+&gt;&gt;&gt; proc_id = 0  # In a real example, you'd assign each worker a distinct ID from 0..proc_count.
+&gt;&gt;&gt; cluster_main(flow, addresses, proc_id)
+0
+1
+2
+</code></pre>
+<p>See <code>bytewax.run_main()</code> for a way to test input and output
+builders without the complexity of starting a cluster.</p>
+<p>See <code>bytewax.spawn_cluster()</code> for starting a simple cluster
+locally on one machine.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>flow</code></strong></dt>
+<dd>Dataflow to run.</dd>
+<dt><strong><code>addresses</code></strong></dt>
+<dd>List of host/port addresses for all processes in
+this cluster (including this one).</dd>
+<dt><strong><code>proc_id</code></strong></dt>
+<dd>Index of this process in cluster; starts from 0.</dd>
+<dt><strong><code>epoch_interval</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
+<dd>System time length of each
+epoch. Defaults to 10 seconds.</dd>
+<dt><strong><code>recovery_config</code></strong></dt>
+<dd>State recovery config. See
+<code><a title="bytewax.recovery" href="/apidocs/bytewax.recovery">bytewax.recovery</a></code>. If <code>None</code>, state will not be
+persisted.</dd>
+<dt><strong><code>worker_count_per_proc</code></strong></dt>
+<dd>Number of worker threads to start on
+each process.</dd>
+</dl></div>
+</dd>
+</dl>
+</section>
+<section>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax" href="/apidocs/">bytewax</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.run.cluster_main" href="/apidocs/bytewax.run#bytewax.run.cluster_main">cluster_main</a></li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
