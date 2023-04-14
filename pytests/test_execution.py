@@ -1,7 +1,6 @@
 import signal
 import subprocess
 import tempfile
-from pathlib import Path
 
 from pytest import raises
 
@@ -47,7 +46,7 @@ def test_cluster_can_be_ctrl_c():
     # Create a tmp file we can use to check the output
     tmp_file = tempfile.NamedTemporaryFile()
     # The dataflow we want to run is in ./test_flows/simple.py
-    flow_path = f"pytests.test_flows.simple:get_flow:{tmp_file.name}"
+    flow_path = f"pytests.test_flows.simple:get_flow('{tmp_file.name}')"
     process = subprocess.Popen(
         [
             "python",

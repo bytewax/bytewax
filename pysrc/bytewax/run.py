@@ -3,6 +3,9 @@ import importlib
 import pathlib
 import os
 import sys
+import ast
+import traceback
+import inspect
 
 from bytewax.recovery import SqliteRecoveryConfig
 
@@ -15,45 +18,128 @@ class BytewaxRunError(Exception):
     pass
 
 
-def import_from_string(import_str):
-    help_msg = (
-        f"Import string '{import_str}' must be in format "
-        "'<module>:<attribute>' or '<module>:<factory function>:<optional string arg>."
-    )
+def locate_dataflow(module_name, dataflow_name):
+    """Import a module and try to find a Dataflow within it.
 
-    if import_str.count(":") > 2:
-        raise BytewaxRunError(help_msg)
+    Check if the given string is a variable name or a function.
+    Call a function to get the dataflow instance, or return the
+    variable directly.
 
-    module_str, _, attrs_str = import_str.partition(":")
-    if not module_str or not attrs_str:
-        raise BytewaxRunError(help_msg)
+    This is adapted from Flask's codebase.
+    """
+    from bytewax.dataflow import Dataflow
 
     try:
-        module = importlib.import_module(module_str)
-    except ImportError as exc:
-        if exc.name != module_str:
-            raise exc from None
-        raise BytewaxRunError(f'Could not import module "{module_str}".')
+        __import__(module_name)
+    except ImportError:
+        # Reraise the ImportError if it occurred within the imported module.
+        # Determine this by checking whether the trace has a depth > 1.
+        if sys.exc_info()[2].tb_next:
+            raise BytewaxRunError(
+                f"While importing {module_name!r}, an ImportError was"
+                f" raised:\n\n{traceback.format_exc()}"
+            ) from None
+        else:
+            raise BytewaxRunError(f"Could not import {module_name!r}.") from None
 
-    instance = module
+    module = sys.modules[module_name]
+
+    # Parse dataflow_name as a single expression to determine if it's a valid
+    # attribute name or function call.
     try:
-        for attr_str in attrs_str.split("."):
-            if ":" in attr_str:
-                attr_str, _, arg = attr_str.partition(":")
-                func = getattr(instance, attr_str)
-                if not callable(func):
-                    raise BytewaxRunError(
-                        f"Factory function `{attr_str}` is not a function"
-                    ) from None
-                instance = func(arg)
-            else:
-                instance = getattr(instance, attr_str)
-    except AttributeError:
+        expr = ast.parse(dataflow_name.strip(), mode="eval").body
+    except SyntaxError:
         raise BytewaxRunError(
-            f"Attribute '{attrs_str}' not found in module '{module_str}'."
+            f"Failed to parse {dataflow_name!r} as an attribute name or function call."
         ) from None
 
-    return instance
+    if isinstance(expr, ast.Name):
+        name = expr.id
+        args = []
+        kwargs = {}
+    elif isinstance(expr, ast.Call):
+        # Ensure the function name is an attribute name only.
+        if not isinstance(expr.func, ast.Name):
+            raise BytewaxRunError(
+                f"Function reference must be a simple name: {dataflow_name!r}."
+            )
+
+        name = expr.func.id
+
+        # Parse the positional and keyword arguments as literals.
+        try:
+            args = [ast.literal_eval(arg) for arg in expr.args]
+            kwargs = {kw.arg: ast.literal_eval(kw.value) for kw in expr.keywords}
+        except ValueError:
+            # literal_eval gives cryptic error messages, show a generic
+            # message with the full expression instead.
+            raise BytewaxRunError(
+                f"Failed to parse arguments as literal values: {dataflow_name!r}."
+            ) from None
+    else:
+        raise BytewaxRunError(
+            f"Failed to parse {dataflow_name!r} as an attribute name or function call."
+        )
+
+    try:
+        attr = getattr(module, name)
+    except AttributeError as e:
+        raise BytewaxRunError(
+            f"Failed to find attribute {name!r} in {module.__name__!r}."
+        ) from e
+
+    # If the attribute is a function, call it with any args and kwargs
+    # to get the real application.
+    if inspect.isfunction(attr):
+        try:
+            dataflow = attr(*args, **kwargs)
+        except TypeError as e:
+            if not _called_with_wrong_args(attr):
+                raise
+
+            raise BytewaxRunError(
+                f"The factory {dataflow_name!r} in module"
+                f" {module.__name__!r} could not be called with the"
+                " specified arguments."
+            ) from e
+    else:
+        dataflow = attr
+
+    if isinstance(dataflow, Dataflow):
+        return dataflow
+
+    raise BytewaxRunError(
+        "A valid Bytewax dataflow was not obtained from"
+        f" '{module.__name__}:{dataflow_name}'."
+    )
+
+
+def _called_with_wrong_args(f):
+    """Check whether calling a function raised a ``TypeError`` because
+    the call failed or because something in the factory raised the
+    error.
+
+    This is taken from Flask's codebase.
+
+    :param f: The function that was called.
+    :return: ``True`` if the call failed.
+    """
+    tb = sys.exc_info()[2]
+
+    try:
+        while tb is not None:
+            if tb.tb_frame.f_code is f.__code__:
+                # In the function, it was called successfully.
+                return False
+
+            tb = tb.tb_next
+
+        # Didn't reach the function.
+        return True
+    finally:
+        # Delete tb to break a circular reference.
+        # https://docs.python.org/2/library/sys.html#sys.exc_info
+        del tb
 
 
 class EnvDefault(argparse.Action):
@@ -72,7 +158,7 @@ def _prepare_import(import_str):
     """Given a filename this will try to calculate the python path, add it
     to the search path and return the actual module name that is expected.
 
-    This was taken from Flask's codebase.
+    This is adapted from Flask's codebase.
     """
     path, _, flow_name = import_str.partition(":")
     if flow_name == "":
@@ -179,9 +265,11 @@ def _parse_args():
     env = os.environ
     if args.process_id is None:
         if "BYTEWAX_POD_NAME" in env and "BYTEWAX_STATEFULSET_NAME" in env:
-            args.process_id = int(env["BYTEWAX_POD_NAME"].replace(
-                env["BYTEWAX_STATEFULSET_NAME"] + "-", ""
-            ))
+            args.process_id = int(
+                env["BYTEWAX_POD_NAME"].replace(
+                    env["BYTEWAX_STATEFULSET_NAME"] + "-", ""
+                )
+            )
 
     # If process_id is set, check if the addresses parameter is correctly set.
     # Again, we check for a different env var that can be used by the helm chart,
@@ -210,7 +298,6 @@ def _parse_args():
             "Ignoring the '-p' option, but this should be fixed"
         )
         args.processes = None
-        # parser.error("Can't use both '-p' and '-a/-i'")
 
     return args
 
@@ -230,5 +317,6 @@ if __name__ == "__main__":
         kwargs["addresses"] = addresses.split(";")
 
     # Import the dataflow
-    kwargs["flow"] = import_from_string(kwargs.pop("import_str"))
+    module_str, _, attrs_str = kwargs.pop("import_str").partition(":")
+    kwargs["flow"] = locate_dataflow(module_str, attrs_str)
     cli_main(**kwargs)
