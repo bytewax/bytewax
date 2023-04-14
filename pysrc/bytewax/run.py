@@ -6,37 +6,34 @@ import sys
 
 from bytewax.recovery import SqliteRecoveryConfig
 
-from .bytewax import cluster_main, spawn_cluster
+from .bytewax import cluster_main, cli_main
 
 __all__ = ["cluster_main"]
 
 
-class ImportFromStringError(Exception):
+class BytewaxRunError(Exception):
     pass
 
 
 def import_from_string(import_str):
-    if not isinstance(import_str, str):
-        return import_str
-
     help_msg = (
         f"Import string '{import_str}' must be in format "
         "'<module>:<attribute>' or '<module>:<factory function>:<optional string arg>."
     )
 
     if import_str.count(":") > 2:
-        raise ImportFromStringError(help_msg)
+        raise BytewaxRunError(help_msg)
 
     module_str, _, attrs_str = import_str.partition(":")
     if not module_str or not attrs_str:
-        raise ImportFromStringError(help_msg)
+        raise BytewaxRunError(help_msg)
 
     try:
         module = importlib.import_module(module_str)
     except ImportError as exc:
         if exc.name != module_str:
             raise exc from None
-        raise ImportFromStringError(f'Could not import module "{module_str}".')
+        raise BytewaxRunError(f'Could not import module "{module_str}".')
 
     instance = module
     try:
@@ -45,14 +42,14 @@ def import_from_string(import_str):
                 attr_str, _, arg = attr_str.partition(":")
                 func = getattr(instance, attr_str)
                 if not callable(func):
-                    raise ImportFromStringError(
+                    raise BytewaxRunError(
                         f"Factory function `{attr_str}` is not a function"
                     ) from None
                 instance = func(arg)
             else:
                 instance = getattr(instance, attr_str)
     except AttributeError:
-        raise ImportFromStringError(
+        raise BytewaxRunError(
             f"Attribute '{attrs_str}' not found in module '{module_str}'."
         ) from None
 
@@ -234,4 +231,4 @@ if __name__ == "__main__":
 
     # Import the dataflow
     kwargs["flow"] = import_from_string(kwargs.pop("import_str"))
-    spawn_cluster(**kwargs)
+    cli_main(**kwargs)

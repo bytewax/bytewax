@@ -6,7 +6,7 @@ use std::time::Duration;
 pub(crate) mod common;
 pub(crate) mod dataflow;
 pub(crate) mod errors;
-pub(crate) mod execution;
+pub(crate) mod run;
 pub(crate) mod inputs;
 pub(crate) mod operators;
 pub(crate) mod outputs;
@@ -16,6 +16,7 @@ pub(crate) mod timely;
 pub(crate) mod tracing;
 pub(crate) mod webserver;
 pub(crate) mod window;
+pub(crate) mod worker;
 
 #[macro_use]
 pub(crate) mod macros;
@@ -64,7 +65,7 @@ fn setup_tracing(
 #[pyo3(name = "bytewax")]
 fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
     dataflow::register(py, m)?;
-    execution::register(py, m)?;
+    run::register(py, m)?;
     recovery::python::register(py, m)?;
     window::register(py, m)?;
     tracing::register(py, m)?;

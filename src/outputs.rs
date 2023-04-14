@@ -4,12 +4,12 @@
 //! Python module docstring. Read that first.
 
 use crate::errors::{tracked_err, PythonException};
-use crate::execution::{WorkerCount, WorkerIndex};
 use crate::pyo3_extensions::{extract_state_pair, wrap_state_pair, TdPyAny, TdPyCallable};
 use crate::recovery::model::*;
 use crate::recovery::operators::{FlowChangeStream, Route};
 use crate::timely::{EagerNotificator, InBuffer};
 use crate::unwrap_any;
+use crate::worker::{WorkerIndex, WorkerCount};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use std::collections::{BTreeSet, HashMap};

@@ -4,6 +4,9 @@
 //! A progress store is a K-V mapping from [`WorkerKey`] to a
 //! finalized `Epoch`.
 
+use crate::worker::WorkerCount;
+use crate::worker::WorkerIndex;
+
 use super::change::*;
 use serde::Deserialize;
 use serde::Serialize;
@@ -16,8 +19,6 @@ use serde::Serialize;
 /// As you resume a dataflow, this will increase by 1 each time.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) struct Execution(pub(crate) u64);
-
-pub(crate) use crate::execution::{WorkerCount, WorkerIndex};
 
 /// Timely uses the unit type to represent a "tick" or "heartbeat" on
 /// a clock stream, a dataflow stream that you only care about the

@@ -11,6 +11,7 @@ use std::collections::{btree_map, BTreeMap};
 use timely::progress::Timestamp;
 
 use crate::recovery::model::*;
+use crate::worker::{WorkerIndex, WorkerCount};
 
 /// Used for storing just the type of changes for GC.
 ///

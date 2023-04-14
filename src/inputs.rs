@@ -4,12 +4,12 @@
 //! Python module docstring. Read that first.
 
 use crate::errors::{tracked_err, PythonException};
-use crate::execution::{WorkerCount, WorkerIndex};
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::model::*;
 use crate::recovery::operators::{FlowChangeStream, Route};
 use crate::timely::CapabilityVecEx;
 use crate::unwrap_any;
+use crate::worker::{WorkerIndex, WorkerCount};
 use pyo3::exceptions::{PyStopIteration, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use std::cell::Cell;

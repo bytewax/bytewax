@@ -23,6 +23,8 @@ use sqlx::Type;
 use tokio::runtime::Runtime;
 
 use crate::recovery::model::*;
+use crate::worker::WorkerCount;
+use crate::worker::WorkerIndex;
 
 impl Type<Sqlite> for StepId {
     fn type_info() -> SqliteTypeInfo {
