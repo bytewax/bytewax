@@ -9,12 +9,13 @@ from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingInput
 
 
-def broken_map(x):
+def broken_map(x, boh):
     # XXX: Error here
-    raise TypeError("A vague error message")
+    return x["not here"]
 
 
 flow = Dataflow()
 flow.input("inp", TestingInput(range(10)))
-flow.map(broken_map)
+flow.map(lambda x: ("ALL", x))
+flow.stateful_map("broken", lambda: {}, broken_map)
 flow.output("out", StdOutput())

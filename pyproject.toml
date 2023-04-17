@@ -19,7 +19,7 @@ classifiers = [
     "Topic :: System :: Networking",
     "Topic :: System :: Distributed Computing",
 ]
-dependencies = ["multiprocess>=0.70", "dill>=0.3.5"]
+dependencies = []
 extras = ["kafka", "dev", "docs", "test"]
 
 [project.optional-dependencies]

@@ -116,7 +116,7 @@ impl Dataflow {
     ///
     /// >>> from bytewax.inputs import TestingInputConfig
     /// >>> from bytewax.outputs import StdOutputConfig
-    /// >>> from bytewax.execution import run_main
+    /// >>> from bytewax.testing import run_main
     /// >>> flow = Dataflow()
     /// >>> flow.input("inp", TestingInputConfig(range(3)))
     /// >>> def is_odd(item):
@@ -168,7 +168,7 @@ impl Dataflow {
     ///
     /// >>> from bytewax.inputs import TestingInputConfig
     /// >>> from bytewax.outputs import StdOutputConfig
-    /// >>> from bytewax.execution import run_main
+    /// >>> from bytewax.testing import run_main
     /// >>> flow = Dataflow()
     /// >>> inp = ["hello world"]
     /// >>> flow.input("inp", TestingInputConfig(inp))
@@ -198,7 +198,7 @@ impl Dataflow {
     ///
     /// >>> from bytewax.inputs import TestingInputConfig
     /// >>> from bytewax.outputs import TestingOutputConfig
-    /// >>> from bytewax.execution import run_main
+    /// >>> from bytewax.testing import run_main
     /// >>> flow = Dataflow()
     /// >>> flow.input("inp", TestingInputConfig(range(3)))
     /// >>> def log(item):
@@ -231,7 +231,7 @@ impl Dataflow {
     ///
     /// >>> from bytewax.inputs import TestingInputConfig
     /// >>> from bytewax.outputs import TestingOutputConfig
-    /// >>> from bytewax.execution import run_main, TestingEpochConfig
+    /// >>> from bytewax.testing import run_main, TestingEpochConfig
     /// >>> flow = Dataflow()
     /// >>> flow.input("inp", TestingInputConfig(range(3)))
     /// >>> def log(epoch, item):
@@ -266,7 +266,7 @@ impl Dataflow {
     ///
     /// >>> from bytewax.inputs import TestingInputConfig
     /// >>> from bytewax.outputs import StdOutputConfig
-    /// >>> from bytewax.execution import run_main
+    /// >>> from bytewax.testing import run_main
     /// >>> flow = Dataflow()
     /// >>> flow.input("inp", TestingInputConfig(range(3)))
     /// >>> def add_one(item):
@@ -323,7 +323,7 @@ impl Dataflow {
     /// >>> from bytewax.dataflow import Dataflow
     /// >>> from bytewax.inputs import TestingInputConfig
     /// >>> from bytewax.outputs import StdOutputConfig
-    /// >>> from bytewax.execution import run_main
+    /// >>> from bytewax.testing import run_main
     /// >>> flow = Dataflow()
     /// >>> inp = [
     /// ...     {"user": "a", "type": "login"},
@@ -488,7 +488,7 @@ impl Dataflow {
     /// >>> from datetime import datetime, timedelta
     /// >>> from bytewax.inputs import TestingInputConfig
     /// >>> from bytewax.outputs import StdOutputConfig
-    /// >>> from bytewax.execution import run_main
+    /// >>> from bytewax.testing import run_main
     /// >>> from bytewax.window import TestingClockConfig, TumblingWindow
     /// >>> flow = Dataflow()
     /// >>> inp = [
@@ -615,7 +615,7 @@ impl Dataflow {
     ///
     /// >>> from bytewax.inputs import TestingInputConfig
     /// >>> from bytewax.outputs import StdOutputConfig
-    /// >>> from bytewax.execution import run_main
+    /// >>> from bytewax.testing import run_main
     /// >>> flow = Dataflow()
     /// >>> inp = [
     /// ...     "a",

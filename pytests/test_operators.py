@@ -6,11 +6,28 @@ from threading import Event
 from pytest import raises
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
-from bytewax.testing import TestingInput, TestingOutput
+from bytewax.testing import run_main, TestingInput, TestingOutput
 from bytewax.window import EventClockConfig, TumblingWindow
 
 ZERO_TD = timedelta(seconds=0)
+
+
+def test_requires_input():
+    flow = Dataflow()
+    out = []
+    flow.output("out", TestingOutput(out))
+
+    with raises(ValueError):
+        run_main(flow)
+
+
+def test_requires_output():
+    flow = Dataflow()
+    inp = range(3)
+    flow.input("inp", TestingInput(inp))
+
+    with raises(ValueError):
+        run_main(flow)
 
 
 def test_map():

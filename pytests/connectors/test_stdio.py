@@ -1,7 +1,6 @@
 from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
-from bytewax.testing import TestingInput
+from bytewax.testing import run_main, TestingInput
 
 
 def test_std_output(capfd):

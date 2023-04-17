@@ -6,35 +6,14 @@ from datetime import timedelta
 import sseclient
 import urllib3
 
-from bytewax.dataflow import Dataflow
-from bytewax.inputs import DynamicInput, StatelessSource
 from bytewax.connectors.stdio import StdOutput
-from bytewax.window import SystemClockConfig, TumblingWindow
+from bytewax.dataflow import Dataflow
+from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.window import SessionWindow, SystemClockConfig
 
 
-class WikiSource(StatelessSource):
-    def __init__(self, client, events):
-        self.client = client
-        self.events = events
-
-    def next(self):
-        return next(self.events).data
-
-    def close(self):
-        self.client.close()
-
-
-class WikiStreamInput(DynamicInput):
-    def build(self, worker_index, worker_count):
-        # This will duplicate data in each worker in each process,
-        # so this is currently supposed to run on a single worker.
-        # TODO: We can check for the number of workers,
-        #       but we have no way to check the number of processes.
-        #       We could add a new kind of input that is garantueed
-        #       to only run on one of the workers, regardless of how
-        #       the rest of the flow is executed.
-        assert worker_count == 1, "wikistream can only run on a single worker"
-
+class WikiSource(StatefulSource):
+    def __init__(self):
         pool = urllib3.PoolManager()
         resp = pool.request(
             "GET",
@@ -42,9 +21,27 @@ class WikiStreamInput(DynamicInput):
             preload_content=False,
             headers={"Accept": "text/event-stream"},
         )
-        client = sseclient.SSEClient(resp)
+        self.client = sseclient.SSEClient(resp)
+        self.events = self.client.events()
 
-        return WikiSource(client, client.events())
+    def next(self):
+        return next(self.events).data
+
+    def snapshot(self):
+        return None
+
+    def close(self):
+        self.client.close()
+
+
+class WikiStreamInput(PartitionedInput):
+    def list_parts(self):
+        return {"single-part"}
+
+    def build_part(self, for_key, resume_state):
+        assert for_key == "single-part"
+        assert resume_state is None
+        return WikiSource()
 
 
 def initial_count(data_dict):
@@ -66,21 +63,10 @@ flow.map(initial_count)
 flow.reduce_window(
     "sum",
     SystemClockConfig(),
-    TumblingWindow(length=timedelta(seconds=2)),
+    SessionWindow(gap=timedelta(seconds=2)),
     operator.add,
 )
 # ("server.name", sum_per_window)
-flow.stateful_map(
-    "keep_max",
-    lambda: 0,
-    keep_max,
-)
+flow.stateful_map("keep_max", lambda: 0, keep_max)
 # ("server.name", max_per_window)
 flow.output("out", StdOutput())
-
-
-if __name__ == "__main__":
-    from bytewax.execution import run_main
-    run_main(flow)
-    # from bytewax.execution import spawn_cluster
-    # spawn_cluster(flow)

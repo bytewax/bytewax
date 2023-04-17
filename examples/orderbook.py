@@ -3,11 +3,35 @@ import json
 # pip install websocket-client
 from websocket import create_connection
 
-from bytewax import parse
+from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
-from bytewax.execution import spawn_cluster
-from bytewax.inputs import PartitionedInput
-from bytewax.outputs import StdOutputConfig
+from bytewax.inputs import PartitionedInput, StatefulSource
+
+
+class CoinfbaseSource(StatefulSource):
+    def __init__(self, product_id):
+        self.product_id = product_id
+        self.ws = create_connection("wss://ws-feed.exchange.coinbase.com")
+        self.ws.send(
+            json.dumps(
+                {
+                    "type": "subscribe",
+                    "product_ids": [product_id],
+                    "channels": ["level2"],
+                }
+            )
+        )
+        # The first msg is just a confirmation that we have subscribed.
+        print(self.ws.recv())
+
+    def next(self):
+        return self.ws.recv()
+
+    def snapshot(self):
+        return None
+
+    def close(self):
+        self.ws.close()
 
 
 class CoinbaseFeedInput(PartitionedInput):
@@ -15,25 +39,11 @@ class CoinbaseFeedInput(PartitionedInput):
         self.product_ids = product_ids
 
     def list_parts(self):
-        return self.product_ids
+        return set(self.product_ids)
 
     def build_part(self, for_key, resume_state):
         assert resume_state is None
-
-        ws = create_connection("wss://ws-feed.pro.coinbase.com")
-        ws.send(
-            json.dumps(
-                {
-                    "type": "subscribe",
-                    "product_ids": [for_key],
-                    "channels": ["level2"],
-                }
-            )
-        )
-        # The first msg is just a confirmation that we have subscribed.
-        print(ws.recv())
-        while True:
-            yield None, ws.recv()
+        return CoinfbaseSource(for_key)
 
 
 def key_on_product(data):
@@ -45,6 +55,8 @@ class OrderBook:
         # if using Python < 3.7 need to use OrderedDict here
         self.bids = {}
         self.asks = {}
+        self.bid_price = None
+        self.ask_price = None
 
     def update(self, data):
         if self.bids == {}:
@@ -107,7 +119,7 @@ class OrderBook:
 
 
 flow = Dataflow()
-flow.input("input", CoinbaseFeedInput(["BTC-USD", "ETH-USD", "SOL-USD"]))
+flow.input("input", CoinbaseFeedInput(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"]))
 flow.map(json.loads)
 # {
 #     'type': 'l2update',
@@ -127,7 +139,4 @@ flow.stateful_map("order_book", lambda: OrderBook(), OrderBook.update)
 flow.filter(
     lambda x: x[-1]["spread"] / x[-1]["ask"] > 0.0001
 )  # filter on 0.1% spread as a per
-flow.capture(StdOutputConfig())
-
-if __name__ == "__main__":
-    spawn_cluster(flow, **parse.cluster_args())
+flow.output("out", StdOutput())

@@ -7,13 +7,11 @@ Subclass the types here to implement input for your own custom sink.
 
 """
 
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 from typing import Any, Optional, Set
 
 
-# TODO: Add ABC superclass. It messes up pickling. We should get rid
-# of pickling...
-class Output:
+class Output(ABC):
     """Base class for all output types. Do not subclass this.
 
     If you want to implement a custom connector, instead subclass one
@@ -31,9 +29,7 @@ class Output:
         }
 
 
-# TODO: Add ABC superclass. It messes up pickling. We should get rid
-# of pickling...
-class StatefulSink:
+class StatefulSink(ABC):
     """Output sink that maintains state of its position."""
 
     @abstractmethod
@@ -176,9 +172,7 @@ class PartitionedOutput(Output):
         ...
 
 
-# TODO: Add ABC superclass. It messes up pickling. We should get rid
-# of pickling...
-class StatelessSink:
+class StatelessSink(ABC):
     """Output sink that is stateless."""
 
     @abstractmethod

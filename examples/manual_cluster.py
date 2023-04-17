@@ -4,9 +4,9 @@ from pathlib import Path
 from bytewax import parse
 from bytewax.connectors.files import DirInput
 from bytewax.dataflow import Dataflow
-from bytewax.execution import cluster_main, TestingEpochConfig
 from bytewax.outputs import ManualOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.run import cluster_main
 
 input_dir = Path("./examples/sample_data/cluster")
 output_dir = Path("./cluster_out/")
@@ -105,6 +105,6 @@ if __name__ == "__main__":
         # every 10 system time seconds, for this demo, we tell Bytewax
         # to snapshot after each item. In general, you should not use
         # this.
-        epoch_config=TestingEpochConfig(),
+        epoch_interval=0,
         **parse.proc_args(),
     )

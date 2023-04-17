@@ -1,8 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
-from bytewax.testing import TestingInput, TestingOutput
+from bytewax.testing import run_main, TestingInput, TestingOutput
 from bytewax.window import EventClockConfig, TumblingWindow
 
 

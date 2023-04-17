@@ -2,7 +2,7 @@
 FROM konstin2/maturin:v0.12.6 as maturin-builder
 
 # Builder to get the package
-FROM rust:1.61-slim-bullseye AS build
+FROM rust:1.68-slim-bullseye AS build
 
 COPY --from=maturin-builder /usr/bin/maturin /usr/bin/maturin
 

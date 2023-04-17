@@ -7,13 +7,11 @@ Subclass the types here to implement input for your own custom source.
 
 """
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from typing import Any, Optional, Set
 
 
-# TODO: Add ABC superclass. It messes up pickling. We should get rid
-# of pickling...
-class Input:
+class Input(ABC):
     """Base class for all input types. Do not subclass this.
 
     If you want to implement a custom connector, instead subclass one
@@ -31,9 +29,7 @@ class Input:
         }
 
 
-# TODO: Add ABC superclass. It messes up pickling. We should get rid
-# of pickling...
-class StatefulSource:
+class StatefulSource(ABC):
     """Input source that maintains state of its position."""
 
     @abstractmethod
@@ -156,9 +152,7 @@ class PartitionedInput(Input):
         ...
 
 
-# TODO: Add ABC superclass. It messes up pickling. We should get rid
-# of pickling...
-class StatelessSource:
+class StatelessSource(ABC):
     """Input source that is stateless."""
 
     @abstractmethod

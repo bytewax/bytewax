@@ -1,8 +1,8 @@
-import os
 import signal
-from sys import exit
+import subprocess
+import tempfile
 
-from pytest import mark, raises, skip
+from pytest import raises
 
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingInput, TestingOutput
@@ -20,13 +20,8 @@ def test_run(entry_point, out):
     assert sorted(out) == sorted([1, 2, 3])
 
 
-def test_reraises_exception(entry_point, out, entry_point_name):
-    if entry_point_name.startswith("spawn_cluster"):
-        skip(
-            "Timely is currently double panicking in cluster mode and that causes"
-            " pool.join() to hang; it can be ctrl-c'd though"
-        )
-
+def test_reraises_exception(entry_point):
+    out = []
     flow = Dataflow()
     inp = range(3)
     flow.input("inp", TestingInput(inp))
@@ -46,73 +41,45 @@ def test_reraises_exception(entry_point, out, entry_point_name):
     assert len(out) < 3
 
 
-@mark.skipif(
-    os.name == "nt",
-    reason=(
-        "Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all"
-        " processes on this console so interrupts pytest itself"
-    ),
-)
-def test_can_be_ctrl_c(mp_ctx, entry_point):
-    with mp_ctx.Manager() as man:
-        is_running = man.Event()
-        out = man.list()
+def test_cluster_can_be_ctrl_c():
+    """Test that we can stop cluster execution by sending SIGINT (ctrl+c)."""
+    # Create a tmp file we can use to check the output
+    tmp_file = tempfile.NamedTemporaryFile()
+    # The dataflow we want to run is in ./test_flows/simple.py
+    flow_path = f"pytests.test_flows.simple:get_flow('{tmp_file.name}')"
+    process = subprocess.Popen(
+        [
+            "python",
+            "-m",
+            "bytewax.run",
+            flow_path,
+            # Spawn 2 processes
+            "-p",
+            "2",
+            # With 2 workers per process
+            "-w",
+            "2",
+            # Set epoch interval to 0 so that the output
+            # is written to the file as soon as possible
+            "--epoch-interval",
+            "0",
+        ],
+        # Use PIPE to check the content of stdout
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
 
-        def proc_main():
-            flow = Dataflow()
-            inp = range(1000)
-            flow.input("inp", TestingInput(inp))
-
-            def mapper(item):
-                is_running.set()
-                return item
-
-            flow.map(mapper)
-            flow.output("out", TestingOutput(out))
-
-            try:
-                entry_point(flow)
-            except KeyboardInterrupt:
-                exit(99)
-
-        test_proc = mp_ctx.Process(target=proc_main)
-        test_proc.start()
-
-        assert is_running.wait(timeout=5.0), "Timeout waiting for test proc to start"
-        os.kill(test_proc.pid, signal.SIGINT)
-        test_proc.join(timeout=10.0)
-
-        assert test_proc.exitcode == 99
-        assert len(out) < 1000
-
-
-def test_requires_input(entry_point):
-    flow = Dataflow()
-    out = []
-    flow.output("out", TestingOutput(out))
-
-    with raises(ValueError):
-        entry_point(flow)
-
-
-def test_requires_output(entry_point):
-    flow = Dataflow()
-    inp = range(3)
-    flow.input("inp", TestingInput(inp))
-
-    with raises(ValueError):
-        entry_point(flow)
-
-
-@mark.skip(
-    "We should have a way to access worker_index in whatever replaces spawn_cluster"
-)
-def test_input_parts_hashed_to_workers(mp_ctx):
-    pass
-
-
-@mark.skip(
-    "We should have a way to access worker_index in whatever replaces spawn_cluster"
-)
-def test_output_parts_hashed_to_workers(mp_ctx):
-    pass
+    # Now wait for the file to contain at least 10 lines
+    output = b""
+    while len(output.splitlines()) < 10:
+        tmp_file.seek(0)
+        output = tmp_file.read()
+    # And stop the dataflow by sending SIGINT (like ctrl+c)
+    process.send_signal(signal.SIGINT)
+    # Process termination should be handled properly
+    stdout, stderr = process.communicate()
+    assert b"KeyboardInterrupt:" in stderr
+    # The file should not contain all the lines since we stopped it
+    assert len(output.splitlines()) < 999
+    # Close and delete the file
+    tmp_file.close()

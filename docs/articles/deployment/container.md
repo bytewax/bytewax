@@ -37,7 +37,7 @@ For example:
 ```bash
 docker run --rm --name=my-dataflow \
     -v /var/bytewax/examples:/bytewax/examples \
-    -e BYTEWAX_PYTHON_FILE_PATH=/bytewax/examples/pagerank.py \
+    -e BYTEWAX_IMPORT_STR=examples.pagerank:flow \
     bytewax/bytewax
 ```
 The output should be something like this:
@@ -76,7 +76,7 @@ Bytewax images are structured in this way:
 - A specifc version of Python and Bytewax is installed and managed in a virtual environment.
 - Run an `entrypoint.sh` bash script which:
     - Sets the current directory in `BYTEWAX_WORKDIR` (default `\bytewax`).
-    - Executes the `BYTEWAX_PYTHON_FILE_PATH` python script (there isn't a default value, you must set that environment variable always).
+    - Executes the `BYTEWAX_IMPORT_STR` python script (there isn't a default value, you must set that environment variable always).
     - If the `BYTEWAX_KEEP_CONTAINER_ALIVE` environment variable is set to `true` executes an infinite loop to keep the container process running.
 
 **Entrypoint.sh script**
@@ -84,7 +84,8 @@ Bytewax images are structured in this way:
 #!/bin/sh
 
 cd $BYTEWAX_WORKDIR
-/venv/bin/python $BYTEWAX_PYTHON_FILE_PATH
+. /venv/bin/activate
+python -m bytewax.run $BYTEWAX_IMPORT_STR
 
 echo 'Process ended.'
 
@@ -104,7 +105,7 @@ We are going to use the `BYTEWAX_KEEP_CONTAINER_ALIVE` environment variable to k
 ```bash
 docker run --rm --name=my-dataflow \
     -v /var/bytewax/examples:/bytewax/examples \
-    -e BYTEWAX_PYTHON_FILE_PATH=/bytewax/examples/pagerank.py \
+    -e BYTEWAX_IMPORT_STR=examples.pagerank:flow \
     -e BYTEWAX_KEEP_CONTAINER_ALIVE=true \
     bytewax/bytewax
 ```
@@ -141,9 +142,9 @@ drwxrwxr-x 5 1000 1000 4096 Apr 12 14:16 examples
 # env | grep BYTEWAX
 BYTEWAX_WORKDIR=/bytewax
 BYTEWAX_KEEP_CONTAINER_ALIVE=true
-BYTEWAX_PYTHON_FILE_PATH=/bytewax/examples/pagerank.py
+BYTEWAX_IMPORT_STR=examples.pagerank:flow
 
-# /venv/bin/python examples/pagerank.py
+# /venv/bin/python -m bytewax.run examples.pagerank:flow
 ('5', 1.8783333333333332)
 ('6', 0.3625)
 ('7', 0.32)
@@ -160,8 +161,6 @@ Bytewax image includes a small number of modules installed:
 Package      Version
 ------------ ---------
 bytewax      0.8.0
-dill         0.3.4
-multiprocess 0.70.12.2
 pip          22.0.4
 setuptools   62.0.0
 wheel        0.37.1
@@ -172,7 +171,7 @@ So if you try to run a script like the [translator](https://github.com/bytewax/b
 ```bash
 docker run --rm --name=my-dataflow \
     -v /var/bytewax/examples:/bytewax/examples \
-    -e BYTEWAX_PYTHON_FILE_PATH=/bytewax/examples/translator.py \
+    -e BYTEWAX_IMPORT_STR=examples.translator:flow \
     bytewax/bytewax
 ```
 You will get a `ModuleNotFoundError`:
@@ -203,7 +202,7 @@ Now we can run the example using the new image:
 ```bash
 docker run --rm --name=my-dataflow \                     
     -v /var/bytewax/examples:/bytewax/examples \
-    -e BYTEWAX_PYTHON_FILE_PATH=/bytewax/examples/translator.py \
+    -e BYTEWAX_IMPORT_STR=examples.translator:flow \
     bytewax-translator
 ```
 

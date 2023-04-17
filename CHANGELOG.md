@@ -5,6 +5,15 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- *Breaking change* Reworked the execution model. `run_main` and `cluster_main`
+  have been moved to `bytewax.testing` as they are only supposed to be used
+  when testing or prototyping.
+  Production dataflows should be ran by calling the `bytewax.run`
+  module with `python -m bytewax.run <dataflow-path>:<dataflow-name>`.
+  See `python -m bytewax.run -h` for all the possible options.
+  The functionality offered by `spawn_cluster` are now only offered by the
+  `bytewax.run` script, so `spawn_cluster` was removed.
+
 - *Breaking change* `{Sliding,Tumbling}Window.start_at` has been
   renamed to `align_to` and both now require that argument. It's not
   possible to recover windowing operators without it.

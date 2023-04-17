@@ -27,6 +27,8 @@ use crate::timely::CapabilityVecEx;
 use crate::timely::EagerNotificator;
 use crate::timely::FrontierEx;
 use crate::timely::InBuffer;
+use crate::worker::WorkerCount;
+use crate::worker::WorkerIndex;
 
 use super::model::*;
 use super::store::in_mem::*;

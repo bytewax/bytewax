@@ -2,36 +2,15 @@
 This is an example dataflow that uses all the operators.
 """
 
-from datetime import timedelta
-from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 
-from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
-from bytewax.inputs import StatelessSource, DynamicInput
-from bytewax.window import TumblingWindow, SystemClockConfig, SessionWindow
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingInput
+from bytewax.tracing import setup_tracing
+from bytewax.window import SessionWindow, SystemClockConfig, TumblingWindow
 
-
-class NumberSource(StatelessSource):
-    def __init__(self, iterator):
-        self.iterator = iterator
-
-    def next(self):
-        return next(self.iterator)
-
-    def close(self):
-        pass
-
-
-class NumberInput(DynamicInput):
-    def __init__(self, max):
-        self.max = max
-        self.iterator = iter(range(max))
-
-    def build(self, worker_index, worker_count):
-        # This will duplicate data in each
-        # process but not in each worker
-        # since they share the iterator
-        return NumberSource(self.iterator)
+tracer = setup_tracing(log_level="INFO")
 
 
 def filter_op(x):
@@ -70,16 +49,19 @@ def reduce_is_complete(x):
 
 
 def folder_builder():
-    return defaultdict(lambda: 0)
+    return {}
 
 
 def folder_op(acc, x):
-    acc[x[0]] += 1
+    if x[0] in acc:
+        acc[x[0]] += 1
+    else:
+        acc[x[0]] = 1
     return acc
 
 
 def reduce_window_op(count, event_count):
-    return count + event_count
+    return count, event_count
 
 
 def stateful_map_builder():
@@ -95,7 +77,7 @@ def stringify(x):
 
 
 flow = Dataflow()
-flow.input("inp", NumberInput(10))
+flow.input("inp", TestingInput(range(10)))
 # Stateless operators
 flow.filter(filter_op)
 flow.filter_map(filter_map_op)
@@ -106,17 +88,12 @@ flow.map(map_op)
 # Stateful operators
 flow.reduce("reduce", reduce_op, reduce_is_complete)
 cc = SystemClockConfig()
-wc = TumblingWindow(length=timedelta(seconds=1))
+wc = TumblingWindow(
+    length=timedelta(seconds=1), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+)
 flow.fold_window("fold_window", cc, wc, folder_builder, folder_op)
 wc = SessionWindow(gap=timedelta(seconds=1))
 flow.reduce_window("reduce_window", cc, wc, reduce_window_op)
 flow.stateful_map("stateful_map", stateful_map_builder, stateful_map_op)
 flow.map(stringify)
 flow.output("out", StdOutput())
-
-
-if __name__ == "__main__":
-    # from bytewax.execution import run_main
-    # run_main(flow)
-    from bytewax.execution import spawn_cluster
-    spawn_cluster(flow, proc_count=1, worker_count_per_proc=1)

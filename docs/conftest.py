@@ -22,13 +22,13 @@ There are two new custom option flags:
 
 - `IGNORE_OUTPUT` will throw away all the stdout.
 
-Note that the `multiprocessing` module (or spawning subprocesses in
-general) won't always work because there's no plain Python main file
-the subprocess can start. In general, for these doctest-style tests,
-you should shim out process spawning with thread spawning; these
-doctests are "examples of using the API" and real functionality should
-be tested separately in a real pytest (where there are no limits on
-using subprocesses).
+Note that the spawning subprocesses in general won't always work
+because there's no plain Python main file the subprocess can start.
+In general, for these doctest-style tests, you should shim out
+process spawning with thread spawning; these doctests are
+"examples of using the API" and real functionality should be
+tested separately in a real pytest (where there are no limits
+on using subprocesses).
 
 """
 import doctest

@@ -8,6 +8,8 @@ use super::store::noop::*;
 use super::store::sqlite::*;
 use crate::add_pymethods;
 use crate::errors::tracked_err;
+use crate::errors::PythonException;
+use crate::pyo3_extensions::PyConfigClass;
 use pyo3::exceptions::*;
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -35,7 +37,7 @@ impl RecoveryConfig {
 #[pymethods]
 impl RecoveryConfig {
     #[new]
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {}
     }
 
@@ -50,29 +52,97 @@ impl RecoveryConfig {
     }
 }
 
+pub(crate) trait RecoveryBuilder {
+    fn build_writers(
+        &self,
+        py: Python,
+        worker_index: usize,
+        worker_count: usize,
+    ) -> PyResult<(Box<dyn ProgressWriter>, Box<dyn StateWriter>)>;
+    fn build_readers(
+        &self,
+        py: Python,
+        worker_index: usize,
+        worker_count: usize,
+    ) -> PyResult<(Box<dyn ProgressReader>, Box<dyn StateReader>)>;
+}
+
+impl PyConfigClass<Box<dyn RecoveryBuilder>> for Py<RecoveryConfig> {
+    fn downcast(&self, py: Python) -> PyResult<Box<dyn RecoveryBuilder>> {
+        if let Ok(conf) = self.extract::<NoopRecoveryConfig>(py) {
+            Ok(Box::new(conf))
+        } else if let Ok(conf) = self.extract::<KafkaRecoveryConfig>(py) {
+            Ok(Box::new(conf))
+        } else if let Ok(conf) = self.extract::<SqliteRecoveryConfig>(py) {
+            Ok(Box::new(conf))
+        } else {
+            let pytype = self.as_ref(py).get_type();
+            Err(tracked_err::<PyTypeError>(&format!(
+                "Unknown recovery_config type: {pytype}"
+            )))
+        }
+    }
+}
+
+impl RecoveryBuilder for Py<RecoveryConfig> {
+    fn build_writers(
+        &self,
+        py: Python,
+        worker_index: usize,
+        worker_count: usize,
+    ) -> PyResult<(Box<dyn ProgressWriter>, Box<dyn StateWriter>)> {
+        self.downcast(py)?
+            .build_writers(py, worker_index, worker_count)
+    }
+
+    fn build_readers(
+        &self,
+        py: Python,
+        worker_index: usize,
+        worker_count: usize,
+    ) -> PyResult<(Box<dyn ProgressReader>, Box<dyn StateReader>)> {
+        self.downcast(py)?
+            .build_readers(py, worker_index, worker_count)
+    }
+}
+
 /// Do not store any recovery data.
 ///
 /// This is the default if no `recovery_config` is passed to your
 /// execution entry point, so you shouldn't need to build this
 /// explicitly.
 #[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
-struct NoopRecoveryConfig;
+#[derive(Clone)]
+pub(crate) struct NoopRecoveryConfig;
 
-#[pymethods]
-impl NoopRecoveryConfig {
-    #[new]
-    fn new() -> (Self, RecoveryConfig) {
-        (Self {}, RecoveryConfig {})
+add_pymethods!(
+    NoopRecoveryConfig,
+    parent: RecoveryConfig,
+    py_args: (),
+    args {}
+);
+
+impl RecoveryBuilder for NoopRecoveryConfig {
+    fn build_writers(
+        &self,
+        py: Python,
+        _worker_index: usize,
+        _worker_count: usize,
+    ) -> PyResult<(Box<dyn ProgressWriter>, Box<dyn StateWriter>)> {
+        let (progress_writer, state_writer) =
+            py.allow_threads(|| (NoOpStore::new(), NoOpStore::new()));
+        Ok((Box::new(progress_writer), Box::new(state_writer)))
     }
 
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| HashMap::from([("type", "NoopRecoveryConfig".into_py(py))]))
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
-        Ok(())
+    fn build_readers(
+        &self,
+        py: Python,
+        _worker_index: usize,
+        _worker_count: usize,
+    ) -> PyResult<(Box<dyn ProgressReader>, Box<dyn StateReader>)> {
+        let (progress_reader, state_reader) =
+            py.allow_threads(|| (NoOpStore::new(), NoOpStore::new()));
+        Ok((Box::new(progress_reader), Box::new(state_reader)))
     }
 }
 
@@ -85,7 +155,7 @@ impl NoopRecoveryConfig {
 /// Use a distinct directory per dataflow so recovery data is not
 /// mixed.
 ///
-/// >>> from bytewax.execution import run_main
+/// >>> from bytewax.testing import run_main
 /// >>> from bytewax.inputs import TestingInputConfig
 /// >>> from bytewax.outputs import StdOutputConfig
 /// >>> flow = Dataflow()
@@ -115,7 +185,8 @@ impl NoopRecoveryConfig {
 ///   your execution entry point.
 #[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
 #[pyo3(text_signature = "(db_dir)")]
-struct SqliteRecoveryConfig {
+#[derive(Clone)]
+pub(crate) struct SqliteRecoveryConfig {
     #[pyo3(get)]
     db_dir: PathBuf,
 }
@@ -130,8 +201,49 @@ add_pymethods!(
 );
 
 impl SqliteRecoveryConfig {
-    fn db_file(&self, worker_index: usize) -> PathBuf {
+    pub(crate) fn db_file(&self, worker_index: usize) -> PathBuf {
         self.db_dir.join(format!("worker{worker_index}.sqlite3"))
+    }
+}
+
+impl RecoveryBuilder for SqliteRecoveryConfig {
+    fn build_writers(
+        &self,
+        py: Python,
+        worker_index: usize,
+        _worker_count: usize,
+    ) -> PyResult<(Box<dyn ProgressWriter>, Box<dyn StateWriter>)> {
+        let db_file = self.db_file(worker_index);
+        let (progress_writer, state_writer) = py.allow_threads(|| -> PyResult<_> {
+            Ok((
+                SqliteProgressWriter::new(&db_file)
+                    .raise::<PyRuntimeError>("error creating sqlite progress writer")?,
+                SqliteStateWriter::new(&db_file)
+                    .raise::<PyRuntimeError>("error creating sqlite state writer")?,
+            ))
+        })?;
+
+        Ok((Box::new(progress_writer), Box::new(state_writer)))
+    }
+
+    fn build_readers(
+        &self,
+        py: Python,
+        worker_index: usize,
+        _worker_count: usize,
+    ) -> PyResult<(Box<dyn ProgressReader>, Box<dyn StateReader>)> {
+        let db_file = self.db_file(worker_index);
+
+        let (progress_reader, state_reader) = py.allow_threads(|| -> PyResult<_> {
+            Ok((
+                SqliteProgressReader::new(&db_file)
+                    .raise::<PyRuntimeError>("error creating sqlite progress reader")?,
+                SqliteStateReader::new(&db_file)
+                    .raise::<PyRuntimeError>("error creating sqlite state reader")?,
+            ))
+        })?;
+
+        Ok((Box::new(progress_reader), Box::new(state_reader)))
     }
 }
 
@@ -145,7 +257,7 @@ impl SqliteRecoveryConfig {
 /// Use a distinct topic prefix per dataflow so recovery data is not
 /// mixed.
 ///
-/// >>> from bytewax.execution import run_main
+/// >>> from bytewax.testing import run_main
 /// >>> from bytewax.inputs import TestingInputConfig
 /// >>> from bytewax.outputs import StdOutputConfig
 /// >>> flow = Dataflow()
@@ -181,11 +293,12 @@ impl SqliteRecoveryConfig {
 ///   your execution entry point.
 #[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
 #[pyo3(text_signature = "(brokers, topic_prefix)")]
-struct KafkaRecoveryConfig {
+#[derive(Clone)]
+pub(crate) struct KafkaRecoveryConfig {
     #[pyo3(get)]
-    brokers: Vec<String>,
+    pub(crate) brokers: Vec<String>,
     #[pyo3(get)]
-    topic_prefix: String,
+    pub(crate) topic_prefix: String,
 }
 
 add_pymethods!(
@@ -199,12 +312,62 @@ add_pymethods!(
 );
 
 impl KafkaRecoveryConfig {
-    fn progress_topic(&self) -> String {
+    pub(crate) fn progress_topic(&self) -> String {
         format!("{}-progress", self.topic_prefix)
     }
 
-    fn state_topic(&self) -> String {
+    pub(crate) fn state_topic(&self) -> String {
         format!("{}-state", self.topic_prefix)
+    }
+}
+
+impl RecoveryBuilder for KafkaRecoveryConfig {
+    fn build_writers(
+        &self,
+        py: Python,
+        worker_index: usize,
+        worker_count: usize,
+    ) -> PyResult<(Box<dyn ProgressWriter>, Box<dyn StateWriter>)> {
+        let state_topic = self.state_topic();
+        let progress_topic = self.progress_topic();
+        let partition = worker_index.try_into().unwrap();
+        let create_partitions = worker_count.try_into().unwrap();
+
+        let (progress_writer, state_writer) = py.allow_threads(|| {
+            create_kafka_topic(&self.brokers, &progress_topic, create_partitions);
+            create_kafka_topic(&self.brokers, &state_topic, create_partitions);
+
+            (
+                KafkaWriter::new(&self.brokers, progress_topic, partition),
+                KafkaWriter::new(&self.brokers, state_topic, partition),
+            )
+        });
+
+        Ok((Box::new(progress_writer), Box::new(state_writer)))
+    }
+
+    fn build_readers(
+        &self,
+        py: Python,
+        worker_index: usize,
+        worker_count: usize,
+    ) -> PyResult<(Box<dyn ProgressReader>, Box<dyn StateReader>)> {
+        let state_topic = self.state_topic();
+        let progress_topic = self.progress_topic();
+        let partition = worker_index.try_into().unwrap();
+        let create_partitions = worker_count.try_into().unwrap();
+
+        let (progress_reader, state_reader) = py.allow_threads(|| {
+            create_kafka_topic(&self.brokers, &progress_topic, create_partitions);
+            create_kafka_topic(&self.brokers, &state_topic, create_partitions);
+
+            (
+                KafkaReader::new(&self.brokers, &progress_topic, partition),
+                KafkaReader::new(&self.brokers, &state_topic, partition),
+            )
+        });
+
+        Ok((Box::new(progress_reader), Box::new(state_reader)))
     }
 }
 
@@ -217,149 +380,11 @@ pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
 
 pub(crate) fn default_recovery_config() -> Py<RecoveryConfig> {
     Python::with_gil(|py| {
-        PyCell::new(py, NoopRecoveryConfig::new())
+        PyCell::new(py, NoopRecoveryConfig::py_new())
             .unwrap()
             .extract()
             .unwrap()
     })
-}
-
-/// Use a recovery config and the current worker's identity to build
-/// out the specific recovery writer instances that this worker will
-/// need to backup recovery data.
-///
-/// This function is also part of the Python/Rust barrier for
-/// recovery; we don't have any Python types in the recovery machinery
-/// after this.
-#[allow(clippy::type_complexity)]
-pub(crate) fn build_recovery_writers(
-    py: Python,
-    worker_index: usize,
-    worker_count: usize,
-    config: Py<RecoveryConfig>,
-) -> PyResult<(Box<dyn ProgressWriter>, Box<dyn StateWriter>)> {
-    // Horrible news: we have to be very studious and release the GIL
-    // any time we know we have it and we call into complex Rust
-    // libraries because internally it might call log!() on a
-    // background thread, which because of `pyo3-log` might try to
-    // re-acquire the GIL and then you have deadlock. E.g. `sqlx` and
-    // `rdkafka` always spawn background threads.
-    let config = config.as_ref(py);
-
-    if let Ok(_config) = config.downcast::<PyCell<NoopRecoveryConfig>>() {
-        let (progress_writer, state_writer) =
-            py.allow_threads(|| (NoOpStore::new(), NoOpStore::new()));
-        Ok((Box::new(progress_writer), Box::new(state_writer)))
-    } else if let Ok(config) = config.downcast::<PyCell<SqliteRecoveryConfig>>() {
-        let config = config.borrow();
-
-        let db_file = config.db_file(worker_index);
-
-        let (progress_writer, state_writer) = py.allow_threads(|| {
-            (
-                SqliteProgressWriter::new(&db_file),
-                SqliteStateWriter::new(&db_file),
-            )
-        });
-
-        Ok((Box::new(progress_writer), Box::new(state_writer)))
-    } else if let Ok(config) = config.downcast::<PyCell<KafkaRecoveryConfig>>() {
-        let config = config.borrow();
-
-        let hosts = &config.brokers;
-        let state_topic = config.state_topic();
-        let progress_topic = config.progress_topic();
-        let partition = worker_index.try_into().unwrap();
-        let create_partitions = worker_count.try_into().unwrap();
-
-        let (progress_writer, state_writer) = py.allow_threads(|| {
-            create_kafka_topic(hosts, &progress_topic, create_partitions);
-            create_kafka_topic(hosts, &state_topic, create_partitions);
-
-            (
-                KafkaWriter::new(hosts, progress_topic, partition),
-                KafkaWriter::new(hosts, state_topic, partition),
-            )
-        });
-
-        Ok((Box::new(progress_writer), Box::new(state_writer)))
-    } else {
-        Err(PyTypeError::new_err(format!(
-            "Unknown recovery_config type: {}",
-            config.get_type(),
-        )))
-    }
-}
-
-/// Use a recovery config and the current worker's identity to build
-/// out the specific recovery reader instances that this worker will
-/// need to load recovery data.
-///
-/// This function is also part of the Python/Rust barrier for
-/// recovery; we don't have any Python types in the recovery machinery
-/// after this.
-///
-/// We need to know worker count and index here because each worker
-/// needs to read distinct loading data from a worker in the previous
-/// dataflow execution.
-///
-/// Note that as of now, this code assumes that the number of workers
-/// _has not changed between executions_. Things will silently not
-/// fully load if worker count is changed.
-#[allow(clippy::type_complexity)]
-pub(crate) fn build_recovery_readers(
-    py: Python,
-    worker_index: usize,
-    worker_count: usize,
-    config: Py<RecoveryConfig>,
-) -> PyResult<(Box<dyn ProgressReader>, Box<dyn StateReader>)> {
-    // See comment about the GIL in
-    // [`build_recovery_writers`].
-    let config = config.as_ref(py);
-
-    if let Ok(_config) = config.downcast::<PyCell<NoopRecoveryConfig>>() {
-        let (progress_reader, state_reader) =
-            py.allow_threads(|| (NoOpStore::new(), NoOpStore::new()));
-        Ok((Box::new(progress_reader), Box::new(state_reader)))
-    } else if let Ok(config) = config.downcast::<PyCell<SqliteRecoveryConfig>>() {
-        let config = config.borrow();
-
-        let db_file = config.db_file(worker_index);
-
-        let (progress_reader, state_reader) = py.allow_threads(|| {
-            (
-                SqliteProgressReader::new(&db_file),
-                SqliteStateReader::new(&db_file),
-            )
-        });
-
-        Ok((Box::new(progress_reader), Box::new(state_reader)))
-    } else if let Ok(config) = config.downcast::<PyCell<KafkaRecoveryConfig>>() {
-        let config = config.borrow();
-
-        let brokers = &config.brokers;
-        let state_topic = config.state_topic();
-        let progress_topic = config.progress_topic();
-        let partition = worker_index.try_into().unwrap();
-        let create_partitions = worker_count.try_into().unwrap();
-
-        let (progress_reader, state_reader) = py.allow_threads(|| {
-            create_kafka_topic(brokers, &progress_topic, create_partitions);
-            create_kafka_topic(brokers, &state_topic, create_partitions);
-
-            (
-                KafkaReader::new(brokers, &progress_topic, partition),
-                KafkaReader::new(brokers, &state_topic, partition),
-            )
-        });
-
-        Ok((Box::new(progress_reader), Box::new(state_reader)))
-    } else {
-        Err(tracked_err::<PyTypeError>(&format!(
-            "Unknown recovery_config type: {}",
-            config.get_type(),
-        )))
-    }
 }
 
 impl<'source> FromPyObject<'source> for StepId {
