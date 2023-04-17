@@ -6,7 +6,7 @@ from bytewax.connectors.files import DirInput
 from bytewax.dataflow import Dataflow
 from bytewax.outputs import ManualOutputConfig
 from bytewax.recovery import SqliteRecoveryConfig
-from bytewax.run import cluster_main
+from bytewax.testing import cluster_main
 
 input_dir = Path("./examples/sample_data/cluster")
 output_dir = Path("./cluster_out/")
