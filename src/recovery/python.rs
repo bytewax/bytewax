@@ -273,7 +273,7 @@ impl RecoveryBuilder for SqliteRecoveryConfig {
 /// >>> run_main(
 /// ...     flow,
 /// ...     recovery_config=recovery_config,
-/// ... )  # doctest: +ELLIPSIS
+/// ... ) # doctest:+SKIP
 ///
 /// If there's no previous recovery data, topics will automatically be
 /// created with the correct number of partitions and log compaction
