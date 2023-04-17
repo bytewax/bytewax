@@ -1,5 +1,4 @@
 import argparse
-import importlib
 import pathlib
 import os
 import sys
@@ -8,14 +7,9 @@ import traceback
 import inspect
 
 from bytewax.recovery import SqliteRecoveryConfig
-
 from .bytewax import cluster_main, cli_main
 
 __all__ = ["cluster_main"]
-
-
-class BytewaxRunError(Exception):
-    pass
 
 
 def locate_dataflow(module_name, dataflow_name):
@@ -35,12 +29,12 @@ def locate_dataflow(module_name, dataflow_name):
         # Reraise the ImportError if it occurred within the imported module.
         # Determine this by checking whether the trace has a depth > 1.
         if sys.exc_info()[2].tb_next:
-            raise BytewaxRunError(
+            raise ImportError(
                 f"While importing {module_name!r}, an ImportError was"
                 f" raised:\n\n{traceback.format_exc()}"
             ) from None
         else:
-            raise BytewaxRunError(f"Could not import {module_name!r}.") from None
+            raise ImportError(f"Could not import {module_name!r}.") from None
 
     module = sys.modules[module_name]
 
@@ -49,7 +43,7 @@ def locate_dataflow(module_name, dataflow_name):
     try:
         expr = ast.parse(dataflow_name.strip(), mode="eval").body
     except SyntaxError:
-        raise BytewaxRunError(
+        raise SyntaxError(
             f"Failed to parse {dataflow_name!r} as an attribute name or function call."
         ) from None
 
@@ -60,7 +54,7 @@ def locate_dataflow(module_name, dataflow_name):
     elif isinstance(expr, ast.Call):
         # Ensure the function name is an attribute name only.
         if not isinstance(expr.func, ast.Name):
-            raise BytewaxRunError(
+            raise TypeError(
                 f"Function reference must be a simple name: {dataflow_name!r}."
             )
 
@@ -73,18 +67,18 @@ def locate_dataflow(module_name, dataflow_name):
         except ValueError:
             # literal_eval gives cryptic error messages, show a generic
             # message with the full expression instead.
-            raise BytewaxRunError(
+            raise ValueError(
                 f"Failed to parse arguments as literal values: {dataflow_name!r}."
             ) from None
     else:
-        raise BytewaxRunError(
+        raise ValueError(
             f"Failed to parse {dataflow_name!r} as an attribute name or function call."
         )
 
     try:
         attr = getattr(module, name)
     except AttributeError as e:
-        raise BytewaxRunError(
+        raise AttributeError(
             f"Failed to find attribute {name!r} in {module.__name__!r}."
         ) from e
 
@@ -97,7 +91,7 @@ def locate_dataflow(module_name, dataflow_name):
             if not _called_with_wrong_args(attr):
                 raise
 
-            raise BytewaxRunError(
+            raise TypeError(
                 f"The factory {dataflow_name!r} in module"
                 f" {module.__name__!r} could not be called with the"
                 " specified arguments."
@@ -108,7 +102,7 @@ def locate_dataflow(module_name, dataflow_name):
     if isinstance(dataflow, Dataflow):
         return dataflow
 
-    raise BytewaxRunError(
+    raise RuntimeError(
         "A valid Bytewax dataflow was not obtained from"
         f" '{module.__name__}:{dataflow_name}'."
     )
@@ -309,7 +303,7 @@ if __name__ == "__main__":
     sqlite_directory = kwargs.pop("sqlite_directory")
     kwargs["recovery_config"] = None
     if sqlite_directory:
-        kwargs["recovery_config"] = SqliteRecoveryConfig(sqlite_directory or "./")
+        kwargs["recovery_config"] = SqliteRecoveryConfig(sqlite_directory)
 
     # Prepare addresses
     addresses = kwargs.pop("addresses")

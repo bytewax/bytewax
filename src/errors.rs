@@ -99,6 +99,12 @@ impl<T> PythonException<T> for Result<T, String> {
     }
 }
 
+impl<T> PythonException<T> for Result<T, Box<dyn std::error::Error>> {
+    fn into_pyresult(self) -> PyResult<T> {
+        self.map_err(|err| PyErr::new::<PyException, _>(format!("{err}")))
+    }
+}
+
 /// Use this function to create a PyErr with location tracking.
 #[track_caller]
 pub(crate) fn tracked_err<PyErrType: PyTypeInfo>(msg: &str) -> PyErr {

@@ -155,24 +155,23 @@ pub struct SqliteStateWriter {
 }
 
 impl SqliteStateWriter {
-    pub fn new(db_file: &Path) -> Self {
+    pub(crate) fn new(db_file: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
-            .build()
-            .unwrap();
+            .build()?;
 
         let mut options = SqliteConnectOptions::new().filename(db_file);
         options = options.create_if_missing(true);
         options.disable_statement_logging();
         let future = SqlitePool::connect_with(options);
         tracing::debug!("Opening Sqlite connection to {db_file:?}");
-        let conn = rt.block_on(future).unwrap();
+        let conn = rt.block_on(future)?;
 
         tracing::debug!("Running any pending sqlite migrations");
         rt.block_on(sqlx::migrate!().run(&conn))
             .expect("Unable to run sqlite migrations");
 
-        Self { rt, conn }
+        Ok(Self { rt, conn })
     }
 }
 
@@ -229,9 +228,9 @@ pub(crate) struct SqliteStateReader {
 }
 
 impl SqliteStateReader {
-    pub(crate) fn new(db_file: &Path) -> Self {
+    pub(crate) fn new(db_file: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         // Bootstrap off writer to get table creation.
-        let writer = SqliteStateWriter::new(db_file);
+        let writer = SqliteStateWriter::new(db_file)?;
         let rt = writer.rt;
         let conn = writer.conn;
 
@@ -268,7 +267,7 @@ impl SqliteStateReader {
             }
         });
 
-        Self { rt, rx }
+        Ok(Self { rt, rx })
     }
 }
 
@@ -284,11 +283,10 @@ pub(crate) struct SqliteProgressWriter {
 }
 
 impl SqliteProgressWriter {
-    pub(crate) fn new(db_file: &Path) -> Self {
+    pub(crate) fn new(db_file: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
-            .build()
-            .unwrap();
+            .build()?;
 
         let mut options = SqliteConnectOptions::new().filename(db_file);
         options = options.create_if_missing(true);
@@ -297,9 +295,9 @@ impl SqliteProgressWriter {
         // allow multiple async queries at once.
         let future = SqlitePool::connect_with(options);
         tracing::debug!("Opening Sqlite connection to {db_file:?}");
-        let conn = rt.block_on(future).unwrap();
+        let conn = rt.block_on(future)?;
 
-        Self { rt, conn }
+        Ok(Self { rt, conn })
     }
 }
 
@@ -376,8 +374,8 @@ pub(crate) struct SqliteProgressReader {
 }
 
 impl SqliteProgressReader {
-    pub(crate) fn new(db_file: &Path) -> Self {
-        let writer = SqliteProgressWriter::new(db_file);
+    pub(crate) fn new(db_file: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+        let writer = SqliteProgressWriter::new(db_file)?;
         let rt = writer.rt;
         let conn = writer.conn;
 
@@ -454,7 +452,7 @@ impl SqliteProgressReader {
             }
         });
 
-        Self { rt, rx }
+        Ok(Self { rt, rx })
     }
 }
 

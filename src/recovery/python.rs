@@ -8,6 +8,7 @@ use super::store::noop::*;
 use super::store::sqlite::*;
 use crate::add_pymethods;
 use crate::errors::tracked_err;
+use crate::errors::PythonException;
 use crate::pyo3_extensions::PyConfigClass;
 use pyo3::exceptions::*;
 use pyo3::prelude::*;
@@ -36,7 +37,7 @@ impl RecoveryConfig {
 #[pymethods]
 impl RecoveryConfig {
     #[new]
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {}
     }
 
@@ -213,12 +214,14 @@ impl RecoveryBuilder for SqliteRecoveryConfig {
         _worker_count: usize,
     ) -> PyResult<(Box<dyn ProgressWriter>, Box<dyn StateWriter>)> {
         let db_file = self.db_file(worker_index);
-        let (progress_writer, state_writer) = py.allow_threads(|| {
-            (
-                SqliteProgressWriter::new(&db_file),
-                SqliteStateWriter::new(&db_file),
-            )
-        });
+        let (progress_writer, state_writer) = py.allow_threads(|| -> PyResult<_> {
+            Ok((
+                SqliteProgressWriter::new(&db_file)
+                    .raise::<PyRuntimeError>("error creating sqlite progress writer")?,
+                SqliteStateWriter::new(&db_file)
+                    .raise::<PyRuntimeError>("error creating sqlite state writer")?,
+            ))
+        })?;
 
         Ok((Box::new(progress_writer), Box::new(state_writer)))
     }
@@ -231,12 +234,14 @@ impl RecoveryBuilder for SqliteRecoveryConfig {
     ) -> PyResult<(Box<dyn ProgressReader>, Box<dyn StateReader>)> {
         let db_file = self.db_file(worker_index);
 
-        let (progress_reader, state_reader) = py.allow_threads(|| {
-            (
-                SqliteProgressReader::new(&db_file),
-                SqliteStateReader::new(&db_file),
-            )
-        });
+        let (progress_reader, state_reader) = py.allow_threads(|| -> PyResult<_> {
+            Ok((
+                SqliteProgressReader::new(&db_file)
+                    .raise::<PyRuntimeError>("error creating sqlite progress reader")?,
+                SqliteStateReader::new(&db_file)
+                    .raise::<PyRuntimeError>("error creating sqlite state reader")?,
+            ))
+        })?;
 
         Ok((Box::new(progress_reader), Box::new(state_reader)))
     }
