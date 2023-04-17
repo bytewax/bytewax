@@ -42,6 +42,8 @@ flow = Dataflow()
 flow.output("out", StdOutput())
 ```
 
+`ManualOutputConfig` is now replaced by two base superclasses that can be subclassed to create custom output sinks. They are `DynamicOutput` and `PartitionedOutput`.
+
 ## New entrypoint
 
 In Bytewax v0.16, the way that Dataflows are run has been simplified, and most execution functions have been removed.
