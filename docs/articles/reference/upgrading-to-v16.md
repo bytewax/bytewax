@@ -60,7 +60,7 @@ flow.input("in", TestingInput(range(3)))
 flow.output("out", StdOutput())
 ```
 
-The Dataflow can be run with the following invocation:
+Since a Python file `dataflow.py` defines a module `dataflow`, the Dataflow can be run with the following invocation:
 
 ``` bash
 > python -m bytewax.run dataflow:flow
