@@ -14,7 +14,7 @@ In v0.16, we have restructured input to be based around partitions in order to s
 
 Dynamic inputs must be able to supply disjoint data for each worker that is started. If multiple workers read the same data, the Dataflow will process those as duplicate items.
 
-`DynamicInput` sources do not support storing resume state.
+`DynamicInput` sources do not support resume state and thus generally do not provide delivery guarantees better than at-most-once.
 
 ### `PartitionedInput`
 
