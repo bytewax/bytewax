@@ -24,7 +24,7 @@ Dynamic inputs must be able to supply disjoint data for each worker that is star
 
 ## Capture -> Output
 
-Outputs in v0.16 are now stateful, and are now configured with a name for the step:
+The `capture` operator has been renamed to `output` in v0.16 and is now stateful, so requires a step ID:
 
 In v0.15 and before:
 
