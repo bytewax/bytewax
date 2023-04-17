@@ -5,13 +5,12 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
-- *Breaking change* Reworked the execution model. `run_main` has been moved
-  to `bytewax.testing` as it's only supposed to be used when testing or
-  prototyping. Production dataflows should be ran by calling the `bytewax.run`
+- *Breaking change* Reworked the execution model. `run_main` and `cluster_main`
+  have been moved to `bytewax.testing` as they are only supposed to be used
+  when testing or prototyping.
+  Production dataflows should be ran by calling the `bytewax.run`
   module with `python -m bytewax.run <dataflow-path>:<dataflow-name>`.
   See `python -m bytewax.run -h` for all the possible options.
-  `cluster_main` has been moved to `bytewax.run`, and should only be used
-  if you want to run processes of the same dataflow on different machines.
   The functionality offered by `spawn_cluster` are now only offered by the
   `bytewax.run` script, so `spawn_cluster` was removed.
 

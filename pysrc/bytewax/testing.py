@@ -7,10 +7,11 @@ from typing import Any, Iterable
 from bytewax.inputs import PartitionedInput, StatefulSource
 from bytewax.outputs import DynamicOutput, StatelessSink
 
-from .bytewax import run_main
+from .bytewax import run_main, cluster_main
 
 __all__ = [
     "run_main",
+    "cluster_main",
     "TestingInput",
     "TestingOutput",
 ]

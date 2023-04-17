@@ -7,12 +7,10 @@ import traceback
 import inspect
 
 from bytewax.recovery import SqliteRecoveryConfig
-from .bytewax import cluster_main, cli_main
-
-__all__ = ["cluster_main"]
+from .bytewax import cli_main
 
 
-def locate_dataflow(module_name, dataflow_name):
+def _locate_dataflow(module_name, dataflow_name):
     """Import a module and try to find a Dataflow within it.
 
     Check if the given string is a variable name or a function.
@@ -312,5 +310,5 @@ if __name__ == "__main__":
 
     # Import the dataflow
     module_str, _, attrs_str = kwargs.pop("import_str").partition(":")
-    kwargs["flow"] = locate_dataflow(module_str, attrs_str)
+    kwargs["flow"] = _locate_dataflow(module_str, attrs_str)
     cli_main(**kwargs)
