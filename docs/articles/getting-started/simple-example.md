@@ -61,7 +61,8 @@ flow.output("out", StdOutput())
 Now that we have our program and our input, we can run our example via
 `python -m bytewax.run wordcount:flow` and see the completed result:
 
-```{testoutput}
+
+```
 ("'tis", 1)
 ('a', 1)
 ('against', 1)
@@ -233,12 +234,12 @@ This means that whatever items are flowing through this point in the dataflow wi
 ### Running
 
 To run the example, we just need to call the execution script.
-We will talk in more details about it in the next chapter
+We will talk in more details about it in the next chapter.
 When we call `bytewax.run`, our dataflow program will begin running, Bytewax will read the input items from our input generator, push the data through each step in the dataflow, and return the captured output. We then print the output of the final step.
 
 Here is the complete output when running the example:
 
-```{testoutput}
+```
 ('opposing', 1)
 ('and', 2)
 ('of', 2)
