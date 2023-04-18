@@ -5,6 +5,8 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## v0.16.0
+
 - *Breaking change* Reworked the execution model. `run_main` and `cluster_main`
   have been moved to `bytewax.testing` as they are only supposed to be used
   when testing or prototyping.

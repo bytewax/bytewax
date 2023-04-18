@@ -180,7 +180,7 @@ mixed.</p>
 &gt;&gt;&gt; run_main(
 ...     flow,
 ...     recovery_config=recovery_config,
-... )  # doctest: +ELLIPSIS
+... ) # doctest:+SKIP
 </code></pre>
 <p>If there's no previous recovery data, topics will automatically be
 created with the correct number of partitions and log compaction
@@ -241,17 +241,22 @@ data.</p>
 are used to allow workers to write without contention.</p>
 <p>Use a distinct directory per dataflow so recovery data is not
 mixed.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import run_main, TestingInput
+<pre><code class="language-python-repl">&gt;&gt;&gt; from tempfile import TemporaryDirectory
+&gt;&gt;&gt; from bytewax.testing import run_main, TestingInput
 &gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
 &gt;&gt;&gt; from bytewax.dataflow import Dataflow
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
 &gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
-&gt;&gt;&gt; recovery_config = SqliteRecoveryConfig(&quot;.&quot;)
+&gt;&gt;&gt; tmp_dir = TemporaryDirectory()  # We'll store this somewhere temporary for this test.
+&gt;&gt;&gt; recovery_config = SqliteRecoveryConfig(tmp_dir.name)
 &gt;&gt;&gt; run_main(
 ...     flow,
 ...     recovery_config=recovery_config,
-... )  # doctest: +ELLIPSIS
+... )
+0
+1
+2
 </code></pre>
 <p>DB files and tables will automatically be created if there's no
 previous recovery data.</p>
