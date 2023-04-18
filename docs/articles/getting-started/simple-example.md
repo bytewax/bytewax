@@ -23,7 +23,6 @@ from datetime import timedelta, datetime, timezone
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.files import FileInput
 from bytewax.connectors.stdio import StdOutput
-from bytewax.testing import run_main
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 
@@ -55,14 +54,12 @@ flow.flat_map(tokenize)
 flow.map(initial_count)
 flow.reduce_window("sum", clock_config, window_config, add)
 flow.output("out", StdOutput())
-
-run_main(flow)
 ```
 
 ## Running the example
 
 Now that we have our program and our input, we can run our example via
-`python ./wordcount.py` and see the completed result:
+`python -m bytewax.run wordcount:flow` and see the completed result:
 
 ```{testoutput}
 ("'tis", 1)
@@ -235,13 +232,9 @@ This means that whatever items are flowing through this point in the dataflow wi
 
 ### Running
 
-To run the example, we'll need to introduce one more function, `bytewax.execution.run_main()`:
-
-```python doctest:SORT_OUTPUT doctest:SORT_EXPECTED
-run_main(flow)
-```
-
-When we call `run_main()`, our dataflow program will begin running, Bytewax will read the input items and epoch from our input generator, push the data through each step in the dataflow, and return the captured output. We then print the output of the final step.
+To run the example, we just need to call the execution script.
+We will talk in more details about it in the next chapter
+When we call `bytewax.run`, our dataflow program will begin running, Bytewax will read the input items from our input generator, push the data through each step in the dataflow, and return the captured output. We then print the output of the final step.
 
 Here is the complete output when running the example:
 
