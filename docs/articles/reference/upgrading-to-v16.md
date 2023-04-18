@@ -4,7 +4,7 @@ Bytewax v0.16 introduces major changes to the way that custom Bytewax inputs are
 
 ## Input changes
 
-In v0.16, we have restructured input to be based around partitions in order to support rescaling stateful dataflows in the future. We have also dropped the `Config` suffix to our input classes. As an example, `KafkaInputConfig` has been renamed to `KafkaInput`.
+In v0.16, we have restructured input to be based around partitions in order to support rescaling stateful dataflows in the future. We have also dropped the `Config` suffix to our input classes. As an example, `KafkaInputConfig` has been renamed to `KafkaInput` and has been moved to `bytewax.connectors.kafka.KafkaInput`.
 
 `ManualInputConfig` is now replaced by two base superclasses that can be subclassed to create custom input sources. They are `DynamicInput` and `PartitionedInput`.
 
@@ -12,15 +12,17 @@ In v0.16, we have restructured input to be based around partitions in order to s
 
 `DynamicInput` sources are input sources that support reading distinct items from any number of workers concurrently.
 
-Dynamic inputs must be able to supply disjoint data for each worker that is started. If multiple workers read the same data, the Dataflow will process those as duplicate items.
-
 `DynamicInput` sources do not support resume state and thus generally do not provide delivery guarantees better than at-most-once.
 
 ### `PartitionedInput`
 
-`PartitionedInput` sources are input sources that manage a fixed number of independent partitions, like Kafka.
+`PartitionedInput` sources can keep internal state on the current position of each partition. If a partition can "rewind" and resume reading from a previous position, they can provide delivery guarantees of at-least-once or better.
 
 `PartitionedInput` sources maintain the state of each source and re-build that state during recovery.
+
+## Deprecating Kafka Recovery
+
+In order to better support rescaling Dataflows, the Kafka recovery store option is being deprecated and will be removed from a future release in favor of the SQLite recovery store.
 
 ## Capture -> Output
 
@@ -63,11 +65,13 @@ flow.output("out", StdOutput())
 Since a Python file `dataflow.py` defines a module `dataflow`, the Dataflow can be run with the following invocation:
 
 ``` bash
-> python -m bytewax.run dataflow:flow
+> python -m bytewax.run dataflow
 0
 1
 2
 ```
+
+By default, Bytewax looks for a variable in the given module named `flow`, so we can eliminate the `<dataflow_variable_name_or_factory_function>` part of our import string.
 
 Processes, workers, recovery stores and other options can be configured with command line flags or environment variables. For the full list of options see the `--help` command line flag:
 
@@ -149,16 +153,16 @@ from bytewax.connectors.stdio import StdOutput
 
 We removed `run_main` as it is now only used for unit testing dataflows. Bytewax now has a built-in FileInput connector, which uses the `PartitionedInput` connector superclass.
 
-Since we are using a built-in connector to read from this file, we can delete our `file_input` function above.
+Since we are using a built-in connector to read from this file, we can delete our `input_builder` function above.
 
 ### Windowing
 
 Most of the operators from `v0.15` are the same, but the `start_at` parameter of windowing functions has been changed to `align_to`. The `start_at` parameter incorrectly implied that there were no potential windows before that time. What determines if an item is late for a window is not the windowing definition, but the watermark of the clock.
 
-`SlidingWindow` and `TumblingWindow` now require the align_to parameter. Previously, this was filled with the timestamp of the start of the Dataflow, but must now be specified. Specifying this parameter ensures that windows are consistent across Dataflow restarts, so make sure that you don't change this parameter between executions.
+`SlidingWindow` and `TumblingWindow` now require the `align_to` parameter. Previously, this was filled with the timestamp of the start of the Dataflow, but must now be specified. Specifying this parameter ensures that windows are consistent across Dataflow restarts, so make sure that you don't change this parameter between executions.
 
 
-So the old `TumblingWindow` definition:
+The old `TumblingWindow` definition:
 
 ```python doctest:SKIP
 clock_config = SystemClockConfig()
