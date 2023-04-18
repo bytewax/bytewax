@@ -272,18 +272,40 @@ python -m bytewax.run dataflow:flow
 ("'tis", 1)
 ('of', 2)
 ('opposing', 1)
+...
 ```
 
 We can even run our sample Dataflow on multiple workers to process the file in parallel:
+
+``` bash
+> python -m bytewax.run dataflow:flow -p2
+('whether', 1)
+("'tis", 1)
+('of', 2)
+('opposing', 1)
+...
+```
+
+In the background, Bytewax has spawned two processes, each of which is processing a part of the file. To see this more clearly, you can start each worker by hand:
 
 In one terminal, run:
 
 ``` bash
 > python -m bytewax.run dataflow:flow -i0 -a "localhost:2101;localhost:2102"
+('not', 1)
+('end', 1)
+('opposing', 1)
+('take', 1)
+...
 ```
 
 And in a second terminal, run:
 
 ``` bash
 > python -m bytewax.run dataflow:flow -i1 -a "localhost:2101;localhost:2102"
+('question', 1)
+('the', 3)
+('troubles', 1)
+('fortune', 1)
+...
 ```
