@@ -67,6 +67,7 @@ from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingInput
 from bytewax.connectors.stdio import StdOutput
 
+
 def get_flow(input_range):
     flow = Dataflow()
     flow.input("inp", TestingInput(range(input_range)))
@@ -103,6 +104,7 @@ but those should only be used in a testing/experimental setup:
 ```python doctest:SORT_OUTPUT
 # At the end of the file:
 from bytewax.testing import run_main
+
 run_main(flow)
 ```
 
@@ -125,9 +127,6 @@ only the command:
 ```
 $ python -m bytewax.run -p2 -w3 simple:flow
 ```
-
-The input and outputs will be partitioned between the workers and the process
-will run until the dataflow is complete.
 
 ## Manually Handled Cluster
 
