@@ -14,32 +14,96 @@ processes, there will be a slight overhead added to aggregating
 operators due to pickling and network communication, but it will allow
 you to read from input partitions in parallel for higher throughput.
 
-Bytewax gives you two entry points with different APIs and
-trade-offs in parallelism, and an helper script to run dataflows
-using the appropriate entrypoint.
 Achieving the best performance of your dataflows requires
 considering the properties of your logic, input,
 and output. We'll give an overview and some hints here.
 
-See our API docs or docstrings for a detailed description of arguments
-to these entry points.
+Bytewax gives you a script that can be used to run dataflows:
 
-## Single Worker Run
+```
+python -m bytewax.run --help
+```
 
-The first entry point is `bytewax.execution.run_main()`. It will
-run your dataflow on a single worker in the current process.
+## Selecting the dataflow
 
-`run_main()` blocks until all output has been collected.
+The first argument passed to the script is a dataflow getter string.
+The string is in the format `<dataflow-module>:<dataflow-getter>`.
+- `<dataflow-module>` points to a python module containing the dataflow definition
+- `<dataflow-getter>` is either the name of a python variable holding the flow, or a function call to a function defined in the module
 
-```python doctest:SORT_OUTPUT
+Let's see two examples (we assume bytewax is correctly installed).
+
+Write your dataflow to a file named `./simple.py`:
+
+```python
+# ./simple.py
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput, run_main
+from bytewax.testing import TestingInput
 from bytewax.connectors.stdio import StdOutput
 
 flow = Dataflow()
 flow.input("inp", TestingInput(range(3)))
 flow.map(lambda item: item + 1)
 flow.output("out", StdOutput())
+```
+
+To run this flow, you should use `simple:flow`:
+```
+python -m bytewax.run simple:flow
+```
+
+In some cases you might want to change the Dataflow's behaviour
+without having to change the source code.
+
+What if you want to test the previous Dataflow with different
+input ranges?
+
+You can rewrite the file so that the Dataflow is built from a function,
+rather than being defined in the file:
+
+```python
+# ./parametric.py
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingInput
+from bytewax.connectors.stdio import StdOutput
+
+
+def get_flow(input_range):
+    flow = Dataflow()
+    flow.input("inp", TestingInput(range(input_range)))
+    flow.map(lambda item: item + 1)
+    flow.output("out", StdOutput())
+    return flow
+```
+
+And you can run it with:
+```
+$ python -m bytewax.run "parametric:get_flow(10)"
+```
+
+The Dataflow can run in different ways, depending on the arguments
+you pass to the entrypoint.
+
+Let's explore them!
+
+## Single Worker Run
+
+By default `bytewax.run` will run your dataflow on a single worker
+in the current process.
+This avoids the overhead of setting up communication between workers/processes,
+but the dataflow will not have any gain from parallelization.
+
+As you saw in the previous chapter, you just need to pass the Dataflow getter string:
+```
+$ python -m bytewax.run simple:flow
+```
+
+Bytewax exposes the internal functions used to run the dataflow instance,
+but those should only be used in a testing/experimental setup:
+
+```python doctest:SORT_OUTPUT
+# At the end of the file:
+from bytewax.testing import run_main
 
 run_main(flow)
 ```
@@ -50,89 +114,48 @@ run_main(flow)
 3
 ```
 
-If you intend to run the dataflow on a single process, using
-`run_main()` will avoid the initial overhead of setting up the
-communication between processes.
+## Local Cluster
 
-Otherwise, `run_main()` is best used for testing dataflows or doing
-prototyping in notebooks.
+By changing the `-p/--processes` and `-w/--workers-per-process` arguments,
+you can spawn multiple processes, and mulitple workers per process,
+letting `bytewax.run` handle the communication between them.
 
-Because it only uses a single worker, do not expect any speedup from
-to parallelism.
+For example you can run the previous dataflow with 2 processes, and 3 workers
+per process, for a total of 6 workers using the exact same file, changing
+only the command:
 
-## Multiple Workers Cluster Main
+```
+$ python -m bytewax.run -p2 -w3 simple:flow
+```
 
-The next entry point, `bytewax.execution.cluster_main()` is the most
-flexible. It allows you to start up a single process within a cluster
+## Manually Handled Cluster
+
+If you want to run single processes on possibly different machines on the same network,
+you can use the `-i/--process-id`,`-a/--addresses` parameters.
+
+It allows you to start up a single process within a cluster
 of processes that you are manually coordinating. We recommend you
 checkout the documentation for [waxctl](/docs/deployment/waxctl/) our
 command line tool which facilitates running a dataflow on Kubernetes.
 
-`cluster_main()` takes in a list of hostname and port of all workers
-(including itself). Each worker must be given a unique process ID.
 
-`cluster_main()` blocks until the dataflow is complete.
+The `-a/--addresses` parameter represents a list of addresses for all the processes,
+separated by a ';'.
+When you run single processes separately, you need to assign a unique id to each process.
+The `-i/--process-id` should be a number starting from `0` representing the position
+of its respective address in the list passed to `-a`.
 
-```python doctest:SORT_OUTPUT
-from bytewax.dataflow import Dataflow
-from bytewax.connectors.stdio import StdOutput
-from bytewax.testing import TestingInput, cluster_main
-
-flow = Dataflow()
-flow.input("inp", TestingInput(range(3)))
-flow.map(lambda item: item + 1)
-flow.output("out", StdOutput())
-
-addresses = [
-    "localhost:2101",
-    # You would put the address and port of each other process in the cluster here:
-    # "localhost:2102",
-    # ...
-]
-cluster_main(flow, addresses=addresses, proc_id=0, worker_count_per_proc=2)
+For example you want to run 2 processes, with 3 workers each, on two different machines.
+The machines are known in the network as `cluster_one` and `cluster_two`.
+You should run the first process on `cluster_one` as follows:
+```
+$ python -m bytewax.run simple:flow -w3 -i0 -a "cluster_one:2101;cluster_two:2101"
 ```
 
-```{testoutput}
-1
-2
-3
+And on the `cluster_two` machine as:
+```
+$ python -m bytewax.run simple:flow -w3 -i1 -a "cluster_one:2101;cluster_two:2101"
 ```
 
-This is best used for using bytewax as a long-running data processing
-service. You can scale up to take advantage of multiple machines.
-
-## Multiple Worker Run Script
-
-The final entry point is `bytewax.run`, which is a run script
-that can spawn multiple processes, each running a `cluster_main` with the
-appropriate parameters automatically generated.
-
-`bytewax.run` will spawn a number of background processes and threads
-on the local machine to run your dataflow.
-With the run script, the input and output will be
-partitioned between the workers and the call will block until the
-dataflow is complete.
-
-To use it, rather than calling the dataflow with `python dataflow.py`,
-you pass the python file as an argument to `bytewax.execution.run`:
-
-```
-python -m bytewax.run dataflow.py
-```
-
-See `python -m bytewax.run --help` for all the possible options.
-
-You should remove/comment any call to `run_main` inside the file,
-or the dataflow will crash since the execution will be handled
-by the run script.
-
-```python doctest:SORT_OUTPUT
-from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput
-from bytewax.connectors.stdio import StdOutput
-
-flow = Dataflow()
-flow.input("inp", TestingInput(range(3)))
-flow.map(lambda item: item + 1)
-flow.output("out", StdOutput())
-```
+This is only needed if you want to run the dataflow on multiple machines,
+or if you need better control of the addresses/ports used by default by the run script.
