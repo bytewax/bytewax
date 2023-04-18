@@ -79,6 +79,10 @@
         "title": "Changes in v0.11",
         "filename": "changes-in-v11"
       }
+      {
+        "title": "Upgrading to v0.16",
+        "filename": "upgrading-to-v16"
+      }        
     ]
   }
 ]

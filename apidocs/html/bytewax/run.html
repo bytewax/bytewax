@@ -9,26 +9,19 @@
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">import argparse
-import importlib
-import pathlib
-import os
-import sys
 import ast
-import traceback
 import inspect
+import os
+import pathlib
+import sys
+import traceback
 
 from bytewax.recovery import SqliteRecoveryConfig
 
-from .bytewax import cluster_main, cli_main
-
-__all__ = [&#34;cluster_main&#34;]
+from .bytewax import cli_main
 
 
-class BytewaxRunError(Exception):
-    pass
-
-
-def locate_dataflow(module_name, dataflow_name):
+def _locate_dataflow(module_name, dataflow_name):
     &#34;&#34;&#34;Import a module and try to find a Dataflow within it.
 
     Check if the given string is a variable name or a function.
@@ -45,12 +38,12 @@ def locate_dataflow(module_name, dataflow_name):
         # Reraise the ImportError if it occurred within the imported module.
         # Determine this by checking whether the trace has a depth &gt; 1.
         if sys.exc_info()[2].tb_next:
-            raise BytewaxRunError(
+            raise ImportError(
                 f&#34;While importing {module_name!r}, an ImportError was&#34;
                 f&#34; raised:\n\n{traceback.format_exc()}&#34;
             ) from None
         else:
-            raise BytewaxRunError(f&#34;Could not import {module_name!r}.&#34;) from None
+            raise ImportError(f&#34;Could not import {module_name!r}.&#34;) from None
 
     module = sys.modules[module_name]
 
@@ -59,7 +52,7 @@ def locate_dataflow(module_name, dataflow_name):
     try:
         expr = ast.parse(dataflow_name.strip(), mode=&#34;eval&#34;).body
     except SyntaxError:
-        raise BytewaxRunError(
+        raise SyntaxError(
             f&#34;Failed to parse {dataflow_name!r} as an attribute name or function call.&#34;
         ) from None
 
@@ -70,7 +63,7 @@ def locate_dataflow(module_name, dataflow_name):
     elif isinstance(expr, ast.Call):
         # Ensure the function name is an attribute name only.
         if not isinstance(expr.func, ast.Name):
-            raise BytewaxRunError(
+            raise TypeError(
                 f&#34;Function reference must be a simple name: {dataflow_name!r}.&#34;
             )
 
@@ -83,18 +76,18 @@ def locate_dataflow(module_name, dataflow_name):
         except ValueError:
             # literal_eval gives cryptic error messages, show a generic
             # message with the full expression instead.
-            raise BytewaxRunError(
+            raise ValueError(
                 f&#34;Failed to parse arguments as literal values: {dataflow_name!r}.&#34;
             ) from None
     else:
-        raise BytewaxRunError(
+        raise ValueError(
             f&#34;Failed to parse {dataflow_name!r} as an attribute name or function call.&#34;
         )
 
     try:
         attr = getattr(module, name)
     except AttributeError as e:
-        raise BytewaxRunError(
+        raise AttributeError(
             f&#34;Failed to find attribute {name!r} in {module.__name__!r}.&#34;
         ) from e
 
@@ -107,7 +100,7 @@ def locate_dataflow(module_name, dataflow_name):
             if not _called_with_wrong_args(attr):
                 raise
 
-            raise BytewaxRunError(
+            raise TypeError(
                 f&#34;The factory {dataflow_name!r} in module&#34;
                 f&#34; {module.__name__!r} could not be called with the&#34;
                 &#34; specified arguments.&#34;
@@ -118,7 +111,7 @@ def locate_dataflow(module_name, dataflow_name):
     if isinstance(dataflow, Dataflow):
         return dataflow
 
-    raise BytewaxRunError(
+    raise RuntimeError(
         &#34;A valid Bytewax dataflow was not obtained from&#34;
         f&#34; &#39;{module.__name__}:{dataflow_name}&#39;.&#34;
     )
@@ -158,6 +151,7 @@ class EnvDefault(argparse.Action):
     def __init__(self, envvar, default=None, **kwargs):
         if envvar:
             default = os.environ.get(envvar, default)
+            kwargs[&#34;help&#34;] += f&#34; [env: {envvar}]&#34;
         super(EnvDefault, self).__init__(default=default, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
@@ -205,10 +199,9 @@ def _parse_args():
     parser.add_argument(
         &#34;import_str&#34;,
         type=str,
-        help=&#34;Dataflow import string in the formats:\n&#34;
-        &#34;&lt;module_name&gt;:&lt;dataflow_variable_name_or_factory_function&gt;\n&#34;
-        &#34;&lt;module_name&gt;:&lt;dataflow_factory_function&gt;:&lt;string_argument_for_factory&gt;\n&#34;
-        &#34;Example: &#39;src.dataflow:flow&#39; or &#39;src.dataflow:get_flow:string_argument&#39;&#34;,
+        help=&#34;Dataflow import string in the format &#34;
+        &#34;&lt;module_name&gt;:&lt;dataflow_variable_or_factory&gt; &#34;
+        &#34;Example: src.dataflow:flow or src.dataflow:get_flow(&#39;string_argument&#39;)&#34;,
     )
     scaling = parser.add_argument_group(
         &#34;Scaling&#34;,
@@ -243,7 +236,7 @@ def _parse_args():
     scaling.add_argument(
         &#34;-a&#34;,
         &#34;--addresses&#34;,
-        help=&#34;Addresses of other processes, separated by semicolumn:\n&#34;
+        help=&#34;Addresses of other processes, separated by semicolon:\n&#34;
         &#39;-a &#34;localhost:2021;localhost:2022;localhost:2023&#34; &#39;,
         action=EnvDefault,
         envvar=&#34;BYTEWAX_ADDRESSES&#34;,
@@ -319,7 +312,7 @@ if __name__ == &#34;__main__&#34;:
     sqlite_directory = kwargs.pop(&#34;sqlite_directory&#34;)
     kwargs[&#34;recovery_config&#34;] = None
     if sqlite_directory:
-        kwargs[&#34;recovery_config&#34;] = SqliteRecoveryConfig(sqlite_directory or &#34;./&#34;)
+        kwargs[&#34;recovery_config&#34;] = SqliteRecoveryConfig(sqlite_directory)
 
     # Prepare addresses
     addresses = kwargs.pop(&#34;addresses&#34;)
@@ -328,7 +321,7 @@ if __name__ == &#34;__main__&#34;:
 
     # Import the dataflow
     module_str, _, attrs_str = kwargs.pop(&#34;import_str&#34;).partition(&#34;:&#34;)
-    kwargs[&#34;flow&#34;] = locate_dataflow(module_str, attrs_str)
+    kwargs[&#34;flow&#34;] = _locate_dataflow(module_str, attrs_str)
     cli_main(**kwargs)</code></pre>
 </details>
 </section>
@@ -337,59 +330,39 @@ if __name__ == &#34;__main__&#34;:
 <section>
 </section>
 <section>
-<h2 class="api__article-subtitle" id="header-functions">Functions</h2>
-<dl>
-<dt id="bytewax.run.cluster_main"><code class="language-python name flex">
-<span>def <span class="ident">cluster_main</span></span>(<span>flow, addresses, proc_id, *, epoch_interval, recovery_config, worker_count_per_proc)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Execute a dataflow in the current process as part of a cluster.</p>
-<p>You have to coordinate starting up all the processes in the
-cluster and ensuring they each are assigned a unique ID and know
-the addresses of other processes. You'd commonly use this for
-starting processes as part of a Kubernetes cluster.</p>
-<p>Blocks until execution is complete.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.dataflow import Dataflow
-&gt;&gt;&gt; from bytewax.testing import TestingInput
-&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
-&gt;&gt;&gt; flow.capture(StdOutput())
-&gt;&gt;&gt; addresses = []  # In a real example, you'd find the &quot;host:port&quot; of all other Bytewax workers.
-&gt;&gt;&gt; proc_id = 0  # In a real example, you'd assign each worker a distinct ID from 0..proc_count.
-&gt;&gt;&gt; cluster_main(flow, addresses, proc_id)
-0
-1
-2
-</code></pre>
-<p>See <code>bytewax.run_main()</code> for a way to test input and output
-builders without the complexity of starting a cluster.</p>
-<p>See <code>bytewax.spawn_cluster()</code> for starting a simple cluster
-locally on one machine.</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>flow</code></strong></dt>
-<dd>Dataflow to run.</dd>
-<dt><strong><code>addresses</code></strong></dt>
-<dd>List of host/port addresses for all processes in
-this cluster (including this one).</dd>
-<dt><strong><code>proc_id</code></strong></dt>
-<dd>Index of this process in cluster; starts from 0.</dd>
-<dt><strong><code>epoch_interval</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
-<dd>System time length of each
-epoch. Defaults to 10 seconds.</dd>
-<dt><strong><code>recovery_config</code></strong></dt>
-<dd>State recovery config. See
-<code><a title="bytewax.recovery" href="/apidocs/bytewax.recovery">bytewax.recovery</a></code>. If <code>None</code>, state will not be
-persisted.</dd>
-<dt><strong><code>worker_count_per_proc</code></strong></dt>
-<dd>Number of worker threads to start on
-each process.</dd>
-</dl></div>
-</dd>
-</dl>
 </section>
 <section>
+<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
+<dl>
+<dt id="bytewax.run.EnvDefault"><code class="language-python flex name class">
+<span>class <span class="ident">EnvDefault</span></span>
+<span>(</span><span>envvar, default=None, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Action that uses env variable as default if nothing else was set.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class EnvDefault(argparse.Action):
+    &#34;&#34;&#34;Action that uses env variable as default if nothing else was set.&#34;&#34;&#34;
+
+    def __init__(self, envvar, default=None, **kwargs):
+        if envvar:
+            default = os.environ.get(envvar, default)
+            kwargs[&#34;help&#34;] += f&#34; [env: {envvar}]&#34;
+        super(EnvDefault, self).__init__(default=default, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>argparse.Action</li>
+<li>argparse._AttributeHolder</li>
+</ul>
+</dd>
+</dl>
 </section>
 <footer class="api__footer" id="footer">
 <p class="api__footer-copyright">
@@ -408,9 +381,11 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
-<h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
-<ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.run.cluster_main" href="/apidocs/bytewax.run#bytewax.run.cluster_main">cluster_main</a></li>
+<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
+<ul class="api__sidebar-nav-classes">
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.run.EnvDefault" href="/apidocs/bytewax.run#bytewax.run.EnvDefault">EnvDefault</a></h4>
+</li>
 </ul>
 </li>
 </ul>
