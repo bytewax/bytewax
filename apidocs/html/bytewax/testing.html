@@ -11,15 +11,39 @@
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Helper tools for testing dataflows.
 &#34;&#34;&#34;
-import multiprocessing.dummy
-from contextlib import contextmanager
-from threading import Lock
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
-from bytewax.inputs import PartInput
+from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.outputs import DynamicOutput, StatelessSink
+
+from .bytewax import run_main
+
+__all__ = [
+    &#34;run_main&#34;,
+    &#34;TestingInput&#34;,
+    &#34;TestingOutput&#34;,
+]
 
 
-class TestingInput(PartInput):
+class _IterSource(StatefulSource):
+    def __init__(self, it, resume_state):
+        self._idx = resume_state or -1
+        self._it = enumerate(it)
+        # Resume to one after the last completed read.
+        for i in range(self._idx + 1):
+            next(self._it)
+
+    def next(self):
+        # next will raise StopIteration on its own.
+        self._idx, item = next(self._it)
+        return item
+
+    def snapshot(self):
+        return self._idx
+
+
+class TestingInput(PartitionedInput):
     &#34;&#34;&#34;Produce input from a Python iterable. You only want to use this
     for unit testing.
 
@@ -41,252 +65,115 @@ class TestingInput(PartInput):
     __test__ = False
 
     def __init__(self, it: Iterable[Any]):
-        self.it = it
+        self._it = it
 
     def list_parts(self):
-        return [&#34;iter&#34;]
+        return {&#34;iter&#34;}
 
     def build_part(self, for_key, resume_state):
         assert for_key == &#34;iter&#34;
-        resume_i = resume_state or -1
-        for i, x in enumerate(self.it):
-            # Resume to one after the last completed read.
-            if i &lt;= resume_i:
-                continue
-            yield i, x
+        return _IterSource(self._it, resume_state)
 
 
-_print_lock = Lock()
+class _ListSink(StatelessSink):
+    def __init__(self, ls):
+        self._ls = ls
+
+    def write(self, item):
+        self._ls.append(item)
 
 
-def test_print(*args, **kwargs):
-    &#34;&#34;&#34;A version of `print()` which takes an in-process lock to prevent
-    multiple worker threads from writing simultaneously which results
-    in interleaved output.
+class TestingOutput(DynamicOutput):
+    &#34;&#34;&#34;Append each output item to a list. You only want to use this
+    for unit testing.
 
-    You&#39;d use this if you&#39;re integration testing a dataflow and want
-    more deterministic output. Remember that even with this, the items
-    from multi-worker output might be &#34;out-of-order&#34; because each
-    worker is racing each other. You probably want to sort your output
-    in some way.
+    Can support at-least-once processing. The list is not cleared
+    between executions.
 
-    Arguments are passed through to `print()` unmodified.
+    Args:
+
+        ls: List to append to.
 
     &#34;&#34;&#34;
-    with _print_lock:
-        print(*args, flush=True, **kwargs)
+
+    __test__ = False
+
+    def __init__(self, ls):
+        self._ls = ls
+
+    def build(self, worker_index, worker_count):
+        return _ListSink(self._ls)
 
 
-doctest_ctx = multiprocessing.dummy
-&#34;&#34;&#34;Use this `multiprocessing` context when running in doctests.
+def poll_next(source, timeout=timedelta(seconds=5)):
+    &#34;&#34;&#34;Repeatedly poll an input source until it returns a value.
 
-Pass to `bytewax.spawn_cluster()` and `bytewax.run_cluster()`.
+    You&#39;ll want to use this in unit tests of sources when there&#39;s some
+    non-determinism in how items are read.
 
-Spawning subprocesses is fraught in doctest contexts, so use this to
-demonstrate the API works, but not actually run via multiple
-processes. We have other normal `pytest` tests which actually test
-behavior. Don&#39;t worry.
+    Args:
 
-&#34;&#34;&#34;
+        source: To call `source.next()` on.
 
+    Returns:
 
-@contextmanager
-def _Manager():
-    &#34;&#34;&#34;`multiprocessing.dummy.Manager()` doesn&#39;t support being a context
-    manager like a real `multiprocessing.Manager()` does... So let&#39;s
-    monkey patch it.
+        The next item found.
+
+    Raises:
+
+        TimeoutError: If no item was returned within the timeout.
 
     &#34;&#34;&#34;
-    yield doctest_ctx
-
-
-doctest_ctx.Manager = _Manager</code></pre>
+    item = None
+    start = datetime.now(timezone.utc)
+    while item is None:
+        if datetime.now(timezone.utc) - start &gt; timeout:
+            raise TimeoutError()
+        item = source.next()
+    return item</code></pre>
 </details>
 </section>
 <section>
 </section>
 <section>
-<h2 class="api__article-subtitle" id="header-variables">Global variables</h2>
-<dl>
-<dt id="bytewax.testing.doctest_ctx"><code class="language-python name">var <span class="ident">doctest_ctx</span></code></dt>
-<dd>
-<div class="desc"><p>Use this <code>multiprocessing</code> context when running in doctests.</p>
-<p>Pass to <code>bytewax.spawn_cluster()</code> and <code>bytewax.run_cluster()</code>.</p>
-<p>Spawning subprocesses is fraught in doctest contexts, so use this to
-demonstrate the API works, but not actually run via multiple
-processes. We have other normal <code>pytest</code> tests which actually test
-behavior. Don't worry.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">#
-# Support for the API of the multiprocessing package using threads
-#
-# multiprocessing/dummy/__init__.py
-#
-# Copyright (c) 2006-2008, R Oudkerk
-# Licensed to PSF under a Contributor Agreement.
-#
-
-__all__ = [
-    &#39;Process&#39;, &#39;current_process&#39;, &#39;active_children&#39;, &#39;freeze_support&#39;,
-    &#39;Lock&#39;, &#39;RLock&#39;, &#39;Semaphore&#39;, &#39;BoundedSemaphore&#39;, &#39;Condition&#39;,
-    &#39;Event&#39;, &#39;Barrier&#39;, &#39;Queue&#39;, &#39;Manager&#39;, &#39;Pipe&#39;, &#39;Pool&#39;, &#39;JoinableQueue&#39;
-    ]
-
-#
-# Imports
-#
-
-import threading
-import sys
-import weakref
-import array
-
-from .connection import Pipe
-from threading import Lock, RLock, Semaphore, BoundedSemaphore
-from threading import Event, Condition, Barrier
-from queue import Queue
-
-#
-#
-#
-
-class DummyProcess(threading.Thread):
-
-    def __init__(self, group=None, target=None, name=None, args=(), kwargs={}):
-        threading.Thread.__init__(self, group, target, name, args, kwargs)
-        self._pid = None
-        self._children = weakref.WeakKeyDictionary()
-        self._start_called = False
-        self._parent = current_process()
-
-    def start(self):
-        if self._parent is not current_process():
-            raise RuntimeError(
-                &#34;Parent is {0!r} but current_process is {1!r}&#34;.format(
-                    self._parent, current_process()))
-        self._start_called = True
-        if hasattr(self._parent, &#39;_children&#39;):
-            self._parent._children[self] = None
-        threading.Thread.start(self)
-
-    @property
-    def exitcode(self):
-        if self._start_called and not self.is_alive():
-            return 0
-        else:
-            return None
-
-#
-#
-#
-
-Process = DummyProcess
-current_process = threading.current_thread
-current_process()._children = weakref.WeakKeyDictionary()
-
-def active_children():
-    children = current_process()._children
-    for p in list(children):
-        if not p.is_alive():
-            children.pop(p, None)
-    return list(children)
-
-def freeze_support():
-    pass
-
-#
-#
-#
-
-class Namespace(object):
-    def __init__(self, /, **kwds):
-        self.__dict__.update(kwds)
-    def __repr__(self):
-        items = list(self.__dict__.items())
-        temp = []
-        for name, value in items:
-            if not name.startswith(&#39;_&#39;):
-                temp.append(&#39;%s=%r&#39; % (name, value))
-        temp.sort()
-        return &#39;%s(%s)&#39; % (self.__class__.__name__, &#39;, &#39;.join(temp))
-
-dict = dict
-list = list
-
-def Array(typecode, sequence, lock=True):
-    return array.array(typecode, sequence)
-
-class Value(object):
-    def __init__(self, typecode, value, lock=True):
-        self._typecode = typecode
-        self._value = value
-
-    @property
-    def value(self):
-        return self._value
-
-    @value.setter
-    def value(self, value):
-        self._value = value
-
-    def __repr__(self):
-        return &#39;&lt;%s(%r, %r)&gt;&#39;%(type(self).__name__,self._typecode,self._value)
-
-def Manager():
-    return sys.modules[__name__]
-
-def shutdown():
-    pass
-
-def Pool(processes=None, initializer=None, initargs=()):
-    from ..pool import ThreadPool
-    return ThreadPool(processes, initializer, initargs)
-
-JoinableQueue = Queue</code></pre>
-</details>
-</dd>
-</dl>
 </section>
 <section>
 <h2 class="api__article-subtitle" id="header-functions">Functions</h2>
 <dl>
-<dt id="bytewax.testing.test_print"><code class="language-python name flex">
-<span>def <span class="ident">test_print</span></span>(<span>*args, **kwargs)</span>
+<dt id="bytewax.testing.run_main"><code class="language-python name flex">
+<span>def <span class="ident">run_main</span></span>(<span>flow, *, epoch_interval, recovery_config)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>A version of <code>print()</code> which takes an in-process lock to prevent
-multiple worker threads from writing simultaneously which results
-in interleaved output.</p>
-<p>You'd use this if you're integration testing a dataflow and want
-more deterministic output. Remember that even with this, the items
-from multi-worker output might be "out-of-order" because each
-worker is racing each other. You probably want to sort your output
-in some way.</p>
-<p>Arguments are passed through to <code>print()</code> unmodified.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">def test_print(*args, **kwargs):
-    &#34;&#34;&#34;A version of `print()` which takes an in-process lock to prevent
-    multiple worker threads from writing simultaneously which results
-    in interleaved output.
-
-    You&#39;d use this if you&#39;re integration testing a dataflow and want
-    more deterministic output. Remember that even with this, the items
-    from multi-worker output might be &#34;out-of-order&#34; because each
-    worker is racing each other. You probably want to sort your output
-    in some way.
-
-    Arguments are passed through to `print()` unmodified.
-
-    &#34;&#34;&#34;
-    with _print_lock:
-        print(*args, flush=True, **kwargs)</code></pre>
-</details>
+<div class="desc"><p>Execute a dataflow in the current thread.</p>
+<p>Blocks until execution is complete.</p>
+<p>You'd commonly use this for prototyping custom input and output
+builders with a single worker before using them in a cluster
+setting.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.dataflow import Dataflow
+&gt;&gt;&gt; from bytewax.testing import TestingInput, run_main
+&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
+&gt;&gt;&gt; flow.capture(StdOutput())
+&gt;&gt;&gt; run_main(flow)
+0
+1
+2
+</code></pre>
+<p>See <code>bytewax.spawn_cluster()</code> for starting a cluster on this
+machine with full control over inputs and outputs.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>flow</code></strong></dt>
+<dd>Dataflow to run.</dd>
+<dt><strong><code>epoch_interval</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
+<dd>System time length of each
+epoch. Defaults to 10 seconds.</dd>
+<dt><strong><code>recovery_config</code></strong></dt>
+<dd>State recovery config. See
+<code><a title="bytewax.recovery" href="/apidocs/bytewax.recovery">bytewax.recovery</a></code>. If <code>None</code>, state will not be
+persisted.</dd>
+</dl></div>
 </dd>
 </dl>
 </section>
@@ -316,7 +203,7 @@ input will be lost so resume will see the correct data.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class TestingInput(PartInput):
+<pre class="language-python line-numbers"><code class="language-python">class TestingInput(PartitionedInput):
     &#34;&#34;&#34;Produce input from a Python iterable. You only want to use this
     for unit testing.
 
@@ -338,30 +225,81 @@ input will be lost so resume will see the correct data.</p>
     __test__ = False
 
     def __init__(self, it: Iterable[Any]):
-        self.it = it
+        self._it = it
 
     def list_parts(self):
-        return [&#34;iter&#34;]
+        return {&#34;iter&#34;}
 
     def build_part(self, for_key, resume_state):
         assert for_key == &#34;iter&#34;
-        resume_i = resume_state or -1
-        for i, x in enumerate(self.it):
-            # Resume to one after the last completed read.
-            if i &lt;= resume_i:
-                continue
-            yield i, x</code></pre>
+        return _IterSource(self._it, resume_state)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.inputs.PartInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput">PartInput</a></li>
+<li><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></li>
+<li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
+<li>abc.ABC</li>
 </ul>
 <h3>Inherited members</h3>
 <ul class="hlist">
-<li><code class="language-python"><b><a title="bytewax.inputs.PartInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput">PartInput</a></b></code>:
+<li><code class="language-python"><b><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></b></code>:
 <ul class="hlist">
-<li><code class="language-python"><a title="bytewax.inputs.PartInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput.build_part">build_part</a></code></li>
-<li><code class="language-python"><a title="bytewax.inputs.PartInput.list_parts" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput.list_parts">list_parts</a></code></li>
+<li><code class="language-python"><a title="bytewax.inputs.PartitionedInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.build_part">build_part</a></code></li>
+<li><code class="language-python"><a title="bytewax.inputs.PartitionedInput.list_parts" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.list_parts">list_parts</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
+<dt id="bytewax.testing.TestingOutput"><code class="language-python flex name class">
+<span>class <span class="ident">TestingOutput</span></span>
+<span>(</span><span>ls)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Append each output item to a list. You only want to use this
+for unit testing.</p>
+<p>Can support at-least-once processing. The list is not cleared
+between executions.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>ls</code></strong></dt>
+<dd>List to append to.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class TestingOutput(DynamicOutput):
+    &#34;&#34;&#34;Append each output item to a list. You only want to use this
+    for unit testing.
+
+    Can support at-least-once processing. The list is not cleared
+    between executions.
+
+    Args:
+
+        ls: List to append to.
+
+    &#34;&#34;&#34;
+
+    __test__ = False
+
+    def __init__(self, ls):
+        self._ls = ls
+
+    def build(self, worker_index, worker_count):
+        return _ListSink(self._ls)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.outputs.DynamicOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput">DynamicOutput</a></li>
+<li><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></li>
+<li>abc.ABC</li>
+</ul>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code class="language-python"><b><a title="bytewax.outputs.DynamicOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput">DynamicOutput</a></b></code>:
+<ul class="hlist">
+<li><code class="language-python"><a title="bytewax.outputs.DynamicOutput.build" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput.build">build</a></code></li>
 </ul>
 </li>
 </ul>
@@ -385,15 +323,9 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
-<h3 class="api__sidebar-nav-title"><a href="#header-variables">Global variables</a></h3>
-<ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.testing.doctest_ctx" href="/apidocs/bytewax.testing#bytewax.testing.doctest_ctx">doctest_ctx</a></li>
-</ul>
-</li>
-<li class="api__sidebar-nav-item">
 <h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.testing.test_print" href="/apidocs/bytewax.testing#bytewax.testing.test_print">test_print</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.testing.run_main" href="/apidocs/bytewax.testing#bytewax.testing.run_main">run_main</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
@@ -401,6 +333,9 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.testing.TestingInput" href="/apidocs/bytewax.testing#bytewax.testing.TestingInput">TestingInput</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.testing.TestingOutput" href="/apidocs/bytewax.testing#bytewax.testing.TestingOutput">TestingOutput</a></h4>
 </li>
 </ul>
 </li>

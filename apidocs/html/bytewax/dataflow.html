@@ -37,7 +37,7 @@ from .bytewax import Dataflow  # noqa: F401</code></pre>
 <div class="desc"><p>A definition of a Bytewax dataflow graph.</p>
 <p>Use the methods defined on this class to add steps with operators
 of the same name.</p>
-<p>See the execution entry points in <code><a title="bytewax.execution" href="/apidocs/bytewax.execution">bytewax.execution</a></code> to run.</p></div>
+<p>See the execution entry points in <code>bytewax.execution</code> to run.</p></div>
 <h3>Instance variables</h3>
 <dl>
 <dt id="bytewax.dataflow.Dataflow.steps"><code class="language-python name">var <span class="ident">steps</span></code></dt>
@@ -47,34 +47,6 @@ of the same name.</p>
 </dl>
 <h3>Methods</h3>
 <dl>
-<dt id="bytewax.dataflow.Dataflow.capture"><code class="language-python name flex">
-<span>def <span class="ident">capture</span></span>(<span>self, output_config)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Capture is how you specify output of a dataflow.</p>
-<p>At least one capture is required on every dataflow.</p>
-<p>It emits items downstream unmodified; you can capture midway
-through a dataflow.</p>
-<p>See <code><a title="bytewax.outputs" href="/apidocs/bytewax.outputs">bytewax.outputs</a></code> for more information on how output
-works.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
-&gt;&gt;&gt; from bytewax.execution import run_main
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
-&gt;&gt;&gt; flow.capture(StdOutputConfig())
-&gt;&gt;&gt; run_main(flow)
-0
-1
-2
-</code></pre>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>output_config</code></strong> :&ensp;<code><a title="bytewax.outputs.OutputConfig" href="/apidocs/bytewax.outputs#bytewax.outputs.OutputConfig">OutputConfig</a></code></dt>
-<dd>Output
-config to use. See <code><a title="bytewax.outputs" href="/apidocs/bytewax.outputs">bytewax.outputs</a></code>.</dd>
-</dl></div>
-</dd>
 <dt id="bytewax.dataflow.Dataflow.collect_window"><code class="language-python name flex">
 <span>def <span class="ident">collect_window</span></span>(<span>self, step_id, clock_config, window_config)</span>
 </code></dt>
@@ -117,15 +89,17 @@ returns <code>True</code>.</p>
 <li>Removing sentinels</li>
 <li>Removing stop words</li>
 </ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
-&gt;&gt;&gt; from bytewax.execution import run_main
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import TestingInput
+&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
+&gt;&gt;&gt; from bytewax.testing import run_main
+&gt;&gt;&gt; from bytewax.dataflow import Dataflow
+&gt;&gt;&gt;
 &gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(4)))
 &gt;&gt;&gt; def is_odd(item):
 ...     return item % 2 != 0
 &gt;&gt;&gt; flow.filter(is_odd)
-&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
 &gt;&gt;&gt; run_main(flow)
 1
 3
@@ -143,13 +117,14 @@ returns <code>True</code>.</p>
 <div class="desc"><p>Filter map acts as a normal map function,
 but if the mapper returns None, the item
 is filtered out.</p>
-<pre><code class="language-python">def validate(data):
-    if type(data) != dict or &quot;key&quot; not in data:
-        return None
-    else:
-        return data[&quot;key&quot;], data
-
-flow.filter_map(validate)
+<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt; def validate(data):
+...     if type(data) != dict or &quot;key&quot; not in data:
+...         return None
+...     else:
+...         return data[&quot;key&quot;], data
+...
+&gt;&gt;&gt; flow.filter_map(validate)
 </code></pre></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.flat_map"><code class="language-python name flex">
@@ -166,16 +141,17 @@ downstream in the epoch of the input item.</p>
 <li>Flattening hierarchical objects</li>
 <li>Breaking up aggregations for further processing</li>
 </ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
-&gt;&gt;&gt; from bytewax.execution import run_main
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import TestingInput
+&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
+&gt;&gt;&gt; from bytewax.testing import run_main
+&gt;&gt;&gt; from bytewax.dataflow import Dataflow
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; inp = [&quot;hello world&quot;]
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(inp))
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(inp))
 &gt;&gt;&gt; def split_into_words(sentence):
 ...     return sentence.split()
 &gt;&gt;&gt; flow.flat_map(split_into_words)
-&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
 &gt;&gt;&gt; run_main(flow)
 hello
 world
@@ -212,41 +188,42 @@ is defined within a window.</p>
 </li>
 </ul>
 <p>It emits <code>(key, accumulator)</code> tuples downstream when the window closes</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; def gen():
-...     yield from [
-...         {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;login&quot;},
-...         sleep(4)
-...         {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;},
-...         sleep(4)
-...         {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;},
-...         sleep(4)
-...         {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;login&quot;},
-...         sleep(4)
-...         {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;},
-...         sleep(4)
-...         {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;post&quot;},
-...         sleep(4)
-...         {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;post&quot;},
-...     ]
-&gt;&gt;&gt; def extract_id(event):
-...     return (event[&quot;user&quot;], event)
-&gt;&gt;&gt; def build():
-...     return defaultdict(lambda: 0)
-&gt;&gt;&gt; def count(results, event):
-...     results[event[&quot;type&quot;]] += 1
-...     return results
-&gt;&gt;&gt; clock_config = SystemClockConfig()
-&gt;&gt;&gt; window_config = TumblingWindow(length=timedelta(seconds=10))
+<pre><code class="language-python-repl">&gt;&gt;&gt; from datetime import datetime, timedelta, timezone
+&gt;&gt;&gt; from bytewax.dataflow import Dataflow
+&gt;&gt;&gt; from bytewax.testing import run_main, TestingInput, TestingOutput
+&gt;&gt;&gt; from bytewax.window import TumblingWindow, EventClockConfig
+&gt;&gt;&gt; align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
+&gt;&gt;&gt;
+&gt;&gt;&gt; flow = Dataflow()
+&gt;&gt;&gt;
+&gt;&gt;&gt; inp = [
+...     (&quot;ALL&quot;, {&quot;time&quot;: align_to, &quot;val&quot;: &quot;a&quot;}),
+...     (&quot;ALL&quot;, {&quot;time&quot;: align_to + timedelta(seconds=4), &quot;val&quot;: &quot;b&quot;}),
+...     (&quot;ALL&quot;, {&quot;time&quot;: align_to + timedelta(seconds=8), &quot;val&quot;: &quot;c&quot;}),
+...     # The 10 second window should close just before processing this item.
+...     (&quot;ALL&quot;, {&quot;time&quot;: align_to + timedelta(seconds=12), &quot;val&quot;: &quot;d&quot;}),
+...     (&quot;ALL&quot;, {&quot;time&quot;: align_to + timedelta(seconds=16), &quot;val&quot;: &quot;e&quot;})
+... ]
+&gt;&gt;&gt;
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(inp))
+&gt;&gt;&gt;
+&gt;&gt;&gt; clock_config = EventClockConfig(
+...     lambda e: e[&quot;time&quot;], wait_for_system_duration=timedelta(seconds=0)
+... )
+&gt;&gt;&gt; window_config = TumblingWindow(length=timedelta(seconds=10), align_to=align_to)
+&gt;&gt;&gt;
+&gt;&gt;&gt; def add(acc, x):
+...     acc.append(x[&quot;val&quot;])
+...     return acc
+&gt;&gt;&gt;
+&gt;&gt;&gt; flow.fold_window(&quot;sum&quot;, clock_config, window_config, list, add)
+&gt;&gt;&gt;
 &gt;&gt;&gt; out = []
-&gt;&gt;&gt; flow = Dataflow(TestingInputConfig(gen()))
-&gt;&gt;&gt; flow.map(extract_id)
-&gt;&gt;&gt; flow.fold_window(&quot;sum&quot;, clock_config, window_config, build, count)
-&gt;&gt;&gt; flow.capture(TestingOutputConfig(out))
+&gt;&gt;&gt; flow.output(&quot;out&quot;, TestingOutput(out))
+&gt;&gt;&gt;
 &gt;&gt;&gt; run_main(flow)
-&gt;&gt;&gt; assert len(out) == 3
-&gt;&gt;&gt; assert (&quot;a&quot;, {&quot;login&quot;: 1, &quot;post&quot;: 2}) in out
-&gt;&gt;&gt; assert (&quot;a&quot;, {&quot;post&quot;: 1}) in out
-&gt;&gt;&gt; assert (&quot;b&quot;, {&quot;login&quot;: 1, &quot;post&quot;: 2}) in out
+&gt;&gt;&gt;
+&gt;&gt;&gt; assert sorted(out) == sorted([(&quot;ALL&quot;, [&quot;a&quot;, &quot;b&quot;, &quot;c&quot;]), (&quot;ALL&quot;, [&quot;d&quot;, &quot;e&quot;])])
 </code></pre>
 <h2 id="args">Args</h2>
 <dl>
@@ -266,28 +243,17 @@ is defined within a window.</p>
 <span>def <span class="ident">input</span></span>(<span>self, step_id, input)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Input introduces data into the dataflow.</p>
-<p>At least one input is required on every dataflow.</p>
+<div class="desc"><p>At least one input is required on every dataflow.</p>
 <p>Emits items downstream from the input source.</p>
-<p>See <code><a title="bytewax.inputs" href="/apidocs/bytewax.inputs">bytewax.inputs</a></code> for more information on how input works.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
-&gt;&gt;&gt; from bytewax.execution import run_main
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
-&gt;&gt;&gt; flow.capture(StdOutputConfig())
-&gt;&gt;&gt; run_main(flow)
-0
-1
-2
-</code></pre>
+<p>See <code><a title="bytewax.inputs" href="/apidocs/bytewax.inputs">bytewax.inputs</a></code> for more information on how input works.
+See <code><a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a></code> for a buffet of our built-in
+connector types.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
 <dd>Uniquely identifies this step for recovery.</dd>
-<dt><strong><code>input</code></strong></dt>
-<dd>Source. See <code><a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a></code> and
-<code><a title="bytewax.inputs" href="/apidocs/bytewax.inputs">bytewax.inputs</a></code>.</dd>
+<dt><strong><code>input</code></strong> :&ensp;<code><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></code></dt>
+<dd>Input definition.</dd>
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.inspect"><code class="language-python name flex">
@@ -298,20 +264,20 @@ is defined within a window.</p>
 <p>It calls an <strong>inspector</strong> callback on each item.</p>
 <p>It emits items downstream unmodified.</p>
 <p>It is commonly used for debugging.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-&gt;&gt;&gt; from bytewax.outputs import TestingOutputConfig
-&gt;&gt;&gt; from bytewax.execution import run_main
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import TestingInput, TestingOutput
+&gt;&gt;&gt; from bytewax.testing import run_main
+&gt;&gt;&gt; from bytewax.dataflow import Dataflow
 &gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
 &gt;&gt;&gt; def log(item):
 ...     print(&quot;Saw&quot;, item)
 &gt;&gt;&gt; flow.inspect(log)
 &gt;&gt;&gt; out = []
-&gt;&gt;&gt; flow.capture(TestingOutputConfig(out))  # Notice we don't print out.
+&gt;&gt;&gt; flow.output(&quot;out&quot;, TestingOutput(out))  # Notice we don't print out.
 &gt;&gt;&gt; run_main(flow)
+Saw 0
 Saw 1
 Saw 2
-Saw 3
 </code></pre>
 <h2 id="args">Args</h2>
 <dl>
@@ -329,17 +295,17 @@ their epochs.</p>
 epoch.</p>
 <p>It emits items downstream unmodified.</p>
 <p>It is commonly used for debugging.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-&gt;&gt;&gt; from bytewax.outputs import TestingOutputConfig
-&gt;&gt;&gt; from bytewax.execution import run_main, TestingEpochConfig
+<pre><code class="language-python-repl">&gt;&gt;&gt; from datetime import timedelta
+&gt;&gt;&gt; from bytewax.testing import TestingInput, TestingOutput, run_main
+&gt;&gt;&gt; from bytewax.dataflow import Dataflow
 &gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
 &gt;&gt;&gt; def log(epoch, item):
 ...    print(f&quot;Saw {item} @ {epoch}&quot;)
-&gt;&gt;&gt; flow.inspect(log)
+&gt;&gt;&gt; flow.inspect_epoch(log)
 &gt;&gt;&gt; out = []
-&gt;&gt;&gt; flow.capture(TestingOutputConfig(out))  # Notice we don't print out.
-&gt;&gt;&gt; run_main(flow, epoch_config=TestingEpochConfig())
+&gt;&gt;&gt; flow.output(&quot;out&quot;, TestingOutput(out))  # Notice we don't print out.
+&gt;&gt;&gt; run_main(flow, epoch_interval=timedelta(seconds=0))
 Saw 0 @ 0
 Saw 1 @ 1
 Saw 2 @ 2
@@ -363,15 +329,15 @@ Saw 2 @ 2
 <li>Turning JSON into objects</li>
 <li>So many things</li>
 </ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
-&gt;&gt;&gt; from bytewax.execution import run_main
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
+&gt;&gt;&gt; from bytewax.testing import run_main, TestingInput
+&gt;&gt;&gt; from bytewax.dataflow import Dataflow
 &gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
 &gt;&gt;&gt; def add_one(item):
 ...     return item + 10
 &gt;&gt;&gt; flow.map(add_one)
-&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
 &gt;&gt;&gt; run_main(flow)
 10
 11
@@ -381,6 +347,24 @@ Saw 2 @ 2
 <dl>
 <dt><strong><code>mapper</code></strong></dt>
 <dd><code>mapper(item: Any) =&gt; updated_item: Any</code></dd>
+</dl></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.output"><code class="language-python name flex">
+<span>def <span class="ident">output</span></span>(<span>self, step_id, output)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Write data to an output.</p>
+<p>At least one output is required on every dataflow.</p>
+<p>Emits items downstream unmodified.</p>
+<p>See <code><a title="bytewax.outputs" href="/apidocs/bytewax.outputs">bytewax.outputs</a></code> for more information on how output
+works. See <code><a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a></code> for a buffet of our built-in
+connector types.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
+<dd>Uniquely identifies this step for recovery.</dd>
+<dt><strong><code>output</code></strong> :&ensp;<code><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></code></dt>
+<dd>Output definition.</dd>
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.reduce"><code class="language-python name flex">
@@ -421,9 +405,8 @@ sort, then use this operator.</p>
 <li>Summarizing data</li>
 </ul>
 <pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.dataflow import Dataflow
-&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
-&gt;&gt;&gt; from bytewax.execution import run_main
+&gt;&gt;&gt; from bytewax.testing import TestingInput, run_main
+&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; inp = [
 ...     {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;login&quot;},
@@ -432,7 +415,7 @@ sort, then use this operator.</p>
 ...     {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;logout&quot;},
 ...     {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;logout&quot;},
 ... ]
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(inp))
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(inp))
 &gt;&gt;&gt; def user_as_key(event):
 ...     return event[&quot;user&quot;], [event]
 &gt;&gt;&gt; flow.map(user_as_key)
@@ -442,10 +425,11 @@ sort, then use this operator.</p>
 &gt;&gt;&gt; def session_complete(session):
 ...     return any(event[&quot;type&quot;] == &quot;logout&quot; for event in session)
 &gt;&gt;&gt; flow.reduce(&quot;sessionizer&quot;, extend_session, session_complete)
-&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
 &gt;&gt;&gt; run_main(flow)
-('b', ['login', 'logout'])
-('a', ['login', 'post', 'logout'])
+('b', [{'user': 'b', 'type': 'login'}, {'user': 'b', 'type': 'logout'}])
+('a', [{'user': 'a', 'type': 'login'}, {'user': 'a', 'type': 'post'},
+       {'user': 'a', 'type': 'logout'}])
 </code></pre>
 <h2 id="args">Args</h2>
 <dl>
@@ -487,52 +471,50 @@ an ever-growing key space, note this.</p>
 <ul>
 <li>Sessionization</li>
 </ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from datetime import datetime, timedelta
-&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
-&gt;&gt;&gt; from bytewax.execution import run_main
-&gt;&gt;&gt; from bytewax.window import TestingClockConfig, TumblingWindow
+<pre><code class="language-python-repl">&gt;&gt;&gt; from datetime import datetime, timedelta, timezone
+&gt;&gt;&gt; from bytewax.testing import TestingInput, TestingOutput, run_main
+&gt;&gt;&gt; from bytewax.window import EventClockConfig, TumblingWindow
+&gt;&gt;&gt; align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; inp = [
-...     {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;login&quot;},  # 1:00pm
-...     {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;login&quot;},  # 1:01pm
-...     {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;},   # 1:02pm
-...     {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;post&quot;},   # 1:03pm
+...     (&quot;b&quot;, {&quot;time&quot;: align_to, &quot;val&quot;: 1}),
+...     (&quot;a&quot;, {&quot;time&quot;: align_to + timedelta(seconds=4), &quot;val&quot;: 1}),
+...     (&quot;a&quot;, {&quot;time&quot;: align_to + timedelta(seconds=8), &quot;val&quot;: 1}),
+...     (&quot;b&quot;, {&quot;time&quot;: align_to + timedelta(seconds=12), &quot;val&quot;: 1}),
 ... ]
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(inp))
-&gt;&gt;&gt; def add_initial_count(event):
-...     return event[&quot;user&quot;], 1
-&gt;&gt;&gt; flow.map(add_initial_count)
-&gt;&gt;&gt; def count(count, event_count):
-...     return count + event_count
-&gt;&gt;&gt; clock_config = TestingClockConfig(
-...     item_incr=timedelta(minutes=1),
-...     start=datetime(2022, 1, 1, 13),
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(inp))
+&gt;&gt;&gt; def add(acc, x):
+...     acc[&quot;val&quot;] += x[&quot;val&quot;]
+...     return acc
+&gt;&gt;&gt; clock_config = EventClockConfig(
+...     lambda e: e[&quot;time&quot;], wait_for_system_duration=timedelta(0)
 ... )
 &gt;&gt;&gt; window_config = TumblingWindow(
-...     length=timedelta(minutes=2),
+...     length=timedelta(seconds=10), align_to=align_to
 ... )
-&gt;&gt;&gt; flow.reduce_window(&quot;count&quot;, clock_config, window_config, count)
-&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; flow.reduce_window(&quot;count&quot;, clock_config, window_config, add)
+&gt;&gt;&gt; def extract_val(key__event):
+...    key, event = key__event
+...    return (key, event[&quot;val&quot;])
+&gt;&gt;&gt; flow.map(extract_val)
+&gt;&gt;&gt; out = []
+&gt;&gt;&gt; flow.output(&quot;out&quot;, TestingOutput(out))
 &gt;&gt;&gt; run_main(flow)
-('b', 1)
-('a', 2)
-('b', 1)
-</code></pre>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
-<dd>Uniquely identifies this step for recovery.</dd>
-<dt><strong><code>clock_config</code></strong> :&ensp;<code><a title="bytewax.window.ClockConfig" href="/apidocs/bytewax.window#bytewax.window.ClockConfig">ClockConfig</a></code></dt>
-<dd>Clock config to
-use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
-<dt><strong><code>window_config</code></strong> :&ensp;<code><a title="bytewax.window.WindowConfig" href="/apidocs/bytewax.window#bytewax.window.WindowConfig">WindowConfig</a></code></dt>
-<dd>Windower
-config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
-<dt><strong><code>reducer</code></strong></dt>
-<dd><code>reducer(accumulator: Any, value: Any) =&gt;
-updated_accumulator: Any</code></dd>
-</dl></div>
+&gt;&gt;&gt; assert sorted(out) == sorted([('b', 1), ('a', 2), ('b', 1)])
+
+Args:
+
+  step_id (str): Uniquely identifies this step for recovery.
+
+  clock_config (bytewax.window.ClockConfig): Clock config to
+      use. See &lt;code&gt;&lt;a title=&quot;bytewax.window&quot; href=&quot;/apidocs/bytewax.window&quot;&gt;bytewax.window&lt;/a&gt;&lt;/code&gt;.
+
+  window_config (bytewax.window.WindowConfig): Windower
+      config to use. See &lt;code&gt;&lt;a title=&quot;bytewax.window&quot; href=&quot;/apidocs/bytewax.window&quot;&gt;bytewax.window&lt;/a&gt;&lt;/code&gt;.
+
+  reducer: `reducer(accumulator: Any, value: Any) =&gt;
+      updated_accumulator: Any`
+</code></pre></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.stateful_map"><code class="language-python name flex">
 <span>def <span class="ident">stateful_map</span></span>(<span>self, step_id, builder, mapper)</span>
@@ -567,9 +549,8 @@ sort, then use this operator.</p>
 <li>Anomaly detection</li>
 <li>State machines</li>
 </ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
-&gt;&gt;&gt; from bytewax.execution import run_main
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import TestingInput, run_main
+&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
 &gt;&gt;&gt; flow = Dataflow()
 &gt;&gt;&gt; inp = [
 ...     &quot;a&quot;,
@@ -578,11 +559,11 @@ sort, then use this operator.</p>
 ...     &quot;a&quot;,
 ...     &quot;b&quot;,
 ... ]
-&gt;&gt;&gt; flow.inputs(&quot;inp&quot;, TestingInputConfig(inp))
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(inp))
 &gt;&gt;&gt; def self_as_key(item):
 ...     return item, item
 &gt;&gt;&gt; flow.map(self_as_key)
-&gt;&gt;&gt; def build_count(key):
+&gt;&gt;&gt; def build_count():
 ...     return 0
 &gt;&gt;&gt; def check(running_count, item):
 ...     running_count += 1
@@ -598,7 +579,7 @@ sort, then use this operator.</p>
 ...     else:
 ...         return [item]
 &gt;&gt;&gt; flow.flat_map(remove_none_and_key)
-&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
 &gt;&gt;&gt; run_main(flow)
 a
 b
@@ -640,7 +621,6 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.dataflow.Dataflow" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow">Dataflow</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.capture" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture">capture</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.collect_window" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.collect_window">collect_window</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.filter" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.filter">filter</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.filter_map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.filter_map">filter_map</a></li>
@@ -650,6 +630,7 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.inspect">inspect</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect_epoch" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.inspect_epoch">inspect_epoch</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.map">map</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.output" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.output">output</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.reduce" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce">reduce</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.reduce_window" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce_window">reduce_window</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.stateful_map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.stateful_map">stateful_map</a></li>

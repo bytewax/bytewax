@@ -9,7 +9,7 @@ use crate::recovery::model::*;
 use crate::recovery::operators::{FlowChangeStream, Route};
 use crate::timely::CapabilityVecEx;
 use crate::unwrap_any;
-use crate::worker::{WorkerIndex, WorkerCount};
+use crate::worker::{WorkerCount, WorkerIndex};
 use pyo3::exceptions::{PyStopIteration, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use std::cell::Cell;

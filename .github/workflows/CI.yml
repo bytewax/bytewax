@@ -46,8 +46,7 @@ jobs:
       run: |
         WHEEL_FILE=$(ls ./dist/*.whl)
         pip install $WHEEL_FILE'[dev]' -v
-        pytest pytests
-        pytest docs
+        PY_IGNORE_IMPORTMISMATCH=1 pytest
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -80,8 +79,7 @@ jobs:
         pip -V
         WHEEL_FILE=$(ls ./dist/*.whl)
         pip install $WHEEL_FILE'[dev]' -v
-        pytest pytests
-        pytest docs
+        PY_IGNORE_IMPORTMISMATCH=1 pytest
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -124,8 +122,7 @@ jobs:
       run: |
         WHEEL_FILE=$(ls ./dist/*.whl)
         pip install $WHEEL_FILE'[dev]' -v
-        pytest pytests
-        pytest docs
+        PY_IGNORE_IMPORTMISMATCH=1 pytest
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -167,8 +164,7 @@ jobs:
         export C_INCLUDE_PATH=/opt/homebrew/Cellar/librdkafka/2.0.2/include
         export LIBRARY_PATH=/opt/homebrew/Cellar/librdkafka/2.0.2/lib
         pip install $WHEEL_FILE'[dev]' -v --force-reinstall
-        pytest pytests
-        pytest docs
+        PY_IGNORE_IMPORTMISMATCH=1 pytest
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:

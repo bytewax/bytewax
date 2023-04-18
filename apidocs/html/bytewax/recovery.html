@@ -56,7 +56,7 @@ number of workers than when it failed.</p>
 <p>The epoch is the time unit of recovery: dataflows will only resume on
 epoch boundaries, with the <strong>resume epoch</strong> being where the dataflow
 witll resume. Bytewax defaults to a new epoch every 10 seconds. See
-<code><a title="bytewax.execution.EpochConfig" href="/apidocs/bytewax.execution#bytewax.execution.EpochConfig">EpochConfig</a></code> for more info on epochs.</p>
+<code>bytewax.execution.EpochConfig</code> for more info on epochs.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -167,12 +167,12 @@ log compaction so that topic size is proportional to state size,
 not epoch count.</p>
 <p>Use a distinct topic prefix per dataflow so recovery data is not
 mixed.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.execution import run_main
-&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import run_main, TestingInput
+&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
+&gt;&gt;&gt; from bytewax.dataflow import Dataflow
 &gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.inp(&quot;inp&quot;, TestingInputConfig(range(3)))
-&gt;&gt;&gt; flow.capture(StdOutputConfig())
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
+&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
 &gt;&gt;&gt; recovery_config = KafkaRecoveryConfig(
 ...     [&quot;localhost:9092&quot;],
 ...     &quot;sample-dataflow&quot;,
@@ -181,7 +181,6 @@ mixed.</p>
 ...     flow,
 ...     recovery_config=recovery_config,
 ... )  # doctest: +ELLIPSIS
-(...)
 </code></pre>
 <p>If there's no previous recovery data, topics will automatically be
 created with the correct number of partitions and log compaction
@@ -242,19 +241,17 @@ data.</p>
 are used to allow workers to write without contention.</p>
 <p>Use a distinct directory per dataflow so recovery data is not
 mixed.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.execution import run_main
-&gt;&gt;&gt; from bytewax.inputs import TestingInputConfig
-&gt;&gt;&gt; from bytewax.outputs import StdOutputConfig
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import run_main, TestingInput
+&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
+&gt;&gt;&gt; from bytewax.dataflow import Dataflow
 &gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInputConfig(range(3)))
-&gt;&gt;&gt; flow.capture(StdOutputConfig())
-&gt;&gt;&gt; tmp_dir = TemporaryDirectory()  # We'll store this somewhere temporary for this test.
-&gt;&gt;&gt; recovery_config = SqliteRecoveryConfig(tmp_dir)
+&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
+&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
+&gt;&gt;&gt; recovery_config = SqliteRecoveryConfig(&quot;.&quot;)
 &gt;&gt;&gt; run_main(
 ...     flow,
 ...     recovery_config=recovery_config,
 ... )  # doctest: +ELLIPSIS
-(...)
 </code></pre>
 <p>DB files and tables will automatically be created if there's no
 previous recovery data.</p>

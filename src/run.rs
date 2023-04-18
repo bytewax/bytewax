@@ -25,12 +25,12 @@ use crate::worker::Worker;
 use pyo3::exceptions::{PyKeyboardInterrupt, PyRuntimeError};
 use pyo3::prelude::*;
 use pyo3::types::PyType;
-use tokio::runtime::Runtime;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use tokio::runtime::Runtime;
 
 /// Start the tokio runtime for the webserver.
 /// Keep a reference to the runtime for as long as you need it running.
@@ -45,8 +45,6 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
     Ok(rt)
 }
 
-
-// TODO: pytest --doctest-modules does not find doctests in PyO3 code.
 /// Execute a dataflow in the current thread.
 ///
 /// Blocks until execution is complete.
@@ -56,11 +54,11 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 /// setting.
 ///
 /// >>> from bytewax.dataflow import Dataflow
-/// >>> from bytewax.inputs import TestingInputConfig
-/// >>> from bytewax.outputs import StdOutputConfig
+/// >>> from bytewax.testing import TestingInput, run_main
+/// >>> from bytewax.connectors.stdio import StdOutput
 /// >>> flow = Dataflow()
-/// >>> flow.input("inp", TestingInputConfig(range(3)))
-/// >>> flow.capture(StdOutputConfig())
+/// >>> flow.input("inp", TestingInput(range(3)))
+/// >>> flow.capture(StdOutput())
 /// >>> run_main(flow)
 /// 0
 /// 1
@@ -153,11 +151,11 @@ pub(crate) fn run_main(
 /// Blocks until execution is complete.
 ///
 /// >>> from bytewax.dataflow import Dataflow
-/// >>> from bytewax.inputs import TestingInputConfig
-/// >>> from bytewax.outputs import StdOutputConfig
+/// >>> from bytewax.testing import TestingInput
+/// >>> from bytewax.connectors.stdio import StdOutput
 /// >>> flow = Dataflow()
-/// >>> flow.input("inp", TestingInputConfig(range(3)))
-/// >>> flow.capture(StdOutputConfig())
+/// >>> flow.input("inp", TestingInput(range(3)))
+/// >>> flow.capture(StdOutput())
 /// >>> addresses = []  # In a real example, you'd find the "host:port" of all other Bytewax workers.
 /// >>> proc_id = 0  # In a real example, you'd assign each worker a distinct ID from 0..proc_count.
 /// >>> cluster_main(flow, addresses, proc_id)

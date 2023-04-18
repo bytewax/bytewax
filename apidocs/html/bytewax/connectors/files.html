@@ -12,21 +12,35 @@
 <pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Connectors for local text files.
 
 &#34;&#34;&#34;
+import os
 from pathlib import Path
+from typing import Callable
+from zlib import adler32
 
-from bytewax.inputs import PartInput
-
-
-def _stateful_read(path, resume_i):
-    with open(path) as f:
-        for i, line in enumerate(f):
-            # Resume to one after the last completed read.
-            if i &lt;= resume_i:
-                continue
-            yield i, line.strip()
+from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.outputs import PartitionedOutput, StatefulSink
 
 
-class DirInput(PartInput):
+class _FileSource(StatefulSource):
+    def __init__(self, path, resume_state):
+        resume_offset = resume_state or 0
+        self._f = open(path, &#34;rt&#34;)
+        self._f.seek(resume_offset)
+
+    def next(self):
+        line = self._f.readline().rstrip(&#34;\n&#34;)
+        if len(line) &lt;= 0:
+            raise StopIteration()
+        return line
+
+    def snapshot(self):
+        return self._f.tell()
+
+    def close(self):
+        self._f.close()
+
+
+class DirInput(PartitionedInput):
     &#34;&#34;&#34;Read all files in a filesystem directory line-by-line.
 
     The directory must exist and contain identical data on all
@@ -34,6 +48,8 @@ class DirInput(PartInput):
 
     Individual files are the unit of parallelism. Thus, lines from
     different files are interleaved.
+
+    Can support exactly-once processing.
 
     Args:
 
@@ -50,22 +66,20 @@ class DirInput(PartInput):
         if not dir.is_dir():
             raise ValueError(f&#34;input directory `{dir}` is not a directory&#34;)
 
-        self.dir = dir
-        self.glob_pat = glob_pat
+        self._dir = dir
+        self._glob_pat = glob_pat
 
     def list_parts(self):
-        return [
-            str(path.relative_to(self.dir)) for path in self.dir.glob(self.glob_pat)
-        ]
+        return {
+            str(path.relative_to(self._dir)) for path in self._dir.glob(self._glob_pat)
+        }
 
     def build_part(self, for_part, resume_state):
-        path = self.dir / for_part
-        resume_i = resume_state or -1
-
-        return _stateful_read(path, resume_i)
+        path = self._dir / for_part
+        return _FileSource(path, resume_state)
 
 
-class FileInput(PartInput):
+class FileInput(PartitionedInput):
     &#34;&#34;&#34;Read a single file line-by-line from the filesystem.
 
     This file must exist and be identical on all workers.
@@ -80,18 +94,142 @@ class FileInput(PartInput):
     &#34;&#34;&#34;
 
     def __init__(self, path: Path):
-        self.path = path
+        self._path = path
 
     def list_parts(self):
-        return [str(self.path)]
+        return {str(self._path)}
 
     def build_part(self, for_part, resume_state):
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
-        assert for_part == str(self.path), &#34;Can&#39;t resume from different file&#34;
-        resume_i = resume_state or -1
+        assert for_part == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
+        return _FileSource(self._path, resume_state)
 
-        return _stateful_read(self.path, resume_i)</code></pre>
+
+class _FileSink(StatefulSink):
+    def __init__(self, path, resume_state, end):
+        resume_offset = resume_state or 0
+        self._f = open(path, &#34;at&#34;)
+        self._f.seek(resume_offset)
+        self._f.truncate()
+        self._end = end
+
+    def write(self, x):
+        self._f.write(x)
+        self._f.write(self._end)
+        self._f.flush()
+        os.fsync(self._f.fileno())
+
+    def snapshot(self):
+        return self._f.tell()
+
+    def close(self):
+        self._f.close()
+
+
+class DirOutput(PartitionedOutput):
+    &#34;&#34;&#34;Write to a set of files in a filesystem directory line-by-line.
+
+    Items consumed from the dataflow must look like two-tuples of
+    `(key, value)`, where the value must look like a string. Use a
+    proceeding map step to do custom formatting.
+
+    The directory must exist and contain identical data on all
+    workers, so either run on a single machine or use a shared mount.
+
+    Individual files are the unit of parallelism.
+
+    Can support exactly-once processing in a batch context. Each file
+    will be truncated during resume so duplicates are
+    prevented. Tailing the output files will result in undefined
+    behavior.
+
+    Args:
+
+        dir: Path to directory.
+
+        file_count: Number of separate partition files to create.
+
+        file_namer: Will be called with two arguments, the file index
+            and total file count, and must return the file name to
+            use for that file partition. Defaults to naming files like
+            `&#34;part_{i}&#34;`, where `i` is the file index.
+
+        assign_file: Will be called with the key of each consumed item
+            and must return the file index the value will be written
+            to. Will wrap to the file count if you return a larger
+            value. Defaults to calling `zlib.adler32` as a simple
+            globally-consistent hash.
+
+        end: String to write after each item. Defaults to `&#34;\n&#34;`.
+
+    &#34;&#34;&#34;
+
+    def __init__(
+        self,
+        dir: Path,
+        file_count: int,
+        file_namer: Callable[[int, int], str] = lambda i, _n: f&#34;part_{i}&#34;,
+        assign_file: Callable[[str], int] = lambda key: adler32(key.encode()),
+        end: str = &#34;\n&#34;,
+    ):
+        self._dir = dir
+        self._file_count = file_count
+        self._file_namer = file_namer
+        self._assign_file = assign_file
+        self._end = end
+
+    def list_parts(self):
+        return {self._file_namer(i, self._file_count) for i in range(self._file_count)}
+
+    def assign_part(self, item_key):
+        i = self._assign_file(item_key) % self._file_count
+        return self._file_namer(i, self._file_count)
+
+    def build_part(self, for_part, resume_state):
+        path = self._dir / for_part
+        return _FileSink(path, resume_state, self._end)
+
+
+class FileOutput(PartitionedOutput):
+    &#34;&#34;&#34;Write to a single file line-by-line on the filesystem.
+
+    Items consumed from the dataflow must look like a string. Use a
+    proceeding map step to do custom formatting.
+
+    The file must exist and be identical on all workers.
+
+    There is no parallelism; only one worker will actually write to
+    the file.
+
+    Can support exactly-once processing in a batch context. The file
+    will be truncated during resume so duplicates are
+    prevented. Tailing the output file will result in undefined
+    behavior.
+
+    Args:
+
+        path: Path to file.
+
+        end: String to write after each item. Defaults to `&#34;\n&#34;`.
+
+    &#34;&#34;&#34;
+
+    def __init__(self, path: Path, end: str = &#34;\n&#34;):
+        self._path = path
+        self._end = end
+
+    def list_parts(self):
+        return {str(self._path)}
+
+    def assign_part(self, item_key):
+        return str(self._path)
+
+    def build_part(self, for_part, resume_state):
+        # TODO: Warn and return None. Then we could support
+        # continuation from a different file.
+        assert for_part == str(self._path), &#34;Can&#39;t resume writing to different file&#34;
+        return _FileSink(self._path, resume_state, self._end)</code></pre>
 </details>
 </section>
 <section>
@@ -113,6 +251,7 @@ class FileInput(PartInput):
 workers, so either run on a single machine or use a shared mount.</p>
 <p>Individual files are the unit of parallelism. Thus, lines from
 different files are interleaved.</p>
+<p>Can support exactly-once processing.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>dir</code></strong></dt>
@@ -125,7 +264,7 @@ directory. Defaults to <code>"*"</code> or all files.</dd>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class DirInput(PartInput):
+<pre class="language-python line-numbers"><code class="language-python">class DirInput(PartitionedInput):
     &#34;&#34;&#34;Read all files in a filesystem directory line-by-line.
 
     The directory must exist and contain identical data on all
@@ -133,6 +272,8 @@ directory. Defaults to <code>"*"</code> or all files.</dd>
 
     Individual files are the unit of parallelism. Thus, lines from
     different files are interleaved.
+
+    Can support exactly-once processing.
 
     Args:
 
@@ -149,30 +290,154 @@ directory. Defaults to <code>"*"</code> or all files.</dd>
         if not dir.is_dir():
             raise ValueError(f&#34;input directory `{dir}` is not a directory&#34;)
 
-        self.dir = dir
-        self.glob_pat = glob_pat
+        self._dir = dir
+        self._glob_pat = glob_pat
 
     def list_parts(self):
-        return [
-            str(path.relative_to(self.dir)) for path in self.dir.glob(self.glob_pat)
-        ]
+        return {
+            str(path.relative_to(self._dir)) for path in self._dir.glob(self._glob_pat)
+        }
 
     def build_part(self, for_part, resume_state):
-        path = self.dir / for_part
-        resume_i = resume_state or -1
-
-        return _stateful_read(path, resume_i)</code></pre>
+        path = self._dir / for_part
+        return _FileSource(path, resume_state)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.inputs.PartInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput">PartInput</a></li>
+<li><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></li>
+<li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
+<li>abc.ABC</li>
 </ul>
 <h3>Inherited members</h3>
 <ul class="hlist">
-<li><code class="language-python"><b><a title="bytewax.inputs.PartInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput">PartInput</a></b></code>:
+<li><code class="language-python"><b><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></b></code>:
 <ul class="hlist">
-<li><code class="language-python"><a title="bytewax.inputs.PartInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput.build_part">build_part</a></code></li>
-<li><code class="language-python"><a title="bytewax.inputs.PartInput.list_parts" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput.list_parts">list_parts</a></code></li>
+<li><code class="language-python"><a title="bytewax.inputs.PartitionedInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.build_part">build_part</a></code></li>
+<li><code class="language-python"><a title="bytewax.inputs.PartitionedInput.list_parts" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.list_parts">list_parts</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
+<dt id="bytewax.connectors.files.DirOutput"><code class="language-python flex name class">
+<span>class <span class="ident">DirOutput</span></span>
+<span>(</span><span>dir: pathlib.Path, file_count: int, file_namer: Callable[[int, int], str] = &lt;function DirOutput.&lt;lambda&gt;&gt;, assign_file: Callable[[str], int] = &lt;function DirOutput.&lt;lambda&gt;&gt;, end: str = '\n')</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Write to a set of files in a filesystem directory line-by-line.</p>
+<pre><code>Items consumed from the dataflow must look like two-tuples of
+&lt;code&gt;(key, value)&lt;/code&gt;, where the value must look like a string. Use a
+proceeding map step to do custom formatting.
+
+The directory must exist and contain identical data on all
+workers, so either run on a single machine or use a shared mount.
+
+Individual files are the unit of parallelism.
+
+Can support exactly-once processing in a batch context. Each file
+will be truncated during resume so duplicates are
+prevented. Tailing the output files will result in undefined
+behavior.
+
+Args:
+
+    dir: Path to directory.
+
+    file_count: Number of separate partition files to create.
+
+    file_namer: Will be called with two arguments, the file index
+        and total file count, and must return the file name to
+        use for that file partition. Defaults to naming files like
+        `"part_{i}"`, where &lt;code&gt;i&lt;/code&gt; is the file index.
+
+    assign_file: Will be called with the key of each consumed item
+        and must return the file index the value will be written
+        to. Will wrap to the file count if you return a larger
+        value. Defaults to calling &lt;code&gt;zlib.adler32&lt;/code&gt; as a simple
+        globally-consistent hash.
+
+    end: String to write after each item. Defaults to `"
+</code></pre>
+<p>"`.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class DirOutput(PartitionedOutput):
+    &#34;&#34;&#34;Write to a set of files in a filesystem directory line-by-line.
+
+    Items consumed from the dataflow must look like two-tuples of
+    `(key, value)`, where the value must look like a string. Use a
+    proceeding map step to do custom formatting.
+
+    The directory must exist and contain identical data on all
+    workers, so either run on a single machine or use a shared mount.
+
+    Individual files are the unit of parallelism.
+
+    Can support exactly-once processing in a batch context. Each file
+    will be truncated during resume so duplicates are
+    prevented. Tailing the output files will result in undefined
+    behavior.
+
+    Args:
+
+        dir: Path to directory.
+
+        file_count: Number of separate partition files to create.
+
+        file_namer: Will be called with two arguments, the file index
+            and total file count, and must return the file name to
+            use for that file partition. Defaults to naming files like
+            `&#34;part_{i}&#34;`, where `i` is the file index.
+
+        assign_file: Will be called with the key of each consumed item
+            and must return the file index the value will be written
+            to. Will wrap to the file count if you return a larger
+            value. Defaults to calling `zlib.adler32` as a simple
+            globally-consistent hash.
+
+        end: String to write after each item. Defaults to `&#34;\n&#34;`.
+
+    &#34;&#34;&#34;
+
+    def __init__(
+        self,
+        dir: Path,
+        file_count: int,
+        file_namer: Callable[[int, int], str] = lambda i, _n: f&#34;part_{i}&#34;,
+        assign_file: Callable[[str], int] = lambda key: adler32(key.encode()),
+        end: str = &#34;\n&#34;,
+    ):
+        self._dir = dir
+        self._file_count = file_count
+        self._file_namer = file_namer
+        self._assign_file = assign_file
+        self._end = end
+
+    def list_parts(self):
+        return {self._file_namer(i, self._file_count) for i in range(self._file_count)}
+
+    def assign_part(self, item_key):
+        i = self._assign_file(item_key) % self._file_count
+        return self._file_namer(i, self._file_count)
+
+    def build_part(self, for_part, resume_state):
+        path = self._dir / for_part
+        return _FileSink(path, resume_state, self._end)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.outputs.PartitionedOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput">PartitionedOutput</a></li>
+<li><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></li>
+<li>abc.ABC</li>
+</ul>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code class="language-python"><b><a title="bytewax.outputs.PartitionedOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput">PartitionedOutput</a></b></code>:
+<ul class="hlist">
+<li><code class="language-python"><a title="bytewax.outputs.PartitionedOutput.assign_part" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.assign_part">assign_part</a></code></li>
+<li><code class="language-python"><a title="bytewax.outputs.PartitionedOutput.build_part" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.build_part">build_part</a></code></li>
+<li><code class="language-python"><a title="bytewax.outputs.PartitionedOutput.list_parts" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.list_parts">list_parts</a></code></li>
 </ul>
 </li>
 </ul>
@@ -195,7 +460,7 @@ file.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class FileInput(PartInput):
+<pre class="language-python line-numbers"><code class="language-python">class FileInput(PartitionedInput):
     &#34;&#34;&#34;Read a single file line-by-line from the filesystem.
 
     This file must exist and be identical on all workers.
@@ -210,29 +475,116 @@ file.</p>
     &#34;&#34;&#34;
 
     def __init__(self, path: Path):
-        self.path = path
+        self._path = path
 
     def list_parts(self):
-        return [str(self.path)]
+        return {str(self._path)}
 
     def build_part(self, for_part, resume_state):
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
-        assert for_part == str(self.path), &#34;Can&#39;t resume from different file&#34;
-        resume_i = resume_state or -1
-
-        return _stateful_read(self.path, resume_i)</code></pre>
+        assert for_part == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
+        return _FileSource(self._path, resume_state)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.inputs.PartInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput">PartInput</a></li>
+<li><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></li>
+<li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
+<li>abc.ABC</li>
 </ul>
 <h3>Inherited members</h3>
 <ul class="hlist">
-<li><code class="language-python"><b><a title="bytewax.inputs.PartInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput">PartInput</a></b></code>:
+<li><code class="language-python"><b><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></b></code>:
 <ul class="hlist">
-<li><code class="language-python"><a title="bytewax.inputs.PartInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput.build_part">build_part</a></code></li>
-<li><code class="language-python"><a title="bytewax.inputs.PartInput.list_parts" href="/apidocs/bytewax.inputs#bytewax.inputs.PartInput.list_parts">list_parts</a></code></li>
+<li><code class="language-python"><a title="bytewax.inputs.PartitionedInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.build_part">build_part</a></code></li>
+<li><code class="language-python"><a title="bytewax.inputs.PartitionedInput.list_parts" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.list_parts">list_parts</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
+<dt id="bytewax.connectors.files.FileOutput"><code class="language-python flex name class">
+<span>class <span class="ident">FileOutput</span></span>
+<span>(</span><span>path: pathlib.Path, end: str = '\n')</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Write to a single file line-by-line on the filesystem.</p>
+<pre><code>Items consumed from the dataflow must look like a string. Use a
+proceeding map step to do custom formatting.
+
+The file must exist and be identical on all workers.
+
+There is no parallelism; only one worker will actually write to
+the file.
+
+Can support exactly-once processing in a batch context. The file
+will be truncated during resume so duplicates are
+prevented. Tailing the output file will result in undefined
+behavior.
+
+Args:
+
+    path: Path to file.
+
+    end: String to write after each item. Defaults to `"
+</code></pre>
+<p>"`.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class FileOutput(PartitionedOutput):
+    &#34;&#34;&#34;Write to a single file line-by-line on the filesystem.
+
+    Items consumed from the dataflow must look like a string. Use a
+    proceeding map step to do custom formatting.
+
+    The file must exist and be identical on all workers.
+
+    There is no parallelism; only one worker will actually write to
+    the file.
+
+    Can support exactly-once processing in a batch context. The file
+    will be truncated during resume so duplicates are
+    prevented. Tailing the output file will result in undefined
+    behavior.
+
+    Args:
+
+        path: Path to file.
+
+        end: String to write after each item. Defaults to `&#34;\n&#34;`.
+
+    &#34;&#34;&#34;
+
+    def __init__(self, path: Path, end: str = &#34;\n&#34;):
+        self._path = path
+        self._end = end
+
+    def list_parts(self):
+        return {str(self._path)}
+
+    def assign_part(self, item_key):
+        return str(self._path)
+
+    def build_part(self, for_part, resume_state):
+        # TODO: Warn and return None. Then we could support
+        # continuation from a different file.
+        assert for_part == str(self._path), &#34;Can&#39;t resume writing to different file&#34;
+        return _FileSink(self._path, resume_state, self._end)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.outputs.PartitionedOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput">PartitionedOutput</a></li>
+<li><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></li>
+<li>abc.ABC</li>
+</ul>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code class="language-python"><b><a title="bytewax.outputs.PartitionedOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput">PartitionedOutput</a></b></code>:
+<ul class="hlist">
+<li><code class="language-python"><a title="bytewax.outputs.PartitionedOutput.assign_part" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.assign_part">assign_part</a></code></li>
+<li><code class="language-python"><a title="bytewax.outputs.PartitionedOutput.build_part" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.build_part">build_part</a></code></li>
+<li><code class="language-python"><a title="bytewax.outputs.PartitionedOutput.list_parts" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.list_parts">list_parts</a></code></li>
 </ul>
 </li>
 </ul>
@@ -262,7 +614,13 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.DirInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirInput">DirInput</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.DirOutput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirOutput">DirOutput</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.FileInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileInput">FileInput</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.FileOutput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileOutput">FileOutput</a></h4>
 </li>
 </ul>
 </li>

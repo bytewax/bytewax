@@ -9,7 +9,7 @@ use crate::recovery::model::*;
 use crate::recovery::operators::{FlowChangeStream, Route};
 use crate::timely::{EagerNotificator, InBuffer};
 use crate::unwrap_any;
-use crate::worker::{WorkerIndex, WorkerCount};
+use crate::worker::{WorkerCount, WorkerIndex};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use std::collections::{BTreeSet, HashMap};

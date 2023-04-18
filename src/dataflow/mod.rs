@@ -114,15 +114,17 @@ impl Dataflow {
     /// - Removing sentinels
     /// - Removing stop words
     ///
-    /// >>> from bytewax.inputs import TestingInputConfig
-    /// >>> from bytewax.outputs import StdOutputConfig
+    /// >>> from bytewax.testing import TestingInput
+    /// >>> from bytewax.connectors.stdio import StdOutput
     /// >>> from bytewax.testing import run_main
+    /// >>> from bytewax.dataflow import Dataflow
+    /// >>>
     /// >>> flow = Dataflow()
-    /// >>> flow.input("inp", TestingInputConfig(range(3)))
+    /// >>> flow.input("inp", TestingInput(range(4)))
     /// >>> def is_odd(item):
     /// ...     return item % 2 != 0
     /// >>> flow.filter(is_odd)
-    /// >>> flow.capture(StdOutputConfig())
+    /// >>> flow.output("out", StdOutput())
     /// >>> run_main(flow)
     /// 1
     /// 3
@@ -139,15 +141,15 @@ impl Dataflow {
     /// but if the mapper returns None, the item
     /// is filtered out.
     ///
-    /// ```python
-    /// def validate(data):
-    ///     if type(data) != dict or "key" not in data:
-    ///         return None
-    ///     else:
-    ///         return data["key"], data
+    /// >>> flow = Dataflow()
+    /// >>> def validate(data):
+    /// ...     if type(data) != dict or "key" not in data:
+    /// ...         return None
+    /// ...     else:
+    /// ...         return data["key"], data
+    /// ...
+    /// >>> flow.filter_map(validate)
     ///
-    /// flow.filter_map(validate)
-    /// ```
     #[pyo3(text_signature = "(self, mapper)")]
     fn filter_map(&mut self, mapper: TdPyCallable) {
         self.steps.push(Step::FilterMap { mapper });
@@ -166,16 +168,17 @@ impl Dataflow {
     /// - Flattening hierarchical objects
     /// - Breaking up aggregations for further processing
     ///
-    /// >>> from bytewax.inputs import TestingInputConfig
-    /// >>> from bytewax.outputs import StdOutputConfig
+    /// >>> from bytewax.testing import TestingInput
+    /// >>> from bytewax.connectors.stdio import StdOutput
     /// >>> from bytewax.testing import run_main
+    /// >>> from bytewax.dataflow import Dataflow
     /// >>> flow = Dataflow()
     /// >>> inp = ["hello world"]
-    /// >>> flow.input("inp", TestingInputConfig(inp))
+    /// >>> flow.input("inp", TestingInput(inp))
     /// >>> def split_into_words(sentence):
     /// ...     return sentence.split()
     /// >>> flow.flat_map(split_into_words)
-    /// >>> flow.capture(StdOutputConfig())
+    /// >>> flow.output("out", StdOutput())
     /// >>> run_main(flow)
     /// hello
     /// world
@@ -196,20 +199,20 @@ impl Dataflow {
     ///
     /// It is commonly used for debugging.
     ///
-    /// >>> from bytewax.inputs import TestingInputConfig
-    /// >>> from bytewax.outputs import TestingOutputConfig
+    /// >>> from bytewax.testing import TestingInput, TestingOutput
     /// >>> from bytewax.testing import run_main
+    /// >>> from bytewax.dataflow import Dataflow
     /// >>> flow = Dataflow()
-    /// >>> flow.input("inp", TestingInputConfig(range(3)))
+    /// >>> flow.input("inp", TestingInput(range(3)))
     /// >>> def log(item):
     /// ...     print("Saw", item)
     /// >>> flow.inspect(log)
     /// >>> out = []
-    /// >>> flow.capture(TestingOutputConfig(out))  # Notice we don't print out.
+    /// >>> flow.output("out", TestingOutput(out))  # Notice we don't print out.
     /// >>> run_main(flow)
+    /// Saw 0
     /// Saw 1
     /// Saw 2
-    /// Saw 3
     ///
     /// Args:
     ///
@@ -229,17 +232,17 @@ impl Dataflow {
     ///
     /// It is commonly used for debugging.
     ///
-    /// >>> from bytewax.inputs import TestingInputConfig
-    /// >>> from bytewax.outputs import TestingOutputConfig
-    /// >>> from bytewax.testing import run_main, TestingEpochConfig
+    /// >>> from datetime import timedelta
+    /// >>> from bytewax.testing import TestingInput, TestingOutput, run_main
+    /// >>> from bytewax.dataflow import Dataflow
     /// >>> flow = Dataflow()
-    /// >>> flow.input("inp", TestingInputConfig(range(3)))
+    /// >>> flow.input("inp", TestingInput(range(3)))
     /// >>> def log(epoch, item):
     /// ...    print(f"Saw {item} @ {epoch}")
-    /// >>> flow.inspect(log)
+    /// >>> flow.inspect_epoch(log)
     /// >>> out = []
-    /// >>> flow.capture(TestingOutputConfig(out))  # Notice we don't print out.
-    /// >>> run_main(flow, epoch_config=TestingEpochConfig())
+    /// >>> flow.output("out", TestingOutput(out))  # Notice we don't print out.
+    /// >>> run_main(flow, epoch_interval=timedelta(seconds=0))
     /// Saw 0 @ 0
     /// Saw 1 @ 1
     /// Saw 2 @ 2
@@ -264,15 +267,15 @@ impl Dataflow {
     /// - Turning JSON into objects
     /// - So many things
     ///
-    /// >>> from bytewax.inputs import TestingInputConfig
-    /// >>> from bytewax.outputs import StdOutputConfig
-    /// >>> from bytewax.testing import run_main
+    /// >>> from bytewax.connectors.stdio import StdOutput
+    /// >>> from bytewax.testing import run_main, TestingInput
+    /// >>> from bytewax.dataflow import Dataflow
     /// >>> flow = Dataflow()
-    /// >>> flow.input("inp", TestingInputConfig(range(3)))
+    /// >>> flow.input("inp", TestingInput(range(3)))
     /// >>> def add_one(item):
     /// ...     return item + 10
     /// >>> flow.map(add_one)
-    /// >>> flow.capture(StdOutputConfig())
+    /// >>> flow.output("out", StdOutput())
     /// >>> run_main(flow)
     /// 10
     /// 11
@@ -321,9 +324,8 @@ impl Dataflow {
     /// - Summarizing data
     ///
     /// >>> from bytewax.dataflow import Dataflow
-    /// >>> from bytewax.inputs import TestingInputConfig
-    /// >>> from bytewax.outputs import StdOutputConfig
-    /// >>> from bytewax.testing import run_main
+    /// >>> from bytewax.testing import TestingInput, run_main
+    /// >>> from bytewax.connectors.stdio import StdOutput
     /// >>> flow = Dataflow()
     /// >>> inp = [
     /// ...     {"user": "a", "type": "login"},
@@ -332,7 +334,7 @@ impl Dataflow {
     /// ...     {"user": "b", "type": "logout"},
     /// ...     {"user": "a", "type": "logout"},
     /// ... ]
-    /// >>> flow.input("inp", TestingInputConfig(inp))
+    /// >>> flow.input("inp", TestingInput(inp))
     /// >>> def user_as_key(event):
     /// ...     return event["user"], [event]
     /// >>> flow.map(user_as_key)
@@ -342,10 +344,11 @@ impl Dataflow {
     /// >>> def session_complete(session):
     /// ...     return any(event["type"] == "logout" for event in session)
     /// >>> flow.reduce("sessionizer", extend_session, session_complete)
-    /// >>> flow.capture(StdOutputConfig())
+    /// >>> flow.output("out", StdOutput())
     /// >>> run_main(flow)
-    /// ('b', ['login', 'logout'])
-    /// ('a', ['login', 'post', 'logout'])
+    /// ('b', [{'user': 'b', 'type': 'login'}, {'user': 'b', 'type': 'logout'}])
+    /// ('a', [{'user': 'a', 'type': 'login'}, {'user': 'a', 'type': 'post'},
+    ///        {'user': 'a', 'type': 'logout'}])
     ///
     /// Args:
     ///
@@ -389,41 +392,42 @@ impl Dataflow {
     /// It emits `(key, accumulator)` tuples downstream when the window closes
     ///
     ///
-    /// >>> def gen():
-    /// ...     yield from [
-    /// ...         {"user": "a", "type": "login"},
-    /// ...         sleep(4)
-    /// ...         {"user": "a", "type": "post"},
-    /// ...         sleep(4)
-    /// ...         {"user": "a", "type": "post"},
-    /// ...         sleep(4)
-    /// ...         {"user": "b", "type": "login"},
-    /// ...         sleep(4)
-    /// ...         {"user": "a", "type": "post"},
-    /// ...         sleep(4)
-    /// ...         {"user": "b", "type": "post"},
-    /// ...         sleep(4)
-    /// ...         {"user": "b", "type": "post"},
-    /// ...     ]
-    /// >>> def extract_id(event):
-    /// ...     return (event["user"], event)
-    /// >>> def build():
-    /// ...     return defaultdict(lambda: 0)
-    /// >>> def count(results, event):
-    /// ...     results[event["type"]] += 1
-    /// ...     return results
-    /// >>> clock_config = SystemClockConfig()
-    /// >>> window_config = TumblingWindow(length=timedelta(seconds=10))
+    /// >>> from datetime import datetime, timedelta, timezone
+    /// >>> from bytewax.dataflow import Dataflow
+    /// >>> from bytewax.testing import run_main, TestingInput, TestingOutput
+    /// >>> from bytewax.window import TumblingWindow, EventClockConfig
+    /// >>> align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
+    /// >>>
+    /// >>> flow = Dataflow()
+    /// >>>
+    /// >>> inp = [
+    /// ...     ("ALL", {"time": align_to, "val": "a"}),
+    /// ...     ("ALL", {"time": align_to + timedelta(seconds=4), "val": "b"}),
+    /// ...     ("ALL", {"time": align_to + timedelta(seconds=8), "val": "c"}),
+    /// ...     # The 10 second window should close just before processing this item.
+    /// ...     ("ALL", {"time": align_to + timedelta(seconds=12), "val": "d"}),
+    /// ...     ("ALL", {"time": align_to + timedelta(seconds=16), "val": "e"})
+    /// ... ]
+    /// >>>
+    /// >>> flow.input("inp", TestingInput(inp))
+    /// >>>
+    /// >>> clock_config = EventClockConfig(
+    /// ...     lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
+    /// ... )
+    /// >>> window_config = TumblingWindow(length=timedelta(seconds=10), align_to=align_to)
+    /// >>>
+    /// >>> def add(acc, x):
+    /// ...     acc.append(x["val"])
+    /// ...     return acc
+    /// >>>
+    /// >>> flow.fold_window("sum", clock_config, window_config, list, add)
+    /// >>>
     /// >>> out = []
-    /// >>> flow = Dataflow(TestingInputConfig(gen()))
-    /// >>> flow.map(extract_id)
-    /// >>> flow.fold_window("sum", clock_config, window_config, build, count)
-    /// >>> flow.capture(TestingOutputConfig(out))
+    /// >>> flow.output("out", TestingOutput(out))
+    /// >>>
     /// >>> run_main(flow)
-    /// >>> assert len(out) == 3
-    /// >>> assert ("a", {"login": 1, "post": 2}) in out
-    /// >>> assert ("a", {"post": 1}) in out
-    /// >>> assert ("b", {"login": 1, "post": 2}) in out
+    /// >>>
+    /// >>> assert sorted(out) == sorted([("ALL", ["a", "b", "c"]), ("ALL", ["d", "e"])])
     ///
     /// Args:
     ///
@@ -456,77 +460,76 @@ impl Dataflow {
 
     /// Reduce window lets you combine all items for a key within a
     /// window into an accumulator.
-    ///
+    ///  
     /// It is like `bytewax.Dataflow.reduce()` but marks the
     /// accumulator as complete automatically at the end of each
     /// window.
-    ///
+    ///  
     /// It is a stateful operator. It requires the input stream
     /// has items that are `(key: str, value)` tuples so we can ensure
     /// that all relevant values are routed to the relevant state. It
     /// also requires a step ID to recover the correct state.
-    ///
+    ///  
     /// It calls a **reducer** function which combines two values. The
     /// accumulator is initially the first value seen for a key. Values
     /// will be passed in arbitrary order. If there is only a single
     /// value for a key in this window, this function will not be
     /// called.
-    ///
+    ///  
     /// It emits `(key, accumulator)` tuples downstream at the end of
     /// each window.
-    ///
+    ///  
     /// If the ordering of values is crucial, group in this operator,
     /// then sort afterwards.
-    ///
+    ///  
     /// Currently, data is permanently allocated per-key. If you have
     /// an ever-growing key space, note this.
-    ///
+    ///  
     /// It is commonly used for:
-    ///
+    ///  
     /// - Sessionization
-    ///
-    /// >>> from datetime import datetime, timedelta
-    /// >>> from bytewax.inputs import TestingInputConfig
-    /// >>> from bytewax.outputs import StdOutputConfig
-    /// >>> from bytewax.testing import run_main
-    /// >>> from bytewax.window import TestingClockConfig, TumblingWindow
+    ///  
+    /// >>> from datetime import datetime, timedelta, timezone
+    /// >>> from bytewax.testing import TestingInput, TestingOutput, run_main
+    /// >>> from bytewax.window import EventClockConfig, TumblingWindow
+    /// >>> align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
     /// >>> flow = Dataflow()
     /// >>> inp = [
-    /// ...     {"user": "b", "type": "login"},  # 1:00pm
-    /// ...     {"user": "a", "type": "login"},  # 1:01pm
-    /// ...     {"user": "a", "type": "post"},   # 1:02pm
-    /// ...     {"user": "b", "type": "post"},   # 1:03pm
+    /// ...     ("b", {"time": align_to, "val": 1}),
+    /// ...     ("a", {"time": align_to + timedelta(seconds=4), "val": 1}),
+    /// ...     ("a", {"time": align_to + timedelta(seconds=8), "val": 1}),
+    /// ...     ("b", {"time": align_to + timedelta(seconds=12), "val": 1}),
     /// ... ]
-    /// >>> flow.input("inp", TestingInputConfig(inp))
-    /// >>> def add_initial_count(event):
-    /// ...     return event["user"], 1
-    /// >>> flow.map(add_initial_count)
-    /// >>> def count(count, event_count):
-    /// ...     return count + event_count
-    /// >>> clock_config = TestingClockConfig(
-    /// ...     item_incr=timedelta(minutes=1),
-    /// ...     start=datetime(2022, 1, 1, 13),
+    /// >>> flow.input("inp", TestingInput(inp))
+    /// >>> def add(acc, x):
+    /// ...     acc["val"] += x["val"]
+    /// ...     return acc
+    /// >>> clock_config = EventClockConfig(
+    /// ...     lambda e: e["time"], wait_for_system_duration=timedelta(0)
     /// ... )
     /// >>> window_config = TumblingWindow(
-    /// ...     length=timedelta(minutes=2),
+    /// ...     length=timedelta(seconds=10), align_to=align_to
     /// ... )
-    /// >>> flow.reduce_window("count", clock_config, window_config, count)
-    /// >>> flow.capture(StdOutputConfig())
+    /// >>> flow.reduce_window("count", clock_config, window_config, add)
+    /// >>> def extract_val(key__event):
+    /// ...    key, event = key__event
+    /// ...    return (key, event["val"])
+    /// >>> flow.map(extract_val)
+    /// >>> out = []
+    /// >>> flow.output("out", TestingOutput(out))
     /// >>> run_main(flow)
-    /// ('b', 1)
-    /// ('a', 2)
-    /// ('b', 1)
-    ///
+    /// >>> assert sorted(out) == sorted([('b', 1), ('a', 2), ('b', 1)])
+    ///  
     /// Args:
-    ///
+    ///  
     ///   step_id (str): Uniquely identifies this step for recovery.
-    ///
+    ///  
     ///   clock_config (bytewax.window.ClockConfig): Clock config to
     ///       use. See `bytewax.window`.
-    ///
+    ///  
     ///   window_config (bytewax.window.WindowConfig): Windower
     ///       config to use. See `bytewax.window`.
-    ///
+    ///  
     ///   reducer: `reducer(accumulator: Any, value: Any) =>
     ///       updated_accumulator: Any`
     #[pyo3(text_signature = "(self, step_id, clock_config, window_config, reducer)")]
@@ -613,9 +616,8 @@ impl Dataflow {
     /// - Anomaly detection
     /// - State machines
     ///
-    /// >>> from bytewax.inputs import TestingInputConfig
-    /// >>> from bytewax.outputs import StdOutputConfig
-    /// >>> from bytewax.testing import run_main
+    /// >>> from bytewax.testing import TestingInput, run_main
+    /// >>> from bytewax.connectors.stdio import StdOutput
     /// >>> flow = Dataflow()
     /// >>> inp = [
     /// ...     "a",
@@ -624,11 +626,11 @@ impl Dataflow {
     /// ...     "a",
     /// ...     "b",
     /// ... ]
-    /// >>> flow.inputs("inp", TestingInputConfig(inp))
+    /// >>> flow.input("inp", TestingInput(inp))
     /// >>> def self_as_key(item):
     /// ...     return item, item
     /// >>> flow.map(self_as_key)
-    /// >>> def build_count(key):
+    /// >>> def build_count():
     /// ...     return 0
     /// >>> def check(running_count, item):
     /// ...     running_count += 1
@@ -644,7 +646,7 @@ impl Dataflow {
     /// ...     else:
     /// ...         return [item]
     /// >>> flow.flat_map(remove_none_and_key)
-    /// >>> flow.capture(StdOutputConfig())
+    /// >>> flow.output("out", StdOutput())
     /// >>> run_main(flow)
     /// a
     /// b
