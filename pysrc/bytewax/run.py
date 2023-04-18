@@ -140,6 +140,7 @@ class EnvDefault(argparse.Action):
     def __init__(self, envvar, default=None, **kwargs):
         if envvar:
             default = os.environ.get(envvar, default)
+            kwargs["help"] += f" [env: {envvar}]"
         super(EnvDefault, self).__init__(default=default, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
@@ -187,10 +188,9 @@ def _parse_args():
     parser.add_argument(
         "import_str",
         type=str,
-        help="Dataflow import string in the formats:\n"
-        "<module_name>:<dataflow_variable_name_or_factory_function>\n"
-        "<module_name>:<dataflow_factory_function>:<string_argument_for_factory>\n"
-        "Example: 'src.dataflow:flow' or 'src.dataflow:get_flow:string_argument'",
+        help="Dataflow import string in the format "
+        "<module_name>:<dataflow_variable_or_factory> "
+        "Example: src.dataflow:flow or src.dataflow:get_flow('string_argument')",
     )
     scaling = parser.add_argument_group(
         "Scaling",
