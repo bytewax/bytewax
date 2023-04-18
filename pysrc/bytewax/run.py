@@ -1,12 +1,13 @@
 import argparse
-import pathlib
-import os
-import sys
 import ast
-import traceback
 import inspect
+import os
+import pathlib
+import sys
+import traceback
 
 from bytewax.recovery import SqliteRecoveryConfig
+
 from .bytewax import cli_main
 
 
@@ -225,7 +226,7 @@ def _parse_args():
     scaling.add_argument(
         "-a",
         "--addresses",
-        help="Addresses of other processes, separated by semicolumn:\n"
+        help="Addresses of other processes, separated by semicolon:\n"
         '-a "localhost:2021;localhost:2022;localhost:2023" ',
         action=EnvDefault,
         envvar="BYTEWAX_ADDRESSES",

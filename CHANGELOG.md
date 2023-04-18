@@ -43,6 +43,10 @@ notes on GitHub when we make a new release.__
   been moved to `bytewax.connectors.kafka.KafkaInput` and
   `bytewax.connectors.kafka.KafkaOutput`.
 
+- *Deprecation warning* The `KafkaRecovery` store is being deprecated
+  in favor of `SqliteRecoveryConfig`, and will be removed in a future
+  release.
+
 ## 0.15.0
 
 - *Breaking change* Fixes issue with multi-worker recovery. If the
