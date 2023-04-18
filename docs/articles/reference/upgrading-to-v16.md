@@ -76,9 +76,34 @@ By default, Bytewax looks for a variable in the given module named `flow`, so we
 Processes, workers, recovery stores and other options can be configured with command line flags or environment variables. For the full list of options see the `--help` command line flag:
 
 ``` bash
-> python -m bytewax.run dataflow:flow --help
+> python -m bytewax.run --help
 usage: python -m bytewax.run [-h] [-p PROCESSES] [-w WORKERS_PER_PROCESS] [-i PROCESS_ID] [-a ADDRESSES] [--sqlite-directory SQLITE_DIRECTORY] [--epoch-interval EPOCH_INTERVAL] import_str
-```
+
+Run a bytewax dataflow
+
+positional arguments:
+  import_str            Dataflow import string in the format <module_name>:<dataflow_variable_or_factory> Example: src.dataflow:flow or src.dataflow:get_flow('string_argument')
+
+options:
+  -h, --help            show this help message and exit
+
+Scaling:
+  You should use either '-p' to spawn multiple processes on this same machine, or '-i/-a' to spawn a single process on different machines
+
+  -p PROCESSES, --processes PROCESSES
+                        Number of separate processes to run [env: BYTEWAX_PROCESSES]
+  -w WORKERS_PER_PROCESS, --workers-per-process WORKERS_PER_PROCESS
+                        Number of workers for each process [env: BYTEWAX_WORKERS_PER_PROCESS]
+  -i PROCESS_ID, --process-id PROCESS_ID
+                        Process id [env: BYTEWAX_PROCESS_ID]
+  -a ADDRESSES, --addresses ADDRESSES
+                        Addresses of other processes, separated by semicolumn: -a "localhost:2021;localhost:2022;localhost:2023" [env: BYTEWAX_ADDRESSES]
+
+Recovery:
+  --sqlite-directory SQLITE_DIRECTORY
+                        Passing this argument enables sqlite recovery in the specified folder [env: BYTEWAX_SQLITE_DIRECTORY]
+  --epoch-interval EPOCH_INTERVAL
+                        Number of seconds between state snapshots [env: BYTEWAX_EPOCH_INTERVAL]
 
 ## Porting a simple example from 0.15 to 0.16
 
