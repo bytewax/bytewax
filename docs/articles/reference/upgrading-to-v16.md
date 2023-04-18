@@ -1,6 +1,6 @@
 ## Upgrading to v0.16
 
-Bytewax v0.16 introduces major changes to the way that custom Bytewax inputs are created, as well as improvements to and windowing and execution. In this article, we'll cover some of the updates we've made to our API to make upgrading to v0.16 easier.
+Bytewax v0.16 introduces major changes to the way that custom Bytewax inputs are created, as well as improvements to windowing and execution. In this article, we'll cover some of the updates we've made to our API to make upgrading to v0.16 easier.
 
 ## Input changes
 
