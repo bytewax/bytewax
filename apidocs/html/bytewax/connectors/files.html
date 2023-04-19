@@ -20,6 +20,13 @@ from zlib import adler32
 from bytewax.inputs import PartitionedInput, StatefulSource
 from bytewax.outputs import PartitionedOutput, StatefulSink
 
+__all__ = [
+    &#34;DirInput&#34;,
+    &#34;DirOutput&#34;,
+    &#34;FileInput&#34;,
+    &#34;FileOutput&#34;,
+]
+
 
 class _FileSource(StatefulSource):
     def __init__(self, path, resume_state):
@@ -161,7 +168,7 @@ class DirOutput(PartitionedOutput):
             value. Defaults to calling `zlib.adler32` as a simple
             globally-consistent hash.
 
-        end: String to write after each item. Defaults to `&#34;\n&#34;`.
+        end: String to write after each item. Defaults to newline.
 
     &#34;&#34;&#34;
 
@@ -170,7 +177,7 @@ class DirOutput(PartitionedOutput):
         dir: Path,
         file_count: int,
         file_namer: Callable[[int, int], str] = lambda i, _n: f&#34;part_{i}&#34;,
-        assign_file: Callable[[str], int] = lambda key: adler32(key.encode()),
+        assign_file: Callable[[str], int] = lambda k: adler32(k.encode()),
         end: str = &#34;\n&#34;,
     ):
         self._dir = dir
@@ -211,7 +218,7 @@ class FileOutput(PartitionedOutput):
 
         path: Path to file.
 
-        end: String to write after each item. Defaults to `&#34;\n&#34;`.
+        end: String to write after each item. Defaults to newline.
 
     &#34;&#34;&#34;
 
@@ -324,40 +331,36 @@ directory. Defaults to <code>"*"</code> or all files.</dd>
 </code></dt>
 <dd>
 <div class="desc"><p>Write to a set of files in a filesystem directory line-by-line.</p>
-<pre><code>Items consumed from the dataflow must look like two-tuples of
-&lt;code&gt;(key, value)&lt;/code&gt;, where the value must look like a string. Use a
-proceeding map step to do custom formatting.
-
-The directory must exist and contain identical data on all
-workers, so either run on a single machine or use a shared mount.
-
-Individual files are the unit of parallelism.
-
-Can support exactly-once processing in a batch context. Each file
+<p>Items consumed from the dataflow must look like two-tuples of
+<code>(key, value)</code>, where the value must look like a string. Use a
+proceeding map step to do custom formatting.</p>
+<p>The directory must exist and contain identical data on all
+workers, so either run on a single machine or use a shared mount.</p>
+<p>Individual files are the unit of parallelism.</p>
+<p>Can support exactly-once processing in a batch context. Each file
 will be truncated during resume so duplicates are
 prevented. Tailing the output files will result in undefined
-behavior.
-
-Args:
-
-    dir: Path to directory.
-
-    file_count: Number of separate partition files to create.
-
-    file_namer: Will be called with two arguments, the file index
-        and total file count, and must return the file name to
-        use for that file partition. Defaults to naming files like
-        `"part_{i}"`, where &lt;code&gt;i&lt;/code&gt; is the file index.
-
-    assign_file: Will be called with the key of each consumed item
-        and must return the file index the value will be written
-        to. Will wrap to the file count if you return a larger
-        value. Defaults to calling &lt;code&gt;zlib.adler32&lt;/code&gt; as a simple
-        globally-consistent hash.
-
-    end: String to write after each item. Defaults to `"
-</code></pre>
-<p>"`.</p></div>
+behavior.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>dir</code></strong></dt>
+<dd>Path to directory.</dd>
+<dt><strong><code>file_count</code></strong></dt>
+<dd>Number of separate partition files to create.</dd>
+<dt><strong><code>file_namer</code></strong></dt>
+<dd>Will be called with two arguments, the file index
+and total file count, and must return the file name to
+use for that file partition. Defaults to naming files like
+<code>"part_{i}"</code>, where <code>i</code> is the file index.</dd>
+<dt><strong><code>assign_file</code></strong></dt>
+<dd>Will be called with the key of each consumed item
+and must return the file index the value will be written
+to. Will wrap to the file count if you return a larger
+value. Defaults to calling <code>zlib.adler32</code> as a simple
+globally-consistent hash.</dd>
+<dt><strong><code>end</code></strong></dt>
+<dd>String to write after each item. Defaults to newline.</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -396,7 +399,7 @@ Args:
             value. Defaults to calling `zlib.adler32` as a simple
             globally-consistent hash.
 
-        end: String to write after each item. Defaults to `&#34;\n&#34;`.
+        end: String to write after each item. Defaults to newline.
 
     &#34;&#34;&#34;
 
@@ -405,7 +408,7 @@ Args:
         dir: Path,
         file_count: int,
         file_namer: Callable[[int, int], str] = lambda i, _n: f&#34;part_{i}&#34;,
-        assign_file: Callable[[str], int] = lambda key: adler32(key.encode()),
+        assign_file: Callable[[str], int] = lambda k: adler32(k.encode()),
         end: str = &#34;\n&#34;,
     ):
         self._dir = dir
@@ -508,26 +511,22 @@ file.</p>
 </code></dt>
 <dd>
 <div class="desc"><p>Write to a single file line-by-line on the filesystem.</p>
-<pre><code>Items consumed from the dataflow must look like a string. Use a
-proceeding map step to do custom formatting.
-
-The file must exist and be identical on all workers.
-
-There is no parallelism; only one worker will actually write to
-the file.
-
-Can support exactly-once processing in a batch context. The file
+<p>Items consumed from the dataflow must look like a string. Use a
+proceeding map step to do custom formatting.</p>
+<p>The file must exist and be identical on all workers.</p>
+<p>There is no parallelism; only one worker will actually write to
+the file.</p>
+<p>Can support exactly-once processing in a batch context. The file
 will be truncated during resume so duplicates are
 prevented. Tailing the output file will result in undefined
-behavior.
-
-Args:
-
-    path: Path to file.
-
-    end: String to write after each item. Defaults to `"
-</code></pre>
-<p>"`.</p></div>
+behavior.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>path</code></strong></dt>
+<dd>Path to file.</dd>
+<dt><strong><code>end</code></strong></dt>
+<dd>String to write after each item. Defaults to newline.</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -552,7 +551,7 @@ Args:
 
         path: Path to file.
 
-        end: String to write after each item. Defaults to `&#34;\n&#34;`.
+        end: String to write after each item. Defaults to newline.
 
     &#34;&#34;&#34;
 

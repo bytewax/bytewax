@@ -4,11 +4,94 @@
 <h1 class="api__article-title">Module <strong>bytewax.run</strong></h1>
 </header>
 <section class="api__article-intro" id="section-intro">
+<p>Executing dataflows.</p>
+<p>Dataflows are run for local development or production by executing
+this module as as script with <code>python -m bytewax.run</code>.</p>
+<p>See <code>python -m bytewax.run --help</code> for more info.</p>
+<p>If you need to execute a dataflow as part of running unit tests, see
+<code><a title="bytewax.testing" href="/apidocs/bytewax.testing">bytewax.testing</a></code>.</p>
+<h2 id="recovery">Recovery</h2>
+<p>Bytewax allows you to <strong>recover</strong> a stateful dataflow; it will let you
+resume processing and output due to a failure without re-processing
+all initial data to re-calculate all internal state.</p>
+<p>It does this by snapshoting state and progress information for a
+single dataflow instance in a distributed set of SQLite databases in
+the <strong>recovery directory</strong> periodically. The <strong>epoch</strong> is period of
+this snapshotting. Bytewax defaults to a new epoch every 10 seconds,
+but you can change it with the <code>epoch_interval</code> parameter.</p>
+<p>When you run your dataflow it will start backing up recovery data
+automatically. Recovery data for multiple dataflows <em>must not</em> be
+mixed together.</p>
+<p>If the dataflow fails, first you must fix whatever underlying fault
+caused the issue. That might mean deploying new code which fixes a bug
+or resolving an issue with a connected system.</p>
+<p>Once that is done, re-run the dataflow using the <em>same recovery
+directory</em>. Bytewax will automatically read the progress of the
+previous dataflow execution and determine the most recent epoch that
+processing can resume at. Output should resume from that
+epoch. Because snapshotting only happens periodically, the dataflow
+can only resume on epoch boundaries.</p>
+<p>It is possible that your output systems will see duplicate data around
+the resume epoch; design your systems to support at-least-once
+processing.</p>
+<p>If you want to fully restart a dataflow and ignore previous state,
+delete the data in the recovery directory.</p>
+<p>Currently it is not possible to recover a dataflow with a different
+number of workers than when it failed.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">import argparse
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Executing dataflows.
+
+Dataflows are run for local development or production by executing
+this module as as script with `python -m bytewax.run`.
+
+See `python -m bytewax.run --help` for more info.
+
+If you need to execute a dataflow as part of running unit tests, see
+`bytewax.testing`.
+
+Recovery
+--------
+
+Bytewax allows you to **recover** a stateful dataflow; it will let you
+resume processing and output due to a failure without re-processing
+all initial data to re-calculate all internal state.
+
+It does this by snapshoting state and progress information for a
+single dataflow instance in a distributed set of SQLite databases in
+the **recovery directory** periodically. The **epoch** is period of
+this snapshotting. Bytewax defaults to a new epoch every 10 seconds,
+but you can change it with the `epoch_interval` parameter.
+
+When you run your dataflow it will start backing up recovery data
+automatically. Recovery data for multiple dataflows _must not_ be
+mixed together.
+
+If the dataflow fails, first you must fix whatever underlying fault
+caused the issue. That might mean deploying new code which fixes a bug
+or resolving an issue with a connected system.
+
+Once that is done, re-run the dataflow using the _same recovery
+directory_. Bytewax will automatically read the progress of the
+previous dataflow execution and determine the most recent epoch that
+processing can resume at. Output should resume from that
+epoch. Because snapshotting only happens periodically, the dataflow
+can only resume on epoch boundaries.
+
+It is possible that your output systems will see duplicate data around
+the resume epoch; design your systems to support at-least-once
+processing.
+
+If you want to fully restart a dataflow and ignore previous state,
+delete the data in the recovery directory.
+
+Currently it is not possible to recover a dataflow with a different
+number of workers than when it failed.
+
+&#34;&#34;&#34;
+import argparse
 import ast
 import inspect
 import os
@@ -19,6 +102,10 @@ import traceback
 from bytewax.recovery import SqliteRecoveryConfig
 
 from .bytewax import cli_main
+
+__all__ = [
+    &#34;cli_main&#34;,
+]
 
 
 def _locate_dataflow(module_name, dataflow_name):
@@ -145,14 +232,14 @@ def _called_with_wrong_args(f):
         del tb
 
 
-class EnvDefault(argparse.Action):
+class _EnvDefault(argparse.Action):
     &#34;&#34;&#34;Action that uses env variable as default if nothing else was set.&#34;&#34;&#34;
 
     def __init__(self, envvar, default=None, **kwargs):
         if envvar:
             default = os.environ.get(envvar, default)
             kwargs[&#34;help&#34;] += f&#34; [env: {envvar}]&#34;
-        super(EnvDefault, self).__init__(default=default, **kwargs)
+        super(_EnvDefault, self).__init__(default=default, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
         setattr(namespace, self.dest, values)
@@ -214,7 +301,7 @@ def _parse_args():
         &#34;--processes&#34;,
         type=int,
         help=&#34;Number of separate processes to run&#34;,
-        action=EnvDefault,
+        action=_EnvDefault,
         envvar=&#34;BYTEWAX_PROCESSES&#34;,
     )
     scaling.add_argument(
@@ -222,7 +309,7 @@ def _parse_args():
         &#34;--workers-per-process&#34;,
         type=int,
         help=&#34;Number of workers for each process&#34;,
-        action=EnvDefault,
+        action=_EnvDefault,
         envvar=&#34;BYTEWAX_WORKERS_PER_PROCESS&#34;,
     )
     scaling.add_argument(
@@ -230,7 +317,7 @@ def _parse_args():
         &#34;--process-id&#34;,
         type=int,
         help=&#34;Process id&#34;,
-        action=EnvDefault,
+        action=_EnvDefault,
         envvar=&#34;BYTEWAX_PROCESS_ID&#34;,
     )
     scaling.add_argument(
@@ -238,7 +325,7 @@ def _parse_args():
         &#34;--addresses&#34;,
         help=&#34;Addresses of other processes, separated by semicolon:\n&#34;
         &#39;-a &#34;localhost:2021;localhost:2022;localhost:2023&#34; &#39;,
-        action=EnvDefault,
+        action=_EnvDefault,
         envvar=&#34;BYTEWAX_ADDRESSES&#34;,
     )
 
@@ -248,7 +335,7 @@ def _parse_args():
         &#34;--sqlite-directory&#34;,
         type=pathlib.Path,
         help=&#34;Passing this argument enables sqlite recovery in the specified folder&#34;,
-        action=EnvDefault,
+        action=_EnvDefault,
         envvar=&#34;BYTEWAX_SQLITE_DIRECTORY&#34;,
     )
     recovery.add_argument(
@@ -256,7 +343,7 @@ def _parse_args():
         type=int,
         default=10,
         help=&#34;Number of seconds between state snapshots&#34;,
-        action=EnvDefault,
+        action=_EnvDefault,
         envvar=&#34;BYTEWAX_EPOCH_INTERVAL&#34;,
     )
 
@@ -330,39 +417,18 @@ if __name__ == &#34;__main__&#34;:
 <section>
 </section>
 <section>
-</section>
-<section>
-<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
+<h2 class="api__article-subtitle" id="header-functions">Functions</h2>
 <dl>
-<dt id="bytewax.run.EnvDefault"><code class="language-python flex name class">
-<span>class <span class="ident">EnvDefault</span></span>
-<span>(</span><span>envvar, default=None, **kwargs)</span>
+<dt id="bytewax.run.cli_main"><code class="language-python name flex">
+<span>def <span class="ident">cli_main</span></span>(<span>...)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Action that uses env variable as default if nothing else was set.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">class EnvDefault(argparse.Action):
-    &#34;&#34;&#34;Action that uses env variable as default if nothing else was set.&#34;&#34;&#34;
-
-    def __init__(self, envvar, default=None, **kwargs):
-        if envvar:
-            default = os.environ.get(envvar, default)
-            kwargs[&#34;help&#34;] += f&#34; [env: {envvar}]&#34;
-        super(EnvDefault, self).__init__(default=default, **kwargs)
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        setattr(namespace, self.dest, values)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>argparse.Action</li>
-<li>argparse._AttributeHolder</li>
-</ul>
+<div class="desc"><p>This is only supposed to be used through <code>python -m
+bytewax.run</code>. See the module docstring for use.</p></div>
 </dd>
 </dl>
+</section>
+<section>
 </section>
 <footer class="api__footer" id="footer">
 <p class="api__footer-copyright">
@@ -381,11 +447,9 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
-<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
-<ul class="api__sidebar-nav-classes">
-<li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.run.EnvDefault" href="/apidocs/bytewax.run#bytewax.run.EnvDefault">EnvDefault</a></h4>
-</li>
+<h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.run.cli_main" href="/apidocs/bytewax.run#bytewax.run.cli_main">cli_main</a></li>
 </ul>
 </li>
 </ul>
