@@ -31,9 +31,9 @@ It also handles recovery by keeping track of the last line that was read.
 input source that emits lines from all the files in the given directory.  
 It also handles recovery by keeping track of the last line that was read.
 
-Bytewax also exposes the [DynamicInput]() and [PartitionedInput]() base classes so that
-you can build your own input connector.  
-See the [blog post]() and the [examples]() for how to build your own connectors.
+Bytewax also exposes the [DynamicInput](/apidocs/bytewax.inputs#bytewax.inputs.DynamicInput)
+and [PartitionedInput](/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput) base
+classes so that you can build your own input connectors.  
 
 ## Output
 
@@ -62,3 +62,7 @@ output source that writes emitted items as lines on a file.
 
 [DirOutput](/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirOutput) is an
 output source that writes to a set of files in a directory line-by-line.
+
+As with inputs, Bytewax exposes [DynamicOutput](/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput)
+and [PartitionedOutput](/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput) base
+classes to can build your own output connectors.  
