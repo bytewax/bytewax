@@ -50,7 +50,7 @@ flow.output("out", StdOutput())
 
 In Bytewax v0.16, the way that Dataflows are run has been simplified, and most execution functions have been removed.
 
-Similar to other Python frameworks like Flask and FastAPI, Dataflows can now be run using a Datfaflow import string in the <module_name>:<dataflow_variable_name_or_factory_function> format. As an example, given a file named `dataflow.py` with the following contents:
+Similar to other Python frameworks like Flask and FastAPI, Dataflows can now be run using a Datfaflow import string in the `<module_name>:<dataflow_variable_name_or_factory_function>` format. As an example, given a file named `dataflow.py` with the following contents:
 
 ``` python
 from bytewax.dataflow import Dataflow
@@ -104,6 +104,7 @@ Recovery:
                         Passing this argument enables sqlite recovery in the specified folder [env: BYTEWAX_SQLITE_DIRECTORY]
   --epoch-interval EPOCH_INTERVAL
                         Number of seconds between state snapshots [env: BYTEWAX_EPOCH_INTERVAL]
+```
 
 ## Porting a simple example from 0.15 to 0.16
 
@@ -267,7 +268,7 @@ flow.output("out", StdOutput())
 Running our completed Dataflow looks like this, as we've named our Dataflow variable `flow` in a file named `dataflow`:
 
 ``` bash
-python -m bytewax.run dataflow:flow
+> python -m bytewax.run dataflow:flow
 ('whether', 1)
 ("'tis", 1)
 ('of', 2)

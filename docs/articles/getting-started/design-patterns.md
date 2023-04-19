@@ -22,8 +22,7 @@ The following sets of examples are equivalent.
 
 ```python
 from bytewax.dataflow import Dataflow
-from bytewax.testing import run_main
-from bytewax.testing import TestingInput
+from bytewax.testing import run_main, TestingInput
 from bytewax.connectors.stdio import StdOutput
 from bytewax.window import SystemClockConfig, TumblingWindow
 from datetime import timedelta, datetime, timezone
