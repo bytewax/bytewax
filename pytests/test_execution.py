@@ -3,7 +3,7 @@ import signal
 import subprocess
 import tempfile
 
-from pytest import raises, mark
+from pytest import mark, raises
 
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingInput, TestingOutput
@@ -42,18 +42,18 @@ def test_reraises_exception(entry_point):
     assert len(out) < 3
 
 
-
 @mark.skipif(
     os.name == "nt",
     reason=(
-            "Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all"
-            " processes on this console so interrupts pytest itself"
+        "Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all"
+        " processes on this console so interrupts pytest itself"
     ),
 )
 def test_cluster_can_be_ctrl_c():
     """Test that we can stop cluster execution by sending SIGINT (ctrl+c)."""
     # Create a tmp file we can use to check the output
     tmp_file = tempfile.NamedTemporaryFile()
+    print(tmp_file.name)
     # The dataflow we want to run is in ./test_flows/simple.py
     flow_path = f"pytests.test_flows.simple:get_flow('{tmp_file.name}')"
     process = subprocess.Popen(

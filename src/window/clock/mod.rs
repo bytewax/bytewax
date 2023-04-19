@@ -9,7 +9,7 @@ use crate::{
 
 use self::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig};
 
-use super::{Clock, StateBytes};
+use super::Clock;
 
 pub(crate) mod event_time_clock;
 pub(crate) mod system_clock;
@@ -53,7 +53,7 @@ impl ClockConfig {
 
 /// A type representing a function that takes an optional serialized
 /// state and returns a Clock.
-type Builder<V> = Box<dyn Fn(Option<StateBytes>) -> Box<dyn Clock<V>>>;
+type Builder<V> = Box<dyn Fn(Option<TdPyAny>) -> Box<dyn Clock<V>>>;
 
 /// The `builder` function consumes a ClockConfig to build a Clock.
 pub(crate) trait ClockBuilder<V> {

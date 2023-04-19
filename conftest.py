@@ -1,6 +1,6 @@
 from pytest import fixture
 
-from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.recovery import init_db_dir, RecoveryConfig
 from bytewax.testing import cluster_main, run_main
 from bytewax.tracing import setup_tracing
 
@@ -50,4 +50,5 @@ def inp():
 
 @fixture
 def recovery_config(tmp_path):
-    yield SqliteRecoveryConfig(str(tmp_path))
+    init_db_dir(tmp_path, 1, "test")
+    yield RecoveryConfig(str(tmp_path))

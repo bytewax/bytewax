@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use pyo3::prelude::*;
 use tracing::field::debug;
 
-use crate::{pyo3_extensions::TdPyAny, window::*};
+use crate::{pyo3_extensions::TdPyAny, unwrap_any, window::*};
 
 /// Implements the collect window operator.
 ///
@@ -13,10 +13,15 @@ pub(crate) struct CollectWindowLogic {
 }
 
 impl CollectWindowLogic {
-    pub(crate) fn builder() -> impl Fn(Option<StateBytes>) -> Self {
+    pub(crate) fn builder() -> impl Fn(Option<TdPyAny>) -> Self {
         move |resume_snapshot| {
             let acc = resume_snapshot
-                .map(StateBytes::de::<Vec<(TdPyAny, DateTime<Utc>)>>)
+                .map(|state| {
+                    let state: Option<Vec<(TdPyAny, DateTime<Utc>)>> =
+                        unwrap_any!(Python::with_gil(|py| state.extract(py)));
+                    state
+                })
+                .flatten()
                 .unwrap_or_default();
             Self { acc }
         }
@@ -51,7 +56,7 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for CollectWindowLogic {
     }
 
     #[tracing::instrument(name = "collect_window_snapshot", level = "trace", skip_all)]
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser::<Vec<(TdPyAny, DateTime<Utc>)>>(&self.acc)
+    fn snapshot(&self) -> TdPyAny {
+        Python::with_gil(|py| self.acc.to_object(py).into())
     }
 }

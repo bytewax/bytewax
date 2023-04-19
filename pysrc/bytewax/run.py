@@ -110,15 +110,17 @@ Currently it is not possible to recover a dataflow with a different
 number of workers than when it failed.
 
 """
+
 import argparse
 import ast
 import inspect
 import os
-import pathlib
 import sys
 import traceback
+from datetime import timedelta
+from pathlib import Path
 
-from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.recovery import RecoveryConfig
 
 from .bytewax import cli_main
 
@@ -298,6 +300,10 @@ def _prepare_import(import_str):
     return ".".join(module_name[::-1]) + f":{flow_name}"
 
 
+def _parse_timedelta(s):
+    return timedelta(seconds=int(s))
+
+
 def _parse_args():
     parser = argparse.ArgumentParser(
         prog="python -m bytewax.run", description="Run a bytewax dataflow"
@@ -306,9 +312,20 @@ def _parse_args():
         "import_str",
         type=str,
         help="Dataflow import string in the format "
-        "<module_name>:<dataflow_variable_or_factory> "
-        "Example: src.dataflow:flow or src.dataflow:get_flow('string_argument')",
+        "<module_name>[:<dataflow_variable_or_factory>] "
+        "Example: src.dataflow or src.dataflow:flow or "
+        "src.dataflow:get_flow('string_argument')",
     )
+
+    parser.add_argument(
+        "--epoch-interval",
+        type=_parse_timedelta,
+        default=timedelta(seconds=10),
+        help="Epoch length in seconds",
+        action=_EnvDefault,
+        envvar="BYTEWAX_EPOCH_INTERVAL",
+    )
+
     scaling = parser.add_argument_group(
         "Scaling",
         "You should use either '-p' to spawn multiple processes "
@@ -351,19 +368,21 @@ def _parse_args():
     # Config options for recovery
     recovery = parser.add_argument_group("Recovery")
     recovery.add_argument(
-        "--sqlite-directory",
-        type=pathlib.Path,
-        help="Passing this argument enables sqlite recovery in the specified folder",
+        "-r",
+        "--recovery-directory",
+        type=Path,
+        help="Look for pre-initialized recovery DBs here",
         action=_EnvDefault,
         envvar="BYTEWAX_SQLITE_DIRECTORY",
     )
     recovery.add_argument(
-        "--epoch-interval",
-        type=int,
-        default=10,
-        help="Number of seconds between state snapshots",
+        "-b",
+        "--backup-interval",
+        type=_parse_timedelta,
+        default=timedelta(days=1),
+        help="",
         action=_EnvDefault,
-        envvar="BYTEWAX_EPOCH_INTERVAL",
+        envvar="BYTEWAX_BACKUP_INTERVAL",
     )
 
     args = parser.parse_args()
@@ -415,14 +434,16 @@ if __name__ == "__main__":
     kwargs = vars(_parse_args())
 
     # Prepare recovery config
-    sqlite_directory = kwargs.pop("sqlite_directory")
+    recovery_directory, backup_interval = kwargs.pop("recovery_directory"), kwargs.pop(
+        "backup_interval"
+    )
     kwargs["recovery_config"] = None
-    if sqlite_directory:
-        kwargs["recovery_config"] = SqliteRecoveryConfig(sqlite_directory)
+    if recovery_directory is not None:
+        kwargs["recovery_config"] = RecoveryConfig(recovery_directory, backup_interval)
 
     # Prepare addresses
     addresses = kwargs.pop("addresses")
-    if addresses:
+    if addresses is not None:
         kwargs["addresses"] = addresses.split(";")
 
     # Import the dataflow

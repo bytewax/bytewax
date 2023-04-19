@@ -1,7 +1,7 @@
 //! Newtypes around PyO3 types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
 use crate::errors::PythonException;
-use crate::recovery::model::StateKey;
+use crate::recovery::StateKey;
 use crate::try_unwrap;
 use crate::unwrap_any;
 use pyo3::basic::CompareOp;
@@ -52,6 +52,12 @@ impl IntoPy<PyObject> for TdPyAny {
 impl IntoPy<PyObject> for &TdPyAny {
     fn into_py(self, py: Python) -> Py<PyAny> {
         self.0.clone_ref(py)
+    }
+}
+
+impl Into<PyObject> for TdPyAny {
+    fn into(self) -> PyObject {
+        self.0
     }
 }
 

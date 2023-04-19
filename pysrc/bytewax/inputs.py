@@ -8,7 +8,7 @@ Subclass the types here to implement input for your own custom source.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Set, List
+from typing import Any, List, Optional
 
 __all__ = [
     "DynamicInput",
@@ -41,16 +41,17 @@ class StatefulSource(ABC):
     """Input source that maintains state of its position."""
 
     @abstractmethod
-    def next(self) -> List[Any]:
-        """Attempt to get the next input items.
+    def next_batch(self) -> List[Any]:
+        """Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
-        never blocking but returning an empty list if there are no items
-        to emit currently.
+        never blocking but returning an empty list if there are no
+        items to emit yet.
 
         Returns:
 
-            A list of items.
+            An list of items immediately ready. May be empty if no new
+            items.
 
         Raises:
 
@@ -105,17 +106,14 @@ class PartitionedInput(Input):
     """
 
     @abstractmethod
-    def list_parts(self) -> Set[str]:
-        """List all partitions by a string key.
+    def list_parts(self) -> List[str]:
+        """List all local partitions this worker has access to.
 
-        This must consistently return the same keys when called by all
-        workers in all executions.
-
-        Keys must be unique within this dataflow step.
+        You do not need to list all partitions globally.
 
         Returns:
 
-            Partition keys.
+            Local partition keys.
 
         """
         ...
@@ -125,20 +123,12 @@ class PartitionedInput(Input):
         self,
         for_part: str,
         resume_state: Optional[Any],
-    ) -> Optional[StatefulSource]:
+    ) -> StatefulSource:
         """Build an input partition, resuming from the position
         encoded in the resume state.
 
-        Will be called once within each cluster for each partition
-        key.
-
-        Will be called once on one worker in an execution for each
-        partition key in order to distribute partitions across all
-        workers.
-
-        Return `None` if for some reason this partition is no longer
-        valid and can be skipped coherently. Raise an exception if
-        not.
+        Will be called once per execution for each partition key on a
+        worker that reported that partition was local in `list_parts`.
 
         Do not pre-build state about a partition in the
         constructor. All state must be derived from `resume_state` for
@@ -146,7 +136,8 @@ class PartitionedInput(Input):
 
         Args:
 
-            for_part: Which partition to build.
+            for_part: Which partition to build. Will always be one of
+                the keys returned by `list_parts` on this worker.
 
             resume_state: State data containing where in the input
                 stream this partition should be begin reading during
@@ -154,7 +145,7 @@ class PartitionedInput(Input):
 
         Returns:
 
-            The built partition, or `None`.
+            The built partition.
 
         """
         ...
@@ -164,16 +155,17 @@ class StatelessSource(ABC):
     """Input source that is stateless."""
 
     @abstractmethod
-    def next(self) -> List[Any]:
-        """Attempt to get the next input items.
+    def next_batch(self) -> List[Any]:
+        """Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
-        never blocking but returning an empty list if there is no new
-        input.
+        never blocking but yielding an empty list if there are no new
+        items yet.
 
         Returns:
 
-            A list of items.
+            An list of items immediately ready. May be empty if no new
+            items.
 
         Raises:
 

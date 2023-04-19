@@ -28,9 +28,17 @@ impl ReduceLogic {
     pub(crate) fn builder(
         reducer: TdPyCallable,
         is_complete: TdPyCallable,
-    ) -> impl Fn(Option<StateBytes>) -> Self {
+    ) -> impl Fn(Option<TdPyAny>) -> Self {
         move |resume_snapshot| {
-            let acc = resume_snapshot.and_then(StateBytes::de::<Option<TdPyAny>>);
+            let acc = resume_snapshot
+                .map(|state| {
+                    let state: Option<Option<TdPyAny>> =
+                        unwrap_any!(Python::with_gil(|py| state.extract(py)));
+                    state
+                })
+                .flatten()
+                .unwrap_or_default();
+
             Python::with_gil(|py| Self {
                 reducer: reducer.clone_ref(py),
                 is_complete: is_complete.clone_ref(py),
@@ -109,7 +117,7 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceLogic {
     }
 
     #[tracing::instrument(name = "reduce_snapshot", level = "trace", skip_all)]
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser::<Option<TdPyAny>>(&self.acc)
+    fn snapshot(&self) -> TdPyAny {
+        Python::with_gil(|py| self.acc.to_object(py).into())
     }
 }

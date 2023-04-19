@@ -23,13 +23,22 @@ impl FoldWindowLogic {
     pub(crate) fn new(
         builder: TdPyCallable,
         folder: TdPyCallable,
-    ) -> impl Fn(Option<StateBytes>) -> Self {
+    ) -> impl Fn(Option<TdPyAny>) -> Self {
         move |resume_snapshot| {
-            let acc = resume_snapshot.and_then(StateBytes::de::<Option<TdPyAny>>);
-            Python::with_gil(|py| Self {
-                builder: builder.clone_ref(py),
-                folder: folder.clone_ref(py),
-                acc,
+            Python::with_gil(|py| {
+                let acc = resume_snapshot
+                    .map(|state| {
+                        let state: Option<Option<TdPyAny>> = unwrap_any!(state.extract(py));
+                        state
+                    })
+                    .flatten()
+                    .unwrap_or_default();
+
+                Self {
+                    builder: builder.clone_ref(py),
+                    folder: folder.clone_ref(py),
+                    acc,
+                }
             })
         }
     }
@@ -68,7 +77,7 @@ impl WindowLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for FoldWindowLogic {
     }
 
     #[tracing::instrument(name = "fold_window_snapshot", level = "trace", skip_all)]
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser::<Option<TdPyAny>>(&self.acc)
+    fn snapshot(&self) -> TdPyAny {
+        Python::with_gil(|py| self.acc.to_object(py).into())
     }
 }

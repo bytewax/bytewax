@@ -19,19 +19,19 @@ __all__ = [
 
 class _IterSource(StatefulSource):
     def __init__(self, it, resume_state):
-        self._idx = -1 if resume_state is None else resume_state
+        self._last_idx = -1 if resume_state is None else resume_state
         self._it = enumerate(it)
-        # Resume to one after the last completed read.
-        for i in range(self._idx + 1):
+        # Resume to one after the last completed read index.
+        for i in range(self._last_idx + 1):
             next(self._it)
 
-    def next(self):
+    def next_batch(self):
         # next will raise StopIteration on its own.
-        self._idx, item = next(self._it)
+        self._last_idx, item = next(self._it)
         return [item]
 
     def snapshot(self):
-        return self._idx
+        return self._last_idx
 
 
 class TestingInput(PartitionedInput):
@@ -59,7 +59,7 @@ class TestingInput(PartitionedInput):
         self._it = it
 
     def list_parts(self):
-        return {"iter"}
+        return ["iter"]
 
     def build_part(self, for_key, resume_state):
         assert for_key == "iter"
@@ -70,8 +70,8 @@ class _ListSink(StatelessSink):
     def __init__(self, ls):
         self._ls = ls
 
-    def write(self, item):
-        self._ls.append(item)
+    def write_batch(self, items):
+        self._ls += items
 
 
 class TestingOutput(DynamicOutput):

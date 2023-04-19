@@ -59,7 +59,7 @@ class _KafkaSource(StatefulSource):
         self._batch_size = batch_size
         self._eof = False
 
-    def next(self):
+    def next_batch(self):
         if self._eof:
             raise StopIteration()
 

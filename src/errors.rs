@@ -1,8 +1,8 @@
 use std::panic::Location;
 
-use pyo3::PyDowncastError;
 use pyo3::exceptions::PyException;
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::PyDowncastError;
 use pyo3::PyErr;
 use pyo3::PyResult;
 use pyo3::PyTypeInfo;
