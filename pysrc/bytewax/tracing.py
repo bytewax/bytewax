@@ -1,4 +1,5 @@
-"""
+"""Logging and tracing configuration.
+
 Tracing and logging in bytewax are handled in the rust side,
 to offer a really detailed view of what is happening in your dataflow.
 
@@ -27,6 +28,7 @@ since the dataflow only talks to the collector.
 Bytewax can send traces directly to jaeger, without going through
 the opentelemetry collector.
 This makes the setup easier, but it's less flexible.
+
 """
 from .bytewax import (  # noqa: F401
     JaegerConfig,

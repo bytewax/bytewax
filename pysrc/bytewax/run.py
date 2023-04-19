@@ -1,3 +1,52 @@
+"""Executing dataflows.
+
+Dataflows are run for local development or production by executing
+this module as as script with `python -m bytewax.run`.
+
+See `python -m bytewax.run --help` for more info.
+
+If you need to execute a dataflow as part of running unit tests, see
+`bytewax.testing`.
+
+Recovery
+--------
+
+Bytewax allows you to **recover** a stateful dataflow; it will let you
+resume processing and output due to a failure without re-processing
+all initial data to re-calculate all internal state.
+
+It does this by snapshoting state and progress information for a
+single dataflow instance in a distributed set of SQLite databases in
+the **recovery directory** periodically. The **epoch** is period of
+this snapshotting. Bytewax defaults to a new epoch every 10 seconds,
+but you can change it with the `epoch_interval` parameter.
+
+When you run your dataflow it will start backing up recovery data
+automatically. Recovery data for multiple dataflows _must not_ be
+mixed together.
+
+If the dataflow fails, first you must fix whatever underlying fault
+caused the issue. That might mean deploying new code which fixes a bug
+or resolving an issue with a connected system.
+
+Once that is done, re-run the dataflow using the _same recovery
+directory_. Bytewax will automatically read the progress of the
+previous dataflow execution and determine the most recent epoch that
+processing can resume at. Output should resume from that
+epoch. Because snapshotting only happens periodically, the dataflow
+can only resume on epoch boundaries.
+
+It is possible that your output systems will see duplicate data around
+the resume epoch; design your systems to support at-least-once
+processing.
+
+If you want to fully restart a dataflow and ignore previous state,
+delete the data in the recovery directory.
+
+Currently it is not possible to recover a dataflow with a different
+number of workers than when it failed.
+
+"""
 import argparse
 import ast
 import inspect
@@ -9,6 +58,10 @@ import traceback
 from bytewax.recovery import SqliteRecoveryConfig
 
 from .bytewax import cli_main
+
+__all__ = [
+    "cli_main",
+]
 
 
 def _locate_dataflow(module_name, dataflow_name):
@@ -135,14 +188,14 @@ def _called_with_wrong_args(f):
         del tb
 
 
-class EnvDefault(argparse.Action):
+class _EnvDefault(argparse.Action):
     """Action that uses env variable as default if nothing else was set."""
 
     def __init__(self, envvar, default=None, **kwargs):
         if envvar:
             default = os.environ.get(envvar, default)
             kwargs["help"] += f" [env: {envvar}]"
-        super(EnvDefault, self).__init__(default=default, **kwargs)
+        super(_EnvDefault, self).__init__(default=default, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
         setattr(namespace, self.dest, values)
@@ -204,7 +257,7 @@ def _parse_args():
         "--processes",
         type=int,
         help="Number of separate processes to run",
-        action=EnvDefault,
+        action=_EnvDefault,
         envvar="BYTEWAX_PROCESSES",
     )
     scaling.add_argument(
@@ -212,7 +265,7 @@ def _parse_args():
         "--workers-per-process",
         type=int,
         help="Number of workers for each process",
-        action=EnvDefault,
+        action=_EnvDefault,
         envvar="BYTEWAX_WORKERS_PER_PROCESS",
     )
     scaling.add_argument(
@@ -220,7 +273,7 @@ def _parse_args():
         "--process-id",
         type=int,
         help="Process id",
-        action=EnvDefault,
+        action=_EnvDefault,
         envvar="BYTEWAX_PROCESS_ID",
     )
     scaling.add_argument(
@@ -228,7 +281,7 @@ def _parse_args():
         "--addresses",
         help="Addresses of other processes, separated by semicolon:\n"
         '-a "localhost:2021;localhost:2022;localhost:2023" ',
-        action=EnvDefault,
+        action=_EnvDefault,
         envvar="BYTEWAX_ADDRESSES",
     )
 
@@ -238,7 +291,7 @@ def _parse_args():
         "--sqlite-directory",
         type=pathlib.Path,
         help="Passing this argument enables sqlite recovery in the specified folder",
-        action=EnvDefault,
+        action=_EnvDefault,
         envvar="BYTEWAX_SQLITE_DIRECTORY",
     )
     recovery.add_argument(
@@ -246,7 +299,7 @@ def _parse_args():
         type=int,
         default=10,
         help="Number of seconds between state snapshots",
-        action=EnvDefault,
+        action=_EnvDefault,
         envvar="BYTEWAX_EPOCH_INTERVAL",
     )
 

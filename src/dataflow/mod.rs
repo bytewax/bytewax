@@ -27,8 +27,6 @@ use pyo3::types::*;
 ///
 /// Use the methods defined on this class to add steps with operators
 /// of the same name.
-///
-/// See the execution entry points in `bytewax.execution` to run.
 // TODO: Right now this is just a linear dataflow only.
 #[pyclass(module = "bytewax.dataflow")]
 #[pyo3(text_signature = "()")]
@@ -371,7 +369,7 @@ impl Dataflow {
     /// Fold window lets you combine all items for a key within a
     /// window into an accumulator, using a function to build its initial value.
     ///
-    /// It is like `bytewax.Dataflow.reduce_window()` but uses a function to
+    /// It is like `Dataflow.reduce_window` but uses a function to
     /// build the initial value.
     ///
     /// It is a stateful operator. It requires the input stream
@@ -460,35 +458,35 @@ impl Dataflow {
 
     /// Reduce window lets you combine all items for a key within a
     /// window into an accumulator.
-    ///  
-    /// It is like `bytewax.Dataflow.reduce()` but marks the
+    ///
+    /// It is like `Dataflow.reduce` but marks the
     /// accumulator as complete automatically at the end of each
     /// window.
-    ///  
+    ///
     /// It is a stateful operator. It requires the input stream
     /// has items that are `(key: str, value)` tuples so we can ensure
     /// that all relevant values are routed to the relevant state. It
     /// also requires a step ID to recover the correct state.
-    ///  
+    ///
     /// It calls a **reducer** function which combines two values. The
     /// accumulator is initially the first value seen for a key. Values
     /// will be passed in arbitrary order. If there is only a single
     /// value for a key in this window, this function will not be
     /// called.
-    ///  
+    ///
     /// It emits `(key, accumulator)` tuples downstream at the end of
     /// each window.
-    ///  
+    ///
     /// If the ordering of values is crucial, group in this operator,
     /// then sort afterwards.
-    ///  
+    ///
     /// Currently, data is permanently allocated per-key. If you have
     /// an ever-growing key space, note this.
-    ///  
+    ///
     /// It is commonly used for:
-    ///  
+    ///
     /// - Sessionization
-    ///  
+    ///
     /// >>> from datetime import datetime, timedelta, timezone
     /// >>> from bytewax.testing import TestingInput, TestingOutput, run_main
     /// >>> from bytewax.window import EventClockConfig, TumblingWindow
@@ -519,17 +517,17 @@ impl Dataflow {
     /// >>> flow.output("out", TestingOutput(out))
     /// >>> run_main(flow)
     /// >>> assert sorted(out) == sorted([('b', 1), ('a', 2), ('b', 1)])
-    ///  
+    ///
     /// Args:
-    ///  
+    ///
     ///   step_id (str): Uniquely identifies this step for recovery.
-    ///  
+    ///
     ///   clock_config (bytewax.window.ClockConfig): Clock config to
     ///       use. See `bytewax.window`.
-    ///  
+    ///
     ///   window_config (bytewax.window.WindowConfig): Windower
     ///       config to use. See `bytewax.window`.
-    ///  
+    ///
     ///   reducer: `reducer(accumulator: Any, value: Any) =>
     ///       updated_accumulator: Any`
     #[pyo3(text_signature = "(self, step_id, clock_config, window_config, reducer)")]

@@ -4,6 +4,7 @@
 <h1 class="api__article-title">Module <strong>bytewax.tracing</strong></h1>
 </header>
 <section class="api__article-intro" id="section-intro">
+<p>Logging and tracing configuration.</p>
 <p>Tracing and logging in bytewax are handled in the rust side,
 to offer a really detailed view of what is happening in your dataflow.</p>
 <p>By default, bytewax sends all "error" logs to the standard output.
@@ -29,7 +30,8 @@ This makes the setup easier, but it's less flexible.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Logging and tracing configuration.
+
 Tracing and logging in bytewax are handled in the rust side,
 to offer a really detailed view of what is happening in your dataflow.
 
@@ -58,6 +60,7 @@ since the dataflow only talks to the collector.
 Bytewax can send traces directly to jaeger, without going through
 the opentelemetry collector.
 This makes the setup easier, but it&#39;s less flexible.
+
 &#34;&#34;&#34;
 from .bytewax import (  # noqa: F401
     JaegerConfig,
