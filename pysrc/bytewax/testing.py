@@ -6,11 +6,12 @@ from typing import Any, Iterable
 from bytewax.inputs import PartitionedInput, StatefulSource
 from bytewax.outputs import DynamicOutput, StatelessSink
 
-from .bytewax import run_main, cluster_main
+from .bytewax import cluster_main, run_main
 
 __all__ = [
     "run_main",
     "cluster_main",
+    "poll_next",
     "TestingInput",
     "TestingOutput",
 ]
@@ -95,7 +96,7 @@ class TestingOutput(DynamicOutput):
         return _ListSink(self._ls)
 
 
-def poll_next(source, timeout=timedelta(seconds=5)):
+def poll_next(source: StatefulSource, timeout=timedelta(seconds=5)):
     """Repeatedly poll an input source until it returns a value.
 
     You'll want to use this in unit tests of sources when there's some
@@ -103,7 +104,7 @@ def poll_next(source, timeout=timedelta(seconds=5)):
 
     Args:
 
-        source: To call `source.next()` on.
+        source: To call `StatefulSource.next` on.
 
     Returns:
 

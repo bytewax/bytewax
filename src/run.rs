@@ -49,9 +49,7 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 ///
 /// Blocks until execution is complete.
 ///
-/// You'd commonly use this for prototyping custom input and output
-/// builders with a single worker before using them in a cluster
-/// setting.
+/// This is only used for unit testing. See `bytewax.run`.
 ///
 /// >>> from bytewax.dataflow import Dataflow
 /// >>> from bytewax.testing import TestingInput, run_main
@@ -63,9 +61,6 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 /// 0
 /// 1
 /// 2
-///
-/// See `bytewax.spawn_cluster()` for starting a cluster on this
-/// machine with full control over inputs and outputs.
 ///
 /// Args:
 ///
@@ -143,10 +138,7 @@ pub(crate) fn run_main(
 
 /// Execute a dataflow in the current process as part of a cluster.
 ///
-/// You have to coordinate starting up all the processes in the
-/// cluster and ensuring they each are assigned a unique ID and know
-/// the addresses of other processes. You'd commonly use this for
-/// starting processes as part of a Kubernetes cluster.
+/// This is only used for unit testing. See `bytewax.run`.
 ///
 /// Blocks until execution is complete.
 ///
@@ -162,12 +154,6 @@ pub(crate) fn run_main(
 /// 0
 /// 1
 /// 2
-///
-/// See `bytewax.run_main()` for a way to test input and output
-/// builders without the complexity of starting a cluster.
-///
-/// See `bytewax.spawn_cluster()` for starting a simple cluster
-/// locally on one machine.
 ///
 /// Args:
 ///
@@ -314,11 +300,8 @@ pub(crate) fn cluster_main(
     })
 }
 
-/// Spawns a cluster on a single machine.
-/// This is only supposed to be used through `python -m bytewax.run`,
-/// and not directly called inside python code.
-///
-/// See `python -m bytewax.run --help` for more info
+/// This is only supposed to be used through `python -m
+/// bytewax.run`. See the module docstring for use.
 #[pyfunction(
     flow,
     "*",

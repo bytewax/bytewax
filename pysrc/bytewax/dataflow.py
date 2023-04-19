@@ -6,3 +6,7 @@ computational steps.
 """
 
 from .bytewax import Dataflow  # noqa: F401
+
+__all__ = [
+    "Dataflow",
+]
