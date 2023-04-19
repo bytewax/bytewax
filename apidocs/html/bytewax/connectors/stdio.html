@@ -14,6 +14,10 @@
 &#34;&#34;&#34;
 from bytewax.outputs import DynamicOutput, StatelessSink
 
+__all__ = [
+    &#34;StdOutput&#34;,
+]
+
 
 class _PrintSink(StatelessSink):
     def write(self, item):

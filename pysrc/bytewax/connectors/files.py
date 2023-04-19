@@ -9,6 +9,13 @@ from zlib import adler32
 from bytewax.inputs import PartitionedInput, StatefulSource
 from bytewax.outputs import PartitionedOutput, StatefulSink
 
+__all__ = [
+    "DirInput",
+    "DirOutput",
+    "FileInput",
+    "FileOutput",
+]
+
 
 class _FileSource(StatefulSource):
     def __init__(self, path, resume_state):
@@ -150,7 +157,7 @@ class DirOutput(PartitionedOutput):
             value. Defaults to calling `zlib.adler32` as a simple
             globally-consistent hash.
 
-        end: String to write after each item. Defaults to `"\n"`.
+        end: String to write after each item. Defaults to newline.
 
     """
 
@@ -159,7 +166,7 @@ class DirOutput(PartitionedOutput):
         dir: Path,
         file_count: int,
         file_namer: Callable[[int, int], str] = lambda i, _n: f"part_{i}",
-        assign_file: Callable[[str], int] = lambda key: adler32(key.encode()),
+        assign_file: Callable[[str], int] = lambda k: adler32(k.encode()),
         end: str = "\n",
     ):
         self._dir = dir
@@ -200,7 +207,7 @@ class FileOutput(PartitionedOutput):
 
         path: Path to file.
 
-        end: String to write after each item. Defaults to `"\n"`.
+        end: String to write after each item. Defaults to newline.
 
     """
 

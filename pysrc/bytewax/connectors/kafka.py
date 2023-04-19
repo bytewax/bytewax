@@ -19,6 +19,11 @@ from confluent_kafka.admin import AdminClient
 from bytewax.inputs import PartitionedInput, StatefulSource
 from bytewax.outputs import DynamicOutput, StatelessSink
 
+__all__ = [
+    "KafkaInput",
+    "KafkaOutput",
+]
+
 
 def _list_parts(client, topics):
     for topic in topics:

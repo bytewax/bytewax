@@ -3,6 +3,10 @@
 """
 from bytewax.outputs import DynamicOutput, StatelessSink
 
+__all__ = [
+    "StdOutput",
+]
+
 
 class _PrintSink(StatelessSink):
     def write(self, item):

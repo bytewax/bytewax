@@ -7,8 +7,16 @@ Subclass the types here to implement input for your own custom sink.
 
 """
 
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
 from typing import Any, Optional, Set
+
+__all__ = [
+    "DynamicOutput",
+    "Output",
+    "PartitionedOutput",
+    "StatefulSink",
+    "StatelessSink",
+]
 
 
 class Output(ABC):
