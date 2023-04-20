@@ -1,11 +1,11 @@
 import operator
 import re
-from datetime import timedelta
+
+from datetime import timedelta, datetime, timezone
 
 from bytewax.connectors.files import FileInput
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
-from bytewax.outputs import StdOutputConfig
+from bytewax.connectors.stdio import StdOutput
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 
@@ -22,7 +22,9 @@ def initial_count(word):
 
 
 cc = SystemClockConfig()
-wc = TumblingWindow(length=timedelta(seconds=5))
+wc = TumblingWindow(
+    length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+)
 
 flow = Dataflow()
 flow.input("inp", FileInput("examples/sample_data/wordcount.txt"))
@@ -36,11 +38,11 @@ flow.map(initial_count)
 flow.reduce_window(
     "sum",
     SystemClockConfig(),
-    TumblingWindow(length=timedelta(seconds=5)),
+    TumblingWindow(
+        length=timedelta(seconds=5),
+        align_to=datetime(2023, 1, 1, tzinfo=timezone.utc),
+    ),
     operator.add,
 )
 # ("word", count)
-flow.capture(StdOutputConfig())
-
-if __name__ == "__main__":
-    run_main(flow)
+flow.output("out", StdOutput())

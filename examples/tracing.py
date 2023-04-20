@@ -1,10 +1,8 @@
 import os
 import time
 
-from bytewax import parse
 from bytewax.dataflow import Dataflow
-from bytewax.execution import spawn_cluster
-from bytewax.outputs import StdOutputConfig
+from bytewax.connectors.stdio import StdOutput
 from bytewax.testing import TestingInput
 from bytewax.tracing import OtlpTracingConfig, setup_tracing
 
@@ -36,15 +34,8 @@ def stringy(x):
 
 
 flow = Dataflow()
-flow.input("inp", TestingInput(inp))
+flow.input("inp", TestingInput(inp()))
 flow.map(double)
 flow.map(minus_one)
 flow.map(stringy)
-flow.capture(StdOutputConfig())
-
-
-if __name__ == "__main__":
-    spawn_cluster(
-        flow,
-        **parse.cluster_args(),
-    )
+flow.output("out", StdOutput())

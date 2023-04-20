@@ -13,13 +13,12 @@ import json
 from river import anomaly
 
 from bytewax.connectors.kafka import KafkaInput
+from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
-from bytewax.outputs import ManualOutputConfig
 
 # Define the dataflow object and kafka input.
 flow = Dataflow()
-flow.input("inp", KafkaInput(["localhost:9092"], "ec2_metrics"))
+flow.input("inp", KafkaInput(["localhost:9092"], ["ec2_metrics"]))
 
 
 def group_instance_and_normalize(key__data):
@@ -78,21 +77,16 @@ flow.stateful_map("detector", lambda: AnomalyDetector(), AnomalyDetector.update)
 # (("fe7f93", {"index": "1", "value":0.08, "instance":"fe7f93", "score":0.02}))
 
 
-def output_builder(worker_index, worker_count):
-    def handler(event):
-        instance, (index, t, value, score, is_anomalous) = event
-        print(
-            f"{instance}: time = {t}, "
-            f"value = {value:.3f}, "
-            f"score = {score:.2f}, "
-            f"{is_anomalous}"
-        )
-
-    return handler
+def format_output(event):
+    instance, (index, t, value, score, is_anomalous) = event
+    return (
+        f"{instance}: time = {t}, "
+        f"value = {value:.3f}, "
+        f"score = {score:.2f}, "
+        f"{is_anomalous}"
+    )
 
 
 flow.filter(lambda x: bool(x[1][4]))
-flow.capture(ManualOutputConfig(output_builder))
-
-if __name__ == "__main__":
-    run_main(flow)
+flow.map(format_output)
+flow.output("out", StdOutput())
