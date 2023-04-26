@@ -1,6 +1,6 @@
 [![Actions Status](https://github.com/bytewax/bytewax/workflows/CI/badge.svg)](https://github.com/bytewax/bytewax/actions)
 [![PyPI](https://img.shields.io/pypi/v/bytewax.svg?style=flat-square)](https://pypi.org/project/bytewax/)
-[![Bytewax User Guide](https://img.shields.io/badge/user-guide-brightgreen?style=flat-square)](https://docs.bytewax.io/)
+[![Bytewax User Guide](https://img.shields.io/badge/user-guide-brightgreen?style=flat-square)](https://bytewax.io/docs)
 
 
 <picture>
@@ -20,7 +20,7 @@ Bytewax is a Python framework that simplifies event and stream processing. Becau
 
 Bytewax is a Python framework and Rust distributed processing engine that uses a dataflow computational model to provide parallelizable stream processing and event processing capabilities similar to Flink, Spark, and Kafka Streams. You can use Bytewax for a variety of workloads from moving data à la Kafka Connect style all the way to advanced online machine learning workloads. Bytewax is not limited to streaming applications but excels anywhere that data can be distributed at the input and output.
 
-Bytewax has an accompanying command line interface, [waxctl](https://docs.bytewax.io/deployment/waxctl/), which supports the deployment of dataflows on cloud vms or kuberentes. You can download it [here](https://docs.bytewax.io/downloads/).
+Bytewax has an accompanying command line interface, [waxctl](https://bytewax.io/docs/deployment/waxctl/), which supports the deployment of dataflows on cloud vms or kuberentes. You can download it [here](https://bytewax.io/downloads/).
 
 _____________
 
@@ -30,20 +30,19 @@ _____________
 pip install bytewax
 ```
 
-[_Install waxctl_](https://docs.bytewax.io/downloads/)
+[_Install waxctl_](https://bytewax.io/downloads/)
 
 A Bytewax dataflow is Python code that will represent an input, a series of processing steps, and an output. The inputs could range from a Kafka stream to a WebSocket and the outputs could vary from a data lake to a key-value store.
 
 ```python
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import KafkaInputConfig
-from bytewax.outputs import ManualOutputConfig
+from bytewax.connectors.kafka import KafkaInput
 
 # Bytewax has input and output helpers for common input and output data sources
 # but you can also create your own with the ManualOutputConfig.
 ```
 
-At a high-level, the dataflow compute model is one in which a program execution is conceptualized as data flowing through a series of operator-based steps. Operators like `map` and `filter` are the processing primitives of Bytewax. Each of them gives you a “shape” of data transformation, and you give them regular Python functions to customize them to a specific task you need. See the documentation for a list of the [available operators](https://docs.bytewax.io/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow)
+At a high-level, the dataflow compute model is one in which a program execution is conceptualized as data flowing through a series of operator-based steps. Operators like `map` and `filter` are the processing primitives of Bytewax. Each of them gives you a “shape” of data transformation, and you give them regular Python functions to customize them to a specific task you need. See the documentation for a list of the [available operators](https://bytewax.io/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow)
 
 ```python
 import json
@@ -68,24 +67,24 @@ def remove_bytewax(user_id__event_data):
 
 
 flow = Dataflow()
-flow.input("inp", KafkaInputConfig(brokers=["localhost:9092"], topic="web_events"))
+flow.input("inp", KafkaInput(brokers=["localhost:9092"], topic="web_events"))
 flow.map(deserialize)
 flow.map(anonymize_email)
 flow.filter(remove_bytewax)
 ```
 
-Bytewax is a stateful stream processing framework, which means that some operations remember information across multiple events.  Windows and aggregations are also stateful, and can be reconstructed in the event of failure. Bytewax can be configured with different [state recovery mechanisms](https://docs.bytewax.io/apidocs/bytewax.recovery) to durably persist state in order to recover from failure.
+Bytewax is a stateful stream processing framework, which means that some operations remember information across multiple events.  Windows and aggregations are also stateful, and can be reconstructed in the event of failure. Bytewax can be configured with different [state recovery mechanisms](https://bytewax.io/apidocs/bytewax.recovery) to durably persist state in order to recover from failure.
 
-There are multiple stateful operators available like `reduce`, `stateful_map` and `fold_window`. The complete list can be found in the [API documentation for all operators](https://docs.bytewax.io/apidocs/bytewax.dataflow). Below we use the `fold_window` operator with a tumbling window based on system time to gather events and calculate the number of times events have occurred on a per-user basis.
+There are multiple stateful operators available like `reduce`, `stateful_map` and `fold_window`. The complete list can be found in the [API documentation for all operators](https://bytewax.io/apidocs/bytewax.dataflow). Below we use the `fold_window` operator with a tumbling window based on system time to gather events and calculate the number of times events have occurred on a per-user basis.
 
 ```python
-import datetime
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 from bytewax.window import TumblingWindow, SystemClockConfig
 
 cc = SystemClockConfig()
-wc = TumblingWindow(length=datetime.timedelta(seconds=5))
+wc = TumblingWindow(length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc))
 
 
 def build():
@@ -100,60 +99,57 @@ def count_events(results, event):
 flow.fold_window("session_state_recovery", cc, wc, build, count_events)
 ```
 
-Output mechanisms in Bytewax are managed in the [capture operator](https://docs.bytewax.io/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.capture). There are a number of helpers that allow you to easily connect and write to other systems ([output docs](https://docs.bytewax.io/apidocs/bytewax.outputs)). If there isn’t a helper built, it is easy to build a custom version, which we will do below. Similar the input, Bytewax output can be parallelized and the client connection will occur on the worker.
+Output mechanisms in Bytewax are managed in the [output operator](https://bytewax.io/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.output). There are a number of helpers that allow you to easily connect and write to other systems ([output docs](https://docs.bytewax.io/apidocs/bytewax.outputs)). If there isn’t a helper built, it is easy to build a custom version, which we will do below. Similar the input, Bytewax output can be parallelized and the client connection will occur on the worker.
 
 ```python
 import json
 
 import psycopg2
 
-
-def output_builder(worker_index, worker_count):
-    # create the connection at the worker level
-    conn = psycopg2.connect("dbname=website user=bytewax")
-    conn.set_session(autocommit=True)
-    cur = conn.cursor()
-
-    def write_to_postgres(user_id__user_data):
-        user_id, user_data = user_id__user_data
-        query_string = """
-                    INSERT INTO events (user_id, data)
-                    VALUES (%s, %s)
-                    ON CONFLICT (user_id)
-                    DO
-                        UPDATE SET data = %s;"""
-        cur.execute(
-            query_string, (user_id, json.dumps(user_data), json.dumps(user_data))
-        )
-
-    return write_to_postgres
+from bytewax.outputs import PartitionedOutput, StatefulSink
 
 
-flow.capture(ManualOutputConfig(output_builder))
+
+class PsqlOutput(PartitionedOutput):
+    # TODO
+    pass
+
+
+# def output_builder(worker_index, worker_count):
+#     # create the connection at the worker level
+#     conn = psycopg2.connect("dbname=website user=bytewax")
+#     conn.set_session(autocommit=True)
+#     cur = conn.cursor()
+# 
+#     def write_to_postgres(user_id__user_data):
+#         user_id, user_data = user_id__user_data
+#         query_string = """
+#                     INSERT INTO events (user_id, data)
+#                     VALUES (%s, %s)
+#                     ON CONFLICT (user_id)
+#                     DO
+#                         UPDATE SET data = %s;"""
+#         cur.execute(
+#             query_string, (user_id, json.dumps(user_data), json.dumps(user_data))
+#         )
+# 
+#     return write_to_postgres
+
+
+flow.output("out", PsqlOutput())
 ```
 
-Bytewax dataflows can be executed on a single host with multiple Python processes, or on multiple hosts. Below is an example of running bytewax across multiple hosts. When processing data in a distributed fashion, Bytewax will ensure that all items with the same key are routed to the same host.
-
-```python
-if __name__ == "__main__":
-    addresses = ["localhost:2101"]
-
-    cluster_main(flow, addresses=addresses, proc_id=0, worker_count_per_proc=2)
-```
-
-### Deploying and Scaling
-
-Bytewax can be run on a local machine or remote machine, just like a regular Python script.
+Bytewax dataflows can be executed on a single host with multiple Python processes, or on multiple hosts. When processing data in a distributed fashion, Bytewax will ensure that all items with the same key are routed to the same host.
 
 ```sh
-python my_dataflow.py
+python -m bytewax.run my_dataflow:flow
 ```
 
-It can also be run in a Docker container as described further in the [documentation](https://docs.bytewax.io/deployment/container).
+It can also be run in a Docker container as described further in the [documentation](https://bytewax.io/docs/deployment/container).
 
 #### Kubernetes
 
-The recommended way to run dataflows at scale is to leverage the [kubernetes ecosystem](https://docs.bytewax.io/deployment/k8s-ecosystem). To help manage deployment, we built [waxctl](https://docs.bytewax.io/deployment/waxctl), which allows you to easily deploy dataflows that will run at huge scale across multiple compute nodes.
+The recommended way to run dataflows at scale is to leverage the [kubernetes ecosystem](https://bytewax.io/docs/deployment/k8s-ecosystem). To help manage deployment, we built [waxctl](https://bytewax.io/docs/deployment/waxctl), which allows you to easily deploy dataflows that will run at huge scale across multiple compute nodes.
 
 ```sh
 waxctl df deploy my_dataflow.py --name my-dataflow
@@ -197,9 +193,7 @@ maturin develop -E dev
 
 ## More Examples
 
-For a more complete example, and documentation on the available operators, check out the [User Guide](https://docs.bytewax.io/) and the [Examples](https://docs.bytewax.io/examples)
-
-For an exhaustive list of examples, checkout the [/examples](/examples) folder
+For a more complete example, and documentation on the available operators, check out the [User Guide](https://bytewax.io/docs) and the [/examples](/examples) folder.
 
 ## License
 
@@ -215,5 +209,3 @@ Contributions are welcome! This community and project would not be what it is wi
 <p align="center"> With ❤️ Bytewax</p> 
 <p align="center"><img src="https://user-images.githubusercontent.com/6073079/157482621-331ad886-df3c-4c92-8948-9e50accd38c9.png" /> </p>
 <img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=07749572-3e76-4ac0-952b-d5dcf3bff737" />
-
-
