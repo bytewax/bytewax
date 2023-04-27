@@ -47,10 +47,8 @@ At a high-level, the dataflow compute model is one in which a program execution 
 ```python
 import json
 
-
 def deserialize(key_bytes__payload_bytes):
-    key_bytes, payload_bytes = key_bytes__payload_bytes
-    key = json.loads(key_bytes) if key_bytes else None
+    _, payload_bytes = key_bytes__payload_bytes
     event_data = json.loads(payload_bytes) if payload_bytes else None
     return event_data["user_id"], event_data
 
@@ -64,7 +62,6 @@ def anonymize_email(user_id__event_data):
 def remove_bytewax(user_id__event_data):
     user_id, event_data = user_id__event_data
     return "bytewax" not in event_data["email"]
-
 
 flow = Dataflow()
 flow.input("inp", KafkaInput(brokers=["localhost:9092"], topic="web_events"))
@@ -83,10 +80,6 @@ from collections import defaultdict
 
 from bytewax.window import TumblingWindow, SystemClockConfig
 
-cc = SystemClockConfig()
-wc = TumblingWindow(length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc))
-
-
 def build():
     return defaultdict(lambda: 0)
 
@@ -95,6 +88,10 @@ def count_events(results, event):
     results[event["type"]] += 1
     return results
 
+
+cc = SystemClockConfig()
+align_to = datetime(2023, 1, 1, tzinfo=timezone.utc)
+wc = TumblingWindow(length=timedelta(seconds=5), align_to=align_to)
 
 flow.fold_window("session_state_recovery", cc, wc, build, count_events)
 ```
@@ -109,31 +106,40 @@ import psycopg2
 from bytewax.outputs import PartitionedOutput, StatefulSink
 
 
+class PsqlSink(StatefulSink):
+    def __init__(self):
+        self.conn = psycopg2.connect("dbname=website user=bytewax")
+        self.conn.set_session(autocommit=True)
+        self.cur = self.conn.cursor()
+
+    def write(self, user_id__user_data):
+        user_id, user_data = user_id__user_data
+        query_string = """
+            INSERT INTO events (user_id, data)
+            VALUES (%s, %s)
+            ON CONFLICT (user_id)
+            DO UPDATE SET data = %s;
+        """
+        self.cur.execute(
+            query_string, (user_id, json.dumps(user_data), json.dumps(user_data))
+        )
+
+    def snapshot(self):
+        pass
+
+    def close(self):
+        self.conn.close()
+
 
 class PsqlOutput(PartitionedOutput):
-    # TODO
-    pass
+    def list_parts(self):
+        return {"single"}
 
+    def assign_part(self, item_key):
+        return "single"
 
-# def output_builder(worker_index, worker_count):
-#     # create the connection at the worker level
-#     conn = psycopg2.connect("dbname=website user=bytewax")
-#     conn.set_session(autocommit=True)
-#     cur = conn.cursor()
-# 
-#     def write_to_postgres(user_id__user_data):
-#         user_id, user_data = user_id__user_data
-#         query_string = """
-#                     INSERT INTO events (user_id, data)
-#                     VALUES (%s, %s)
-#                     ON CONFLICT (user_id)
-#                     DO
-#                         UPDATE SET data = %s;"""
-#         cur.execute(
-#             query_string, (user_id, json.dumps(user_data), json.dumps(user_data))
-#         )
-# 
-#     return write_to_postgres
+    def build_part(for_part, resume_state):
+        return PsqlSink()
 
 
 flow.output("out", PsqlOutput())
