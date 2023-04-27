@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # pip install pandas pyarrow fake-web-events
 import pandas
@@ -8,43 +8,62 @@ from pandas import DataFrame
 from pyarrow import parquet, Table
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import spawn_cluster
-from bytewax.inputs import PartitionedInput
-from bytewax.outputs import ManualOutputConfig
+from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.outputs import PartitionedOutput, StatefulSink
 from bytewax.window import SystemClockConfig, TumblingWindow
+
+
+class SimulatedSource(StatefulSource):
+    def __init__(self):
+        self.events = Simulation(user_pool_size=5, sessions_per_day=100).run(
+            duration_seconds=10
+        )
+
+    def next(self):
+        return json.dumps(next(self.events))
+
+    def snapshot(self):
+        pass
+
+    def close(self):
+        pass
 
 
 class FakeWebEventsInput(PartitionedInput):
     def list_parts(self):
-        return ["singleton"]
+        return {"singleton"}
 
     def build_part(self, for_key, resume_state):
         assert for_key == "singleton"
         assert resume_state is None
-
-        simulation = Simulation(user_pool_size=5, sessions_per_day=100)
-
-        for event in simulation.run(duration_seconds=10):
-            yield None, json.dumps(event)
+        return SimulatedSource()
 
 
-# Arrow assigns a UUID to each worker / window's file so they won't
-# clobber each other. They are further automatically placed in the
-# correct directory structure based on date and path.
-def write_parquet(events_df):
-    """Write events as partitioned Parquet in `$PWD/parquet_demo_out/`"""
-    table = Table.from_pandas(events_df)
-    parquet.write_to_dataset(
-        table,
-        root_path="parquet_demo_out",
-        partition_cols=["year", "month", "day", "page_url_path"],
-    )
+class ParquetSink(StatefulSink):
+    def write(self, value):
+        table = Table.from_pandas(value)
+        parquet.write_to_dataset(
+            table,
+            root_path="parquet_demo_out",
+            partition_cols=["year", "month", "day", "page_url_path"],
+        )
+
+    def snapshot(self):
+        pass
+
+    def close(self):
+        pass
 
 
-# Each worker writes using the same code because we don't need to
-# further partition because of the UUID described above.
-def output_builder(worker_index, worker_count):
-    return write_parquet
+class ParquetOutput(PartitionedOutput):
+    def list_parts(self):
+        return {"singleton"}
+
+    def assign_part(self, item_key):
+        return "singleton"
+
+    def build_part(self, for_part, resume_state):
+        return ParquetSink()
 
 
 def add_date_columns(event):
@@ -69,7 +88,9 @@ def drop_page(page__events_df):
 
 
 cc = SystemClockConfig()
-wc = TumblingWindow(length=timedelta(seconds=5))
+wc = TumblingWindow(
+    length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+)
 
 flow = Dataflow()
 flow.input("input", FakeWebEventsInput())
@@ -87,11 +108,4 @@ flow.map(group_by_page)
 # }]))
 flow.reduce_window("reducer", cc, wc, append_event)
 # ("/path", DataFrame([{"page_url_path": "/path", ...}, ...]))
-flow.map(drop_page)
-# DataFrame([{"page_url_path": "/path", ...}, ...])
-flow.capture(ManualOutputConfig(output_builder))
-
-
-if __name__ == "__main__":
-    # run_main(flow)
-    spawn_cluster(flow)
+flow.output("out", ParquetOutput())

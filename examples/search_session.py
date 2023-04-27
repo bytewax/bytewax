@@ -3,8 +3,7 @@ from dataclasses import dataclass
 from typing import List
 
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
-from bytewax.outputs import StdOutputConfig
+from bytewax.connectors.stdio import StdOutput
 from bytewax.testing import TestingInput
 
 
@@ -116,8 +115,4 @@ flow.flat_map(split_into_searches)
 flow.filter(has_search)
 # Calculate search CTR per search.
 flow.map(calc_ctr)
-flow.capture(StdOutputConfig())
-
-
-if __name__ == "__main__":
-    run_main(flow)
+flow.output("out", StdOutput())

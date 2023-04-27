@@ -1,11 +1,8 @@
 import re
 
-from bytewax import parse
+from bytewax.connectors.stdio import StdOutput
 from bytewax.connectors.files import FileInput
 from bytewax.dataflow import Dataflow
-from bytewax.execution import spawn_cluster
-from bytewax.outputs import StdOutputConfig
-from bytewax.recovery import SqliteRecoveryConfig
 
 
 def lower(line):
@@ -42,14 +39,4 @@ flow.map(initial_count)
 # ("word", 1)
 flow.stateful_map("running_count", count_builder, add)
 # ("word", running_count)
-flow.capture(StdOutputConfig())
-
-
-recovery_config = SqliteRecoveryConfig(".")
-
-if __name__ == "__main__":
-    spawn_cluster(
-        flow,
-        recovery_config=recovery_config,
-        **parse.cluster_args(),
-    )
+flow.output("out", StdOutput())

@@ -23,15 +23,14 @@ from datetime import datetime, timedelta, timezone
 
 from bytewax.connectors.kafka import KafkaInput
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
-from bytewax.outputs import StdOutputConfig
+from bytewax.connectors.stdio import StdOutput
 from bytewax.window import EventClockConfig, TumblingWindow
 
 # Define the dataflow object and kafka input.
 flow = Dataflow()
 
 
-flow.input("inp", KafkaInput(["localhost:9092"], "sensors", tail=False))
+flow.input("inp", KafkaInput(["localhost:9092"], ["sensors"], tail=False))
 
 
 # We expect a json string that represents a reading from a sensor.
@@ -57,6 +56,7 @@ flow.map(extract_sensor_type)
 # The `EventClockConfig` allows us to advance our internal clock
 # based on the time received in each event.
 
+
 # This is the accumulator function, and outputs a list of 2-tuples,
 # containing the event's "value" and it's "time" (used later to print info)
 def acc_values(acc, event):
@@ -75,12 +75,10 @@ def get_event_time(event):
 # Configure the `fold_window` operator to use the event time.
 cc = EventClockConfig(get_event_time, wait_for_system_duration=timedelta(seconds=10))
 
-# And a 5 seconds tumbling window, that starts at the beginning of the hour
-start_at = datetime.now(timezone.utc)
-start_at = start_at - timedelta(
-    minutes=start_at.minute, seconds=start_at.second, microseconds=start_at.microsecond
-)
-wc = TumblingWindow(start_at=start_at, length=timedelta(seconds=5))
+# And a 5 seconds tumbling window
+align_to = datetime(2023, 1, 1, tzinfo=timezone.utc)
+wc = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
+
 flow.fold_window("running_average", cc, wc, list, acc_values)
 
 
@@ -93,16 +91,10 @@ def format(event):
     return (
         f"Average {key}: {sum(values) / len(values):.2f}\t"
         f"Num events: {len(values)}\t"
-        f"From {(min(dates) - start_at).total_seconds():.2f}s\t"
-        f"to {(max(dates) - start_at).total_seconds():.2f}s"
+        f"From {min(dates).total_seconds():.2f}s\t"
+        f"to {max(dates).total_seconds():.2f}s"
     )
 
 
 flow.map(format)
-
-
-flow.capture(StdOutputConfig())
-
-
-if __name__ == "__main__":
-    run_main(flow)
+flow.output("out", StdOutput())

@@ -1,10 +1,10 @@
 import operator
-from datetime import timedelta
 
+from datetime import timedelta, timezone, datetime
+
+from bytewax.connectors.stdio import StdOutput
 from bytewax.connectors.files import FileInput
 from bytewax.dataflow import Dataflow
-from bytewax.execution import run_main
-from bytewax.outputs import ManualOutputConfig
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 
@@ -18,7 +18,10 @@ def calc_counts(flow):
     flow.reduce_window(
         "sum",
         SystemClockConfig(),
-        TumblingWindow(length=timedelta(seconds=5)),
+        TumblingWindow(
+            length=timedelta(seconds=5),
+            align_to=datetime(2023, 1, 1, tzinfo=timezone.utc),
+        ),
         operator.add,
     )
 
@@ -28,18 +31,15 @@ def get_count(word_count):
     return count
 
 
-def output_builder(worker_index, worker_count):
-    def format_and_print_output(count_count):
-        times_appearing, num_words_with_the_same_count = count_count
-        if num_words_with_the_same_count == 1:
-            print(f"There was one word with a count of {times_appearing}")
-        else:
-            print(
-                f"There were {num_words_with_the_same_count} different words "
-                f"with a count of {times_appearing}"
-            )
-
-    return format_and_print_output
+def format_output(count_count):
+    times_appearing, num_words_with_the_same_count = count_count
+    if num_words_with_the_same_count == 1:
+        return f"There was one word with a count of {times_appearing}"
+    else:
+        return (
+            f"There were {num_words_with_the_same_count} different words "
+            f"with a count of {times_appearing}"
+        )
 
 
 flow = Dataflow()
@@ -52,9 +52,6 @@ calc_counts(flow)
 flow.map(get_count)
 # count
 calc_counts(flow)
+flow.map(format_output)
 # (that_same_count, num_words_with_the_same_count)
-flow.capture(ManualOutputConfig(output_builder))
-
-
-if __name__ == "__main__":
-    run_main(flow)
+flow.output("out", StdOutput())

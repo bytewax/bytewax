@@ -2,7 +2,22 @@ import random
 
 from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import PartitionedInput
+from bytewax.inputs import PartitionedInput, StatefulSource
+
+
+class RandomMetricSource(StatefulSource):
+    def __init__(self):
+        self.iterator = iter(list(range(20)))
+
+    def next(self):
+        next(self.iterator)
+        return "ALL", random.randrange(0, 10)
+
+    def snapshot(self):
+        return None
+
+    def close(self):
+        pass
 
 
 class RandomMetricInput(PartitionedInput):
@@ -12,9 +27,7 @@ class RandomMetricInput(PartitionedInput):
     def build_part(self, for_part, resume_state):
         assert for_part == "singleton"
         assert resume_state is None
-
-        for _ in range(20):
-            yield None, ("QPS", random.randrange(0, 10))
+        return RandomMetricSource()
 
 
 class ZTestDetector:
@@ -51,8 +64,6 @@ class ZTestDetector:
 
         self._push(value)
         self._recalc_stats()
-        print(self)
-
         return self, (value, self.mu, self.sigma, is_anomalous)
 
 
