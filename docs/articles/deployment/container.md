@@ -2,18 +2,19 @@ It is very simple to run a Bytewax dataflow program in a container. In this sect
 
 ## Bytewax Images in Docker Hub
 
-Bytewax has several public container images available. Every library release is available in Docker Hub with these python versions: 3.7, 3.8, 3.9 and 3.10.
+Bytewax has several public container images available. Every library release is available in Docker Hub with these python versions: 3.7, 3.8, 3.9, 3.10 and 3.11.
 
 We implement the following naming convention:
 
 >**bytewax/bytewax:`BYTEWAX_VERSION`-python`PYTHON_VERSION`**
 
-Following this convention, Bytewax `0.8.0` would have the images:
+Following this convention, Bytewax `0.16.0` would have the images:
 ```
-bytewax/bytewax:0.8.0-python3.7
-bytewax/bytewax:0.8.0-python3.8
-bytewax/bytewax:0.8.0-python3.9
-bytewax/bytewax:0.8.0-python3.10
+bytewax/bytewax:0.16.0-python3.7
+bytewax/bytewax:0.16.0-python3.8
+bytewax/bytewax:0.16.0-python3.9
+bytewax/bytewax:0.16.0-python3.10
+bytewax/bytewax:0.16.0-python3.11
 ```
 
 And for the latest version of Bytewax:
@@ -22,6 +23,7 @@ bytewax/bytewax:latest-python3.7
 bytewax/bytewax:latest-python3.8
 bytewax/bytewax:latest-python3.9
 bytewax/bytewax:latest-python3.10
+bytewax/bytewax:latest-python3.11
 ```
 
 The standard `latest` tag is equivalent to `latest-python3.9`.
@@ -37,7 +39,7 @@ For example:
 ```bash
 docker run --rm --name=my-dataflow \
     -v /var/bytewax/examples:/bytewax/examples \
-    -e BYTEWAX_IMPORT_STR=examples.pagerank:flow \
+    -e BYTEWAX_PYTHON_FILE=examples.pagerank:flow \
     bytewax/bytewax
 ```
 The output should be something like this:
@@ -76,7 +78,7 @@ Bytewax images are structured in this way:
 - A specifc version of Python and Bytewax is installed and managed in a virtual environment.
 - Run an `entrypoint.sh` bash script which:
     - Sets the current directory in `BYTEWAX_WORKDIR` (default `\bytewax`).
-    - Executes the `BYTEWAX_IMPORT_STR` python script (there isn't a default value, you must set that environment variable always).
+    - Executes the `BYTEWAX_PYTHON_FILE_PATH` python script (there isn't a default value, you must set that environment variable always).
     - If the `BYTEWAX_KEEP_CONTAINER_ALIVE` environment variable is set to `true` executes an infinite loop to keep the container process running.
 
 **Entrypoint.sh script**
@@ -85,7 +87,7 @@ Bytewax images are structured in this way:
 
 cd $BYTEWAX_WORKDIR
 . /venv/bin/activate
-python -m bytewax.run $BYTEWAX_IMPORT_STR
+python -m bytewax.run $BYTEWAX_PYTHON_FILE_PATH
 
 echo 'Process ended.'
 
@@ -105,7 +107,7 @@ We are going to use the `BYTEWAX_KEEP_CONTAINER_ALIVE` environment variable to k
 ```bash
 docker run --rm --name=my-dataflow \
     -v /var/bytewax/examples:/bytewax/examples \
-    -e BYTEWAX_IMPORT_STR=examples.pagerank:flow \
+    -e BYTEWAX_PYTHON_FILE_PATH=examples.pagerank:flow \
     -e BYTEWAX_KEEP_CONTAINER_ALIVE=true \
     bytewax/bytewax
 ```
@@ -142,7 +144,7 @@ drwxrwxr-x 5 1000 1000 4096 Apr 12 14:16 examples
 # env | grep BYTEWAX
 BYTEWAX_WORKDIR=/bytewax
 BYTEWAX_KEEP_CONTAINER_ALIVE=true
-BYTEWAX_IMPORT_STR=examples.pagerank:flow
+BYTEWAX_PYTHON_FILE_PATH=examples.pagerank:flow
 
 # /venv/bin/python -m bytewax.run examples.pagerank:flow
 ('5', 1.8783333333333332)
@@ -160,7 +162,7 @@ Bytewax image includes a small number of modules installed:
 ```
 Package      Version
 ------------ ---------
-bytewax      0.8.0
+bytewax      0.16.0
 pip          22.0.4
 setuptools   62.0.0
 wheel        0.37.1
@@ -171,7 +173,7 @@ So if you try to run a script like the [translator](https://github.com/bytewax/b
 ```bash
 docker run --rm --name=my-dataflow \
     -v /var/bytewax/examples:/bytewax/examples \
-    -e BYTEWAX_IMPORT_STR=examples.translator:flow \
+    -e BYTEWAX_PYTHON_FILE_PATH=examples.translator:flow \
     bytewax/bytewax
 ```
 You will get a `ModuleNotFoundError`:
@@ -202,7 +204,7 @@ Now we can run the example using the new image:
 ```bash
 docker run --rm --name=my-dataflow \                     
     -v /var/bytewax/examples:/bytewax/examples \
-    -e BYTEWAX_IMPORT_STR=examples.translator:flow \
+    -e BYTEWAX_PYTHON_FILE_PATH=examples.translator:flow \
     bytewax-translator
 ```
 

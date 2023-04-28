@@ -18,7 +18,12 @@ class DataflowEncoder(json.JSONEncoder):
     def default(self, obj):
         if hasattr(obj, "__json__"):
             return obj.__json__()
-        if hasattr(obj, "__getstate__"):
+        # Python 3.11 added __getstate__ to the 'object' type,
+        # but for some objects the result is `None`.
+        # In those cases, it's probably better to try other options,
+        # so we check for the presence of the method, but also that
+        # the result is not `None`.
+        if hasattr(obj, "__getstate__") and obj.__getstate__() is not None:
             return obj.__getstate__()
         if isinstance(obj, types.BuiltinFunctionType):
             return obj.__name__

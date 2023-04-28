@@ -45,7 +45,7 @@ jobs:
       - name: Check the Version and Quantity of Wheel files
         env:
           NEEDED_VERSION: ${{steps.get-info.outputs.bytewax-version}}
-          WHEELS: 16
+          WHEELS: 20
         run: |
           cat << EOF > ./check_versions.sh
           #!/bin/bash
@@ -126,7 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.7', '3.8', '3.9', '3.10']
+        python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
     steps:
     - uses: actions/checkout@v2
     - name: Set up Docker Buildx

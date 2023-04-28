@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-20.04
     strategy:
       matrix:
-        python-version: ['3.7', '3.8', '3.9', '3.10']
+        python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
     steps:
     - uses: actions/checkout@v2
     - name: Install system dependencies
@@ -57,8 +57,8 @@ jobs:
     runs-on: ubuntu-20.04
     strategy:
       matrix:
-        python-version: ['3.7', '3.8', '3.9', '3.10']
-    container: bytewax/glib-2.27-builder:v1
+        python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
+    container: bytewax/glib-2.27-builder:v2
     steps:
     - uses: actions/checkout@v2
     - name: Rust Toolchain
@@ -90,7 +90,7 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        python-version: ['3.7', '3.8', '3.9', '3.10']
+        python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
     steps:
     - uses: actions/checkout@v2
     - uses: actions/setup-python@v4
@@ -133,7 +133,7 @@ jobs:
     runs-on: [self-hosted, macOS, ARM64]
     strategy:
       matrix:
-        python-version: ['3.7', '3.8', '3.9', '3.10']
+        python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
     steps:
     - uses: actions/checkout@v2
     - uses: actions-rs/toolchain@v1
