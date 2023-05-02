@@ -25,6 +25,7 @@ use crate::worker::Worker;
 use pyo3::exceptions::{PyKeyboardInterrupt, PyRuntimeError};
 use pyo3::prelude::*;
 use pyo3::types::PyType;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -35,11 +36,14 @@ use tokio::runtime::Runtime;
 /// Start the tokio runtime for the webserver.
 /// Keep a reference to the runtime for as long as you need it running.
 fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
-    // Since the dataflow can't change at runtime, we encode it as a string of JSON
-    // once, when the webserver starts.
-    //
-    // We also can't create the JSON from within `run_webserver`, as it will
-    // prevent the webserver from starting when running with multiple workers or
+    let mut json_path =
+        PathBuf::from(std::env::var("BYTEWAX_DATAFLOW_API_CACHE_PATH").unwrap_or(".".to_string()));
+    json_path.push("dataflow.json");
+
+    // Since the dataflow can't change at runtime, we encode it as a
+    // string of JSON once, when the webserver starts. We can't create
+    // the JSON from within `run_webserver`, as it will prevent the
+    // webserver from starting when running with multiple workers or
     // processes.
     let dataflow_json: String = Python::with_gil(|py| -> PyResult<String> {
         let encoder_module = PyModule::import(py, "bytewax._encoder")
@@ -55,7 +59,7 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
             .reraise("error encoding dataflow")?
             .to_string();
         // Since the dataflow can crash, write the dataflow JSON to a file
-        let mut file = File::create("dataflow.json")?;
+        let mut file = File::create(json_path)?;
         file.write_all(dataflow_json.as_bytes())?;
 
         Ok(dataflow_json)
