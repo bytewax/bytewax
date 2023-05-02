@@ -35,7 +35,7 @@ use tokio::runtime::Runtime;
 
 /// Start the tokio runtime for the webserver.
 /// Keep a reference to the runtime for as long as you need it running.
-fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
+fn start_server_runtime(df: &Py<Dataflow>) -> PyResult<Runtime> {
     let mut json_path =
         PathBuf::from(std::env::var("BYTEWAX_DATAFLOW_API_CACHE_PATH").unwrap_or(".".to_string()));
     json_path.push("dataflow.json");
@@ -115,10 +115,8 @@ pub(crate) fn run_main(
     let res = py.allow_threads(move || {
         let mut _server_rt = None;
         if std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
-            _server_rt = Some(start_server_runtime(
-                Python::with_gil(|py| flow.extract::<Dataflow>(py))
-                    .expect("Unable to start Dataflow API server"),
-            ));
+            _server_rt =
+                Some(start_server_runtime(&flow).expect("Unable to start Dataflow API server"));
         }
         std::panic::catch_unwind(|| {
             timely::execute::execute_directly::<(), _>(move |worker| {
@@ -286,9 +284,7 @@ pub(crate) fn cluster_main(
         // Initialize the tokio runtime for the webserver if we needed.
         let mut _server_rt = None;
         if std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
-            _server_rt = Some(start_server_runtime(Python::with_gil(|py| {
-                flow.extract(py)
-            })?)?);
+            _server_rt = Some(start_server_runtime(&flow)?);
         }
         let guards = timely::execute::execute_from::<_, (), _>(
             builders,
@@ -403,9 +399,7 @@ pub(crate) fn cli_main(
                 let mut server_rt = None;
                 // Initialize the tokio runtime for the webserver if we needed.
                 if std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
-                    server_rt = Some(start_server_runtime(flow.extract(py)?)?);
-                    // Also remove the env var so other processes don't run the server.
-                    std::env::remove_var("BYTEWAX_DATAFLOW_API_ENABLED");
+                    server_rt = Some(start_server_runtime(&flow)?);
                 };
                 let mut ps: Vec<_> = (0..processes)
                     .map(|proc_id| {
