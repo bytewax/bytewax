@@ -27,21 +27,47 @@ use pyo3::prelude::*;
 use pyo3::types::PyType;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use std::{fs::File, io::Write, sync::Arc};
 use tokio::runtime::Runtime;
 
 /// Start the tokio runtime for the webserver.
 /// Keep a reference to the runtime for as long as you need it running.
 fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
+    // Since the dataflow can't change at runtime, we encode it as a string of JSON
+    // once, when the webserver starts.
+    //
+    // We also can't create the JSON from within `run_webserver`, as it will
+    // prevent the webserver from starting when running with multiple workers or
+    // processes.
+    let dataflow_json: String = Python::with_gil(|py| -> PyResult<String> {
+        let encoder_module = PyModule::import(py, "bytewax._encoder")
+            .raise::<PyRuntimeError>("Unable to load Bytewax encoder module")?;
+        // For convenience, we are using a helper function supplied in the
+        // bytewax.encoder module.
+        let encode = encoder_module
+            .getattr("encode_dataflow")
+            .raise::<PyRuntimeError>("Unable to load encode_dataflow function")?;
+
+        let dataflow_json = encode
+            .call1((df,))
+            .reraise("error encoding dataflow")?
+            .to_string();
+        // Since the dataflow can crash, write the dataflow JSON to a file
+        let mut file = File::create("dataflow.json")?;
+        file.write_all(dataflow_json.as_bytes())?;
+
+        Ok(dataflow_json)
+    })?;
+
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .thread_name("webserver-threads")
         .enable_all()
         .build()
         .raise::<PyRuntimeError>("error initializing tokio runtime for webserver")?;
-    rt.spawn(run_webserver(df));
+    rt.spawn(run_webserver(dataflow_json));
     Ok(rt)
 }
 
@@ -83,6 +109,13 @@ pub(crate) fn run_main(
 ) -> PyResult<()> {
     tracing::info!("Running single worker on single process");
     let res = py.allow_threads(move || {
+        let mut _server_rt = None;
+        if std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
+            _server_rt = Some(start_server_runtime(
+                Python::with_gil(|py| flow.extract::<Dataflow>(py))
+                    .expect("Unable to start Dataflow API server"),
+            ));
+        }
         std::panic::catch_unwind(|| {
             timely::execute::execute_directly::<(), _>(move |worker| {
                 let interrupt_flag = AtomicBool::new(false);
@@ -252,8 +285,7 @@ pub(crate) fn cluster_main(
             _server_rt = Some(start_server_runtime(Python::with_gil(|py| {
                 flow.extract(py)
             })?)?);
-        };
-
+        }
         let guards = timely::execute::execute_from::<_, (), _>(
             builders,
             other,
