@@ -161,9 +161,10 @@ impl<'a, A: Allocate> Worker<'a, A> {
     }
 
     fn run_dataflow<T: Timestamp>(&mut self, probe: ProbeHandle<T>) -> PyResult<()> {
+        let cooldown = Some(Duration::from_millis(1));
         let mut span = PeriodicSpan::new(Duration::from_secs(10));
         while !self.interrupt_flag.load(Ordering::Relaxed) && !probe.done() {
-            self.worker.step();
+            self.worker.step_or_park(cooldown);
             span.update();
             let check = Python::with_gil(|py| py.check_signals());
             if check.is_err() {

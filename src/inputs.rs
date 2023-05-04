@@ -199,6 +199,7 @@ impl PartitionedInput {
         let probe = probe.clone();
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
+        let cooldown = Duration::from_millis(1);
 
         let step_id_op = step_id.clone();
         op_builder.build(move |mut init_caps| {
@@ -301,7 +302,7 @@ impl PartitionedInput {
                 // Wake up constantly, because we never know when
                 // input will have new data.
                 if caps.is_some() {
-                    activator.activate();
+                    activator.activate_after(cooldown);
                 }
             }
         });
@@ -442,6 +443,7 @@ impl DynamicInput {
         let probe = probe.clone();
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
+        let cooldown = Duration::from_millis(1);
 
         op_builder.build(move |mut init_caps| {
             // Inputs must init to the resume epoch.
@@ -499,7 +501,7 @@ impl DynamicInput {
                 // Wake up constantly, because we never know when
                 // input will have new data.
                 if cap_src.is_some() {
-                    activator.activate();
+                    activator.activate_after(cooldown);
                 }
             }
         });

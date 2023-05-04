@@ -14,6 +14,7 @@
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     task::Poll,
+    time::Duration,
 };
 
 use chrono::{DateTime, Utc};
@@ -202,6 +203,7 @@ where
 
         let info = op_builder.operator_info();
         let activator = self.scope().activator_for(&info.address[..]);
+        let cooldown = Duration::from_millis(1);
 
         op_builder.build(move |mut init_caps| {
             // Since we might emit downstream without any incoming
@@ -494,11 +496,7 @@ where
                         .map(|next_awake| *next_awake - now)
                         .min()
                     {
-                        activator.activate_after(
-                            soonest_next_awake
-                                .to_std()
-                                .unwrap_or(std::time::Duration::ZERO),
-                        );
+                        activator.activate_after(soonest_next_awake.to_std().unwrap_or(cooldown));
                     }
                 }
 
