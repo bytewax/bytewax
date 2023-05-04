@@ -41,10 +41,7 @@ fn start_server_runtime(df: &Py<Dataflow>) -> PyResult<Runtime> {
     json_path.push("dataflow.json");
 
     // Since the dataflow can't change at runtime, we encode it as a
-    // string of JSON once, when the webserver starts. We can't create
-    // the JSON from within `run_webserver`, as it will prevent the
-    // webserver from starting when running with multiple workers or
-    // processes.
+    // string of JSON once, when the webserver starts.
     let dataflow_json: String = Python::with_gil(|py| -> PyResult<String> {
         let encoder_module = PyModule::import(py, "bytewax._encoder")
             .raise::<PyRuntimeError>("Unable to load Bytewax encoder module")?;
@@ -113,11 +110,6 @@ pub(crate) fn run_main(
 ) -> PyResult<()> {
     tracing::info!("Running single worker on single process");
     let res = py.allow_threads(move || {
-        let mut _server_rt = None;
-        if std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
-            _server_rt =
-                Some(start_server_runtime(&flow).expect("Unable to start Dataflow API server"));
-        }
         std::panic::catch_unwind(|| {
             timely::execute::execute_directly::<(), _>(move |worker| {
                 let interrupt_flag = AtomicBool::new(false);
@@ -142,7 +134,7 @@ pub(crate) fn run_main(
 
     res.map_err(|panic_err| {
         // The worker panicked.
-        // Print an empty line to separate rust panick message from the rest.
+        // Print an empty line to separate rust panic message from the rest.
         eprintln!("");
         if let Some(err) = panic_err.downcast_ref::<PyErr>() {
             // Special case for keyboard interrupt.
@@ -281,11 +273,6 @@ pub(crate) fn cluster_main(
                 .unwrap_or_else(|err| eprintln!("Error printing error (that's not good): {err}"));
         }));
 
-        // Initialize the tokio runtime for the webserver if we needed.
-        let mut _server_rt = None;
-        if std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
-            _server_rt = Some(start_server_runtime(&flow)?);
-        }
         let guards = timely::execute::execute_from::<_, (), _>(
             builders,
             other,
@@ -355,12 +342,19 @@ pub(crate) fn cli_main(
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
     let epoch_interval = epoch_interval.map(|dur| EpochInterval::new(Duration::from_secs_f64(dur)));
-
     if processes.is_some() && (process_id.is_some() || addresses.is_some()) {
         return Err(tracked_err::<PyRuntimeError>(
             "Can't specify both 'processes' and 'process_id/addresses'",
         ));
     }
+
+    let mut server_rt = None;
+    // Initialize the tokio runtime for the webserver if we needed.
+    if std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
+        server_rt = Some(start_server_runtime(&flow)?);
+        // Also remove the env var so other processes don't run the server.
+        std::env::remove_var("BYTEWAX_DATAFLOW_API_ENABLED");
+    };
 
     if let Some(proc_id) = process_id {
         cluster_main(
@@ -396,11 +390,6 @@ pub(crate) fn cli_main(
                     workers_per_process,
                 )?;
             } else {
-                let mut server_rt = None;
-                // Initialize the tokio runtime for the webserver if we needed.
-                if std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
-                    server_rt = Some(start_server_runtime(&flow)?);
-                };
                 let mut ps: Vec<_> = (0..processes)
                     .map(|proc_id| {
                         let mut args = std::env::args();
@@ -411,30 +400,34 @@ pub(crate) fn cli_main(
                             .unwrap()
                     })
                     .collect();
-                loop {
-                    if ps.iter_mut().all(|ps| !matches!(ps.try_wait(), Ok(None))) {
-                        break;
-                    }
-
-                    let check = Python::with_gil(|py| py.check_signals());
-                    if check.is_err() {
-                        for process in ps.iter_mut() {
-                            process.kill()?;
-                        }
-                        // Don't forget to shutdown the server runtime.
-                        // If we just drop the runtime, it will wait indefinitely
-                        // that the server stops, so we need to stop it manually.
-                        if let Some(rt) = server_rt.take() {
-                            rt.shutdown_timeout(Duration::from_secs(0));
+                // Allow threads here in order to not block any other
+                // background threads from taking the GIL
+                py.allow_threads(|| -> PyResult<()> {
+                    loop {
+                        if ps.iter_mut().all(|ps| !matches!(ps.try_wait(), Ok(None))) {
+                            return Ok(());
                         }
 
-                        // The ? here will always exit since we just checked
-                        // that `check` is Result::Err.
-                        check.reraise(
-                            "interrupt signal received, all processes have been shut down",
-                        )?;
+                        let check = Python::with_gil(|py| py.check_signals());
+                        if check.is_err() {
+                            for process in ps.iter_mut() {
+                                process.kill()?;
+                            }
+                            // Don't forget to shutdown the server runtime.
+                            // If we just drop the runtime, it will wait indefinitely
+                            // that the server stops, so we need to stop it manually.
+                            if let Some(rt) = server_rt.take() {
+                                rt.shutdown_timeout(Duration::from_secs(0));
+                            }
+
+                            // The ? here will always exit since we just checked
+                            // that `check` is Result::Err.
+                            check.reraise(
+                                "interrupt signal received, all processes have been shut down",
+                            )?;
+                        }
                     }
-                }
+                })?;
             }
             Ok(())
         }
