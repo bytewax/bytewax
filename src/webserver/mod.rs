@@ -8,29 +8,13 @@ use axum::{
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use std::{net::SocketAddr, sync::Arc};
 
-use crate::{dataflow::Dataflow, errors::PythonException};
+use crate::errors::PythonException;
 
 struct State {
     dataflow_json: String,
 }
 
-pub(crate) async fn run_webserver(dataflow: Dataflow) -> PyResult<()> {
-    // Since the dataflow can't change at runtime, we encode it as a string of JSON
-    // once, when the webserver starts.
-    let dataflow_json: String = Python::with_gil(|py| -> PyResult<String> {
-        let encoder_module = PyModule::import(py, "bytewax._encoder")
-            .raise::<PyRuntimeError>("Unable to load Bytewax encoder module")?;
-        // For convenience, we are using a helper function supplied in the
-        // bytewax.encoder module.
-        let encode = encoder_module
-            .getattr("encode_dataflow")
-            .raise::<PyRuntimeError>("Unable to load encode_dataflow function")?;
-
-        Ok(encode
-            .call1((dataflow,))
-            .reraise("error encoding dataflow")?
-            .to_string())
-    })?;
+pub(crate) async fn run_webserver(dataflow_json: String) -> PyResult<()> {
     let shared_state = Arc::new(State { dataflow_json });
 
     let app = Router::new()
@@ -45,6 +29,7 @@ pub(crate) async fn run_webserver(dataflow: Dataflow) -> PyResult<()> {
         .unwrap_or(3030);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    tracing::info!("Starting Dataflow API server on {addr:?}");
 
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
