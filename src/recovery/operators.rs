@@ -258,9 +258,9 @@ where
 
                 // Wake up constantly, because we never know when
                 // frontier might have advanced.
-                if cap.is_some() {
-                    activator.activate_after(cooldown);
-                }
+                // if cap.is_some() {
+                //     activator.activate_after(cooldown);
+                // }
             }
         });
 

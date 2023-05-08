@@ -496,7 +496,11 @@ where
                         .map(|next_awake| *next_awake - now)
                         .min()
                     {
-                        activator.activate_after(soonest_next_awake.to_std().unwrap_or(cooldown));
+                        activator.activate_after(
+                            soonest_next_awake
+                                .to_std()
+                                .unwrap_or(std::time::Duration::ZERO),
+                        );
                     }
                 }
 

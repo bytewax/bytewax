@@ -215,6 +215,7 @@ impl PartitionedInput {
             let mut snapshot_keys_buffer: HashSet<StateKey> = HashSet::new();
 
             move |_input_frontiers| {
+                let mut just_emitted = false;
                 caps = caps.take().and_then(|(output_cap, change_cap)| {
                     assert!(output_cap.time() == change_cap.time());
                     let epoch = output_cap.time();
@@ -237,6 +238,7 @@ impl PartitionedInput {
                                 Poll::Ready(Some(item)) => {
                                     output_session.give(item);
                                     emit_keys_buffer.insert(key.clone());
+                                    just_emitted = true;
                                 }
                             }
                         }
@@ -302,7 +304,11 @@ impl PartitionedInput {
                 // Wake up constantly, because we never know when
                 // input will have new data.
                 if caps.is_some() {
-                    activator.activate_after(cooldown);
+                    if just_emitted {
+                        activator.activate();
+                    } else {
+                        activator.activate_after(cooldown);
+                    }
                 }
             }
         });
@@ -454,6 +460,7 @@ impl DynamicInput {
             let mut epoch_started = Instant::now();
 
             move |_input_frontiers| {
+                let mut just_emitted = false;
                 // We can't return an error here, but we need to stop execution
                 // if we have an error in the user's code.
                 // When this happens we panic with unwrap_any! and reraise
@@ -473,6 +480,7 @@ impl DynamicInput {
                             }
                             Poll::Ready(Some(item)) => {
                                 output_wrapper.activate().session(&cap).give(item);
+                                just_emitted = true;
                             }
                         }
                     }
@@ -501,7 +509,11 @@ impl DynamicInput {
                 // Wake up constantly, because we never know when
                 // input will have new data.
                 if cap_src.is_some() {
-                    activator.activate_after(cooldown);
+                    if just_emitted {
+                        activator.activate();
+                    } else {
+                        activator.activate_after(cooldown);
+                    }
                 }
             }
         });
