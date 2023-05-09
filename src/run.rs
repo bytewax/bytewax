@@ -290,6 +290,7 @@ pub(crate) fn cluster_main(
         )
         .raise::<PyRuntimeError>("error during execution")?;
 
+        let cooldown = Duration::from_millis(1);
         // Recreating what Python does in Thread.join() to "block"
         // but also check interrupt handlers.
         // https://github.com/python/cpython/blob/204946986feee7bc80b233350377d24d20fcb1b8/Modules/_threadmodule.c#L81
@@ -298,7 +299,7 @@ pub(crate) fn cluster_main(
             .iter()
             .any(|worker_thread| !worker_thread.is_finished())
         {
-            thread::sleep(Duration::from_millis(1));
+            thread::sleep(cooldown);
             Python::with_gil(|py| Python::check_signals(py)).map_err(|err| {
                 should_shutdown.store(true, Ordering::Relaxed);
                 err
@@ -403,6 +404,7 @@ pub(crate) fn cli_main(
                 // Allow threads here in order to not block any other
                 // background threads from taking the GIL
                 py.allow_threads(|| -> PyResult<()> {
+                    let cooldown = Duration::from_millis(1);
                     loop {
                         if ps.iter_mut().all(|ps| !matches!(ps.try_wait(), Ok(None))) {
                             return Ok(());
@@ -426,6 +428,7 @@ pub(crate) fn cli_main(
                                 "interrupt signal received, all processes have been shut down",
                             )?;
                         }
+                        thread::sleep(cooldown);
                     }
                 })?;
             }

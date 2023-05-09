@@ -8,7 +8,6 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::time::Duration;
 
 use timely::dataflow::channels::pact::Exchange;
 use timely::dataflow::channels::pact::Pipeline;
@@ -187,10 +186,6 @@ where
 
         let (mut output_wrapper, output_stream) = op_builder.new_output();
 
-        let info = op_builder.operator_info();
-        let activator = self.scope().activator_for(&info.address[..]);
-        let cooldown = Duration::from_millis(1);
-
         // Sort of "emit at end of epoch" but Timely doesn't give us
         // that.
         op_builder.build(move |mut init_caps| {
@@ -255,12 +250,6 @@ where
                         Some(cap)
                     }
                 });
-
-                // Wake up constantly, because we never know when
-                // frontier might have advanced.
-                // if cap.is_some() {
-                //     activator.activate_after(cooldown);
-                // }
             }
         });
 
