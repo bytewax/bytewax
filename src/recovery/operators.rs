@@ -186,9 +186,6 @@ where
 
         let (mut output_wrapper, output_stream) = op_builder.new_output();
 
-        let info = op_builder.operator_info();
-        let activator = self.scope().activator_for(&info.address[..]);
-
         // Sort of "emit at end of epoch" but Timely doesn't give us
         // that.
         op_builder.build(move |mut init_caps| {
@@ -253,12 +250,6 @@ where
                         Some(cap)
                     }
                 });
-
-                // Wake up constantly, because we never know when
-                // frontier might have advanced.
-                if cap.is_some() {
-                    activator.activate();
-                }
             }
         });
 
