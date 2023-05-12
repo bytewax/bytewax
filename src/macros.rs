@@ -83,7 +83,7 @@ macro_rules! log_func {
 /// add_pymethods!(
 ///     SlidingWindow,
 ///     parent: WindowConfig,
-///     py_args: (length,),
+///     signature: (length),
 ///     args {
 ///         length: Duration => Duration::zero()
 ///     }
