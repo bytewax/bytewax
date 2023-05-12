@@ -71,7 +71,7 @@ impl TracerBuilder for OtlpTracingConfig {
 add_pymethods!(
     OtlpTracingConfig,
     parent: TracingConfig,
-    py_args: (service_name, url, sampling_ratio = "None"),
+    signature: (service_name, url=None, sampling_ratio=None),
     args {
         service_name: String => String::new(),
         url: Option<String> => None,

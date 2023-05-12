@@ -16,7 +16,7 @@ bincode = { version = "1.3.3" }
 chrono = { version = "0.4", features = [ "serde" ] }
 futures = { version = "0.3.21" }
 num = { version = "0.4.0" }
-pyo3 = { version = "0.17.2", features = ["macros", "chrono"] }
+pyo3 = { version = "0.18.3", features = ["macros", "chrono"] }
 serde = { version = "1.0.134" }
 serde_test = { version = "1.0.134" }
 sqlx = { version = "0.6.1", features = [ "runtime-tokio-rustls", "postgres", "sqlite", "chrono" ] }
@@ -38,7 +38,7 @@ rdkafka = { version = "0.28.0", features = [ "cmake-build", "gssapi-vendored", "
 rdkafka = { version = "0.28.0", features = [ "cmake-build", "gssapi", "ssl" ] }
 
 [dev-dependencies]
-pyo3 = { version = "0.17.2", default-features = false, features = ["macros", "chrono"] }
+pyo3 = { version = "0.18.3", default-features = false, features = ["macros", "chrono"] }
 
 [features]
 extension-module = ["pyo3/extension-module"]

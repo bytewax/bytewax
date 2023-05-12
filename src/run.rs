@@ -100,7 +100,7 @@ fn start_server_runtime(df: &Py<Dataflow>) -> PyResult<Runtime> {
 ///       `bytewax.recovery`. If `None`, state will not be
 ///       persisted.
 ///
-#[pyfunction(flow, "*", epoch_interval = "None", recovery_config = "None")]
+#[pyfunction]
 #[pyo3(text_signature = "(flow, *, epoch_interval, recovery_config)")]
 pub(crate) fn run_main(
     py: Python,
@@ -200,16 +200,9 @@ pub(crate) fn run_main(
 ///
 ///   worker_count_per_proc: Number of worker threads to start on
 ///       each process.
-#[pyfunction(
-    flow,
-    addresses,
-    proc_id,
-    "*",
-    epoch_interval = "None",
-    recovery_config = "None",
-    worker_count_per_proc = "1"
-)]
+#[pyfunction]
 #[pyo3(
+    signature = (flow, addresses, proc_id, *, epoch_interval = None, recovery_config = None, worker_count_per_proc = 1),
     text_signature = "(flow, addresses, proc_id, *, epoch_interval, recovery_config, worker_count_per_proc)"
 )]
 pub(crate) fn cluster_main(
@@ -322,15 +315,18 @@ pub(crate) fn cluster_main(
 
 /// This is only supposed to be used through `python -m
 /// bytewax.run`. See the module docstring for use.
-#[pyfunction(
-    flow,
-    "*",
-    processes = 1,
-    workers_per_process = 1,
-    process_id = "None",
-    addresses = "None",
-    epoch_interval = "None",
-    recovery_config = "None"
+#[pyfunction]
+#[pyo3(
+    signature = (
+        flow,
+        *,
+        processes = 1,
+        workers_per_process = 1,
+        process_id = None,
+        addresses = None,
+        epoch_interval = None,
+        recovery_config = None
+    )
 )]
 pub(crate) fn cli_main(
     py: Python,

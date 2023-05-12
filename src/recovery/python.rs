@@ -118,7 +118,7 @@ pub(crate) struct NoopRecoveryConfig;
 add_pymethods!(
     NoopRecoveryConfig,
     parent: RecoveryConfig,
-    py_args: (),
+    signature: (),
     args {}
 );
 
@@ -187,7 +187,6 @@ impl RecoveryBuilder for NoopRecoveryConfig {
 ///   Config object. Pass this as the `recovery_config` argument to
 ///   your execution entry point.
 #[pyclass(module="bytewax.recovery", extends=RecoveryConfig)]
-#[pyo3(text_signature = "(db_dir)")]
 #[derive(Clone)]
 pub(crate) struct SqliteRecoveryConfig {
     #[pyo3(get)]
@@ -197,7 +196,7 @@ pub(crate) struct SqliteRecoveryConfig {
 add_pymethods!(
     SqliteRecoveryConfig,
     parent: RecoveryConfig,
-    py_args: (db_dir),
+    signature: (db_dir),
     args {
         db_dir: PathBuf => String::new().into()
     }
@@ -306,7 +305,7 @@ pub(crate) struct KafkaRecoveryConfig {
 add_pymethods!(
     KafkaRecoveryConfig,
     parent: RecoveryConfig,
-    py_args: (brokers, topic_prefix),
+    signature: (brokers, topic_prefix),
     args {
         brokers: Vec<String> => Vec::new(),
         topic_prefix: String => String::new()

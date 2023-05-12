@@ -58,7 +58,7 @@ impl TracerBuilder for JaegerConfig {
 add_pymethods!(
     JaegerConfig,
     parent: TracingConfig,
-    py_args: (service_name, endpoint, sampling_ratio = "None"),
+    signature: (service_name, endpoint=None, sampling_ratio=None),
     args {
         service_name: String => String::new(),
         endpoint: Option<String> => None,
