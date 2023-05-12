@@ -10,6 +10,41 @@ this module as as script with <code>python -m bytewax.run</code>.</p>
 <p>See <code>python -m bytewax.run --help</code> for more info.</p>
 <p>If you need to execute a dataflow as part of running unit tests, see
 <code><a title="bytewax.testing" href="/apidocs/bytewax.testing">bytewax.testing</a></code>.</p>
+<h2 id="execution">Execution</h2>
+<p>You can run your Dataflow in 3 different ways
+The first argument passed to this script is a dataflow getter string.
+It should point to the python module containing the dataflow, and the
+name of the variable holding the dataflow, or a function call that
+returns a dataflow.</p>
+<p>For example, if you are at the root of this repository, you can run the
+"simple.py" example by calling the script with the following argument:</p>
+<pre><code>$ python -m bytewax.run examples.simple:flow
+</code></pre>
+<p>If instead of a variable, you have a function that returns a dataflow,
+you can use a string after the <code>:</code> to call the function, possibly with args:</p>
+<pre><code>$ python -m bytewax.run &quot;my_dataflow:get_flow('/tmp/file')&quot;
+</code></pre>
+<p>By default this script will run a single worker on a single process.
+You can modify this by using other parameters:</p>
+<h3 id="local-cluster">Local cluster</h3>
+<p>You can run multiple processes, and multiple workers for each process, by
+adding the <code>-p/--processes</code> and <code>-w/--workers-per-process</code> parameters, without
+changing anything in the code:</p>
+<pre><code># Runs 3 processes, with 2 workers each, for a total of 6 workers
+$ python -m bytewax.run my_dataflow -p3 -w2
+</code></pre>
+<p>Bytewax will handle the communication setup between processes/workers.</p>
+<h3 id="manual-cluster">Manual cluster</h3>
+<p>You can also manually handle the multiple processes, and run them on different
+machines, by using the <code>-a/--addresses</code> and <code>-i/--process-id</code> parameters.</p>
+<p>Each process should receive a list of addresses of all the processes (the <code>-a</code>
+parameter) and the id of the current process (a number starting from 0):</p>
+<pre><code># First process
+$ python -m bytewax.run my_dataflow     --addresses &quot;localhost:2021;localhost:2022&quot;     --process-id 0
+</code></pre>
+<pre><code># Second process
+$ python -m bytewax.run my_dataflow     --addresses &quot;localhost:2021;localhost:2022&quot;     --process-id 1
+</code></pre>
 <h2 id="recovery">Recovery</h2>
 <p>Bytewax allows you to <strong>recover</strong> a stateful dataflow; it will let you
 resume processing and output due to a failure without re-processing
@@ -51,6 +86,69 @@ See `python -m bytewax.run --help` for more info.
 
 If you need to execute a dataflow as part of running unit tests, see
 `bytewax.testing`.
+
+Execution
+---------
+
+You can run your Dataflow in 3 different ways
+The first argument passed to this script is a dataflow getter string.
+It should point to the python module containing the dataflow, and the
+name of the variable holding the dataflow, or a function call that
+returns a dataflow.
+
+For example, if you are at the root of this repository, you can run the
+&#34;simple.py&#34; example by calling the script with the following argument:
+
+```
+$ python -m bytewax.run examples.simple:flow
+```
+
+If instead of a variable, you have a function that returns a dataflow,
+you can use a string after the `:` to call the function, possibly with args:
+
+
+```
+$ python -m bytewax.run &#34;my_dataflow:get_flow(&#39;/tmp/file&#39;)&#34;
+```
+
+By default this script will run a single worker on a single process.
+You can modify this by using other parameters:
+
+### Local cluster
+
+You can run multiple processes, and multiple workers for each process, by
+adding the `-p/--processes` and `-w/--workers-per-process` parameters, without
+changing anything in the code:
+
+```
+# Runs 3 processes, with 2 workers each, for a total of 6 workers
+$ python -m bytewax.run my_dataflow -p3 -w2
+```
+
+Bytewax will handle the communication setup between processes/workers.
+
+### Manual cluster
+
+You can also manually handle the multiple processes, and run them on different
+machines, by using the `-a/--addresses` and `-i/--process-id` parameters.
+
+Each process should receive a list of addresses of all the processes (the `-a`
+parameter) and the id of the current process (a number starting from 0):
+
+```
+# First process
+$ python -m bytewax.run my_dataflow \
+    --addresses &#34;localhost:2021;localhost:2022&#34; \
+    --process-id 0
+```
+
+```
+# Second process
+$ python -m bytewax.run my_dataflow \
+    --addresses &#34;localhost:2021;localhost:2022&#34; \
+    --process-id 1
+```
+
 
 Recovery
 --------
