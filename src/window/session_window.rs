@@ -35,7 +35,7 @@ impl WindowBuilder for SessionWindow {
 add_pymethods!(
     SessionWindow,
     parent: WindowConfig,
-    signature: (gap=Duration::zero()),
+    signature: (gap),
     args {
         gap: Duration => Duration::zero()
     }

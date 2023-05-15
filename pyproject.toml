@@ -53,3 +53,5 @@ testpaths = [
     "docs",
 ]
 
+[tool.maturin]
+python-source = "pysrc"

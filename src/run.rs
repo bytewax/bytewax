@@ -101,7 +101,10 @@ fn start_server_runtime(df: &Py<Dataflow>) -> PyResult<Runtime> {
 ///       persisted.
 ///
 #[pyfunction]
-#[pyo3(text_signature = "(flow, *, epoch_interval, recovery_config)")]
+#[pyo3(
+    signature = (flow, *, epoch_interval = None, recovery_config = None),
+    text_signature = "(flow, *, epoch_interval = None, recovery_config = None)",
+)]
 pub(crate) fn run_main(
     py: Python,
     flow: Py<Dataflow>,
@@ -203,7 +206,7 @@ pub(crate) fn run_main(
 #[pyfunction]
 #[pyo3(
     signature = (flow, addresses, proc_id, *, epoch_interval = None, recovery_config = None, worker_count_per_proc = 1),
-    text_signature = "(flow, addresses, proc_id, *, epoch_interval, recovery_config, worker_count_per_proc)"
+    text_signature = "(flow, addresses, proc_id, *, epoch_interval = None, recovery_config = None, worker_count_per_proc = 1)"
 )]
 pub(crate) fn cluster_main(
     py: Python,
@@ -317,16 +320,8 @@ pub(crate) fn cluster_main(
 /// bytewax.run`. See the module docstring for use.
 #[pyfunction]
 #[pyo3(
-    signature = (
-        flow,
-        *,
-        processes = 1,
-        workers_per_process = 1,
-        process_id = None,
-        addresses = None,
-        epoch_interval = None,
-        recovery_config = None
-    )
+    signature=(flow, *, processes=1, workers_per_process=1, process_id=None, addresses=None, epoch_interval=None, recovery_config=None),
+    text_signature="(flow, *, processes=1, workers_per_process=1, process_id=None, addresses=None, epoch_interval=None, recovery_config=None)"
 )]
 pub(crate) fn cli_main(
     py: Python,

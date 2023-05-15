@@ -36,7 +36,7 @@ pub(crate) struct OtlpTracingConfig {
     ///   samplig_ratio >= 1 - all traces are sampled
     ///   samplig_ratio <= 0 - most traces are not sampled
     #[pyo3(get)]
-    pub(crate) sampling_ratio: Option<f64>,
+    pub(crate) sampling_ratio: f64,
 }
 
 impl TracerBuilder for OtlpTracingConfig {
@@ -55,9 +55,7 @@ impl TracerBuilder for OtlpTracingConfig {
             .with_exporter(exporter)
             .with_trace_config(
                 config()
-                    .with_sampler(Sampler::TraceIdRatioBased(
-                        self.sampling_ratio.unwrap_or(1.0),
-                    ))
+                    .with_sampler(Sampler::TraceIdRatioBased(self.sampling_ratio))
                     .with_resource(Resource::new(vec![KeyValue::new(
                         "service.name",
                         self.service_name.clone(),
@@ -71,10 +69,10 @@ impl TracerBuilder for OtlpTracingConfig {
 add_pymethods!(
     OtlpTracingConfig,
     parent: TracingConfig,
-    signature: (service_name, url=None, sampling_ratio=None),
+    signature: (service_name, url=None, sampling_ratio=1.0),
     args {
         service_name: String => String::new(),
         url: Option<String> => None,
-        sampling_ratio: Option<f64> => None
+        sampling_ratio: f64 => 1.0
     }
 );

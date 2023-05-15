@@ -68,7 +68,7 @@ impl ClockBuilder<TdPyAny> for EventClockConfig {
 add_pymethods!(
     EventClockConfig,
     parent: ClockConfig,
-    signature: (dt_getter, wait_for_system_duration=Duration::zero()),
+    signature: (dt_getter, wait_for_system_duration),
     args {
         dt_getter: TdPyCallable => Python::with_gil(TdPyCallable::pickle_new),
         wait_for_system_duration: Duration => Duration::zero()

@@ -52,7 +52,7 @@ pub(crate) struct SlidingWindow {
 add_pymethods!(
     SlidingWindow,
     parent: WindowConfig,
-    signature: (length=Duration::zero(), offset=Duration::zero(), align_to=DateTime::<Utc>::MIN_UTC),
+    signature: (length, offset, align_to),
     args {
         length: Duration => Duration::zero(),
         offset: Duration => Duration::zero(),
