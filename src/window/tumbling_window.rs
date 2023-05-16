@@ -47,7 +47,7 @@ impl WindowBuilder for TumblingWindow {
 add_pymethods!(
     TumblingWindow,
     parent: WindowConfig,
-    py_args: (length, align_to),
+    signature: (length, align_to),
     args {
         length: Duration => Duration::zero(),
         align_to: DateTime<Utc> => DateTime::<Utc>::MIN_UTC

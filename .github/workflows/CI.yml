@@ -25,10 +25,6 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         toolchain: 1.68.2
-    - name: Install dill
-      shell: bash
-      run: |
-        pip install dill
     - name: Rust tests
       uses: actions-rs/cargo@v1
       with:
@@ -88,6 +84,8 @@ jobs:
 
   macos_x86:
     runs-on: macos-latest
+    env:
+      MACOSX_DEPLOYMENT_TARGET: 10.9
     strategy:
       matrix:
         python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
@@ -103,10 +101,6 @@ jobs:
       uses: arduino/setup-protoc@v1
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install system dependency
-      shell: bash
-      run: |
-        pip install dill
     - name: Rust tests
       uses: actions-rs/cargo@v1
       with:
@@ -116,7 +110,7 @@ jobs:
       with:
         rust-toolchain: 1.68.2
         command: build
-        args: --release --no-sdist -o dist --interpreter python${{ matrix.python-version }}
+        args: --release -o dist --interpreter python${{ matrix.python-version }}
     - name: Run tests
       shell: bash
       run: |

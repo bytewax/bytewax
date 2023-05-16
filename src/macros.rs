@@ -83,7 +83,7 @@ macro_rules! log_func {
 /// add_pymethods!(
 ///     SlidingWindow,
 ///     parent: WindowConfig,
-///     py_args: (length,),
+///     signature: (length),
 ///     args {
 ///         length: Duration => Duration::zero()
 ///     }
@@ -92,13 +92,13 @@ macro_rules! log_func {
 macro_rules! add_pymethods {(
     $struct:ident,
     parent: $parent:ident,
-    py_args: $py_args:tt,
+    signature: $signature:tt,
     args { $($arg:ident: $arg_type:ty => $default:expr),* }
 ) => {
     #[pyo3::pymethods]
     impl $struct {
         #[new]
-        #[args $py_args ]
+        #[pyo3(signature=$signature)]
         pub(crate) fn py_new($($arg: $arg_type),*) -> (Self, $parent) {
             (Self { $($arg),* }, $parent {})
         }

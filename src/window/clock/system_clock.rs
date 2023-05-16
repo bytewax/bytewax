@@ -30,7 +30,12 @@ impl<V> ClockBuilder<V> for SystemClockConfig {
     }
 }
 
-add_pymethods!(SystemClockConfig, parent: ClockConfig, py_args: (), args {});
+add_pymethods!(
+    SystemClockConfig,
+    parent: ClockConfig,
+    signature: (),
+    args {}
+);
 
 /// Use the current system time.
 pub(crate) struct SystemClock {

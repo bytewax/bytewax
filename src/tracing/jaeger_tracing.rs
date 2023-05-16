@@ -23,7 +23,7 @@ use super::{TracerBuilder, TracingConfig};
 /// If a config option is passed to JaegerConfig,
 /// it takes precedence over env vars.
 #[pyclass(module="bytewax.tracing", extends=TracingConfig)]
-#[pyo3(text_signature = "(service_name, endpoint, sampling_ratio=1.0)")]
+#[pyo3(text_signature = "(service_name, endpoint = None, sampling_ratio = 1.0)")]
 #[derive(Clone)]
 pub(crate) struct JaegerConfig {
     /// Service name, identifies this dataflow.
@@ -34,16 +34,16 @@ pub(crate) struct JaegerConfig {
     ///   samplig_ratio >= 1 - all traces are sampled
     ///   samplig_ratio <= 0 - most traces are not sampled
     #[pyo3(get)]
-    pub(crate) sampling_ratio: Option<f64>,
+    pub(crate) sampling_ratio: f64,
 }
 
 impl TracerBuilder for JaegerConfig {
     fn build(&self) -> PyResult<Tracer> {
         opentelemetry::global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
         let mut tracer = opentelemetry_jaeger::new_agent_pipeline()
-            .with_trace_config(config().with_sampler(Sampler::TraceIdRatioBased(
-                self.sampling_ratio.unwrap_or(1.0),
-            )))
+            .with_trace_config(
+                config().with_sampler(Sampler::TraceIdRatioBased(self.sampling_ratio)),
+            )
             .with_service_name(self.service_name.clone());
 
         // Overwrite the endpoint if needed
@@ -58,10 +58,10 @@ impl TracerBuilder for JaegerConfig {
 add_pymethods!(
     JaegerConfig,
     parent: TracingConfig,
-    py_args: (service_name, endpoint, sampling_ratio = "None"),
+    signature: (service_name, endpoint=None, sampling_ratio=1.0),
     args {
         service_name: String => String::new(),
         endpoint: Option<String> => None,
-        sampling_ratio: Option<f64> => None
+        sampling_ratio: f64 => 1.0
     }
 );
