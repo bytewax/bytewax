@@ -118,7 +118,8 @@ class CSVInput(FileInput):
     Args:
 
         path: Path to file.
-    
+
+    **fmtparams: Any custom formatting arguments you can pass to [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
     """
     def __init__(self, path: Path, **fmtparams):
         super().__init__(path)
