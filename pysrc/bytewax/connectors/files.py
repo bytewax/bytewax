@@ -144,6 +144,7 @@ class _CSVSource(_FileSource):
         self._f = open(path, "rt")
         self.fmtparams = fmtparams
         self.header = next(csv.reader([self._f.readline()], **self.fmtparams))
+        if self._f.tell() > resume_offset: resume_offset = self._f.tell()
         self._f.seek(resume_offset)
 
     def next(self):
