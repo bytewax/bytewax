@@ -91,7 +91,7 @@ class FileInput(PartitionedInput):
 
     """
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Union[Path, str]):
         if not isinstance(path, Path): path = Path(path)
         self._path = path            
 
