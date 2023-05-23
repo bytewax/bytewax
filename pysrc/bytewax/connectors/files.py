@@ -107,7 +107,9 @@ class FileInput(PartitionedInput):
 class CSVInput(FileInput):
     """Read a single csv file line-by-line from the filesystem.
 
-    Will read the first row as the header and return a dictionary
+    Will read the first row as the header. 
+    
+    For each successive line  it will return a dictionary
     with the header as keys like the DictReader() method.
 
     This csv file must exist and be identical on all workers.
@@ -118,8 +120,34 @@ class CSVInput(FileInput):
     Args:
 
         path: Path to file.
+        **fmtparams: Any custom formatting arguments you can pass to [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
 
-    **fmtparams: Any custom formatting arguments you can pass to [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
+    sample input:
+
+    ```
+    index,timestamp,value,instance
+    0,2022-02-24 11:42:08,0.132,24ae8d
+    0,2022-02-24 11:42:08,0.066,c6585a
+    0,2022-02-24 11:42:08,42.652,ac20cd
+    0,2022-02-24 11:42:08,51.846,5f5533
+    0,2022-02-24 11:42:08,2.296,fe7f93
+    0,2022-02-24 11:42:08,1.732,53ea38
+    0,2022-02-24 11:42:08,91.958,825cc2
+    0,2022-02-24 11:42:08,0.068,77c1ca
+    ```
+    
+    sample output:
+
+    ```
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '0.132', 'instance': '24ae8d'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '0.066', 'instance': 'c6585a'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '42.652', 'instance': 'ac20cd'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '51.846', 'instance': '5f5533'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '2.296', 'instance': 'fe7f93'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '1.732', 'instance': '53ea38'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '91.958', 'instance': '825cc2'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '0.068', 'instance': '77c1ca'}
+    ```
     """
     def __init__(self, path: Path, **fmtparams):
         super().__init__(path)
