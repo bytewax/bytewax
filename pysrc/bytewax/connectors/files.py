@@ -139,7 +139,7 @@ class _CSVSource(_FileSource):
 
     def __init__(self, path, resume_state, **fmtparams):
         super().__init__(path, resume_state)
-        self.fmtparams = fmtparams  # saving fmtparams for later use
+        self.fmtparams = fmtparams
         self.header = next(csv.reader([self._f.readline()], **self.fmtparams))
 
     def next(self):
