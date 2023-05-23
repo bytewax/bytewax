@@ -118,7 +118,6 @@ class CSVInput(FileInput):
     Args:
 
         path: Path to file.
-        can accept any valid keyword arguments from csv.reader()
     
     """
     def __init__(self, path: Path, **fmtparams):
