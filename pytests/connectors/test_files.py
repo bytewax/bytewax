@@ -2,7 +2,7 @@ from pathlib import Path
 
 from pytest import raises
 
-from bytewax.connectors.files import DirInput, DirOutput, FileInput, FileOutput
+from bytewax.connectors.files import DirInput, DirOutput, FileInput, FileOutput, CSVInput
 from bytewax.dataflow import Dataflow
 from bytewax.testing import run_main, TestingInput, TestingOutput
 
@@ -76,7 +76,7 @@ def test_csv_file_input():
 
     flow = Dataflow()
 
-    flow.input("inp", FileInput(file_path))
+    flow.input("inp", CSVInput(file_path))
 
     out = []
     flow.output("out", TestingOutput(out))

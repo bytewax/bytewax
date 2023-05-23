@@ -80,10 +80,6 @@ class DirInput(PartitionedInput):
 class FileInput(PartitionedInput):
     """Read a single file line-by-line from the filesystem.
 
-    FileInput will attempt to identify the type of the file.
-    If the file is of type csv, it will return a dictionary
-    with the headers as the keys.
-
     This file must exist and be identical on all workers.
 
     There is no parallelism; only one worker will actually read the
@@ -96,13 +92,8 @@ class FileInput(PartitionedInput):
     """
 
     def __init__(self, path: Path):
-        self._path = path
-        if str(type(path)) == "<class 'pathlib.PosixPath'>":
-            self.file_type = path.suffix
-        else:
-            self._path = Path(path)
-            self.file_type = self._path.suffix
-            
+        if not isinstance(path, Path): path = Path(path)
+        self._path = path            
 
     def list_parts(self):
         return {str(self._path)}
@@ -111,33 +102,52 @@ class FileInput(PartitionedInput):
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert for_part == str(self._path), "Can't resume reading from different file"
-        if self.file_type == '.csv':
-            return _CSVSource(self._path, resume_state)
-        else:
-            return _FileSource(self._path, resume_state)
+        return _FileSource(self._path, resume_state)
 
-class _CSVSource(StatefulSource):
-    def __init__(self, path, resume_state):
-        resume_offset = resume_state or 0
-        self._f = open(path, "rt")
-        self.header = list(csv.reader([self._f.readline()]))[0]
-        header_position = self._f.tell()
-        if resume_offset <= header_position:
-            resume_offset = header_position
-        self._f.seek(resume_offset)
+class CSVInput(FileInput):
+    """Read a single csv file line-by-line from the filesystem.
+
+    Will read the first row as the header and return a dictionary
+    with the header as keys like the DictReader() method.
+
+    This csv file must exist and be identical on all workers.
+
+    There is no parallelism; only one worker will actually read the
+    file.
+
+    Args:
+
+        path: Path to file.
+        can accept any valid keyword arguments from csv.reader()
+    
+    """
+    def __init__(self, path: Path, **fmtparams):
+        super().__init__(path)
+        self.fmtparams = fmtparams
+
+    def build_part(self, for_part, resume_state):
+        assert for_part == str(self._path), "Can't resume reading from different file"
+        return _CSVSource(self._path, resume_state, **self.fmtparams)
+
+class _CSVSource(_FileSource):
+    '''
+    Handler for csv files to iterate line by line.
+    Uses the csv reader assumes a header on the file
+    on each next() call, will return a dict of header 
+    & values
+    '''
+
+    def __init__(self, path, resume_state, **fmtparams):
+        super().__init__(path, resume_state)
+        self.fmtparams = fmtparams  # saving fmtparams for later use
+        self.header = next(csv.reader([self._f.readline()], **self.fmtparams))
 
     def next(self):
         line = self._f.readline()
-        csv_line = dict(zip(self.header, list(csv.reader([line]))[0]))
+        csv_line = dict(zip(self.header, next(csv.reader([line], **self.fmtparams))))
         if len(line) <= 0:
             raise StopIteration()
         return csv_line
-
-    def snapshot(self):
-        return self._f.tell()
-
-    def close(self):
-        self._f.close()
 
 class _FileSink(StatefulSink):
     def __init__(self, path, resume_state, end):

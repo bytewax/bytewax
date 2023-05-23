@@ -1,12 +1,8 @@
-from bytewax.connectors.files import FileInput
+from bytewax.connectors.files import CSVInput
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
 
 
 flow = Dataflow()
-flow.input("inp", FileInput("examples/sample_data/ec2_metrics.csv"))
+flow.input("inp", CSVInput("examples/sample_data/ec2_metrics.csv", delimiter=","))
 flow.output("out", StdOutput())
-
-from bytewax.testing import run_main
-
-run_main(flow)
