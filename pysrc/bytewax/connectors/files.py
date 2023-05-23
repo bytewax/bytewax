@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Callable
 from zlib import adler32
+import csv
 
 from bytewax.inputs import PartitionedInput, StatefulSource
 from bytewax.outputs import PartitionedOutput, StatefulSink
@@ -14,6 +15,7 @@ __all__ = [
     "DirOutput",
     "FileInput",
     "FileOutput",
+    "CSVInput",
 ]
 
 
@@ -78,6 +80,10 @@ class DirInput(PartitionedInput):
 class FileInput(PartitionedInput):
     """Read a single file line-by-line from the filesystem.
 
+    FileInput will attempt to identify the type of the file.
+    If the file is of type csv, it will return a dictionary
+    with the headers as the keys.
+
     This file must exist and be identical on all workers.
 
     There is no parallelism; only one worker will actually read the
@@ -91,6 +97,12 @@ class FileInput(PartitionedInput):
 
     def __init__(self, path: Path):
         self._path = path
+        if str(type(path)) == "<class 'pathlib.PosixPath'>":
+            self.file_type = path.suffix
+        else:
+            self._path = Path(path)
+            self.file_type = self._path.suffix
+            
 
     def list_parts(self):
         return {str(self._path)}
@@ -99,8 +111,33 @@ class FileInput(PartitionedInput):
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert for_part == str(self._path), "Can't resume reading from different file"
-        return _FileSource(self._path, resume_state)
+        if self.file_type == '.csv':
+            return _CSVSource(self._path, resume_state)
+        else:
+            return _FileSource(self._path, resume_state)
 
+class _CSVSource(StatefulSource):
+    def __init__(self, path, resume_state):
+        resume_offset = resume_state or 0
+        self._f = open(path, "rt")
+        self.header = list(csv.reader([self._f.readline()]))[0]
+        header_position = self._f.tell()
+        if resume_offset <= header_position:
+            resume_offset = header_position
+        self._f.seek(resume_offset)
+
+    def next(self):
+        line = self._f.readline()
+        csv_line = dict(zip(self.header, list(csv.reader([line]))[0]))
+        if len(line) <= 0:
+            raise StopIteration()
+        return csv_line
+
+    def snapshot(self):
+        return self._f.tell()
+
+    def close(self):
+        self._f.close()
 
 class _FileSink(StatefulSink):
     def __init__(self, path, resume_state, end):
