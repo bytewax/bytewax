@@ -7,6 +7,7 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::{IntoPy, Py, PyAny, PyResult, Python};
 use serde::{Deserialize, Serialize};
 use timely::communication::Allocate;
+use timely::dataflow::operators::Exchange;
 use timely::dataflow::{
     operators::{Concatenate, Filter, Inspect, Map, Probe, ResultStream, ToStream},
     ProbeHandle,
@@ -18,6 +19,7 @@ use tracing::span::EnteredSpan;
 use crate::dataflow::{Dataflow, Step};
 use crate::errors::{tracked_err, PythonException};
 use crate::inputs::{DynamicInput, EpochInterval, PartitionedInput};
+use crate::operators::inspect_worker;
 use crate::operators::{
     collect_window::CollectWindowLogic, filter, flat_map, fold_window::FoldWindowLogic, inspect,
     inspect_epoch, map, reduce::ReduceLogic, reduce_window::ReduceWindowLogic,
@@ -340,6 +342,14 @@ where
             // for a while when it's moved into the closure.
             let step = step.clone();
             match step {
+                Step::SpreadToRandomWorkers => {
+                    let count = worker_count.0 as u64;
+                    stream = stream.exchange(move |_| fastrand::u64(0..=count))
+                }
+                Step::SendToWorker { worker_id } => {
+                    let count = worker_count.0 as u64;
+                    stream = stream.exchange(move |_| worker_id % count)
+                }
                 Step::CollectWindow {
                     step_id,
                     clock_config,
@@ -469,6 +479,10 @@ where
                 }
                 Step::Inspect { inspector } => {
                     stream = stream.inspect(move |item| inspect(&inspector, item));
+                }
+                Step::InspectWorker { inspector } => {
+                    stream =
+                        stream.inspect(move |item| inspect_worker(&inspector, item, &worker_index));
                 }
                 Step::InspectEpoch { inspector } => {
                     stream = stream

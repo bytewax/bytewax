@@ -13,6 +13,7 @@ use crate::errors::PythonException;
 use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
 use crate::try_unwrap;
 use crate::unwrap_any;
+use crate::worker::WorkerIndex;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 
@@ -63,6 +64,15 @@ pub(crate) fn inspect(inspector: &TdPyCallable, item: &TdPyAny) {
     Python::with_gil(|py| {
         unwrap_any!(inspector
             .call1(py, (item,))
+            .reraise("error calling `inspect` inspector"))
+    });
+}
+
+#[tracing::instrument(level = "trace")]
+pub(crate) fn inspect_worker(inspector: &TdPyCallable, item: &TdPyAny, worker_index: &WorkerIndex) {
+    Python::with_gil(|py| {
+        unwrap_any!(inspector
+            .call1(py, (worker_index.into_py(py), item,))
             .reraise("error calling `inspect` inspector"))
     });
 }

@@ -78,6 +78,47 @@ impl Dataflow {
         self.steps.push(Step::Input { step_id, input });
     }
 
+    /// Spread the work across workers, in a randomic way.
+    ///
+    /// This operators takes each item and sends it to
+    /// one of the available workers.
+    /// This operation has a overhead, since it will need
+    /// to serialize, send, and deserialize the items,
+    /// so while it can significantly speed up the
+    /// execution in some cases, it can also make it slower.
+    ///
+    /// A good use of this operator is to parallelize an IO
+    /// bound step, like a network request, or a heavy,
+    /// single-cpu workload, on a machine with multiple
+    /// workers and multiple cpu cores that would remain
+    /// unused otherwise.
+    ///
+    /// A bad use of this operator is if the operation you want
+    /// to parallelize is already really fast as it is, as the
+    /// overhead can overshadow the advantages of distributing
+    /// the work.
+    /// Another case where we see a regression in performance is
+    /// if the heavy CPU workload already spawns enough threads
+    /// to use all the available cores. In this case multiple
+    /// processes trying to compete for the cpu will end up being
+    /// slower than doing the work serially.
+    /// If the workers run on different machines though, it might
+    /// again be a valuable use of the operator.
+    ///
+    /// So, use this operator with caution, and measure whether you
+    /// get an improvement out of it.
+    ///
+    /// Once the work has been spread to another worker, it will
+    /// stay on that worker unless other operators explicitely
+    /// move the item again (usually this happens on the output).
+    fn spread_to_random_workers(&mut self) {
+        self.steps.push(Step::SpreadToRandomWorkers);
+    }
+
+    fn send_to_worker(&mut self, worker_id: u64) {
+        self.steps.push(Step::SendToWorker { worker_id });
+    }
+
     /// Write data to an output.
     ///
     /// At least one output is required on every dataflow.
@@ -251,6 +292,11 @@ impl Dataflow {
     #[pyo3(signature = (inspector))]
     fn inspect_epoch(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::InspectEpoch { inspector });
+    }
+
+    #[pyo3(text_signature = "(self, inspector)")]
+    fn inspect_worker(&mut self, inspector: TdPyCallable) {
+        self.steps.push(Step::InspectWorker { inspector });
     }
 
     /// Map is a one-to-one transformation of items.
@@ -676,6 +722,10 @@ impl Dataflow {
 /// for Timely's operators. We try to keep the same semantics here.
 #[derive(Clone)]
 pub(crate) enum Step {
+    SpreadToRandomWorkers,
+    SendToWorker {
+        worker_id: u64,
+    },
     Input {
         step_id: StepId,
         input: Input,
@@ -700,6 +750,9 @@ pub(crate) enum Step {
         folder: TdPyCallable,
     },
     Inspect {
+        inspector: TdPyCallable,
+    },
+    InspectWorker {
         inspector: TdPyCallable,
     },
     InspectEpoch {
@@ -769,6 +822,9 @@ impl<'source> FromPyObject<'source> for Step {
             "Inspect" => Ok(Self::Inspect {
                 inspector: pickle_extract(dict, "inspector")?,
             }),
+            "InspectWorker" => Ok(Self::InspectWorker {
+                inspector: pickle_extract(dict, "inspector")?,
+            }),
             "InspectEpoch" => Ok(Self::InspectEpoch {
                 inspector: pickle_extract(dict, "inspector")?,
             }),
@@ -811,6 +867,14 @@ impl<'source> FromPyObject<'source> for Step {
 impl IntoPy<PyObject> for Step {
     fn into_py(self, py: Python) -> Py<PyAny> {
         match self {
+            Self::SpreadToRandomWorkers => {
+                HashMap::from([("type", IntoPy::<PyObject>::into_py("Broadcast", py))]).into_py(py)
+            }
+            Self::SendToWorker { worker_id } => HashMap::from([
+                ("type", "Broadcast".into_py(py)),
+                ("worker_id", worker_id.into_py(py)),
+            ])
+            .into_py(py),
             Self::Input { step_id, input } => HashMap::from([
                 ("type", "Input".into_py(py)),
                 ("step_id", step_id.into_py(py)),
@@ -852,6 +916,11 @@ impl IntoPy<PyObject> for Step {
             ])
             .into_py(py),
             Self::Inspect { inspector } => HashMap::from([
+                ("type", "Inspect".into_py(py)),
+                ("inspector", inspector.into_py(py)),
+            ])
+            .into_py(py),
+            Self::InspectWorker { inspector } => HashMap::from([
                 ("type", "Inspect".into_py(py)),
                 ("inspector", inspector.into_py(py)),
             ])
