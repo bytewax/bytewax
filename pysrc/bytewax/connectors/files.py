@@ -3,7 +3,7 @@
 """
 import os
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Union
 from zlib import adler32
 import csv
 
@@ -130,17 +130,21 @@ class CSVInput(FileInput):
         return _CSVSource(self._path, resume_state, **self.fmtparams)
 
 class _CSVSource(_FileSource):
-    '''
+    """
     Handler for csv files to iterate line by line.
     Uses the csv reader assumes a header on the file
     on each next() call, will return a dict of header 
     & values
-    '''
+
+    Called by CSVInput
+    """
 
     def __init__(self, path, resume_state, **fmtparams):
-        super().__init__(path, resume_state)
+        resume_offset = resume_state or 0
+        self._f = open(path, "rt")
         self.fmtparams = fmtparams
         self.header = next(csv.reader([self._f.readline()], **self.fmtparams))
+        self._f.seek(resume_offset)
 
     def next(self):
         line = self._f.readline()
