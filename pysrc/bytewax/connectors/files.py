@@ -154,6 +154,12 @@ class _CSVSource(_FileSource):
             raise StopIteration()
         return csv_line
 
+    def snapshot(self):
+        return self._f.tell()
+
+    def close(self):
+        self._f.close()
+
 class _FileSink(StatefulSink):
     def __init__(self, path, resume_state, end):
         resume_offset = resume_state or 0
