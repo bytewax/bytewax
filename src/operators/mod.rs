@@ -69,11 +69,11 @@ pub(crate) fn inspect(inspector: &TdPyCallable, item: &TdPyAny) {
 }
 
 #[tracing::instrument(level = "trace")]
-pub(crate) fn inspect_worker(inspector: &TdPyCallable, item: &TdPyAny, worker_index: &WorkerIndex) {
+pub(crate) fn inspect_worker(inspector: &TdPyCallable, worker_index: &WorkerIndex, item: &TdPyAny) {
     Python::with_gil(|py| {
         unwrap_any!(inspector
             .call1(py, (worker_index.into_py(py), item,))
-            .reraise("error calling `inspect` inspector"))
+            .reraise("error calling `inspect_worker` inspector"))
     });
 }
 

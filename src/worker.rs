@@ -482,7 +482,7 @@ where
                 }
                 Step::InspectWorker { inspector } => {
                     stream =
-                        stream.inspect(move |item| inspect_worker(&inspector, item, &worker_index));
+                        stream.inspect(move |item| inspect_worker(&inspector, &worker_index, item));
                 }
                 Step::InspectEpoch { inspector } => {
                     stream = stream

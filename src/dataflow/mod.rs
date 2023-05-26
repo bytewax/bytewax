@@ -97,10 +97,10 @@ impl Dataflow {
     /// to parallelize is already really fast as it is, as the
     /// overhead can overshadow the advantages of distributing
     /// the work.
-    /// Another case where we see a regression in performance is
+    /// Another case where you could see regressions in performance is
     /// if the heavy CPU workload already spawns enough threads
     /// to use all the available cores. In this case multiple
-    /// processes trying to compete for the cpu will end up being
+    /// processes trying to compete for the cpu can end up being
     /// slower than doing the work serially.
     /// If the workers run on different machines though, it might
     /// again be a valuable use of the operator.
@@ -109,12 +109,22 @@ impl Dataflow {
     /// get an improvement out of it.
     ///
     /// Once the work has been spread to another worker, it will
-    /// stay on that worker unless other operators explicitely
-    /// move the item again (usually this happens on the output).
+    /// stay on those workers unless other operators explicitely
+    /// move the item again.
     fn spread_to_random_workers(&mut self) {
         self.steps.push(Step::SpreadToRandomWorkers);
     }
 
+    /// Send all the items to a specific worker id.
+    ///
+    /// This operators sends all the work to a specific worker.
+    /// This can be useful if you run your dataflow on multiple
+    /// machines with different characteristics, for example
+    /// if only one of the machines in the cluster has access
+    /// to a GPU.
+    /// The items will remain in that machine unless explicitely
+    /// reordered, for example with the `spread_to_random_workers`
+    /// operator, or during partitioned output handling.
     fn send_to_worker(&mut self, worker_id: u64) {
         self.steps.push(Step::SendToWorker { worker_id });
     }
@@ -294,6 +304,15 @@ impl Dataflow {
         self.steps.push(Step::InspectEpoch { inspector });
     }
 
+    /// Inspect worker allows you to observe, but not modify, items and
+    /// their worker's index.
+    ///
+    /// It calls an **inspector** function on each item with its
+    /// worker's index.
+    ///
+    /// It emits items downstream unmodified.
+    ///
+    /// It is commonly used for debugging.
     #[pyo3(text_signature = "(self, inspector)")]
     fn inspect_worker(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::InspectWorker { inspector });
