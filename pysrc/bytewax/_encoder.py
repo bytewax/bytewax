@@ -1,6 +1,7 @@
 import datetime
 import json
 import types
+import inspect
 
 from .bytewax import Dataflow
 
@@ -18,6 +19,13 @@ class DataflowEncoder(json.JSONEncoder):
     def default(self, obj):
         if hasattr(obj, "__json__"):
             return obj.__json__()
+
+        # Check if the object is a class, and return its name.
+        # If the object is a class the call to __getstate__ below
+        # WILL fail since we are not passing a `self` parameter.
+        if inspect.isclass(obj):
+            return obj.__qualname__
+
         # Python 3.11 added __getstate__ to the 'object' type,
         # but for some objects the result is `None`.
         # In those cases, it's probably better to try other options,
