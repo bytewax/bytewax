@@ -3,8 +3,9 @@
 """
 import os
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Union
 from zlib import adler32
+import csv
 
 from bytewax.inputs import PartitionedInput, StatefulSource
 from bytewax.outputs import PartitionedOutput, StatefulSink
@@ -14,6 +15,7 @@ __all__ = [
     "DirOutput",
     "FileInput",
     "FileOutput",
+    "CSVInput",
 ]
 
 
@@ -89,8 +91,9 @@ class FileInput(PartitionedInput):
 
     """
 
-    def __init__(self, path: Path):
-        self._path = path
+    def __init__(self, path: Union[Path, str]):
+        if not isinstance(path, Path): path = Path(path)
+        self._path = path            
 
     def list_parts(self):
         return {str(self._path)}
@@ -101,6 +104,89 @@ class FileInput(PartitionedInput):
         assert for_part == str(self._path), "Can't resume reading from different file"
         return _FileSource(self._path, resume_state)
 
+class CSVInput(FileInput):
+    """Read a single csv file line-by-line from the filesystem.
+
+    Will read the first row as the header. 
+    
+    For each successive line  it will return a dictionary
+    with the header as keys like the DictReader() method.
+
+    This csv file must exist and be identical on all workers.
+
+    There is no parallelism; only one worker will actually read the
+    file.
+
+    Args:
+
+        path: Path to file.
+        **fmtparams: Any custom formatting arguments you can pass to [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
+
+    sample input:
+
+    ```
+    index,timestamp,value,instance
+    0,2022-02-24 11:42:08,0.132,24ae8d
+    0,2022-02-24 11:42:08,0.066,c6585a
+    0,2022-02-24 11:42:08,42.652,ac20cd
+    0,2022-02-24 11:42:08,51.846,5f5533
+    0,2022-02-24 11:42:08,2.296,fe7f93
+    0,2022-02-24 11:42:08,1.732,53ea38
+    0,2022-02-24 11:42:08,91.958,825cc2
+    0,2022-02-24 11:42:08,0.068,77c1ca
+    ```
+    
+    sample output:
+
+    ```
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '0.132', 'instance': '24ae8d'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '0.066', 'instance': 'c6585a'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '42.652', 'instance': 'ac20cd'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '51.846', 'instance': '5f5533'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '2.296', 'instance': 'fe7f93'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '1.732', 'instance': '53ea38'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '91.958', 'instance': '825cc2'}
+    {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '0.068', 'instance': '77c1ca'}
+    ```
+    """
+    def __init__(self, path: Path, **fmtparams):
+        super().__init__(path)
+        self.fmtparams = fmtparams
+
+    def build_part(self, for_part, resume_state):
+        assert for_part == str(self._path), "Can't resume reading from different file"
+        return _CSVSource(self._path, resume_state, **self.fmtparams)
+
+class _CSVSource(_FileSource):
+    """
+    Handler for csv files to iterate line by line.
+    Uses the csv reader assumes a header on the file
+    on each next() call, will return a dict of header 
+    & values
+
+    Called by CSVInput
+    """
+
+    def __init__(self, path, resume_state, **fmtparams):
+        resume_offset = resume_state or 0
+        self._f = open(path, "rt")
+        self.fmtparams = fmtparams
+        self.header = next(csv.reader([self._f.readline()], **self.fmtparams))
+        if resume_offset:
+            self._f.seek(resume_offset)
+
+    def next(self):
+        line = self._f.readline()
+        csv_line = dict(zip(self.header, next(csv.reader([line], **self.fmtparams))))
+        if len(line) <= 0:
+            raise StopIteration()
+        return csv_line
+
+    def snapshot(self):
+        return self._f.tell()
+
+    def close(self):
+        self._f.close()
 
 class _FileSink(StatefulSink):
     def __init__(self, path, resume_state, end):

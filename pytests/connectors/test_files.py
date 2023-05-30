@@ -2,7 +2,7 @@ from pathlib import Path
 
 from pytest import raises
 
-from bytewax.connectors.files import DirInput, DirOutput, FileInput, FileOutput
+from bytewax.connectors.files import DirInput, DirOutput, FileInput, FileOutput, CSVInput
 from bytewax.dataflow import Dataflow
 from bytewax.testing import run_main, TestingInput, TestingOutput
 
@@ -71,6 +71,28 @@ def test_file_input():
         "one6",
     ]
 
+def test_csv_file_input():
+    file_path = Path("examples/sample_data/metrics.csv")
+
+    flow = Dataflow()
+
+    flow.input("inp", CSVInput(file_path))
+
+    out = []
+    flow.output("out", TestingOutput(out))
+
+    run_main(flow)
+
+    assert out == [
+        {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '0.132', 'instance': '24ae8d'},
+        {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '0.066', 'instance': 'c6585a'},
+        {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '42.652', 'instance': 'ac20cd'},
+        {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '51.846', 'instance': '5f5533'},
+        {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '2.296', 'instance': 'fe7f93'},
+        {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '1.732', 'instance': '53ea38'},
+        {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '91.958', 'instance': '825cc2'},
+        {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '0.068', 'instance': '77c1ca'}
+    ]
 
 def test_file_input_resume_state():
     file_path = Path("examples/sample_data/cluster/partition-1.txt")
