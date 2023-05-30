@@ -22,6 +22,25 @@ class OrderBook:
         self.data.append(data)
 
 
+def test_encoding_custom_object():
+    flow = Dataflow()
+    flow.stateful_map("avg", OrderBook, OrderBook.update)
+    assert encode_dataflow(flow) == json.dumps(
+        {
+            "type": "Dataflow",
+            "steps": [
+                {
+                    "type": "StatefulMap",
+                    "builder": "OrderBook",
+                    "mapper": "update",
+                    "step_id": "avg",
+                }
+            ],
+        },
+        sort_keys=True,
+    )
+
+
 def test_encoding_custom_input():
     flow = Dataflow()
 
