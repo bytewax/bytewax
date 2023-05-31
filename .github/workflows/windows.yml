@@ -1,0 +1,31 @@
+name: WINTEST
+on:
+  workflow_dispatch:
+
+
+jobs:
+  test-windows:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build: windows-vendored
+            os: windows-latest
+            rust: stable
+            features: vendored,openssl-vendored
+    steps:
+      - uses: actions/checkout@v1
+      - name: Install Rust (rustup)
+        run: rustup update ${{ matrix.rust }} --no-self-update && rustup default ${{ matrix.rust }}
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v2
+      - uses: ilammy/msvc-dev-cmd@v1
+      - shell: cmd
+        run: |
+          set PATH=%PATH%;%wix%bin;"%WindowsSdkVerBinPath%"\x86
+          cargo build --release
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release

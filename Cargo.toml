@@ -34,6 +34,12 @@ rdkafka = { version = "0.28.0", features = [ "cmake-build", "gssapi-vendored", "
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 rdkafka = { version = "0.28.0", features = [ "cmake-build", "gssapi", "ssl" ] }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+sasl2-sys = {version="0.1.20",features=["vendored","openssl-vendored"]}
+
+[build-dependencies]
+openssl-src = { version = "111", default-features = false, features = ["force-engine"] }
+
 [dev-dependencies]
 pyo3 = { version = "0.18.3", default-features = false, features = ["macros", "chrono"] }
 
