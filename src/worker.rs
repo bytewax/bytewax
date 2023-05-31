@@ -344,7 +344,7 @@ where
             match step {
                 Step::Redistribute => {
                     let count = worker_count.0 as u64;
-                    stream = stream.exchange(move |_| fastrand::u64(0..=count))
+                    stream = stream.exchange(move |_| fastrand::u64(0..count))
                 }
                 Step::CollectWindow {
                     step_id,
