@@ -78,10 +78,15 @@ impl Dataflow {
         self.steps.push(Step::Input { step_id, input });
     }
 
-    /// Spread the work across workers, in a randomic way.
+    /// Redistribute the work across workers, in a randomic way.
     ///
-    /// This operators takes each item and sends it to
-    /// one of the available workers.
+    /// Usually a Dataflow's parallelization level is limited by the
+    /// number of partitions of the input.
+    /// This operator can be used to higher the level of parallelization
+    /// in the middle of the computation.
+    /// To do that, it takes each item and sends it to one of the
+    /// available workers.
+    ///
     /// This operation has a overhead, since it will need
     /// to serialize, send, and deserialize the items,
     /// so while it can significantly speed up the
@@ -105,28 +110,14 @@ impl Dataflow {
     /// If the workers run on different machines though, it might
     /// again be a valuable use of the operator.
     ///
-    /// So, use this operator with caution, and measure whether you
+    /// Use this operator with caution, and measure whether you
     /// get an improvement out of it.
     ///
     /// Once the work has been spread to another worker, it will
     /// stay on those workers unless other operators explicitely
-    /// move the item again.
-    fn spread_to_random_workers(&mut self) {
-        self.steps.push(Step::SpreadToRandomWorkers);
-    }
-
-    /// Send all the items to a specific worker id.
-    ///
-    /// This operators sends all the work to a specific worker.
-    /// This can be useful if you run your dataflow on multiple
-    /// machines with different characteristics, for example
-    /// if only one of the machines in the cluster has access
-    /// to a GPU.
-    /// The items will remain in that machine unless explicitely
-    /// reordered, for example with the `spread_to_random_workers`
-    /// operator, or during partitioned output handling.
-    fn send_to_worker(&mut self, worker_id: u64) {
-        self.steps.push(Step::SendToWorker { worker_id });
+    /// move the item again (usually on output).
+    fn redistribute(&mut self) {
+        self.steps.push(Step::Redistribute);
     }
 
     /// Write data to an output.
@@ -741,10 +732,7 @@ impl Dataflow {
 /// for Timely's operators. We try to keep the same semantics here.
 #[derive(Clone)]
 pub(crate) enum Step {
-    SpreadToRandomWorkers,
-    SendToWorker {
-        worker_id: u64,
-    },
+    Redistribute,
     Input {
         step_id: StepId,
         input: Input,
@@ -847,6 +835,7 @@ impl<'source> FromPyObject<'source> for Step {
             "InspectEpoch" => Ok(Self::InspectEpoch {
                 inspector: pickle_extract(dict, "inspector")?,
             }),
+            "Redistribute" => Ok(Self::Redistribute),
             "Reduce" => Ok(Self::Reduce {
                 step_id: pickle_extract(dict, "step_id")?,
                 reducer: pickle_extract(dict, "reducer")?,
@@ -886,14 +875,9 @@ impl<'source> FromPyObject<'source> for Step {
 impl IntoPy<PyObject> for Step {
     fn into_py(self, py: Python) -> Py<PyAny> {
         match self {
-            Self::SpreadToRandomWorkers => {
-                HashMap::from([("type", IntoPy::<PyObject>::into_py("Broadcast", py))]).into_py(py)
+            Self::Redistribute => {
+                HashMap::from([("type", IntoPy::<PyObject>::into_py("Redistribute", py))]).into_py(py)
             }
-            Self::SendToWorker { worker_id } => HashMap::from([
-                ("type", "Broadcast".into_py(py)),
-                ("worker_id", worker_id.into_py(py)),
-            ])
-            .into_py(py),
             Self::Input { step_id, input } => HashMap::from([
                 ("type", "Input".into_py(py)),
                 ("step_id", step_id.into_py(py)),

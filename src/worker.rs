@@ -342,13 +342,9 @@ where
             // for a while when it's moved into the closure.
             let step = step.clone();
             match step {
-                Step::SpreadToRandomWorkers => {
+                Step::Redistribute => {
                     let count = worker_count.0 as u64;
                     stream = stream.exchange(move |_| fastrand::u64(0..=count))
-                }
-                Step::SendToWorker { worker_id } => {
-                    let count = worker_count.0 as u64;
-                    stream = stream.exchange(move |_| worker_id % count)
                 }
                 Step::CollectWindow {
                     step_id,
