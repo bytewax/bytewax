@@ -37,9 +37,10 @@ jobs:
           args: --release -o dist --interpreter python${{ matrix.python-version }}
       - name: Run tests
         run: |
-          $WHEEL_FILE=Get-ChildItem ./dist | Select Name -ExpandProperty Name
-          pip install ./dist/$WHEEL_FILE -v
-          pip install -r build.requirements.txt
+          $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
+          $WHEEL_FILE_DEV=$WHEEL_FILE+"[dev]"
+          pip install $WHEEL_FILE_DEV -v
+          $env:PY_IGNORE_IMPORTMISMATCH = '1'
           pytest
       - name: Upload wheels
         uses: actions/upload-artifact@v2
