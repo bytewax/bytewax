@@ -36,11 +36,11 @@ jobs:
           command: build
           args: --release -o dist --interpreter python${{ matrix.python-version }}
       - name: Run tests
-        shell: bash
         run: |
-          WHEEL_FILE=$(ls ./dist/*.whl)
-          pip install $WHEEL_FILE'[dev]' -v
-          PY_IGNORE_IMPORTMISMATCH=1 pytest
+          $WHEEL_FILE=Get-ChildItem ./dist | Select Name -ExpandProperty Name
+          pip install ./dist/$WHEEL_FILE -v
+          pip install -r build.requirements.txt
+          pytest
       - name: Upload wheels
         uses: actions/upload-artifact@v2
         with:
