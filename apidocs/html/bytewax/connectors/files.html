@@ -14,8 +14,9 @@
 &#34;&#34;&#34;
 import os
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Union
 from zlib import adler32
+import csv
 
 from bytewax.inputs import PartitionedInput, StatefulSource
 from bytewax.outputs import PartitionedOutput, StatefulSink
@@ -25,6 +26,7 @@ __all__ = [
     &#34;DirOutput&#34;,
     &#34;FileInput&#34;,
     &#34;FileOutput&#34;,
+    &#34;CSVInput&#34;,
 ]
 
 
@@ -100,8 +102,9 @@ class FileInput(PartitionedInput):
 
     &#34;&#34;&#34;
 
-    def __init__(self, path: Path):
-        self._path = path
+    def __init__(self, path: Union[Path, str]):
+        if not isinstance(path, Path): path = Path(path)
+        self._path = path            
 
     def list_parts(self):
         return {str(self._path)}
@@ -112,6 +115,89 @@ class FileInput(PartitionedInput):
         assert for_part == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
         return _FileSource(self._path, resume_state)
 
+class CSVInput(FileInput):
+    &#34;&#34;&#34;Read a single csv file line-by-line from the filesystem.
+
+    Will read the first row as the header. 
+    
+    For each successive line  it will return a dictionary
+    with the header as keys like the DictReader() method.
+
+    This csv file must exist and be identical on all workers.
+
+    There is no parallelism; only one worker will actually read the
+    file.
+
+    Args:
+
+        path: Path to file.
+        **fmtparams: Any custom formatting arguments you can pass to [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
+
+    sample input:
+
+    ```
+    index,timestamp,value,instance
+    0,2022-02-24 11:42:08,0.132,24ae8d
+    0,2022-02-24 11:42:08,0.066,c6585a
+    0,2022-02-24 11:42:08,42.652,ac20cd
+    0,2022-02-24 11:42:08,51.846,5f5533
+    0,2022-02-24 11:42:08,2.296,fe7f93
+    0,2022-02-24 11:42:08,1.732,53ea38
+    0,2022-02-24 11:42:08,91.958,825cc2
+    0,2022-02-24 11:42:08,0.068,77c1ca
+    ```
+    
+    sample output:
+
+    ```
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;0.132&#39;, &#39;instance&#39;: &#39;24ae8d&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;0.066&#39;, &#39;instance&#39;: &#39;c6585a&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;42.652&#39;, &#39;instance&#39;: &#39;ac20cd&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;51.846&#39;, &#39;instance&#39;: &#39;5f5533&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;2.296&#39;, &#39;instance&#39;: &#39;fe7f93&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;1.732&#39;, &#39;instance&#39;: &#39;53ea38&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;91.958&#39;, &#39;instance&#39;: &#39;825cc2&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;0.068&#39;, &#39;instance&#39;: &#39;77c1ca&#39;}
+    ```
+    &#34;&#34;&#34;
+    def __init__(self, path: Path, **fmtparams):
+        super().__init__(path)
+        self.fmtparams = fmtparams
+
+    def build_part(self, for_part, resume_state):
+        assert for_part == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
+        return _CSVSource(self._path, resume_state, **self.fmtparams)
+
+class _CSVSource(_FileSource):
+    &#34;&#34;&#34;
+    Handler for csv files to iterate line by line.
+    Uses the csv reader assumes a header on the file
+    on each next() call, will return a dict of header 
+    &amp; values
+
+    Called by CSVInput
+    &#34;&#34;&#34;
+
+    def __init__(self, path, resume_state, **fmtparams):
+        resume_offset = resume_state or 0
+        self._f = open(path, &#34;rt&#34;)
+        self.fmtparams = fmtparams
+        self.header = next(csv.reader([self._f.readline()], **self.fmtparams))
+        if resume_offset:
+            self._f.seek(resume_offset)
+
+    def next(self):
+        line = self._f.readline()
+        csv_line = dict(zip(self.header, next(csv.reader([line], **self.fmtparams))))
+        if len(line) &lt;= 0:
+            raise StopIteration()
+        return csv_line
+
+    def snapshot(self):
+        return self._f.tell()
+
+    def close(self):
+        self._f.close()
 
 class _FileSink(StatefulSink):
     def __init__(self, path, resume_state, end):
@@ -248,6 +334,121 @@ class FileOutput(PartitionedOutput):
 <section>
 <h2 class="api__article-subtitle" id="header-classes">Classes</h2>
 <dl>
+<dt id="bytewax.connectors.files.CSVInput"><code class="language-python flex name class">
+<span>class <span class="ident">CSVInput</span></span>
+<span>(</span><span>path: pathlib.Path, **fmtparams)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Read a single csv file line-by-line from the filesystem.</p>
+<p>Will read the first row as the header. </p>
+<p>For each successive line
+it will return a dictionary
+with the header as keys like the DictReader() method.</p>
+<p>This csv file must exist and be identical on all workers.</p>
+<p>There is no parallelism; only one worker will actually read the
+file.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>path</code></strong></dt>
+<dd>Path to file.</dd>
+<dt><strong><code>**fmtparams</code></strong></dt>
+<dd>Any custom formatting arguments you can pass to <a href="https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader"><code>csv.reader</code></a>.</dd>
+</dl>
+<p>sample input:</p>
+<pre><code>index,timestamp,value,instance
+0,2022-02-24 11:42:08,0.132,24ae8d
+0,2022-02-24 11:42:08,0.066,c6585a
+0,2022-02-24 11:42:08,42.652,ac20cd
+0,2022-02-24 11:42:08,51.846,5f5533
+0,2022-02-24 11:42:08,2.296,fe7f93
+0,2022-02-24 11:42:08,1.732,53ea38
+0,2022-02-24 11:42:08,91.958,825cc2
+0,2022-02-24 11:42:08,0.068,77c1ca
+</code></pre>
+<p>sample output:</p>
+<pre><code>{'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '0.132', 'instance': '24ae8d'}
+{'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '0.066', 'instance': 'c6585a'}
+{'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '42.652', 'instance': 'ac20cd'}
+{'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '51.846', 'instance': '5f5533'}
+{'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '2.296', 'instance': 'fe7f93'}
+{'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '1.732', 'instance': '53ea38'}
+{'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '91.958', 'instance': '825cc2'}
+{'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '0.068', 'instance': '77c1ca'}
+</code></pre></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class CSVInput(FileInput):
+    &#34;&#34;&#34;Read a single csv file line-by-line from the filesystem.
+
+    Will read the first row as the header. 
+    
+    For each successive line  it will return a dictionary
+    with the header as keys like the DictReader() method.
+
+    This csv file must exist and be identical on all workers.
+
+    There is no parallelism; only one worker will actually read the
+    file.
+
+    Args:
+
+        path: Path to file.
+        **fmtparams: Any custom formatting arguments you can pass to [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
+
+    sample input:
+
+    ```
+    index,timestamp,value,instance
+    0,2022-02-24 11:42:08,0.132,24ae8d
+    0,2022-02-24 11:42:08,0.066,c6585a
+    0,2022-02-24 11:42:08,42.652,ac20cd
+    0,2022-02-24 11:42:08,51.846,5f5533
+    0,2022-02-24 11:42:08,2.296,fe7f93
+    0,2022-02-24 11:42:08,1.732,53ea38
+    0,2022-02-24 11:42:08,91.958,825cc2
+    0,2022-02-24 11:42:08,0.068,77c1ca
+    ```
+    
+    sample output:
+
+    ```
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;0.132&#39;, &#39;instance&#39;: &#39;24ae8d&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;0.066&#39;, &#39;instance&#39;: &#39;c6585a&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;42.652&#39;, &#39;instance&#39;: &#39;ac20cd&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;51.846&#39;, &#39;instance&#39;: &#39;5f5533&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;2.296&#39;, &#39;instance&#39;: &#39;fe7f93&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;1.732&#39;, &#39;instance&#39;: &#39;53ea38&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;91.958&#39;, &#39;instance&#39;: &#39;825cc2&#39;}
+    {&#39;index&#39;: &#39;0&#39;, &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;, &#39;value&#39;: &#39;0.068&#39;, &#39;instance&#39;: &#39;77c1ca&#39;}
+    ```
+    &#34;&#34;&#34;
+    def __init__(self, path: Path, **fmtparams):
+        super().__init__(path)
+        self.fmtparams = fmtparams
+
+    def build_part(self, for_part, resume_state):
+        assert for_part == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
+        return _CSVSource(self._path, resume_state, **self.fmtparams)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.connectors.files.FileInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileInput">FileInput</a></li>
+<li><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></li>
+<li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
+<li>abc.ABC</li>
+</ul>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code class="language-python"><b><a title="bytewax.connectors.files.FileInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileInput">FileInput</a></b></code>:
+<ul class="hlist">
+<li><code class="language-python"><a title="bytewax.connectors.files.FileInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.build_part">build_part</a></code></li>
+<li><code class="language-python"><a title="bytewax.connectors.files.FileInput.list_parts" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.list_parts">list_parts</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
 <dt id="bytewax.connectors.files.DirInput"><code class="language-python flex name class">
 <span>class <span class="ident">DirInput</span></span>
 <span>(</span><span>dir: pathlib.Path, glob_pat: str = '*')</span>
@@ -447,7 +648,7 @@ globally-consistent hash.</dd>
 </dd>
 <dt id="bytewax.connectors.files.FileInput"><code class="language-python flex name class">
 <span>class <span class="ident">FileInput</span></span>
-<span>(</span><span>path: pathlib.Path)</span>
+<span>(</span><span>path: Union[pathlib.Path, str])</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Read a single file line-by-line from the filesystem.</p>
@@ -477,8 +678,9 @@ file.</p>
 
     &#34;&#34;&#34;
 
-    def __init__(self, path: Path):
-        self._path = path
+    def __init__(self, path: Union[Path, str]):
+        if not isinstance(path, Path): path = Path(path)
+        self._path = path            
 
     def list_parts(self):
         return {str(self._path)}
@@ -494,6 +696,10 @@ file.</p>
 <li><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></li>
 <li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
 <li>abc.ABC</li>
+</ul>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="bytewax.connectors.files.CSVInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.CSVInput">CSVInput</a></li>
 </ul>
 <h3>Inherited members</h3>
 <ul class="hlist">
@@ -609,6 +815,9 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <li class="api__sidebar-nav-item">
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.CSVInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.CSVInput">CSVInput</a></h4>
+</li>
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.DirInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirInput">DirInput</a></h4>
 </li>

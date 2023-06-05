@@ -143,7 +143,7 @@ def poll_next(source: StatefulSource, timeout=timedelta(seconds=5)):
 <h2 class="api__article-subtitle" id="header-functions">Functions</h2>
 <dl>
 <dt id="bytewax.testing.cluster_main"><code class="language-python name flex">
-<span>def <span class="ident">cluster_main</span></span>(<span>flow, addresses, proc_id, *, epoch_interval, recovery_config, worker_count_per_proc)</span>
+<span>def <span class="ident">cluster_main</span></span>(<span>flow, addresses, proc_id, *, epoch_interval=None, recovery_config=None, worker_count_per_proc=1)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Execute a dataflow in the current process as part of a cluster.</p>
@@ -235,7 +235,7 @@ non-determinism in how items are read.</p>
 </details>
 </dd>
 <dt id="bytewax.testing.run_main"><code class="language-python name flex">
-<span>def <span class="ident">run_main</span></span>(<span>flow, *, epoch_interval, recovery_config)</span>
+<span>def <span class="ident">run_main</span></span>(<span>flow, *, epoch_interval=None, recovery_config=None)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Execute a dataflow in the current thread.</p>
