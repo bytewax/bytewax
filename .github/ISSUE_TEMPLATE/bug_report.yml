@@ -28,6 +28,13 @@ body:
       placeholder: ex. bytewax 0.6.1
     validations:
       required: true
+  - type: input
+    id: os_version
+    attributes:
+      label: Operating System version (`uname -morp`)
+      placeholder: ex. Darwin 22.2.0 x86_64 i386
+    validations:
+      required: true
   - type: textarea
     id: log
     attributes:
