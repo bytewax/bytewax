@@ -5,6 +5,11 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## v0.16.2
+
+- Add support for Windows builds - thanks @zzl221000!
+- Adds a CSVInput subclass of FileInput
+
 ## v0.16.1
 
 - Add a cooldown for activating workers to reduce CPU consumption.

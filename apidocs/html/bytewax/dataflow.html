@@ -51,7 +51,7 @@ of the same name.</p></div>
 <h3>Methods</h3>
 <dl>
 <dt id="bytewax.dataflow.Dataflow.collect_window"><code class="language-python name flex">
-<span>def <span class="ident">collect_window</span></span>(<span>self, step_id, clock_config, window_config)</span>
+<span>def <span class="ident">collect_window</span></span>(<span>self, /, step_id, clock_config, window_config)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Collect window lets emits all items for a key in a window
@@ -78,7 +78,7 @@ config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.filter"><code class="language-python name flex">
-<span>def <span class="ident">filter</span></span>(<span>self, predicate)</span>
+<span>def <span class="ident">filter</span></span>(<span>self, /, predicate)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Filter selectively keeps only some items.</p>
@@ -114,7 +114,7 @@ returns <code>True</code>.</p>
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.filter_map"><code class="language-python name flex">
-<span>def <span class="ident">filter_map</span></span>(<span>self, mapper)</span>
+<span>def <span class="ident">filter_map</span></span>(<span>self, /, mapper)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Filter map acts as a normal map function,
@@ -131,7 +131,7 @@ is filtered out.</p>
 </code></pre></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.flat_map"><code class="language-python name flex">
-<span>def <span class="ident">flat_map</span></span>(<span>self, mapper)</span>
+<span>def <span class="ident">flat_map</span></span>(<span>self, /, mapper)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Flat map is a one-to-many transformation of items.</p>
@@ -166,7 +166,7 @@ world
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.fold_window"><code class="language-python name flex">
-<span>def <span class="ident">fold_window</span></span>(<span>self, step_id, clock_config, window_config, builder, folder)</span>
+<span>def <span class="ident">fold_window</span></span>(<span>self, /, step_id, clock_config, window_config, builder, folder)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Fold window lets you combine all items for a key within a
@@ -243,7 +243,7 @@ is defined within a window.</p>
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.input"><code class="language-python name flex">
-<span>def <span class="ident">input</span></span>(<span>self, step_id, input)</span>
+<span>def <span class="ident">input</span></span>(<span>self, /, step_id, input)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>At least one input is required on every dataflow.</p>
@@ -260,7 +260,7 @@ connector types.</p>
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.inspect"><code class="language-python name flex">
-<span>def <span class="ident">inspect</span></span>(<span>self, inspector)</span>
+<span>def <span class="ident">inspect</span></span>(<span>self, /, inspector)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Inspect allows you to observe, but not modify, items.</p>
@@ -289,7 +289,7 @@ Saw 2
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.inspect_epoch"><code class="language-python name flex">
-<span>def <span class="ident">inspect_epoch</span></span>(<span>self, inspector)</span>
+<span>def <span class="ident">inspect_epoch</span></span>(<span>self, /, inspector)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Inspect epoch allows you to observe, but not modify, items and
@@ -320,7 +320,7 @@ Saw 2 @ 2
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.map"><code class="language-python name flex">
-<span>def <span class="ident">map</span></span>(<span>self, mapper)</span>
+<span>def <span class="ident">map</span></span>(<span>self, /, mapper)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Map is a one-to-one transformation of items.</p>
@@ -353,7 +353,7 @@ Saw 2 @ 2
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.output"><code class="language-python name flex">
-<span>def <span class="ident">output</span></span>(<span>self, step_id, output)</span>
+<span>def <span class="ident">output</span></span>(<span>self, /, step_id, output)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Write data to an output.</p>
@@ -371,7 +371,7 @@ connector types.</p>
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.reduce"><code class="language-python name flex">
-<span>def <span class="ident">reduce</span></span>(<span>self, step_id, reducer, is_complete)</span>
+<span>def <span class="ident">reduce</span></span>(<span>self, /, step_id, reducer, is_complete)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Reduce lets you combine items for a key into an accumulator.</p>
@@ -447,7 +447,7 @@ should_emit: bool</code></dd>
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.reduce_window"><code class="language-python name flex">
-<span>def <span class="ident">reduce_window</span></span>(<span>self, step_id, clock_config, window_config, reducer)</span>
+<span>def <span class="ident">reduce_window</span></span>(<span>self, /, step_id, clock_config, window_config, reducer)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Reduce window lets you combine all items for a key within a
@@ -521,7 +521,7 @@ updated_accumulator: Any</code></dd>
 </dl></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.stateful_map"><code class="language-python name flex">
-<span>def <span class="ident">stateful_map</span></span>(<span>self, step_id, builder, mapper)</span>
+<span>def <span class="ident">stateful_map</span></span>(<span>self, /, step_id, builder, mapper)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Stateful map is a one-to-one transformation of values, but
