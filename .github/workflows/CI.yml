@@ -42,6 +42,7 @@ jobs:
           set PATH=%PATH%;%wix%bin;"%WindowsSdkVerBinPath%"\x86
       - uses: actions/checkout@v3
       - uses: actions/cache@v3
+        if: matrix.os != 'macos-arm64'
         with:
           path: |
             ~/.cargo/bin/
