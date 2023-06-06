@@ -49,6 +49,7 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.3
       - name: Setup Python
         uses: actions/setup-python@v4
+        if: matrix.os != 'macos-arm64'
         with:
           python-version: ${{ matrix.python-version }}
           architecture: x64
