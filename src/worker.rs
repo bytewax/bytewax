@@ -342,10 +342,9 @@ where
             // for a while when it's moved into the closure.
             let step = step.clone();
             match step {
-                Step::Redistribute => {
-                    let count = worker_count.0 as u64;
-                    stream = stream.exchange(move |_| fastrand::u64(0..count))
-                }
+                // The exchange operator wraps the number to a modulo of workers_count,
+                // so we can pass any valid u64 without specifying the range.
+                Step::Redistribute => stream = stream.exchange(move |_| fastrand::u64(..)),
                 Step::CollectWindow {
                     step_id,
                     clock_config,
