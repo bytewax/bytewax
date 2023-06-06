@@ -116,6 +116,7 @@ jobs:
           command: build
           args: --release -o dist -i python${{ matrix.python-version }}
       - name: Run tests
+        if: matrix.os != 'macos-arm64'
         shell: bash
         run: |
           WHEEL_FILE=$(ls ./dist/*.whl)
