@@ -30,6 +30,11 @@ jobs:
         run: |
           sudo apt update
           sudo apt install libssl-dev libsasl2-dev pkg-config openssl protobuf-compiler
+      - name: Install Protoc
+        if: ${{ matrix.os == 'macos-latest' || matrix.os == 'windows-latest' }}
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ilammy/msvc-dev-cmd@v1
       - shell: cmd
         if: matrix.os == 'windows-latest'
