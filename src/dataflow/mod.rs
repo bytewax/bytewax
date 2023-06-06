@@ -78,14 +78,23 @@ impl Dataflow {
         self.steps.push(Step::Input { step_id, input });
     }
 
-    /// Redistribute the work across workers, in a randomic way.
+    /// Redistribute items randomly across all workers for the next step.
     ///
-    /// Usually a Dataflow's parallelization level is limited by the
-    /// number of partitions of the input.
-    /// This operator can be used to higher the level of parallelization
-    /// in the middle of the computation.
-    /// To do that, it takes each item and sends it to one of the
-    /// available workers.
+    /// Bytewax's execution model has workers executing all steps, but
+    /// the state in each step is partitioned across workers by some
+    /// key. Bytewax will only exchange an item between workers before
+    /// stateful steps in order to ensure correctness, that they
+    /// interact with the correct state for that key. Stateless
+    /// operators (like `filter`) are run on all workers and do not
+    /// result in exchanging items before or after they are run.
+    ///
+    /// This can result in certain ordering of operators to result in
+    /// poor parallelization across an entire execution cluster. If
+    /// the previous step (like a `reduce_window` or `input` with a
+    /// `PartitionedInput`) concentrated items on a subset of workers
+    /// in the cluster, but the next step is a CPU-intensive stateless
+    /// step (like a `map`), it's possible that not all workers will
+    /// contribute to processing the CPU-intesive step.
     ///
     /// This operation has a overhead, since it will need
     /// to serialize, send, and deserialize the items,
