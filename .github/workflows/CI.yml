@@ -2,208 +2,129 @@ name: CI
 
 on:
   push:
-    branches:
-    - main
-  pull_request: {}
+    paths-ignore:
+      - "apidocs/**"
+      - "**.md"
+      - ".github/ISSUE_TEMPLATE/**"
+  merge_group:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
-  linux:
-    runs-on: ubuntu-20.04
+  build:
     strategy:
       matrix:
         python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
-    steps:
-    - uses: actions/checkout@v2
-    - name: Install system dependencies
-      run: |
-        sudo apt update
-        sudo apt install libssl-dev libsasl2-dev pkg-config openssl protobuf-compiler
-    - uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-        architecture: x64
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: 1.68.2
-    - name: Rust tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --no-default-features
-    - uses: messense/maturin-action@v1
-      with:
-        rust-toolchain: 1.68.2
-        manylinux: auto
-        container: off
-        command: build
-        args: --release -o dist --interpreter python${{ matrix.python-version }}
-    - name: Run tests
-      shell: bash
-      run: |
-        WHEEL_FILE=$(ls ./dist/*.whl)
-        pip install $WHEEL_FILE'[dev]' -v
-        PY_IGNORE_IMPORTMISMATCH=1 pytest
-    - name: Upload wheels
-      uses: actions/upload-artifact@v2
-      with:
-        name: wheels
-        path: dist
-
-  linux_glibc_227_colab:
-    runs-on: ubuntu-20.04
-    strategy:
-      matrix:
-        python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
-    container: bytewax/glib-2.27-builder:v2
-    steps:
-    - uses: actions/checkout@v2
-    - name: Rust Toolchain
-      run: |
-        rustup default 1.68.2
-    - name: Cargo Test
-      run: |
-        cargo test --no-default-features
-    - name: Build wheel
-      run: |
-        maturin build --release -o dist --interpreter python${{ matrix.python-version }}
-    - name: Pytest
-      run: |
-        PATH=`echo $PATH | sed -e "s/3.7/${{ matrix.python-version }}/g"`
-        echo $PATH
-        which python
-        python -V
-        pip -V
-        WHEEL_FILE=$(ls ./dist/*.whl)
-        pip install $WHEEL_FILE'[dev]' -v
-        PY_IGNORE_IMPORTMISMATCH=1 pytest
-    - name: Upload wheels
-      uses: actions/upload-artifact@v2
-      with:
-        name: wheels
-        path: dist
-
-  macos_x86:
-    runs-on: macos-latest
+        os: ['ubuntu-20.04', 'macos-latest', 'macos-arm64', 'windows-latest']
+        container: false
+        include:
+          - os: 'ubuntu-20.04'
+            container: 'bytewax/glib-2.27-builder:v2'
+    runs-on: ${{ matrix.os }}
+    container: $${{ matrix.container }}
     env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
       MACOSX_DEPLOYMENT_TARGET: 10.9
-    strategy:
-      matrix:
-        python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: 1.68.2
-    - name: Install Protoc
-      uses: arduino/setup-protoc@v1
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Rust tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --no-default-features
-    - uses: messense/maturin-action@v1
-      with:
-        rust-toolchain: 1.68.2
-        command: build
-        args: --release -o dist --interpreter python${{ matrix.python-version }}
-    - name: Run tests
-      shell: bash
-      run: |
-        WHEEL_FILE=$(ls ./dist/*.whl)
-        pip install $WHEEL_FILE'[dev]' -v
-        PY_IGNORE_IMPORTMISMATCH=1 pytest
-    - name: Upload wheels
-      uses: actions/upload-artifact@v2
-      with:
-        name: wheels
-        path: dist
-
-  macos_arm64:
-    runs-on: [self-hosted, macOS, ARM64]
-    strategy:
-      matrix:
-        python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
-    steps:
-    - uses: actions/checkout@v2
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: 1.68.2
-        target: aarch64-apple-darwin
-    - name: Rust tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --no-default-features --target aarch64-apple-darwin
-    - name: Run maturin
-      shell: bash
-      run: |
-        export PATH="$PYENV_ROOT/bin:$PATH"
-        eval "$(pyenv init -)"
-        pyenv activate bytewax-${{ matrix.python-version }}
-        pip install maturin==0.13.2
-        maturin build --release -o dist --target aarch64-apple-darwin --interpreter python${{ matrix.python-version }}
-    - name: Run tests
-      shell: bash
-      run: |
-        export OPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/
-        export PATH="$PYENV_ROOT/bin:$PATH"
-        eval "$(pyenv init -)"
-        pyenv activate bytewax-${{ matrix.python-version }}
-        WHEEL_FILE=$(ls ./dist/*.whl)
-        export C_INCLUDE_PATH=/opt/homebrew/Cellar/librdkafka/2.0.2/include
-        export LIBRARY_PATH=/opt/homebrew/Cellar/librdkafka/2.0.2/lib
-        pip install $WHEEL_FILE'[dev]' -v --force-reinstall
-        PY_IGNORE_IMPORTMISMATCH=1 pytest
-    - name: Upload wheels
-      uses: actions/upload-artifact@v2
-      with:
-        name: wheels
-        path: dist
-
-  windows:
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: 1.68.2
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
+      - name: Install system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt update
+          sudo apt install libssl-dev libsasl2-dev pkg-config openssl protobuf-compiler
       - uses: ilammy/msvc-dev-cmd@v1
       - shell: cmd
+        if: matrix.os == 'windows-latest'
         run: |
           set PATH=%PATH%;%wix%bin;"%WindowsSdkVerBinPath%"\x86
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Sccache Setup
+        uses: mozilla-actions/sccache-action@v0.0.3
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          architecture: x64
+      - uses: actions-rs/toolchain@v1
+        if: matrix.os == 'macos-arm64'
+        with:
+          toolchain: 1.68.2
+          target: aarch64-apple-darwin
+      - name: Install Rust toolchain
+        if: matrix.os != 'macos-arm64'
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install aarch64-apple-darwin Rust target
+        if: matrix.os == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin
+      - name: Setup Xcode env
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          set -ex
+          sudo xcode-select -s /Applications/Xcode.app
+          bindir="$(xcode-select --print-path)/Toolchains/XcodeDefault.xctoolchain/usr/bin"
+          echo "CC=${bindir}/clang" >> "${GITHUB_ENV}"
+          echo "CXX=${bindir}/clang++" >> "${GITHUB_ENV}"
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "${GITHUB_ENV}"
+
+      # Caching
+      # Install gnu-tar because BSD tar is buggy
+      # https://github.com/actions/cache/issues/403
+      - name: Install GNU tar (Macos)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install gnu-tar
+          echo "/usr/local/opt/gnu-tar/libexec/gnubin" >> $GITHUB_PATH
       - name: Rust tests
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --no-default-features
-      - uses: messense/maturin-action@v1
-        with:
-          rust-toolchain: 1.68.2
-          command: build
-          args: --release -o dist --interpreter python${{ matrix.python-version }}
-      - name: Run tests
+      - name: Run maturin (macos-arm64)
+        if: matrix.os == 'macos-arm64'        
+        shell: bash
         run: |
-          $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
-          $WHEEL_FILE_DEV=$WHEEL_FILE+"[dev]"
-          pip install $WHEEL_FILE_DEV -v
-          $env:PY_IGNORE_IMPORTMISMATCH = '1'
-          pytest
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv activate bytewax-${{ matrix.python-version }}
+          pip install maturin==0.13.2
+          maturin build --release -o dist --target aarch64-apple-darwin --interpreter python${{ matrix.python-version }}
+      - name: Run tests (macos-arm64)
+        if: matrix.os == 'macos-arm64'
+        shell: bash
+        run: |
+          export OPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv activate bytewax-${{ matrix.python-version }}
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          export C_INCLUDE_PATH=/opt/homebrew/Cellar/librdkafka/2.0.2/include
+          export LIBRARY_PATH=/opt/homebrew/Cellar/librdkafka/2.0.2/lib
+          pip install $WHEEL_FILE'[dev]' -v --force-reinstall
+          PY_IGNORE_IMPORTMISMATCH=1 pytest
+      - uses: PyO3/maturin-action@v1
+        if: matrix.os != 'macos-arm64'
+        with:
+          command: build
+          args: --release -o dist -i python${{ matrix.python-version }}
+      - name: Run tests
+        shell: bash
+        run: |
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          pip install $WHEEL_FILE'[dev]' -v --force-reinstall
+          PY_IGNORE_IMPORTMISMATCH=1 pytest
       - name: Upload wheels
         uses: actions/upload-artifact@v2
         with:
@@ -214,7 +135,7 @@ jobs:
     name: Store wheels in S3
     runs-on: ubuntu-20.04
     if: "github.ref == 'refs/heads/main'"
-    needs: [ linux, linux_glibc_227_colab, macos_x86, macos_arm64 ]
+    needs: build
     steps:
       - uses: actions/download-artifact@v2
         with:
