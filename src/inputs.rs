@@ -313,26 +313,6 @@ impl PartitionedInput {
             }
         });
 
-        // Re-balance input if we have a small number of
-        // partitions. This will be a slight performance
-        // penalty if there are no CPU-heavy tasks, but it
-        // seems more intuitive to have all workers
-        // contribute.
-        let output_stream = if bundle_size < count.0 {
-            tracing::info!("Worker count < partition count; activating random load-balancing for input {step_id:?}");
-            // TODO: Could do this via `let mut counter =
-            // 0` when PR to make this FnMut lands in
-            // Timely stable.
-            let counter = Cell::new(0 as u64);
-            output_stream.exchange(move |_item| {
-                let next = counter.get().wrapping_add(1);
-                counter.set(next);
-                next
-            })
-        } else {
-            output_stream
-        };
-
         Ok((output_stream, change_stream))
     }
 }
