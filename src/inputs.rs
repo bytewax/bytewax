@@ -12,12 +12,10 @@ use crate::unwrap_any;
 use crate::worker::{WorkerCount, WorkerIndex};
 use pyo3::exceptions::{PyStopIteration, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::task::Poll;
 use std::time::{Duration, Instant};
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::Exchange;
 use timely::dataflow::{ProbeHandle, Scope, Stream};
 
 /// Length of epoch.
@@ -189,7 +187,6 @@ impl PartitionedInput {
         S: Scope<Timestamp = u64>,
     {
         let mut parts = self.build(py, step_id.clone(), index, count, resume_state)?;
-        let bundle_size = parts.len();
 
         let mut op_builder = OperatorBuilder::new(step_id.0.clone(), scope.clone());
 
