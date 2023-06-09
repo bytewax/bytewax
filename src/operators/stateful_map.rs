@@ -81,12 +81,14 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for StatefulMapLogic {
                         .into();
                     updated_state_value_pytuple
                         .extract(py)
-                        .raise::<PyTypeError>(&format!(
-                            "return value of `mapper` in stateful \
+                        .raise_with::<PyTypeError>(|| {
+                            format!(
+                                "return value of `mapper` in stateful \
                                 map operator must be a 2-tuple of \
                                 `(updated_state, updated_value)`; \
                                 got `{updated_state_value_pytuple:?}` instead"
-                        ))
+                            )
+                        })
                 });
                 tracing::Span::current().record("updated_state", debug(&updated_state));
                 tracing::Span::current().record("updated_value", debug(&updated_value));

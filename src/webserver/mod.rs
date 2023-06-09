@@ -35,7 +35,7 @@ pub(crate) async fn run_webserver(dataflow_json: String) -> PyResult<()> {
         .serve(app.into_make_service())
         .await
         .map_err(|err| err.to_string())
-        .raise::<PyRuntimeError>(&format!("Unable to create local webserver at port {port}"))
+        .raise_with::<PyRuntimeError>(|| format!("Unable to create local webserver at port {port}"))
 }
 
 async fn get_dataflow(Extension(state): Extension<Arc<State>>) -> impl IntoResponse {

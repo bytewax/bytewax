@@ -1,22 +1,26 @@
 use std::panic::Location;
 
-use pyo3::{
-    exceptions::{PyException, PyRuntimeError},
-    PyErr, PyResult, PyTypeInfo, Python,
-};
+use pyo3::exceptions::PyException;
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::PyErr;
+use pyo3::PyResult;
+use pyo3::PyTypeInfo;
+use pyo3::Python;
 
-/// A trait to build a python exception with a custom
-/// stacktrace from anything that can be converted into
-/// a PyResult.
+/// A trait to build a python exception with a custom stacktrace from
+/// anything that can be converted into a PyResult.
 pub(crate) trait PythonException<T> {
     /// Only this needs to be implemented.
     fn into_pyresult(self) -> PyResult<T>;
 
-    /// Make the existing exception part of the traceback
-    /// and raise a custom exception with its own message.
+    /// Make the existing exception part of the traceback and raise a
+    /// custom exception with its own message.
     ///
     /// Example:
-    ///     func().raise::<PyTypeError>("Raise TypeError adding this message")?;
+    ///
+    /// ```ignore
+    /// func().raise::<PyTypeError>("Raise TypeError adding this message")?;
+    /// ```
     #[track_caller]
     fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T>
     where
@@ -28,12 +32,34 @@ pub(crate) trait PythonException<T> {
         })
     }
 
-    /// Make the existing error part of the traceback
-    /// and raise a new exception with the same type
-    /// and an additional message.
+    /// Make the existing exception part of the traceback and raise a
+    /// custom exception with its own message.
     ///
     /// Example:
-    ///     func().reraise("Reraise same exception adding this message")?;
+    ///
+    /// ```ignore
+    /// func().raise_with::<PyTypeError>(|| format("Raise TypeError adding this message"))?;
+    /// ```
+    #[track_caller]
+    fn raise_with<PyErrType: PyTypeInfo>(self, f: impl FnOnce() -> String) -> PyResult<T>
+    where
+        Self: Sized,
+    {
+        let caller = Location::caller();
+        self.into_pyresult().map_err(|err| {
+            let msg = f();
+            Python::with_gil(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, &msg)))
+        })
+    }
+
+    /// Make the existing error part of the traceback and raise a new
+    /// exception with the same type and an additional message.
+    ///
+    /// Example:
+    ///
+    /// ```ignore
+    /// func().reraise("Reraise same exception adding this message")?;
+    /// ```
     #[track_caller]
     fn reraise(self, msg: &str) -> PyResult<T>
     where
@@ -58,9 +84,50 @@ pub(crate) trait PythonException<T> {
                     .get_type(py)
                     .is(pyo3::types::PyType::new::<pyo3::exceptions::PyKeyError>(py))
                 {
-                    PyRuntimeError::new_err(build_message(py, caller, &err, msg))
+                    PyRuntimeError::new_err(build_message(py, caller, &err, &msg))
                 } else {
-                    PyErr::from_type(err.get_type(py), build_message(py, caller, &err, msg))
+                    PyErr::from_type(err.get_type(py), build_message(py, caller, &err, &msg))
+                }
+            })
+        })
+    }
+
+    /// Make the existing error part of the traceback and raise a new
+    /// exception with the same type and an additional message.
+    ///
+    /// Example:
+    ///
+    /// ```ignore
+    /// func().reraise_with(|| format("Reraise same exception adding this message"))?;
+    /// ```
+    #[track_caller]
+    fn reraise_with(self, f: impl FnOnce() -> String) -> PyResult<T>
+    where
+        Self: Sized,
+    {
+        let caller = Location::caller();
+        self.into_pyresult().map_err(|err| {
+            let msg = f();
+            Python::with_gil(|py| {
+                // Python treats KeyError differently then others:
+                // the message is always quoted, so that in case the key
+                // is an empty string, you see:
+                //
+                //   KeyError: ''
+                //
+                // instead of:
+                //
+                //   KeyError:
+                //
+                // This means that our message will be quoted if we reraise
+                // it as it is. So in this case we raise a RuntimeError instead.
+                if err
+                    .get_type(py)
+                    .is(pyo3::types::PyType::new::<pyo3::exceptions::PyKeyError>(py))
+                {
+                    PyRuntimeError::new_err(build_message(py, caller, &err, &msg))
+                } else {
+                    PyErr::from_type(err.get_type(py), build_message(py, caller, &err, &msg))
                 }
             })
         })

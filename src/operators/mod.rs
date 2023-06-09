@@ -51,10 +51,12 @@ pub(crate) fn filter(predicate: &TdPyCallable, item: &TdPyAny) -> bool {
             let should_emit_pybool: TdPyAny = predicate.call1(py, (item,))?.into();
             should_emit_pybool
                 .extract(py)
-                .raise::<PyTypeError>(&format!(
-                    "return value of `predicate` in filter \
+                .raise_with::<PyTypeError>(|| {
+                    format!(
+                        "return value of `predicate` in filter \
                         operator must be a bool; got `{should_emit_pybool:?}` instead"
-                ))
+                    )
+                })
         })
     })
 }

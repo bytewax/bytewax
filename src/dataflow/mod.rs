@@ -885,7 +885,8 @@ impl IntoPy<PyObject> for Step {
     fn into_py(self, py: Python) -> Py<PyAny> {
         match self {
             Self::Redistribute => {
-                HashMap::from([("type", IntoPy::<PyObject>::into_py("Redistribute", py))]).into_py(py)
+                HashMap::from([("type", IntoPy::<PyObject>::into_py("Redistribute", py))])
+                    .into_py(py)
             }
             Self::Input { step_id, input } => HashMap::from([
                 ("type", "Input".into_py(py)),
