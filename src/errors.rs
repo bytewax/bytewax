@@ -22,7 +22,7 @@ pub(crate) trait PythonException<T> {
     /// func().raise::<PyTypeError>("Raise TypeError adding this message")?;
     /// ```
     #[track_caller]
-    fn raise<PyErrType: PyTypeInfo>(self, msg: &str) -> PyResult<T>
+    fn raise<PyErrType: PyTypeInfo>(self, msg: &'static str) -> PyResult<T>
     where
         Self: Sized,
     {
@@ -61,7 +61,7 @@ pub(crate) trait PythonException<T> {
     /// func().reraise("Reraise same exception adding this message")?;
     /// ```
     #[track_caller]
-    fn reraise(self, msg: &str) -> PyResult<T>
+    fn reraise(self, msg: &'static str) -> PyResult<T>
     where
         Self: Sized,
     {
