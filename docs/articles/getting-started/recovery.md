@@ -60,4 +60,4 @@ and have it resume processing from where it failed:
 
 Here are some concrete examples of using the recovery machinery.
 
-- [Cart Join Example](/examples/cart-join)
+- [Recoverable Streaming Shopping Cart Application](/guides/recoverable-streaming-shopping-cart-application)

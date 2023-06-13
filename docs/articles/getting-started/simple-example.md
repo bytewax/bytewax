@@ -61,7 +61,6 @@ flow.output("out", StdOutput())
 Now that we have our program and our input, we can run our example via
 `python -m bytewax.run wordcount:flow` and see the completed result:
 
-
 ```
 ("'tis", 1)
 ('a', 1)
@@ -220,7 +219,6 @@ How does reduce_window know **when** to emit combined items? That is what `clock
 [TumblingWindow](/apidocs/bytewax.window#bytewax.window.TumblingWindow) instructs the flow to close windows every `length` period, 5 seconds in our case.
 `reduce_window` will emit the accumulated value every 5 seconds, and once the input is completely consumed.
 
-
 ### Print out the counts
 
 The last part of our dataflow program will use an [output operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.output) to mark the output of our reduction as the dataflow's final output.
@@ -229,7 +227,7 @@ The last part of our dataflow program will use an [output operator](/apidocs/byt
 flow.output("out", StdOutput())
 ```
 
-This means that whatever items are flowing through this point in the dataflow will be passed on as output. We use [StdOutput](/apidocs/bytewax.connectors.stdio#bytewax.connectors.stdio.StdOutput) to route our output to the system's standard output.
+This means that whatever items are flowing through this point in the dataflow will be passed on as output. We use [StdOutput](/apidocs/bytewax.connectors/stdio#bytewax.connectors.stdio.StdOutput) to route our output to the system's standard output.
 
 ### Running
 
