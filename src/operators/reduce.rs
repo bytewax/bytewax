@@ -70,10 +70,12 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for ReduceLogic {
                         .into();
                     should_emit_and_discard_acc_pybool
                         .extract(py)
-                        .raise::<PyTypeError>(&format!(
-                            "return value of `is_complete` in reduce operator must be a bool; \
-                            got `{should_emit_and_discard_acc_pybool:?}` instead"
-                        ))
+                        .raise_with::<PyTypeError>(|| {
+                            format!(
+                                "return value of `is_complete` in reduce operator must be a bool; \
+                                 got `{should_emit_and_discard_acc_pybool:?}` instead"
+                            )
+                        })
                 });
 
                 tracing::Span::current().record(
