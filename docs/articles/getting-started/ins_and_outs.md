@@ -6,7 +6,7 @@ There are two operators that allow you to configure this: `Dataflow.input` and `
 The first thing we need to define on a Dataflow is the `input`.
 We do this by passing a specific input configuration to the `input` operator.
 
-Bytewax offers two input connectors (more to come in the future):
+Bytewax offers three input connectors (more to come in the future):
 - KafkaInput
 - FileInput
 - DirInput
