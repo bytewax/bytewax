@@ -253,9 +253,9 @@ impl RecoveryBuilder for SqliteRecoveryConfig {
 ///
 /// .. deprecated::
 ///
-///     SQLite will be the only available recovery store in a future
-///     version of Bytewax. Use `SqliteRecoveryConfig` currently to
-///     facilitate a simple transition at that point.
+///   SQLite will be the only available recovery store in a future
+///   version of Bytewax. Use `SqliteRecoveryConfig` currently to
+///   facilitate a simple transition at that point.
 ///
 /// Uses a "progress" topic and a "state" topic with a number of
 /// partitions equal to the number of workers. Will take advantage of
