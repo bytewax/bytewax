@@ -42,29 +42,33 @@ def _list_parts(client, topics):
 
 
 class _KafkaSource(StatefulSource):
-    def __init__(self, consumer, topic, part_idx, starting_offset, resume_state):
+    def __init__(
+        self, consumer, topic, part_idx, starting_offset, resume_state, batch_size
+    ):
         self._offset = resume_state or starting_offset
         # Assign does not activate consumer grouping.
         consumer.assign([TopicPartition(topic, part_idx, self._offset)])
         self._consumer = consumer
         self._topic = topic
+        self._batch_size = batch_size
 
     def next(self):
-        msg = self._consumer.poll(0.001)  # seconds
-        if msg is None:
+        msgs = self._consumer.consume(self._batch_size, 0.001)
+        if msgs is None:
             return
-        elif msg.error() is not None:
-            if msg.error().code() == KafkaError._PARTITION_EOF:
-                raise StopIteration()
-            else:
-                raise RuntimeError(
-                    f"error consuming from Kafka topic `{self.topic!r}`: {msg.error()}"
-                )
-        else:
-            item = (msg.key(), msg.value())
+        result = []
+        for msg in msgs:
+            if msg.error() is not None:
+                if msg.error().code() == KafkaError._PARTITION_EOF:
+                    raise StopIteration()
+                else:
+                    raise RuntimeError(
+                        f"error consuming from Kafka topic `{self.topic!r}`: {msg.error()}"
+                    )
+            result.append((msg.key(), msg.value()))
             # Resume reading from the next message, not this one.
             self._offset = msg.offset() + 1
-            return [item]
+        return result
 
     def snapshot(self):
         return self._offset
@@ -112,6 +116,7 @@ class KafkaInput(PartitionedInput):
         tail: bool = True,
         starting_offset: int = OFFSET_BEGINNING,
         add_config: Dict[str, str] = None,
+        batch_size: int = 1,
     ):
         add_config = add_config or {}
 
@@ -124,6 +129,7 @@ class KafkaInput(PartitionedInput):
         self._tail = tail
         self._starting_offset = starting_offset
         self._add_config = add_config
+        self._batch_size = batch_size
 
     def list_parts(self):
         config = {
@@ -153,7 +159,12 @@ class KafkaInput(PartitionedInput):
         config.update(self._add_config)
         consumer = Consumer(config)
         return _KafkaSource(
-            consumer, topic, part_idx, self._starting_offset, resume_state
+            consumer,
+            topic,
+            part_idx,
+            self._starting_offset,
+            resume_state,
+            self._batch_size,
         )
 
 
