@@ -232,8 +232,8 @@ impl PartitionedInput {
                                     );
                                     eofd_keys_buffer.insert(key.clone());
                                 }
-                                Poll::Ready(Some(item)) => {
-                                    output_session.give(item);
+                                Poll::Ready(Some(items)) => {
+                                    output_session.give_iterator(items.into_iter());
                                     emit_keys_buffer.insert(key.clone());
                                     just_emitted = true;
                                 }
@@ -336,12 +336,20 @@ impl<'source> FromPyObject<'source> for StatefulSource {
 }
 
 impl StatefulSource {
-    fn next(&self, py: Python) -> PyResult<Poll<Option<TdPyAny>>> {
+    fn next(&self, py: Python) -> PyResult<Poll<Option<Vec<TdPyAny>>>> {
         match self.0.call_method0(py, "next") {
             Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(Poll::Ready(None)),
             Err(err) => Err(err),
-            Ok(none) if none.is_none(py) => Ok(Poll::Pending),
-            Ok(item) => Ok(Poll::Ready(Some(item.into()))),
+            Ok(items) => {
+                let items: Vec<TdPyAny> = items
+                    .extract(py)
+                    .reraise("`next` method in StatefulSource did not return a list")?;
+                if items.is_empty() {
+                    Ok(Poll::Pending)
+                } else {
+                    Ok(Poll::Ready(Some(items)))
+                }
+            }
         }
     }
 
@@ -455,8 +463,11 @@ impl DynamicInput {
                             Poll::Ready(None) => {
                                 eof = true;
                             }
-                            Poll::Ready(Some(item)) => {
-                                output_wrapper.activate().session(&cap).give(item);
+                            Poll::Ready(Some(items)) => {
+                                output_wrapper
+                                    .activate()
+                                    .session(&cap)
+                                    .give_iterator(items.into_iter());
                                 just_emitted = true;
                             }
                         }
@@ -521,12 +532,20 @@ impl<'source> FromPyObject<'source> for StatelessSource {
 }
 
 impl StatelessSource {
-    fn next(&self, py: Python) -> PyResult<Poll<Option<TdPyAny>>> {
+    fn next(&self, py: Python) -> PyResult<Poll<Option<Vec<TdPyAny>>>> {
         match self.0.call_method0(py, "next") {
             Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(Poll::Ready(None)),
             Err(err) => Err(err),
-            Ok(none) if none.is_none(py) => Ok(Poll::Pending),
-            Ok(item) => Ok(Poll::Ready(Some(item.into()))),
+            Ok(items) => {
+                let items: Vec<TdPyAny> = items
+                    .extract(py)
+                    .reraise("`next` method in StatelessSource did not return a list of items")?;
+                if items.is_empty() {
+                    Ok(Poll::Pending)
+                } else {
+                    Ok(Poll::Ready(Some(items)))
+                }
+            }
         }
     }
 

@@ -64,7 +64,7 @@ class _KafkaSource(StatefulSource):
             item = (msg.key(), msg.value())
             # Resume reading from the next message, not this one.
             self._offset = msg.offset() + 1
-            return item
+            return [item]
 
     def snapshot(self):
         return self._offset

@@ -41,16 +41,16 @@ class StatefulSource(ABC):
     """Input source that maintains state of its position."""
 
     @abstractmethod
-    def next(self) -> Optional[Any]:
-        """Attempt to get the next input item.
+    def next(self) -> list[Any]:
+        """Attempt to get the next input items.
 
         This must participate in a kind of cooperative multi-tasking,
-        never blocking but returning a bare `None` if there is no item
+        never blocking but returning an empty list if there are no items
         to emit currently.
 
         Returns:
 
-            An item or `None`.
+            A list of items.
 
         Raises:
 
@@ -164,16 +164,16 @@ class StatelessSource(ABC):
     """Input source that is stateless."""
 
     @abstractmethod
-    def next(self) -> Optional[Any]:
-        """Attempt to get the next input item.
+    def next(self) -> list[Any]:
+        """Attempt to get the next input items.
 
         This must participate in a kind of cooperative multi-tasking,
-        never blocking but yielding a bare `None` if there is no new
+        never blocking but returning an empty list if there is no new
         input.
 
         Returns:
 
-            An item or `None`.
+            A list of items.
 
         Raises:
 

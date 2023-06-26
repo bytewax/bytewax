@@ -98,20 +98,20 @@ def test_file_input_resume_state():
     file_path = Path("examples/sample_data/cluster/partition-1.txt")
     inp = FileInput(file_path)
     part = inp.build_part(str(file_path), None)
-    assert part.next() == "one1"
-    assert part.next() == "one2"
+    assert part.next() == ["one1"]
+    assert part.next() == ["one2"]
     resume_state = part.snapshot()
-    assert part.next() == "one3"
-    assert part.next() == "one4"
+    assert part.next() == ["one3"]
+    assert part.next() == ["one4"]
     part.close()
 
     inp = FileInput(file_path)
     part = inp.build_part(str(file_path), resume_state)
     assert part.snapshot() == resume_state
-    assert part.next() == "one3"
-    assert part.next() == "one4"
-    assert part.next() == "one5"
-    assert part.next() == "one6"
+    assert part.next() == ["one3"]
+    assert part.next() == ["one4"]
+    assert part.next() == ["one5"]
+    assert part.next() == ["one6"]
     with raises(StopIteration):
         part.next()
     part.close()
