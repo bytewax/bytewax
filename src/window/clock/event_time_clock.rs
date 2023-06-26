@@ -197,7 +197,7 @@ mod tests {
 
         let mut clock = EventClock {
             source: TestTimeSource {
-                now: Utc.ymd(2023, 5, 10).and_hms(9, 0, 0),
+                now: Utc.with_ymd_and_hms(2023, 5, 10, 9, 0, 0).unwrap(),
             },
             dt_getter: identity,
             wait_for_system_duration: Duration::seconds(10),
@@ -211,41 +211,56 @@ mod tests {
             "watermark should start at the beginning of time before any items"
         );
 
-        let item1 = Python::with_gil(|py| Utc.ymd(2023, 3, 16).and_hms(9, 0, 0).into_py(py).into());
+        let item1 = Python::with_gil(|py| {
+            Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0)
+                .unwrap()
+                .into_py(py)
+                .into()
+        });
         let found = clock.watermark(&Poll::Ready(Some(item1)));
         assert_eq!(
             found,
-            Utc.ymd(2023, 3, 16).and_hms(8, 59, 50),
+            Utc.with_ymd_and_hms(2023, 3, 16, 8, 59, 50).unwrap(),
             "watermark should be item time minus late time"
         );
 
-        clock.source.now = Utc.ymd(2023, 5, 10).and_hms(9, 0, 2);
+        clock.source.now = Utc.with_ymd_and_hms(2023, 5, 10, 9, 0, 2).unwrap();
         let found = clock.watermark(&Poll::Pending);
         assert_eq!(
             found,
-            Utc.ymd(2023, 3, 16).and_hms(8, 59, 52),
+            Utc.with_ymd_and_hms(2023, 3, 16, 8, 59, 52).unwrap(),
             "watermark should forward by system time between awakenings if no new items"
         );
 
-        clock.source.now = Utc.ymd(2023, 5, 10).and_hms(9, 0, 4);
-        let item2 = Python::with_gil(|py| Utc.ymd(2023, 3, 16).and_hms(9, 1, 0).into_py(py).into());
+        clock.source.now = Utc.with_ymd_and_hms(2023, 5, 10, 9, 0, 4).unwrap();
+        let item2 = Python::with_gil(|py| {
+            Utc.with_ymd_and_hms(2023, 3, 16, 9, 1, 0)
+                .unwrap()
+                .into_py(py)
+                .into()
+        });
         let found = clock.watermark(&Poll::Ready(Some(item2)));
         assert_eq!(
             found,
-            Utc.ymd(2023, 3, 16).and_hms(9, 0, 50),
+            Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 50).unwrap(),
             "watermark should advance to item time minus late time if new item"
         );
 
-        clock.source.now = Utc.ymd(2023, 5, 10).and_hms(9, 0, 6);
-        let item3 = Python::with_gil(|py| Utc.ymd(2023, 3, 16).and_hms(9, 1, 1).into_py(py).into());
+        clock.source.now = Utc.with_ymd_and_hms(2023, 5, 10, 9, 0, 6).unwrap();
+        let item3 = Python::with_gil(|py| {
+            Utc.with_ymd_and_hms(2023, 3, 16, 9, 1, 1)
+                .unwrap()
+                .into_py(py)
+                .into()
+        });
         let found = clock.watermark(&Poll::Ready(Some(item3)));
         assert_eq!(
             found,
-            Utc.ymd(2023, 3, 16).and_hms(9, 0, 52),
+            Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 52).unwrap(),
             "watermark should not go backwards due to slow item"
         );
 
-        clock.source.now = Utc.ymd(2023, 5, 10).and_hms(9, 0, 8);
+        clock.source.now = Utc.with_ymd_and_hms(2023, 5, 10, 9, 0, 8).unwrap();
         let found = clock.watermark(&Poll::Ready(None));
         assert_eq!(
             found,
@@ -253,7 +268,7 @@ mod tests {
             "watermark should advance to the end of time when input ends"
         );
 
-        clock.source.now = Utc.ymd(2023, 5, 10).and_hms(9, 0, 10);
+        clock.source.now = Utc.with_ymd_and_hms(2023, 5, 10, 9, 0, 10).unwrap();
         let found = clock.watermark(&Poll::Ready(None));
         assert_eq!(
             found,
