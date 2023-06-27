@@ -59,23 +59,34 @@ class _KafkaSource(StatefulSource):
         self._topic = topic
         self._batch_size = batch_size
         self._timeout = timeout
+        self._eof = False
 
     def next(self):
+        if self._eof:
+            raise StopIteration()
+
         msgs = self._consumer.consume(self._batch_size, self._timeout)
         if msgs is None:
             return
+
         result = []
         for msg in msgs:
             if msg.error() is not None:
                 if msg.error().code() == KafkaError._PARTITION_EOF:
-                    raise StopIteration()
+                    # Set self._eof to True and only raise StopIteration
+                    # at the next cycle, so that we can emit messages in
+                    # this batch
+                    self._eof = True
+                    break
                 else:
+                    # Discard all the messages in this batch too
                     raise RuntimeError(
                         f"error consuming from Kafka topic `{self.topic!r}`: {msg.error()}"
                     )
             result.append((msg.key(), msg.value()))
             # Resume reading from the next message, not this one.
             self._offset = msg.offset() + 1
+
         return result
 
     def snapshot(self):
