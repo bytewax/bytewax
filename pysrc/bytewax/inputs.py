@@ -8,7 +8,7 @@ Subclass the types here to implement input for your own custom source.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Set
+from typing import Any, Optional, Set, List
 
 __all__ = [
     "DynamicInput",
@@ -41,7 +41,7 @@ class StatefulSource(ABC):
     """Input source that maintains state of its position."""
 
     @abstractmethod
-    def next(self) -> list[Any]:
+    def next(self) -> List[Any]:
         """Attempt to get the next input items.
 
         This must participate in a kind of cooperative multi-tasking,
@@ -164,7 +164,7 @@ class StatelessSource(ABC):
     """Input source that is stateless."""
 
     @abstractmethod
-    def next(self) -> list[Any]:
+    def next(self) -> List[Any]:
         """Attempt to get the next input items.
 
         This must participate in a kind of cooperative multi-tasking,
