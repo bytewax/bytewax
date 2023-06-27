@@ -43,7 +43,14 @@ def _list_parts(client, topics):
 
 class _KafkaSource(StatefulSource):
     def __init__(
-        self, consumer, topic, part_idx, starting_offset, resume_state, batch_size
+        self,
+        consumer,
+        topic,
+        part_idx,
+        starting_offset,
+        resume_state,
+        batch_size,
+        timeout,
     ):
         self._offset = resume_state or starting_offset
         # Assign does not activate consumer grouping.
@@ -51,9 +58,10 @@ class _KafkaSource(StatefulSource):
         self._consumer = consumer
         self._topic = topic
         self._batch_size = batch_size
+        self._timeout = timeout
 
     def next(self):
-        msgs = self._consumer.consume(self._batch_size, 0.001)
+        msgs = self._consumer.consume(self._batch_size, self._timeout)
         if msgs is None:
             return
         result = []
@@ -117,6 +125,7 @@ class KafkaInput(PartitionedInput):
         starting_offset: int = OFFSET_BEGINNING,
         add_config: Dict[str, str] = None,
         batch_size: int = 1,
+        timeout: float = 0.001,
     ):
         add_config = add_config or {}
 
@@ -130,6 +139,7 @@ class KafkaInput(PartitionedInput):
         self._starting_offset = starting_offset
         self._add_config = add_config
         self._batch_size = batch_size
+        self._timeout = timeout
 
     def list_parts(self):
         config = {
@@ -165,6 +175,7 @@ class KafkaInput(PartitionedInput):
             self._starting_offset,
             resume_state,
             self._batch_size,
+            self._timeout,
         )
 
 
