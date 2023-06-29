@@ -13,7 +13,6 @@ use crate::worker::{WorkerCount, WorkerIndex};
 use pyo3::exceptions::{PyStopIteration, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::task::Poll;
 use std::time::{Duration, Instant};
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::{ProbeHandle, Scope, Stream};
@@ -221,22 +220,17 @@ impl PartitionedInput {
                         let mut output_handle = output_wrapper.activate();
                         let mut output_session = output_handle.session(&output_cap);
                         for (key, part) in parts.iter() {
-                            match unwrap_any!(Python::with_gil(|py| part
-                                .next(py)
-                                .reraise("error getting next input item from partition source")))
-                            {
-                                Poll::Pending => {}
-                                Poll::Ready(None) => {
-                                    tracing::trace!(
-                                        "Input {step_id_op:?} partition {key:?} reached EOF"
-                                    );
-                                    eofd_keys_buffer.insert(key.clone());
-                                }
-                                Poll::Ready(Some(items)) => {
-                                    output_session.give_iterator(items.into_iter());
-                                    emit_keys_buffer.insert(key.clone());
-                                    just_emitted = true;
-                                }
+                            let next = Python::with_gil(|py| part.next(py))
+                                .reraise_with(|| format!("error getting input for key {key:?}"));
+                            if let Some(items) = unwrap_any!(next) {
+                                output_session.give_iterator(items.into_iter());
+                                emit_keys_buffer.insert(key.clone());
+                                just_emitted = true;
+                            } else {
+                                tracing::trace!(
+                                    "Input {step_id_op:?} partition {key:?} reached EOF"
+                                );
+                                eofd_keys_buffer.insert(key.clone());
                             }
                         }
                     }
@@ -336,19 +330,14 @@ impl<'source> FromPyObject<'source> for StatefulSource {
 }
 
 impl StatefulSource {
-    fn next(&self, py: Python) -> PyResult<Poll<Option<Vec<TdPyAny>>>> {
+    fn next(&self, py: Python) -> PyResult<Option<Vec<TdPyAny>>> {
         match self.0.call_method0(py, "next") {
-            Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(Poll::Ready(None)),
+            Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(None),
             Err(err) => Err(err),
             Ok(items) => {
-                let items: Vec<TdPyAny> = items
-                    .extract(py)
-                    .reraise("`next` method in StatefulSource did not return a list")?;
-                if items.is_empty() {
-                    Ok(Poll::Pending)
-                } else {
-                    Ok(Poll::Ready(Some(items)))
-                }
+                Ok(Some(items.extract(py).reraise(
+                    "`next` method in StatefulSource did not return a list",
+                )?))
             }
         }
     }
@@ -456,20 +445,16 @@ impl DynamicInput {
                     let mut eof = false;
 
                     if !probe.less_than(epoch) {
-                        match unwrap_any!(
-                            Python::with_gil(|py| source.next(py)).reraise("error getting input")
-                        ) {
-                            Poll::Pending => {}
-                            Poll::Ready(None) => {
-                                eof = true;
-                            }
-                            Poll::Ready(Some(items)) => {
-                                output_wrapper
-                                    .activate()
-                                    .session(&cap)
-                                    .give_iterator(items.into_iter());
-                                just_emitted = true;
-                            }
+                        let next = Python::with_gil(|py| source.next(py))
+                            .reraise("error getting input from DynamicInput");
+                        if let Some(items) = unwrap_any!(next) {
+                            output_wrapper
+                                .activate()
+                                .session(&cap)
+                                .give_iterator(items.into_iter());
+                            just_emitted = true;
+                        } else {
+                            eof = true;
                         }
                     }
                     // Don't allow progress unless we've caught up,
@@ -532,19 +517,14 @@ impl<'source> FromPyObject<'source> for StatelessSource {
 }
 
 impl StatelessSource {
-    fn next(&self, py: Python) -> PyResult<Poll<Option<Vec<TdPyAny>>>> {
+    fn next(&self, py: Python) -> PyResult<Option<Vec<TdPyAny>>> {
         match self.0.call_method0(py, "next") {
-            Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(Poll::Ready(None)),
+            Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(None),
             Err(err) => Err(err),
             Ok(items) => {
-                let items: Vec<TdPyAny> = items
-                    .extract(py)
-                    .reraise("`next` method in StatelessSource did not return a list of items")?;
-                if items.is_empty() {
-                    Ok(Poll::Pending)
-                } else {
-                    Ok(Poll::Ready(Some(items)))
-                }
+                Ok(Some(items.extract(py).reraise(
+                    "`next` method in StatelessSource did not return a list",
+                )?))
             }
         }
     }
