@@ -222,10 +222,10 @@ impl PartitionedInput {
                         for (key, part) in parts.iter() {
                             let next = Python::with_gil(|py| part.next(py))
                                 .reraise_with(|| format!("error getting input for key {key:?}"));
-                            if let Some(items) = unwrap_any!(next) {
-                                output_session.give_iterator(items.into_iter());
+                            if let Some(mut items) = unwrap_any!(next) {
+                                just_emitted = !items.is_empty();
+                                output_session.give_vec(&mut items);
                                 emit_keys_buffer.insert(key.clone());
-                                just_emitted = true;
                             } else {
                                 tracing::trace!(
                                     "Input {step_id_op:?} partition {key:?} reached EOF"
@@ -447,12 +447,12 @@ impl DynamicInput {
                     if !probe.less_than(epoch) {
                         let next = Python::with_gil(|py| source.next(py))
                             .reraise("error getting input from DynamicInput");
-                        if let Some(items) = unwrap_any!(next) {
+                        if let Some(mut items) = unwrap_any!(next) {
+                            just_emitted = !items.is_empty();
                             output_wrapper
                                 .activate()
                                 .session(&cap)
-                                .give_iterator(items.into_iter());
-                            just_emitted = true;
+                                .give_vec(&mut items);
                         } else {
                             eof = true;
                         }
