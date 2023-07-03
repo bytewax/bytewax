@@ -26,10 +26,10 @@ class _FileSource(StatefulSource):
         self._f.seek(resume_offset)
 
     def next(self):
-        line = self._f.readline().rstrip("\n")
+        line = self._f.readline()
         if len(line) <= 0:
             raise StopIteration()
-        return line
+        return line.rstrip("\n")
 
     def snapshot(self):
         return self._f.tell()
@@ -93,7 +93,7 @@ class FileInput(PartitionedInput):
 
     def __init__(self, path: Union[Path, str]):
         if not isinstance(path, Path): path = Path(path)
-        self._path = path            
+        self._path = path
 
     def list_parts(self):
         return {str(self._path)}
@@ -107,8 +107,8 @@ class FileInput(PartitionedInput):
 class CSVInput(FileInput):
     """Read a single csv file line-by-line from the filesystem.
 
-    Will read the first row as the header. 
-    
+    Will read the first row as the header.
+
     For each successive line  it will return a dictionary
     with the header as keys like the DictReader() method.
 
@@ -135,7 +135,7 @@ class CSVInput(FileInput):
     0,2022-02-24 11:42:08,91.958,825cc2
     0,2022-02-24 11:42:08,0.068,77c1ca
     ```
-    
+
     sample output:
 
     ```
@@ -161,7 +161,7 @@ class _CSVSource(_FileSource):
     """
     Handler for csv files to iterate line by line.
     Uses the csv reader assumes a header on the file
-    on each next() call, will return a dict of header 
+    on each next() call, will return a dict of header
     & values
 
     Called by CSVInput
