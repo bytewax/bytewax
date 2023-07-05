@@ -6,6 +6,7 @@ on:
       - "apidocs/**"
       - "**.md"
       - ".github/ISSUE_TEMPLATE/**"
+  pull_request: {}
   merge_group:
   workflow_dispatch:
 
