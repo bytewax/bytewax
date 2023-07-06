@@ -1,5 +1,6 @@
 use std::panic::Location;
 
+use pyo3::PyDowncastError;
 use pyo3::exceptions::PyException;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::PyErr;
@@ -167,6 +168,12 @@ impl<T> PythonException<T> for Result<T, String> {
 }
 
 impl<T> PythonException<T> for Result<T, Box<dyn std::error::Error>> {
+    fn into_pyresult(self) -> PyResult<T> {
+        self.map_err(|err| PyErr::new::<PyException, _>(format!("{err}")))
+    }
+}
+
+impl<T> PythonException<T> for Result<T, PyDowncastError<'_>> {
     fn into_pyresult(self) -> PyResult<T> {
         self.map_err(|err| PyErr::new::<PyException, _>(format!("{err}")))
     }

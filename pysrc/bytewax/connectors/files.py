@@ -29,7 +29,7 @@ class _FileSource(StatefulSource):
         line = self._f.readline().rstrip("\n")
         if len(line) <= 0:
             raise StopIteration()
-        return line
+        return [line]
 
     def snapshot(self):
         return self._f.tell()
@@ -92,8 +92,9 @@ class FileInput(PartitionedInput):
     """
 
     def __init__(self, path: Union[Path, str]):
-        if not isinstance(path, Path): path = Path(path)
-        self._path = path            
+        if not isinstance(path, Path):
+            path = Path(path)
+        self._path = path
 
     def list_parts(self):
         return {str(self._path)}
@@ -104,11 +105,12 @@ class FileInput(PartitionedInput):
         assert for_part == str(self._path), "Can't resume reading from different file"
         return _FileSource(self._path, resume_state)
 
+
 class CSVInput(FileInput):
     """Read a single csv file line-by-line from the filesystem.
 
-    Will read the first row as the header. 
-    
+    Will read the first row as the header.
+
     For each successive line  it will return a dictionary
     with the header as keys like the DictReader() method.
 
@@ -135,7 +137,7 @@ class CSVInput(FileInput):
     0,2022-02-24 11:42:08,91.958,825cc2
     0,2022-02-24 11:42:08,0.068,77c1ca
     ```
-    
+
     sample output:
 
     ```
@@ -149,6 +151,7 @@ class CSVInput(FileInput):
     {'index': '0', 'timestamp': '2022-02-24 11:42:08', 'value': '0.068', 'instance': '77c1ca'}
     ```
     """
+
     def __init__(self, path: Path, **fmtparams):
         super().__init__(path)
         self.fmtparams = fmtparams
@@ -157,11 +160,12 @@ class CSVInput(FileInput):
         assert for_part == str(self._path), "Can't resume reading from different file"
         return _CSVSource(self._path, resume_state, **self.fmtparams)
 
+
 class _CSVSource(_FileSource):
     """
     Handler for csv files to iterate line by line.
     Uses the csv reader assumes a header on the file
-    on each next() call, will return a dict of header 
+    on each next() call, will return a dict of header
     & values
 
     Called by CSVInput
@@ -180,13 +184,14 @@ class _CSVSource(_FileSource):
         csv_line = dict(zip(self.header, next(csv.reader([line], **self.fmtparams))))
         if len(line) <= 0:
             raise StopIteration()
-        return csv_line
+        return [csv_line]
 
     def snapshot(self):
         return self._f.tell()
 
     def close(self):
         self._f.close()
+
 
 class _FileSink(StatefulSink):
     def __init__(self, path, resume_state, end):

@@ -28,7 +28,7 @@ class _IterSource(StatefulSource):
     def next(self):
         # next will raise StopIteration on its own.
         self._idx, item = next(self._it)
-        return item
+        return [item]
 
     def snapshot(self):
         return self._idx
