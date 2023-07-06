@@ -223,7 +223,9 @@ impl PartitionedInput {
                             let next = Python::with_gil(|py| part.next(py))
                                 .reraise_with(|| format!("error getting input for key {key:?}"));
                             if let Some(mut items) = unwrap_any!(next) {
-                                just_emitted = !items.is_empty();
+                                // Only set just_emitted to false if all
+                                // the parts didn't emit an item.
+                                just_emitted = just_emitted | !items.is_empty();
                                 output_session.give_vec(&mut items);
                                 emit_keys_buffer.insert(key.clone());
                             } else {
@@ -449,10 +451,7 @@ impl DynamicInput {
                             .reraise("error getting input from DynamicInput");
                         if let Some(mut items) = unwrap_any!(next) {
                             just_emitted = !items.is_empty();
-                            output_wrapper
-                                .activate()
-                                .session(&cap)
-                                .give_vec(&mut items);
+                            output_wrapper.activate().session(&cap).give_vec(&mut items);
                         } else {
                             eof = true;
                         }
