@@ -122,6 +122,11 @@ class KafkaInput(PartitionedInput):
             documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
             for options.
 
+        batch_size: How many messages to consume at most at each poll.
+            This is 1 by default, which means messages will be consumed
+            one at a time. The default setting is suited for lower latency,
+            but negatively affects throughput. If you need higher
+            throughput, set this to a higher value (eg: 1000)
     """
 
     def __init__(
