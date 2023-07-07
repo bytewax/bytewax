@@ -10,6 +10,7 @@ use crate::recovery::operators::{FlowChangeStream, Route};
 use crate::timely::CapabilityVecEx;
 use crate::unwrap_any;
 use crate::worker::{WorkerCount, WorkerIndex};
+use chrono::{DateTime, Utc};
 use pyo3::exceptions::{PyStopIteration, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -195,7 +196,7 @@ impl PartitionedInput {
         let probe = probe.clone();
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
-        let cooldown = Duration::from_millis(1);
+        let min_cooldown = chrono::Duration::milliseconds(1);
 
         let step_id_op = step_id.clone();
         op_builder.build(move |mut init_caps| {
@@ -212,6 +213,7 @@ impl PartitionedInput {
 
             move |_input_frontiers| {
                 let mut just_emitted = false;
+                let mut activate_after = chrono::Duration::milliseconds(1);
                 caps = caps.take().and_then(|(output_cap, change_cap)| {
                     assert!(output_cap.time() == change_cap.time());
                     let epoch = output_cap.time();
@@ -234,6 +236,16 @@ impl PartitionedInput {
                                 );
                                 eofd_keys_buffer.insert(key.clone());
                             }
+
+                            // Ask the next awake time to the source.
+                            let next_awake = Python::with_gil(|py| part.next_awake(py).unwrap());
+                            // Calculate for how long to wait for the next poll.
+                            activate_after = next_awake
+                                .signed_duration_since(Utc::now())
+                                // The minimum time is capped at `min_cooldown`.
+                                .max(min_cooldown)
+                                // The maximum time is the minimum of all the parts.
+                                .min(activate_after);
                         }
                     }
                     // Don't allow progress unless we've caught up,
@@ -294,14 +306,8 @@ impl PartitionedInput {
                     }
                 });
 
-                // Wake up constantly, because we never know when
-                // input will have new data.
                 if caps.is_some() {
-                    if just_emitted {
-                        activator.activate();
-                    } else {
-                        activator.activate_after(cooldown);
-                    }
+                    activator.activate_after(activate_after.to_std().unwrap());
                 }
             }
         });
@@ -336,19 +342,28 @@ impl StatefulSource {
         match self.0.call_method0(py, "next") {
             Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(None),
             Err(err) => Err(err),
-            Ok(items) => {
-                Ok(Some(items.extract(py).reraise(
-                    "`next` method in StatefulSource did not return a list",
-                )?))
-            }
+            Ok(items) => Ok(Some(
+                items
+                    .extract(py)
+                    .reraise("`StatefulSource.next` did not return a list")?,
+            )),
         }
+    }
+
+    fn next_awake(&self, py: Python) -> PyResult<DateTime<Utc>> {
+        Ok(self
+            .0
+            .call_method0(py, "next_awake")
+            .reraise("error calling `StatelessSource.next_awake`")?
+            .extract(py)
+            .reraise("error converting `StatefulSource.next_awake` return value to UTC datetime")?)
     }
 
     fn snapshot(&self, py: Python) -> PyResult<StateBytes> {
         let state = self
             .0
             .call_method0(py, "snapshot")
-            .reraise("error calling StatefulSource.snapshot")?
+            .reraise("error calling `StatefulSource.snapshot`")?
             .into();
         Ok(StateBytes::ser::<TdPyAny>(&state))
     }
@@ -357,7 +372,7 @@ impl StatefulSource {
         let _ = self
             .0
             .call_method0(py, "close")
-            .reraise("error closing stateful source")?;
+            .reraise("error calling `StatefulSource.close`")?;
         Ok(())
     }
 }
@@ -425,7 +440,7 @@ impl DynamicInput {
         let probe = probe.clone();
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
-        let cooldown = Duration::from_millis(1);
+        let min_cooldown = chrono::Duration::milliseconds(1);
 
         op_builder.build(move |mut init_caps| {
             // Inputs must init to the resume epoch.
@@ -437,6 +452,7 @@ impl DynamicInput {
 
             move |_input_frontiers| {
                 let mut just_emitted = false;
+                let mut activate_after = chrono::Duration::milliseconds(1);
                 // We can't return an error here, but we need to stop execution
                 // if we have an error in the user's code.
                 // When this happens we panic with unwrap_any! and reraise
@@ -449,12 +465,21 @@ impl DynamicInput {
                     if !probe.less_than(epoch) {
                         let next = Python::with_gil(|py| source.next(py))
                             .reraise("error getting input from DynamicInput");
+
                         if let Some(mut items) = unwrap_any!(next) {
                             just_emitted = !items.is_empty();
                             output_wrapper.activate().session(&cap).give_vec(&mut items);
                         } else {
                             eof = true;
                         }
+
+                        // Ask the next awake time to the source.
+                        let next_awake = unwrap_any!(Python::with_gil(|py| source.next_awake(py)));
+                        // Calculate for how long to wait for the next poll.
+                        activate_after = next_awake
+                            .signed_duration_since(Utc::now())
+                            // The minimum time is capped at `min_cooldown`.
+                            .max(min_cooldown);
                     }
                     // Don't allow progress unless we've caught up,
                     // otherwise you can get cascading advancement and
@@ -478,14 +503,9 @@ impl DynamicInput {
                     }
                 });
 
-                // Wake up constantly, because we never know when
-                // input will have new data.
+                // Park the worker for `activate_after` seconds.
                 if cap_src.is_some() {
-                    if just_emitted {
-                        activator.activate();
-                    } else {
-                        activator.activate_after(cooldown);
-                    }
+                    activator.activate_after(activate_after.to_std().unwrap());
                 }
             }
         });
@@ -520,12 +540,21 @@ impl StatelessSource {
         match self.0.call_method0(py, "next") {
             Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(None),
             Err(err) => Err(err),
-            Ok(items) => {
-                Ok(Some(items.extract(py).reraise(
-                    "`next` method in StatelessSource did not return a list",
-                )?))
-            }
+            Ok(items) => Ok(Some(
+                items
+                    .extract(py)
+                    .reraise("`StatelessSource.next` did not return a list")?,
+            )),
         }
+    }
+
+    fn next_awake(&self, py: Python) -> PyResult<DateTime<Utc>> {
+        Ok(self
+            .0
+            .call_method0(py, "next_awake")
+            .reraise("error calling `StatelessSource.next_awake`")?
+            .extract(py)
+            .reraise("error converting `StatelessSource.next_awake` return value to datetime")?)
     }
 
     fn close(self, py: Python) -> PyResult<()> {

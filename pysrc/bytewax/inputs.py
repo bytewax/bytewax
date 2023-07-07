@@ -9,6 +9,7 @@ Subclass the types here to implement input for your own custom source.
 
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Set, List
+from datetime import datetime, timezone
 
 __all__ = [
     "DynamicInput",
@@ -89,6 +90,20 @@ class StatefulSource(ABC):
 
         """
         pass
+
+    def next_awake(self) -> datetime:
+        """Return the time for the next poll of the input.
+        By default this is `now`, which means the input will
+        be polled continously.
+        This will be called right after `self.next`, and it can be
+        customized to make the input operator sleep for a variable
+        amount of time.
+
+        This method should be used instead of a `time.sleep` call in
+        `self.next` to put the operator to sleep.
+
+        """
+        return datetime.now(timezone.utc)
 
 
 class PartitionedInput(Input):
@@ -191,6 +206,20 @@ class StatelessSource(ABC):
 
         """
         pass
+
+    def next_awake(self) -> datetime:
+        """Return the time for the next poll of the input.
+        By default this is `now`, which means the input will
+        be polled continously.
+        This will be called right after `self.next`, and it can be
+        customized to make the input operator sleep for a variable
+        amount of time.
+
+        This method should be used instead of a `time.sleep` call in
+        `self.next` to put the operator to sleep.
+
+        """
+        return datetime.now(timezone.utc)
 
 
 class DynamicInput(Input):
