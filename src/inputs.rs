@@ -198,7 +198,6 @@ impl PartitionedInput {
         let activator = scope.activator_for(&info.address[..]);
         let min_cooldown = chrono::Duration::milliseconds(1);
 
-        let step_id_op = step_id.clone();
         op_builder.build(move |mut init_caps| {
             // Inputs must init to the resume epoch.
             init_caps.downgrade_all(&start_at.0);
@@ -227,13 +226,11 @@ impl PartitionedInput {
                             if let Some(mut items) = unwrap_any!(next) {
                                 // Only set just_emitted to false if all
                                 // the parts didn't emit an item.
-                                just_emitted = just_emitted | !items.is_empty();
+                                just_emitted |= !items.is_empty();
                                 output_session.give_vec(&mut items);
                                 emit_keys_buffer.insert(key.clone());
                             } else {
-                                tracing::trace!(
-                                    "Input {step_id_op:?} partition {key:?} reached EOF"
-                                );
+                                tracing::trace!("Input {step_id:?} partition {key:?} reached EOF");
                                 eofd_keys_buffer.insert(key.clone());
                             }
 
@@ -273,7 +270,7 @@ impl PartitionedInput {
                                     .reraise("error snapshotting input part")));
                                 (state_key, snap)
                             })
-                            .map(|(state_key, snap)| (FlowKey(step_id_op.clone(), state_key), snap))
+                            .map(|(state_key, snap)| (FlowKey(step_id.clone(), state_key), snap))
                             .map(|(flow_key, snap)| KChange(flow_key, Change::Upsert(snap)));
                         change_wrapper
                             .activate()
@@ -291,12 +288,12 @@ impl PartitionedInput {
                     }
 
                     if parts.is_empty() {
-                        tracing::trace!("Input {step_id_op:?} reached EOF");
+                        tracing::trace!("Input {step_id:?} reached EOF");
                         None
                     } else if advance {
                         let next_epoch = epoch + 1;
                         epoch_started = Instant::now();
-                        tracing::trace!("Input {step_id_op:?} advancing to epoch {next_epoch:?}");
+                        tracing::trace!("Input {step_id:?} advancing to epoch {next_epoch:?}");
                         Some((
                             output_cap.delayed(&next_epoch),
                             change_cap.delayed(&next_epoch),
@@ -351,12 +348,11 @@ impl StatefulSource {
     }
 
     fn next_awake(&self, py: Python) -> PyResult<DateTime<Utc>> {
-        Ok(self
-            .0
+        self.0
             .call_method0(py, "next_awake")
             .reraise("error calling `StatelessSource.next_awake`")?
             .extract(py)
-            .reraise("error converting `StatefulSource.next_awake` return value to UTC datetime")?)
+            .reraise("error converting `StatefulSource.next_awake` return value to UTC datetime")
     }
 
     fn snapshot(&self, py: Python) -> PyResult<StateBytes> {
@@ -369,8 +365,7 @@ impl StatefulSource {
     }
 
     fn close(self, py: Python) -> PyResult<()> {
-        let _ = self
-            .0
+        self.0
             .call_method0(py, "close")
             .reraise("error calling `StatefulSource.close`")?;
         Ok(())
@@ -549,12 +544,11 @@ impl StatelessSource {
     }
 
     fn next_awake(&self, py: Python) -> PyResult<DateTime<Utc>> {
-        Ok(self
-            .0
+        self.0
             .call_method0(py, "next_awake")
             .reraise("error calling `StatelessSource.next_awake`")?
             .extract(py)
-            .reraise("error converting `StatelessSource.next_awake` return value to datetime")?)
+            .reraise("error converting `StatelessSource.next_awake` return value to datetime")
     }
 
     fn close(self, py: Python) -> PyResult<()> {
