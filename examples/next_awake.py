@@ -41,22 +41,23 @@ stateless_flow.output("stdout", StdOutput())
 
 
 class StatefulPeriodicSource(StatefulSource):
-    def __init__(self, frequency, next_awake):
+    def __init__(self, frequency, next_awake, i):
         self.frequency = frequency
         self._next_awake = next_awake
-        self._i = 0
+        self._i = i
 
     def next(self):
         self._i += 1
         if self._i >= 10:
             raise StopIteration()
         self._next_awake += self.frequency
-        return ["VALUE"]
+        return [f"{self._i}"]
 
     def snapshot(self):
         return {
             "frequency": self.frequency,
             "_next_awake": self._next_awake.isoformat(),
+            "_i": self._i,
         }
 
     def next_awake(self):
@@ -77,7 +78,8 @@ class PeriodicPartitionedInput(PartitionedInput):
         next_awake = datetime.fromisoformat(
             resume_state.get("_next_awake", datetime.now(timezone.utc).isoformat())
         )
-        return StatefulPeriodicSource(frequency, next_awake)
+        i = resume_state.get("_i", 0)
+        return StatefulPeriodicSource(frequency, next_awake, i)
 
 
 stateful_flow = Dataflow()

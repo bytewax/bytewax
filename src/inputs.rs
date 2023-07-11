@@ -220,10 +220,10 @@ impl PartitionedInput {
                         let mut output_handle = output_wrapper.activate();
                         let mut output_session = output_handle.session(&output_cap);
                         for (key, part) in parts.iter() {
-                            let now = Utc::now();
                             // Ask the next awake time to the source.
                             let next_awake =
                                 unwrap_any!(Python::with_gil(|py| part.next_awake(py)));
+                            let now = Utc::now();
                             // Calculate for how long to wait for the next poll.
                             activate_after = Some(
                                 next_awake
