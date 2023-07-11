@@ -459,7 +459,6 @@ impl DynamicInput {
             let mut activate_after = min_cooldown;
 
             move |_input_frontiers| {
-                let now = Utc::now();
                 // We can't return an error here, but we need to stop execution
                 // if we have an error in the user's code.
                 // When this happens we panic with unwrap_any! and reraise
@@ -471,6 +470,7 @@ impl DynamicInput {
 
                     // Ask the next awake time to the source.
                     let next_awake = unwrap_any!(Python::with_gil(|py| source.next_awake(py)));
+                    let now = Utc::now();
                     activate_after = next_awake.signed_duration_since(now).max(min_cooldown);
 
                     // Only call `next` if `next_awake` is passed.
