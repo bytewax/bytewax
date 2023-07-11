@@ -95,12 +95,18 @@ class StatefulSource(ABC):
         """Return the time for the next poll of the input.
         By default this is `now`, which means the input will
         be polled continously.
-        This will be called right after `self.next`, and it can be
-        customized to make the input operator sleep for a variable
-        amount of time.
 
-        This method should be used instead of a `time.sleep` call in
-        `self.next` to put the operator to sleep.
+        This function is called before `self.next`, and if the
+        datetime returned is in the future, `self.next` won't be
+        called immediately, and the input operator will be put to
+        rest until it's time to wake up.
+
+        Always use this method to wait for input rather than
+        using a `time.sleep` inside `self.next`
+
+        Returns:
+
+            Datetime for the next activation
 
         """
         return datetime.now(timezone.utc)
@@ -211,12 +217,18 @@ class StatelessSource(ABC):
         """Return the time for the next poll of the input.
         By default this is `now`, which means the input will
         be polled continously.
-        This will be called right after `self.next`, and it can be
-        customized to make the input operator sleep for a variable
-        amount of time.
 
-        This method should be used instead of a `time.sleep` call in
-        `self.next` to put the operator to sleep.
+        This function is called before `self.next`, and if the
+        datetime returned is in the future, `self.next` won't be
+        called immediately, and the input operator will be put to
+        rest until it's time to wake up.
+
+        Always use this method to wait for input rather than
+        using a `time.sleep` inside `self.next`
+
+        Returns:
+
+            Datetime for the next activation
 
         """
         return datetime.now(timezone.utc)

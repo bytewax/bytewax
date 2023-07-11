@@ -24,7 +24,7 @@ class PeriodicSource(StatelessSource):
         if self._i >= 10:
             raise StopIteration()
         self._next_awake += self.frequency
-        return ["VALUE"]
+        return [f"{self._i}"]
 
 
 class PeriodicInput(DynamicInput):
