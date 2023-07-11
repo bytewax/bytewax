@@ -310,6 +310,10 @@ impl PartitionedInput {
                 });
 
                 if caps.is_some() {
+                    // Only activate when the next awake time comes.
+                    // Note the use of `.take()` here, to set the
+                    // `activate_after` value to Option::None, so that
+                    // each iteration has it's own `activate_after` time.
                     activator.activate_after(
                         activate_after
                             .take()
