@@ -209,10 +209,9 @@ impl PartitionedInput {
             let mut emit_keys_buffer: HashSet<StateKey> = HashSet::new();
             let mut eofd_keys_buffer: HashSet<StateKey> = HashSet::new();
             let mut snapshot_keys_buffer: HashSet<StateKey> = HashSet::new();
+            let mut activate_after = None;
 
             move |_input_frontiers| {
-                let mut just_emitted = false;
-                let mut activate_after = chrono::Duration::milliseconds(1);
                 caps = caps.take().and_then(|(output_cap, change_cap)| {
                     assert!(output_cap.time() == change_cap.time());
                     let epoch = output_cap.time();
@@ -221,28 +220,35 @@ impl PartitionedInput {
                         let mut output_handle = output_wrapper.activate();
                         let mut output_session = output_handle.session(&output_cap);
                         for (key, part) in parts.iter() {
-                            let next = Python::with_gil(|py| part.next(py))
-                                .reraise_with(|| format!("error getting input for key {key:?}"));
-                            if let Some(mut items) = unwrap_any!(next) {
-                                // Only set just_emitted to false if all
-                                // the parts didn't emit an item.
-                                just_emitted |= !items.is_empty();
-                                output_session.give_vec(&mut items);
-                                emit_keys_buffer.insert(key.clone());
-                            } else {
-                                tracing::trace!("Input {step_id:?} partition {key:?} reached EOF");
-                                eofd_keys_buffer.insert(key.clone());
-                            }
-
+                            let now = Utc::now();
                             // Ask the next awake time to the source.
-                            let next_awake = Python::with_gil(|py| part.next_awake(py).unwrap());
+                            let next_awake =
+                                unwrap_any!(Python::with_gil(|py| part.next_awake(py)));
                             // Calculate for how long to wait for the next poll.
-                            activate_after = next_awake
-                                .signed_duration_since(Utc::now())
-                                // The minimum time is capped at `min_cooldown`.
-                                .max(min_cooldown)
-                                // The maximum time is the minimum of all the parts.
-                                .min(activate_after);
+                            activate_after = Some(
+                                next_awake
+                                    .signed_duration_since(now)
+                                    .max(min_cooldown)
+                                    // The maximum time is the minimum of all the parts.
+                                    .min(
+                                        activate_after.unwrap_or_else(chrono::Duration::max_value),
+                                    ),
+                            );
+                            if next_awake <= now {
+                                let next =
+                                    Python::with_gil(|py| part.next(py)).reraise_with(|| {
+                                        format!("error getting input for key {key:?}")
+                                    });
+                                if let Some(mut items) = unwrap_any!(next) {
+                                    output_session.give_vec(&mut items);
+                                    emit_keys_buffer.insert(key.clone());
+                                } else {
+                                    tracing::trace!(
+                                        "Input {step_id:?} partition {key:?} reached EOF"
+                                    );
+                                    eofd_keys_buffer.insert(key.clone());
+                                }
+                            }
                         }
                     }
                     // Don't allow progress unless we've caught up,
@@ -304,7 +310,13 @@ impl PartitionedInput {
                 });
 
                 if caps.is_some() {
-                    activator.activate_after(activate_after.to_std().unwrap());
+                    activator.activate_after(
+                        activate_after
+                            .take()
+                            .unwrap_or(min_cooldown)
+                            .to_std()
+                            .unwrap(),
+                    );
                 }
             }
         });
@@ -444,10 +456,10 @@ impl DynamicInput {
 
             let mut cap_src = Some((output_cap, source));
             let mut epoch_started = Instant::now();
+            let mut activate_after = min_cooldown;
 
             move |_input_frontiers| {
-                let mut just_emitted = false;
-                let mut activate_after = chrono::Duration::milliseconds(1);
+                let now = Utc::now();
                 // We can't return an error here, but we need to stop execution
                 // if we have an error in the user's code.
                 // When this happens we panic with unwrap_any! and reraise
@@ -457,24 +469,22 @@ impl DynamicInput {
 
                     let mut eof = false;
 
-                    if !probe.less_than(epoch) {
+                    // Ask the next awake time to the source.
+                    let next_awake = unwrap_any!(Python::with_gil(|py| source.next_awake(py)));
+                    activate_after = next_awake.signed_duration_since(now).max(min_cooldown);
+
+                    // Only call `next` if `next_awake` is passed.
+                    if !probe.less_than(epoch) && next_awake <= now {
                         let next = Python::with_gil(|py| source.next(py))
                             .reraise("error getting input from DynamicInput");
 
                         if let Some(mut items) = unwrap_any!(next) {
-                            just_emitted = !items.is_empty();
-                            output_wrapper.activate().session(&cap).give_vec(&mut items);
+                            if !items.is_empty() {
+                                output_wrapper.activate().session(&cap).give_vec(&mut items);
+                            }
                         } else {
                             eof = true;
                         }
-
-                        // Ask the next awake time to the source.
-                        let next_awake = unwrap_any!(Python::with_gil(|py| source.next_awake(py)));
-                        // Calculate for how long to wait for the next poll.
-                        activate_after = next_awake
-                            .signed_duration_since(Utc::now())
-                            // The minimum time is capped at `min_cooldown`.
-                            .max(min_cooldown);
                     }
                     // Don't allow progress unless we've caught up,
                     // otherwise you can get cascading advancement and
