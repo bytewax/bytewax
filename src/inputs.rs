@@ -441,9 +441,9 @@ impl DynamicInput {
 
             let mut cap_src = Some((output_cap, source));
             let mut epoch_started = Instant::now();
+            let mut next_guard = NextGuard::new();
 
             move |_input_frontiers| {
-                let mut next_guard = NextGuard::new();
                 // We can't return an error here, but we need to stop execution
                 // if we have an error in the user's code.
                 // When this happens we panic with unwrap_any! and reraise
