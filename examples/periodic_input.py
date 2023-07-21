@@ -14,17 +14,20 @@ class PeriodicSource(StatelessSource):
     def __init__(self, frequency):
         self.frequency = frequency
         self._next_awake = datetime.now(timezone.utc)
-        self._i = 0
+        self._counter = 0
 
     def next_awake(self):
         return self._next_awake
 
     def next(self):
-        self._i += 1
-        if self._i >= 10:
+        self._counter += 1
+        if self._counter >= 10:
             raise StopIteration()
+        # Calculate the delay between when this was supposed
+        # to  be called, and when it is actually called
+        delay = datetime.now(timezone.utc) - self._next_awake
         self._next_awake += self.frequency
-        return [f"{self._i}"]
+        return [f"delay (ms): {delay.total_seconds() * 1000:.3f}"]
 
 
 class PeriodicInput(DynamicInput):
@@ -41,23 +44,25 @@ stateless_flow.output("stdout", StdOutput())
 
 
 class StatefulPeriodicSource(StatefulSource):
-    def __init__(self, frequency, next_awake, i):
+    def __init__(self, frequency, next_awake, counter):
         self.frequency = frequency
         self._next_awake = next_awake
-        self._i = i
+        self._counter = counter
 
     def next(self):
-        self._i += 1
-        if self._i >= 10:
+        self._counter += 1
+        if self._counter >= 10:
             raise StopIteration()
+        # Calculate the delay between when this was supposed
+        # to  be called, and when it is actually called
+        delay = datetime.now(timezone.utc) - self._next_awake
         self._next_awake += self.frequency
-        return [f"{self._i}"]
+        return [f"delay (ms): {delay.total_seconds() * 1000:.3f}"]
 
     def snapshot(self):
         return {
-            "frequency": self.frequency,
-            "_next_awake": self._next_awake.isoformat(),
-            "_i": self._i,
+            "next_awake": self._next_awake.isoformat(),
+            "counter": self._counter,
         }
 
     def next_awake(self):
@@ -74,12 +79,11 @@ class PeriodicPartitionedInput(PartitionedInput):
     def build_part(self, for_part, resume_state):
         assert for_part == "singleton"
         resume_state = resume_state or {}
-        frequency = resume_state.get("frequency", self.frequency)
         next_awake = datetime.fromisoformat(
-            resume_state.get("_next_awake", datetime.now(timezone.utc).isoformat())
+            resume_state.get("next_awake", datetime.now(timezone.utc).isoformat())
         )
-        i = resume_state.get("_i", 0)
-        return StatefulPeriodicSource(frequency, next_awake, i)
+        counter = resume_state.get("counter", 0)
+        return StatefulPeriodicSource(self.frequency, next_awake, counter)
 
 
 stateful_flow = Dataflow()
