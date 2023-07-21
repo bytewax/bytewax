@@ -196,7 +196,6 @@ impl PartitionedInput {
         let probe = probe.clone();
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
-        let min_cooldown = chrono::Duration::milliseconds(1);
 
         op_builder.build(move |mut init_caps| {
             // Inputs must init to the resume epoch.
@@ -209,7 +208,7 @@ impl PartitionedInput {
             let mut emit_keys_buffer: HashSet<StateKey> = HashSet::new();
             let mut eofd_keys_buffer: HashSet<StateKey> = HashSet::new();
             let mut snapshot_keys_buffer: HashSet<StateKey> = HashSet::new();
-            let mut activate_after = None;
+            let mut next_guard = NextGuard::new();
 
             move |_input_frontiers| {
                 caps = caps.take().and_then(|(output_cap, change_cap)| {
@@ -223,18 +222,9 @@ impl PartitionedInput {
                             // Ask the next awake time to the source.
                             let next_awake =
                                 unwrap_any!(Python::with_gil(|py| part.next_awake(py)));
-                            let now = Utc::now();
-                            // Calculate for how long to wait for the next poll.
-                            activate_after = Some(
-                                next_awake
-                                    .signed_duration_since(now)
-                                    .max(min_cooldown)
-                                    // The maximum time is the minimum of all the parts.
-                                    .min(
-                                        activate_after.unwrap_or_else(chrono::Duration::max_value),
-                                    ),
-                            );
-                            if next_awake <= now {
+                            // Ask the NextGuard if `next` should be called given
+                            // the current `next_awake` time.
+                            if next_guard.should_call_next(next_awake) {
                                 let next =
                                     Python::with_gil(|py| part.next(py)).reraise_with(|| {
                                         format!("error getting input for key {key:?}")
@@ -310,17 +300,9 @@ impl PartitionedInput {
                 });
 
                 if caps.is_some() {
-                    // Only activate when the next awake time comes.
-                    // Note the use of `.take()` here, to set the
-                    // `activate_after` value to Option::None, so that
-                    // each iteration has it's own `activate_after` time.
-                    activator.activate_after(
-                        activate_after
-                            .take()
-                            .unwrap_or(min_cooldown)
-                            .to_std()
-                            .unwrap(),
-                    );
+                    // Ask the NextGuard the cooldown time based on
+                    // `next_awake` times passed to it.
+                    activator.activate_after(next_guard.activate_after());
                 }
             }
         });
@@ -363,7 +345,7 @@ impl StatefulSource {
         }
     }
 
-    fn next_awake(&self, py: Python) -> PyResult<DateTime<Utc>> {
+    fn next_awake(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
         self.0
             .call_method0(py, "next_awake")
             .reraise("error calling `StatelessSource.next_awake`")?
@@ -451,7 +433,6 @@ impl DynamicInput {
         let probe = probe.clone();
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
-        let min_cooldown = chrono::Duration::milliseconds(1);
 
         op_builder.build(move |mut init_caps| {
             // Inputs must init to the resume epoch.
@@ -460,9 +441,9 @@ impl DynamicInput {
 
             let mut cap_src = Some((output_cap, source));
             let mut epoch_started = Instant::now();
-            let mut activate_after = min_cooldown;
 
             move |_input_frontiers| {
+                let mut next_guard = NextGuard::new();
                 // We can't return an error here, but we need to stop execution
                 // if we have an error in the user's code.
                 // When this happens we panic with unwrap_any! and reraise
@@ -474,11 +455,9 @@ impl DynamicInput {
 
                     // Ask the next awake time to the source.
                     let next_awake = unwrap_any!(Python::with_gil(|py| source.next_awake(py)));
-                    let now = Utc::now();
-                    activate_after = next_awake.signed_duration_since(now).max(min_cooldown);
-
-                    // Only call `next` if `next_awake` is passed.
-                    if !probe.less_than(epoch) && next_awake <= now {
+                    // Only call `next` if we are in the current epoch, and the NextGuard
+                    // says it's ok to call now.
+                    if !probe.less_than(epoch) && next_guard.should_call_next(next_awake) {
                         let next = Python::with_gil(|py| source.next(py))
                             .reraise("error getting input from DynamicInput");
 
@@ -512,9 +491,9 @@ impl DynamicInput {
                     }
                 });
 
-                // Park the worker for `activate_after` seconds.
+                // Ask NextGuard for how long to wait for the input to be called again.
                 if cap_src.is_some() {
-                    activator.activate_after(activate_after.to_std().unwrap());
+                    activator.activate_after(next_guard.activate_after());
                 }
             }
         });
@@ -557,7 +536,7 @@ impl StatelessSource {
         }
     }
 
-    fn next_awake(&self, py: Python) -> PyResult<DateTime<Utc>> {
+    fn next_awake(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
         self.0
             .call_method0(py, "next_awake")
             .reraise("error calling `StatelessSource.next_awake`")?
@@ -568,5 +547,83 @@ impl StatelessSource {
     fn close(self, py: Python) -> PyResult<()> {
         let _ = self.0.call_method0(py, "close")?;
         Ok(())
+    }
+}
+
+/// Utility struct used to keep track of `next_awake` times.
+/// Initialize this struct at each activation, then use
+/// `NextGuard::should_call_next` with the `next_awake` time to know
+/// if `next` should be called.
+/// Finally use `NextGuard::activate_after` to get the calculated
+/// cooldown time.
+/// In PartitionedInput, `should_call_next` should be called for each
+/// part, and the cooldown time will be the minimum between the parts.
+struct NextGuard {
+    activate_immediately: bool,
+    activate_after: Option<chrono::Duration>,
+    min_cooldown: chrono::Duration,
+}
+
+impl NextGuard {
+    const ZERO: chrono::Duration = chrono::Duration::zero();
+    const MILLISECOND: chrono::Duration = chrono::Duration::milliseconds(1);
+
+    pub fn new() -> Self {
+        Self {
+            activate_immediately: false,
+            activate_after: None,
+            min_cooldown: Self::MILLISECOND,
+        }
+    }
+
+    pub fn should_call_next(&mut self, next_awake: Option<chrono::DateTime<Utc>>) -> bool {
+        // If self.activate_immediately is true once, nothing is changed anymore.
+        if self.activate_immediately {
+            true
+        } else {
+            // If `next_awake` is Some, we take the shortest
+            // delta between the previous and the current one.
+            if let Some(next_awake) = next_awake {
+                // Calculate the delta
+                let now = Utc::now();
+                let activate_after = next_awake.signed_duration_since(now).max(self.min_cooldown);
+                self.activate_after = Some(
+                    self.activate_after
+                        // Take min between current and previous, if any
+                        .map(|prev| activate_after.min(prev))
+                        // If no previous delta, just use the current one
+                        .unwrap_or(activate_after),
+                );
+                // next should only be called if `next_awake` is in the past
+                next_awake <= now
+            } else {
+                // A None value from `next_awake` means the input
+                // wants immediate activation.
+                self.activate_immediately = true;
+                self.activate_after = Some(Self::ZERO);
+                // `next` should always be called with immediate activation
+                true
+            }
+        }
+    }
+
+    /// Return the calculated delta for cooldown, or `Self::min_cooldown`
+    /// if `should_call_next` was never called.
+    /// Resets the state to default values for the next activation.
+    pub fn activate_after(&mut self) -> Duration {
+        let dur = self
+            .activate_after
+            // activate_after could be None if the worker
+            // crossed epoch boundaries before the others.
+            // In that case just sleep for the min_cooldown
+            .unwrap_or(self.min_cooldown)
+            .to_std()
+            .expect("can convert activate_after to std::time::Duration");
+
+        // Reset the instance for next activation
+        self.activate_immediately = false;
+        self.activate_after = None;
+        self.min_cooldown = Self::MILLISECOND;
+        dur
     }
 }

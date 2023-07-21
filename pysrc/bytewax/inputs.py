@@ -91,10 +91,12 @@ class StatefulSource(ABC):
         """
         pass
 
-    def next_awake(self) -> datetime:
-        """Return the time for the next poll of the input.
-        By default this is `now`, which means the input will
-        be polled continously.
+    def next_awake(self) -> Optional[datetime]:
+        """Return the time for the next poll of the input
+        or None for immediate activation.
+        By default this is `datetime.now`, which means the
+        input will be polled continously, with a cooldown that
+        helps avoid high cpu load if there's no work to do.
 
         This function is called before `self.next`, and if the
         datetime returned is in the future, `self.next` won't be
@@ -104,9 +106,15 @@ class StatefulSource(ABC):
         Always use this method to wait for input rather than
         using a `time.sleep` inside `self.next`
 
+        Beware, always returning None will make the worker
+        spin as fast as possible, possibly consuming all the
+        available cpu. It's usually better to use the default
+        implementation.
+
         Returns:
 
-            Datetime for the next activation
+            Datetime for the next activation,
+            or None for immediate activation
 
         """
         return datetime.now(timezone.utc)
@@ -213,10 +221,12 @@ class StatelessSource(ABC):
         """
         pass
 
-    def next_awake(self) -> datetime:
-        """Return the time for the next poll of the input.
-        By default this is `now`, which means the input will
-        be polled continously.
+    def next_awake(self) -> Optional[datetime]:
+        """Return the time for the next poll of the input
+        or None for immediate activation.
+        By default this is `datetime.now`, which means the
+        input will be polled continously, with a cooldown that
+        helps avoid high cpu load if there's no work to do.
 
         This function is called before `self.next`, and if the
         datetime returned is in the future, `self.next` won't be
@@ -226,9 +236,15 @@ class StatelessSource(ABC):
         Always use this method to wait for input rather than
         using a `time.sleep` inside `self.next`
 
+        Beware, always returning None will make the worker
+        spin as fast as possible, possibly consuming all the
+        available cpu. It's usually better to use the default
+        implementation.
+
         Returns:
 
-            Datetime for the next activation
+            Datetime for the next activation,
+            or None for immediate activation
 
         """
         return datetime.now(timezone.utc)
