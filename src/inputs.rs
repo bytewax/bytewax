@@ -208,7 +208,8 @@ impl PartitionedInput {
             let mut emit_keys_buffer: HashSet<StateKey> = HashSet::new();
             let mut eofd_keys_buffer: HashSet<StateKey> = HashSet::new();
             let mut snapshot_keys_buffer: HashSet<StateKey> = HashSet::new();
-            let mut next_guard = NextGuard::new();
+            // Default behavior is to cooldown for 1ms after each activation.
+            let mut next_guard = NextGuard::NotSet;
 
             move |_input_frontiers| {
                 caps = caps.take().and_then(|(output_cap, change_cap)| {
@@ -222,14 +223,18 @@ impl PartitionedInput {
                             // Ask the next awake time to the source.
                             let next_awake =
                                 unwrap_any!(Python::with_gil(|py| part.next_awake(py)));
-                            // Ask the NextGuard if `next` should be called given
-                            // the current `next_awake` time.
+
+                            // Ask next_guard if we should call `next` given the current
+                            // `next_awake` value.
                             if next_guard.should_call_next(next_awake) {
-                                let next =
-                                    Python::with_gil(|py| part.next(py)).reraise_with(|| {
-                                        format!("error getting input for key {key:?}")
-                                    });
-                                if let Some(mut items) = unwrap_any!(next) {
+                                let next = unwrap_any!(Python::with_gil(|py| part.next(py))
+                                    .reraise_with(|| format!(
+                                        "error getting input for key {key:?}"
+                                    )));
+                                if let Some(mut items) = next {
+                                    if items.is_empty() {
+                                        next_guard.set_empty_input();
+                                    }
                                     output_session.give_vec(&mut items);
                                     emit_keys_buffer.insert(key.clone());
                                 } else {
@@ -441,7 +446,7 @@ impl DynamicInput {
 
             let mut cap_src = Some((output_cap, source));
             let mut epoch_started = Instant::now();
-            let mut next_guard = NextGuard::new();
+            let mut next_guard = NextGuard::NotSet;
 
             move |_input_frontiers| {
                 // We can't return an error here, but we need to stop execution
@@ -458,13 +463,14 @@ impl DynamicInput {
                     // Only call `next` if we are in the current epoch, and the NextGuard
                     // says it's ok to call now.
                     if !probe.less_than(epoch) && next_guard.should_call_next(next_awake) {
-                        let next = Python::with_gil(|py| source.next(py))
-                            .reraise("error getting input from DynamicInput");
+                        let next = unwrap_any!(Python::with_gil(|py| source.next(py))
+                            .reraise("error getting input from DynamicInput"));
 
-                        if let Some(mut items) = unwrap_any!(next) {
-                            if !items.is_empty() {
-                                output_wrapper.activate().session(&cap).give_vec(&mut items);
+                        if let Some(mut items) = next {
+                            if items.is_empty() {
+                                next_guard.set_empty_input();
                             }
+                            output_wrapper.activate().session(&cap).give_vec(&mut items);
                         } else {
                             eof = true;
                         }
@@ -550,80 +556,174 @@ impl StatelessSource {
     }
 }
 
-/// Utility struct used to keep track of `next_awake` times.
-/// Initialize this struct at each activation, then use
+/// Utility enum used to keep track of `next_awake` times.
+/// Initialize this once per operator, then use
 /// `NextGuard::should_call_next` with the `next_awake` time to know
 /// if `next` should be called.
+/// Call `NextGuard::set_empty_input` to add a cooldown on
+/// immediate activation if the input was empty.
 /// Finally use `NextGuard::activate_after` to get the calculated
 /// cooldown time.
 /// In PartitionedInput, `should_call_next` should be called for each
 /// part, and the cooldown time will be the minimum between the parts.
-struct NextGuard {
-    activate_immediately: bool,
-    activate_after: Option<chrono::Duration>,
-    min_cooldown: chrono::Duration,
+#[derive(Default)]
+enum NextGuard {
+    #[default]
+    NotSet,
+    ActivateImmediately,
+    ActivateAfter(chrono::Duration),
 }
 
 impl NextGuard {
-    const ZERO: chrono::Duration = chrono::Duration::zero();
-    const MILLISECOND: chrono::Duration = chrono::Duration::milliseconds(1);
-
-    pub fn new() -> Self {
-        Self {
-            activate_immediately: false,
-            activate_after: None,
-            min_cooldown: Self::MILLISECOND,
-        }
-    }
+    const MIN_COOLDOWN: chrono::Duration = chrono::Duration::milliseconds(1);
+    const ZERO_DUR: chrono::Duration = chrono::Duration::zero();
 
     pub fn should_call_next(&mut self, next_awake: Option<chrono::DateTime<Utc>>) -> bool {
-        // If self.activate_immediately is true once, nothing is changed anymore.
-        if self.activate_immediately {
-            true
+        // First calculate if `next` should be called
+        let now = Utc::now();
+        let should_call = if let Some(next_awake) = next_awake {
+            next_awake <= now
         } else {
-            // If `next_awake` is Some, we take the shortest
-            // delta between the previous and the current one.
-            if let Some(next_awake) = next_awake {
-                // Calculate the delta
-                let now = Utc::now();
-                let activate_after = next_awake.signed_duration_since(now).max(self.min_cooldown);
-                self.activate_after = Some(
-                    self.activate_after
-                        // Take min between current and previous, if any
-                        .map(|prev| activate_after.min(prev))
-                        // If no previous delta, just use the current one
-                        .unwrap_or(activate_after),
-                );
-                // next should only be called if `next_awake` is in the past
-                next_awake <= now
-            } else {
-                // A None value from `next_awake` means the input
-                // wants immediate activation.
-                self.activate_immediately = true;
-                self.activate_after = Some(Self::ZERO);
-                // `next` should always be called with immediate activation
-                true
+            true
+        };
+        // Then update `self` depending on current value and next_awake's value.
+        match self {
+            // If Self is ActivateImmediately, there's nothing to do, Self won't change.
+            Self::ActivateImmediately => {}
+            // If Self is NotSet, this is the first time `should_call_next` is called.
+            // If `next_awake` exists, we calculate the cooldown and mutate self to ActivateAfter.
+            // If `next_awake` is None, mutate self to ActivateImmediately.
+            Self::NotSet => {
+                if let Some(next_awake) = next_awake {
+                    let cooldown = next_awake
+                        .signed_duration_since(now)
+                        .max(Self::MIN_COOLDOWN);
+                    *self = Self::ActivateAfter(cooldown);
+                } else {
+                    *self = Self::ActivateImmediately;
+                }
+            }
+            // This function can be called multiple times in partitioned input.
+            // In that case we set the minimum cooldown (down to zero) between
+            // all parts as the next activation time.
+            Self::ActivateAfter(cooldown) => {
+                if let Some(next_awake) = next_awake {
+                    let prev_cooldown = cooldown;
+                    let now = Utc::now();
+                    let cooldown = next_awake
+                        .signed_duration_since(now)
+                        .max(Self::MIN_COOLDOWN)
+                        .min(*prev_cooldown);
+                    *self = Self::ActivateAfter(cooldown);
+                } else {
+                    *self = Self::ActivateImmediately;
+                }
+            }
+        };
+        should_call
+    }
+
+    pub fn set_empty_input(&mut self) {
+        match self {
+            Self::ActivateImmediately => {
+                // User asked to activate immediately,
+                // but there was no input at this activation,
+                // revert to the default minimum cooldown to avoid
+                // spin looping the input.
+                *self = Self::ActivateAfter(Self::MIN_COOLDOWN)
+            }
+            Self::NotSet => {
+                // Panic here. This error can only arise from a wrong use of this
+                // guard on the Rust side, not from a user mistake.
+                // If you ended up here, make sure to call Self::should_call_next
+                // with the `next_awake` value before calling this function.
+                panic!("must call `should_call_next` before `set_empty_input`.")
+            }
+            Self::ActivateAfter(_cooldown) => {
+                // If a `next_awake` time was set, we don't care if
+                // the input is empty and do nothing here.
             }
         }
     }
 
-    /// Return the calculated delta for cooldown, or `Self::min_cooldown`
-    /// if `should_call_next` was never called.
-    /// Resets the state to default values for the next activation.
     pub fn activate_after(&mut self) -> Duration {
-        let dur = self
-            .activate_after
-            // activate_after could be None if the worker
-            // crossed epoch boundaries before the others.
-            // In that case just sleep for the min_cooldown
-            .unwrap_or(self.min_cooldown)
+        let cooldown = match self {
+            Self::NotSet => Self::MIN_COOLDOWN,
+            Self::ActivateImmediately => Self::ZERO_DUR,
+            Self::ActivateAfter(cooldown) => *cooldown,
+        };
+        // Reset self for the next iteration
+        *self = Self::NotSet;
+        cooldown
             .to_std()
-            .expect("can convert activate_after to std::time::Duration");
-
-        // Reset the instance for next activation
-        self.activate_immediately = false;
-        self.activate_after = None;
-        self.min_cooldown = Self::MILLISECOND;
-        dur
+            // If this fails it usually means the cooldown ended
+            // up being a negative value, which is allowed in python's
+            // timedelta and in chrono::Duration, but not in std::time::Duration
+            .expect("to be able to convert cooldown to std::time::Duration")
     }
+}
+
+#[test]
+fn test_next_guard_dynamic_input() {
+    // Init this once, it will be reset everytime
+    // NextGuard::activate_after is called.
+    let mut next_guard = NextGuard::NotSet;
+
+    // Operator requests immediate activation, but the input
+    // is empty, so we expect the minimum cooldown to be used.
+    assert!(next_guard.should_call_next(None));
+    next_guard.set_empty_input();
+    let min_cooldown = NextGuard::MIN_COOLDOWN.to_std().unwrap();
+    assert_eq!(next_guard.activate_after(), min_cooldown);
+
+    // Operator requests immediate activation, and the input
+    // is not empty, we expect immediate activation here.
+    assert!(next_guard.should_call_next(None));
+    assert_eq!(next_guard.activate_after(), std::time::Duration::ZERO);
+}
+
+#[test]
+fn test_next_guard_partitioned_input() {
+    // Init this once, it will be reset everytime
+    // NextGuard::activate_after is called.
+    let mut next_guard = NextGuard::NotSet;
+
+    // In PartitionedInput, the next_guard should return the minimum
+    // activation time of all the parts.
+    // Each input part can indipendently request any activation time.
+    // The first one here requests immediate activation, but the input is empty.
+    assert!(next_guard.should_call_next(None));
+    next_guard.set_empty_input();
+    // The second one requests immediate activation, and input is not empty.
+    assert!(next_guard.should_call_next(None));
+    // We expect zero cooldown in this case
+    assert_eq!(next_guard.activate_after(), std::time::Duration::ZERO);
+
+    // Another scenario is if different parts require different late activation.
+    // Here we expect the minimum between all the part.
+    let five_seconds = chrono::Duration::seconds(5);
+    let ten_seconds = chrono::Duration::seconds(10);
+    assert!(!next_guard.should_call_next(Some(Utc::now() + ten_seconds)));
+    assert!(!next_guard.should_call_next(Some(Utc::now() + five_seconds)));
+    let activate_after = next_guard.activate_after();
+    // activate_after should be (slightly) less than the minimum next_awake.
+    assert!(activate_after <= five_seconds.to_std().unwrap());
+    assert!(activate_after > NextGuard::MIN_COOLDOWN.to_std().unwrap());
+
+    // Last scenario is if one part requires immedaite activation,
+    // and another late activation.
+    assert!(next_guard.should_call_next(None));
+    // next should not be called even if another part requested immediate activation.
+    assert!(!next_guard.should_call_next(Some(Utc::now() + chrono::Duration::seconds(5))));
+    // But the next activation should be immediate.
+    assert_eq!(next_guard.activate_after(), std::time::Duration::ZERO);
+}
+
+#[test]
+#[should_panic]
+fn test_next_guard_wrong_calls() {
+    // If we try to call `set_empty_input` without calling `should_call_next`
+    // first, the NextGuard should panic.
+    let mut next_guard = NextGuard::NotSet;
+    next_guard.set_empty_input();
 }
