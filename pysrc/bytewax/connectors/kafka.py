@@ -51,7 +51,7 @@ class _KafkaSource(StatefulSource):
         resume_state,
         batch_size,
     ):
-        self._offset = resume_state or starting_offset
+        self._offset = starting_offset if resume_state is None else resume_state
         # Assign does not activate consumer grouping.
         consumer.assign([TopicPartition(topic, part_idx, self._offset)])
         self._consumer = consumer

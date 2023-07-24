@@ -21,7 +21,7 @@ __all__ = [
 
 class _FileSource(StatefulSource):
     def __init__(self, path, resume_state):
-        resume_offset = resume_state or 0
+        resume_offset = 0 if resume_state is None else resume_state
         self._f = open(path, "rt")
         self._f.seek(resume_offset)
 
@@ -172,7 +172,7 @@ class _CSVSource(_FileSource):
     """
 
     def __init__(self, path, resume_state, **fmtparams):
-        resume_offset = resume_state or 0
+        resume_offset = 0 if resume_state is None else resume_state
         self._f = open(path, "rt")
         self.fmtparams = fmtparams
         self.header = next(csv.reader([self._f.readline()], **self.fmtparams))
@@ -195,7 +195,7 @@ class _CSVSource(_FileSource):
 
 class _FileSink(StatefulSink):
     def __init__(self, path, resume_state, end):
-        resume_offset = resume_state or 0
+        resume_offset = 0 if resume_state is None else resume_state
         self._f = open(path, "at")
         self._f.seek(resume_offset)
         self._f.truncate()
