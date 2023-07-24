@@ -77,7 +77,8 @@ class _KafkaSource(StatefulSource):
                 else:
                     # Discard all the messages in this batch too
                     raise RuntimeError(
-                        f"error consuming from Kafka topic `{self.topic!r}`: {msg.error()}"
+                        f"error consuming from Kafka topic `{self.topic!r}`: "
+                        f"{msg.error()}"
                     )
             result.append((msg.key(), msg.value()))
             # Resume reading from the next message, not this one.
