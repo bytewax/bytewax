@@ -19,7 +19,7 @@ __all__ = [
 
 class _IterSource(StatefulSource):
     def __init__(self, it, resume_state):
-        self._idx = resume_state or -1
+        self._idx = -1 if resume_state is None else resume_state
         self._it = enumerate(it)
         # Resume to one after the last completed read.
         for i in range(self._idx + 1):

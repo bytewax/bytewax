@@ -51,7 +51,7 @@ class _KafkaSource(StatefulSource):
         resume_state,
         batch_size,
     ):
-        self._offset = resume_state or starting_offset
+        self._offset = starting_offset if resume_state is None else resume_state
         # Assign does not activate consumer grouping.
         consumer.assign([TopicPartition(topic, part_idx, self._offset)])
         self._consumer = consumer
@@ -77,7 +77,8 @@ class _KafkaSource(StatefulSource):
                 else:
                     # Discard all the messages in this batch too
                     raise RuntimeError(
-                        f"error consuming from Kafka topic `{self.topic!r}`: {msg.error()}"
+                        f"error consuming from Kafka topic `{self.topic!r}`: "
+                        f"{msg.error()}"
                     )
             result.append((msg.key(), msg.value()))
             # Resume reading from the next message, not this one.
@@ -138,8 +139,6 @@ class KafkaInput(PartitionedInput):
         add_config: Dict[str, str] = None,
         batch_size: int = 1,
     ):
-        add_config = add_config or {}
-
         if isinstance(brokers, str):
             raise TypeError("brokers must be an iterable and not a string")
         self._brokers = brokers
@@ -148,7 +147,7 @@ class KafkaInput(PartitionedInput):
         self._topics = topics
         self._tail = tail
         self._starting_offset = starting_offset
-        self._add_config = add_config
+        self._add_config = {} if add_config is None else add_config
         self._batch_size = batch_size
 
     def list_parts(self):
@@ -233,11 +232,9 @@ class KafkaOutput(DynamicOutput):
         topic: str,
         add_config: Dict[str, str] = None,
     ):
-        add_config = add_config or {}
-
         self._brokers = brokers
         self._topic = topic
-        self._add_config = add_config
+        self._add_config = {} if add_config is None else add_config
 
     def build(self, worker_index, worker_count):
         config = {
