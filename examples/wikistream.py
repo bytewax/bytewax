@@ -1,37 +1,33 @@
 import json
 import operator
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
-# pip install sseclient-py urllib3
-import sseclient
-import urllib3
+# pip install aiohttp-sse-client
+from aiohttp_sse_client.client import EventSource
 
 from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import PartitionedInput, StatefulSource
-from bytewax.window import SessionWindow, SystemClockConfig
+from bytewax.inputs import AsyncBatcher, PartitionedInput, StatefulSource
+from bytewax.window import SystemClockConfig, TumblingWindow
+
+
+async def _sse_agen(url):
+    async with EventSource(url) as source:
+        async for event in source:
+            yield event.data
 
 
 class WikiSource(StatefulSource):
     def __init__(self):
-        pool = urllib3.PoolManager()
-        resp = pool.request(
-            "GET",
-            "https://stream.wikimedia.org/v2/stream/recentchange/",
-            preload_content=False,
-            headers={"Accept": "text/event-stream"},
-        )
-        self.client = sseclient.SSEClient(resp)
-        self.events = self.client.events()
+        agen = _sse_agen("https://stream.wikimedia.org/v2/stream/recentchange")
+        self._batcher = AsyncBatcher(agen)
 
     def next(self):
-        return next(self.events).data
+        # Gather up to 0.25 sec of items.
+        return self._batcher.next_batch(timedelta(seconds=0.25))
 
     def snapshot(self):
         return None
-
-    def close(self):
-        self.client.close()
 
 
 class WikiStreamInput(PartitionedInput):
@@ -50,6 +46,7 @@ def initial_count(data_dict):
 
 def keep_max(max_count, new_count):
     new_max = max(max_count, new_count)
+    # print(f"Just got {new_count}, old max was {max_count}, new max is {new_max}")
     return new_max, new_max
 
 
@@ -63,7 +60,9 @@ flow.map(initial_count)
 flow.reduce_window(
     "sum",
     SystemClockConfig(),
-    SessionWindow(gap=timedelta(seconds=2)),
+    TumblingWindow(
+        length=timedelta(seconds=2), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+    ),
     operator.add,
 )
 # ("server.name", sum_per_window)
