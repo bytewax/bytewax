@@ -247,7 +247,7 @@ class AsyncBatcher:
 
     """
 
-    def __init__(self, aiter: AsyncIterator[Any], loop=None):
+    def __init__(self, aiter: AsyncIterator, loop=None):
         self._aiter = aiter
 
         self._loop = loop if loop is not None else asyncio.new_event_loop()
