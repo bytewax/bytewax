@@ -20,7 +20,6 @@ use timely::dataflow::{ProbeHandle, Scope, Stream};
 
 // Constants duration reused around this module.
 const MIN_COOLDOWN: chrono::Duration = chrono::Duration::milliseconds(1);
-const ZERO_DUR: chrono::Duration = chrono::Duration::zero();
 
 /// Length of epoch.
 #[derive(Debug, Clone)]
@@ -212,9 +211,11 @@ impl PartitionedInput {
             let mut emit_keys_buffer: HashSet<StateKey> = HashSet::new();
             let mut eofd_keys_buffer: HashSet<StateKey> = HashSet::new();
             let mut snapshot_keys_buffer: HashSet<StateKey> = HashSet::new();
-            let mut cooldown = None;
+            let mut next_awake_times: HashMap<StateKey, chrono::DateTime<Utc>> = HashMap::new();
 
             move |_input_frontiers| {
+                let now = Utc::now();
+
                 caps = caps.take().and_then(|(output_cap, change_cap)| {
                     assert!(output_cap.time() == change_cap.time());
                     let epoch = output_cap.time();
@@ -223,27 +224,26 @@ impl PartitionedInput {
                         let mut output_handle = output_wrapper.activate();
                         let mut output_session = output_handle.session(&output_cap);
                         for (key, part) in parts.iter() {
-                            // Ask the next awake time to the source.
-                            let next_awake =
-                                unwrap_any!(Python::with_gil(|py| part.next_awake(py)));
-
-                            // `next` should only be called if next_awake is None, or
-                            // if it's in the past.
-                            let now = Utc::now();
-                            let should_call_next = next_awake.map(|na| na <= now).unwrap_or(true);
-                            // Update cooldown if needed, reusing the same `now` value.
-                            update_cooldown(&mut cooldown, next_awake, now);
-
-                            if should_call_next {
-                                let next = unwrap_any!(Python::with_gil(|py| part.next(py))
-                                    .reraise_with(|| format!(
-                                        "error getting input for key {key:?}"
-                                    )));
+                            let mut next_awake = next_awake_times.remove(key).unwrap_or(now);
+                            if now >= next_awake {
+                                let next = unwrap_any!(Python::with_gil(|py| part.next(py)));
                                 if let Some(mut items) = next {
-                                    if items.is_empty() {
-                                        // Force a minimum cooldown if the input was empty.
-                                        cooldown = cooldown.map(|c| c.max(MIN_COOLDOWN));
-                                    }
+                                    next_awake = if let Some(next_awake) =
+                                        unwrap_any!(Python::with_gil(|py| part.next_awake(py)))
+                                    {
+                                        // If the source returned an explicit next awake time, always oblige.
+                                        next_awake
+                                    } else {
+                                        // If `next_awake` returned `None`, then do the default behavior:
+                                        if items.is_empty() {
+                                            // Wait a cooldown before re-awakening if there were no items.
+                                            now + MIN_COOLDOWN
+                                        } else {
+                                            // Re-awaken immediately if there were.
+                                            now
+                                        }
+                                    };
+                                    // next_awake_times.insert(key.clone(), next_awake);
                                     output_session.give_vec(&mut items);
                                     emit_keys_buffer.insert(key.clone());
                                 } else {
@@ -253,6 +253,8 @@ impl PartitionedInput {
                                     eofd_keys_buffer.insert(key.clone());
                                 }
                             }
+
+                            next_awake_times.insert(key.clone(), next_awake);
                         }
                     }
                     // Don't allow progress unless we've caught up,
@@ -314,9 +316,16 @@ impl PartitionedInput {
                 });
 
                 if caps.is_some() {
-                    // Ask the NextGuard the cooldown time based on
-                    // `next_awake` times passed to it.
-                    activator.activate_after(extract_delay(&mut cooldown));
+                    // Find the minimum next_awake time
+                    let awake_after = if let Some(next_awake) = next_awake_times.values().min() {
+                        (*next_awake - now)
+                            .to_std()
+                            // If we are already late for the next activation, awake immediately.
+                            .unwrap_or(std::time::Duration::ZERO)
+                    } else {
+                        std::time::Duration::ZERO
+                    };
+                    activator.activate_after(awake_after);
                 }
             }
         });
@@ -453,39 +462,42 @@ impl DynamicInput {
             init_caps.downgrade_all(&start_at.0);
             let output_cap = init_caps.pop().unwrap();
 
+            let mut next_awake =
+                unwrap_any!(Python::with_gil(|py| source.next_awake(py))).unwrap_or_else(Utc::now);
             let mut cap_src = Some((output_cap, source));
             let mut epoch_started = Instant::now();
-            let mut cooldown = None;
 
             move |_input_frontiers| {
+                let now = Utc::now();
+
                 // We can't return an error here, but we need to stop execution
                 // if we have an error in the user's code.
                 // When this happens we panic with unwrap_any! and reraise
                 // the exeption and adding a message to explain.
                 cap_src = cap_src.take().and_then(|(cap, source)| {
                     let epoch = cap.time();
-
                     let mut eof = false;
 
-                    // Ask the next awake time to the source.
-                    let next_awake = unwrap_any!(Python::with_gil(|py| source.next_awake(py)));
-
-                    // `next` should only be called if `next_awake` is None, or
-                    // if it's in the past.
-                    let now = Utc::now();
-                    let should_call_next = next_awake.map(|na| na <= now).unwrap_or(true);
-                    // Update cooldown if needed, reusing the same `now` value.
-                    update_cooldown(&mut cooldown, next_awake, now);
-
-                    if !probe.less_than(epoch) && should_call_next {
-                        let next = unwrap_any!(Python::with_gil(|py| source.next(py))
-                            .reraise("error getting input from DynamicInput"));
-
+                    if !probe.less_than(epoch) && now >= next_awake {
+                        let next = unwrap_any!(Python::with_gil(|py| source.next(py)));
                         if let Some(mut items) = next {
-                            if items.is_empty() {
-                                // Force a minimum cooldown if the input was empty.
-                                cooldown = cooldown.map(|c| c.max(MIN_COOLDOWN));
-                            }
+                            // Update when the partition should awake next.
+                            next_awake = if let Some(next_awake) =
+                                unwrap_any!(Python::with_gil(|py| source.next_awake(py)))
+                            {
+                                // If the source returned an explicit next awake time, always oblige.
+                                next_awake
+                            } else {
+                                // If `next_awake` returned `None`, then do the default behavior:
+                                if items.is_empty() {
+                                    // Wait a cooldown before re-awakening if there were no items.
+                                    now + MIN_COOLDOWN
+                                } else {
+                                    // Re-awaken immediately if there were.
+                                    now
+                                }
+                            };
+
                             output_wrapper.activate().session(&cap).give_vec(&mut items);
                         } else {
                             eof = true;
@@ -515,7 +527,10 @@ impl DynamicInput {
 
                 // Ask NextGuard for how long to wait for the input to be called again.
                 if cap_src.is_some() {
-                    activator.activate_after(extract_delay(&mut cooldown));
+                    let awake_after = next_awake - now;
+                    // If we are already late for the next activation, awake immediately.
+                    let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
+                    activator.activate_after(awake_after);
                 }
             }
         });
@@ -570,89 +585,4 @@ impl StatelessSource {
         let _ = self.0.call_method0(py, "close")?;
         Ok(())
     }
-}
-
-/// Update `cooldown` depending on its current value and next_awake's value,
-/// with a fixed `now` moment.
-fn update_cooldown(
-    cooldown: &mut Option<chrono::Duration>,
-    next_awake: Option<chrono::DateTime<Utc>>,
-    now: chrono::DateTime<Utc>,
-) {
-    // Calculate the cooldown from next_awake and now.
-    let next_cooldown = next_awake.map(|na| na.signed_duration_since(now));
-
-    // Update cooldown, that will always be `Some` after this.
-    *cooldown = Some(match (&cooldown, next_cooldown) {
-        // If next_awake is None, just set the cooldown to zero
-        (_, None) => ZERO_DUR,
-        // If next_awake is Some, and there is no previous cooldown,
-        // set the cooldown to next_awake, capped at MIN_COOLDOWN
-        (None, Some(next_cooldown)) => next_cooldown.max(MIN_COOLDOWN),
-        // If next_awake is Some, and there is a previous cooldown,
-        // set the cooldown to the minimum between that and next_awake,
-        // capped at MIN_COOLDOWN
-        (Some(cooldown), Some(next_cooldown)) => next_cooldown.max(MIN_COOLDOWN).min(*cooldown),
-    })
-}
-
-/// Get the delay to wait for the next activation and reset `cooldown`
-pub fn extract_delay(cooldown: &mut Option<chrono::Duration>) -> Duration {
-    cooldown
-        // Use take to reset cooldown to None
-        .take()
-        // If the delay was never set, default to MIN_COOLDOWN
-        .unwrap_or(MIN_COOLDOWN)
-        // Convert to std::time::Duration.
-        .to_std()
-        // If this fails it means the cooldown ended
-        // up being a negative value, which is allowed in python's
-        // timedelta and in chrono::Duration, but not in std::time::Duration
-        .expect("to be able to convert cooldown to std::time::Duration")
-}
-
-#[test]
-fn test_update_cooldown() {
-    // If next_awake is None, cooldown should always be zero.
-    let mut cooldown = None;
-    let now = Utc::now();
-    update_cooldown(&mut cooldown, None, now);
-    assert_eq!(cooldown, Some(ZERO_DUR));
-
-    let mut cooldown = Some(chrono::Duration::seconds(5));
-    let now = Utc::now();
-    update_cooldown(&mut cooldown, None, now);
-    assert_eq!(cooldown, Some(ZERO_DUR));
-
-    // If next_awake is Some and cooldown is None,
-    // cooldown should be the duration between now and next_awake.
-    let mut cooldown = None;
-    let now = Utc::now();
-    let dur = chrono::Duration::seconds(5);
-    update_cooldown(&mut cooldown, Some(now + dur), now);
-    assert_eq!(cooldown.unwrap(), dur);
-
-    // If next_awake is Some, and cooldown is Some too,
-    // cooldown shoule be the minimum between its current value
-    // and the duration between now and next_awake
-    let mut cooldown = Some(chrono::Duration::seconds(10));
-    let now = Utc::now();
-    let dur = chrono::Duration::seconds(5);
-    update_cooldown(&mut cooldown, Some(now + dur), now);
-    assert_eq!(cooldown.unwrap(), dur);
-}
-
-#[test]
-fn test_extract_delay() {
-    // extract_delay should:
-    // - Always set cooldown to None
-    // - return the value if present, MIN_COOLDOWN otherwise
-    // - convert cooldown to std::time::Duration
-    let mut cooldown = None;
-    assert_eq!(extract_delay(&mut cooldown), MIN_COOLDOWN.to_std().unwrap());
-
-    let dur = chrono::Duration::seconds(1);
-    let mut cooldown = Some(dur);
-    assert_eq!(extract_delay(&mut cooldown), dur.to_std().unwrap());
-    assert!(cooldown.is_none());
 }
