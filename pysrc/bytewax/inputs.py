@@ -7,11 +7,16 @@ Subclass the types here to implement input for your own custom source.
 
 """
 
+import asyncio
+import sys
+
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Set, List
-from datetime import datetime, timezone
+from collections.abc import AsyncIterator
+from datetime import datetime, timedelta
+from typing import Any, List, Optional, Set
 
 __all__ = [
+    "AsyncBatcher",
     "DynamicInput",
     "Input",
     "PartitionedInput",
@@ -271,3 +276,93 @@ class DynamicInput(Input):
 
         """
         ...
+
+
+class AsyncBatcher:
+    """Allows you to poll an async iterator synchronously up to a
+    given time and length limit.
+
+    This is great for allowing async input sources to play well with
+    Bytewax's requirement that calling `next` on sources should never
+    block.
+
+    Args:
+
+        aiter: The underlying source async iterator of items.
+
+        loop: Custom `asyncio` run loop to use, if any.
+
+    """
+
+    def __init__(self, aiter: AsyncIterator, loop=None):
+        self._aiter = aiter
+
+        self._loop = loop if loop is not None else asyncio.new_event_loop()
+        self._task = None
+
+    def next_batch(self, timeout: timedelta, max_len: int = sys.maxsize) -> List[Any]:
+        """Gather a batch of items up to some limits.
+
+        Args:
+
+            timeout: Duration of time to repeatedly poll the source
+                async iterator for items.
+
+            max_len: Maximum number of items to return, even if the
+                timeout has not been hit. Defaults to "no limit".
+
+        Returns:
+
+            The gathered batch of items.
+
+            This function will take up to `timeout` time to return, or
+            will return a list with length up to `max_len`.
+
+        Raises:
+
+            StopIteration: When there are no more batches.
+
+        """
+
+        async def anext_batch():
+            batch = []
+            # Only try to gather this many items.
+            for _ in range(max_len):
+                if self._task is None:
+                    self._task = self._loop.create_task(self._aiter.__anext__())
+
+                try:
+                    # Prevent the `wait_for` cancellation from
+                    # stopping the `__anext__` task; usually all
+                    # sub-tasks are cancelled too. It'll be re-used in
+                    # the next batch.
+                    next_item = await asyncio.shield(self._task)
+                except asyncio.CancelledError:
+                    # Timeout was hit and thus return the batch
+                    # immediately.
+                    break
+                except StopAsyncIteration:
+                    if len(batch) > 0:
+                        # Return a half-finished batch if we run out
+                        # of source items.
+                        break
+                    else:
+                        # We can't raise `StopIteration` directly here
+                        # because it's part of the coro protocol and
+                        # would mess with this async function.
+                        raise
+
+                batch.append(next_item)
+                self._task = None
+            return batch
+
+        try:
+            # `wait_for` will raise `CancelledError` at the internal
+            # await point in `anext_batch` if the timeout is hit.
+            batch = self._loop.run_until_complete(
+                asyncio.wait_for(anext_batch(), timeout.total_seconds())
+            )
+            return batch
+        except StopAsyncIteration:
+            # Suppress automatic exception chaining.
+            raise StopIteration() from None
