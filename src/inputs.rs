@@ -224,11 +224,10 @@ impl PartitionedInput {
                         let mut output_handle = output_wrapper.activate();
                         let mut output_session = output_handle.session(&output_cap);
                         for (key, part) in parts.iter() {
-                            let mut next_awake = next_awake_times.remove(key).unwrap_or(now);
-                            if now >= next_awake {
+                            if &now >= next_awake_times.get(key).unwrap_or(&now) {
                                 let next = unwrap_any!(Python::with_gil(|py| part.next(py)));
                                 if let Some(mut items) = next {
-                                    next_awake = if let Some(next_awake) =
+                                    let next_awake = if let Some(next_awake) =
                                         unwrap_any!(Python::with_gil(|py| part.next_awake(py)))
                                     {
                                         // If the source returned an explicit next awake time, always oblige.
@@ -243,6 +242,7 @@ impl PartitionedInput {
                                             now
                                         }
                                     };
+                                    next_awake_times.insert(key.clone(), next_awake);
                                     // next_awake_times.insert(key.clone(), next_awake);
                                     output_session.give_vec(&mut items);
                                     emit_keys_buffer.insert(key.clone());
@@ -253,8 +253,6 @@ impl PartitionedInput {
                                     eofd_keys_buffer.insert(key.clone());
                                 }
                             }
-
-                            next_awake_times.insert(key.clone(), next_awake);
                         }
                     }
                     // Don't allow progress unless we've caught up,
