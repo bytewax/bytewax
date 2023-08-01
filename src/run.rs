@@ -2,17 +2,6 @@
 //!
 //! For a user-centric version of how to execute dataflows, read the
 //! the `bytewax.execution` Python module docstring. Read that first.
-//!
-//! [`worker_main()`] for the root of all the internal action here.
-//!
-//! Dataflow Building
-//! -----------------
-//!
-//! The "blueprint" of a dataflow in [`crate::dataflow::Dataflow`] is
-//! compiled into a Timely dataflow in [`crate::worker::build_production_dataflow`].
-//!
-//! See [`crate::recovery`] for a description of the recovery
-//! components added to the Timely dataflow.
 
 use std::fs::File;
 use std::io::Write;

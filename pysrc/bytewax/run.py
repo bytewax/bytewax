@@ -70,44 +70,10 @@ $ python -m bytewax.run my_dataflow \
     --process-id 1
 ```
 
-
 Recovery
 --------
 
-Bytewax allows you to **recover** a stateful dataflow; it will let you
-resume processing and output due to a failure without re-processing
-all initial data to re-calculate all internal state.
-
-It does this by snapshoting state and progress information for a
-single dataflow instance in a distributed set of SQLite databases in
-the **recovery directory** periodically. The **epoch** is period of
-this snapshotting. Bytewax defaults to a new epoch every 10 seconds,
-but you can change it with the `epoch_interval` parameter.
-
-When you run your dataflow it will start backing up recovery data
-automatically. Recovery data for multiple dataflows _must not_ be
-mixed together.
-
-If the dataflow fails, first you must fix whatever underlying fault
-caused the issue. That might mean deploying new code which fixes a bug
-or resolving an issue with a connected system.
-
-Once that is done, re-run the dataflow using the _same recovery
-directory_. Bytewax will automatically read the progress of the
-previous dataflow execution and determine the most recent epoch that
-processing can resume at. Output should resume from that
-epoch. Because snapshotting only happens periodically, the dataflow
-can only resume on epoch boundaries.
-
-It is possible that your output systems will see duplicate data around
-the resume epoch; design your systems to support at-least-once
-processing.
-
-If you want to fully restart a dataflow and ignore previous state,
-delete the data in the recovery directory.
-
-Currently it is not possible to recover a dataflow with a different
-number of workers than when it failed.
+See the `bytewax.recovery` module docstring for how to setup recovery.
 
 """
 
@@ -318,10 +284,11 @@ def _parse_args():
     )
 
     parser.add_argument(
+        "-e",
         "--epoch-interval",
         type=_parse_timedelta,
         default=timedelta(seconds=10),
-        help="Epoch length in seconds",
+        help="Epoch length in seconds; defaults to 10 sec",
         action=_EnvDefault,
         envvar="BYTEWAX_EPOCH_INTERVAL",
     )
@@ -365,22 +332,25 @@ def _parse_args():
         envvar="BYTEWAX_ADDRESSES",
     )
 
-    # Config options for recovery
-    recovery = parser.add_argument_group("Recovery")
+    recovery = parser.add_argument_group(
+        "Recovery", "See the `bytewax.recovery` module docstring for more info."
+    )
     recovery.add_argument(
         "-r",
         "--recovery-directory",
         type=Path,
-        help="Look for pre-initialized recovery DBs here",
+        help="Look for pre-initialized recovery partitions here",
         action=_EnvDefault,
-        envvar="BYTEWAX_SQLITE_DIRECTORY",
+        envvar="BYTEWAX_RECOVERY_DIRECTORY",
     )
     recovery.add_argument(
         "-b",
         "--backup-interval",
         type=_parse_timedelta,
         default=timedelta(days=1),
-        help="",
+        help="System time duration in seconds to keep extra state snapshots around; "
+        "set this to the interval at which you are backing up recovery partitions; "
+        "defaults to 1 day",
         action=_EnvDefault,
         envvar="BYTEWAX_BACKUP_INTERVAL",
     )

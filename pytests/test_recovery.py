@@ -305,7 +305,7 @@ def test_continuation_with_no_new_input(entry_point, inp, out, recovery_config):
 
 
 def test_rescale(inp, out, tmp_path):
-    init_db_dir(tmp_path, 3, "test")
+    init_db_dir(tmp_path, 3)
     recovery_config = RecoveryConfig(str(tmp_path))
 
     def entry_point(worker_count_per_proc):

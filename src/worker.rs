@@ -1,4 +1,4 @@
-//!
+//! Definition of a Bytewax worker.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -44,12 +44,17 @@ use crate::window::clock::ClockBuilder;
 use crate::window::StatefulWindowUnary;
 use crate::window::WindowBuilder;
 
+/// Bytewax worker.
+///
+/// Wraps a [`TimelyWorker`].
 struct Worker<'a, A, F>
 where
     A: Allocate,
     F: Fn() -> bool,
 {
     worker: &'a mut TimelyWorker<A>,
+    /// This is a function that should return `true` only when the
+    /// dataflow should perform an abrupt shutdown.
     interrupt_callback: F,
 }
 
@@ -65,7 +70,13 @@ where
         }
     }
 
-    fn run<T: Timestamp>(&mut self, probe: ProbeHandle<T>) {
+    /// Run a specific dataflow until it is complete.
+    ///
+    /// [`ProbeHandle`]s are how we ID a dataflow.
+    fn run<T>(&mut self, probe: ProbeHandle<T>)
+    where
+        T: Timestamp,
+    {
         tracing::info!("Timely dataflow start");
         let cooldown = Duration::from_millis(1);
         while !(self.interrupt_callback)() && !probe.done() {
@@ -89,7 +100,7 @@ where
     }
 }
 
-///
+/// Public, main entry point for a worker thread.
 #[instrument(name = "worker_main", skip_all, fields(worker = worker.index()))]
 pub(crate) fn worker_main<A>(
     worker: &mut TimelyWorker<A>,
@@ -104,13 +115,17 @@ where
     let mut worker = Worker::new(worker, interrupt_callback);
     tracing::info!("Worker start");
 
-    let resume_from = recovery_config
-        .clone()
-        .map(|recovery_config| -> PyResult<ResumeFrom> {
+    let recovery = recovery_config
+        .map(|config| Python::with_gil(|py| config.borrow(py).build(py)))
+        .transpose()?;
+
+    let resume_from = recovery
+        .as_ref()
+        .map(|(bundle, _backup_interval)| -> PyResult<ResumeFrom> {
             let resume_from = Rc::new(Cell::new(None));
             let resume_from_d = resume_from.clone();
             let probe = Python::with_gil(|py| {
-                build_resume_calc_dataflow(py, worker.worker, recovery_config, resume_from_d)
+                build_resume_calc_dataflow(py, worker.worker, bundle.clone_ref(py), resume_from_d)
                     .reraise("error building progress load dataflow")
             })?;
 
@@ -132,7 +147,7 @@ where
             flow,
             epoch_interval,
             resume_from,
-            recovery_config,
+            recovery,
         )
         .reraise("error building production dataflow")
     })?;
@@ -149,16 +164,13 @@ where
 /// Compile a dataflow which loads the progress data from the previous
 /// execution.
 ///
-/// Dump all progress info from all partitions and broadcast to spread
-/// around then load into the in-memory progress DB on each worker.
-///
-/// Read state out of the cell once the probe is done. Each resume
-/// cluster worker will have the progress info of all workers in the
-/// previous cluster.
+/// Read state out of the cell once the probe is done. Calculation of
+/// [`ResumeFrom`] is deterministic and so all workers will have
+/// converged to the same value.
 fn build_resume_calc_dataflow<A>(
     py: Python,
     worker: &mut TimelyWorker<A>,
-    config: Py<RecoveryConfig>,
+    bundle: RecoveryBundle,
     resume_from: Rc<Cell<Option<ResumeFrom>>>,
 ) -> PyResult<ProbeHandle<u64>>
 where
@@ -166,8 +178,6 @@ where
 {
     worker.dataflow(|scope| {
         let mut probe = ProbeHandle::new();
-
-        let (bundle, _backup_interval) = config.borrow(py).build(py)?;
 
         let (parts, exs, fronts) = bundle.read_progress(scope);
         scope
@@ -184,20 +194,14 @@ where
     })
 }
 
-/// Turn the abstract blueprint for a dataflow into a Timely dataflow
-/// so it can be executed.
-///
-/// This is more complicated than a 1:1 translation of Bytewax
-/// concepts to Timely, as we are using Timely as a basis to implement
-/// more-complicated Bytewax features like input builders and
-/// recovery.
+/// Turn a Bytewax dataflow into a Timely dataflow.
 fn build_production_dataflow<A>(
     py: Python,
     worker: &mut TimelyWorker<A>,
     flow: Py<Dataflow>,
     epoch_interval: EpochInterval,
     resume_from: ResumeFrom,
-    recovery_config: Option<Py<RecoveryConfig>>,
+    recovery: Option<(RecoveryBundle, BackupInterval)>,
 ) -> PyResult<ProbeHandle<u64>>
 where
     A: Allocate,
@@ -218,11 +222,8 @@ where
         let mut snaps = Vec::new();
 
         let ResumeFrom(_ex, resume_epoch) = resume_from;
-        let recovery_bundle = recovery_config
-            .map(|config| config.borrow(py).build(py))
-            .transpose()?;
 
-        let loads = if let Some((bundle, _backup_interval)) = &recovery_bundle {
+        let loads = if let Some((bundle, _backup_interval)) = &recovery {
             scope.load_snaps(resume_epoch, bundle.clone_ref(py))
         } else {
             // Load nothing from a previous execution.
@@ -463,7 +464,7 @@ where
         }
 
         // Attach the probe to the relevant final output.
-        if let Some((bundle, backup_interval)) = recovery_bundle {
+        if let Some((bundle, backup_interval)) = recovery {
             scope
                 .concatenate(snaps)
                 .write_recovery(resume_from, bundle, epoch_interval, backup_interval)

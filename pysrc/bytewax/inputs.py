@@ -86,7 +86,7 @@ class StatefulSource(ABC):
         on a finite input.
 
         This is not guaranteed to be called. It will not be called
-        during a crash.
+        during an abrupt or abort shutdown.
 
         """
         pass
@@ -179,7 +179,7 @@ class StatelessSource(ABC):
         on a finite input.
 
         This is not guaranteed to be called. It will not be called
-        during a crash.
+        during an abrupt or abort shutdown.
 
         """
         pass

@@ -48,31 +48,28 @@ use crate::serde::Serde;
 use crate::timely::*;
 use crate::unwrap_any;
 
-/// Unique ID for an entire dataflow.
+/// IDs a specific recovery partition.
 ///
-/// This is a sanity check to ensure that you don't mix recovery
-/// stores.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromPyObject)]
-pub(crate) struct DataflowId(pub(crate) String);
-
-///
+/// The inner value will be up to [`PartitionCount`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub(crate) struct PartitionIndex(usize);
 
-///
+/// Total number of recovery partitions.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, FromPyObject)]
 pub(crate) struct PartitionCount(usize);
 
 impl PartitionCount {
-    ///
+    /// Return an iter of all partitions.
     fn iter(&self) -> impl Iterator<Item = PartitionIndex> {
         (0..self.0).map(PartitionIndex)
     }
 }
 
+/// Metadata about a recovery partition.
 ///
+/// This represents a row in the `parts` table.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct PartitionMeta(PartitionIndex, PartitionCount, DataflowId);
+pub(crate) struct PartitionMeta(PartitionIndex, PartitionCount);
 
 /// Incrementing ID representing how many times a dataflow has been
 /// executed to completion or failure.
@@ -105,7 +102,9 @@ impl Default for ResumeEpoch {
     }
 }
 
+/// Metadata about an execution.
 ///
+/// This represents a row in in the `exs` table.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ExecutionMeta(ExecutionNumber, WorkerCount, ResumeEpoch);
 
@@ -113,11 +112,20 @@ pub(crate) struct ExecutionMeta(ExecutionNumber, WorkerCount, ResumeEpoch);
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct WorkerFrontier(u64);
 
+/// Metadata about the current frontier of a worker.
 ///
+/// This represents a row in the `fronts` table.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct FrontierMeta(ExecutionNumber, WorkerIndex, WorkerFrontier);
 
+/// System time duration to keep around state snapshots, even after
+/// they are no longer needed by the current execution.
 ///
+/// This is used to delay GC of state data so that if durable backup
+/// of recovery partitions are not instantaneous or synchronized, we
+/// can ensure that there's some resume epoch shared by all partitions
+/// we can use when resuming from a backup that might not be the most
+/// recent.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct BackupInterval(Duration);
 
@@ -193,15 +201,24 @@ impl IntoPy<Py<PyAny>> for StateKey {
     }
 }
 
+/// Each operator's state is modeled as as key-value store, with
+/// [`StateKey`] being the key, and this enum representing changes to
+/// the value.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) enum StateChange {
+    /// Value was updated.
     Upsert(TdPyAny),
+    /// Key was deleted.
     Discard,
 }
 
+/// The snapshot of state for a key in an operator.
 ///
+/// This is the API that stateful operators must adhere to: emit these
+/// downstream at the end of every epoch, and load them on resume.
 ///
-/// The epoch is applied when writing to the recovery partition.
+/// The epoch is stored by the recovery machinery and is not part of
+/// the operator's API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Snapshot(
     pub(crate) StepId,
@@ -209,11 +226,13 @@ pub(crate) struct Snapshot(
     pub(crate) StateChange,
 );
 
-///
+/// The epoch a snapshot was taken at the end of.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SnapshotEpoch(u64);
 
+/// A state snapshot for reading or writing to a recovery partition.
 ///
+/// This represents a row in the `snaps` table.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<String>);
 
@@ -221,15 +240,18 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<String>);
 ///
 /// Args:
 ///
-///   db_dir (Path):
+///   db_dir (Path): Local filesystem directory to search for recovery
+///       database partitions.
 ///
 ///   backup_interval (datetime.duration): Amount of system time to
 ///       wait to permanently delete a state snapshot after it is no
 ///       longer needed. You should set this to the interval at which
 ///       you are backing up the recovery partitions off of the
-///       workers into archival storage (e.g. S3). Defaults to
+///       workers into archival storage (e.g. S3). Defaults to zero
+///       duration.
 ///
-///   snapshot_serde (SnapshotSerde):
+///   snapshot_serde (SnapshotSerde): Serialization to use when
+///       encoding state snapshot objects in the recovery partitions.
 #[pyclass(module = "bytewax.recovery")]
 #[pyo3(text_signature = "(db_dir, backup_interval, snapshot_serde)")]
 pub(crate) struct RecoveryConfig {
@@ -258,7 +280,8 @@ impl RecoveryConfig {
 }
 
 impl RecoveryConfig {
-    ///
+    /// Build the Rust-side bundle from the Python-side recovery
+    /// config.
     #[instrument(name = "build_recovery", skip_all)]
     pub(crate) fn build(&self, py: Python) -> PyResult<(RecoveryBundle, BackupInterval)> {
         let mut part_paths = HashMap::new();
@@ -266,10 +289,11 @@ impl RecoveryConfig {
         for entry in fs::read_dir(self.db_dir.clone()).reraise("Error listing recovery DB dir")? {
             let path = entry.reraise("Error accessing recovery DB file")?.path();
             if path.extension().map_or(false, |ext| *ext == *sqlite_ext) {
-                let part = RecoveryDB::open(py, &path).reraise("Error opening recovery DB file")?;
+                let part =
+                    RecoveryPart::open(py, &path).reraise("Error opening recovery DB file")?;
                 let mut part_loader = part.part_loader();
                 while let Some(batch) = part_loader.next_batch() {
-                    for PartitionMeta(index, _count, _flow_id) in batch {
+                    for PartitionMeta(index, _count) in batch {
                         tracing::info!("Access to partition {index:?} at {path:?}");
                         part_paths.insert(index, path.clone());
                     }
@@ -288,15 +312,28 @@ impl RecoveryConfig {
     }
 }
 
-///
+/// Clone-able reference to all local recovery partition info.
 pub(crate) struct RecoveryBundle {
+    /// This is a map to all known local partitions.
+    ///
+    /// It is an [`Rc`] because the builder functions created by
+    /// [`new_builder`] need to retain a handle to this to be able to
+    /// look up the relevant path. No [`RefCell`] because they don't
+    /// need to modify it.
     part_paths: Rc<HashMap<PartitionIndex, PathBuf>>,
     serde: Serde,
-    built_parts: Rc<RefCell<HashMap<PartitionIndex, Rc<RefCell<RecoveryDB>>>>>,
+    /// This is a cache of already built [`RecoveryDB`].
+    ///
+    /// The map itself is an [`Rc<RefCell>`] because the builder
+    /// functions need to own a reference and update the cache so only
+    /// one partition is built, even if it is requested multiple
+    /// times. The values are [`Rc<RefCell<RecoveryDb>`] so that this
+    /// cache and the Timely operators themselves all have ownership
+    /// access to the partition.
+    built_parts: Rc<RefCell<HashMap<PartitionIndex, Rc<RefCell<RecoveryPart>>>>>,
 }
 
 impl RecoveryBundle {
-    ///
     pub(crate) fn clone_ref(&self, py: Python) -> Self {
         Self {
             part_paths: self.part_paths.clone(),
@@ -305,13 +342,16 @@ impl RecoveryBundle {
         }
     }
 
-    ///
     fn local_parts(&self) -> Vec<PartitionIndex> {
         self.part_paths.keys().copied().collect()
     }
 
+    /// Create a new builder function that the partitioned read and
+    /// write and commit operators can use to build partitions.
     ///
-    fn new_builder(&self) -> impl FnMut(&PartitionIndex) -> Rc<RefCell<RecoveryDB>> {
+    /// This clones all the [`Rc`]s appropriately internally so that
+    /// the cache is used.
+    fn new_builder(&self) -> impl FnMut(&PartitionIndex) -> Rc<RefCell<RecoveryPart>> {
         let part_paths = self.part_paths.clone();
         let built_parts = self.built_parts.clone();
         move |part_key| {
@@ -325,7 +365,7 @@ impl RecoveryBundle {
                             panic!("Trying to build RecoveryPartition for {part_key:?} but no path is known");
                         });
 
-                    let part = unwrap_any!(Python::with_gil(|py| RecoveryDB::open(py, path)));
+                    let part = unwrap_any!(Python::with_gil(|py| RecoveryPart::open(py, path)));
 
                     Rc::new(RefCell::new(part))
                 })
@@ -346,17 +386,19 @@ impl<T> PythonException<T> for Result<T, rusqlite_migration::Error> {
     }
 }
 
-///
-struct RecoveryDB {
+/// Wrapper around an SQLite DB connection with methods for our
+/// recovery operations.
+struct RecoveryPart {
+    /// This is [`Rc<RefCell>`] so that our reader and writer structs
+    /// can maintain an internal connection reference across batches.
     conn: Rc<RefCell<Connection>>,
 }
 
-///
 // The `'static` lifetime within [`Migrations`] is saying that the
 // [`str`]s composing the migrations are `'static`.
 //
 // Use [`GILOnceCell`] so we don't have to bring in a `lazy_static`
-// dep.
+// crate dep.
 static MIGRATIONS: GILOnceCell<Migrations<'static>> = GILOnceCell::new();
 
 fn get_migrations(py: Python) -> &Migrations<'static> {
@@ -367,9 +409,8 @@ fn get_migrations(py: Python) -> &Migrations<'static> {
                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, \
                  part_index INTEGER NOT NULL CHECK (part_index >= 0), \
                  part_count INTEGER NOT NULL CHECK (part_count > 0), \
-                 flow_id TEXT NOT NULL, \
-                 CHECK (part_index < part_count), \
-                 PRIMARY KEY (flow_id, part_index) \
+                 PRIMARY KEY (part_index, part_count), \
+                 CHECK (part_index < part_count) \
                  ) STRICT",
             ),
             // This is a sharded table.
@@ -428,6 +469,7 @@ fn migrations_valid() -> rusqlite_migration::Result<()> {
     Python::with_gil(|py| get_migrations(py).validate())
 }
 
+/// Setup our connection-level pragmas. Run this on each connection.
 fn setup_conn(py: Python, conn: &Rc<RefCell<Connection>>) {
     let mut conn = conn.borrow_mut();
 
@@ -451,11 +493,11 @@ impl Writer for PartitionMetaWriter {
         let txn = conn.transaction().unwrap();
         for part in items {
             tracing::trace!("Writing {part:?}");
-            let PartitionMeta(part_index, part_count, flow_id) = part;
+            let PartitionMeta(part_index, part_count) = part;
             txn.execute(
-                "INSERT INTO parts (part_index, part_count, flow_id) \
-                 VALUES (?1, ?2, ?3)",
-                (part_index.0, part_count.0, flow_id.0),
+                "INSERT INTO parts (part_index, part_count) \
+                 VALUES (?1, ?2)",
+                (part_index.0, part_count.0),
             )
             .unwrap();
         }
@@ -561,7 +603,7 @@ impl BatchIterator for PartitionMetaLoader {
                 .conn
                 .borrow_mut()
                 .prepare(
-                    "SELECT part_index, part_count, flow_id \
+                    "SELECT part_index, part_count \
                      FROM parts",
                 )
                 .unwrap()
@@ -569,7 +611,6 @@ impl BatchIterator for PartitionMetaLoader {
                     Ok(PartitionMeta(
                         PartitionIndex(row.get(0)?),
                         PartitionCount(row.get(1)?),
-                        DataflowId(row.get(2)?),
                     ))
                 })
                 .unwrap()
@@ -826,16 +867,9 @@ impl Committer<u64> for RecoveryCommitter {
     }
 }
 
-impl RecoveryDB {
-    ///
-    fn init(
-        py: Python,
-        file: &Path,
-        flow_id: DataflowId,
-        index: PartitionIndex,
-        count: PartitionCount,
-    ) -> PyResult<()> {
-        tracing::info!("Init recovery partition {index:?} / {count:?} for {flow_id:?} at {file:?}");
+impl RecoveryPart {
+    fn init(py: Python, file: &Path, index: PartitionIndex, count: PartitionCount) -> PyResult<()> {
+        tracing::info!("Init recovery partition {index:?} / {count:?} at {file:?}");
         let conn = Rc::new(RefCell::new(
             Connection::open_with_flags(
                 file,
@@ -850,12 +884,11 @@ impl RecoveryDB {
         let _self = Self { conn };
         _self
             .part_writer()
-            .write_batch(vec![PartitionMeta(index, count, flow_id)]);
+            .write_batch(vec![PartitionMeta(index, count)]);
 
         Ok(())
     }
 
-    ///
     fn open(py: Python, file: &Path) -> PyResult<Self> {
         tracing::info!("Opening recovery partition at {file:?}");
         let conn = Rc::new(RefCell::new(
@@ -870,7 +903,6 @@ impl RecoveryDB {
         Ok(Self { conn })
     }
 
-    ///
     fn init_open_mem(py: Python) -> Self {
         let conn = Rc::new(RefCell::new(Connection::open_in_memory().unwrap()));
         setup_conn(py, &conn);
@@ -917,6 +949,7 @@ impl RecoveryDB {
     /// Will only read the most recent snapshot (epoch-wise) for each
     /// `(step_id, state_key)` from before the provided epoch.
     fn snap_loader(&self, before: ResumeEpoch) -> SerializedSnapshotLoader {
+        // TODO: Do we need to futz with the batch size?
         SerializedSnapshotLoader::new(self.conn.clone(), before, 1000)
     }
 
@@ -927,12 +960,12 @@ impl RecoveryDB {
         }
     }
 
-    ///
+    /// Calculate the resume execution and epoch. You must use this on
+    /// a DB that has all progress data from all partitions written to
+    /// it, so it'll be an in-mem one during the resume from
+    /// calculation.
     ///
     /// This will panic if the DB is missing any partitions.
-    ///
-    /// You probably want to use this with an in-memory
-    /// version.
     ///
     /// If there was not a previous execution, returns [`None`]. We
     /// don't want to duplicate the logic of [`ResumeFrom::default`]
@@ -944,7 +977,7 @@ impl RecoveryDB {
 
         txn
             .query_row(
-                "SELECT part_count, flow_id FROM parts GROUP BY part_count, flow_id",
+                "SELECT part_count FROM parts GROUP BY part_index, part_count",
                 (),
                 |row| row.get::<_, i64>(0),
             )
@@ -1006,7 +1039,7 @@ impl RecoveryDB {
 #[test]
 fn resume_from_empty() {
     pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryDB::init_open_mem(py));
+    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
 
     let found = conn.resume_from();
     let expected = None;
@@ -1016,12 +1049,9 @@ fn resume_from_empty() {
 #[test]
 fn resume_from_only_parts() {
     pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryDB::init_open_mem(py));
-    conn.part_writer().write_batch(vec![PartitionMeta(
-        PartitionIndex(0),
-        PartitionCount(1),
-        DataflowId(String::from("test_flow")),
-    )]);
+    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    conn.part_writer()
+        .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
 
     let found = conn.resume_from();
     let expected = None;
@@ -1032,12 +1062,9 @@ fn resume_from_only_parts() {
 #[should_panic]
 fn resume_from_missing_parts() {
     pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryDB::init_open_mem(py));
-    conn.part_writer().write_batch(vec![PartitionMeta(
-        PartitionIndex(1),
-        PartitionCount(2),
-        DataflowId(String::from("test_flow")),
-    )]);
+    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    conn.part_writer()
+        .write_batch(vec![PartitionMeta(PartitionIndex(1), PartitionCount(2))]);
 
     let found = conn.resume_from();
     let expected = None;
@@ -1047,12 +1074,9 @@ fn resume_from_missing_parts() {
 #[test]
 fn resume_from_all_explict_fronts() {
     pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryDB::init_open_mem(py));
-    conn.part_writer().write_batch(vec![PartitionMeta(
-        PartitionIndex(0),
-        PartitionCount(1),
-        DataflowId(String::from("test_flow")),
-    )]);
+    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    conn.part_writer()
+        .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
     conn.ex_writer().write_batch(vec![ExecutionMeta(
         ExecutionNumber(1),
         WorkerCount(3),
@@ -1072,12 +1096,9 @@ fn resume_from_all_explict_fronts() {
 #[test]
 fn resume_from_default_fronts() {
     pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryDB::init_open_mem(py));
-    conn.part_writer().write_batch(vec![PartitionMeta(
-        PartitionIndex(0),
-        PartitionCount(1),
-        DataflowId(String::from("test_flow")),
-    )]);
+    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    conn.part_writer()
+        .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
     conn.ex_writer().write_batch(vec![ExecutionMeta(
         ExecutionNumber(1),
         WorkerCount(3),
@@ -1100,21 +1121,12 @@ fn resume_from_default_fronts() {
 ///   db_dir (path.Path): Local directory to create partitions in.
 ///
 ///   count (int): Number of partitions to create.
-///
-///   flow_id (str): Dataflow ID to label these partitions with; use
-///     the same ID when creating a dataflow.
-///
 #[pyfunction]
-fn init_db_dir(
-    py: Python,
-    db_dir: PathBuf,
-    count: PartitionCount,
-    flow_id: DataflowId,
-) -> PyResult<()> {
+fn init_db_dir(py: Python, db_dir: PathBuf, count: PartitionCount) -> PyResult<()> {
     tracing::warn!("Creating {count:?} recovery partitions in {db_dir:?}");
     for index in count.iter() {
         let part_file = db_dir.join(format!("part-{}.sqlite3", index.0));
-        RecoveryDB::init(py, &part_file, flow_id.clone(), index, count)
+        RecoveryPart::init(py, &part_file, index, count)
             .reraise("error init-ing recovery partition")?;
     }
     Ok(())
@@ -1125,9 +1137,13 @@ where
     S: Scope,
     D: Data,
 {
-    /// Write out the current frontier at this point.
+    /// Emit downstream this worker's current frontier.
     ///
-    /// The write happens just before the frontier advances, and thus
+    /// Although the [`ExecutionNumber`] and [`WorkerIndex`] are both
+    /// already within the [`FrontierMeta`], duplicate them in the key
+    /// position so we can partition and route on them.
+    ///
+    /// The emit happens just before the frontier advances, and thus
     /// is actually within the previous epoch.
     ///
     /// Doesn't emit the "empty frontier" (even though that is the
@@ -1242,6 +1258,11 @@ trait SerializeSnapshotOp<S>
 where
     S: Scope<Timestamp = u64>,
 {
+    /// Serialize state snapshots using the provided serde.
+    ///
+    /// Although the [`StepId`] and [`StateKey`] are both already
+    /// within the [`SerializedSnapshot`], duplicate them in the key
+    /// position so we can partition and route on them.
     fn ser_snap(&self, serde: Serde) -> Stream<S, ((StepId, StateKey), SerializedSnapshot)>;
 }
 
@@ -1294,6 +1315,7 @@ trait DeserializeSnapshotOp<S>
 where
     S: Scope,
 {
+    /// Deserialize state snapshots using the provided serde.
     fn de_snap(&self, serde: Serde) -> Stream<S, Snapshot>;
 }
 
@@ -1318,14 +1340,17 @@ where
     }
 }
 
-///
 pub(crate) trait LoadSnapsOp<S>
 where
     S: Scope<Timestamp = u64>,
 {
+    /// Read state data from the recovery partitions into the production dataflow.
     ///
+    /// You will still need to route it to the correct steps. See
+    /// [`FilterSnapsOp::filter_snaps`].
     ///
-    /// This will dump all state in the epoch of the snapshot.
+    /// This will dump all state in the epoch of the snapshot so that
+    /// operators can load in epoch order.
     fn load_snaps(&mut self, before: ResumeEpoch, bundle: RecoveryBundle) -> Stream<S, Snapshot>
     where
         S: Scope;
@@ -1353,12 +1378,15 @@ where
     }
 }
 
-///
 pub(crate) trait FilterSnapsOp<S>
 where
     S: Scope,
 {
+    /// Filter a stream of snapshots to just one for this step.
     ///
+    /// In general, you'll use this within a stateful operator.
+    ///
+    /// This strips out all the extraneous data from the snapshot.
     fn filter_snaps(&self, for_step: StepId) -> Stream<S, (StateKey, StateChange)>;
 }
 
@@ -1377,12 +1405,17 @@ where
     }
 }
 
-///
 pub(crate) trait RecoveryWriteOp<S>
 where
     S: Scope<Timestamp = u64>,
 {
+    /// Write out a stream of all snapshot data being produced by all
+    /// stateful steps in a dataflow. This is basically the entire
+    /// production dataflow recovery system.
     ///
+    /// You'll add this on at the end of the production dataflow.
+    ///
+    /// Probe the downstream clock to rate limit the dataflow.
     fn write_recovery(
         &self,
         resume_from: ResumeFrom,
@@ -1467,9 +1500,10 @@ where
     }
 }
 
-///
 pub(crate) trait ReadProgressOp {
+    /// Read all progress data into a dataflow.
     ///
+    /// This'll be used in the calculate resume dataflow.
     fn read_progress<S>(
         self,
         scope: &mut S,
@@ -1519,12 +1553,16 @@ impl ReadProgressOp for RecoveryBundle {
     }
 }
 
-///
 pub(crate) trait ResumeFromOp<S>
 where
     S: Scope<Timestamp = u64>,
 {
+    /// Read in streams of progress data and at the end of each epoch
+    /// emit the calculated resume from.
     ///
+    /// This'll be used in the calculate resume dataflow. Since all
+    /// progress data is read in a single epoch in that dataflow, this
+    /// works.
     fn resume_from(
         &self,
         py: Python,
@@ -1545,7 +1583,7 @@ where
         exs: &Stream<S, ExecutionMeta>,
         fronts: &Stream<S, FrontierMeta>,
     ) -> Stream<S, ResumeFrom> {
-        let in_mem = RecoveryDB::init_open_mem(py);
+        let in_mem = RecoveryPart::init_open_mem(py);
 
         let mut op_builder = OperatorBuilder::new(String::from("resume_from"), self.clone());
 

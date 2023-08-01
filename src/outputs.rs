@@ -175,13 +175,13 @@ pub(crate) trait PartitionedOutputOp<S>
 where
     S: Scope,
 {
+    /// Write items to a partitioned output.
     ///
+    /// Will manage assigning primary workers for all partitions and
+    /// building them.
     ///
-    /// Routing updates are applied at the end of the epoch they
-    /// arrive in.
-    ///
-    /// This can't be unified into the output system operators because
-    /// they are either stateful or dynamic / unpartitioned.
+    /// This can't be unified into the recovery system output
+    /// operators because they are stateless.
     fn partitioned_output(
         &self,
         py: Python,

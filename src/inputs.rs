@@ -29,11 +29,22 @@ use crate::timely::*;
 use crate::unwrap_any;
 
 /// Length of epoch.
+///
+/// Epoch boundaries represent synchronization points between all
+/// workers and are when state snapshots are taken and written for
+/// recovery.
+///
+/// The epoch is also used as backpressure within the dataflow; input
+/// sources do not start reading new data until all data in the
+/// previous epoch has been output and recovery data written.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct EpochInterval(Duration);
 
 impl EpochInterval {
+    /// Determine how many epochs (rounded up) exist in some other
+    /// duration.
     ///
+    /// Useful for calculating GC commit epochs.
     pub(crate) fn epochs_per(&self, other: Duration) -> u64 {
         (other.as_secs_f64() / self.0.as_secs_f64())
             // Round up to we always have at least the backup interval
@@ -132,6 +143,7 @@ impl<'source> FromPyObject<'source> for PartitionedInput {
     }
 }
 
+/// Internal state to manage an input partition.
 struct PartState {
     part: StatefulSource,
     downstream_cap: Capability<u64>,
@@ -157,12 +169,11 @@ impl PartitionedInput {
 
     /// Read items from a partitioned input.
     ///
-    /// This is a stateful operator, so the change stream must be
-    /// incorporated into the recovery system, and the resume state
-    /// must be routed back here.
+    /// Will manage assigning primary workers for all partitions and
+    /// building them.
     ///
-    /// Will manage automatically distributing partition sources. All
-    /// you have to do is pass in the definition.
+    /// This can't be unified into the recovery system input operators
+    /// because they are stateless and have no epoch semantics.
     pub(crate) fn partitioned_input<S>(
         self,
         py: Python,
@@ -228,10 +239,11 @@ impl PartitionedInput {
                         incoming.swap(&mut tmp);
 
                         let now = Instant::now();
-                        // Snapshots might be from an "old" epoch if there
-                        // were no items during a more recent one, so
-                        // ensure that we always FFWd the capabilities to
-                        // where this execution should start.
+                        // Snapshots might be from an "old" epoch if
+                        // there were no items and thus snapshots
+                        // stored during a more recent epoch, so
+                        // ensure that we always FFWd the capabilities
+                        // to where this execution should start.
                         let emit_epoch = std::cmp::max(*load_epoch, start_at.0);
                         for (worker, (part_key, change)) in tmp.drain(..) {
                             assert!(worker == this_worker);
@@ -351,7 +363,7 @@ impl PartitionedInput {
                                         .session(&part_state.snap_cap)
                                         .give(snap);
 
-                                    let next_epoch = *part_state.downstream_cap.time() + 1;
+                                    let next_epoch = *epoch + 1;
                                     part_state.downstream_cap.downgrade(&next_epoch);
                                     part_state.snap_cap.downgrade(&next_epoch);
                                     part_state.epoch_started = now;

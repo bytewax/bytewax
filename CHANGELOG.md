@@ -5,6 +5,15 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- *Breaking change* Recovery system worked. Kafka-based recovery
+  removed. SQLite recovery file format changed; existing recovery DB
+  files can not be used. See the module docstring for
+  `bytewax.recovery` for how to use the new recovery system.
+
+- Dataflow execution supports rescaling over resumes. You can now
+  change the number of workers and still get proper execution and
+  recovery.
+
 ## v0.16.2
 
 - Add support for Windows builds - thanks @zzl221000!

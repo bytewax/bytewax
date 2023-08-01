@@ -50,5 +50,5 @@ def inp():
 
 @fixture
 def recovery_config(tmp_path):
-    init_db_dir(tmp_path, 1, "test")
+    init_db_dir(tmp_path, 1)
     yield RecoveryConfig(str(tmp_path))

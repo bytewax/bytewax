@@ -137,10 +137,10 @@ pub(crate) trait CapabilityIterEx<'a, T> {
     fn downgrade_all(&'a mut self, epoch: &T);
 }
 
-/// Wild bounds, but they mean this trait applies to any type which
-/// you can get an iterator over the mutable contents.
-///
-/// This means it works for both [`Vec`] and [`Option`].
+// Wild bounds, but they mean this trait applies to any type which
+// you can get an iterator over the mutable contents.
+//
+// This means it works for both [`Vec`] and [`Option`].
 impl<'a, C, T> CapabilityIterEx<'a, T> for C
 where
     C: 'a,
@@ -342,8 +342,7 @@ where
     }
 }
 
-/// Operator extension trait.
-pub(crate) trait IntoStreamAt<D> {
+pub(crate) trait IntoStreamAtOp<D> {
     /// Convert this iterator into a stream, emitting all items in the
     /// given epoch.
     fn into_stream_at<S>(self, scope: &S, epoch: S::Timestamp) -> Stream<S, D>
@@ -351,7 +350,7 @@ pub(crate) trait IntoStreamAt<D> {
         S: Scope;
 }
 
-impl<C, I, D> IntoStreamAt<D> for C
+impl<C, I, D> IntoStreamAtOp<D> for C
 where
     C: IntoIterator<Item = D, IntoIter = I> + 'static,
     I: Iterator<Item = D> + 'static,
@@ -385,8 +384,7 @@ where
     }
 }
 
-/// Operator extension trait.
-pub(crate) trait IntoStreamOnceAt<D> {
+pub(crate) trait IntoStreamOnceAtOp<D> {
     /// Convert this iterator into a stream but only on the 0th
     /// worker, emitting all items in the given epoch.
     fn into_stream_once_at<S>(self, scope: &S, epoch: S::Timestamp) -> Stream<S, D>
@@ -394,7 +392,7 @@ pub(crate) trait IntoStreamOnceAt<D> {
         S: Scope;
 }
 
-impl<I> IntoStreamOnceAt<I::Item> for I
+impl<I> IntoStreamOnceAtOp<I::Item> for I
 where
     I: IntoIterator + 'static,
     I::Item: Data,
@@ -411,8 +409,7 @@ where
     }
 }
 
-/// Operator extension trait.
-pub(crate) trait IntoBroadcastEx<K>
+pub(crate) trait IntoBroadcastOp<K>
 where
     K: ExchangeData,
 {
@@ -423,7 +420,7 @@ where
         S: Scope;
 }
 
-impl<C, I, K> IntoBroadcastEx<K> for C
+impl<C, I, K> IntoBroadcastOp<K> for C
 where
     C: IntoIterator<Item = K, IntoIter = I>,
     I: Iterator<Item = K> + 'static,
@@ -463,7 +460,6 @@ where
     }
 }
 
-/// Operator extension trait.
 pub(crate) trait PartitionOp<S, K, V>
 where
     S: Scope,
@@ -615,7 +611,6 @@ where
     primaries
 }
 
-/// Operator extension trait.
 pub(crate) trait AssignPrimariesOp<S, P>
 where
     S: Scope,
@@ -711,7 +706,6 @@ where
     }
 }
 
-/// Operator extension trait.
 pub(crate) trait RouteOp<S, K, V>
 where
     S: Scope,
@@ -826,7 +820,6 @@ pub(crate) trait Writer {
     fn write_batch(&mut self, items: Vec<Self::Item>);
 }
 
-/// Operator extension trait.
 pub(crate) trait PartitionedWriteOp<S, K, V>
 where
     S: Scope,
@@ -992,7 +985,6 @@ pub(crate) trait BatchIterator {
     fn next_batch(&mut self) -> Option<Vec<Self::Item>>;
 }
 
-/// Operator extension trait.
 pub(crate) trait PartitionedLoadOp<S>
 where
     S: Scope,
@@ -1194,7 +1186,6 @@ pub(crate) trait Committer<T> {
     fn commit(&mut self, epoch: &T);
 }
 
-/// Operator extension trait.
 pub(crate) trait PartitionedCommitOp<S>
 where
     S: Scope,
@@ -1312,7 +1303,6 @@ where
     }
 }
 
-/// Operator extension trait.
 pub(crate) trait StoreLastOp<S, D>
 where
     S: Scope,
