@@ -9,9 +9,10 @@ Subclass the types here to implement input for your own custom source.
 
 import asyncio
 import sys
+
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, List, Optional, Set
 
 __all__ = [
@@ -94,6 +95,29 @@ class StatefulSource(ABC):
 
         """
         pass
+
+    def next_awake(self) -> Optional[datetime]:
+        """Optionally return the time for the next poll of the input.
+
+        The default behavior (when this function returns None) is to
+        activate the input immediately if any item was returned in `next`,
+        and cooldown the source for 1ms otherwise. The cooldown
+        helps avoid high cpu load if there's no work to do.
+
+        This function is called before `self.next`, and if the
+        datetime returned is in the future, `self.next` won't be
+        called until the datetime returned here has passed.
+
+        Always use this method to wait for input rather than
+        using a `time.sleep` inside `self.next`
+
+        Returns:
+
+            Datetime for the next activation,
+            or None for default behavior.
+
+        """
+        return None
 
 
 class PartitionedInput(Input):
@@ -196,6 +220,29 @@ class StatelessSource(ABC):
 
         """
         pass
+
+    def next_awake(self) -> Optional[datetime]:
+        """Optionally return the time for the next poll of the input.
+
+        The default behavior (when this function returns None) is to
+        activate the input immediately if any item was returned in `next`,
+        and cooldown the source for 1ms otherwise. The cooldown
+        helps avoid high cpu load if there's no work to do.
+
+        This function is called before `self.next`, and if the
+        datetime returned is in the future, `self.next` won't be
+        called until the datetime returned here has passed.
+
+        Always use this method to wait for input rather than
+        using a `time.sleep` inside `self.next`
+
+        Returns:
+
+            Datetime for the next activation,
+            or None for default behavior.
+
+        """
+        return None
 
 
 class DynamicInput(Input):
