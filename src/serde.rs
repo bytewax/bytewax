@@ -1,4 +1,4 @@
-//!
+//! Serialization of Python object for recovery and transport.
 
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
@@ -79,14 +79,12 @@ impl Serde {
         Self(self.0.clone_ref(py))
     }
 
-    ///
     pub(crate) fn ser(&self, py: Python, state: TdPyAny) -> PyResult<String> {
         self.0
             .call_method1(py, intern!(py, "ser"), (state,))?
             .extract(py)
     }
 
-    ///
     pub(crate) fn de(&self, py: Python, s: String) -> PyResult<TdPyAny> {
         Ok(self.0.call_method1(py, intern!(py, "de"), (s,))?.into())
     }
