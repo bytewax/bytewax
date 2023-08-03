@@ -8,6 +8,7 @@ Subclass the types here to implement input for your own custom source.
 """
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 from typing import Any, List, Optional
 
 __all__ = [
@@ -59,6 +60,30 @@ class StatefulSource(ABC):
 
         """
         ...
+
+    def next_awake(self) -> Optional[datetime]:
+        """When to next attempt to get input items.
+
+        `next_batch()` will not be called until the most recently returned
+        time has past.
+
+        This will be called upon initialization of the source and
+        after `next_batch()`, but also possibly at other times. Multiple
+        times are not stored; you must return the next awake time on
+        every call, if any.
+
+        If this returns `None`, `next_batch()` will be called
+        immediately unless the previous batch had no items, in which
+        case there is a 1 millisecond delay.
+
+        Use this instead of `time.sleep` in `next_batch()`.
+
+        Returns:
+
+            Next awake time or `None` to indicate automatic behavior.
+
+        """
+        return None
 
     @abstractmethod
     def snapshot(self) -> Any:
@@ -173,6 +198,30 @@ class StatelessSource(ABC):
 
         """
         ...
+
+    def next_awake(self) -> Optional[datetime]:
+        """When to next attempt to get input items.
+
+        `next_batch()` will not be called until the most recently returned
+        time has past.
+
+        This will be called upon initialization of the source and
+        after `next_batch()`, but also possibly at other times. Multiple
+        times are not stored; you must return the next awake time on
+        every call, if any.
+
+        If this returns `None`, `next_batch()` will be called
+        immediately unless the previous batch had no items, in which
+        case there is a 1 millisecond delay.
+
+        Use this instead of `time.sleep` in `next_batch()`.
+
+        Returns:
+
+            Next awake time or `None` to indicate automatic behavior.
+
+        """
+        return None
 
     def close(self) -> None:
         """Do any cleanup on this source when the dataflow completes

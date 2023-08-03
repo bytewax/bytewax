@@ -13,10 +13,9 @@ use std::hash::Hash;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::time::Duration;
 
+use chrono::Duration;
 use pyo3::exceptions::PyRuntimeError;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use rusqlite::Connection;
@@ -40,7 +39,6 @@ use timely::progress::Timestamp;
 use timely::Data;
 use tracing::instrument;
 
-use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::inputs::EpochInterval;
 use crate::pyo3_extensions::TdPyAny;
@@ -126,31 +124,18 @@ pub(crate) struct FrontierMeta(ExecutionNumber, WorkerIndex, WorkerFrontier);
 /// can ensure that there's some resume epoch shared by all partitions
 /// we can use when resuming from a backup that might not be the most
 /// recent.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, FromPyObject)]
 pub(crate) struct BackupInterval(Duration);
 
 impl Default for BackupInterval {
     fn default() -> Self {
-        Self(Duration::ZERO)
-    }
-}
-
-impl<'source> FromPyObject<'source> for BackupInterval {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        ob.extract::<chrono::Duration>()?
-            .to_std()
-            .map_err(|_err| {
-                tracked_err::<PyValueError>("backup interval must be a positive duration")
-            })
-            .map(Self)
+        Self(Duration::zero())
     }
 }
 
 impl IntoPy<Py<PyAny>> for BackupInterval {
     fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        chrono::Duration::from_std(self.0)
-            .expect("backup interval overflow")
-            .into_py(py)
+        self.0.into_py(py)
     }
 }
 
