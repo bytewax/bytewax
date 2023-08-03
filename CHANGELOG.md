@@ -5,7 +5,7 @@
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
-- *Breaking change* Recovery system worked. Kafka-based recovery
+- *Breaking change* Recovery system re-worked. Kafka-based recovery
   removed. SQLite recovery file format changed; existing recovery DB
   files can not be used. See the module docstring for
   `bytewax.recovery` for how to use the new recovery system.

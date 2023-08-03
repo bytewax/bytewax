@@ -47,7 +47,7 @@ impl EpochInterval {
     /// Useful for calculating GC commit epochs.
     pub(crate) fn epochs_per(&self, other: Duration) -> u64 {
         (other.as_secs_f64() / self.0.as_secs_f64())
-            // Round up to we always have at least the backup interval
+            // Round up so we always have at least the backup interval
             // time. Unless it's 0, then it's ok. The integer part of
             // the result will always fit into a u64 so chopping off
             // bits should be fine.
