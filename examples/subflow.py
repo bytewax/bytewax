@@ -1,9 +1,8 @@
 import operator
+from datetime import datetime, timedelta, timezone
 
-from datetime import timedelta, timezone, datetime
-
-from bytewax.connectors.stdio import StdOutput
 from bytewax.connectors.files import FileInput
+from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
 from bytewax.window import SystemClockConfig, TumblingWindow
 

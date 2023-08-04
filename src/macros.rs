@@ -120,7 +120,7 @@ macro_rules! add_pymethods {(
         /// don't have access to the pickled `db_file_path` yet, so we
         /// have to pass in some dummy string value that will be
         /// overwritten by `__setstate__()` shortly.
-        #[allow(unused_parens)]
+        #[allow(clippy::unused_unit)]
         fn __getnewargs__(&self) -> ($($arg_type,) *) {
             ($($default,) *)
         }

@@ -1,7 +1,7 @@
 import re
 
-from bytewax.connectors.stdio import StdOutput
 from bytewax.connectors.files import FileInput
+from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
 
 

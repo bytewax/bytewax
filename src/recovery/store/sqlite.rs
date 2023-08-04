@@ -192,7 +192,7 @@ impl KWriter<StoreKey, Change<StateBytes>> for SqliteStateWriter {
                            ON CONFLICT (step_id, state_key, epoch) DO UPDATE \
                            SET snapshot = EXCLUDED.snapshot";
 
-                let future = query(&sql)
+                let future = query(sql)
                     .bind(step_id)
                     .bind(state_key)
                     .bind(
@@ -208,7 +208,7 @@ impl KWriter<StoreKey, Change<StateBytes>> for SqliteStateWriter {
             Change::Discard => {
                 let sql = "DELETE FROM state \
                            WHERE step_id = ?1 AND state_key = ?2 AND epoch = ?3";
-                let future = query(&sql)
+                let future = query(sql)
                     .bind(step_id)
                     .bind(state_key)
                     .bind(
@@ -240,7 +240,7 @@ impl SqliteStateReader {
             let sql = "SELECT step_id, state_key, epoch, snapshot \
                        FROM state \
                        ORDER BY epoch ASC";
-            let mut stream = query(&sql)
+            let mut stream = query(sql)
                 .map(|row: SqliteRow| {
                     let step_id: StepId = row.get(0);
                     let state_key: StateKey = row.get(1);
@@ -317,7 +317,7 @@ impl KWriter<WorkerKey, ProgressMsg> for SqliteProgressWriter {
                                SET worker_count = EXCLUDED.worker_count, \
                                resume_epoch = EXCLUDED.resume_epoch";
 
-                    let future = query(&sql)
+                    let future = query(sql)
                         .bind(
                             <u64 as TryInto<i64>>::try_into(ex.0)
                                 .expect("execution can't fit into SQLite int"),
@@ -337,7 +337,7 @@ impl KWriter<WorkerKey, ProgressMsg> for SqliteProgressWriter {
                                VALUES (?1, ?2, ?3) \
                                ON CONFLICT (execution, worker_index) DO UPDATE \
                                SET frontier = EXCLUDED.frontier";
-                    let future = query(&sql)
+                    let future = query(sql)
                         .bind(
                             <u64 as TryInto<i64>>::try_into(ex.0)
                                 .expect("execution can't fit into SQLite int"),
@@ -353,7 +353,7 @@ impl KWriter<WorkerKey, ProgressMsg> for SqliteProgressWriter {
             },
             Change::Discard => {
                 let sql = "DELETE FROM progress WHERE execution = ?1 AND worker_index = ?2";
-                let future = query(&sql)
+                let future = query(sql)
                     .bind(
                         <u64 as TryInto<i64>>::try_into(ex.0)
                             .expect("execution can't fit into SQLite int"),
@@ -384,7 +384,7 @@ impl SqliteProgressReader {
         rt.spawn(async move {
             let sql = "SELECT execution, worker_index, worker_count, resume_epoch \
                        FROM execution ORDER BY execution DESC LIMIT 1";
-            let mut stream = query(&sql)
+            let mut stream = query(sql)
                 .map(|row: SqliteRow| {
                     let ex = Execution(
                         row.get::<i64, _>(0)
@@ -420,7 +420,7 @@ impl SqliteProgressReader {
                 let sql =
                     "SELECT execution, worker_index, frontier FROM progress WHERE execution = ?1 ORDER BY frontier ASC";
 
-                let mut stream = query(&sql)
+                let mut stream = query(sql)
                     .bind(
                         <u64 as TryInto<i64>>::try_into(ex.0)
                             .expect("execution can't fit into SQLite int"),

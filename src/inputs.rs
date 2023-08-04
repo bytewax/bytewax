@@ -174,6 +174,7 @@ impl PartitionedInput {
     ///
     /// Will manage automatically distributing partition sources. All
     /// you have to do is pass in the definition.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn partitioned_input<S>(
         self,
         py: Python,
@@ -429,6 +430,7 @@ impl DynamicInput {
     ///
     /// Will manage automatically building sinks. All you have to do
     /// is pass in the definition.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn dynamic_input<S>(
         self,
         py: Python,

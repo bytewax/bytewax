@@ -1,8 +1,8 @@
 use std::panic::Location;
 
-use pyo3::PyDowncastError;
 use pyo3::exceptions::PyException;
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::PyDowncastError;
 use pyo3::PyErr;
 use pyo3::PyResult;
 use pyo3::PyTypeInfo;
@@ -85,9 +85,9 @@ pub(crate) trait PythonException<T> {
                     .get_type(py)
                     .is(pyo3::types::PyType::new::<pyo3::exceptions::PyKeyError>(py))
                 {
-                    PyRuntimeError::new_err(build_message(py, caller, &err, &msg))
+                    PyRuntimeError::new_err(build_message(py, caller, &err, msg))
                 } else {
-                    PyErr::from_type(err.get_type(py), build_message(py, caller, &err, &msg))
+                    PyErr::from_type(err.get_type(py), build_message(py, caller, &err, msg))
                 }
             })
         })

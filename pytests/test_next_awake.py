@@ -1,11 +1,11 @@
-from datetime import timedelta, datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import (
     DynamicInput,
-    StatelessSource,
     PartitionedInput,
     StatefulSource,
+    StatelessSource,
 )
 from bytewax.testing import run_main, TestingOutput
 
