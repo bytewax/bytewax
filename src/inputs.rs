@@ -182,7 +182,7 @@ impl PartitionedInput {
     {
         let this_worker = scope.w_index();
 
-        let local_parts = self.list_parts(py)?;
+        let local_parts = self.list_parts(py).reraise("error listing partitions")?;
         let all_parts = local_parts
             .clone()
             .into_broadcast(scope, S::Timestamp::minimum());
@@ -247,7 +247,7 @@ impl PartitionedInput {
                                         py,
                                         &part_key,
                                         Some(state)
-                                    ).reraise("error building StatefulSource with resume state")?;
+                                    ).reraise("error resuming StatefulSource")?;
                                     let next_awake = part.next_awake(py).reraise("error getting next awake")?.unwrap_or(now);
                                     Ok((part, next_awake))
                                 }));
@@ -333,7 +333,7 @@ impl PartitionedInput {
                                 if let Some(mut batch) =
                                     unwrap_any!(Python::with_gil(|py| part_state
                                         .part
-                                        .next_batch(py)).reraise("error getting next input batch"))
+                                        .next_batch(py).reraise("error getting next input batch")))
                                 {
                                     if !batch.is_empty() {
                                         handle
@@ -376,7 +376,7 @@ impl PartitionedInput {
                                 // never poll input.
                                 if now - part_state.epoch_started >= epoch_interval.0
                                 {
-                                    let state = unwrap_any!(Python::with_gil(|py| part_state.part.snapshot(py)).reraise("error snapshotting StatefulSource"));
+                                    let state = unwrap_any!(Python::with_gil(|py| part_state.part.snapshot(py).reraise("error snapshotting StatefulSource")));
                                     tracing::trace!("End of epoch {epoch} partition state now {state:?}");
                                     let snap = Snapshot(
                                         step_id.clone(),
@@ -474,7 +474,9 @@ impl StatefulSource {
 
 impl Drop for StatefulSource {
     fn drop(&mut self) {
-        unwrap_any!(Python::with_gil(|py| self.close(py)).reraise("error closing StatefulSource"));
+        unwrap_any!(Python::with_gil(|py| self
+            .close(py)
+            .reraise("error closing StatefulSource")));
     }
 }
 
@@ -579,9 +581,10 @@ impl DynamicInput {
                         let epoch = part_state.output_cap.time();
 
                         if !probe.less_than(epoch) && now >= part_state.next_awake {
-                            if let Some(mut batch) =
-                                unwrap_any!(Python::with_gil(|py| part_state.part.next_batch(py))
-                                    .reraise("error getting next input batch"))
+                            if let Some(mut batch) = unwrap_any!(Python::with_gil(|py| part_state
+                                .part
+                                .next_batch(py)
+                                .reraise("error getting next input batch")))
                             {
                                 if !batch.is_empty() {
                                     output_wrapper
@@ -697,6 +700,8 @@ impl StatelessSource {
 
 impl Drop for StatelessSource {
     fn drop(&mut self) {
-        unwrap_any!(Python::with_gil(|py| self.close(py)).reraise("error closing StatelessSource"));
+        unwrap_any!(Python::with_gil(|py| self
+            .close(py)
+            .reraise("error closing StatelessSource")));
     }
 }

@@ -206,7 +206,7 @@ where
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)> {
         let this_worker = self.scope().w_index();
 
-        let local_parts = output.list_parts(py)?;
+        let local_parts = output.list_parts(py).reraise("error listing partitions")?;
         let all_parts = local_parts.into_broadcast(&self.scope(), S::Timestamp::minimum());
         let primary_updates = all_parts.assign_primaries(format!("{step_id}.assign_primaries"));
 
@@ -286,10 +286,9 @@ where
                                         // this partition, lazily create
                                         // it.
                                         .or_insert_with_key(|part_key| {
-                                            unwrap_any!(Python::with_gil(
-                                                |py| output.build_part(py, part_key, None)
-                                            )
-                                            .reraise("error building init StatefulSink"))
+                                            unwrap_any!(Python::with_gil(|py| output
+                                                .build_part(py, part_key, None)
+                                                .reraise("error init StatefulSink")))
                                         });
 
                                     unwrap_any!(Python::with_gil(|py| part.write_batch(
@@ -326,8 +325,9 @@ where
                             // as loads are happening.
                             while let Some(part_key) = awoken.pop_first() {
                                 let part = parts.get(&part_key).unwrap();
-                                let state = unwrap_any!(Python::with_gil(|py| part.snapshot(py))
-                                    .reraise("error snapshotting StatefulSink"));
+                                let state = unwrap_any!(Python::with_gil(|py| part
+                                    .snapshot(py)
+                                    .reraise("error snapshotting StatefulSink")));
                                 let snap =
                                     Snapshot(step_id.clone(), part_key, StateChange::Upsert(state));
                                 session.give(snap);
@@ -344,11 +344,10 @@ where
                                         match change {
                                             StateChange::Upsert(state) => {
                                                 let part = unwrap_any!(Python::with_gil(|py| {
-                                                    output.build_part(py, &part_key, Some(state))
-                                                })
-                                                .reraise(
-                                                    "error building StatefulSink from resume state"
-                                                ));
+                                                    output
+                                                        .build_part(py, &part_key, Some(state))
+                                                        .reraise("error resuming StatefulSink")
+                                                }));
                                                 parts.insert(part_key, part);
                                             }
                                             StateChange::Discard => {
@@ -437,7 +436,9 @@ impl StatelessSink {
 
 impl Drop for StatelessSink {
     fn drop(&mut self) {
-        unwrap_any!(Python::with_gil(|py| self.close(py)).reraise("error closing StatelessSink"));
+        unwrap_any!(Python::with_gil(|py| self
+            .close(py)
+            .reraise("error closing StatelessSink")));
     }
 }
 
@@ -483,7 +484,7 @@ where
                         let mut output_session = output.session(&cap);
                         unwrap_any!(Python::with_gil(|py| sink
                             .write_batch(py, tmp_incoming.clone())
-                            .reraise("error writing dynamic output")));
+                            .reraise("error writing output batch")));
                         output_session.give_vec(&mut tmp_incoming);
                     });
 
