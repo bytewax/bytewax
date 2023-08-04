@@ -46,14 +46,14 @@ The output should be something like this:
 ```
 Unable to find image 'bytewax/bytewax:latest' locally
 latest: Pulling from bytewax/bytewax
-c229119241af: Already exists 
-5a3ae98ea812: Already exists 
-fb6cb411715f: Pull complete 
-f83c4a78fcb9: Pull complete 
-4835b7464fe4: Pull complete 
-dad0b2a57b01: Pull complete 
-9666deee65de: Pull complete 
-d15d6c35474d: Pull complete 
+c229119241af: Already exists
+5a3ae98ea812: Already exists
+fb6cb411715f: Pull complete
+f83c4a78fcb9: Pull complete
+4835b7464fe4: Pull complete
+dad0b2a57b01: Pull complete
+9666deee65de: Pull complete
+d15d6c35474d: Pull complete
 Digest: sha256:c6c213c3753b8a4ffa988f8a8d9e36669357c6970d2d2e74c7d559c98ef63589
 Status: Downloaded newer image for bytewax/bytewax:latest
 ('5', 1.8783333333333332)
@@ -100,9 +100,9 @@ fi
 
 ## Running a Container interactively for Debbuging
 
-Sometimes it is useful to explore the files and the environment configuration of a running container. 
+Sometimes it is useful to explore the files and the environment configuration of a running container.
 
-We are going to use the `BYTEWAX_KEEP_CONTAINER_ALIVE` environment variable to keep the container alive after the dataflow program has finished execution. 
+We are going to use the `BYTEWAX_KEEP_CONTAINER_ALIVE` environment variable to keep the container alive after the dataflow program has finished execution.
 
 ```bash
 docker run --rm --name=my-dataflow \
@@ -202,7 +202,7 @@ docker build -f Dockerfile.custom -t bytewax-translator .
 Now we can run the example using the new image:
 
 ```bash
-docker run --rm --name=my-dataflow \                     
+docker run --rm --name=my-dataflow \
     -v /var/bytewax/examples:/bytewax/examples \
     -e BYTEWAX_PYTHON_FILE_PATH=examples.translator:flow \
     bytewax-translator
@@ -213,7 +213,7 @@ And we get this result:
 ```
 No model was supplied, defaulted to t5-base (https://huggingface.co/t5-base)
 Downloading: 100%|██████████| 1.17k/1.17k [00:00<00:00, 934kB/s]
-Downloading: 100%|██████████| 850M/850M [00:11<00:00, 78.8MB/s] 
+Downloading: 100%|██████████| 850M/850M [00:11<00:00, 78.8MB/s]
 Downloading: 100%|██████████| 773k/773k [00:00<00:00, 2.17MB/s]
 Downloading: 100%|██████████| 1.32M/1.32M [00:00<00:00, 3.13MB/s]
 Blue jean baby, L.A. lady, seamstress for the band -> Blue Jean Baby, L.A. Lady, Näherin für die Band

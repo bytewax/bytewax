@@ -14,7 +14,7 @@ Epochs continue to exist in Bytewax, but are now managed internally to represent
 
 Bytewax 0.11 will now allow you to recover the state of the input to your dataflow.
 
-Manually constructed input functions, like those used with [ManualInputConfig](/apidocs/bytewax.inputs#bytewax.inputs.ManualInputConfig), now take a third argument. If your dataflow is interrupted, the third argument passed to your input function can be used to reconstruct the state of your input at the last recovery snapshot, provided you write your input logic accordingly. The `input_builder` function must return a tuple of (resume_state, datum). 
+Manually constructed input functions, like those used with [ManualInputConfig](/apidocs/bytewax.inputs#bytewax.inputs.ManualInputConfig), now take a third argument. If your dataflow is interrupted, the third argument passed to your input function can be used to reconstruct the state of your input at the last recovery snapshot, provided you write your input logic accordingly. The `input_builder` function must return a tuple of (resume_state, datum).
 
 Bytewax's built-in input handlers, like [KafkaInputConfig](/apidocs/bytewax.inputs#bytewax.inputs.KafkaInputConfig) are also recoverable. `KafkaInputConfig` will store information about consumer offsets in the configured Bytewax recovery store. In the event of recovery, `KafkaInputConfig` will start reading from the offsets that were last committed to the recovery store.
 
