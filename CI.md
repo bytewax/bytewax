@@ -2,7 +2,7 @@
 
 ## Setup for Colab Support
 
-To provide [Google Colab](https://colab.research.google.com/) support we need to build wheels compatible with GLIBC 2.27.  
+To provide [Google Colab](https://colab.research.google.com/) support we need to build wheels compatible with GLIBC 2.27.
 For that, we use a [custom docker image](Dockerfile.Colab) in the `linux_glibc_227_colab` job of our CI:
 
 ```yaml

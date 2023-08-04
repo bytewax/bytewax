@@ -60,7 +60,7 @@ Use "waxctl gcp [command] --help" for more information about a command.
 
 To use Waxctl on GCP, first, you need to have installed and configured the gcloud CLI. You can follow the instructions [here](https://cloud.google.com/sdk/docs/install-sdk).
 
-After that, you need to set up Application Default Credentials running: 
+After that, you need to set up Application Default Credentials running:
 
 ```bash
 gcloud auth application-default login
@@ -226,7 +226,7 @@ As you can see, there are a lot of details including links to access instance in
 
 This is the help text of the `list` command:
 ```bash
-❯ waxctl gcp ls --help   
+❯ waxctl gcp ls --help
 List VM instances created by waxctl.
 
 Examples:
@@ -268,7 +268,7 @@ VM instance my-dataflow with ID 4460149001200968897 stopped.
 So, if you run the `list` command, you will see something like this:
 
 ```bash
-❯ waxctl gcp ls                     
+❯ waxctl gcp ls
 Dataflow    Python File Name VM State   Zone          Launch Time (UTC)
 my-dataflow basic-py         TERMINATED us-central1-a 2022-10-13T07:01:34.833-07:00
 ```

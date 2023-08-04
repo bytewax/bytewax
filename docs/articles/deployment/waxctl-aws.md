@@ -75,7 +75,7 @@ As you can see in the output above, Waxctl created an IAM policy and role. That 
 
 We can see the complete list of available flags with the `waxctl aws deploy` help command.
 ```bash
-❯ waxctl aws deploy -h                                               
+❯ waxctl aws deploy -h
 Deploy a dataflow to a new EC2 instance.
 
 The deploy command expects one argument, which is the path of your python dataflow file.
@@ -155,7 +155,7 @@ As we mentioned, Waxctl creates an IAM policy and role to allow your EC2 instanc
     ]
 }
 ```
-So, your role must have those permissions to keep both features working. 
+So, your role must have those permissions to keep both features working.
 We recommend attaching to your Role a Customer managed policy having only those permissions and maybe with an explicit name like "Bytewax-Policy" or "Waxctl-Policy".
 
 ## Getting Dataflow Information
@@ -272,7 +272,7 @@ EC2 instance my-dataflow with ID i-040f98b9160d2d158 stopped.
 So, if you run the `list` command, you will see something like this:
 
 ```bash
-❯ waxctl aws ls                     
+❯ waxctl aws ls
 Dataflow    Python File Name               VM State Launch Time
 my-dataflow /var/bytewax/examples/basic.py stopping 2022-10-03 13:34:02 +0000 UTC
 ```
@@ -303,7 +303,7 @@ To run a dry-run delete of our dataflow example we can run this:
 ❯ waxctl aws delete --name my-dataflow
 EC2 instance my-dataflow with ID i-040f98b9160d2d158 found in us-west-2 region.
 
---yes flag is required to terminate it. 
+--yes flag is required to terminate it.
 ```
 
 And if we want to actually delete the dataflow we must add the `--yes` flag:
