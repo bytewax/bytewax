@@ -467,7 +467,7 @@ where
                             let cap = &caps[0];
 
                             let mut session = output.session(&cap);
-                            session.give_iterator(state.drain_flatten().into_iter());
+                            session.give_iterator(state.drain_flatten());
                         },
                         |_state| {},
                     );
@@ -580,7 +580,6 @@ where
                             session.give_iterator(
                                 summary
                                     .drain_garbage(&resume_epoch)
-                                    .into_iter()
                                     .map(|key| KChange(key, Change::Discard)),
                             );
                         },
