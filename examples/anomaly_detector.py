@@ -9,9 +9,9 @@ class RandomMetricSource(StatefulSource):
     def __init__(self):
         self.iterator = iter(list(range(20)))
 
-    def next(self):
+    def next_batch(self):
         next(self.iterator)
-        return "ALL", random.randrange(0, 10)
+        return ["ALL", random.randrange(0, 10)]
 
     def snapshot(self):
         return None
@@ -22,7 +22,7 @@ class RandomMetricSource(StatefulSource):
 
 class RandomMetricInput(PartitionedInput):
     def list_parts(self):
-        return {"singleton"}
+        return ["singleton"]
 
     def build_part(self, for_part, resume_state):
         assert for_part == "singleton"
