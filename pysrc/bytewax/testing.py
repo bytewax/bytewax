@@ -11,7 +11,7 @@ from .bytewax import cluster_main, run_main
 __all__ = [
     "run_main",
     "cluster_main",
-    "poll_next",
+    "poll_next_batch",
     "TestingInput",
     "TestingOutput",
 ]
@@ -96,8 +96,8 @@ class TestingOutput(DynamicOutput):
         return _ListSink(self._ls)
 
 
-def poll_next(source: StatefulSource, timeout=timedelta(seconds=5)):
-    """Repeatedly poll an input source until it returns a value.
+def poll_next_batch(source: StatefulSource, timeout=timedelta(seconds=5)):
+    """Repeatedly poll an input source until it returns a batch.
 
     You'll want to use this in unit tests of sources when there's some
     non-determinism in how items are read.
@@ -108,17 +108,17 @@ def poll_next(source: StatefulSource, timeout=timedelta(seconds=5)):
 
     Returns:
 
-        The next item found.
+        The next batch found.
 
     Raises:
 
-        TimeoutError: If no item was returned within the timeout.
+        TimeoutError: If no batch was returned within the timeout.
 
     """
-    item = None
+    batch = []
     start = datetime.now(timezone.utc)
-    while item is None:
+    while len(batch) <= 0:
         if datetime.now(timezone.utc) - start > timeout:
             raise TimeoutError()
-        item = source.next()
-    return item
+        batch = source.next_batch()
+    return batch
