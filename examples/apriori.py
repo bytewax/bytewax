@@ -1,8 +1,7 @@
 import itertools
 import operator
-
 from collections import Counter
-from datetime import timedelta, timezone, datetime
+from datetime import datetime, timedelta, timezone
 
 from bytewax.connectors.files import FileInput
 from bytewax.dataflow import Dataflow

@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta, timezone
 
-from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
+from bytewax.dataflow import Dataflow
 from bytewax.inputs import (
     DynamicInput,
-    StatelessSource,
     PartitionedInput,
     StatefulSource,
+    StatelessSource,
 )
 
 

@@ -22,8 +22,8 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from bytewax.connectors.kafka import KafkaInput
-from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
+from bytewax.dataflow import Dataflow
 from bytewax.window import EventClockConfig, TumblingWindow
 
 # Define the dataflow object and kafka input.

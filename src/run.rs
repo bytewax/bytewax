@@ -137,7 +137,7 @@ pub(crate) fn run_main(
     res.map_err(|panic_err| {
         // The worker panicked.
         // Print an empty line to separate rust panic message from the rest.
-        eprintln!("");
+        eprintln!();
         if let Some(err) = panic_err.downcast_ref::<PyErr>() {
             // Special case for keyboard interrupt.
             if err.get_type(py).is(PyType::new::<PyKeyboardInterrupt>(py)) {
@@ -328,6 +328,7 @@ pub(crate) fn cluster_main(
     signature=(flow, *, processes=1, workers_per_process=1, process_id=None, addresses=None, epoch_interval=None, recovery_config=None),
     text_signature="(flow, *, processes=1, workers_per_process=1, process_id=None, addresses=None, epoch_interval=None, recovery_config=None)"
 )]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn cli_main(
     py: Python,
     flow: Py<Dataflow>,

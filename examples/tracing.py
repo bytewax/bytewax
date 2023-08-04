@@ -1,8 +1,8 @@
 import os
 import time
 
-from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
+from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingInput
 from bytewax.tracing import OtlpTracingConfig, setup_tracing
 

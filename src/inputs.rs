@@ -166,6 +166,7 @@ impl PartitionedInput {
     ///
     /// This can't be unified into the recovery system input operators
     /// because they are stateless and have no epoch semantics.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn partitioned_input<S>(
         self,
         py: Python,
@@ -523,6 +524,7 @@ impl DynamicInput {
     ///
     /// Will manage automatically building sinks. All you have to do
     /// is pass in the definition.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn dynamic_input<S>(
         self,
         py: Python,

@@ -4,7 +4,6 @@ from bytewax.connectors.kafka import KafkaInput, KafkaOutput
 from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
 
-
 flow = Dataflow()
 flow.input("inp", KafkaInput(["localhost:9092"], ["input_topic"]))
 
@@ -31,5 +30,5 @@ flow.output(
     KafkaOutput(
         brokers=["localhost:9092"],
         topic="output_topic",
-    )
+    ),
 )

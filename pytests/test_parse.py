@@ -1,6 +1,5 @@
-import sys
 import os
-
+import sys
 from unittest.mock import patch
 
 from bytewax.run import _parse_args
