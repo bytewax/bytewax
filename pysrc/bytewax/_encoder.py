@@ -1,7 +1,7 @@
 import datetime
+import inspect
 import json
 import types
-import inspect
 
 from .bytewax import Dataflow
 

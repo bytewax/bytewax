@@ -47,6 +47,7 @@ At a high-level, the dataflow compute model is one in which a program execution 
 ```python
 import json
 
+
 def deserialize(key_bytes__payload_bytes):
     _, payload_bytes = key_bytes__payload_bytes
     event_data = json.loads(payload_bytes) if payload_bytes else None
@@ -62,6 +63,7 @@ def anonymize_email(user_id__event_data):
 def remove_bytewax(user_id__event_data):
     user_id, event_data = user_id__event_data
     return "bytewax" not in event_data["email"]
+
 
 flow = Dataflow()
 flow.input("inp", KafkaInput(brokers=["localhost:9092"], topic="web_events"))
@@ -79,6 +81,7 @@ from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 from bytewax.window import TumblingWindow, SystemClockConfig
+
 
 def build():
     return defaultdict(lambda: 0)

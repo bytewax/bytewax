@@ -1,11 +1,10 @@
 import operator
 import re
-
-from datetime import timedelta, datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from bytewax.connectors.files import FileInput
-from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
+from bytewax.dataflow import Dataflow
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 

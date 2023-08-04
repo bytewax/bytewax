@@ -3,7 +3,7 @@ import signal
 import subprocess
 import tempfile
 
-from pytest import raises, mark
+from pytest import mark, raises
 
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingInput, TestingOutput
@@ -42,12 +42,11 @@ def test_reraises_exception(entry_point):
     assert len(out) < 3
 
 
-
 @mark.skipif(
     os.name == "nt",
     reason=(
-            "Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all"
-            " processes on this console so interrupts pytest itself"
+        "Sending os.kill(test_proc.pid, signal.CTRL_C_EVENT) sends event to all"
+        " processes on this console so interrupts pytest itself"
     ),
 )
 def test_cluster_can_be_ctrl_c():

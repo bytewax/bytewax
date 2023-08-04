@@ -9,7 +9,6 @@ Subclass the types here to implement input for your own custom source.
 
 import asyncio
 import sys
-
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta
