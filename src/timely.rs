@@ -100,7 +100,7 @@ where
 
     /// Is a given epoch closed based on this frontier?
     fn is_closed(&self, epoch: &T) -> bool {
-        !self.simplify().is_some_and(|frontier| *epoch >= frontier)
+        self.simplify().iter().all(|frontier| *epoch < *frontier)
     }
 
     /// Is this input EOF and will see no more values?
