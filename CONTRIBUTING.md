@@ -1,6 +1,6 @@
 # Welcome to Bytewax contributing guide
 
-Thank you for investing your time in contributing to our project! Any contribution you make will be included in future Bytewax releases :sparkles:. 
+Thank you for investing your time in contributing to our project! Any contribution you make will be included in future Bytewax releases :sparkles:.
 
 Read our [Code of Conduct](CODE_OF_CONDUCT.md) to keep our community approachable and respectable.
 
@@ -22,13 +22,13 @@ To get an overview of the project, read the [README](README.md). Here are some r
 
 Bytewax is a Python library backed by Rust code. The codebase is split between Python code in [`pysrc/bytewax`](https://github.com/bytewax/bytewax/tree/main/pysrc/bytewax) and Rust code in [`src`](https://github.com/bytewax/bytewax/tree/main/src). PyO3 is used as the interface between the two. Bytewax operators and the execution of dataflows are handled at the Rust layer. The inputs and outputs can be written in either Rust or in Python.
 
-To develop with Bytewax locally you will need to install Rust and use [Maturin](https://github.com/PyO3/maturin) to build the code into a Python module locally. 
+To develop with Bytewax locally you will need to install Rust and use [Maturin](https://github.com/PyO3/maturin) to build the code into a Python module locally.
 
 ### Issues
 
 #### Create a new issue
 
-If you spot a problem with Bytewax, search if an issue already exists. If a related issue doesn't exist, you can open a new issue using a relevant [issue template](https://github.com/bytewax/bytewax/issues/new/choose). 
+If you spot a problem with Bytewax, search if an issue already exists. If a related issue doesn't exist, you can open a new issue using a relevant [issue template](https://github.com/bytewax/bytewax/issues/new/choose).
 
 #### Solve an issue
 
@@ -56,7 +56,7 @@ Commit the changes once you are happy with them. Be sure to [sign your commit](h
 ### Pull Request
 
 When you're finished with the changes, create a pull request, also known as a PR.
-- Apply the "Ready for review" label so that we can review your PR. This template helps reviewers understand your changes as well as the purpose of your pull request. 
+- Apply the "Ready for review" label so that we can review your PR. This template helps reviewers understand your changes as well as the purpose of your pull request.
 - Don't forget to [link PR to issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue) if you are solving one.
 - Enable the checkbox to [allow maintainer edits](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/allowing-changes-to-a-pull-request-branch-created-from-a-fork) so the branch can be updated for a merge.
 Once you submit your PR, a Docs team member will review your proposal. We may ask questions or request for additional information.
@@ -66,6 +66,6 @@ Once you submit your PR, a Docs team member will review your proposal. We may as
 
 ### Your PR is merged!
 
-Congratulations :tada::tada: The Bytewax community thanks you! :sparkles:. 
+Congratulations :tada::tada: The Bytewax community thanks you! :sparkles:.
 
-Once your PR is merged, your contributions will be included in the next release 😄. See the [release process docs](https://github.com/bytewax/bytewax/blob/main/RELEASE.md) for more information on how that is managed. A maintainer will run the release. 
+Once your PR is merged, your contributions will be included in the next release 😄. See the [release process docs](https://github.com/bytewax/bytewax/blob/main/RELEASE.md) for more information on how that is managed. A maintainer will run the release.

@@ -51,7 +51,7 @@ In this image we show how the init-container and the application container of th
 
 ![Bytewax on Kubernetes](/assets/img/docs/pod_details.png)
 
-The `hostfile` init-container stores a file named `hostfile.txt` with all the addresses of the processes, and the application container `process` reads that file (in fact, `bytewax.parse.proc_env()` does that work). 
+The `hostfile` init-container stores a file named `hostfile.txt` with all the addresses of the processes, and the application container `process` reads that file (in fact, `bytewax.parse.proc_env()` does that work).
 
 Also, the image shows that the init-container is reading the content of the ConfigMap mounted in the `python-files` volume and copying that to the `working-directory` volume. In the example the content of the ConfigMap is a file named `basic.py`. In the ConfigMap section we are going to talk more about that.
 
@@ -83,7 +83,7 @@ In the above diagram, the application container has these environment variables:
 
 Some of those were already covered in the [How Bytewax Image Works](/docs/deployment/container/#how-the-bytewax-image-works) section.
 
-The environment variables can be grouped into two groups: 
+The environment variables can be grouped into two groups:
 
 #### Environments Variables used in `entrypoint.sh` script:
 
@@ -109,7 +109,7 @@ Our StatefulSet Pod template definition has strict Pod and Container security co
 
 ## Headless service
 
-This is a Kubernetes Service without an assigned IP only used to interface with Kubernetes' service discovery mechanisms. 
+This is a Kubernetes Service without an assigned IP only used to interface with Kubernetes' service discovery mechanisms.
 
 For Bytewax we use the service to instruct Kubernetes to create an endpoint for each Pod in our Statefulset. In this way, there will be a known DNS entry for each process in the Bytewax cluster.
 

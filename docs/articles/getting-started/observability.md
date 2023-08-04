@@ -2,12 +2,12 @@
 
 Bytewax is instrumented to offer observability of your dataflow.
 
-The default configuration logs anything at the log level `ERROR` to standard output.  
+The default configuration logs anything at the log level `ERROR` to standard output.
 You can control the log level by passing the `log_level` parameter to the `setup_tracing` function.
 If you want to see all the messages bytewax emits, set the level to `TRACE`.
 
 The `TRACE` level includes everything that would be sent to an opentelemetry compatible backend,
-like [Jaeger](https://www.jaegertracing.io/), or the [Opentelemetry Collector](https://opentelemetry.io/docs/collector/).  
+like [Jaeger](https://www.jaegertracing.io/), or the [Opentelemetry Collector](https://opentelemetry.io/docs/collector/).
 It is really verbose, and your stdoutput will be flooded with logs, so use it carefully.
 
 ## Try it
@@ -17,7 +17,7 @@ We will use the [wikistream.py](https://github.com/bytewax/bytewax/blob/main/exa
 since it doesn't require any other setup.
 You will need [docker](https://www.docker.com/) and [docker-compose](https://docs.docker.com/compose/) to run this example.
 
-Create a folder where you'll keep the dataflow and two more files we'll need to run everything.  
+Create a folder where you'll keep the dataflow and two more files we'll need to run everything.
 ```shell
 mkdir bytewax-tracing
 cd bytewax-tracing

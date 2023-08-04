@@ -16,7 +16,7 @@ Waxctl allows you to manage the entire dataflow program lifecycle which includes
 - Modification
 - Deletion
 
-In the following sections we are going to cover each one. 
+In the following sections we are going to cover each one.
 
 ## Available Commands
 
@@ -62,7 +62,7 @@ You can specify an explicit namespace in every Waxctl command using the `--names
 
 ## Deploying a Dataflow
 
-To deploy a dataflow you just need to run `dataflow deploy` passing the path of your python script as an argument. If left unset, Waxctl will use the default name for your dataflow, which is `bytewax`. 
+To deploy a dataflow you just need to run `dataflow deploy` passing the path of your python script as an argument. If left unset, Waxctl will use the default name for your dataflow, which is `bytewax`.
 
 In our example we are going to deploy a dataflow called `my-dataflow` in the current namespace which is `bytewax` in our case:
 
@@ -71,14 +71,14 @@ In our example we are going to deploy a dataflow called `my-dataflow` in the cur
 Dataflow my-dataflow deployed in bytewax namespace.
 ```
 
-In the above example, Waxctl used the default values for all the flags besides `name`. The tool allows you to configure a wide range of characteristics of your dataflow. 
+In the above example, Waxctl used the default values for all the flags besides `name`. The tool allows you to configure a wide range of characteristics of your dataflow.
 
 We can see which flags are available geting the `dataflow deploy` help.
 ```bash
 ❯ waxctl df deploy --help
 Deploy a dataflow to Kubernetes using the Bytewax helm chart.
 
-The resources are going to be created if the dataflow doesn't exist or 
+The resources are going to be created if the dataflow doesn't exist or
 upgraded if the dataflow is already deployed in the Kubernetes cluster.
 
 The deploy command expects only one argument, a path of a file which could be a
@@ -201,14 +201,14 @@ You can change any of the flags of your dataflow.
 
 ## Removing a Dataflow
 
-To remove the Kubernetes resources of a dataflow you need to run `waxctl dataflow delete` passing the name of the dataflow. 
+To remove the Kubernetes resources of a dataflow you need to run `waxctl dataflow delete` passing the name of the dataflow.
 
 To run a dry-run delete of our dataflow example we can run this:
 ```bash
 ❯ waxctl df rm --name my-dataflow
 Dataflow my-dataflow found in bytewax namespace.
 
-Must specify --yes to delete it. 
+Must specify --yes to delete it.
 ```
 
 And if we want to actually delete the dataflow we need add the `--yes` flag:
@@ -219,7 +219,7 @@ Dataflow my-dataflow deleted.
 
 ## Bytewax Helm Chart
 
-Waxctl uses a compiled-in [Bytewax helm chart](https://github.com/bytewax/helm-charts) to generate all the manifests except the Namespace and ConfigMap which are created by making calls to Kubernetes API directly. 
+Waxctl uses a compiled-in [Bytewax helm chart](https://github.com/bytewax/helm-charts) to generate all the manifests except the Namespace and ConfigMap which are created by making calls to Kubernetes API directly.
 
 You can check the entire architecture that Waxctl deploys in our [Bytewax Ecosystem on Kubernetes](/docs/deployment/k8s-ecosystem/) section.
 
