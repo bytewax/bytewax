@@ -251,12 +251,6 @@ pub(crate) fn cluster_main(
             let msg = if let Some(err) = info.payload().downcast_ref::<PyErr>() {
                 // Panics with PyErr as payload should come from bytewax.
                 Python::with_gil(|py| err.clone_ref(py))
-            // } else if let Some(msg) = info.payload().downcast_ref::<String>() {
-            //     // Panics with String payload usually comes from timely here.
-            //     tracked_err::<PyRuntimeError>(msg)
-            // } else if let Some(msg) = info.payload().downcast_ref::<&str>() {
-            //     // Other kind of panics that can be downcasted to &str
-            //     tracked_err::<PyRuntimeError>(msg)
             } else {
                 // Give up trying to understand the error,
                 // and show the user what we have.
