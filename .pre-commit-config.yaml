@@ -1,4 +1,12 @@
 repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+    - id: end-of-file-fixer
+    - id: fix-byte-order-marker
+    - id: mixed-line-ending
+      args: ["--fix=lf"]
+    - id: trailing-whitespace
   - repo: https://github.com/psf/black
     rev: 22.3.0
     hooks:
@@ -14,8 +22,8 @@ repos:
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
-      - id: fmt
       - id: clippy
+      - id: fmt
   - repo: https://github.com/bytewax/pre-commit-cbfmt
     rev: v0.1
     hooks:
