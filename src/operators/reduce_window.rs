@@ -23,11 +23,10 @@ impl ReduceWindowLogic {
         move |resume_snapshot| {
             Python::with_gil(|py| {
                 let acc = resume_snapshot
-                    .map(|state| {
+                    .and_then(|state| {
                         let state: Option<Option<TdPyAny>> = unwrap_any!(state.extract(py));
                         state
                     })
-                    .flatten()
                     .unwrap_or_default();
 
                 Self {

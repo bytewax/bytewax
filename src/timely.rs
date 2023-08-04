@@ -69,7 +69,7 @@ where
             .entry(epoch)
             .and_modify(|buf| buf.append(&mut self.tmp))
             // Prevent Vec copy on new data for this epoch.
-            .or_insert_with(|| std::mem::replace(&mut self.tmp, Vec::new()));
+            .or_insert_with(|| std::mem::take(&mut self.tmp));
     }
 
     /// Get all input received on a given epoch.
@@ -249,11 +249,11 @@ where
             }
 
             if let Some(frontier) = &frontier {
-                caps.downgrade_all(&frontier);
+                caps.downgrade_all(frontier);
 
                 // Now eagerly execute the frontier. No need to call
                 // logic if we haven't any data at the frontier yet.
-                if self.queue.contains(&frontier) {
+                if self.queue.contains(frontier) {
                     eager_logic(&caps, &mut state);
                 }
 
@@ -775,7 +775,7 @@ where
                             let mut session = handle.session(cap);
                             for key_value in items {
                                 let (key, _value) = &key_value;
-                                let worker = *routing_map.get(&key).unwrap_or_else(|| {
+                                let worker = *routing_map.get(key).unwrap_or_else(|| {
                                     panic!("Key {key:?} is not in this worker's routing map; known keys are {:?}", routing_map.keys());
                                 });
                                 session.give((worker, key_value));
@@ -873,7 +873,7 @@ where
     {
         let this_worker = self.scope().w_index();
 
-        let all_parts = local_parts.into_broadcast(&mut self.scope(), S::Timestamp::minimum());
+        let all_parts = local_parts.into_broadcast(&self.scope(), S::Timestamp::minimum());
         let primary_updates = all_parts.assign_primaries(format!("{name}.assign_primaries"));
 
         let routed_self = self
@@ -1234,7 +1234,7 @@ where
         let this_worker = self.scope().w_index();
 
         let primary_updates = local_parts
-            .into_broadcast(&mut self.scope(), S::Timestamp::minimum())
+            .into_broadcast(&self.scope(), S::Timestamp::minimum())
             .assign_primaries(format!("{name}.assign_primaries"));
 
         let op_name = format!("{name}.partd_commit");

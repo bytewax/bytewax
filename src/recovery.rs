@@ -79,6 +79,7 @@ pub(crate) struct PartitionMeta(PartitionIndex, PartitionCount);
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ExecutionNumber(u64);
 
+#[allow(clippy::derivable_impls)]
 impl Default for ExecutionNumber {
     fn default() -> Self {
         Self(0)

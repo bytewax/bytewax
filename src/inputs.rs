@@ -457,10 +457,9 @@ impl StatefulSource {
     }
 
     fn next_awake(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
-        Ok(self
-            .0
+        self.0
             .call_method0(py, intern!(py, "next_awake"))?
-            .extract(py)?)
+            .extract(py)
     }
 
     fn snapshot(&self, py: Python) -> PyResult<TdPyAny> {
@@ -685,10 +684,9 @@ impl StatelessSource {
     }
 
     fn next_awake(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
-        Ok(self
-            .0
+        self.0
             .call_method0(py, intern!(py, "next_awake"))?
-            .extract(py)?)
+            .extract(py)
     }
 
     fn close(&self, py: Python) -> PyResult<()> {

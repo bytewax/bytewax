@@ -31,12 +31,11 @@ impl ReduceLogic {
     ) -> impl Fn(Option<TdPyAny>) -> Self {
         move |resume_snapshot| {
             let acc = resume_snapshot
-                .map(|state| {
+                .and_then(|state| {
                     let state: Option<Option<TdPyAny>> =
                         unwrap_any!(Python::with_gil(|py| state.extract(py)));
                     state
                 })
-                .flatten()
                 .unwrap_or_default();
 
             Python::with_gil(|py| Self {

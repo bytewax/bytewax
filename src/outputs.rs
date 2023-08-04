@@ -207,7 +207,7 @@ where
         let this_worker = self.scope().w_index();
 
         let local_parts = output.list_parts(py)?;
-        let all_parts = local_parts.into_broadcast(&mut self.scope(), S::Timestamp::minimum());
+        let all_parts = local_parts.into_broadcast(&self.scope(), S::Timestamp::minimum());
         let primary_updates = all_parts.assign_primaries(format!("{step_id}.assign_primaries"));
 
         let pf = output.build_part_assigner(py)?;
@@ -241,12 +241,10 @@ where
             let awoken: BTreeSet<StateKey> = BTreeSet::new();
 
             let mut routed_tmp = Vec::new();
-            let mut items_inbuf: BTreeMap<
-                S::Timestamp,
-                // First `StateKey` is partition, second is data
-                // routing.
-                BTreeMap<StateKey, Vec<(StateKey, TdPyAny)>>,
-            > = BTreeMap::new();
+            // First `StateKey` is partition, second is data
+            // routing.
+            type PartToInBufferMap = BTreeMap<StateKey, Vec<(StateKey, TdPyAny)>>;
+            let mut items_inbuf: BTreeMap<S::Timestamp, PartToInBufferMap> = BTreeMap::new();
             let mut loads_inbuf = InBuffer::new();
             let mut ncater = EagerNotificator::new(init_caps, (parts, awoken));
 
@@ -259,14 +257,14 @@ where
                         for (worker, (part, (key, value))) in routed_tmp.drain(..) {
                             assert!(worker == this_worker);
                             items_inbuf
-                                .entry(epoch.clone())
+                                .entry(*epoch)
                                 .or_insert_with(BTreeMap::new)
                                 .entry(part)
                                 .or_insert_with(Vec::new)
                                 .push((key, value));
                         }
 
-                        ncater.notify_at(epoch.clone());
+                        ncater.notify_at(*epoch);
                     });
                     loads_input.buffer_notify(&mut loads_inbuf, &mut ncater);
 

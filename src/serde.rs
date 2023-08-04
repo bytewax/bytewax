@@ -70,7 +70,7 @@ impl IntoPy<Py<PyAny>> for Serde {
 
 impl Default for Serde {
     fn default() -> Self {
-        unwrap_any!(Python::with_gil(|py| get_serde_jp(py)))
+        unwrap_any!(Python::with_gil(|py| { get_serde_jp(py) }))
     }
 }
 

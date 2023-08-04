@@ -55,9 +55,9 @@ impl IntoPy<PyObject> for &TdPyAny {
     }
 }
 
-impl Into<PyObject> for TdPyAny {
-    fn into(self) -> PyObject {
-        self.0
+impl From<TdPyAny> for PyObject {
+    fn from(x: TdPyAny) -> Self {
+        x.0
     }
 }
 
