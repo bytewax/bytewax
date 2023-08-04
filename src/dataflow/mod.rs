@@ -292,9 +292,9 @@ impl Dataflow {
     /// >>> out = []
     /// >>> flow.output("out", TestingOutput(out))  # Notice we don't print out.
     /// >>> run_main(flow, epoch_interval=timedelta(seconds=0))
-    /// Saw 0 @ 0
-    /// Saw 1 @ 1
-    /// Saw 2 @ 2
+    /// Saw 0 @ 1
+    /// Saw 1 @ 2
+    /// Saw 2 @ 3
     ///
     /// Args:
     ///
