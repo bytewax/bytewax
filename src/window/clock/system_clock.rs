@@ -4,8 +4,6 @@ use chrono::{DateTime, Utc};
 use pyo3::prelude::*;
 use pyo3::PyResult;
 
-use crate::add_pymethods;
-
 use super::*;
 
 /// Use the current system time as the timestamp for each item.
@@ -22,6 +20,16 @@ use super::*;
 #[derive(Clone)]
 pub(crate) struct SystemClockConfig {}
 
+#[pymethods]
+impl SystemClockConfig {
+    #[new]
+    fn new() -> (Self, ClockConfig) {
+        let self_ = Self {};
+        let super_ = ClockConfig::new();
+        (self_, super_)
+    }
+}
+
 impl<V> ClockBuilder<V> for SystemClockConfig {
     fn build(&self, _py: Python) -> PyResult<Builder<V>> {
         Ok(Box::new(move |_resume_snapshot| {
@@ -29,13 +37,6 @@ impl<V> ClockBuilder<V> for SystemClockConfig {
         }))
     }
 }
-
-add_pymethods!(
-    SystemClockConfig,
-    parent: ClockConfig,
-    signature: (),
-    args {}
-);
 
 /// Use the current system time.
 pub(crate) struct SystemClock {

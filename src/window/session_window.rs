@@ -1,14 +1,18 @@
-use chrono::{DateTime, Duration, Utc};
-use pyo3::{prelude::*, types::PyDict};
+use chrono::DateTime;
+use chrono::Duration;
+use chrono::Utc;
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
-use crate::{
-    add_pymethods,
-    pyo3_extensions::TdPyAny,
-    unwrap_any,
-    window::{session_window::session::Session, WindowConfig},
-};
+use crate::pyo3_extensions::TdPyAny;
+use crate::unwrap_any;
+use crate::window::session_window::session::Session;
+use crate::window::WindowConfig;
 
-use super::{InsertError, WindowBuilder, WindowKey, Windower};
+use super::InsertError;
+use super::WindowBuilder;
+use super::WindowKey;
+use super::Windower;
 
 /// Session windowing with a fixed inactivity gap.
 /// Each time a new item is received, it is added to the latest
@@ -31,20 +35,21 @@ pub(crate) struct SessionWindow {
     pub(crate) gap: Duration,
 }
 
+#[pymethods]
+impl SessionWindow {
+    #[new]
+    fn new(gap: Duration) -> (Self, WindowConfig) {
+        let self_ = Self { gap };
+        let super_ = WindowConfig::new();
+        (self_, super_)
+    }
+}
+
 impl WindowBuilder for SessionWindow {
     fn build(&self, _py: pyo3::Python) -> PyResult<super::Builder> {
         Ok(Box::new(SessionWindower::builder(self.gap)))
     }
 }
-
-add_pymethods!(
-    SessionWindow,
-    parent: WindowConfig,
-    signature: (gap),
-    args {
-        gap: Duration => Duration::zero()
-    }
-);
 
 pub(crate) struct SessionWindower {
     /// How long to wait before cosidering

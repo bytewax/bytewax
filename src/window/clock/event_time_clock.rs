@@ -4,12 +4,10 @@ use chrono::prelude::*;
 use chrono::Duration;
 use pyo3::prelude::*;
 
+use crate::pyo3_extensions::TdPyAny;
+use crate::pyo3_extensions::TdPyCallable;
 use crate::unwrap_any;
-use crate::{
-    add_pymethods,
-    pyo3_extensions::{TdPyAny, TdPyCallable},
-    window::clock::ClockConfig,
-};
+use crate::window::clock::ClockConfig;
 
 use super::*;
 
@@ -46,6 +44,19 @@ pub(crate) struct EventClockConfig {
     pub(crate) wait_for_system_duration: Duration,
 }
 
+#[pymethods]
+impl EventClockConfig {
+    #[new]
+    fn new(dt_getter: TdPyCallable, wait_for_system_duration: Duration) -> (Self, ClockConfig) {
+        let self_ = Self {
+            dt_getter,
+            wait_for_system_duration,
+        };
+        let super_ = ClockConfig::new();
+        (self_, super_)
+    }
+}
+
 impl ClockBuilder<TdPyAny> for EventClockConfig {
     fn build(&self, py: Python) -> PyResult<Builder<TdPyAny>> {
         let dt_getter = self.dt_getter.clone_ref(py);
@@ -66,16 +77,6 @@ impl ClockBuilder<TdPyAny> for EventClockConfig {
         }))
     }
 }
-
-add_pymethods!(
-    EventClockConfig,
-    parent: ClockConfig,
-    signature: (dt_getter, wait_for_system_duration),
-    args {
-        dt_getter: TdPyCallable => Python::with_gil(TdPyCallable::pickle_new),
-        wait_for_system_duration: Duration => Duration::zero()
-    }
-);
 
 /// A little mock point for getting system time.
 trait TimeSource {

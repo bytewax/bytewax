@@ -5,7 +5,7 @@ use chrono::Duration;
 use num::integer::Integer;
 use pyo3::prelude::*;
 
-use crate::{add_pymethods, window::WindowConfig};
+use crate::window::WindowConfig;
 
 use super::*;
 
@@ -49,16 +49,19 @@ pub(crate) struct SlidingWindow {
     pub(crate) align_to: DateTime<Utc>,
 }
 
-add_pymethods!(
-    SlidingWindow,
-    parent: WindowConfig,
-    signature: (length, offset, align_to),
-    args {
-        length: Duration => Duration::zero(),
-        offset: Duration => Duration::zero(),
-        align_to: DateTime<Utc> => DateTime::<Utc>::MIN_UTC
+#[pymethods]
+impl SlidingWindow {
+    #[new]
+    fn new(length: Duration, offset: Duration, align_to: DateTime<Utc>) -> (Self, WindowConfig) {
+        let self_ = Self {
+            length,
+            offset,
+            align_to,
+        };
+        let super_ = WindowConfig::new();
+        (self_, super_)
     }
-);
+}
 
 impl WindowBuilder for SlidingWindow {
     fn build(&self, _py: Python) -> PyResult<Builder> {

@@ -2,8 +2,6 @@ use chrono::prelude::*;
 use chrono::Duration;
 use pyo3::prelude::*;
 
-use crate::add_pymethods;
-
 use super::sliding_window::SlidingWindower;
 use super::*;
 
@@ -34,6 +32,16 @@ pub(crate) struct TumblingWindow {
     pub(crate) align_to: DateTime<Utc>,
 }
 
+#[pymethods]
+impl TumblingWindow {
+    #[new]
+    fn new(length: Duration, align_to: DateTime<Utc>) -> (Self, WindowConfig) {
+        let self_ = Self { length, align_to };
+        let super_ = WindowConfig::new();
+        (self_, super_)
+    }
+}
+
 impl WindowBuilder for TumblingWindow {
     fn build(&self, _py: Python) -> PyResult<Builder> {
         Ok(Box::new(SlidingWindower::builder(
@@ -43,13 +51,3 @@ impl WindowBuilder for TumblingWindow {
         )))
     }
 }
-
-add_pymethods!(
-    TumblingWindow,
-    parent: WindowConfig,
-    signature: (length, align_to),
-    args {
-        length: Duration => Duration::zero(),
-        align_to: DateTime<Utc> => DateTime::<Utc>::MIN_UTC
-    }
-);

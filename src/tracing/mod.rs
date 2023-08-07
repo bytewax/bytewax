@@ -6,15 +6,16 @@
 //!
 //! Each tracing backend has to implement the `TracerBuilder` trait, which
 //! requires a `build` function that is used to build the telemetry layer.
-use std::collections::HashMap;
 
 use opentelemetry::sdk::trace::Tracer;
-use pyo3::{
-    exceptions::{PyRuntimeError, PyTypeError},
-    prelude::*,
-};
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::PyTypeError;
+use pyo3::prelude::*;
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::{filter::Targets, layer::SubscriberExt, Layer, Registry};
+use tracing_subscriber::filter::Targets;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::Layer;
+use tracing_subscriber::Registry;
 
 pub(crate) mod jaeger_tracing;
 pub(crate) mod otlp_tracing;
@@ -22,10 +23,9 @@ pub(crate) mod otlp_tracing;
 pub(crate) use jaeger_tracing::JaegerConfig;
 pub(crate) use otlp_tracing::OtlpTracingConfig;
 
-use crate::{
-    errors::{tracked_err, PythonException},
-    pyo3_extensions::PyConfigClass,
-};
+use crate::errors::tracked_err;
+use crate::errors::PythonException;
+use crate::pyo3_extensions::PyConfigClass;
 
 /// Base class for tracing/logging configuration.
 ///
@@ -36,28 +36,11 @@ use crate::{
 #[pyclass(module = "bytewax.tracing", subclass)]
 pub(crate) struct TracingConfig;
 
-impl TracingConfig {
-    /// Create an "empty" [`Self`] just for use in `__getnewargs__`.
-    #[allow(dead_code)]
-    pub(crate) fn pickle_new(py: Python) -> Py<Self> {
-        PyCell::new(py, TracingConfig::py_new()).unwrap().into()
-    }
-}
-
 #[pymethods]
 impl TracingConfig {
     #[new]
-    fn py_new() -> Self {
+    fn new() -> Self {
         Self {}
-    }
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| HashMap::from([("type", "TracingConfig".into_py(py))]))
-    }
-
-    /// Unpickle from a PyDict.
-    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
-        Ok(())
     }
 }
 
@@ -102,12 +85,6 @@ fn get_log_level(level: Option<String>) -> LevelFilter {
         }
     } else {
         LevelFilter::ERROR
-    }
-}
-
-impl Default for BytewaxTracer {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

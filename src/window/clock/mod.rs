@@ -1,13 +1,12 @@
-use std::collections::HashMap;
+use pyo3::exceptions::PyTypeError;
+use pyo3::prelude::*;
 
-use pyo3::{exceptions::PyTypeError, prelude::*};
+use crate::errors::tracked_err;
+use crate::pyo3_extensions::PyConfigClass;
+use crate::pyo3_extensions::TdPyAny;
 
-use crate::{
-    errors::tracked_err,
-    pyo3_extensions::{PyConfigClass, TdPyAny},
-};
-
-use self::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig};
+use self::event_time_clock::EventClockConfig;
+use self::system_clock::SystemClockConfig;
 
 use super::Clock;
 
@@ -24,29 +23,11 @@ pub(crate) mod system_clock;
 #[pyclass(module = "bytewax.window", subclass)]
 pub(crate) struct ClockConfig;
 
-impl ClockConfig {
-    /// Create an "empty" [`Self`] just for use in `__getnewargs__`.
-    #[allow(dead_code)]
-    pub(crate) fn pickle_new(py: Python) -> Py<Self> {
-        PyCell::new(py, ClockConfig {}).unwrap().into()
-    }
-}
-
 #[pymethods]
 impl ClockConfig {
     #[new]
     fn new() -> Self {
         Self {}
-    }
-
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| HashMap::from([("type", "ClockConfig".into_py(py))]))
-    }
-
-    /// Unpickle from a PyDict.
-    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
-        Ok(())
     }
 }
 
