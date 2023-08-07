@@ -48,8 +48,8 @@ class StatefulSink(ABC):
         Called with a list of `value`s for each `(key, value)` at this
         point in the dataflow.
 
-        See `PartitionedOutput.assign_part` for how the key is mapped
-        to partition.
+        See `PartitionedOutput.part_fn` for how the key is mapped to
+        partition.
 
         Args:
 
