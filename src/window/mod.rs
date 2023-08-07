@@ -69,7 +69,6 @@ use clock::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig,
 /// Use a specific subclass of this that matches the window definition
 /// you'd like to use.
 #[pyclass(module = "bytewax.window", subclass)]
-#[pyo3(text_signature = "()")]
 pub(crate) struct WindowConfig;
 
 impl WindowConfig {

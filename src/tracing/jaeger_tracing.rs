@@ -23,7 +23,6 @@ use super::{TracerBuilder, TracingConfig};
 /// If a config option is passed to JaegerConfig,
 /// it takes precedence over env vars.
 #[pyclass(module="bytewax.tracing", extends=TracingConfig)]
-#[pyo3(text_signature = "(service_name, endpoint = None, sampling_ratio = 1.0)")]
 #[derive(Clone)]
 pub(crate) struct JaegerConfig {
     /// Service name, identifies this dataflow.

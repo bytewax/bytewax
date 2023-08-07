@@ -23,7 +23,6 @@ use super::{TracerBuilder, TracingConfig};
 /// the maximum flexibility in what to do with all the data
 /// bytewax can generate.
 #[pyclass(module="bytewax.tracing", extends=TracingConfig)]
-#[pyo3(text_signature = "(service_name, url, sampling_ratio=1.0)")]
 #[derive(Clone)]
 pub(crate) struct OtlpTracingConfig {
     /// Service name, identifies this dataflow.
