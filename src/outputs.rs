@@ -274,25 +274,34 @@ where
                                 .or_insert_with(Vec::new)
                                 .push(item);
                         }
-                        let mut asd = BTreeMap::new();
-                        while let Some(((worker, part), items)) = routed_tmp.pop_first() {
-                            assert!(worker == this_worker);
-                            if items.len() >= min_batch_size || last_activation.elapsed() >= timeout
-                            {
-                                last_activation = Instant::now();
-                                items_inbuf
-                                    .entry(*epoch)
-                                    .or_insert_with(BTreeMap::new)
-                                    .entry(part)
-                                    .or_insert_with(Vec::new)
-                                    .extend(items);
-                            } else {
-                                asd.entry((worker, part))
-                                    .or_insert_with(Vec::new)
-                                    .extend(items);
-                            }
-                        }
-                        routed_tmp = asd;
+
+                        // Emit items if the vec reached the min_batch_size len,
+                        // or if enough time has passed, whichever comes first.
+                        // Keep the rest of the messages in routed_tmp
+                        routed_tmp = routed_tmp
+                            .iter_mut()
+                            .filter_map(|((worker, part), items)| {
+                                assert!(*worker == this_worker);
+                                if items.is_empty() {
+                                    return None;
+                                }
+
+                                if items.len() >= min_batch_size
+                                    || last_activation.elapsed() >= timeout
+                                {
+                                    last_activation = Instant::now();
+                                    items_inbuf
+                                        .entry(*epoch)
+                                        .or_insert_with(BTreeMap::new)
+                                        .entry(part.clone())
+                                        .or_insert_with(Vec::new)
+                                        .extend(items.clone());
+                                    None
+                                } else {
+                                    Some(((*worker, part.clone()), items.clone()))
+                                }
+                            })
+                            .collect();
                         ncater.notify_at(*epoch);
                     });
                     loads_input.buffer_notify(&mut loads_inbuf, &mut ncater);
