@@ -76,7 +76,7 @@ class _KafkaSource(StatefulSource):
                     break
                 else:
                     # Discard all the messages in this batch too
-                    msg = f"error consuming from Kafka topic `{self.topic!r}`: "
+                    msg = f"error consuming from Kafka topic `{self._topic!r}`: "
                     f"{msg.error()}"
                     raise RuntimeError(msg)
             batch.append((msg.key(), msg.value()))
@@ -203,6 +203,8 @@ class _KafkaSink(StatelessSink):
         for key, value in batch:
             self._producer.produce(self._topic, value, key)
         self._producer.flush()
+        # Pass items through
+        return items
 
     def close(self):
         self._producer.flush()

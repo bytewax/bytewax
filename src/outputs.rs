@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::time::Instant;
 
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
@@ -137,11 +138,14 @@ impl<'source> FromPyObject<'source> for StatefulSink {
 }
 
 impl StatefulSink {
-    fn write_batch(&self, py: Python, values: Vec<TdPyAny>) -> PyResult<()> {
-        let _ = self
-            .0
-            .call_method1(py, intern!(py, "write_batch"), (values,))?;
-        Ok(())
+    fn write_batch(
+        &self,
+        py: Python,
+        values: Vec<(StateKey, TdPyAny)>,
+    ) -> PyResult<Option<Vec<TdPyAny>>> {
+        self.0
+            .call_method1(py, intern!(py, "write_batch"), (values,))?
+            .extract(py)
     }
 
     fn snapshot(&self, py: Python) -> PyResult<TdPyAny> {
@@ -194,6 +198,8 @@ where
         step_id: StepId,
         output: PartitionedOutput,
         loads: &Stream<S, Snapshot>,
+        min_batch_size: usize,
+        timeout: chrono::Duration,
         // TODO: Make this return a clock stream or no downstream once
         // we have non-linear dataflows.
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)>;
@@ -209,6 +215,8 @@ where
         step_id: StepId,
         output: PartitionedOutput,
         loads: &Stream<S, Snapshot>,
+        min_batch_size: usize,
+        timeout: chrono::Duration,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)> {
         let this_worker = self.scope().w_index();
 
@@ -242,34 +250,49 @@ where
 
         op_builder.build(move |init_caps| {
             let parts: BTreeMap<StateKey, StatefulSink> = BTreeMap::new();
-            // Which partitions were written to in this epoch. We only
-            // snapshot those.
+            // Which partitions were written to in this epoch. We only snapshot those.
             let awoken: BTreeSet<StateKey> = BTreeSet::new();
 
-            let mut routed_tmp = Vec::new();
-            // First `StateKey` is partition, second is data
-            // routing.
+            // First `StateKey` is partition, second is data routing.
             type PartToInBufferMap = BTreeMap<StateKey, Vec<(StateKey, TdPyAny)>>;
             let mut items_inbuf: BTreeMap<S::Timestamp, PartToInBufferMap> = BTreeMap::new();
             let mut loads_inbuf = InBuffer::new();
             let mut ncater = EagerNotificator::new(init_caps, (parts, awoken));
 
+            let mut last_activation = Instant::now();
+            let timeout = timeout.to_std().unwrap();
+            let mut routed_tmp: BTreeMap<(WorkerIndex, StateKey), Vec<(StateKey, TdPyAny)>> =
+                BTreeMap::new();
+
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = op_name).in_scope(|| {
                     routed_input.for_each(|cap, incoming| {
                         let epoch = cap.time();
-                        assert!(routed_tmp.is_empty());
-                        incoming.swap(&mut routed_tmp);
-                        for (worker, (part, (key, value))) in routed_tmp.drain(..) {
-                            assert!(worker == this_worker);
-                            items_inbuf
-                                .entry(*epoch)
-                                .or_insert_with(BTreeMap::new)
-                                .entry(part)
+                        for (worker, (part, item)) in incoming.take() {
+                            routed_tmp
+                                .entry((worker, part))
                                 .or_insert_with(Vec::new)
-                                .push((key, value));
+                                .push(item);
                         }
-
+                        let mut asd = BTreeMap::new();
+                        while let Some(((worker, part), items)) = routed_tmp.pop_first() {
+                            assert!(worker == this_worker);
+                            if items.len() >= min_batch_size || last_activation.elapsed() >= timeout
+                            {
+                                last_activation = Instant::now();
+                                items_inbuf
+                                    .entry(*epoch)
+                                    .or_insert_with(BTreeMap::new)
+                                    .entry(part)
+                                    .or_insert_with(Vec::new)
+                                    .extend(items);
+                            } else {
+                                asd.entry((worker, part))
+                                    .or_insert_with(Vec::new)
+                                    .extend(items);
+                            }
+                        }
+                        routed_tmp = asd;
                         ncater.notify_at(*epoch);
                     });
                     loads_input.buffer_notify(&mut loads_inbuf, &mut ncater);
@@ -285,7 +308,7 @@ where
                             // need to ensure that writes happen in epoch
                             // order.
                             if let Some(part_to_items) = items_inbuf.remove(epoch) {
-                                for (part_key, mut items) in part_to_items {
+                                for (part_key, items) in part_to_items {
                                     let part = parts
                                         .entry(part_key.clone())
                                         // If there's no resume data for
@@ -297,17 +320,16 @@ where
                                                 .reraise("error init StatefulSink")))
                                         });
 
-                                    unwrap_any!(Python::with_gil(|py| part.write_batch(
-                                        py,
-                                        items.iter().map(|(_k, v)| v).cloned().collect(),
-                                    )));
-                                    // TODO: Move this back to the close
-                                    // epoch block and .give(()). And
-                                    // remove the clone above.
-                                    clock_output
-                                        .activate()
-                                        .session(clock_cap)
-                                        .give_vec(&mut items);
+                                    // Get items that the output wants to pass through
+                                    let pass_through = unwrap_any!(Python::with_gil(
+                                        |py| part.write_batch(py, items)
+                                    ));
+                                    if let Some(mut items) = pass_through {
+                                        clock_output
+                                            .activate()
+                                            .session(clock_cap)
+                                            .give_vec(&mut items);
+                                    }
                                     awoken.insert(part_key);
                                 }
                             }
@@ -371,7 +393,7 @@ where
             }
         });
 
-        Ok((clock.map(wrap_state_pair), snaps))
+        Ok((clock, snaps))
     }
 }
 
@@ -427,11 +449,11 @@ impl<'source> FromPyObject<'source> for StatelessSink {
 }
 
 impl StatelessSink {
-    fn write_batch(&self, py: Python, items: Vec<TdPyAny>) -> PyResult<()> {
-        let _ = self
-            .0
-            .call_method1(py, intern!(py, "write_batch"), (items,))?;
-        Ok(())
+    fn write_batch(&self, py: Python, items: Vec<TdPyAny>) -> PyResult<Option<Vec<TdPyAny>>> {
+        self.0
+            .call_method1(py, intern!(py, "write_batch"), (items,))?
+            // Pass the returned value through
+            .extract(py)
     }
 
     fn close(&self, py: Python) -> PyResult<()> {
@@ -461,6 +483,8 @@ where
         py: Python,
         step_id: StepId,
         output: DynamicOutput,
+        min_batch_size: usize,
+        timeout: chrono::Duration,
     ) -> PyResult<Stream<S, TdPyAny>>;
 }
 
@@ -473,25 +497,36 @@ where
         py: Python,
         step_id: StepId,
         output: DynamicOutput,
+        min_batch_size: usize,
+        timeout: chrono::Duration,
     ) -> PyResult<Stream<S, TdPyAny>> {
         let worker_index = self.scope().w_index();
         let worker_count = self.scope().w_count();
         let mut sink = Some(output.build(py, worker_index, worker_count)?);
+        let mut last_activation = Instant::now();
+        let timeout = timeout.to_std().unwrap();
 
         let downstream = self.unary_frontier(Pipeline, &step_id.0, |_init_cap, _info| {
-            let mut tmp_incoming: Vec<TdPyAny> = Vec::new();
+            let mut tmp_incoming: Vec<TdPyAny> = Vec::with_capacity(min_batch_size);
 
             move |input, output| {
                 sink = sink.take().and_then(|sink| {
                     input.for_each(|cap, incoming| {
-                        assert!(tmp_incoming.is_empty());
-                        incoming.swap(&mut tmp_incoming);
+                        tmp_incoming.extend(incoming.take());
+                        if tmp_incoming.len() >= min_batch_size
+                            || last_activation.elapsed() >= timeout
+                        {
+                            last_activation = Instant::now();
+                            let mut output_session = output.session(&cap);
 
-                        let mut output_session = output.session(&cap);
-                        unwrap_any!(Python::with_gil(|py| sink
-                            .write_batch(py, tmp_incoming.clone())
-                            .reraise("error writing output batch")));
-                        output_session.give_vec(&mut tmp_incoming);
+                            let pass_through = unwrap_any!(Python::with_gil(|py| sink
+                                .write_batch(py, tmp_incoming.drain(..).collect())
+                                .reraise("error writing dynamic output")));
+
+                            if let Some(mut items) = pass_through {
+                                output_session.give_vec(&mut items);
+                            }
+                        }
                     });
 
                     if input.frontier().is_empty() {

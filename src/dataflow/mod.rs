@@ -119,8 +119,23 @@ impl Dataflow {
     ///       Uniquely identifies this step for recovery.
     ///   output (bytewax.outputs.Output):
     ///       Output definition.
-    fn output(&mut self, step_id: StepId, output: Output) {
-        self.steps.push(Step::Output { step_id, output });
+    ///   min_batch_size (int):
+    ///       minimum number of messages to receive before writing
+    ///       to the output (default = 1)
+    #[pyo3(signature = (step_id, output, min_batch_size = 1, timeout = None))]
+    fn output(
+        &mut self,
+        step_id: StepId,
+        output: Output,
+        min_batch_size: usize,
+        timeout: Option<chrono::Duration>,
+    ) {
+        self.steps.push(Step::Output {
+            step_id,
+            output,
+            min_batch_size,
+            timeout: timeout.unwrap_or_else(|| chrono::Duration::milliseconds(1)),
+        });
     }
 
     /// Filter selectively keeps only some items.
@@ -873,6 +888,8 @@ pub(crate) enum Step {
     Output {
         step_id: StepId,
         output: Output,
+        min_batch_size: usize,
+        timeout: chrono::Duration,
     },
 }
 

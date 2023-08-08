@@ -427,10 +427,22 @@ where
                     stream = output.map(wrap_state_pair);
                     snaps.push(snap);
                 }
-                Step::Output { step_id, output } => {
+                Step::Output {
+                    step_id,
+                    output,
+                    min_batch_size,
+                    timeout,
+                } => {
                     if let Ok(output) = output.extract(py) {
                         let (output, snap) = stream
-                            .partitioned_output(py, step_id, output, &loads)
+                            .partitioned_output(
+                                py,
+                                step_id,
+                                output,
+                                &loads,
+                                min_batch_size,
+                                timeout,
+                            )
                             .reraise("error building PartitionedOutput")?;
                         let clock = output.map(|_| ());
 
@@ -439,7 +451,7 @@ where
                         stream = output;
                     } else if let Ok(output) = output.extract(py) {
                         let output = stream
-                            .dynamic_output(py, step_id, output)
+                            .dynamic_output(py, step_id, output, min_batch_size, timeout)
                             .reraise("error building DynamicOutput")?;
                         let clock = output.map(|_| ());
 
