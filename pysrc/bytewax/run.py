@@ -283,16 +283,6 @@ def _parse_args():
         "src.dataflow:get_flow('string_argument')",
     )
 
-    parser.add_argument(
-        "-e",
-        "--epoch-interval",
-        type=_parse_timedelta,
-        default=timedelta(seconds=10),
-        help="Epoch length in seconds; defaults to 10 sec",
-        action=_EnvDefault,
-        envvar="BYTEWAX_EPOCH_INTERVAL",
-    )
-
     scaling = parser.add_argument_group(
         "Scaling",
         "You should use either '-p' to spawn multiple processes "
@@ -333,26 +323,37 @@ def _parse_args():
     )
 
     recovery = parser.add_argument_group(
-        "Recovery", "See the `bytewax.recovery` module docstring for more info."
+        "Recovery", """See the `bytewax.recovery` module docstring for more info."""
     )
     recovery.add_argument(
         "-r",
         "--recovery-directory",
         type=Path,
-        help="Look for pre-initialized recovery partitions here",
+        help="""Local file system directory to look for pre-initialized recovery
+        partitions; see `python -m bytewax.recovery` for how to init partitions""",
         action=_EnvDefault,
         envvar="BYTEWAX_RECOVERY_DIRECTORY",
+    )
+    parser.add_argument(
+        "-s",
+        "--snapshot-interval",
+        type=_parse_timedelta,
+        default=timedelta(seconds=10),
+        help="""System time duration in seconds to snapshot state for recovery;
+        defaults to 10 sec""",
+        action=_EnvDefault,
+        envvar="BYTEWAX_SNAPSHOT_INTERVAL",
     )
     recovery.add_argument(
         "-b",
         "--backup-interval",
         type=_parse_timedelta,
         default=timedelta(days=1),
-        help="System time duration in seconds to keep extra state snapshots around; "
-        "set this to the interval at which you are backing up recovery partitions; "
-        "defaults to 1 day",
+        help="""System time duration in seconds to keep extra state snapshots around;
+        set this to the interval at which you are backing up recovery partitions;
+        defaults to 1 day""",
         action=_EnvDefault,
-        envvar="BYTEWAX_BACKUP_INTERVAL",
+        envvar="BYTEWAX_RECOVERY_BACKUP_INTERVAL",
     )
 
     args = parser.parse_args()
@@ -403,7 +404,8 @@ def _parse_args():
 if __name__ == "__main__":
     kwargs = vars(_parse_args())
 
-    # Prepare recovery config
+    kwargs["epoch_interval"] = kwargs.pop("snapshot_interval")
+
     recovery_directory, backup_interval = kwargs.pop("recovery_directory"), kwargs.pop(
         "backup_interval"
     )
@@ -419,4 +421,5 @@ if __name__ == "__main__":
     # Import the dataflow
     module_str, _, attrs_str = kwargs.pop("import_str").partition(":")
     kwargs["flow"] = _locate_dataflow(module_str, attrs_str)
+
     cli_main(**kwargs)

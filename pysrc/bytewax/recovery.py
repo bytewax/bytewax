@@ -1,8 +1,10 @@
 """Failure recovery.
 
 Bytewax allows you to **recover** a stateful dataflow; it will let you
-resume processing and output due to a failure without re-processing
-all initial data to re-calculate all internal state.
+resume processing and output due to a failure _without_ re-processing
+all initial data to re-calculate all internal state. It does this by
+periodically snapshotting all internal state and having a way to
+resume from a recent snapshot.
 
 See `python -m bytewax.recovery --help` for an overview of
 initializing recovery partitions.
@@ -13,15 +15,17 @@ Overview
 Bytewax implements recovery by periodically snapshoting state and
 progress information for a single dataflow instance in a partitioned
 set of **recovery partitions**, [SQLite](https://sqlite.org/)
-databases in the **recovery directory**.
+databases in the **recovery directory**. Recovery data for multiple
+dataflows _must not_ be mixed together.
 
 When you run your dataflow it will start backing up recovery data
-automatically. Recovery data for multiple dataflows _must not_ be
-mixed together.
+automatically. Each run of a dataflow cluster is called an
+**execution**.
 
 If the dataflow fails, first you must fix whatever underlying fault
-caused the issue. That might mean deploying new code which fixes a bug
-or resolving an issue with a connected system.
+caused the issue. That might mean deploying new code which fixes a
+bug, re-creating destroyed VMs, or resolving an issue with a connected
+system.
 
 Once that is done, re-run the dataflow using the _same recovery
 directory_. Bytewax will automatically read the progress of the
@@ -68,8 +72,8 @@ need not have access to any partition in particular (or any at
 all). It is ok if a given partition is accesible by multiple workers;
 only one worker will use it.
 
-Although the partition init script will not result in these,
-partitions after execution may consist of multiple files:
+Although the partition init script will not create these, partitions
+after execution may consist of multiple files:
 
 ```
 $ ls db_dir/
@@ -112,8 +116,8 @@ EOF, you can resume the dataflow via running it again pointing at the
 same recovery directory. Bytewax will automatically find the most
 recent consistent snapshot to resume from.
 
-This requires that the next execution has access to all of the
-recovery partitions.
+This requires that the workers in the next execution collectively have
+access to all of the recovery partitions.
 
 This next execution does not need to have the same number of workers
 as the previous one; you are allowed to rescale the cluster and state
@@ -123,22 +127,36 @@ If you want to fully restart a dataflow at the beginning of input and
 ignore all previous state, delete partitions in the recovery
 directory.
 
-Epochs
-------
+Continuation
+------------
 
-The **epoch interval** is the system time interval at which an
+Another use of the recovery system is to allow a dataflow to be
+**continued** in a followup execution with new data. For example, you
+might be processing a large log file, run a dataflow on it, and
+calculate some metrics. You could then append to that log file, resume
+the dataflow and it would be processed without needing to re-read and
+re-process the initial part of the log file.
+
+Bytewax snapshots the dataflow at the end of all input to support this
+use case. You'll need to read the specific documentation for each
+connector to see what kind of resume semantics it has.
+
+Snapshotting
+------------
+
+The **snapshot interval** is the system time interval at which an
 execution cluster synchronizes and snapshots its progress and
-state. You can adjust this duration via the `-e` parameter to
+state. You can adjust this duration via the `-s` parameter to
 `bytewax.run`. It defaults to every 10 seconds.
 
-The dataflow can only resume on epoch boundaries.
+The dataflow can only resume on snapshot interval boundaries.
 
 In general, the longer this duration is, the less overhead there will
-be while the dataflow is executing due to recovery data, but the
-further back the dataflow might have to resume from.
+be while the dataflow is executing, but the further back the dataflow
+might have to resume from in case of failure.
 
-Backup
-------
+Backup and Disaster Recovery
+----------------------------
 
 Usually in a production environment, you'll want to durably back up
 your recovery partitions from the machines that are executing the
@@ -148,21 +166,22 @@ command](https://litestream.io/alternatives/cron/) or
 [litestream](https://litestream.io/how-it-works/).
 
 The recovery system also tries to be efficient and does not want
-recovery data to grow without bound. It will **garbage collect** state
-data that is no longer necessary to support resumeing from an epoch
-far in the past.
+recovery data to grow without bound. It will **garbage collect**
+snapshot data that is no longer necessary to support resumeing from an
+epoch far in the past.
 
-Bytewax can only resume a dataflow when it is able to calculate a
-consistent epoch which exists across all recovery partitions. If you
-need to re-constitute a cluster from these backups, there is then the
-problem that unless the backups are all from an identical point in
-time, there might not be an overlapping epoch among them.
+Bytewax can only resume a dataflow when it is able to find a
+consistent snapshot which exists across all recovery partitions. If
+you need to re-constitute a cluster from these backups, there is then
+the problem that unless the backups are all from an identical point in
+time, there might not be an overlapping snapshot among them.
 
-The **backup interval** is the system time interval for which state
-data should be retained. This generally should be set slightly longer
-than your backup latency. This gives a larger window for independent
-backup processes for each partition to complete and still enable a
-succesful recovery.
+The **backup interval** is the system time interval for which snapshot
+data should be retained longer than when it would be otherwise garbage
+collected. This generally should be set slightly longer than your
+backup latency. This gives a larger window for independent backup
+processes for each partition to complete and still enable a succesful
+recovery.
 
 """
 
