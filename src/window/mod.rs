@@ -28,21 +28,29 @@
 //! config objects and Rust impl structs for each trait of behavior we
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
-use crate::errors::tracked_err;
-use crate::operators::stateful_unary::*;
-use crate::pyo3_extensions::PyConfigClass;
-use crate::recovery::model::ResumeEpoch;
-use chrono::prelude::*;
-use pyo3::exceptions::PyTypeError;
-use pyo3::prelude::*;
-use serde::{Deserialize, Serialize};
+
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::task::Poll;
+
+use chrono::prelude::*;
+use pyo3::exceptions::PyTypeError;
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
+use serde::Deserialize;
+use serde::Serialize;
 use timely::dataflow::Scope;
-use timely::{Data, ExchangeData};
+use timely::dataflow::Stream;
+use timely::Data;
+use timely::ExchangeData;
+
+use crate::errors::tracked_err;
+use crate::operators::stateful_unary::*;
+use crate::pyo3_extensions::PyConfigClass;
+use crate::pyo3_extensions::TdPyAny;
+use crate::unwrap_any;
 
 pub(crate) mod clock;
 pub(crate) mod session_window;
@@ -53,10 +61,6 @@ use self::session_window::SessionWindow;
 use self::sliding_window::SlidingWindow;
 use self::tumbling_window::TumblingWindow;
 use clock::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig, ClockConfig};
-
-// Re-export for convenience.
-
-pub(crate) use crate::operators::stateful_unary::StateBytes;
 
 /// Base class for a windower config.
 ///
@@ -94,7 +98,7 @@ impl WindowConfig {
     }
 }
 
-type Builder = Box<dyn Fn(Option<StateBytes>) -> Box<dyn Windower>>;
+type Builder = Box<dyn Fn(Option<TdPyAny>) -> Box<dyn Windower>>;
 
 pub(crate) trait WindowBuilder {
     fn build(&self, py: Python) -> PyResult<Builder>;
@@ -151,12 +155,24 @@ pub(crate) trait Clock<V> {
     /// clock exactly how it is in
     /// [`StatefulWindowUnary::stateful_window_unary`]'s
     /// `logic_builder`.
-    fn snapshot(&self) -> StateBytes;
+    fn snapshot(&self) -> TdPyAny;
 }
 
 /// Unique ID for a window coming from a single [`Windower`] impl.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, FromPyObject)]
 pub(crate) struct WindowKey(i64);
+
+impl ToPyObject for WindowKey {
+    fn to_object(&self, py: Python<'_>) -> PyObject {
+        self.0.to_object(py)
+    }
+}
+
+impl IntoPy<PyObject> for WindowKey {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        self.0.into_py(py)
+    }
+}
 
 /// An error that can occur when windowing an item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -203,7 +219,7 @@ pub(crate) trait Windower {
     /// windower exactly how it is in
     /// [`StatefulWindowUnary::stateful_window_unary`]'s
     /// `logic_builder`.
-    fn snapshot(&self) -> StateBytes;
+    fn snapshot(&self) -> TdPyAny;
 }
 
 /// Possible errors emitted downstream from windowing operators.
@@ -242,7 +258,7 @@ where
     /// window exactly how it is in
     /// [`StatefulWindowUnary::stateful_window_unary`]'s
     /// `logic_builder`.
-    fn snapshot(&self) -> StateBytes;
+    fn snapshot(&self) -> TdPyAny;
 }
 
 /// Implement [`WindowLogic`] in terms of [`StatefulLogic`], bridging
@@ -253,7 +269,7 @@ where
     V: Data,
     I: IntoIterator<Item = R>,
     L: WindowLogic<V, R, I>,
-    LB: Fn(Option<StateBytes>) -> L,
+    LB: Fn(Option<TdPyAny>) -> L,
 {
     clock: Box<dyn Clock<V>>,
     windower: Box<dyn Windower>,
@@ -270,34 +286,38 @@ where
     V: Data,
     I: IntoIterator<Item = R>,
     L: WindowLogic<V, R, I>,
-    LB: Fn(Option<StateBytes>) -> L,
+    LB: Fn(Option<TdPyAny>) -> L,
 {
     fn builder<
-        CB: Fn(Option<StateBytes>) -> Box<dyn Clock<V>> + 'static, // Clock builder
-        WB: Fn(Option<StateBytes>) -> Box<dyn Windower> + 'static, // Windower builder
+        CB: Fn(Option<TdPyAny>) -> Box<dyn Clock<V>> + 'static, // Clock builder
+        WB: Fn(Option<TdPyAny>) -> Box<dyn Windower> + 'static, // Windower builder
     >(
         clock_builder: CB,
         windower_builder: WB,
         logic_builder: LB,
-    ) -> impl Fn(Option<StateBytes>) -> Self {
+    ) -> impl Fn(Option<TdPyAny>) -> Self {
         let logic_builder = Rc::new(logic_builder);
 
-        move |resume_snapshot| {
-            let resume_snapshot: Option<(StateBytes, StateBytes, HashMap<WindowKey, StateBytes>)> =
-                resume_snapshot
-                    .map(StateBytes::de::<(StateBytes, StateBytes, HashMap<WindowKey, StateBytes>)>);
-            let (clock_resume_snapshot, windower_resume_snapshot, logic_resume_snapshot) =
-                match resume_snapshot {
-                    Some((c, w, l)) => (Some(c), Some(w), Some(l)),
-                    None => (None, None, None),
-                };
+        move |resume_state| {
+            let (clock_state, windower_state, logic_states) = if let Some(state) = resume_state {
+                unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
+                    let state = state.as_ref(py);
+                    let clock_state = state.get_item("clock")?.into();
+                    let windower_state = state.get_item("windower")?.into();
+                    let logic_states: HashMap<WindowKey, TdPyAny> =
+                        state.get_item("logic")?.extract()?;
+                    Ok((Some(clock_state), Some(windower_state), Some(logic_states)))
+                }))
+            } else {
+                (None, None, None)
+            };
 
-            let clock = clock_builder(clock_resume_snapshot);
-            let windower = windower_builder(windower_resume_snapshot);
-            let current_state = logic_resume_snapshot
+            let clock = clock_builder(clock_state);
+            let windower = windower_builder(windower_state);
+            let current_state = logic_states
                 .unwrap_or_default()
                 .into_iter()
-                .map(|(key, resume_snapshot)| (key, logic_builder(Some(resume_snapshot))))
+                .map(|(key, state)| (key, logic_builder(Some(state))))
                 .collect();
             let logic_builder = logic_builder.clone();
 
@@ -319,7 +339,7 @@ where
     V: Data + Debug,
     I: IntoIterator<Item = R>,
     L: WindowLogic<V, R, I>,
-    LB: Fn(Option<StateBytes>) -> L,
+    LB: Fn(Option<TdPyAny>) -> L,
 {
     fn on_awake(&mut self, next_value: Poll<Option<V>>) -> Vec<Result<R, WindowError<V>>> {
         let mut output = Vec::new();
@@ -378,18 +398,20 @@ where
         next_awake
     }
 
-    fn snapshot(&self) -> StateBytes {
-        let logic_resume_state: HashMap<WindowKey, StateBytes> = self
-            .current_state
-            .iter()
-            .map(|(window_key, logic)| (*window_key, logic.snapshot()))
-            .collect();
-        let state = (
-            self.clock.snapshot(),
-            self.windower.snapshot(),
-            logic_resume_state,
-        );
-        StateBytes::ser::<(StateBytes, StateBytes, HashMap<WindowKey, StateBytes>)>(&state)
+    fn snapshot(&self) -> TdPyAny {
+        unwrap_any!(Python::with_gil(|py| -> PyResult<TdPyAny> {
+            let state = PyDict::new(py);
+            state.set_item("clock", self.clock.snapshot())?;
+            state.set_item("windower", self.windower.snapshot())?;
+            let logic_states: HashMap<WindowKey, TdPyAny> = self
+                .current_state
+                .iter()
+                .map(|(key, logic)| (*key, logic.snapshot()))
+                .collect();
+            state.set_item("logic", logic_states)?;
+            let state: PyObject = state.into();
+            Ok(state.into())
+        }))
     }
 }
 
@@ -443,22 +465,22 @@ where
         windower_builder: WB,
         logic_builder: LB,
         resume_epoch: ResumeEpoch,
-        resume_state: StepStateBytes,
+        loads: &Stream<S, Snapshot>,
     ) -> (
-        StatefulStream<S, Result<R, WindowError<V>>>,
-        FlowChangeStream<S>,
+        Stream<S, (StateKey, Result<R, WindowError<V>>)>,
+        Stream<S, Snapshot>,
     )
     where
-        R: Data,                                                   // Output item type
-        I: IntoIterator<Item = R> + 'static,                       // Iterator of output items
-        CB: Fn(Option<StateBytes>) -> Box<dyn Clock<V>> + 'static, // Clock builder
-        WB: Fn(Option<StateBytes>) -> Box<dyn Windower> + 'static, // Windower builder
-        L: WindowLogic<V, R, I> + 'static,                         // Logic
-        LB: Fn(Option<StateBytes>) -> L + 'static                  // Logic builder
+        R: Data,                                                // Output item type
+        I: IntoIterator<Item = R> + 'static,                    // Iterator of output items
+        CB: Fn(Option<TdPyAny>) -> Box<dyn Clock<V>> + 'static, // Clock builder
+        WB: Fn(Option<TdPyAny>) -> Box<dyn Windower> + 'static, // Windower builder
+        L: WindowLogic<V, R, I> + 'static,                      // Logic
+        LB: Fn(Option<TdPyAny>) -> L + 'static                  // Logic builder
     ;
 }
 
-impl<S, V> StatefulWindowUnary<S, V> for StatefulStream<S, V>
+impl<S, V> StatefulWindowUnary<S, V> for Stream<S, (StateKey, V)>
 where
     S: Scope<Timestamp = u64>,
     V: ExchangeData + Debug,
@@ -470,24 +492,24 @@ where
         windower_builder: WB,
         logic_builder: LB,
         resume_epoch: ResumeEpoch,
-        resume_state: StepStateBytes,
+        loads: &Stream<S, Snapshot>,
     ) -> (
-        StatefulStream<S, Result<R, WindowError<V>>>,
-        FlowChangeStream<S>,
+        Stream<S, (StateKey, Result<R, WindowError<V>>)>,
+        Stream<S, Snapshot>,
     )
     where
-        R: Data,                                                   // Output item type
-        I: IntoIterator<Item = R> + 'static,                       // Iterator of output items
-        CB: Fn(Option<StateBytes>) -> Box<dyn Clock<V>> + 'static, // Clock builder
-        WB: Fn(Option<StateBytes>) -> Box<dyn Windower> + 'static, // Windower builder
-        L: WindowLogic<V, R, I> + 'static,                         // Logic
-        LB: Fn(Option<StateBytes>) -> L + 'static,                 // Logic builder
+        R: Data,                                                // Output item type
+        I: IntoIterator<Item = R> + 'static,                    // Iterator of output items
+        CB: Fn(Option<TdPyAny>) -> Box<dyn Clock<V>> + 'static, // Clock builder
+        WB: Fn(Option<TdPyAny>) -> Box<dyn Windower> + 'static, // Windower builder
+        L: WindowLogic<V, R, I> + 'static,                      // Logic
+        LB: Fn(Option<TdPyAny>) -> L + 'static,                 // Logic builder
     {
         self.stateful_unary(
             step_id,
             WindowStatefulLogic::builder(clock_builder, windower_builder, logic_builder),
             resume_epoch,
-            resume_state,
+            loads,
         )
     }
 }

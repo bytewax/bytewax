@@ -11,11 +11,11 @@ from bytewax.inputs import PartitionedInput, StatefulSource
 from bytewax.outputs import PartitionedOutput, StatefulSink
 
 __all__ = [
+    "CSVInput",
     "DirInput",
     "DirOutput",
     "FileInput",
     "FileOutput",
-    "CSVInput",
 ]
 
 
@@ -25,10 +25,12 @@ class _FileSource(StatefulSource):
         self._f = open(path, "rt")
         self._f.seek(resume_offset)
 
-    def next(self):
+    def next_batch(self):
         line = self._f.readline().rstrip("\n")
         if len(line) <= 0:
             raise StopIteration()
+        # TODO: Could provide a "line batch size" parameter on file
+        # inputs.
         return [line]
 
     def snapshot(self):
@@ -68,9 +70,9 @@ class DirInput(PartitionedInput):
         self._glob_pat = glob_pat
 
     def list_parts(self):
-        return {
+        return [
             str(path.relative_to(self._dir)) for path in self._dir.glob(self._glob_pat)
-        }
+        ]
 
     def build_part(self, for_part, resume_state):
         path = self._dir / for_part
@@ -97,13 +99,39 @@ class FileInput(PartitionedInput):
         self._path = path
 
     def list_parts(self):
-        return {str(self._path)}
+        return [str(self._path)]
 
     def build_part(self, for_part, resume_state):
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert for_part == str(self._path), "Can't resume reading from different file"
         return _FileSource(self._path, resume_state)
+
+
+class _CSVSource(StatefulSource):
+    def __init__(self, path, resume_state, fmtparams):
+        self._fmtparams = fmtparams
+        self._f = open(path, "rt")
+        header_line = self._f.readline()
+        self._header = next(csv.reader([header_line], **self._fmtparams))
+        if resume_state is not None:
+            self._f.seek(resume_state)
+
+    def next_batch(self):
+        line = self._f.readline()
+        if len(line) <= 0:
+            raise StopIteration()
+
+        csv_line = dict(zip(self._header, next(csv.reader([line], **self._fmtparams))))
+        # TODO: Could provide a "line batch size" parameter on file
+        # inputs.
+        return [csv_line]
+
+    def snapshot(self):
+        return self._f.tell()
+
+    def close(self):
+        self._f.close()
 
 
 class CSVInput(FileInput):
@@ -133,7 +161,6 @@ class CSVInput(FileInput):
     0,2022-02-24 11:42:08,0.132,24ae8d
     0,2022-02-24 11:42:08,0.066,c6585a
     0,2022-02-24 11:42:08,42.652,ac20cd
-
     ```
 
     Sample output:
@@ -163,43 +190,11 @@ class CSVInput(FileInput):
 
     def __init__(self, path: Path, **fmtparams):
         super().__init__(path)
-        self.fmtparams = fmtparams
+        self._fmtparams = fmtparams
 
     def build_part(self, for_part, resume_state):
         assert for_part == str(self._path), "Can't resume reading from different file"
-        return _CSVSource(self._path, resume_state, **self.fmtparams)
-
-
-class _CSVSource(_FileSource):
-    """
-    Handler for csv files to iterate line by line.
-    Uses the csv reader assumes a header on the file
-    on each next() call, will return a dict of header
-    & values
-
-    Called by CSVInput
-    """
-
-    def __init__(self, path, resume_state, **fmtparams):
-        resume_offset = 0 if resume_state is None else resume_state
-        self._f = open(path, "rt")
-        self.fmtparams = fmtparams
-        self.header = next(csv.reader([self._f.readline()], **self.fmtparams))
-        if resume_offset:
-            self._f.seek(resume_offset)
-
-    def next(self):
-        line = self._f.readline()
-        csv_line = dict(zip(self.header, next(csv.reader([line], **self.fmtparams))))
-        if len(line) <= 0:
-            raise StopIteration()
-        return [csv_line]
-
-    def snapshot(self):
-        return self._f.tell()
-
-    def close(self):
-        self._f.close()
+        return _CSVSource(self._path, resume_state, self._fmtparams)
 
 
 class _FileSink(StatefulSink):
@@ -210,9 +205,10 @@ class _FileSink(StatefulSink):
         self._f.truncate()
         self._end = end
 
-    def write(self, x):
-        self._f.write(x)
-        self._f.write(self._end)
+    def write_batch(self, items):
+        for item in items:
+            self._f.write(item)
+            self._f.write(self._end)
         self._f.flush()
         os.fsync(self._f.fileno())
 
@@ -276,11 +272,10 @@ class DirOutput(PartitionedOutput):
         self._end = end
 
     def list_parts(self):
-        return {self._file_namer(i, self._file_count) for i in range(self._file_count)}
+        return [self._file_namer(i, self._file_count) for i in range(self._file_count)]
 
-    def assign_part(self, item_key):
-        i = self._assign_file(item_key) % self._file_count
-        return self._file_namer(i, self._file_count)
+    def part_fn(self, item_key):
+        return self._assign_file(item_key)
 
     def build_part(self, for_part, resume_state):
         path = self._dir / for_part
@@ -316,10 +311,11 @@ class FileOutput(PartitionedOutput):
         self._end = end
 
     def list_parts(self):
-        return {str(self._path)}
+        return [str(self._path)]
 
-    def assign_part(self, item_key):
-        return str(self._path)
+    def part_fn(self, item_key):
+        # Only one partition.
+        return 0
 
     def build_part(self, for_part, resume_state):
         # TODO: Warn and return None. Then we could support

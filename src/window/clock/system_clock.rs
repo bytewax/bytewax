@@ -59,9 +59,9 @@ impl<V> Clock<V> for SystemClock {
         Utc::now()
     }
 
-    fn snapshot(&self) -> StateBytes {
+    fn snapshot(&self) -> TdPyAny {
         // Do not snapshot and restore `eof` so we support
         // continuation.
-        StateBytes::ser::<()>(&())
+        Python::with_gil(|py| py.None().into())
     }
 }

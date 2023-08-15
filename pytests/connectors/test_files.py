@@ -146,22 +146,22 @@ def test_file_input_resume_state():
     file_path = Path("examples/sample_data/cluster/partition-1.txt")
     inp = FileInput(file_path)
     part = inp.build_part(str(file_path), None)
-    assert part.next() == ["one1"]
-    assert part.next() == ["one2"]
+    assert part.next_batch() == ["one1"]
+    assert part.next_batch() == ["one2"]
     resume_state = part.snapshot()
-    assert part.next() == ["one3"]
-    assert part.next() == ["one4"]
+    assert part.next_batch() == ["one3"]
+    assert part.next_batch() == ["one4"]
     part.close()
 
     inp = FileInput(file_path)
     part = inp.build_part(str(file_path), resume_state)
     assert part.snapshot() == resume_state
-    assert part.next() == ["one3"]
-    assert part.next() == ["one4"]
-    assert part.next() == ["one5"]
-    assert part.next() == ["one6"]
+    assert part.next_batch() == ["one3"]
+    assert part.next_batch() == ["one4"]
+    assert part.next_batch() == ["one5"]
+    assert part.next_batch() == ["one6"]
     with raises(StopIteration):
-        part.next()
+        part.next_batch()
     part.close()
 
 
@@ -194,9 +194,9 @@ def test_dir_output(tmp_path):
     flow = Dataflow()
 
     inp = [
+        ("0", "0"),
         ("1", "1"),
         ("2", "2"),
-        ("3", "3"),
     ]
     flow.input("inp", TestingInput(inp))
 
@@ -208,7 +208,7 @@ def test_dir_output(tmp_path):
 
     with open(tmp_path / "part_0", "r") as f:
         out = f.readlines()
-        assert out == ["3\n"]
+        assert out == ["0\n"]
 
     with open(tmp_path / "part_1", "r") as f:
         out = f.readlines()
@@ -224,18 +224,18 @@ def test_file_output_resume_state(tmp_path):
 
     out = FileOutput(file_path)
     part = out.build_part(str(file_path), None)
-    part.write("one1")
-    part.write("one2")
-    part.write("one3")
+    part.write_batch(["one1"])
+    part.write_batch(["one2"])
+    part.write_batch(["one3"])
     resume_state = part.snapshot()
-    part.write("one4")
+    part.write_batch(["one4"])
     part.close()
 
     out = FileOutput(file_path)
     part = out.build_part(str(file_path), resume_state)
     assert part.snapshot() == resume_state
-    part.write("two4")
-    part.write("two5")
+    part.write_batch(["two4"])
+    part.write_batch(["two5"])
     part.close()
 
     with open(file_path, "rt") as f:

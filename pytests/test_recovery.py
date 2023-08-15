@@ -3,7 +3,8 @@ from datetime import timedelta
 from pytest import raises
 
 from bytewax.dataflow import Dataflow
-from bytewax.testing import run_main, TestingInput, TestingOutput
+from bytewax.recovery import init_db_dir, RecoveryConfig
+from bytewax.testing import cluster_main, run_main, TestingInput, TestingOutput
 
 ZERO_TD = timedelta(seconds=0)
 
@@ -301,3 +302,80 @@ def test_continuation_with_no_new_input(entry_point, inp, out, recovery_config):
 
     # Since no new input, no output.
     assert sorted(out) == []
+
+
+def test_rescale(inp, out, tmp_path):
+    init_db_dir(tmp_path, 3)
+    recovery_config = RecoveryConfig(str(tmp_path))
+
+    def entry_point(worker_count_per_proc):
+        cluster_main(
+            flow,
+            addresses=[],
+            proc_id=0,
+            epoch_interval=ZERO_TD,
+            recovery_config=recovery_config,
+            worker_count_per_proc=worker_count_per_proc,
+        )
+
+    # Since we're modifying the input, use the fixture so it works
+    # across processes. Currently, `inp = []`.
+    inp.extend(
+        [
+            ("a", 4, False),
+            ("b", 4, False),
+        ]
+    )
+    flow = build_keep_max_dataflow(inp, None)
+    flow.output("out", TestingOutput(out))
+
+    # We're going to do 2 continuations with different numbers of
+    # workers each time. Start with 3 workers.
+    entry_point(3)
+
+    assert sorted(out) == [
+        ("a", 4),
+        ("b", 4),
+    ]
+
+    # Add new input. Don't clear because `TestingInputConfig` needs
+    # the initial items so the resume epoch skips to here.
+    inp.extend(
+        [
+            ("a", 1, False),
+            ("b", 5, False),
+        ]
+    )
+    # Unfortunately `ListProxy`, which we'd use in the cluster entry
+    # point, does not have `clear`.
+    del out[:]
+
+    # Continue with 5 workers.
+    entry_point(5)
+
+    # Incorporates new input.
+    assert sorted(out) == [
+        ("a", 4),
+        ("b", 5),
+    ]
+
+    # Add more new input. Don't clear because `TestingInputConfig` needs
+    # the initial items so the resume epoch skips to here.
+    inp.extend(
+        [
+            ("a", 8, False),
+            ("b", 1, False),
+        ]
+    )
+    # Unfortunately `ListProxy`, which we'd use in the cluster entry
+    # point, does not have `clear`.
+    del out[:]
+
+    # Continue again resizing down to 1 worker.
+    entry_point(1)
+
+    # Incorporates new input.
+    assert sorted(out) == [
+        ("a", 8),
+        ("b", 5),
+    ]

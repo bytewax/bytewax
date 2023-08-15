@@ -143,7 +143,7 @@ def test_inspect_epoch():
 
     assert sorted(out) == sorted(["a"])
     # Check side-effects after execution is complete.
-    assert seen == sorted([(0, "a")])
+    assert seen == sorted([(1, "a")])
 
 
 def test_reduce(recovery_config):

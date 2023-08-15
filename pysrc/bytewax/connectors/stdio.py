@@ -9,8 +9,9 @@ __all__ = [
 
 
 class _PrintSink(StatelessSink):
-    def write(self, item):
-        print(item)
+    def write_batch(self, items):
+        for item in items:
+            print(item)
 
 
 class StdOutput(DynamicOutput):

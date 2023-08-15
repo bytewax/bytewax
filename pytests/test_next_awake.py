@@ -18,7 +18,7 @@ def test_next_awake_in_dynamic_input():
             self._next_awake = datetime.now(timezone.utc)
             self._iter = iter(list(range(5)))
 
-        def next(self):
+        def next_batch(self):
             now = datetime.now(timezone.utc)
             # Assert that `next` is only called after
             # the `next_awake` time has passed.
@@ -55,7 +55,7 @@ def test_next_awake_in_partitioned_input():
             self._next_awake = datetime.now(timezone.utc)
             self._iter = iter(list(range(4)))
 
-        def next(self):
+        def next_batch(self):
             now = datetime.now(timezone.utc)
             # Assert that `next` is only called after
             # the `next_awake` time has passed.
@@ -74,7 +74,7 @@ def test_next_awake_in_partitioned_input():
 
     class TestInput(PartitionedInput):
         def list_parts(self):
-            return {"one", "two", "three"}
+            return ["one", "two", "three"]
 
         def build_part(self, for_part, resume_state):
             if for_part == "one":

@@ -3,48 +3,76 @@
 //! For a user-centric version of input, read the `bytewax.inputs`
 //! Python module docstring. Read that first.
 
-use crate::errors::{tracked_err, PythonException};
-use crate::pyo3_extensions::TdPyAny;
-use crate::recovery::model::*;
-use crate::recovery::operators::{FlowChangeStream, Route};
-use crate::timely::CapabilityVecEx;
-use crate::unwrap_any;
-use crate::worker::{WorkerCount, WorkerIndex};
-use chrono::{DateTime, Utc};
-use pyo3::exceptions::{PyStopIteration, PyTypeError, PyValueError};
-use pyo3::prelude::*;
-use std::collections::{BTreeSet, HashMap, HashSet};
-use std::time::{Duration, Instant};
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::{ProbeHandle, Scope, Stream};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
-// Constants duration reused around this module.
-const MIN_COOLDOWN: chrono::Duration = chrono::Duration::milliseconds(1);
+use chrono::DateTime;
+use chrono::Duration;
+use chrono::Utc;
+use pyo3::exceptions::PyStopIteration;
+use pyo3::exceptions::PyTypeError;
+use pyo3::intern;
+use pyo3::prelude::*;
+use timely::dataflow::channels::pact::Pipeline;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
+use timely::dataflow::operators::Capability;
+use timely::dataflow::ProbeHandle;
+use timely::dataflow::Scope;
+use timely::dataflow::Stream;
+use timely::progress::Timestamp;
+
+use crate::errors::tracked_err;
+use crate::errors::PythonException;
+use crate::pyo3_extensions::TdPyAny;
+use crate::recovery::*;
+use crate::timely::*;
+use crate::unwrap_any;
+
+const DEFAULT_COOLDOWN: Duration = Duration::milliseconds(1);
 
 /// Length of epoch.
-#[derive(Debug, Clone)]
+///
+/// Epoch boundaries represent synchronization points between all
+/// workers and are when state snapshots are taken and written for
+/// recovery.
+///
+/// The epoch is also used as backpressure within the dataflow; input
+/// sources do not start reading new data until all data in the
+/// previous epoch has been output and recovery data written.
+#[derive(Debug, Copy, Clone, FromPyObject)]
 pub(crate) struct EpochInterval(Duration);
 
 impl EpochInterval {
-    pub(crate) fn new(dur: Duration) -> Self {
-        Self(dur)
+    /// Determine how many epochs (rounded up) exist in some other
+    /// duration.
+    ///
+    /// Useful for calculating GC commit epochs.
+    pub(crate) fn epochs_per(&self, other: Duration) -> u64 {
+        (other.num_milliseconds() as f64 / self.0.num_milliseconds() as f64)
+            // Round up so we always have at least the backup interval
+            // time. Unless it's 0, then it's ok. The integer part of
+            // the result will always fit into a u64 so chopping off
+            // bits should be fine.
+            .ceil() as u64
     }
 }
 
-impl<'source> FromPyObject<'source> for EpochInterval {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        match ob.extract::<chrono::Duration>()?.to_std() {
-            Err(err) => Err(tracked_err::<PyValueError>(&format!(
-                "invalid epoch interval: {err}"
-            ))),
-            Ok(dur) => Ok(Self(dur)),
-        }
-    }
+#[test]
+fn test_epochs_per() {
+    let found =
+        EpochInterval(Duration::milliseconds(5000)).epochs_per(Duration::milliseconds(12000));
+    assert_eq!(found, 3);
+}
+
+#[test]
+fn test_epochs_per_zero() {
+    let found = EpochInterval(Duration::milliseconds(5000)).epochs_per(Duration::milliseconds(0));
+    assert_eq!(found, 0);
 }
 
 impl Default for EpochInterval {
     fn default() -> Self {
-        Self(Duration::from_secs(10))
+        Self(Duration::seconds(10))
     }
 }
 
@@ -107,229 +135,292 @@ impl<'source> FromPyObject<'source> for PartitionedInput {
     }
 }
 
+struct PartitionedPartState {
+    part: StatefulSource,
+    downstream_cap: Capability<u64>,
+    snap_cap: Capability<u64>,
+    epoch_started: DateTime<Utc>,
+    next_awake: DateTime<Utc>,
+}
+
 impl PartitionedInput {
-    /// Build all partitions for this input for this worker.
-    fn build(
+    fn list_parts(&self, py: Python) -> PyResult<Vec<StateKey>> {
+        self.0.call_method0(py, "list_parts")?.extract(py)
+    }
+
+    fn build_part(
         &self,
         py: Python,
-        step_id: StepId,
-        index: WorkerIndex,
-        worker_count: WorkerCount,
-        mut resume_state: StepStateBytes,
-    ) -> PyResult<HashMap<StateKey, StatefulSource>> {
-        let keys: BTreeSet<StateKey> = self
-            .0
-            .call_method0(py, "list_parts")
-            .reraise("errror in `list_parts`")?
+        for_part: &StateKey,
+        resume_state: Option<TdPyAny>,
+    ) -> PyResult<StatefulSource> {
+        self.0
+            .call_method1(py, "build_part", (for_part.clone(), resume_state))?
             .extract(py)
-            .reraise("can't convert parts to set")?;
-
-        let parts = keys
-            .into_iter()
-            // We are using the [`StateKey`] routing hash as the way to
-            // divvy up partitions to workers. This is kinda an abuse of
-            // behavior, but also means we don't have to find a way to
-            // propogate the correct partition:worker mappings into the
-            // restore system, which would be more difficult as we have to
-            // find a way to treat this kind of state key differently. I
-            // might regret this.
-            .filter(|key| key.is_local(index, worker_count))
-            .flat_map(|key| {
-                let state = resume_state.remove(&key).map(StateBytes::de::<TdPyAny>);
-                tracing::info!(
-                    "{index:?} building input {step_id:?} \
-                    source {key:?} with resume state {state:?}"
-                );
-                match self
-                    .0
-                    .call_method1(py, "build_part", (key.clone(), state))
-                    .and_then(|part| part.extract(py))
-                {
-                    Err(err) => Some(Err(err)),
-                    Ok(None) => None,
-                    Ok(Some(part)) => Some(Ok((key, part))),
-                }
-            })
-            .collect::<PyResult<HashMap<StateKey, StatefulSource>>>()
-            .reraise("error creating input source partitions")?;
-
-        if !resume_state.is_empty() {
-            tracing::warn!(
-                "Resume state exists for {step_id:?} \
-                for unknown partitions {:?}; \
-                changing partition counts? \
-                recovery state routing bug?",
-                resume_state.keys()
-            );
-        }
-
-        Ok(parts)
     }
 
     /// Read items from a partitioned input.
     ///
-    /// This is a stateful operator, so the change stream must be
-    /// incorporated into the recovery system, and the resume state
-    /// must be routed back here.
+    /// Will manage assigning primary workers for all partitions and
+    /// building them.
     ///
-    /// Will manage automatically distributing partition sources. All
-    /// you have to do is pass in the definition.
+    /// This can't be unified into the recovery system input operators
+    /// because they are stateless and have no epoch semantics.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn partitioned_input<S>(
         self,
         py: Python,
-        scope: &S,
+        scope: &mut S,
         step_id: StepId,
         epoch_interval: EpochInterval,
-        index: WorkerIndex,
-        count: WorkerCount,
         probe: &ProbeHandle<u64>,
         start_at: ResumeEpoch,
-        resume_state: StepStateBytes,
-    ) -> PyResult<(Stream<S, TdPyAny>, FlowChangeStream<S>)>
+        loads: &Stream<S, Snapshot>,
+    ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)>
     where
         S: Scope<Timestamp = u64>,
     {
-        let mut parts = self.build(py, step_id.clone(), index, count, resume_state)?;
+        let this_worker = scope.w_index();
 
-        let mut op_builder = OperatorBuilder::new(step_id.0.clone(), scope.clone());
+        let local_parts = self.list_parts(py).reraise("error listing partitions")?;
+        let all_parts = local_parts
+            .clone()
+            .into_broadcast(scope, S::Timestamp::minimum());
+        let primary_updates = all_parts.assign_primaries(format!("{step_id}.assign_primaries"));
 
-        let (mut output_wrapper, output_stream) = op_builder.new_output();
-        let (mut change_wrapper, change_stream) = op_builder.new_output();
+        let routed_loads = loads
+            .filter_snaps(step_id.clone())
+            .route(format!("{step_id}.loads_route"), &primary_updates);
 
-        let probe = probe.clone();
+        let op_name = format!("{step_id}.partitioned_input");
+        let mut op_builder = OperatorBuilder::new(op_name.clone(), scope.clone());
+
+        let mut loads_input = op_builder.new_input(&routed_loads, routed_exchange());
+        let mut primaries_input = op_builder.new_input(&primary_updates, Pipeline);
+
+        let (mut downstream_output, downstream) = op_builder.new_output();
+        let (mut snaps_output, snaps) = op_builder.new_output();
+
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
+        let probe = probe.clone();
 
         op_builder.build(move |mut init_caps| {
-            // Inputs must init to the resume epoch.
             init_caps.downgrade_all(&start_at.0);
-            let change_cap = init_caps.pop().unwrap();
-            let output_cap = init_caps.pop().unwrap();
+            let init_snap_cap = init_caps.pop().unwrap();
+            let init_downstream_cap = init_caps.pop().unwrap();
+            let mut init_caps = Some((init_downstream_cap, init_snap_cap));
 
-            let mut caps = Some((output_cap, change_cap));
-            let mut epoch_started = Instant::now();
-            let mut emit_keys_buffer: HashSet<StateKey> = HashSet::new();
-            let mut eofd_keys_buffer: HashSet<StateKey> = HashSet::new();
-            let mut snapshot_keys_buffer: HashSet<StateKey> = HashSet::new();
-            let mut next_awake_times: HashMap<StateKey, chrono::DateTime<Utc>> = HashMap::new();
+            let mut parts: BTreeMap<StateKey, PartitionedPartState> = BTreeMap::new();
+            let mut primary_parts = BTreeSet::new();
+            let mut eofd = BTreeSet::new();
 
-            move |_input_frontiers| {
-                let now = Utc::now();
+            let mut tmp = Vec::new();
+            let mut primaries_inbuf = InBuffer::new();
 
-                caps = caps.take().and_then(|(output_cap, change_cap)| {
-                    assert!(output_cap.time() == change_cap.time());
-                    let epoch = output_cap.time();
+            move |input_frontiers| {
+                tracing::debug_span!("operator", operator = op_name).in_scope(|| {
+                    let now = Utc::now();
 
-                    if !probe.less_than(epoch) {
-                        let mut output_handle = output_wrapper.activate();
-                        let mut output_session = output_handle.session(&output_cap);
-                        for (key, part) in parts.iter() {
-                            if &now >= next_awake_times.get(key).unwrap_or(&now) {
-                                let next = unwrap_any!(Python::with_gil(|py| part.next(py)));
-                                if let Some(mut items) = next {
-                                    let next_awake = if let Some(next_awake) =
-                                        unwrap_any!(Python::with_gil(|py| part.next_awake(py)))
-                                    {
-                                        // If the source returned an explicit next awake time, always oblige.
-                                        next_awake
-                                    } else {
-                                        // If `next_awake` returned `None`, then do the default behavior:
-                                        if items.is_empty() {
-                                            // Wait a cooldown before re-awakening if there were no items.
-                                            now + MIN_COOLDOWN
-                                        } else {
-                                            // Re-awaken immediately if there were.
-                                            now
-                                        }
-                                    };
-                                    next_awake_times.insert(key.clone(), next_awake);
-                                    // next_awake_times.insert(key.clone(), next_awake);
-                                    output_session.give_vec(&mut items);
-                                    emit_keys_buffer.insert(key.clone());
-                                } else {
-                                    tracing::trace!(
-                                        "Input {step_id:?} partition {key:?} reached EOF"
-                                    );
-                                    eofd_keys_buffer.insert(key.clone());
+                    primaries_input.for_each(|cap, incoming| {
+                        let epoch = cap.time();
+                        primaries_inbuf.extend(*epoch, incoming);
+                    });
+
+                    loads_input.for_each(|cap, incoming| {
+                        let load_epoch = cap.time();
+                        assert!(tmp.is_empty());
+                        incoming.swap(&mut tmp);
+
+                        // Snapshots might be from an "old" epoch if
+                        // there were no items and thus snapshots
+                        // stored during a more recent epoch, so
+                        // ensure that we always FFWd the capabilities
+                        // to where this execution should start.
+                        let emit_epoch = std::cmp::max(*load_epoch, start_at.0);
+                        for (worker, (part_key, change)) in tmp.drain(..) {
+                            assert!(worker == this_worker);
+                            if let StateChange::Upsert(state) = change {
+                                tracing::info!("Resuming {part_key:?} at epoch {emit_epoch} with state {state:?}");
+                                let (part, next_awake) = unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
+                                    let part = self.build_part(
+                                        py,
+                                        &part_key,
+                                        Some(state)
+                                    ).reraise("error resuming StatefulSource")?;
+                                    let next_awake = part.next_awake(py).reraise("error getting next awake")?.unwrap_or(now);
+                                    Ok((part, next_awake))
+                                }));
+
+                                let state = PartitionedPartState {
+                                    part,
+                                    downstream_cap: cap.delayed_for_output(&emit_epoch, 0),
+                                    snap_cap: cap.delayed_for_output(&emit_epoch, 1),
+                                    epoch_started: now,
+                                    next_awake,
+                                };
+                                parts.insert(part_key, state);
+                            }
+                        }
+                    });
+
+                    // Apply this worker's primary assignments in epoch
+                    // order. We don't need a notificator here because we
+                    // don't need any capability management.
+                    let primaries_frontier = &input_frontiers[1];
+                    let closed_primaries_epochs: Vec<_> = primaries_inbuf
+                        .epochs()
+                        .filter(|e| primaries_frontier.is_closed(e))
+                        .collect();
+                    for epoch in closed_primaries_epochs {
+                        if let Some(primaries) = primaries_inbuf.remove(&epoch) {
+                            for (part, worker) in primaries {
+                                if worker == this_worker {
+                                    primary_parts.insert(part);
                                 }
                             }
                         }
                     }
-                    // Don't allow progress unless we've caught up,
-                    // otherwise you can get cascading advancement and
-                    // never poll input.
-                    let advance =
-                        !probe.less_than(epoch) && epoch_started.elapsed() > epoch_interval.0;
 
-                    // If the the current epoch will be over, snapshot
-                    // to get "end of the epoch state".
-                    if advance {
-                        snapshot_keys_buffer.extend(emit_keys_buffer.drain());
-                    }
-                    snapshot_keys_buffer.extend(eofd_keys_buffer.clone());
+                    // Init any partitions that didn't have load data once
+                    // the loads input is EOF.
+                    let loads_frontier = &input_frontiers[0];
+                    if loads_frontier.is_eof() {
+                        // We take this out of the Option so we drop the
+                        // init caps and they don't linger.
+                        if let Some((init_downstream_cap, init_snap_cap)) = init_caps.take() {
+                            assert!(*init_downstream_cap.time() == *init_snap_cap.time());
+                            let epoch = init_downstream_cap.time();
+                            // This is a slight abuse of epoch semantics
+                            // since have no way of synchronizing the
+                            // evolution of `primary_parts` with the EOF
+                            // of the load stream. But it's fine since
+                            // we're never going to open up the loads
+                            // stream again.
+                            for part_key in &primary_parts {
+                                if !parts.contains_key(part_key) {
+                                    tracing::info!("Init-ing {part_key:?} at epoch {epoch:?}");
+                                    let (part, next_awake) = unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
+                                            let part = self.build_part(py, part_key, None).reraise("error init StatefulSource")?;
+                                            let next_awake = part.next_awake(py).reraise("error getting next awake")?.unwrap_or(now);
+                                            Ok((part, next_awake))
+                                        }
+                                    ));
 
-                    if !snapshot_keys_buffer.is_empty() {
-                        let kchanges = snapshot_keys_buffer
-                            .drain()
-                            .map(|state_key| {
-                                let part = parts
-                                    .get(&state_key)
-                                    .expect("Unknown partition {state_key:?} to snapshot");
-                                let snap = unwrap_any!(Python::with_gil(|py| part
-                                    .snapshot(py)
-                                    .reraise("error snapshotting input part")));
-                                (state_key, snap)
-                            })
-                            .map(|(state_key, snap)| (FlowKey(step_id.clone(), state_key), snap))
-                            .map(|(flow_key, snap)| KChange(flow_key, Change::Upsert(snap)));
-                        change_wrapper
-                            .activate()
-                            .session(&change_cap)
-                            .give_iterator(kchanges);
-                    }
-
-                    for key in eofd_keys_buffer.drain() {
-                        let part = parts
-                            .remove(&key)
-                            .expect("Unknown partition {key:?} marked as EOF");
-                        unwrap_any!(Python::with_gil(|py| part
-                            .close(py)
-                            .reraise("error closing input part")));
+                                    let part_state = PartitionedPartState {
+                                        part,
+                                        downstream_cap:  init_downstream_cap.clone(),
+                                        snap_cap: init_snap_cap.clone(),
+                                        epoch_started: now,
+                                        next_awake,
+                                    };
+                                    parts.insert(part_key.clone(), part_state);
+                                }
+                            }
+                        }
                     }
 
-                    if parts.is_empty() {
-                        tracing::trace!("Input {step_id:?} reached EOF");
-                        None
-                    } else if advance {
-                        let next_epoch = epoch + 1;
-                        epoch_started = Instant::now();
-                        tracing::trace!("Input {step_id:?} advancing to epoch {next_epoch:?}");
-                        Some((
-                            output_cap.delayed(&next_epoch),
-                            change_cap.delayed(&next_epoch),
-                        ))
-                    } else {
-                        Some((output_cap, change_cap))
+                    assert!(eofd.is_empty());
+                    let mut handle = downstream_output.activate();
+                    for (part_key, part_state) in parts.iter_mut() {
+                        tracing::trace_span!("partition", part_key = ?part_key).in_scope(|| {
+                            assert!(
+                                *part_state.downstream_cap.time() == *part_state.snap_cap.time()
+                            );
+                            let epoch = part_state.downstream_cap.time();
+
+                            if !probe.less_than(epoch) && now >= part_state.next_awake {
+                                if let Some(mut batch) =
+                                    unwrap_any!(Python::with_gil(|py| part_state
+                                        .part
+                                        .next_batch(py).reraise("error getting next input batch")))
+                                {
+                                    if !batch.is_empty() {
+                                        handle
+                                            .session(&part_state.downstream_cap)
+                                            .give_vec(&mut batch);
+                                    }
+
+                                    part_state.next_awake = if let Some(next_awake) =
+                                        unwrap_any!(Python::with_gil(|py| part_state
+                                                                     .part
+                                                                     .next_awake(py)
+                                                                     .reraise("error getting next awake time")))
+                                    {
+                                        // If the source returned an
+                                        // explicit next awake time,
+                                        // always oblige.
+                                        next_awake
+                                    } else {
+                                        // If `next_awake` returned
+                                        // `None`, then do the default
+                                        // behavior:
+                                        if batch.is_empty() {
+                                            // Wait a cooldown before
+                                            // re-awakening if there
+                                            // were no items.
+                                            now + DEFAULT_COOLDOWN
+                                        } else {
+                                            // Re-awaken immediately
+                                            // if there were.
+                                            now
+                                        }
+                                    };
+                                } else {
+                                    eofd.insert(part_key.clone());
+                                    tracing::debug!("EOFd");
+                                }
+
+                                // Don't allow progress unless we've caught up,
+                                // otherwise you can get cascading advancement and
+                                // never poll input.
+                                if now - part_state.epoch_started >= epoch_interval.0
+                                {
+                                    let state = unwrap_any!(Python::with_gil(|py| part_state.part.snapshot(py).reraise("error snapshotting StatefulSource")));
+                                    tracing::trace!("End of epoch {epoch} partition state now {state:?}");
+                                    let snap = Snapshot(
+                                        step_id.clone(),
+                                        part_key.clone(),
+                                        StateChange::Upsert(state),
+                                    );
+                                    snaps_output
+                                        .activate()
+                                        .session(&part_state.snap_cap)
+                                        .give(snap);
+
+                                    let next_epoch = *epoch + 1;
+                                    part_state.downstream_cap.downgrade(&next_epoch);
+                                    part_state.snap_cap.downgrade(&next_epoch);
+                                    part_state.epoch_started = now;
+                                    tracing::debug!("Advanced to epoch {next_epoch}");
+                                }
+                            }
+                        });
+                    }
+
+                    while let Some(part) = eofd.pop_first() {
+                        parts.remove(&part);
+                    }
+
+                    if !loads_frontier.is_eof() {
+                        // If we're not done loading, don't explicitly
+                        // request activation so we will only be
+                        // awoken when there's new loading input and
+                        // we don't spin during loading.
+                    } else if !parts.is_empty() {
+                        if let Some(min_next_awake) = parts.values().map(|part_state| part_state.next_awake).min() {
+                            let awake_after = min_next_awake - now;
+                            // If we are already late for the next
+                            // activation, awake immediately.
+                            let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
+                            activator.activate_after(awake_after);
+                        }
                     }
                 });
-
-                if caps.is_some() {
-                    // Find the minimum next_awake time
-                    let awake_after = if let Some(next_awake) = next_awake_times.values().min() {
-                        (*next_awake - now)
-                            .to_std()
-                            // If we are already late for the next activation, awake immediately.
-                            .unwrap_or(std::time::Duration::ZERO)
-                    } else {
-                        std::time::Duration::ZERO
-                    };
-                    activator.activate_after(awake_after);
-                }
             }
         });
 
-        Ok((output_stream, change_stream))
+        Ok((downstream, snaps))
     }
 }
 
@@ -355,40 +446,37 @@ impl<'source> FromPyObject<'source> for StatefulSource {
 }
 
 impl StatefulSource {
-    fn next(&self, py: Python) -> PyResult<Option<Vec<TdPyAny>>> {
-        match self.0.call_method0(py, "next") {
+    fn next_batch(&self, py: Python) -> PyResult<Option<Vec<TdPyAny>>> {
+        match self.0.call_method0(py, intern!(py, "next_batch")) {
             Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(None),
             Err(err) => Err(err),
-            Ok(items) => Ok(Some(
-                items
-                    .extract(py)
-                    .reraise("`StatefulSource.next` did not return a list")?,
-            )),
+            Ok(items) => Ok(Some(items.extract(py).reraise(
+                "`next_batch` method of StatefulSource did not return a list",
+            )?)),
         }
     }
 
     fn next_awake(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
         self.0
-            .call_method0(py, "next_awake")
-            .reraise("error calling `StatelessSource.next_awake`")?
+            .call_method0(py, intern!(py, "next_awake"))?
             .extract(py)
-            .reraise("error converting `StatefulSource.next_awake` return value to UTC datetime")
     }
 
-    fn snapshot(&self, py: Python) -> PyResult<StateBytes> {
-        let state = self
-            .0
-            .call_method0(py, "snapshot")
-            .reraise("error calling `StatefulSource.snapshot`")?
-            .into();
-        Ok(StateBytes::ser::<TdPyAny>(&state))
+    fn snapshot(&self, py: Python) -> PyResult<TdPyAny> {
+        Ok(self.0.call_method0(py, intern!(py, "snapshot"))?.into())
     }
 
-    fn close(self, py: Python) -> PyResult<()> {
-        self.0
-            .call_method0(py, "close")
-            .reraise("error calling `StatefulSource.close`")?;
+    fn close(&self, py: Python) -> PyResult<()> {
+        let _ = self.0.call_method0(py, "close");
         Ok(())
+    }
+}
+
+impl Drop for StatefulSource {
+    fn drop(&mut self) {
+        unwrap_any!(Python::with_gil(|py| self
+            .close(py)
+            .reraise("error closing StatefulSource")));
     }
 }
 
@@ -414,6 +502,13 @@ impl<'source> FromPyObject<'source> for DynamicInput {
     }
 }
 
+struct DynamicPartState {
+    part: StatelessSource,
+    output_cap: Capability<u64>,
+    epoch_started: DateTime<Utc>,
+    next_awake: DateTime<Utc>,
+}
+
 impl DynamicInput {
     fn build(
         &self,
@@ -422,7 +517,7 @@ impl DynamicInput {
         count: WorkerCount,
     ) -> PyResult<StatelessSource> {
         self.0
-            .call_method1(py, "build", (index, count))?
+            .call_method1(py, "build", (index.0, count.0))?
             .extract(py)
     }
 
@@ -437,105 +532,125 @@ impl DynamicInput {
         scope: &S,
         step_id: StepId,
         epoch_interval: EpochInterval,
-        index: WorkerIndex,
-        count: WorkerCount,
         probe: &ProbeHandle<u64>,
         start_at: ResumeEpoch,
     ) -> PyResult<Stream<S, TdPyAny>>
     where
         S: Scope<Timestamp = u64>,
     {
-        let source = self
-            .build(py, index, count)
+        let worker_index = scope.w_index();
+        let worker_count = scope.w_count();
+        let part = self
+            .build(py, worker_index, worker_count)
             .reraise("error building DynamicInput")?;
 
-        let mut op_builder = OperatorBuilder::new(step_id.0.to_string(), scope.clone());
+        let op_name = format!("{step_id}.dynamic_input");
+        let mut op_builder = OperatorBuilder::new(op_name.clone(), scope.clone());
 
-        let (mut output_wrapper, output_stream) = op_builder.new_output();
+        let (mut output_wrapper, output) = op_builder.new_output();
 
         let probe = probe.clone();
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
 
         op_builder.build(move |mut init_caps| {
+            let now = Utc::now();
+
             // Inputs must init to the resume epoch.
             init_caps.downgrade_all(&start_at.0);
             let output_cap = init_caps.pop().unwrap();
 
-            let mut next_awake =
-                unwrap_any!(Python::with_gil(|py| source.next_awake(py))).unwrap_or_else(Utc::now);
-            let mut cap_src = Some((output_cap, source));
-            let mut epoch_started = Instant::now();
+            let next_awake = unwrap_any!(Python::with_gil(|py| part
+                .next_awake(py)
+                .reraise("error getting next awake time")))
+            .unwrap_or(now);
+            let mut part_state = Some(DynamicPartState {
+                part,
+                output_cap,
+                epoch_started: now,
+                next_awake,
+            });
 
             move |_input_frontiers| {
-                let now = Utc::now();
+                tracing::debug_span!("operator", operator = op_name).in_scope(|| {
+                    let now = Utc::now();
 
-                // We can't return an error here, but we need to stop execution
-                // if we have an error in the user's code.
-                // When this happens we panic with unwrap_any! and reraise
-                // the exeption and adding a message to explain.
-                cap_src = cap_src.take().and_then(|(cap, source)| {
-                    let epoch = cap.time();
                     let mut eof = false;
 
-                    if !probe.less_than(epoch) && now >= next_awake {
-                        let next = unwrap_any!(Python::with_gil(|py| source.next(py)));
-                        if let Some(mut items) = next {
-                            // Update when the partition should awake next.
-                            next_awake = if let Some(next_awake) =
-                                unwrap_any!(Python::with_gil(|py| source.next_awake(py)))
-                            {
-                                // If the source returned an explicit next awake time, always oblige.
-                                next_awake
-                            } else {
-                                // If `next_awake` returned `None`, then do the default behavior:
-                                if items.is_empty() {
-                                    // Wait a cooldown before re-awakening if there were no items.
-                                    now + MIN_COOLDOWN
-                                } else {
-                                    // Re-awaken immediately if there were.
-                                    now
-                                }
-                            };
+                    if let Some(part_state) = &mut part_state {
+                        let epoch = part_state.output_cap.time();
 
-                            output_wrapper.activate().session(&cap).give_vec(&mut items);
-                        } else {
-                            eof = true;
+                        if !probe.less_than(epoch) && now >= part_state.next_awake {
+                            if let Some(mut batch) = unwrap_any!(Python::with_gil(|py| part_state
+                                .part
+                                .next_batch(py)
+                                .reraise("error getting next input batch")))
+                            {
+                                if !batch.is_empty() {
+                                    output_wrapper
+                                        .activate()
+                                        .session(&part_state.output_cap)
+                                        .give_vec(&mut batch);
+                                }
+
+                                part_state.next_awake = if let Some(next_awake) =
+                                    unwrap_any!(Python::with_gil(|py| part_state
+                                        .part
+                                        .next_awake(py)
+                                        .reraise("error getting next awake time")))
+                                {
+                                    // If the source returned an
+                                    // explicit next awake time,
+                                    // always oblige.
+                                    next_awake
+                                } else {
+                                    // If `next_awake` returned
+                                    // `None`, then do the default
+                                    // behavior:
+                                    if batch.is_empty() {
+                                        // Wait a cooldown before
+                                        // re-awakening if there were
+                                        // no items.
+                                        now + DEFAULT_COOLDOWN
+                                    } else {
+                                        // Re-awaken immediately if
+                                        // there were.
+                                        now
+                                    }
+                                };
+                            } else {
+                                eof = true;
+                                tracing::trace!("EOFd");
+                            }
+
+                            // Don't allow progress unless we've caught up,
+                            // otherwise you can get cascading advancement and
+                            // never poll input.
+                            if now - part_state.epoch_started >= epoch_interval.0 {
+                                let next_epoch = epoch + 1;
+                                part_state.epoch_started = now;
+                                part_state.output_cap.downgrade(&next_epoch);
+                                tracing::trace!("Advanced to epoch {next_epoch}");
+                            }
                         }
                     }
-                    // Don't allow progress unless we've caught up,
-                    // otherwise you can get cascading advancement and
-                    // never poll input.
-                    let advance =
-                        !probe.less_than(epoch) && epoch_started.elapsed() > epoch_interval.0;
 
                     if eof {
-                        tracing::trace!("Input {step_id:?} reached EOF");
-                        unwrap_any!(
-                            Python::with_gil(|py| source.close(py)).reraise("error closing source")
-                        );
-                        None
-                    } else if advance {
-                        let next_epoch = epoch + 1;
-                        epoch_started = Instant::now();
-                        tracing::trace!("Input {step_id:?} advancing to epoch {next_epoch:?}");
-                        Some((cap.delayed(&next_epoch), source))
-                    } else {
-                        Some((cap, source))
+                        part_state = None;
+                    }
+
+                    if let Some(part_state) = &part_state {
+                        let awake_after = part_state.next_awake - now;
+                        // If we are already late for the next
+                        // activation, awake immediately.
+                        let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
+                        activator.activate_after(awake_after);
                     }
                 });
-
-                // Ask NextGuard for how long to wait for the input to be called again.
-                if cap_src.is_some() {
-                    let awake_after = next_awake - now;
-                    // If we are already late for the next activation, awake immediately.
-                    let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
-                    activator.activate_after(awake_after);
-                }
             }
         });
 
-        Ok(output_stream)
+        Ok(output)
     }
 }
 
@@ -561,28 +676,32 @@ impl<'source> FromPyObject<'source> for StatelessSource {
 }
 
 impl StatelessSource {
-    fn next(&self, py: Python) -> PyResult<Option<Vec<TdPyAny>>> {
-        match self.0.call_method0(py, "next") {
+    fn next_batch(&self, py: Python) -> PyResult<Option<Vec<TdPyAny>>> {
+        match self.0.call_method0(py, intern!(py, "next_batch")) {
             Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(None),
             Err(err) => Err(err),
-            Ok(items) => Ok(Some(
-                items
-                    .extract(py)
-                    .reraise("`StatelessSource.next` did not return a list")?,
-            )),
+            Ok(items) => Ok(Some(items.extract(py).reraise(
+                "`next_batch` method of StatelessSource did not return a list",
+            )?)),
         }
     }
 
     fn next_awake(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
         self.0
-            .call_method0(py, "next_awake")
-            .reraise("error calling `StatelessSource.next_awake`")?
+            .call_method0(py, intern!(py, "next_awake"))?
             .extract(py)
-            .reraise("error converting `StatelessSource.next_awake` return value to datetime")
     }
 
-    fn close(self, py: Python) -> PyResult<()> {
+    fn close(&self, py: Python) -> PyResult<()> {
         let _ = self.0.call_method0(py, "close")?;
         Ok(())
+    }
+}
+
+impl Drop for StatelessSource {
+    fn drop(&mut self) {
+        unwrap_any!(Python::with_gil(|py| self
+            .close(py)
+            .reraise("error closing StatelessSource")));
     }
 }

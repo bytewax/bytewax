@@ -4,6 +4,7 @@ use chrono::prelude::*;
 use chrono::Duration;
 use pyo3::prelude::*;
 
+use crate::unwrap_any;
 use crate::{
     add_pymethods,
     pyo3_extensions::{TdPyAny, TdPyCallable},
@@ -50,9 +51,10 @@ impl ClockBuilder<TdPyAny> for EventClockConfig {
         let dt_getter = self.dt_getter.clone_ref(py);
         let wait_for_system_duration = self.wait_for_system_duration;
 
-        Ok(Box::new(move |resume_snapshot: Option<StateBytes>| {
-            let max_event_time_system_time =
-                resume_snapshot.map(StateBytes::de).unwrap_or_default();
+        Ok(Box::new(move |resume_snapshot: Option<TdPyAny>| {
+            let max_event_time_system_time = resume_snapshot
+                .map(|snap| unwrap_any!(Python::with_gil(|py| snap.extract(py))))
+                .unwrap_or_default();
 
             let dt_getter = dt_getter.clone();
             Box::new(EventClock {
@@ -174,8 +176,8 @@ where
         })
     }
 
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser(&self.max_event_time_system_time)
+    fn snapshot(&self) -> TdPyAny {
+        Python::with_gil(|py| self.max_event_time_system_time.into_py(py).into())
     }
 }
 
@@ -275,42 +277,5 @@ mod tests {
             DateTime::<Utc>::MAX_UTC,
             "watermark should saturate to the end of time after input ends"
         );
-    }
-
-    #[test]
-    fn test_event_time_clock_serialization() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let config = PyCell::new(
-                py,
-                EventClockConfig::py_new(
-                    // This will never be called in this test so can be
-                    // junk.
-                    TdPyCallable::pickle_new(py),
-                    Duration::zero(),
-                ),
-            )
-            .unwrap();
-
-            let mut event_clock = config.borrow().build(py).unwrap()(None);
-
-            let found = event_clock.watermark(&Poll::Ready(None));
-            assert_eq!(
-                found,
-                DateTime::<Utc>::MAX_UTC,
-                "watermark did not advance to the end of time when input ends"
-            );
-
-            let snapshot = event_clock.snapshot();
-
-            let mut event_clock = config.borrow().build(py).unwrap()(Some(snapshot));
-
-            let found = event_clock.watermark(&Poll::Pending);
-            assert_eq!(
-                found,
-                DateTime::<Utc>::MAX_UTC,
-                "clock built from snapshot did not restore state"
-            );
-        });
     }
 }

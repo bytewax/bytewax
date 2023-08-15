@@ -19,7 +19,7 @@ class PeriodicSource(StatelessSource):
     def next_awake(self):
         return self._next_awake
 
-    def next(self):
+    def next_batch(self):
         self._counter += 1
         if self._counter >= 10:
             raise StopIteration()
@@ -49,7 +49,7 @@ class StatefulPeriodicSource(StatefulSource):
         self._next_awake = next_awake
         self._counter = counter
 
-    def next(self):
+    def next_batch(self):
         self._counter += 1
         if self._counter >= 10:
             raise StopIteration()
@@ -74,7 +74,7 @@ class PeriodicPartitionedInput(PartitionedInput):
         self.frequency = frequency
 
     def list_parts(self):
-        return {"singleton"}
+        return ["singleton"]
 
     def build_part(self, for_part, resume_state):
         assert for_part == "singleton"

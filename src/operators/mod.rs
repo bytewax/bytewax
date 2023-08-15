@@ -9,13 +9,14 @@
 //!   [`crate::recovery::StatefulLogic`] and
 //!   [`crate::window::WindowLogic`].
 
-use crate::errors::PythonException;
-use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
-use crate::try_unwrap;
-use crate::unwrap_any;
-use crate::worker::WorkerIndex;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+
+use crate::errors::PythonException;
+use crate::pyo3_extensions::{TdPyAny, TdPyCallable, TdPyIterator};
+use crate::timely::WorkerIndex;
+use crate::try_unwrap;
+use crate::unwrap_any;
 
 pub(crate) mod collect_window;
 pub(crate) mod fold_window;
@@ -74,7 +75,7 @@ pub(crate) fn inspect(inspector: &TdPyCallable, item: &TdPyAny) {
 pub(crate) fn inspect_worker(inspector: &TdPyCallable, worker_index: &WorkerIndex, item: &TdPyAny) {
     Python::with_gil(|py| {
         unwrap_any!(inspector
-            .call1(py, (worker_index.into_py(py), item,))
+            .call1(py, (worker_index.0, item,))
             .reraise("error calling `inspect_worker` inspector"))
     });
 }

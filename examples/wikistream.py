@@ -32,7 +32,7 @@ class WikiSource(StatefulSource):
 
 class WikiStreamInput(PartitionedInput):
     def list_parts(self):
-        return {"single-part"}
+        return ["single-part"]
 
     def build_part(self, for_key, resume_state):
         assert for_key == "single-part"

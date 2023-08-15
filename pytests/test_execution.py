@@ -67,9 +67,9 @@ def test_cluster_can_be_ctrl_c():
             # With 2 workers per process
             "-w",
             "2",
-            # Set epoch interval to 0 so that the output
-            # is written to the file as soon as possible
-            "--epoch-interval",
+            # Set snapshot interval to 0 so that the output is written
+            # to the file as soon as possible
+            "-s",
             "0",
         ],
         # Use PIPE to check the content of stdout

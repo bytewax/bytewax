@@ -11,7 +11,7 @@ from .bytewax import cluster_main, run_main
 __all__ = [
     "run_main",
     "cluster_main",
-    "poll_next",
+    "poll_next_batch",
     "TestingInput",
     "TestingOutput",
 ]
@@ -19,19 +19,19 @@ __all__ = [
 
 class _IterSource(StatefulSource):
     def __init__(self, it, resume_state):
-        self._idx = -1 if resume_state is None else resume_state
+        self._last_idx = -1 if resume_state is None else resume_state
         self._it = enumerate(it)
-        # Resume to one after the last completed read.
-        for i in range(self._idx + 1):
+        # Resume to one after the last completed read index.
+        for i in range(self._last_idx + 1):
             next(self._it)
 
-    def next(self):
+    def next_batch(self):
         # next will raise StopIteration on its own.
-        self._idx, item = next(self._it)
+        self._last_idx, item = next(self._it)
         return [item]
 
     def snapshot(self):
-        return self._idx
+        return self._last_idx
 
 
 class TestingInput(PartitionedInput):
@@ -59,7 +59,7 @@ class TestingInput(PartitionedInput):
         self._it = it
 
     def list_parts(self):
-        return {"iter"}
+        return ["iter"]
 
     def build_part(self, for_key, resume_state):
         assert for_key == "iter"
@@ -70,8 +70,8 @@ class _ListSink(StatelessSink):
     def __init__(self, ls):
         self._ls = ls
 
-    def write(self, item):
-        self._ls.append(item)
+    def write_batch(self, items):
+        self._ls += items
 
 
 class TestingOutput(DynamicOutput):
@@ -96,8 +96,8 @@ class TestingOutput(DynamicOutput):
         return _ListSink(self._ls)
 
 
-def poll_next(source: StatefulSource, timeout=timedelta(seconds=5)):
-    """Repeatedly poll an input source until it returns a value.
+def poll_next_batch(source: StatefulSource, timeout=timedelta(seconds=5)):
+    """Repeatedly poll an input source until it returns a batch.
 
     You'll want to use this in unit tests of sources when there's some
     non-determinism in how items are read.
@@ -108,17 +108,17 @@ def poll_next(source: StatefulSource, timeout=timedelta(seconds=5)):
 
     Returns:
 
-        The next item found.
+        The next batch found.
 
     Raises:
 
-        TimeoutError: If no item was returned within the timeout.
+        TimeoutError: If no batch was returned within the timeout.
 
     """
-    item = None
+    batch = []
     start = datetime.now(timezone.utc)
-    while item is None:
+    while len(batch) <= 0:
         if datetime.now(timezone.utc) - start > timeout:
             raise TimeoutError()
-        item = source.next()
-    return item
+        batch = source.next_batch()
+    return batch

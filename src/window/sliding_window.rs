@@ -82,10 +82,10 @@ impl SlidingWindower {
         length: Duration,
         offset: Duration,
         align_to: DateTime<Utc>,
-    ) -> impl Fn(Option<StateBytes>) -> Box<dyn Windower> {
+    ) -> impl Fn(Option<TdPyAny>) -> Box<dyn Windower> {
         move |resume_snapshot| {
             let close_times = resume_snapshot
-                .map(StateBytes::de::<HashMap<WindowKey, DateTime<Utc>>>)
+                .map(|snap| unwrap_any!(Python::with_gil(|py| snap.extract(py))))
                 .unwrap_or_default();
             Box::new(Self {
                 length,
@@ -186,8 +186,8 @@ impl Windower for SlidingWindower {
         self.close_times.values().min().cloned()
     }
 
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser::<HashMap<WindowKey, DateTime<Utc>>>(&self.close_times)
+    fn snapshot(&self) -> TdPyAny {
+        Python::with_gil(|py| self.close_times.clone().into_py(py).into())
     }
 }
 

@@ -59,13 +59,14 @@ class _KafkaSource(StatefulSource):
         self._batch_size = batch_size
         self._eof = False
 
-    def next(self):
+    def next_batch(self):
         if self._eof:
             raise StopIteration()
 
         msgs = self._consumer.consume(self._batch_size, 0.001)
 
-        result = []
+        batch = []
+        last_offset = None
         for msg in msgs:
             if msg.error() is not None:
                 if msg.error().code() == KafkaError._PARTITION_EOF:
@@ -80,11 +81,13 @@ class _KafkaSource(StatefulSource):
                         f"error consuming from Kafka topic `{self.topic!r}`: "
                         f"{msg.error()}"
                     )
-            result.append((msg.key(), msg.value()))
-            # Resume reading from the next message, not this one.
-            self._offset = msg.offset() + 1
+            batch.append((msg.key(), msg.value()))
+            last_offset = msg.offset()
 
-        return result
+        # Resume reading from the next message, not this one.
+        if last_offset is not None:
+            self._offset = last_offset + 1
+        return batch
 
     def snapshot(self):
         return self._offset
@@ -157,7 +160,7 @@ class KafkaInput(PartitionedInput):
         config.update(self._add_config)
         client = AdminClient(config)
 
-        return set(_list_parts(client, self._topics))
+        return list(_list_parts(client, self._topics))
 
     def build_part(self, for_part, resume_state):
         part_idx, topic = for_part.split("-", 1)
@@ -192,9 +195,9 @@ class _KafkaSink(StatelessSink):
         self._producer = producer
         self._topic = topic
 
-    def write(self, key_value):
-        key, value = key_value
-        self._producer.produce(self._topic, value, key)
+    def write_batch(self, batch):
+        for key, value in batch:
+            self._producer.produce(self._topic, value, key)
         self._producer.flush()
 
     def close(self):

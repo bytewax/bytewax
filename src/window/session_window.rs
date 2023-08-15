@@ -1,9 +1,14 @@
 use chrono::{DateTime, Duration, Utc};
-use pyo3::{pyclass, PyResult};
+use pyo3::{prelude::*, types::PyDict};
 
-use crate::{add_pymethods, window::WindowConfig};
+use crate::{
+    add_pymethods,
+    pyo3_extensions::TdPyAny,
+    unwrap_any,
+    window::{session_window::session::Session, WindowConfig},
+};
 
-use super::{InsertError, StateBytes, WindowBuilder, WindowKey, Windower};
+use super::{InsertError, WindowBuilder, WindowKey, Windower};
 
 /// Session windowing with a fixed inactivity gap.
 /// Each time a new item is received, it is added to the latest
@@ -57,14 +62,28 @@ pub(crate) struct SessionWindower {
 }
 
 impl SessionWindower {
-    pub(crate) fn builder(gap: Duration) -> impl Fn(Option<StateBytes>) -> Box<dyn Windower> {
+    pub(crate) fn builder(gap: Duration) -> impl Fn(Option<TdPyAny>) -> Box<dyn Windower> {
         move |resume_snapshot| {
             assert!(
                 gap.num_milliseconds() > 0,
                 "gap in WindowSession cannot be negative"
             );
             let (sessions, max_key) = resume_snapshot
-                .map(StateBytes::de::<(Vec<session::Session>, WindowKey)>)
+                .map(|state| -> (Vec<Session>, WindowKey) {
+                    unwrap_any!(Python::with_gil(
+                        |py| -> PyResult<(Vec<Session>, WindowKey)> {
+                            let state = state.as_ref(py);
+                            let session_snaps: Vec<TdPyAny> =
+                                state.get_item("sessions")?.extract()?;
+                            let max_key = state.get_item("max_key")?.extract()?;
+                            let sessions = session_snaps
+                                .into_iter()
+                                .map(|ss| Session::from_snap(py, ss))
+                                .collect::<PyResult<Vec<Session>>>()?;
+                            Ok((sessions, max_key))
+                        }
+                    ))
+                })
                 .unwrap_or_else(|| (vec![], WindowKey(0)));
             Box::new(Self {
                 gap,
@@ -208,11 +227,19 @@ impl Windower for SessionWindower {
             .map(|s| s.current_close_time(&self.gap))
     }
 
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser::<(Vec<session::Session>, WindowKey)>(&(
-            self.sessions.clone(),
-            self.max_key,
-        ))
+    fn snapshot(&self) -> TdPyAny {
+        unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
+            let state = PyDict::new(py);
+            let sessions = self
+                .sessions
+                .iter()
+                .map(|s| s.snapshot(py))
+                .collect::<PyResult<Vec<TdPyAny>>>()?;
+            state.set_item("sessions", sessions.into_py(py))?;
+            state.set_item("max_key", self.max_key.into_py(py))?;
+            let state: PyObject = state.into_py(py);
+            Ok(state.into())
+        }))
     }
 }
 
@@ -261,12 +288,12 @@ fn test_insert() {
 /// - self.latest_event_time has to be valid, which is done through Session::try_insert
 mod session {
     use chrono::{DateTime, Duration, Utc};
-    use serde::{Deserialize, Serialize};
+    use pyo3::{prelude::*, types::PyDict};
 
-    use crate::window::WindowKey;
+    use crate::{pyo3_extensions::TdPyAny, window::WindowKey};
 
     /// This struct represents a Session.
-    #[derive(Serialize, Deserialize, Clone, Debug, Eq)]
+    #[derive(Clone, Debug, Eq)]
     pub(crate) struct Session {
         key: WindowKey,
         start: DateTime<Utc>,
@@ -280,6 +307,19 @@ mod session {
                 start,
                 latest_event_time: start,
             }
+        }
+
+        pub fn from_snap(py: Python, state: TdPyAny) -> PyResult<Self> {
+            let state = state.as_ref(py);
+            let key = state.get_item("key")?.extract()?;
+            let start = state.get_item("start")?.extract()?;
+            let latest_event_time = state.get_item("latest_event_time")?.extract()?;
+
+            Ok(Self {
+                key,
+                start,
+                latest_event_time,
+            })
         }
 
         pub fn start(&self) -> &DateTime<Utc> {
@@ -330,6 +370,15 @@ mod session {
                 start: self.start.min(other.start),
                 latest_event_time: self.latest_event_time.max(other.latest_event_time),
             }
+        }
+
+        pub fn snapshot(&self, py: Python) -> PyResult<TdPyAny> {
+            let state = PyDict::new(py);
+            state.set_item("key", self.key.into_py(py))?;
+            state.set_item("start", self.start.into_py(py))?;
+            state.set_item("latest_event_time", self.latest_event_time.into_py(py))?;
+            let state: PyObject = state.into();
+            Ok(state.into())
         }
     }
 

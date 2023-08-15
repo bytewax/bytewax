@@ -2,36 +2,32 @@
 //!
 //! For a user-centric version of how to execute dataflows, read the
 //! the `bytewax.execution` Python module docstring. Read that first.
-//!
-//! [`worker_main()`] for the root of all the internal action here.
-//!
-//! Dataflow Building
-//! -----------------
-//!
-//! The "blueprint" of a dataflow in [`crate::dataflow::Dataflow`] is
-//! compiled into a Timely dataflow in [`crate::worker::build_production_dataflow`].
-//!
-//! See [`crate::recovery`] for a description of the recovery
-//! components added to the Timely dataflow.
 
-use crate::dataflow::Dataflow;
-use crate::errors::{prepend_tname, tracked_err, PythonException};
-use crate::inputs::EpochInterval;
-use crate::recovery::python::default_recovery_config;
-use crate::recovery::python::RecoveryConfig;
-use crate::unwrap_any;
-use crate::webserver::run_webserver;
-use crate::worker::Worker;
-use pyo3::exceptions::{PyKeyboardInterrupt, PyRuntimeError};
-use pyo3::prelude::*;
-use pyo3::types::PyType;
+use std::fs::File;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use std::{fs::File, io::Write, sync::Arc};
+
+use pyo3::exceptions::PyKeyboardInterrupt;
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::prelude::*;
+use pyo3::types::PyType;
 use tokio::runtime::Runtime;
+
+use crate::dataflow::Dataflow;
+use crate::errors::prepend_tname;
+use crate::errors::tracked_err;
+use crate::errors::PythonException;
+use crate::inputs::EpochInterval;
+use crate::recovery::RecoveryConfig;
+use crate::unwrap_any;
+use crate::webserver::run_webserver;
+use crate::worker::worker_main;
 
 /// Start the tokio runtime for the webserver.
 /// Keep a reference to the runtime for as long as you need it running.
@@ -96,9 +92,8 @@ fn start_server_runtime(df: &Py<Dataflow>) -> PyResult<Runtime> {
 ///   epoch_interval (datetime.timedelta): System time length of each
 ///       epoch. Defaults to 10 seconds.
 ///
-///   recovery_config: State recovery config. See
-///       `bytewax.recovery`. If `None`, state will not be
-///       persisted.
+///   recovery_config (bytewax.recovery.RecoveryConfig): State
+///       recovery config. If `None`, state will not be persisted.
 ///
 #[pyfunction]
 #[pyo3(
@@ -112,25 +107,29 @@ pub(crate) fn run_main(
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
     tracing::info!("Running single worker on single process");
+
+    let epoch_interval = epoch_interval.unwrap_or_default();
+    tracing::info!("Using epoch interval of {:?}", epoch_interval);
+
     let res = py.allow_threads(move || {
         std::panic::catch_unwind(|| {
             timely::execute::execute_directly::<(), _>(move |worker| {
-                let interrupt_flag = AtomicBool::new(false);
-
-                let worker_runner = Worker::new(
+                unwrap_any!(worker_main(
                     worker,
-                    &interrupt_flag,
+                    // Since there are no other threads, directly
+                    // detect signals in the dataflow run loop.
+                    || {
+                        unwrap_any!(Python::with_gil(
+                            |py| Python::check_signals(py).reraise("signal received")
+                        ));
+                        // We'll panic directly and don't need to
+                        // interrupt.
+                        false
+                    },
                     flow,
-                    epoch_interval.unwrap_or_default(),
-                    recovery_config.unwrap_or(default_recovery_config()),
-                );
-                // The error will be reraised in the building phase.
-                // If an error occur during the execution, it will
-                // cause a panic since timely doesn't offer a way
-                // to cleanly stop workers with a Result::Err.
-                // The panic will be caught by catch_unwind, so we
-                // unwrap with a PyErr payload.
-                unwrap_any!(worker_runner.run().reraise("worker error"))
+                    epoch_interval,
+                    recovery_config
+                ))
             })
         })
     });
@@ -197,9 +196,8 @@ pub(crate) fn run_main(
 ///   epoch_interval (datetime.timedelta): System time length of each
 ///       epoch. Defaults to 10 seconds.
 ///
-///   recovery_config: State recovery config. See
-///       `bytewax.recovery`. If `None`, state will not be
-///       persisted.
+///   recovery_config (bytewax.recovery.RecoveryConfig): State
+///       recovery config. If `None`, state will not be persisted.
 ///
 ///   worker_count_per_proc: Number of worker threads to start on
 ///       each process.
@@ -222,6 +220,10 @@ pub(crate) fn cluster_main(
         worker_count_per_proc,
         proc_id
     );
+
+    let epoch_interval = epoch_interval.unwrap_or_default();
+    tracing::info!("Using epoch interval of {:?}", epoch_interval);
+
     py.allow_threads(move || {
         let addresses = addresses.unwrap_or_default();
         let (builders, other) = if addresses.is_empty() {
@@ -239,22 +241,16 @@ pub(crate) fn cluster_main(
         .raise::<PyRuntimeError>("error building timely communication pipeline")?;
 
         let should_shutdown = Arc::new(AtomicBool::new(false));
-        let should_shutdown_w = should_shutdown.clone();
         let should_shutdown_p = should_shutdown.clone();
-
+        let should_shutdown_w = should_shutdown.clone();
         // Custom hook to print the proper stacktrace to stderr
         // before panicking if possible.
         std::panic::set_hook(Box::new(move |info| {
             should_shutdown_p.store(true, Ordering::Relaxed);
+
             let msg = if let Some(err) = info.payload().downcast_ref::<PyErr>() {
                 // Panics with PyErr as payload should come from bytewax.
                 Python::with_gil(|py| err.clone_ref(py))
-            } else if let Some(msg) = info.payload().downcast_ref::<String>() {
-                // Panics with String payload usually comes from timely here.
-                tracked_err::<PyRuntimeError>(msg)
-            } else if let Some(msg) = info.payload().downcast_ref::<&str>() {
-                // Other kind of panics that can be downcasted to &str
-                tracked_err::<PyRuntimeError>(msg)
             } else {
                 // Give up trying to understand the error,
                 // and show the user what we have.
@@ -274,14 +270,17 @@ pub(crate) fn cluster_main(
             other,
             timely::WorkerConfig::default(),
             move |worker| {
-                let worker_runner = Worker::new(
+                let flow = Python::with_gil(|py| flow.clone_ref(py));
+                let recovery_config = recovery_config.clone();
+
+                unwrap_any!(worker_main(
                     worker,
-                    &should_shutdown_w,
-                    flow.clone(),
-                    epoch_interval.clone().unwrap_or_default(),
-                    recovery_config.clone().unwrap_or(default_recovery_config()),
-                );
-                unwrap_any!(worker_runner.run())
+                    // Interrupt if the main thread detects a signal.
+                    || should_shutdown_w.load(Ordering::Relaxed),
+                    flow,
+                    epoch_interval,
+                    recovery_config
+                ))
             },
         )
         .raise::<PyRuntimeError>("error during execution")?;
@@ -331,10 +330,9 @@ pub(crate) fn cli_main(
     workers_per_process: Option<usize>,
     process_id: Option<usize>,
     addresses: Option<Vec<String>>,
-    epoch_interval: Option<f64>,
+    epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
-    let epoch_interval = epoch_interval.map(|dur| EpochInterval::new(Duration::from_secs_f64(dur)));
     if processes.is_some() && (process_id.is_some() || addresses.is_some()) {
         return Err(tracked_err::<PyRuntimeError>(
             "Can't specify both 'processes' and 'process_id/addresses'",

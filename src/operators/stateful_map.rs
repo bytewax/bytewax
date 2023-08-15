@@ -27,29 +27,21 @@ impl StatefulMapLogic {
     pub(crate) fn builder(
         builder: TdPyCallable,
         mapper: TdPyCallable,
-    ) -> impl Fn(Option<StateBytes>) -> Self {
+    ) -> impl Fn(Option<TdPyAny>) -> Self {
         move |resume_snapshot| {
-            let state = resume_snapshot
-                .map(StateBytes::de::<Option<TdPyAny>>)
-                .unwrap_or_else(|| {
-                    Python::with_gil(|py| {
-                        let initial_state: TdPyAny = unwrap_any!(builder
-                            .call1(py, ())
-                            .reraise("error calling `stateful_map` builder"))
-                        .into();
-                        tracing::debug!(
-                            builder = ?builder,
-                            initial_state = ?initial_state,
-                            "stateful_map_builder",
-                        );
-                        Some(initial_state)
+            Python::with_gil(|py| {
+                let state = resume_snapshot
+                    .and_then(|state| {
+                        let state: Option<Option<TdPyAny>> = unwrap_any!(state.extract(py));
+                        state
                     })
-                });
+                    .unwrap_or_default();
 
-            Python::with_gil(|py| Self {
-                builder: builder.clone_ref(py),
-                mapper: mapper.clone_ref(py),
-                state,
+                Self {
+                    builder: builder.clone_ref(py),
+                    mapper: mapper.clone_ref(py),
+                    state,
+                }
             })
         }
     }
@@ -113,7 +105,7 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for StatefulMapLogic {
     }
 
     #[tracing::instrument(name = "stateful_map_snapshot", level = "trace", skip_all)]
-    fn snapshot(&self) -> StateBytes {
-        StateBytes::ser::<Option<TdPyAny>>(&self.state)
+    fn snapshot(&self) -> TdPyAny {
+        Python::with_gil(|py| self.state.to_object(py).into())
     }
 }

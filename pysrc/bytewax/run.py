@@ -70,55 +70,23 @@ $ python -m bytewax.run my_dataflow \
     --process-id 1
 ```
 
-
 Recovery
 --------
 
-Bytewax allows you to **recover** a stateful dataflow; it will let you
-resume processing and output due to a failure without re-processing
-all initial data to re-calculate all internal state.
-
-It does this by snapshoting state and progress information for a
-single dataflow instance in a distributed set of SQLite databases in
-the **recovery directory** periodically. The **epoch** is period of
-this snapshotting. Bytewax defaults to a new epoch every 10 seconds,
-but you can change it with the `epoch_interval` parameter.
-
-When you run your dataflow it will start backing up recovery data
-automatically. Recovery data for multiple dataflows _must not_ be
-mixed together.
-
-If the dataflow fails, first you must fix whatever underlying fault
-caused the issue. That might mean deploying new code which fixes a bug
-or resolving an issue with a connected system.
-
-Once that is done, re-run the dataflow using the _same recovery
-directory_. Bytewax will automatically read the progress of the
-previous dataflow execution and determine the most recent epoch that
-processing can resume at. Output should resume from that
-epoch. Because snapshotting only happens periodically, the dataflow
-can only resume on epoch boundaries.
-
-It is possible that your output systems will see duplicate data around
-the resume epoch; design your systems to support at-least-once
-processing.
-
-If you want to fully restart a dataflow and ignore previous state,
-delete the data in the recovery directory.
-
-Currently it is not possible to recover a dataflow with a different
-number of workers than when it failed.
+See the `bytewax.recovery` module docstring for how to setup recovery.
 
 """
+
 import argparse
 import ast
 import inspect
 import os
-import pathlib
 import sys
 import traceback
+from datetime import timedelta
+from pathlib import Path
 
-from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.recovery import RecoveryConfig
 
 from .bytewax import cli_main
 
@@ -298,6 +266,10 @@ def _prepare_import(import_str):
     return ".".join(module_name[::-1]) + f":{flow_name}"
 
 
+def _parse_timedelta(s):
+    return timedelta(seconds=int(s))
+
+
 def _parse_args():
     parser = argparse.ArgumentParser(
         prog="python -m bytewax.run", description="Run a bytewax dataflow"
@@ -306,9 +278,11 @@ def _parse_args():
         "import_str",
         type=str,
         help="Dataflow import string in the format "
-        "<module_name>:<dataflow_variable_or_factory> "
-        "Example: src.dataflow:flow or src.dataflow:get_flow('string_argument')",
+        "<module_name>[:<dataflow_variable_or_factory>] "
+        "Example: src.dataflow or src.dataflow:flow or "
+        "src.dataflow:get_flow('string_argument')",
     )
+
     scaling = parser.add_argument_group(
         "Scaling",
         "You should use either '-p' to spawn multiple processes "
@@ -348,22 +322,38 @@ def _parse_args():
         envvar="BYTEWAX_ADDRESSES",
     )
 
-    # Config options for recovery
-    recovery = parser.add_argument_group("Recovery")
-    recovery.add_argument(
-        "--sqlite-directory",
-        type=pathlib.Path,
-        help="Passing this argument enables sqlite recovery in the specified folder",
-        action=_EnvDefault,
-        envvar="BYTEWAX_SQLITE_DIRECTORY",
+    recovery = parser.add_argument_group(
+        "Recovery", """See the `bytewax.recovery` module docstring for more info."""
     )
     recovery.add_argument(
-        "--epoch-interval",
-        type=int,
-        default=10,
-        help="Number of seconds between state snapshots",
+        "-r",
+        "--recovery-directory",
+        type=Path,
+        help="""Local file system directory to look for pre-initialized recovery
+        partitions; see `python -m bytewax.recovery` for how to init partitions""",
         action=_EnvDefault,
-        envvar="BYTEWAX_EPOCH_INTERVAL",
+        envvar="BYTEWAX_RECOVERY_DIRECTORY",
+    )
+    parser.add_argument(
+        "-s",
+        "--snapshot-interval",
+        type=_parse_timedelta,
+        default=timedelta(seconds=10),
+        help="""System time duration in seconds to snapshot state for recovery;
+        defaults to 10 sec""",
+        action=_EnvDefault,
+        envvar="BYTEWAX_SNAPSHOT_INTERVAL",
+    )
+    recovery.add_argument(
+        "-b",
+        "--backup-interval",
+        type=_parse_timedelta,
+        default=timedelta(days=1),
+        help="""System time duration in seconds to keep extra state snapshots around;
+        set this to the interval at which you are backing up recovery partitions;
+        defaults to 1 day""",
+        action=_EnvDefault,
+        envvar="BYTEWAX_RECOVERY_BACKUP_INTERVAL",
     )
 
     args = parser.parse_args()
@@ -414,18 +404,22 @@ def _parse_args():
 if __name__ == "__main__":
     kwargs = vars(_parse_args())
 
-    # Prepare recovery config
-    sqlite_directory = kwargs.pop("sqlite_directory")
+    kwargs["epoch_interval"] = kwargs.pop("snapshot_interval")
+
+    recovery_directory, backup_interval = kwargs.pop("recovery_directory"), kwargs.pop(
+        "backup_interval"
+    )
     kwargs["recovery_config"] = None
-    if sqlite_directory:
-        kwargs["recovery_config"] = SqliteRecoveryConfig(sqlite_directory)
+    if recovery_directory is not None:
+        kwargs["recovery_config"] = RecoveryConfig(recovery_directory, backup_interval)
 
     # Prepare addresses
     addresses = kwargs.pop("addresses")
-    if addresses:
+    if addresses is not None:
         kwargs["addresses"] = addresses.split(";")
 
     # Import the dataflow
     module_str, _, attrs_str = kwargs.pop("import_str").partition(":")
     kwargs["flow"] = _locate_dataflow(module_str, attrs_str)
+
     cli_main(**kwargs)

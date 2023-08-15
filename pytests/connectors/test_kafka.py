@@ -14,7 +14,7 @@ from pytest import fixture, mark, raises
 
 from bytewax.connectors.kafka import KafkaInput, KafkaOutput
 from bytewax.dataflow import Dataflow
-from bytewax.testing import poll_next, run_main, TestingInput, TestingOutput
+from bytewax.testing import poll_next_batch, run_main, TestingInput, TestingOutput
 
 pytestmark = mark.skipif(
     "TEST_KAFKA_BROKER" not in os.environ,
@@ -87,18 +87,18 @@ def test_input_resume_state(tmp_topic):
 
     inp = KafkaInput([KAFKA_BROKER], topics, tail=False)
     part = inp.build_part(f"{partition}-{tmp_topic}", None)
-    assert poll_next(part) == (b"key-0-0", b"value-0-0")
-    assert poll_next(part) == (b"key-0-1", b"value-0-1")
+    assert poll_next_batch(part) == [(b"key-0-0", b"value-0-0")]
+    assert poll_next_batch(part) == [(b"key-0-1", b"value-0-1")]
     resume_state = part.snapshot()
-    assert poll_next(part) == (b"key-0-2", b"value-0-2")
+    assert poll_next_batch(part) == [(b"key-0-2", b"value-0-2")]
     part.close()
 
     inp = KafkaInput([KAFKA_BROKER], topics, tail=False)
     part = inp.build_part(f"{partition}-{tmp_topic}", resume_state)
     assert part.snapshot() == resume_state
-    assert poll_next(part) == (b"key-0-2", b"value-0-2")
+    assert poll_next_batch(part) == [(b"key-0-2", b"value-0-2")]
     with raises(StopIteration):
-        poll_next(part)
+        poll_next_batch(part)
     part.close()
 
 
@@ -113,10 +113,10 @@ def test_input_raises_on_topic_not_exist():
     with raises(Exception) as exinfo:
         run_main(flow)
 
-    assert str(exinfo.value) == (
+    assert (
         "error listing partitions for Kafka topic `'missing-topic'`: "
         "Broker: Unknown topic or partition"
-    )
+    ) in str(exinfo.value)
 
 
 def test_input_raises_on_str_brokers(tmp_topic):

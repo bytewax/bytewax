@@ -12,6 +12,7 @@ pub(crate) mod outputs;
 pub(crate) mod pyo3_extensions;
 pub(crate) mod recovery;
 pub(crate) mod run;
+pub(crate) mod serde;
 pub(crate) mod timely;
 pub(crate) mod tracing;
 pub(crate) mod webserver;
@@ -66,7 +67,7 @@ fn setup_tracing(
 fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
     dataflow::register(py, m)?;
     run::register(py, m)?;
-    recovery::python::register(py, m)?;
+    recovery::register(py, m)?;
     window::register(py, m)?;
     tracing::register(py, m)?;
 

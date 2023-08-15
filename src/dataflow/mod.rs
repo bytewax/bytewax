@@ -9,6 +9,9 @@
 //! We can't call into this structure directly from Timely because PyO3 does
 //! not like generics.
 
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
+use pyo3::types::*;
 use std::collections::HashMap;
 
 use crate::common::pickle_extract;
@@ -16,12 +19,9 @@ use crate::errors::PythonException;
 use crate::inputs::Input;
 use crate::outputs::Output;
 use crate::pyo3_extensions::TdPyCallable;
-use crate::recovery::model::StepId;
+use crate::recovery::StepId;
 use crate::window::clock::ClockConfig;
 use crate::window::WindowConfig;
-use pyo3::exceptions::PyValueError;
-use pyo3::prelude::*;
-use pyo3::types::*;
 
 /// A definition of a Bytewax dataflow graph.
 ///
@@ -292,9 +292,9 @@ impl Dataflow {
     /// >>> out = []
     /// >>> flow.output("out", TestingOutput(out))  # Notice we don't print out.
     /// >>> run_main(flow, epoch_interval=timedelta(seconds=0))
-    /// Saw 0 @ 0
-    /// Saw 1 @ 1
-    /// Saw 2 @ 2
+    /// Saw 0 @ 1
+    /// Saw 1 @ 2
+    /// Saw 2 @ 3
     ///
     /// Args:
     ///

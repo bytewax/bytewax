@@ -19,7 +19,9 @@ classifiers = [
     "Topic :: System :: Networking",
     "Topic :: System :: Distributed Computing",
 ]
-dependencies = []
+dependencies = [
+    "jsonpickle>=3",
+]
 extras = ["kafka", "dev", "docs", "test"]
 
 [project.optional-dependencies]

@@ -8,7 +8,8 @@ Subclass the types here to implement input for your own custom sink.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Set
+from typing import Any, List, Optional
+from zlib import adler32
 
 __all__ = [
     "DynamicOutput",
@@ -41,23 +42,23 @@ class StatefulSink(ABC):
     """Output sink that maintains state of its position."""
 
     @abstractmethod
-    def write(self, value) -> None:
-        """Write a single output value.
+    def write_batch(self, values: List[Any]) -> None:
+        """Write a batch of output values.
 
-        Called once with only `value` for each `(key, value)` at this
+        Called with a list of `value`s for each `(key, value)` at this
         point in the dataflow.
 
-        See `PartitionedOutput.assign_part` for how the key is mapped
-        to partition.
+        See `PartitionedOutput.part_fn` for how the key is mapped to
+        partition.
 
         Args:
 
-            value: Value in the dataflow.
+            values: Values in the dataflow. Non-deterministically
+                batched.
 
         """
         ...
 
-    @abstractmethod
     def snapshot(self) -> Any:
         """Snapshot the position of the next write of this sink.
 
@@ -75,14 +76,14 @@ class StatefulSink(ABC):
             Resume state.
 
         """
-        ...
+        return None
 
     def close(self) -> None:
         """Do any cleanup on this sink when the dataflow completes on
         a finite input.
 
         This is not guaranteed to be called. It will not be called
-        during a crash.
+        during an abrupt or abort shutdown.
 
         """
         pass
@@ -98,28 +99,30 @@ class PartitionedOutput(Output):
     """
 
     @abstractmethod
-    def list_parts(self) -> Set[str]:
-        """List all partitions by a string key.
+    def list_parts(self) -> List[str]:
+        """List all local partitions this worker has access to.
 
-        This must consistently return the same keys when called by all
-        workers in all executions.
-
-        Keys must be unique within this dataflow step.
+        You do not need to list all partitions globally.
 
         Returns:
 
-            Partition keys.
+            Local partition keys.
 
         """
         ...
 
-    @abstractmethod
-    def assign_part(self, item_key: str) -> str:
+    def part_fn(self, item_key: str) -> int:
         """Define how incoming `(key, value)` pairs should be routed
         to partitions.
 
-        This must be globally consistent and return the same partition
-        assignment on every call.
+        Defaults to `zlib.adler32` as a simple consistent function.
+
+        This must be globally consistent across workers and executions
+        and return the same hash on every call.
+
+        A specific partition is chosen by wrapped indexing this value
+        into the ordered global set of partitions. (Not just
+        partitions local to this worker.)
 
         .. caution:: Do not use Python's built in `hash` function
             here! It is [_not consistent between processes by
@@ -127,38 +130,28 @@ class PartitionedOutput(Output):
             and using it will cause incorrect partitioning in cluster
             executions.
 
-            You can start by using `zlib.adler32` as a quick drop-in
-            replacement.
-
         Args:
 
-            item_key: Key that is about to be written.
+            item_key: Key for the value that is about to be written.
 
         Returns:
 
-            Partition key the value for this key should be written
-            to. Must be one of the partition keys returned by
-            `list_parts`.
+            Integer hash value that is used to assign partition.
 
         """
-        ...
+        return adler32(item_key.encode())
 
     @abstractmethod
     def build_part(
         self,
         for_part: str,
         resume_state: Optional[Any],
-    ) -> Optional[StatefulSink]:
+    ) -> StatefulSink:
         """Build an output partition, resuming writing at the position
         encoded in the resume state.
 
-        Will be called once on one worker in an execution for each
-        partition key in order to distribute partitions across all
-        workers.
-
-        Return `None` if for some reason this partition is no longer
-        valid and can be skipped coherently. Raise an exception if
-        not.
+        Will be called once per execution for each partition key on a
+        worker that reported that partition was local in `list_parts`.
 
         Do not pre-build state about a partition in the
         constructor. All state must be derived from `resume_state` for
@@ -166,7 +159,8 @@ class PartitionedOutput(Output):
 
         Args:
 
-            for_part: Which partition to build.
+            for_part: Which partition to build. Will always be one of
+                the keys returned by `list_parts` on this worker.
 
             resume_state: State data containing where in the output
                 stream this partition should be begin writing during
@@ -174,7 +168,7 @@ class PartitionedOutput(Output):
 
         Returns:
 
-            The built partition, or `None`.
+            The built partition.
 
         """
         ...
@@ -184,14 +178,17 @@ class StatelessSink(ABC):
     """Output sink that is stateless."""
 
     @abstractmethod
-    def write(self, item) -> None:
-        """
+    def write_batch(self, items: List[Any]) -> None:
+        """Write a batch of output items.
 
-        Called once for each item at this point in the dataflow.
+        Called multiple times whenever new items are seen at this
+        point in the dataflow.
 
         Args:
 
-            item: Item in the dataflow.
+            items: Items in the dataflow. Non-deterministically
+                batched.
+
         """
         ...
 
@@ -200,7 +197,7 @@ class StatelessSink(ABC):
         a finite input.
 
         This is not guaranteed to be called. It will not be called
-        during a crash.
+        during an abrupt or abort shutdown.
 
         """
         pass
