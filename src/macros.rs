@@ -73,7 +73,6 @@ macro_rules! log_func {
 /// use pyo3::{pyclass, Python};
 ///
 /// #[pyclass(module = "bytewax.window", subclass)]
-/// #[pyo3(text_signature = "()")]
 /// struct WindowConfig;
 ///
 /// #[pyclass(module="bytewax.config", extends=WindowConfig)]

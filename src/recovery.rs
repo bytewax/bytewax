@@ -239,7 +239,6 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<String>);
 ///   snapshot_serde (SnapshotSerde): Serialization to use when
 ///       encoding state snapshot objects in the recovery partitions.
 #[pyclass(module = "bytewax.recovery")]
-#[pyo3(text_signature = "(db_dir, backup_interval, snapshot_serde)")]
 pub(crate) struct RecoveryConfig {
     #[pyo3(get)]
     db_dir: PathBuf,

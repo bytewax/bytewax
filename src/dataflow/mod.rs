@@ -29,7 +29,6 @@ use crate::window::WindowConfig;
 /// of the same name.
 // TODO: Right now this is just a linear dataflow only.
 #[pyclass(module = "bytewax.dataflow")]
-#[pyo3(text_signature = "()")]
 #[derive(Clone)]
 pub(crate) struct Dataflow {
     #[pyo3(get)]
@@ -73,7 +72,6 @@ impl Dataflow {
     ///   step_id (str): Uniquely identifies this step for recovery.
     ///
     ///   input (bytewax.inputs.Input): Input definition.
-    #[pyo3(signature = (step_id, input))]
     fn input(&mut self, step_id: StepId, input: Input) {
         self.steps.push(Step::Input { step_id, input });
     }
@@ -144,7 +142,6 @@ impl Dataflow {
     ///   step_id (str): Uniquely identifies this step for recovery.
     ///
     ///   output (bytewax.outputs.Output): Output definition.
-    #[pyo3(signature = (step_id, output))]
     fn output(&mut self, step_id: StepId, output: Output) {
         self.steps.push(Step::Output { step_id, output });
     }
@@ -181,7 +178,6 @@ impl Dataflow {
     /// Args:
     ///
     ///   predicate: `predicate(item: Any) => should_emit: bool`
-    #[pyo3(signature = (predicate))]
     fn filter(&mut self, predicate: TdPyCallable) {
         self.steps.push(Step::Filter { predicate });
     }
@@ -199,7 +195,6 @@ impl Dataflow {
     /// ...
     /// >>> flow.filter_map(validate)
     ///
-    #[pyo3(signature = (mapper))]
     fn filter_map(&mut self, mapper: TdPyCallable) {
         self.steps.push(Step::FilterMap { mapper });
     }
@@ -235,7 +230,6 @@ impl Dataflow {
     /// Args:
     ///
     ///   mapper: `mapper(item: Any) => emit: Iterable[Any]`
-    #[pyo3(signature = (mapper))]
     fn flat_map(&mut self, mapper: TdPyCallable) {
         self.steps.push(Step::FlatMap { mapper });
     }
@@ -266,7 +260,6 @@ impl Dataflow {
     /// Args:
     ///
     ///   inspector: `inspector(item: Any) => None`
-    #[pyo3(signature = (inspector))]
     fn inspect(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::Inspect { inspector });
     }
@@ -299,7 +292,6 @@ impl Dataflow {
     /// Args:
     ///
     ///   inspector: `inspector(epoch: int, item: Any) => None`
-    #[pyo3(signature = (inspector))]
     fn inspect_epoch(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::InspectEpoch { inspector });
     }
@@ -313,7 +305,6 @@ impl Dataflow {
     /// It emits items downstream unmodified.
     ///
     /// It is commonly used for debugging.
-    #[pyo3(text_signature = "(self, inspector)")]
     fn inspect_worker(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::InspectWorker { inspector });
     }
@@ -347,7 +338,6 @@ impl Dataflow {
     /// Args:
     ///
     ///   mapper: `mapper(item: Any) => updated_item: Any`
-    #[pyo3(signature = (mapper))]
     fn map(&mut self, mapper: TdPyCallable) {
         self.steps.push(Step::Map { mapper });
     }
@@ -422,7 +412,6 @@ impl Dataflow {
     ///
     ///   is_complete: `is_complete(updated_accumulator: Any) =>
     ///       should_emit: bool`
-    #[pyo3(signature = (step_id, reducer, is_complete))]
     fn reduce(&mut self, step_id: StepId, reducer: TdPyCallable, is_complete: TdPyCallable) {
         self.steps.push(Step::Reduce {
             step_id,
@@ -503,7 +492,6 @@ impl Dataflow {
     ///   builder: `builder(key: Any) => initial_accumulator: Any`
     ///
     ///   folder: `folder(accumulator: Any, value: Any) => updated_accumulator: Any`
-    #[pyo3(signature = (step_id, clock_config, window_config, builder, folder))]
     fn fold_window(
         &mut self,
         step_id: StepId,
@@ -595,7 +583,6 @@ impl Dataflow {
     ///
     ///   reducer: `reducer(accumulator: Any, value: Any) =>
     ///       updated_accumulator: Any`
-    #[pyo3(signature = (step_id, clock_config, window_config, reducer))]
     fn reduce_window(
         &mut self,
         step_id: StepId,
@@ -635,7 +622,6 @@ impl Dataflow {
     ///
     ///   window_config (bytewax.window.WindowConfig): Windower
     ///       config to use. See `bytewax.window`.
-    #[pyo3(signature = (step_id, clock_config, window_config))]
     fn collect_window(
         &mut self,
         step_id: StepId,
@@ -722,7 +708,6 @@ impl Dataflow {
     ///
     ///   mapper: `mapper(state: Any, value: Any) => (updated_state:
     ///       Any, updated_value: Any)`
-    #[pyo3(signature = (step_id, builder, mapper))]
     fn stateful_map(&mut self, step_id: StepId, builder: TdPyCallable, mapper: TdPyCallable) {
         self.steps.push(Step::StatefulMap {
             step_id,

@@ -23,13 +23,11 @@ pub(crate) mod worker;
 pub(crate) mod macros;
 
 #[pyfunction]
-#[pyo3(text_signature = "(secs)")]
 fn sleep_keep_gil(secs: u64) {
     thread::sleep(Duration::from_secs(secs));
 }
 
 #[pyfunction]
-#[pyo3(text_signature = "(secs)")]
 fn sleep_release_gil(py: Python, secs: u64) {
     py.allow_threads(|| {
         thread::sleep(Duration::from_secs(secs));
@@ -50,7 +48,6 @@ fn sleep_release_gil(py: Python, secs: u64) {
 /// tracer = setup_tracing()
 /// ```
 #[pyfunction]
-#[pyo3(text_signature = "(tracing_config, log_level)")]
 fn setup_tracing(
     py: Python,
     tracing_config: Option<Py<tracing::TracingConfig>>,

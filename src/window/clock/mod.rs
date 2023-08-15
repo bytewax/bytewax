@@ -22,7 +22,6 @@ pub(crate) mod system_clock;
 /// Use a specific subclass of this that matches the time definition
 /// you'd like to use.
 #[pyclass(module = "bytewax.window", subclass)]
-#[pyo3(text_signature = "()")]
 pub(crate) struct ClockConfig;
 
 impl ClockConfig {

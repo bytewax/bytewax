@@ -34,7 +34,6 @@ use crate::{
 /// Use a specific subclass of this to configure where you want the
 /// traces to go.
 #[pyclass(module = "bytewax.tracing", subclass)]
-#[pyo3(text_signature = "()")]
 pub(crate) struct TracingConfig;
 
 impl TracingConfig {
