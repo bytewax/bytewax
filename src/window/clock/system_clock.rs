@@ -15,7 +15,6 @@ use super::*;
 /// If the dataflow has no more input, all windows are closed.
 ///
 /// Returns:
-///
 ///   Config object. Pass this as the `clock_config` parameter to
 ///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=ClockConfig)]

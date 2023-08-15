@@ -15,7 +15,8 @@ def tokenize(line):
 
 def initial_count(word):
     if word == "arrows":
-        raise RuntimeError("BOOM")
+        msg = "BOOM"
+        raise RuntimeError(msg)
     return word, 1
 
 

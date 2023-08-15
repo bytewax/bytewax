@@ -11,7 +11,8 @@ from bytewax.testing import TestingInput
 
 def broken_map(x):
     # XXX: Error here
-    raise TypeError("A vague error message")
+    msg = "A vague error message"
+    raise TypeError(msg)
 
 
 flow = Dataflow()

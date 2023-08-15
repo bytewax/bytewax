@@ -20,7 +20,7 @@ __all__ = [
 ]
 
 
-class Output(ABC):
+class Output(ABC):  # noqa: B024
     """Base class for all output types. Do not subclass this.
 
     If you want to implement a custom connector, instead subclass one
@@ -29,7 +29,9 @@ class Output(ABC):
     """
 
     def __json__(self):
-        """This is used by the Bytewax platform internally and should
+        """JSON representation of this.
+
+        This is used by the Bytewax platform internally and should
         not be overridden.
 
         """
@@ -52,9 +54,8 @@ class StatefulSink(ABC):
         partition.
 
         Args:
-
-            values: Values in the dataflow. Non-deterministically
-                batched.
+            values:
+                Values in the dataflow. Non-deterministically batched.
 
         """
         ...
@@ -72,21 +73,20 @@ class StatefulSink(ABC):
         This is guaranteed to never be called after `close()`.
 
         Returns:
-
             Resume state.
 
         """
         return None
 
     def close(self) -> None:
-        """Do any cleanup on this sink when the dataflow completes on
-        a finite input.
+        """Cleanup this sink when the dataflow completes.
 
-        This is not guaranteed to be called. It will not be called
-        during an abrupt or abort shutdown.
+        This is not guaranteed to be called. It will only be called
+        when the dataflow finishes on finite input. It will not be
+        called during an abrupt or abort shutdown.
 
         """
-        pass
+        return
 
 
 class PartitionedOutput(Output):
@@ -105,15 +105,13 @@ class PartitionedOutput(Output):
         You do not need to list all partitions globally.
 
         Returns:
-
             Local partition keys.
 
         """
         ...
 
     def part_fn(self, item_key: str) -> int:
-        """Define how incoming `(key, value)` pairs should be routed
-        to partitions.
+        """Route incoming `(key, value)` pairs to partitions.
 
         Defaults to `zlib.adler32` as a simple consistent function.
 
@@ -131,11 +129,10 @@ class PartitionedOutput(Output):
             executions.
 
         Args:
-
-            item_key: Key for the value that is about to be written.
+            item_key:
+                Key for the value that is about to be written.
 
         Returns:
-
             Integer hash value that is used to assign partition.
 
         """
@@ -147,8 +144,7 @@ class PartitionedOutput(Output):
         for_part: str,
         resume_state: Optional[Any],
     ) -> StatefulSink:
-        """Build an output partition, resuming writing at the position
-        encoded in the resume state.
+        """Build anew or resume an output partition.
 
         Will be called once per execution for each partition key on a
         worker that reported that partition was local in `list_parts`.
@@ -158,16 +154,16 @@ class PartitionedOutput(Output):
         recovery to work properly.
 
         Args:
+            for_part:
+                Which partition to build. Will always be one of the
+                keys returned by `list_parts` on this worker.
 
-            for_part: Which partition to build. Will always be one of
-                the keys returned by `list_parts` on this worker.
-
-            resume_state: State data containing where in the output
-                stream this partition should be begin writing during
-                this execution.
+            resume_state:
+                State data containing where in the output stream this
+                partition should be begin writing during this
+                execution.
 
         Returns:
-
             The built partition.
 
         """
@@ -185,27 +181,25 @@ class StatelessSink(ABC):
         point in the dataflow.
 
         Args:
-
-            items: Items in the dataflow. Non-deterministically
-                batched.
+            items:
+                Items in the dataflow. Non-deterministically batched.
 
         """
         ...
 
     def close(self) -> None:
-        """Do any cleanup on this sink when the dataflow completes on
-        a finite input.
+        """Cleanup this sink when the dataflow completes.
 
-        This is not guaranteed to be called. It will not be called
-        during an abrupt or abort shutdown.
+        This is not guaranteed to be called. It will only be called
+        when the dataflow finishes on finite input. It will not be
+        called during an abrupt or abort shutdown.
 
         """
-        pass
+        return
 
 
 class DynamicOutput(Output):
-    """An output that supports writing from any number of workers
-    concurrently.
+    """An output where all workers write items concurrently.
 
     Does not support storing any resume state. Thus these kind of
     outputs only naively can support at-least-once processing.
@@ -219,13 +213,12 @@ class DynamicOutput(Output):
         Will be called once on each worker.
 
         Args:
-
-            worker_index: Index of this worker.
-
-            worker_count: Total number of workers.
+            worker_index:
+                Index of this worker.
+            worker_count:
+                Total number of workers.
 
         Returns:
-
             Output sink.
 
         """

@@ -3,14 +3,13 @@ from datetime import datetime, timedelta, timezone
 
 # pip install pandas pyarrow fake-web-events
 import pandas
-from fake_web_events import Simulation
-from pandas import DataFrame
-from pyarrow import parquet, Table
-
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import PartitionedInput, StatefulSource
 from bytewax.outputs import PartitionedOutput, StatefulSink
 from bytewax.window import SystemClockConfig, TumblingWindow
+from fake_web_events import Simulation
+from pandas import DataFrame
+from pyarrow import Table, parquet
 
 
 class SimulatedSource(StatefulSource):
@@ -19,8 +18,8 @@ class SimulatedSource(StatefulSource):
             duration_seconds=10
         )
 
-    def next(self):
-        return json.dumps(next(self.events))
+    def next_batch(self):
+        return [json.dumps(next(self.events))]
 
     def snapshot(self):
         pass

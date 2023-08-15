@@ -2,19 +2,18 @@ import os
 import uuid
 from concurrent.futures import wait
 
+from bytewax.connectors.kafka import KafkaInput, KafkaOutput
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingInput, TestingOutput, poll_next_batch, run_main
 from confluent_kafka import (
+    OFFSET_BEGINNING,
     Consumer,
     KafkaError,
-    OFFSET_BEGINNING,
     Producer,
     TopicPartition,
 )
 from confluent_kafka.admin import AdminClient, NewTopic
 from pytest import fixture, mark, raises
-
-from bytewax.connectors.kafka import KafkaInput, KafkaOutput
-from bytewax.dataflow import Dataflow
-from bytewax.testing import poll_next_batch, run_main, TestingInput, TestingOutput
 
 pytestmark = mark.skipif(
     "TEST_KAFKA_BROKER" not in os.environ,

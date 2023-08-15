@@ -1,6 +1,5 @@
-from pytest import raises
-
 from bytewax.testing import TestingInput
+from pytest import raises
 
 
 def test_input_resume_state():

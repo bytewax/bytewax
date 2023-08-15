@@ -1,7 +1,5 @@
 from pathlib import Path
 
-from pytest import raises
-
 from bytewax.connectors.files import (
     CSVInput,
     DirInput,
@@ -10,7 +8,8 @@ from bytewax.connectors.files import (
     FileOutput,
 )
 from bytewax.dataflow import Dataflow
-from bytewax.testing import run_main, TestingInput, TestingOutput
+from bytewax.testing import TestingInput, TestingOutput, run_main
+from pytest import raises
 
 
 def test_dir_input():

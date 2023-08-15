@@ -8,24 +8,25 @@ from bytewax.inputs import DynamicInput, StatelessSource
 
 
 class NumberSource(StatelessSource):
-    def __init__(self, max):
-        self.iterator = iter(range(max))
+    def __init__(self, n):
+        self.iterator = iter(range(n))
 
-    def next(self):
+    def next_batch(self):
         # XXX: Error here
-        raise ValueError("A vague error")
-        return next(self.iterator)
+        msg = "A vague error"
+        raise ValueError(msg)
+        return [next(self.iterator)]
 
     def close(self):
         pass
 
 
 class NumberInput(DynamicInput):
-    def __init__(self, max):
-        self.max = max
+    def __init__(self, n):
+        self._n = n
 
     def build(self, worker_index, worker_count):
-        return NumberSource(self.max)
+        return NumberSource(self._n)
 
 
 def stringify(x):

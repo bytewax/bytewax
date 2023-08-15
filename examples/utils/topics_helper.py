@@ -12,7 +12,8 @@ from confluent_kafka.admin import AdminClient, NewTopic
 from fake_web_events import Simulation
 
 
-def create_local_kafka_producer(topic_name, servers=["localhost:9092"]):
+def create_local_kafka_producer(topic_name, servers=None):
+    servers = servers if servers is not None else ["localhost:9092"]
     config = {
         "bootstrap.servers": ",".join(servers),
     }
@@ -26,8 +27,8 @@ def create_local_kafka_producer(topic_name, servers=["localhost:9092"]):
     return Producer(config)
 
 
-def create_temperature_events(topic_name, servers=["localhost:9092"]):
-    producer = create_local_kafka_producer(topic_name)
+def create_temperature_events(topic_name, servers=None):
+    producer = create_local_kafka_producer(topic_name, servers)
     for i in range(10):
         dt = datetime.now(timezone.utc)
         if random() > 0.8:
@@ -39,7 +40,7 @@ def create_temperature_events(topic_name, servers=["localhost:9092"]):
     producer.flush()
 
 
-def create_sensor_events(topic_name, servers=["localhost:9092"]):
+def create_sensor_events(topic_name, servers=None):
     producer = create_local_kafka_producer(topic_name, servers)
     for i in range(10):
         dt = datetime.now(timezone.utc)
@@ -56,8 +57,8 @@ def create_sensor_events(topic_name, servers=["localhost:9092"]):
     producer.flush()
 
 
-def create_fake_events(topic_name, servers=["localhost:9092"]):
-    producer = create_local_kafka_producer(topic_name)
+def create_fake_events(topic_name, servers=None):
+    producer = create_local_kafka_producer(topic_name, servers)
 
     simulation = Simulation(user_pool_size=5, sessions_per_day=100)
     for event in simulation.run(duration_seconds=10):
@@ -66,8 +67,8 @@ def create_fake_events(topic_name, servers=["localhost:9092"]):
     producer.flush()
 
 
-def create_anomaly_stream(topic_name, servers=["localhost:9092"]):
-    producer = create_local_kafka_producer(topic_name)
+def create_anomaly_stream(topic_name, servers=None):
+    producer = create_local_kafka_producer(topic_name, servers)
 
     df = pd.read_csv("examples/sample_data/ec2_metrics.csv")
     for row in df[["index", "timestamp", "value", "instance"]].to_dict("records"):
@@ -76,8 +77,8 @@ def create_anomaly_stream(topic_name, servers=["localhost:9092"]):
     producer.flush()
 
 
-def create_driver_stream(topic_name, servers=["localhost:9092"]):
-    producer = create_local_kafka_producer(topic_name)
+def create_driver_stream(topic_name, servers=None):
+    producer = create_local_kafka_producer(topic_name, servers)
 
     # Sort values to support tumbling_epoch for input building
     df = pd.read_parquet("examples/sample_data/driver_stats.parquet").sort_values(

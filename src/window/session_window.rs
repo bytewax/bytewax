@@ -16,12 +16,11 @@ use super::{InsertError, WindowBuilder, WindowKey, Windower};
 /// Otherwise a new window is created that starts at current clock's time.
 ///
 ///  Args:
-///
-///    gap (datetime.timedelta): Gap of inactivity before considering
-///        a session closed. The gap should not be negative.
+///    gap (datetime.timedelta):
+///      Gap of inactivity before considering a session closed. The
+///      gap should not be negative.
 ///
 /// Returns:
-///
 ///   Config object. Pass this as the `window_config` parameter to
 ///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=WindowConfig)]

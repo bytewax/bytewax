@@ -1,6 +1,4 @@
-"""Serialization for recovery and transport.
-
-"""
+"""Serialization for recovery and transport."""
 
 from abc import ABC, abstractmethod
 from typing import Any
@@ -41,15 +39,21 @@ class Serde(ABC):
 
 
 class JsonPickleSerde(Serde):
-    """Serialize objects using
-    [`jsonpickle`](https://github.com/jsonpickle/jsonpickle)."""
+    """Serialize objects using `jsonpickle`.
+
+    See [`jsonpickle`](https://github.com/jsonpickle/jsonpickle) for
+    more info.
+
+    """
 
     @staticmethod
     def ser(obj):
+        """See ABC docstring."""
         # Enable `keys`, otherwise all __dict__ keys are coereced to
         # strings, which might not be true in general.
         return jsonpickle.encode(obj, keys=True)
 
     @staticmethod
     def de(s):
+        """See ABC docstring."""
         return jsonpickle.decode(s, keys=True)

@@ -142,7 +142,7 @@ def test_encoding_stateful_map():
 
 def test_encoding_fold_window():
     flow = Dataflow()
-    align_to = datetime(2005, 7, 14, 12, 30).replace(tzinfo=timezone.utc)
+    align_to = datetime(2005, 7, 14, 12, 30, tzinfo=timezone.utc)
     wc = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
     cc = EventClockConfig(
         lambda x: datetime.fromisoformat(x["time"]),

@@ -24,7 +24,7 @@ __all__ = [
 ]
 
 
-class Input(ABC):
+class Input(ABC):  # noqa: B024
     """Base class for all input types. Do not subclass this.
 
     If you want to implement a custom connector, instead subclass one
@@ -33,7 +33,9 @@ class Input(ABC):
     """
 
     def __json__(self):
-        """This is used by the Bytewax platform internally and should
+        """JSON representation of this.
+
+        This is used by the Bytewax platform internally and should
         not be overridden.
 
         """
@@ -54,12 +56,10 @@ class StatefulSource(ABC):
         items to emit yet.
 
         Returns:
-
             An list of items immediately ready. May be empty if no new
             items.
 
         Raises:
-
             StopIteration: When the source is complete.
 
         """
@@ -83,7 +83,6 @@ class StatefulSource(ABC):
         Use this instead of `time.sleep` in `next_batch()`.
 
         Returns:
-
             Next awake time or `None` to indicate automatic behavior.
 
         """
@@ -104,21 +103,20 @@ class StatefulSource(ABC):
         This is guaranteed to never be called after `close()`.
 
         Returns:
-
             Resume state.
 
         """
         ...
 
     def close(self) -> None:
-        """Do any cleanup on this source when the dataflow completes
-        on a finite input.
+        """Cleanup this source when the dataflow completes.
 
-        This is not guaranteed to be called. It will not be called
-        during an abrupt or abort shutdown.
+        This is not guaranteed to be called. It will only be called
+        when the dataflow finishes on finite input. It will not be
+        called during an abrupt or abort shutdown.
 
         """
-        pass
+        return
 
 
 class PartitionedInput(Input):
@@ -141,7 +139,6 @@ class PartitionedInput(Input):
         You do not need to list all partitions globally.
 
         Returns:
-
             Local partition keys.
 
         """
@@ -153,8 +150,7 @@ class PartitionedInput(Input):
         for_part: str,
         resume_state: Optional[Any],
     ) -> StatefulSource:
-        """Build an input partition, resuming from the position
-        encoded in the resume state.
+        """Build anew or resume an input partition.
 
         Will be called once per execution for each partition key on a
         worker that reported that partition was local in `list_parts`.
@@ -164,16 +160,16 @@ class PartitionedInput(Input):
         recovery to work properly.
 
         Args:
+            for_part:
+                Which partition to build. Will always be one of the
+                keys returned by `list_parts` on this worker.
 
-            for_part: Which partition to build. Will always be one of
-                the keys returned by `list_parts` on this worker.
-
-            resume_state: State data containing where in the input
-                stream this partition should be begin reading during
-                this execution.
+            resume_state:
+                State data containing where in the input stream this
+                partition should be begin reading during this
+                execution.
 
         Returns:
-
             The built partition.
 
         """
@@ -192,12 +188,10 @@ class StatelessSource(ABC):
         items yet.
 
         Returns:
-
             An list of items immediately ready. May be empty if no new
             items.
 
         Raises:
-
             StopIteration: When the source is complete.
 
         """
@@ -221,26 +215,24 @@ class StatelessSource(ABC):
         Use this instead of `time.sleep` in `next_batch()`.
 
         Returns:
-
             Next awake time or `None` to indicate automatic behavior.
 
         """
         return None
 
     def close(self) -> None:
-        """Do any cleanup on this source when the dataflow completes
-        on a finite input.
+        """Cleanup this source when the dataflow completes.
 
-        This is not guaranteed to be called. It will not be called
-        during an abrupt or abort shutdown.
+        This is not guaranteed to be called. It will only be called
+        when the dataflow finishes on finite input. It will not be
+        called during an abrupt or abort shutdown.
 
         """
-        pass
+        return
 
 
 class DynamicInput(Input):
-    """An input that supports reading distinct items from any number
-    of workers concurrently.
+    """An input where all workers can read distinct items.
 
     Does not support storing any resume state. Thus these kind of
     inputs only naively can support at-most-once processing.
@@ -253,18 +245,17 @@ class DynamicInput(Input):
 
     @abstractmethod
     def build(self, worker_index, worker_count) -> StatelessSource:
-        """Build an input source for a worker
+        """Build an input source for a worker.
 
         Will be called once on each worker.
 
         Args:
-
-            worker_index: Index of this worker.
-
-            worker_count: Total number of workers.
+            worker_index:
+                Index of this worker.
+            worker_count:
+                Total number of workers.
 
         Returns:
-
             Input source.
 
         """
@@ -272,23 +263,24 @@ class DynamicInput(Input):
 
 
 class AsyncBatcher:
-    """Allows you to poll an async iterator synchronously up to a
-    given time and length limit.
+    """Poll an async iter synchronously with a time and length limit.
 
     This is great for allowing async input sources to play well with
     Bytewax's requirement that calling `next` on sources should never
     block.
 
-    Args:
-
-        aiter: The underlying source async iterator of items.
-
-        loop: Custom `asyncio` run loop to use, if any.
-
     """
 
-    def __init__(self, aiter: AsyncIterator, loop=None):
-        self._aiter = aiter
+    def __init__(self, ait: AsyncIterator, loop=None):
+        """Init.
+
+        Args:
+            ait:
+                The underlying source async iterator of items.
+            loop:
+                Custom `asyncio` run loop to use, if any.
+        """
+        self._ait = ait
 
         self._loop = loop if loop is not None else asyncio.new_event_loop()
         self._task = None
@@ -297,7 +289,6 @@ class AsyncBatcher:
         """Gather a batch of items up to some limits.
 
         Args:
-
             timeout: Duration of time to repeatedly poll the source
                 async iterator for items.
 
@@ -305,14 +296,12 @@ class AsyncBatcher:
                 timeout has not been hit. Defaults to "no limit".
 
         Returns:
-
             The gathered batch of items.
 
             This function will take up to `timeout` time to return, or
             will return a list with length up to `max_len`.
 
         Raises:
-
             StopIteration: When there are no more batches.
 
         """
@@ -322,7 +311,7 @@ class AsyncBatcher:
             # Only try to gather this many items.
             for _ in range(max_len):
                 if self._task is None:
-                    self._task = self._loop.create_task(self._aiter.__anext__())
+                    self._task = self._loop.create_task(self._ait.__anext__())
 
                 try:
                     # Prevent the `wait_for` cancellation from

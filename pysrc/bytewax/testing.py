@@ -1,5 +1,4 @@
-"""Helper tools for testing dataflows.
-"""
+"""Helper tools for testing dataflows."""
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
@@ -22,7 +21,7 @@ class _IterSource(StatefulSource):
         self._last_idx = -1 if resume_state is None else resume_state
         self._it = enumerate(it)
         # Resume to one after the last completed read index.
-        for i in range(self._last_idx + 1):
+        for _i in range(self._last_idx + 1):
             next(self._it)
 
     def next_batch(self):
@@ -35,8 +34,9 @@ class _IterSource(StatefulSource):
 
 
 class TestingInput(PartitionedInput):
-    """Produce input from a Python iterable. You only want to use this
-    for unit testing.
+    """Produce input from a Python iterable.
+
+    You only want to use this for unit testing.
 
     The iterable must be identical on all workers; this will
     automatically distribute the items across workers and handle
@@ -47,21 +47,24 @@ class TestingInput(PartitionedInput):
     half-consumed generator will be re-used on recovery and early
     input will be lost so resume will see the correct data.
 
-    Args:
-
-        it: Iterable for input.
-
     """
 
     __test__ = False
 
     def __init__(self, it: Iterable[Any]):
+        """Init.
+
+        Args:
+            it: Iterable for input.
+        """
         self._it = it
 
     def list_parts(self):
+        """The iterator is read on a single worker."""
         return ["iter"]
 
     def build_part(self, for_key, resume_state):
+        """See ABC docstring."""
         assert for_key == "iter"
         return _IterSource(self._it, resume_state)
 
@@ -75,24 +78,27 @@ class _ListSink(StatelessSink):
 
 
 class TestingOutput(DynamicOutput):
-    """Append each output item to a list. You only want to use this
-    for unit testing.
+    """Append each output item to a list.
+
+    You only want to use this for unit testing.
 
     Can support at-least-once processing. The list is not cleared
     between executions.
-
-    Args:
-
-        ls: List to append to.
 
     """
 
     __test__ = False
 
     def __init__(self, ls):
+        """Init.
+
+        Args:
+            ls: List to append to.
+        """
         self._ls = ls
 
     def build(self, worker_index, worker_count):
+        """See ABC docstring."""
         return _ListSink(self._ls)
 
 
@@ -102,16 +108,17 @@ def poll_next_batch(source: StatefulSource, timeout=timedelta(seconds=5)):
     You'll want to use this in unit tests of sources when there's some
     non-determinism in how items are read.
 
-    Args:
+    This is a busy-loop.
 
+    Args:
         source: To call `StatefulSource.next` on.
 
-    Returns:
+        timeout: How long to continuously poll for.
 
+    Returns:
         The next batch found.
 
     Raises:
-
         TimeoutError: If no batch was returned within the timeout.
 
     """

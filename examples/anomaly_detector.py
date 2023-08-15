@@ -68,8 +68,8 @@ class ZTestDetector:
 
 
 def output_builder(worker_index, worker_count):
-    def inspector(input):
-        metric, (value, mu, sigma, is_anomalous) = input
+    def inspector(item):
+        metric, (value, mu, sigma, is_anomalous) = item
         print(
             f"{metric}: "
             f"value = {value}, "

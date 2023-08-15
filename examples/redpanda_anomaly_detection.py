@@ -10,11 +10,10 @@
 
 import json
 
-from river import anomaly
-
 from bytewax.connectors.kafka import KafkaInput
 from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
+from river import anomaly
 
 # Define the dataflow object and kafka input.
 flow = Dataflow()
