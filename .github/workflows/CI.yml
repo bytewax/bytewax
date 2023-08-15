@@ -43,7 +43,6 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-          architecture: ${{ matrix.target }}
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: 1.68.2
@@ -82,7 +81,6 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-          architecture: x64
       - name: Install aarch64-apple-darwin Rust target
         run: rustup target add aarch64-apple-darwin
       # Caching
@@ -152,7 +150,6 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-          architecture: x64
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: 1.68.2
