@@ -28,7 +28,7 @@ jobs:
         run: |
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-        if: ${{ matrix.target != 'aarch64' }}
+        if: ${{ matrix.target == 'x86_64' }}
       - uses: actions/checkout@v3
       - uses: actions/cache@v3
         with:
