@@ -182,58 +182,11 @@ jobs:
           name: wheels
           path: dist
 
-  linux_glibc_227_colab:
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
-    runs-on: ubuntu-20.04
-    strategy:
-      matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11']
-    container: bytewax/glib-2.27-builder:v2
-    steps:
-    - uses: actions/checkout@v2
-    - uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - name: Sccache Setup
-      uses: mozilla-actions/sccache-action@v0.0.3
-    - name: Rust Toolchain
-      run: |
-        rustup default 1.68.2
-    - name: Cargo Test
-      run: |
-        cargo test --no-default-features
-    - name: Build wheel
-      run: |
-        maturin build --release -o dist --interpreter python${{ matrix.python-version }}
-    - name: Pytest
-      run: |
-        PATH=`echo $PATH | sed -e "s/3.7/${{ matrix.python-version }}/g"`
-        echo $PATH
-        which python
-        python -V
-        pip -V
-        WHEEL_FILE=$(ls ./dist/*.whl)
-        pip install $WHEEL_FILE'[dev]' -v
-        PY_IGNORE_IMPORTMISMATCH=1 pytest
-    - name: Upload wheels
-      uses: actions/upload-artifact@v2
-      with:
-        name: wheels
-        path: dist
-
   upload:
     name: Store wheels in S3
     runs-on: ubuntu-20.04
     if: "github.ref == 'refs/heads/main'"
-    needs: [ linux, linux_glibc_227_colab, macos, windows ]
+    needs: [ linux, macos, windows ]
     steps:
       - uses: actions/download-artifact@v2
         with:
