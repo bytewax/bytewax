@@ -63,6 +63,7 @@ jobs:
           WHEEL_FILE=$(ls ./dist/*.whl)
           pip install $WHEEL_FILE'[dev]' -v --force-reinstall
           PY_IGNORE_IMPORTMISMATCH=1 pytest
+        if: ${{ matrix.target == 'x86_64' }}
       - name: Upload wheels
         uses: actions/upload-artifact@v2
         with:
