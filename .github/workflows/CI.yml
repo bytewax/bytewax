@@ -23,10 +23,12 @@ jobs:
         python-version: ['3.8', '3.9', '3.10', '3.11']
         target: ['x86_64', 'aarch64', 'armv7']
     runs-on: ubuntu-20.04
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
+      - name: Use sccache for everything but aarch64
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+        if: ${{ matrix.target != 'aarch64' }}
       - uses: actions/checkout@v3
       - uses: actions/cache@v3
         with:
@@ -74,10 +76,13 @@ jobs:
         target: [x86_64, aarch64]
     runs-on: macos-latest
     env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
       MACOSX_DEPLOYMENT_TARGET: 10.9
     steps:
+      - name: Use sccache for everything but aarch64
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+        if: ${{ matrix.target != 'aarch64' }}
       - uses: actions/checkout@v3
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
@@ -123,6 +128,7 @@ jobs:
           WHEEL_FILE=$(ls ./dist/*.whl)
           pip install $WHEEL_FILE'[dev]' -v --force-reinstall
           PY_IGNORE_IMPORTMISMATCH=1 pytest
+        if: ${{ matrix.target != 'aarch64' }}
       - name: Upload wheels
         uses: actions/upload-artifact@v2
         with:
