@@ -24,8 +24,8 @@ class CoinfbaseSource(StatefulSource):
         # The first msg is just a confirmation that we have subscribed.
         print(self.ws.recv())
 
-    def next(self):
-        return self.ws.recv()
+    def next_batch(self):
+        return [self.ws.recv()]
 
     def snapshot(self):
         return None
