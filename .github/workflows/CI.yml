@@ -105,11 +105,8 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Rust tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --no-default-features
+      - name: Run Rust tests
+        run: cargo test --no-default-features
       - uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
@@ -160,11 +157,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.68.2
-      - name: Rust tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --no-default-features
+      - name: Run Rust tests
+        run: cargo test --no-default-features
       - uses: messense/maturin-action@v1
         with:
           command: build
