@@ -25,6 +25,7 @@ use timely::dataflow::operators::generic::operator::empty;
 use timely::dataflow::operators::generic::InputHandle;
 use timely::dataflow::operators::Broadcast;
 use timely::dataflow::operators::Capability;
+use timely::dataflow::operators::Exchange as ExchangeOp;
 use timely::dataflow::operators::Map;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
@@ -567,9 +568,7 @@ where
 /// Figure out a "primary" worker for each partition. Do this so we
 /// load balance worker use.
 ///
-/// This function is deterministic because all workers are broadcast
-/// all known partitions and must independently converge on which
-/// worker is primary.
+/// This will only be run on worker 0, but results will be broadcast.
 fn calc_primaries<P>(known: &BTreeMap<P, BTreeSet<WorkerIndex>>) -> BTreeMap<P, WorkerIndex>
 where
     P: Clone + Ord + Eq,
@@ -615,11 +614,11 @@ pub(crate) trait AssignPrimariesOp<S, P>
 where
     S: Scope,
     S::Timestamp: TotalOrder,
-    P: Data + Ord + Eq + Debug,
+    P: ExchangeData + Ord + Eq + Debug,
 {
-    /// Collect all known partitions from workers (you'll need to
-    /// broadcast before this operator) and at the end of the epoch,
-    /// calculate the primary assignments for each partition.
+    /// Collect all known partitions from workers and at the end of
+    /// the epoch, calculate the primary assignments for each
+    /// partition then broadcast them.
     ///
     /// Primary assignments are "balanced": If multiple workers have
     /// the same partition, distribute which worker is the primary for
@@ -629,10 +628,6 @@ where
     ///
     /// Primary worker assignments are only emitted at the end of each
     /// epoch.
-    ///
-    /// Since partition access must be broadcast for this to work,
-    /// every worker calculates primaries concurrenlty, so you do not
-    /// need to broadcast primary assignments downstream of this.
     fn assign_primaries(&self, name: String) -> Stream<S, (P, WorkerIndex)>;
 }
 
@@ -640,12 +635,17 @@ impl<S, P> AssignPrimariesOp<S, P> for Stream<S, (P, WorkerIndex)>
 where
     S: Scope,
     S::Timestamp: TotalOrder,
-    P: Data + Ord + Eq + Debug,
+    P: ExchangeData + Ord + Eq + Debug,
 {
     fn assign_primaries(&self, name: String) -> Stream<S, (P, WorkerIndex)> {
+        // Route all data to worker 0, this means that only worker 0
+        // will assign primaries. We'll broadcast them at the end of
+        // this operator.
+        let singular_self = self.exchange(|_| 0);
+
         let mut op_builder = OperatorBuilder::new(name.clone(), self.scope());
 
-        let mut known_input = op_builder.new_input(self, Pipeline);
+        let mut known_input = op_builder.new_input(&singular_self, Pipeline);
 
         let (mut routing_output, routing) = op_builder.new_output();
 
@@ -702,7 +702,7 @@ where
             }
         });
 
-        routing
+        routing.broadcast()
     }
 }
 
