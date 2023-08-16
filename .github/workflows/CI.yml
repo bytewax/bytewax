@@ -48,6 +48,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.68.2
+      - name: Run Rust tests
+        run: cargo test --no-default-features
+        if: ${{ matrix.target == 'x86_64' }}
       - uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
@@ -70,7 +73,7 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11']
-        target: [x86_64, aarch64]
+        target: ['x86_64', 'aarch64']
     runs-on: macos-latest
     env:
       MACOSX_DEPLOYMENT_TARGET: 10.9
