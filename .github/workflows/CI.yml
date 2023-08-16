@@ -38,11 +38,6 @@ jobs:
         target: ['x86_64', 'aarch64', 'armv7']
     runs-on: ubuntu-20.04
     steps:
-      - name: Use sccache for everything but aarch64
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-        if: ${{ matrix.target == 'x86_64' }}
       - uses: actions/checkout@v3
       - uses: actions/cache@v3
         with:
@@ -53,8 +48,6 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Sccache Setup
-        uses: mozilla-actions/sccache-action@v0.0.3
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
@@ -68,6 +61,7 @@ jobs:
           target: ${{ matrix.target }}
           command: build
           args: --release -o dist -i python${{ matrix.python-version }}
+          sccache: true
       - name: Run tests
         shell: bash
         run: |
@@ -91,14 +85,7 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: 10.9
     steps:
-      - name: Use sccache for everything but aarch64
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-        if: ${{ matrix.target != 'aarch64' }}
       - uses: actions/checkout@v3
-      - name: Sccache Setup
-        uses: mozilla-actions/sccache-action@v0.0.3
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
@@ -128,6 +115,7 @@ jobs:
           target: ${{ matrix.target }}
           command: build
           args: --release -o dist -i python${{ matrix.python-version }}
+          sccache: true
       - name: Run tests
         shell: bash
         run: |
@@ -147,9 +135,6 @@ jobs:
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11']
     runs-on: windows-latest
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
       - uses: ilammy/msvc-dev-cmd@v1
       - shell: cmd
@@ -165,8 +150,6 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Sccache Setup
-        uses: mozilla-actions/sccache-action@v0.0.3
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
@@ -178,6 +161,7 @@ jobs:
         with:
           command: build
           args: --release -o dist --interpreter python${{ matrix.python-version }}
+          sccache: true
       - name: Run tests
         run: |
           $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
