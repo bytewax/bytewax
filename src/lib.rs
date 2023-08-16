@@ -3,7 +3,6 @@ use pyo3_extensions::PyConfigClass;
 use std::thread;
 use std::time::Duration;
 
-pub(crate) mod common;
 pub(crate) mod dataflow;
 pub(crate) mod errors;
 pub(crate) mod inputs;
