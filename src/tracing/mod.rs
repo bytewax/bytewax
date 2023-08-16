@@ -68,8 +68,10 @@ impl PyConfigClass<Box<dyn TracerBuilder + Send>> for Py<TracingConfig> {
 /// Utility class used to handle tracing.
 ///
 /// It keeps a tokio runtime that is alive as long as the struct itself.
+///
+/// This should only be built via `setup_tracing`.
 #[pyclass]
-pub struct BytewaxTracer {
+struct BytewaxTracer {
     rt: tokio::runtime::Runtime,
 }
 
@@ -119,14 +121,6 @@ async fn setup(
 }
 
 impl BytewaxTracer {
-    pub fn new() -> Self {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        Self { rt }
-    }
-
     /// Call this with a TracingConfig subclass to configure tracing.
     /// Returns a guard that you have to keep in scope for the
     /// whole execution of the code you want to trace.
@@ -148,10 +142,40 @@ impl BytewaxTracer {
     }
 }
 
+/// Helper function used to setup tracing and logging from the Rust side.
+///
+/// Args:
+///   tracing_config: A subclass of TracingConfig for a specific backend
+///   log_level: String of the log level, on of ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"]
+///
+/// By default it starts a tracer that logs all ERROR messages to stdout.
+///
+/// Note: to make this work, you have to keep a reference of the returned object:
+///
+/// ```python
+/// tracer = setup_tracing()
+/// ```
+#[pyfunction]
+fn setup_tracing(
+    py: Python,
+    tracing_config: Option<Py<TracingConfig>>,
+    log_level: Option<String>,
+) -> PyResult<&PyCell<BytewaxTracer>> {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tracer = PyCell::new(py, BytewaxTracer { rt })?;
+    let builder = tracing_config.map(|conf| conf.downcast(py).unwrap());
+    tracer.borrow().setup(builder, log_level)?;
+    Ok(tracer)
+}
+
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<TracingConfig>()?;
     m.add_class::<JaegerConfig>()?;
     m.add_class::<OtlpTracingConfig>()?;
     m.add_class::<BytewaxTracer>()?;
+    m.add_function(wrap_pyfunction!(setup_tracing, m)?)?;
     Ok(())
 }
