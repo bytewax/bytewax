@@ -41,9 +41,11 @@ test = [
 docs = [
     "pdoc3==0.10.0",
 ]
-dev = [
+fmt = [
     "black==22.3.0",
-    "bytewax[kafka,test,docs]",
+]
+dev = [
+    "bytewax[kafka,test,docs,fmt]",
     "pre-commit==2.19.0",
     "ruff==0.0.284",
 ]

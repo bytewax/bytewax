@@ -24,14 +24,13 @@ jobs:
         uses: actions/checkout@v3
       - uses: actions/setup-python@v3
       - name: Install black for cbfmt
-        run: pip install .[dev]
+        run: pip install .[fmt]
       - uses: mkroening/rust-toolchain-toml@main
       - name: Install cbfmt
         run: cargo install cbfmt
       - uses: pre-commit/action@v3.0.0
 
   linux:
-    needs: pre-commit
     strategy:
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11']
@@ -76,7 +75,6 @@ jobs:
           path: dist
 
   macos:
-    needs: pre-commit
     strategy:
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11']
@@ -131,7 +129,6 @@ jobs:
           path: dist
 
   windows:
-    needs: pre-commit
     strategy:
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11']
