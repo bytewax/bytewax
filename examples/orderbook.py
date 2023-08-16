@@ -17,7 +17,7 @@ class CoinfbaseSource(StatefulSource):
                 {
                     "type": "subscribe",
                     "product_ids": [product_id],
-                    "channels": ["level2"],
+                    "channels": ["level2_batch"],
                 }
             )
         )
