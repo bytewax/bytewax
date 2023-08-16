@@ -23,11 +23,13 @@ classifiers = [
 dependencies = [
     "jsonpickle>=3",
 ]
+
 extras = [
     "dev",
     "docs",
     "kafka",
     "test",
+    "fmt"
 ]
 
 [project.optional-dependencies]
