@@ -10,6 +10,7 @@
 //! not like generics.
 
 use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyList};
 
 use crate::inputs::Input;
 use crate::outputs::Output;
@@ -690,6 +691,117 @@ impl Dataflow {
             builder,
             mapper,
         });
+    }
+
+    fn __json__<'py>(&'py self, py: Python<'py>) -> PyResult<&'py PyDict> {
+        let dict = PyDict::new(py);
+        dict.set_item("type", "Dataflow")?;
+        let steps = PyList::empty(py);
+        for step in &self.steps {
+            let step_dict = PyDict::new(py);
+            match step {
+                Step::Redistribute => {
+                    step_dict.set_item("type", "Redistribute")?;
+                }
+                Step::Input { step_id, input } => {
+                    step_dict.set_item("type", "Input")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("input", input)?;
+                }
+                Step::Map { mapper } => {
+                    step_dict.set_item("type", "Map")?;
+                    step_dict.set_item("mapper", mapper)?;
+                }
+                Step::FlatMap { mapper } => {
+                    step_dict.set_item("type", "FlatMap")?;
+                    step_dict.set_item("mapper", mapper)?;
+                }
+                Step::Filter { predicate } => {
+                    step_dict.set_item("type", "Filter")?;
+                    step_dict.set_item("predicate", predicate)?;
+                }
+                Step::FilterMap { mapper } => {
+                    step_dict.set_item("type", "FilterMap")?;
+                    step_dict.set_item("mapper", mapper)?;
+                }
+                Step::FoldWindow {
+                    step_id,
+                    clock_config,
+                    window_config,
+                    builder,
+                    folder,
+                } => {
+                    step_dict.set_item("type", "FoldWindow")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("clock_config", clock_config)?;
+                    step_dict.set_item("window_config", window_config)?;
+                    step_dict.set_item("builder", builder)?;
+                    step_dict.set_item("folder", folder)?;
+                }
+                Step::Inspect { inspector } => {
+                    step_dict.set_item("type", "Inspect")?;
+                    step_dict.set_item("inspector", inspector)?;
+                }
+                Step::InspectWorker { inspector } => {
+                    step_dict.set_item("type", "Inspect")?;
+                    step_dict.set_item("inspector", inspector)?;
+                }
+                Step::InspectEpoch { inspector } => {
+                    step_dict.set_item("type", "InspectEpoch")?;
+                    step_dict.set_item("inspector", inspector)?;
+                }
+                Step::Reduce {
+                    step_id,
+                    reducer,
+                    is_complete,
+                } => {
+                    step_dict.set_item("type", "Reduce")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("reducer", reducer)?;
+                    step_dict.set_item("is_complete", is_complete)?;
+                }
+                Step::ReduceWindow {
+                    step_id,
+                    clock_config,
+                    window_config,
+                    reducer,
+                } => {
+                    step_dict.set_item("type", "ReduceWindow")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("clock_config", clock_config)?;
+                    step_dict.set_item("window_config", window_config)?;
+                    step_dict.set_item("reducer", reducer)?;
+                }
+                Step::CollectWindow {
+                    step_id,
+                    clock_config,
+                    window_config,
+                } => {
+                    step_dict.set_item("type", "CollectWindow")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("clock_config", clock_config)?;
+                    step_dict.set_item("window_config", window_config)?;
+                }
+                Step::StatefulMap {
+                    step_id,
+                    builder,
+                    mapper,
+                } => {
+                    step_dict.set_item("type", "StatefulMap")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("builder", builder)?;
+                    step_dict.set_item("mapper", mapper)?;
+                }
+                Step::Output { step_id, output } => {
+                    step_dict.set_item("type", "Output")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("output", output)?;
+                }
+            }
+            steps.append(step_dict)?;
+        }
+        dict.set_item("steps", steps)?;
+        Ok(dict)
     }
 }
 

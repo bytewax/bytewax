@@ -104,6 +104,12 @@ impl IntoPy<Py<PyAny>> for Input {
     }
 }
 
+impl ToPyObject for Input {
+    fn to_object(&self, py: Python<'_>) -> PyObject {
+        self.0.to_object(py)
+    }
+}
+
 impl Input {
     pub(crate) fn extract<'p, D>(&'p self, py: Python<'p>) -> PyResult<D>
     where

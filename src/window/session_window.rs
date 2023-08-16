@@ -43,6 +43,13 @@ impl SessionWindow {
         let super_ = WindowConfig::new();
         (self_, super_)
     }
+
+    fn __json__<'py>(&self, py: Python<'py>) -> PyResult<&'py PyDict> {
+        let dict = PyDict::new(py);
+        dict.set_item("type", "SessionWindow")?;
+        dict.set_item("gap", self.gap)?;
+        Ok(dict)
+    }
 }
 
 impl WindowBuilder for SessionWindow {

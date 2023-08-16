@@ -3,6 +3,7 @@ use std::task::Poll;
 use chrono::prelude::*;
 use chrono::Duration;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
@@ -54,6 +55,14 @@ impl EventClockConfig {
         };
         let super_ = ClockConfig::new();
         (self_, super_)
+    }
+
+    fn __json__<'py>(&self, py: Python<'py>) -> PyResult<&'py PyDict> {
+        let dict = PyDict::new(py);
+        dict.set_item("type", "EventClockConfig")?;
+        dict.set_item("dt_getter", &self.dt_getter)?;
+        dict.set_item("wait_for_system_duration", self.wait_for_system_duration)?;
+        Ok(dict)
     }
 }
 

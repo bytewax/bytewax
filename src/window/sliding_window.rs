@@ -61,6 +61,15 @@ impl SlidingWindow {
         let super_ = WindowConfig::new();
         (self_, super_)
     }
+
+    fn __json__<'py>(&self, py: Python<'py>) -> PyResult<&'py PyDict> {
+        let dict = PyDict::new(py);
+        dict.set_item("type", "SlidingWindow")?;
+        dict.set_item("length", self.length)?;
+        dict.set_item("offset", self.offset)?;
+        dict.set_item("align_to", self.align_to)?;
+        Ok(dict)
+    }
 }
 
 impl WindowBuilder for SlidingWindow {

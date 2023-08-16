@@ -26,13 +26,6 @@ class DataflowEncoder(json.JSONEncoder):
         if inspect.isclass(obj):
             return obj.__qualname__
 
-        # Python 3.11 added __getstate__ to the 'object' type,
-        # but for some objects the result is `None`.
-        # In those cases, it's probably better to try other options,
-        # so we check for the presence of the method, but also that
-        # the result is not `None`.
-        if hasattr(obj, "__getstate__") and obj.__getstate__() is not None:
-            return obj.__getstate__()
         if isinstance(obj, types.BuiltinFunctionType):
             return obj.__name__
         if isinstance(obj, types.MethodDescriptorType):
@@ -52,7 +45,8 @@ class DataflowEncoder(json.JSONEncoder):
         try:
             return json.JSONEncoder.default(self, obj)
         except TypeError as err:
-            raise TypeError(f"{obj} can not be JSON encoded: {err}")
+            msg = f"{obj} can not be JSON encoded"
+            raise TypeError(msg) from err
 
 
 def encode_dataflow(dataflow: Dataflow):

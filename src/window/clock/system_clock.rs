@@ -1,7 +1,9 @@
 use std::task::Poll;
 
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
+use chrono::Utc;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use pyo3::PyResult;
 
 use super::*;
@@ -27,6 +29,12 @@ impl SystemClockConfig {
         let self_ = Self {};
         let super_ = ClockConfig::new();
         (self_, super_)
+    }
+
+    fn __json__<'py>(&self, py: Python<'py>) -> PyResult<&'py PyDict> {
+        let dict = PyDict::new(py);
+        dict.set_item("type", "SystemClockConfig")?;
+        Ok(dict)
     }
 }
 
