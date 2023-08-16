@@ -54,6 +54,8 @@ jobs:
       - uses: mkroening/rust-toolchain-toml@main
       - name: Run Rust tests
         run: cargo test --no-default-features
+        # Only run tests for the host architecture, as aarch64
+        # and armv7 are cross-compiled.
         if: ${{ matrix.target == 'x86_64' }}
       - uses: PyO3/maturin-action@v1
         with:
@@ -108,6 +110,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Run Rust tests
         run: cargo test --no-default-features
+        # Only run tests for the host architecture, as aarch64 is cross-compiled.
         if: ${{ matrix.target != 'aarch64' }}
       - uses: PyO3/maturin-action@v1
         with:
@@ -121,6 +124,7 @@ jobs:
           WHEEL_FILE=$(ls ./dist/*.whl)
           pip install $WHEEL_FILE'[dev]' -v --force-reinstall
           PY_IGNORE_IMPORTMISMATCH=1 pytest
+        # Only run tests for the host architecture, as aarch64 is cross-compiled.
         if: ${{ matrix.target != 'aarch64' }}
       - name: Upload wheels
         uses: actions/upload-artifact@v3
