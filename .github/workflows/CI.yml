@@ -25,10 +25,7 @@ jobs:
       - uses: actions/setup-python@v3
       - name: Install black for cbfmt
         run: pip install black
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.68.2
-          components: clippy rustfmt
+      - uses: mkroening/rust-toolchain-toml@main
       - name: Install cbfmt
         run: cargo install cbfmt
       - uses: pre-commit/action@v3.0.0
@@ -62,9 +59,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.68.2
+      - uses: mkroening/rust-toolchain-toml@main
       - name: Run Rust tests
         run: cargo test --no-default-features
         if: ${{ matrix.target == 'x86_64' }}
@@ -176,9 +171,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.68.2
+      - uses: mkroening/rust-toolchain-toml@main
       - name: Run Rust tests
         run: cargo test --no-default-features
       - uses: messense/maturin-action@v1
