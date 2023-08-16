@@ -183,9 +183,7 @@ impl PartitionedInput {
         let this_worker = scope.w_index();
 
         let local_parts = self.list_parts(py).reraise("error listing partitions")?;
-        let all_parts = local_parts
-            .clone()
-            .into_broadcast(scope, S::Timestamp::minimum());
+        let all_parts = local_parts.into_broadcast(scope, S::Timestamp::minimum());
         let primary_updates = all_parts.assign_primaries(format!("{step_id}.assign_primaries"));
 
         let routed_loads = loads
