@@ -25,6 +25,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.68.2
+          components: clippy rustfmt
       - name: Install cbfmt
         run: cargo install cbfmt
       - uses: pre-commit/action@v3.0.0
