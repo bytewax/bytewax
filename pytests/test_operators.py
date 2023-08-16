@@ -3,11 +3,10 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from threading import Event
 
-from pytest import raises
-
 from bytewax.dataflow import Dataflow
-from bytewax.testing import run_main, TestingInput, TestingOutput
+from bytewax.testing import TestingInput, TestingOutput, run_main
 from bytewax.window import EventClockConfig, TumblingWindow
+from pytest import raises
 
 ZERO_TD = timedelta(seconds=0)
 
@@ -165,7 +164,8 @@ def test_reduce(recovery_config):
     def trigger(item):
         if item == "BOOM":
             if armed.is_set():
-                raise RuntimeError("BOOM")
+                msg = "BOOM"
+                raise RuntimeError(msg)
             else:
                 return []
         else:
@@ -241,7 +241,8 @@ def test_stateful_map(recovery_config):
     def trigger(item):
         if item == "BOOM":
             if armed.is_set():
-                raise RuntimeError("BOOM")
+                msg = "BOOM"
+                raise RuntimeError(msg)
             else:
                 return []
         else:
@@ -392,7 +393,8 @@ def test_reduce_window(recovery_config):
     def trigger(item):
         if item == "BOOM":
             if armed.is_set():
-                raise RuntimeError("BOOM")
+                msg = "BOOM"
+                raise RuntimeError(msg)
             else:
                 return []
         else:
@@ -464,7 +466,8 @@ def test_fold_window(recovery_config):
     def trigger(item):
         if item == "BOOM":
             if armed.is_set():
-                raise RuntimeError("BOOM")
+                msg = "BOOM"
+                raise RuntimeError(msg)
             else:
                 return []
         else:
@@ -535,7 +538,8 @@ def test_collect_window(recovery_config):
     def trigger(item):
         if item == "BOOM":
             if armed.is_set():
-                raise RuntimeError("BOOM")
+                msg = "BOOM"
+                raise RuntimeError(msg)
             else:
                 return []
         else:

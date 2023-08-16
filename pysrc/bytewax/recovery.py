@@ -188,7 +188,7 @@ recovery.
 import argparse
 from pathlib import Path
 
-from .bytewax import init_db_dir, RecoveryConfig  # noqa: F401
+from .bytewax import RecoveryConfig, init_db_dir  # noqa: F401
 
 __all__ = [
     "RecoveryConfig",

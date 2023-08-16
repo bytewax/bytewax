@@ -9,27 +9,28 @@ from bytewax.inputs import PartitionedInput, StatefulSource
 
 
 class NumberSource(StatefulSource):
-    def __init__(self, max):
-        self.iterator = iter(range(max))
+    def __init__(self, n):
+        self.iterator = iter(range(n))
 
-    def next(self):
+    def next_batch(self):
         # XXX: Error here
-        raise ValueError("A vague error")
-        return next(self.iterator)
+        msg = "A vague error"
+        raise ValueError(msg)
+        return [next(self.iterator)]
 
     def snapshot(self):
         return None
 
 
 class NumberInput(PartitionedInput):
-    def __init__(self, max):
-        self.max = max
+    def __init__(self, n):
+        self._n = n
 
     def list_parts(self):
         return {"one"}
 
     def build_part(self, for_key, resume_state):
-        return NumberSource(self.max)
+        return NumberSource(self._n)
 
 
 def stringify(x):

@@ -84,7 +84,7 @@ flow.fold_window("running_average", cc, wc, list, acc_values)
 
 # Calculate the average of the values for each window, and
 # format the data to a string
-def format(event):
+def format_event(event):
     key, data = event
     values = [x[0] for x in data]
     dates = [datetime.fromisoformat(x[1]) for x in data]
@@ -96,5 +96,5 @@ def format(event):
     )
 
 
-flow.map(format)
+flow.map(format_event)
 flow.output("out", StdOutput())

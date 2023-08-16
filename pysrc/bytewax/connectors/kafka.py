@@ -8,9 +8,9 @@ package to be installed.
 from typing import Dict, Iterable
 
 from confluent_kafka import (
+    OFFSET_BEGINNING,
     Consumer,
     KafkaError,
-    OFFSET_BEGINNING,
     Producer,
     TopicPartition,
 )
@@ -32,10 +32,9 @@ def _list_parts(client, topics):
         cluster_metadata = client.list_topics(topic)
         topic_metadata = cluster_metadata.topics[topic]
         if topic_metadata.error is not None:
-            raise RuntimeError(
-                f"error listing partitions for Kafka topic `{topic!r}`: "
-                f"{topic_metadata.error.str()}"
-            )
+            msg = f"error listing partitions for Kafka topic `{topic!r}`: "
+            f"{topic_metadata.error.str()}"
+            raise RuntimeError(msg)
         part_idxs = topic_metadata.partitions.keys()
         for i in part_idxs:
             yield f"{i}-{topic}"
@@ -77,10 +76,9 @@ class _KafkaSource(StatefulSource):
                     break
                 else:
                     # Discard all the messages in this batch too
-                    raise RuntimeError(
-                        f"error consuming from Kafka topic `{self.topic!r}`: "
-                        f"{msg.error()}"
-                    )
+                    msg = f"error consuming from Kafka topic `{self.topic!r}`: "
+                    f"{msg.error()}"
+                    raise RuntimeError(msg)
             batch.append((msg.key(), msg.value()))
             last_offset = msg.offset()
 
@@ -97,8 +95,7 @@ class _KafkaSource(StatefulSource):
 
 
 class KafkaInput(PartitionedInput):
-    """Use [Kafka](https://kafka.apache.org) topics as an input
-    source.
+    """Use a set of Kafka topics as an input source.
 
     Kafka messages are emitted into the dataflow as two-tuples of
     `(key_bytes, value_bytes)`.
@@ -106,31 +103,6 @@ class KafkaInput(PartitionedInput):
     Partitions are the unit of parallelism.
 
     Can support exactly-once processing.
-
-    Args:
-
-        brokers: List of `host:port` strings of Kafka brokers.
-
-        topics: List of topics to consume from.
-
-        tail: Whether to wait for new data on this topic when the end
-            is initially reached.
-
-        starting_offset: Can be either
-            `confluent_kafka.OFFSET_BEGINNING` or
-            `confluent_kafka.OFFSET_END`. Defaults to beginning of
-            topic.
-
-        add_config: Any additional configuration properties. See [the
-            `rdkafka`
-            documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
-            for options.
-
-        batch_size: How many messages to consume at most at each poll.
-            This is 1 by default, which means messages will be consumed
-            one at a time. The default setting is suited for lower latency,
-            but negatively affects throughput. If you need higher
-            throughput, set this to a higher value (eg: 1000)
     """
 
     def __init__(
@@ -142,11 +114,41 @@ class KafkaInput(PartitionedInput):
         add_config: Dict[str, str] = None,
         batch_size: int = 1,
     ):
+        """Init.
+
+        Args:
+            brokers:
+                List of `host:port` strings of Kafka brokers.
+            topics:
+                List of topics to consume from.
+            tail:
+                Whether to wait for new data on this topic when the
+                end is initially reached.
+            starting_offset:
+                Can be either `confluent_kafka.OFFSET_BEGINNING` or
+                `confluent_kafka.OFFSET_END`. Defaults to beginning of
+                topic.
+            add_config:
+                Any additional configuration properties. See [the
+                `rdkafka`
+                documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+                for options.
+            batch_size:
+                How many messages to consume at most at each poll.
+                This is 1 by default, which means messages will be
+                consumed one at a time. The default setting is suited
+                for lower latency, but negatively affects
+                throughput. If you need higher throughput, set this to
+                a higher value (eg: 1000)
+
+        """
         if isinstance(brokers, str):
-            raise TypeError("brokers must be an iterable and not a string")
+            msg = "brokers must be an iterable and not a string"
+            raise TypeError(msg)
         self._brokers = brokers
         if isinstance(topics, str):
-            raise TypeError("topics must be an iterable and not a string")
+            msg = "topics must be an iterable and not a string"
+            raise TypeError(msg)
         self._topics = topics
         self._tail = tail
         self._starting_offset = starting_offset
@@ -154,6 +156,7 @@ class KafkaInput(PartitionedInput):
         self._batch_size = batch_size
 
     def list_parts(self):
+        """Each Kafka partition is an input partition."""
         config = {
             "bootstrap.servers": ",".join(self._brokers),
         }
@@ -163,6 +166,7 @@ class KafkaInput(PartitionedInput):
         return list(_list_parts(client, self._topics))
 
     def build_part(self, for_part, resume_state):
+        """See ABC docstring."""
         part_idx, topic = for_part.split("-", 1)
         part_idx = int(part_idx)
         # TODO: Warn and then return None. This might be an indication
@@ -205,8 +209,7 @@ class _KafkaSink(StatelessSink):
 
 
 class KafkaOutput(DynamicOutput):
-    """Use a single [Kafka](https://kafka.apache.org) topic as an
-    output sink.
+    """Use a single Kafka topic as an output sink.
 
     Items consumed from the dataflow must look like two-tuples of
     `(key_bytes, value_bytes)`. Default partition routing is used.
@@ -216,17 +219,6 @@ class KafkaOutput(DynamicOutput):
     Can support at-least-once processing. Messages from the resume
     epoch will be duplicated right after resume.
 
-    Args:
-
-        brokers: List of `host:port` strings of Kafka brokers.
-
-        topic: Topic to produce to.
-
-        add_config: Any additional configuration properties. See [the
-            `rdkafka`
-            documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
-            for options.
-
     """
 
     def __init__(
@@ -235,11 +227,26 @@ class KafkaOutput(DynamicOutput):
         topic: str,
         add_config: Dict[str, str] = None,
     ):
+        """Init.
+
+        Args:
+            brokers:
+                List of `host:port` strings of Kafka brokers.
+            topic:
+                Topic to produce to.
+            add_config:
+                Any additional configuration properties. See [the
+                `rdkafka`
+                documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+                for options.
+
+        """
         self._brokers = brokers
         self._topic = topic
         self._add_config = {} if add_config is None else add_config
 
     def build(self, worker_index, worker_count):
+        """See ABC docstring."""
         config = {
             "bootstrap.servers": ",".join(self._brokers),
         }

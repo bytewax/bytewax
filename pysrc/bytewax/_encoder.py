@@ -1,3 +1,4 @@
+"""Dataflow JSON encoding."""
 import datetime
 import inspect
 import json
@@ -7,14 +8,7 @@ from .bytewax import Dataflow
 
 
 class DataflowEncoder(json.JSONEncoder):
-    """Custom JSON encoder for a Dataflow
-
-    This class is used in conjunction with the Rust `webserver` module to
-    produce a JSON representation of a bytewax Dataflow.
-
-    __getstate__() is a method defined on all of the Python classes we
-    create in Rust to return a PyDict representation of that class.
-    """
+    """Encoder that can handle a `bytewax.Dataflow`."""
 
     def default(self, obj):
         if hasattr(obj, "__json__"):
@@ -52,11 +46,10 @@ class DataflowEncoder(json.JSONEncoder):
         try:
             return json.JSONEncoder.default(self, obj)
         except TypeError as err:
-            raise TypeError(f"{obj} can not be JSON encoded: {err}")
+            msg = f"{obj} can not be JSON encoded"
+            raise TypeError(msg) from err
 
 
 def encode_dataflow(dataflow: Dataflow):
-    """Convenience method for calling `json.dumps` with our custom
-    DataflowEncoder class from Rust.
-    """
+    """Encode this dataflow into JSON."""
     return json.dumps(dataflow, cls=DataflowEncoder, sort_keys=True)

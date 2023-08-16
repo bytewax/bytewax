@@ -4,7 +4,7 @@ scalable dataflows in a streaming or batch context.
 [See our readme for more
 documentation.](https://github.com/bytewax/bytewax)
 
-"""
+"""  # noqa: D205
 __all__ = []
 
 __pdoc__ = {

@@ -1,6 +1,4 @@
-"""Connectors to console IO.
-
-"""
+"""Connectors to console IO."""
 from bytewax.outputs import DynamicOutput, StatelessSink
 
 __all__ = [
@@ -28,4 +26,5 @@ class StdOutput(DynamicOutput):
     """
 
     def build(self, worker_index, worker_count):
+        """See ABC docstring."""
         return _PrintSink()

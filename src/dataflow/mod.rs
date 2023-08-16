@@ -68,10 +68,10 @@ impl Dataflow {
     /// connector types.
     ///
     /// Args:
-    ///
-    ///   step_id (str): Uniquely identifies this step for recovery.
-    ///
-    ///   input (bytewax.inputs.Input): Input definition.
+    ///   step_id (str):
+    ///       Uniquely identifies this step for recovery.
+    ///   input (bytewax.inputs.Input):
+    ///       Input definition.
     fn input(&mut self, step_id: StepId, input: Input) {
         self.steps.push(Step::Input { step_id, input });
     }
@@ -138,10 +138,10 @@ impl Dataflow {
     /// connector types.
     ///
     /// Args:
-    ///
-    ///   step_id (str): Uniquely identifies this step for recovery.
-    ///
-    ///   output (bytewax.outputs.Output): Output definition.
+    ///   step_id (str):
+    ///       Uniquely identifies this step for recovery.
+    ///   output (bytewax.outputs.Output):
+    ///       Output definition.
     fn output(&mut self, step_id: StepId, output: Output) {
         self.steps.push(Step::Output { step_id, output });
     }
@@ -176,8 +176,8 @@ impl Dataflow {
     /// 3
     ///
     /// Args:
-    ///
-    ///   predicate: `predicate(item: Any) => should_emit: bool`
+    ///   predicate:
+    ///       `predicate(item: Any) => should_emit: bool`
     fn filter(&mut self, predicate: TdPyCallable) {
         self.steps.push(Step::Filter { predicate });
     }
@@ -195,6 +195,9 @@ impl Dataflow {
     /// ...
     /// >>> flow.filter_map(validate)
     ///
+    /// Args:
+    ///     mapper:
+    ///         `mapper(item: Any) => modified_item: Optional[Any]`
     fn filter_map(&mut self, mapper: TdPyCallable) {
         self.steps.push(Step::FilterMap { mapper });
     }
@@ -228,8 +231,8 @@ impl Dataflow {
     /// world
     ///
     /// Args:
-    ///
-    ///   mapper: `mapper(item: Any) => emit: Iterable[Any]`
+    ///   mapper:
+    ///       `mapper(item: Any) => emit: Iterable[Any]`
     fn flat_map(&mut self, mapper: TdPyCallable) {
         self.steps.push(Step::FlatMap { mapper });
     }
@@ -258,8 +261,8 @@ impl Dataflow {
     /// Saw 2
     ///
     /// Args:
-    ///
-    ///   inspector: `inspector(item: Any) => None`
+    ///   inspector:
+    ///       `inspector(item: Any) => None`
     fn inspect(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::Inspect { inspector });
     }
@@ -290,8 +293,8 @@ impl Dataflow {
     /// Saw 2 @ 3
     ///
     /// Args:
-    ///
-    ///   inspector: `inspector(epoch: int, item: Any) => None`
+    ///   inspector:
+    ///       `inspector(epoch: int, item: Any) => None`
     fn inspect_epoch(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::InspectEpoch { inspector });
     }
@@ -305,6 +308,10 @@ impl Dataflow {
     /// It emits items downstream unmodified.
     ///
     /// It is commonly used for debugging.
+    ///
+    /// Args:
+    ///   inspector:
+    ///       `inspector(item: Any, worker: int) => None`
     fn inspect_worker(&mut self, inspector: TdPyCallable) {
         self.steps.push(Step::InspectWorker { inspector });
     }
@@ -336,8 +343,8 @@ impl Dataflow {
     /// 12
     ///
     /// Args:
-    ///
-    ///   mapper: `mapper(item: Any) => updated_item: Any`
+    ///   mapper:
+    ///       `mapper(item: Any) => updated_item: Any`
     fn map(&mut self, mapper: TdPyCallable) {
         self.steps.push(Step::Map { mapper });
     }
@@ -404,13 +411,13 @@ impl Dataflow {
     ///        {'user': 'a', 'type': 'logout'}])
     ///
     /// Args:
-    ///
-    ///   step_id (str): Uniquely identifies this step for recovery.
-    ///
-    ///   reducer: `reducer(accumulator: Any, value: Any) =>
+    ///   step_id (str):
+    ///       Uniquely identifies this step for recovery.
+    ///   reducer:
+    ///       `reducer(accumulator: Any, value: Any) =>
     ///       updated_accumulator: Any`
-    ///
-    ///   is_complete: `is_complete(updated_accumulator: Any) =>
+    ///   is_complete:
+    ///       `is_complete(updated_accumulator: Any) =>
     ///       should_emit: bool`
     fn reduce(&mut self, step_id: StepId, reducer: TdPyCallable, is_complete: TdPyCallable) {
         self.steps.push(Step::Reduce {
@@ -482,16 +489,16 @@ impl Dataflow {
     /// >>> assert sorted(out) == sorted([("ALL", ["a", "b", "c"]), ("ALL", ["d", "e"])])
     ///
     /// Args:
-    ///
-    ///   step_id: Uniquely identifies this step for recovery.
-    ///
-    ///   clock_config: Clock config to use. See `bytewax.window`.
-    ///
-    ///   window_config: Windower config to use. See `bytewax.window`.
-    ///
-    ///   builder: `builder(key: Any) => initial_accumulator: Any`
-    ///
-    ///   folder: `folder(accumulator: Any, value: Any) => updated_accumulator: Any`
+    ///   step_id (str):
+    ///       Uniquely identifies this step for recovery.
+    ///   clock_config (bytewax.window.ClockConfig):
+    ///       Clock config to use. See `bytewax.window`.
+    ///   window_config (bytewax.window.WindowConfig):
+    ///       Windower config to use. See `bytewax.window`.
+    ///   builder:
+    ///       `builder(key: Any) => initial_accumulator: Any`
+    ///   folder:
+    ///       `folder(accumulator: Any, value: Any) => updated_accumulator: Any`
     fn fold_window(
         &mut self,
         step_id: StepId,
@@ -572,15 +579,12 @@ impl Dataflow {
     /// >>> assert sorted(out) == sorted([('b', 1), ('a', 2), ('b', 1)])
     ///
     /// Args:
-    ///
-    ///   step_id (str): Uniquely identifies this step for recovery.
-    ///
-    ///   clock_config (bytewax.window.ClockConfig): Clock config to
-    ///       use. See `bytewax.window`.
-    ///
-    ///   window_config (bytewax.window.WindowConfig): Windower
-    ///       config to use. See `bytewax.window`.
-    ///
+    ///   step_id (str):
+    ///       Uniquely identifies this step for recovery.
+    ///   clock_config (bytewax.window.ClockConfig):
+    ///       Clock config to use. See `bytewax.window`.
+    ///   window_config (bytewax.window.WindowConfig):
+    ///       Windower config to use. See `bytewax.window`.
     ///   reducer: `reducer(accumulator: Any, value: Any) =>
     ///       updated_accumulator: Any`
     fn reduce_window(
@@ -614,14 +618,12 @@ impl Dataflow {
     /// an ever-growing key space, note this.
     ///
     /// Args:
-    ///
-    ///   step_id (str): Uniquely identifies this step for recovery.
-    ///
-    ///   clock_config (bytewax.window.ClockConfig): Clock config to
-    ///       use. See `bytewax.window`.
-    ///
-    ///   window_config (bytewax.window.WindowConfig): Windower
-    ///       config to use. See `bytewax.window`.
+    ///   step_id (str):
+    ///       Uniquely identifies this step for recovery.
+    ///   clock_config (bytewax.window.ClockConfig):
+    ///       Clock config to use. See `bytewax.window`.
+    ///   window_config (bytewax.window.WindowConfig):
+    ///       Windower config to use. See `bytewax.window`.
     fn collect_window(
         &mut self,
         step_id: StepId,
@@ -701,12 +703,12 @@ impl Dataflow {
     /// b
     ///
     /// Args:
-    ///
-    ///   step_id (str): Uniquely identifies this step for recovery.
-    ///
-    ///   builder: `builder(key: Any) => new_state: Any`
-    ///
-    ///   mapper: `mapper(state: Any, value: Any) => (updated_state:
+    ///   step_id (str):
+    ///       Uniquely identifies this step for recovery.
+    ///   builder:
+    ///       `builder(key: Any) => new_state: Any`
+    ///   mapper:
+    ///       `mapper(state: Any, value: Any) => (updated_state:
     ///       Any, updated_value: Any)`
     fn stateful_map(&mut self, step_id: StepId, builder: TdPyCallable, mapper: TdPyCallable) {
         self.steps.push(Step::StatefulMap {

@@ -7,7 +7,7 @@ from bytewax.inputs import (
     StatefulSource,
     StatelessSource,
 )
-from bytewax.testing import run_main, TestingOutput
+from bytewax.testing import TestingOutput, run_main
 
 
 def test_next_awake_in_dynamic_input():

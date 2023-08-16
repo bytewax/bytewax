@@ -8,8 +8,8 @@ from bytewax.inputs import DynamicInput
 
 
 class NumberInput(DynamicInput):
-    def __init__(self, max):
-        self.max = max
+    def __init__(self, n):
+        self._n = n
 
     def build(self, worker_index, worker_count):
         # XXX: Error here

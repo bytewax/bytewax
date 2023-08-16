@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from bytewax.connectors.files import FileInput
 from bytewax.dataflow import Dataflow
-from bytewax.testing import run_main, TestingOutput
+from bytewax.testing import TestingOutput, run_main
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 

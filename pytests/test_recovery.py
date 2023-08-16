@@ -1,19 +1,20 @@
 from datetime import timedelta
 
-from pytest import raises
-
 from bytewax.dataflow import Dataflow
-from bytewax.recovery import init_db_dir, RecoveryConfig
-from bytewax.testing import cluster_main, run_main, TestingInput, TestingOutput
+from bytewax.recovery import RecoveryConfig, init_db_dir
+from bytewax.testing import TestingInput, TestingOutput, cluster_main, run_main
+from pytest import raises
 
 ZERO_TD = timedelta(seconds=0)
 
 
 def build_keep_max_dataflow(inp, explode_on):
-    """Builds a dataflow that keeps track of the largest value seen for
-    each key, but also allows you to reset the max with a value of
-    `None`. Input is `(key, value, should_explode)`. Will throw
-    exception if `should_explode` is truthy and `armed` is set.
+    """Builds a set testing dataflow.
+
+    It keeps track of the largest value seen for each key, but also
+    allows you to reset the max with a value of `None`. Input is
+    `(key, value, should_explode)`. Will throw exception if
+    `should_explode` is truthy and `armed` is set.
 
     """
     flow = Dataflow()
@@ -23,7 +24,8 @@ def build_keep_max_dataflow(inp, explode_on):
     def trigger(item):
         key, value, should_explode = item
         if should_explode == explode_on:
-            raise RuntimeError("BOOM")
+            msg = "BOOM"
+            raise RuntimeError(msg)
         return key, value
 
     flow.map(trigger)
@@ -210,15 +212,13 @@ def test_recover_respects_delete(recovery_config):
     ]
 
 
-def test_continuation(entry_point, inp, out, recovery_config):
-    # Since we're modifying the input, use the fixture so it works
-    # across processes. Currently, `inp = []`.
-    inp.extend(
-        [
-            ("a", 4, False),
-            ("b", 4, False),
-        ]
-    )
+def test_continuation(entry_point, recovery_config):
+    inp = [
+        ("a", 4, False),
+        ("b", 4, False),
+    ]
+
+    out = []
     flow = build_keep_max_dataflow(inp, None)
     flow.output("out", TestingOutput(out))
 
@@ -272,15 +272,12 @@ def test_continuation(entry_point, inp, out, recovery_config):
     ]
 
 
-def test_continuation_with_no_new_input(entry_point, inp, out, recovery_config):
-    # Since we're modifying the input, use the fixture so it works
-    # across processes. Currently, `inp = []`.
-    inp.extend(
-        [
-            ("a", 4, False),
-            ("b", 4, False),
-        ]
-    )
+def test_continuation_with_no_new_input(entry_point, recovery_config):
+    inp = [
+        ("a", 4, False),
+        ("b", 4, False),
+    ]
+    out = []
     flow = build_keep_max_dataflow(inp, None)
     flow.output("out", TestingOutput(out))
 
@@ -304,7 +301,7 @@ def test_continuation_with_no_new_input(entry_point, inp, out, recovery_config):
     assert sorted(out) == []
 
 
-def test_rescale(inp, out, tmp_path):
+def test_rescale(tmp_path):
     init_db_dir(tmp_path, 3)
     recovery_config = RecoveryConfig(str(tmp_path))
 
@@ -318,14 +315,11 @@ def test_rescale(inp, out, tmp_path):
             worker_count_per_proc=worker_count_per_proc,
         )
 
-    # Since we're modifying the input, use the fixture so it works
-    # across processes. Currently, `inp = []`.
-    inp.extend(
-        [
-            ("a", 4, False),
-            ("b", 4, False),
-        ]
-    )
+    inp = [
+        ("a", 4, False),
+        ("b", 4, False),
+    ]
+    out = []
     flow = build_keep_max_dataflow(inp, None)
     flow.output("out", TestingOutput(out))
 

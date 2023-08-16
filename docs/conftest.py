@@ -1,5 +1,4 @@
-"""Hooks and code to tell pytest how to run our Markdown documentation
-as a kind of doctest.
+"""Run our Markdown documentation as a kind of doctest.
 
 Each file is a separate "script". Each Python code block within each
 file will be run in sequence. If there's a code block tagged
@@ -35,7 +34,7 @@ import doctest
 import os
 from contextlib import AbstractContextManager, redirect_stdout
 from dataclasses import dataclass
-from doctest import Example, OPTIONFLAGS_BY_NAME, OutputChecker, register_optionflag
+from doctest import OPTIONFLAGS_BY_NAME, Example, OutputChecker, register_optionflag
 from io import StringIO
 from pathlib import Path
 from traceback import print_exc
@@ -53,10 +52,7 @@ IGNORE_OUTPUT = register_optionflag("IGNORE_OUTPUT")
 
 @dataclass
 class Block:
-    """Represents a code block in a Markdown file so we can reference it
-    later.
-
-    """
+    """A code block in a Markdown file so we can reference it later."""
 
     path: Path
     content: str
@@ -72,7 +68,7 @@ class ExpectedOutput:
 
 
 class NoOutput(ExpectedOutput):
-    """Represents when the expected output of a test should be empty.
+    """When the expected output of a test should be empty.
 
     Pass the block containin the source code so that we can highlight
     something helpful if there's an error.
@@ -80,6 +76,13 @@ class NoOutput(ExpectedOutput):
     """
 
     def __init__(self, source: Block):
+        """Init.
+
+        Args:
+            source:
+                Block containing source code to run.
+
+        """
         end_fence_line = source.content_last_line + 1
         empty_output = Block(source.path, "", end_fence_line, end_fence_line)
         super().__init__(empty_output)
@@ -93,6 +96,7 @@ class MdOutputChecker(OutputChecker):
     """Custom version of `OutputChecker` that supports our new flags."""
 
     def check_output(self, want, got, optionflags):
+        """Modify the output based on the flags for this doctest."""
         if optionflags & IGNORE_OUTPUT:
             got = ""
         if optionflags & SORT_OUTPUT:
@@ -102,6 +106,7 @@ class MdOutputChecker(OutputChecker):
         return super().check_output(want, got, optionflags)
 
     def output_difference(self, example, got, optionflags):
+        """Return the output difference based on the flags for this doctest."""
         if optionflags & IGNORE_OUTPUT:
             got = ""
         if optionflags & SORT_OUTPUT:
@@ -112,12 +117,16 @@ class MdOutputChecker(OutputChecker):
 
 
 class MdTestFailure(Exception):
-    """Exception thrown when the expected output doesn't match the found
-    output.
-
-    """
+    """When the expected output doesn't match the found output."""
 
     def __init__(self, found: str):
+        """Init.
+
+        Args:
+            found:
+                Found output.
+
+        """
         self.found = found
 
 
@@ -128,14 +137,23 @@ class chdir(AbstractContextManager):
     """Temporarily cd into another directory."""
 
     def __init__(self, path):
+        """Init.
+
+        Args:
+            path:
+                To CD into.
+
+        """
         self.path = path
         self._old_cwd = []
 
     def __enter__(self):
+        """Change CWD and note old CWD."""
         self._old_cwd.append(os.getcwd())
         os.chdir(self.path)
 
     def __exit__(self, *excinfo):
+        """Change CWD back to old."""
         os.chdir(self._old_cwd.pop())
 
 
@@ -149,7 +167,9 @@ class TestCode:
     checker: OutputChecker = MdOutputChecker()
 
     def run(self, expected: ExpectedOutput):
-        """`compile()` the source string, `exec()` it capturing all
+        """Run this test.
+
+        `compile()` the source string, `exec()` it capturing all
         output for later comparison, and check that the output is
         correct.
 
@@ -188,12 +208,24 @@ class TestCode:
 
 
 class MdTestFailureRepr(TerminalRepr):
-    """pytest class for pretty printing test results. Returned by
-    `MdTestItem.repr_failure` to print nice things.
+    """pytest class for pretty printing test results.
+
+    Returned by `MdTestItem.repr_failure` to print nice things.
 
     """
 
     def __init__(self, code: TestCode, expected: ExpectedOutput, found: str):
+        """Init.
+
+        Args:
+            code:
+                Code that was run.
+            expected:
+                Expected output
+            found:
+                Literal string output found.
+
+        """
         super().__init__()
         self.code = code
         self.expected = expected
@@ -202,7 +234,9 @@ class MdTestFailureRepr(TerminalRepr):
     # Formatting ideas taken from
     # https://github.com/pytest-dev/pytest/blob/63126643b9b02bce4bbccc94ea00bebdb8137975/src/_pytest/doctest.py
     def toterminal(self, tw: TerminalWriter) -> None:
-        """Copy what pytest's built in doctest code does to print output
+        """Print this failure.
+
+        Copy pytest's built-in doctest code to print output
         mismatches.
 
         """
@@ -233,7 +267,7 @@ class MdTestFailureRepr(TerminalRepr):
 
 
 class MdTestItem(Item):
-    """Represents a single test for pytest to run.
+    """A single test for pytest to run.
 
     There's one of these for every code block in the Markdown input
     (paired with an optional output block).
@@ -241,6 +275,16 @@ class MdTestItem(Item):
     """
 
     def __init__(self, *, code: TestCode, expected: ExpectedOutput, **kwargs):
+        """Init.
+
+        Args:
+            code:
+                Block of code to run.
+            expected:
+                Expected output.
+            **kwargs:
+                Anything else to pass to the pytest item constructor.
+        """
         name = f"{expected.text.content_first_line}"
         super().__init__(name=name, **kwargs)
         self.code = code
@@ -263,10 +307,7 @@ class MdTestItem(Item):
         )
 
     def repr_failure(self, excinfo):
-        """Called by pytest to convert exceptions thrown in `runtest()` into
-        pretty printer objects.
-
-        """
+        """Convert exceptions thrown in `runtest()` into pretty reprs."""
         ex = excinfo.value
         if isinstance(ex, MdTestFailure):
             return MdTestFailureRepr(self.code, self.expected, ex.found)
@@ -280,10 +321,9 @@ def _parse_checker_flags(info_args):
         if arg.startswith("doctest:"):
             name = arg[len("doctest:") :]  # noqa: E203
             if name not in OPTIONFLAGS_BY_NAME:
-                raise ValueError(
-                    f"unknown doctest flag {name!r}; "
-                    f"options are {sorted(OPTIONFLAGS_BY_NAME.keys())}"
-                )
+                msg = f"unknown doctest flag {name!r}; "
+                f"options are {sorted(OPTIONFLAGS_BY_NAME.keys())}"
+                raise ValueError(msg)
             bit = OPTIONFLAGS_BY_NAME[name]
             flags |= bit
     return flags
@@ -312,8 +352,7 @@ class MdTestFile(File):
         fences = (token for token in tokens if token.type == "fence")
 
         def build_item(code: TestCode, expected: ExpectedOutput):
-            """Call this when we've paired up a bit of source Python with some
-            expected output.
+            """Build a test when Py code is paired with output.
 
             That might happen when we find pairs of code-output or two
             code blocks in a row and we assume the optional output was
@@ -372,8 +411,7 @@ class MdTestFile(File):
 
 
 def pytest_collect_file(file_path, path: Path, parent) -> MdTestFile:
-    """Hook function that pytest will call with each file found in this
-    subdirectory.
+    """Pytest will call with each file found in this subdirectory.
 
     If we find a Markdown file, build a set of tests for it.
 

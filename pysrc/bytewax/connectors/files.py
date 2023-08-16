@@ -1,6 +1,4 @@
-"""Connectors for local text files.
-
-"""
+"""Connectors for local text files."""
 import csv
 import os
 from pathlib import Path
@@ -50,32 +48,37 @@ class DirInput(PartitionedInput):
     different files are interleaved.
 
     Can support exactly-once processing.
-
-    Args:
-
-        dir: Path to directory.
-
-        glob_pat: Pattern of files to read from the
-            directory. Defaults to `"*"` or all files.
-
     """
 
-    def __init__(self, dir: Path, glob_pat: str = "*"):
-        if not dir.exists():
-            raise ValueError(f"input directory `{dir}` does not exist")
-        if not dir.is_dir():
-            raise ValueError(f"input directory `{dir}` is not a directory")
+    def __init__(self, dir_path: Path, glob_pat: str = "*"):
+        """Init.
 
-        self._dir = dir
+        Args:
+            dir_path: Path to directory.
+
+            glob_pat: Pattern of files to read from the
+                directory. Defaults to `"*"` or all files.
+        """
+        if not dir_path.exists():
+            msg = f"input directory `{dir_path}` does not exist"
+            raise ValueError(msg)
+        if not dir_path.is_dir():
+            msg = f"input directory `{dir_path}` is not a directory"
+            raise ValueError(msg)
+
+        self._dir_path = dir_path
         self._glob_pat = glob_pat
 
     def list_parts(self):
+        """Each file is a separate partition."""
         return [
-            str(path.relative_to(self._dir)) for path in self._dir.glob(self._glob_pat)
+            str(path.relative_to(self._dir_path))
+            for path in self._dir_path.glob(self._glob_pat)
         ]
 
     def build_part(self, for_part, resume_state):
-        path = self._dir / for_part
+        """See ABC docstring."""
+        path = self._dir_path / for_part
         return _FileSource(path, resume_state)
 
 
@@ -86,22 +89,24 @@ class FileInput(PartitionedInput):
 
     There is no parallelism; only one worker will actually read the
     file.
-
-    Args:
-
-        path: Path to file.
-
     """
 
     def __init__(self, path: Union[Path, str]):
+        """Init.
+
+        Args:
+            path: Path to file.
+        """
         if not isinstance(path, Path):
             path = Path(path)
         self._path = path
 
     def list_parts(self):
+        """The file is a single partition."""
         return [str(self._path)]
 
     def build_part(self, for_part, resume_state):
+        """See ABC docstring."""
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert for_part == str(self._path), "Can't resume reading from different file"
@@ -147,13 +152,6 @@ class CSVInput(FileInput):
     There is no parallelism; only one worker will actually read the
     file.
 
-    Args:
-
-        path: Path to file.
-
-        **fmtparams: Any custom formatting arguments you can pass to
-          [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
-
     Sample input:
 
     ```
@@ -189,10 +187,21 @@ class CSVInput(FileInput):
     """
 
     def __init__(self, path: Path, **fmtparams):
+        """Init.
+
+        Args:
+            path:
+                Path to file.
+            **fmtparams:
+                Any custom formatting arguments you can pass to
+                [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
+
+        """
         super().__init__(path)
         self._fmtparams = fmtparams
 
     def build_part(self, for_part, resume_state):
+        """See ABC docstring."""
         assert for_part == str(self._path), "Can't resume reading from different file"
         return _CSVSource(self._path, resume_state, self._fmtparams)
 
@@ -235,50 +244,55 @@ class DirOutput(PartitionedOutput):
     will be truncated during resume so duplicates are
     prevented. Tailing the output files will result in undefined
     behavior.
-
-    Args:
-
-        dir: Path to directory.
-
-        file_count: Number of separate partition files to create.
-
-        file_namer: Will be called with two arguments, the file index
-            and total file count, and must return the file name to
-            use for that file partition. Defaults to naming files like
-            `"part_{i}"`, where `i` is the file index.
-
-        assign_file: Will be called with the key of each consumed item
-            and must return the file index the value will be written
-            to. Will wrap to the file count if you return a larger
-            value. Defaults to calling `zlib.adler32` as a simple
-            globally-consistent hash.
-
-        end: String to write after each item. Defaults to newline.
-
     """
 
     def __init__(
         self,
-        dir: Path,
+        dir_path: Path,
         file_count: int,
         file_namer: Callable[[int, int], str] = lambda i, _n: f"part_{i}",
         assign_file: Callable[[str], int] = lambda k: adler32(k.encode()),
         end: str = "\n",
     ):
-        self._dir = dir
+        """Init.
+
+        Args:
+            dir_path:
+                Path to directory.
+            file_count:
+                Number of separate partition files to create.
+            file_namer:
+                Will be called with two arguments, the file index and
+                total file count, and must return the file name to use
+                for that file partition. Defaults to naming files like
+                `"part_{i}"`, where `i` is the file index.
+            assign_file:
+                Will be called with the key of each consumed item and
+                must return the file index the value will be written
+                to. Will wrap to the file count if you return a larger
+                value. Defaults to calling `zlib.adler32` as a simple
+                globally-consistent hash.
+            end:
+                String to write after each item. Defaults to newline.
+
+        """
+        self._dir_path = dir_path
         self._file_count = file_count
         self._file_namer = file_namer
         self._assign_file = assign_file
         self._end = end
 
     def list_parts(self):
+        """Each file is a partition."""
         return [self._file_namer(i, self._file_count) for i in range(self._file_count)]
 
     def part_fn(self, item_key):
+        """Use the specified file assigner."""
         return self._assign_file(item_key)
 
     def build_part(self, for_part, resume_state):
-        path = self._dir / for_part
+        """See ABC docstring."""
+        path = self._dir_path / for_part
         return _FileSink(path, resume_state, self._end)
 
 
@@ -297,27 +311,30 @@ class FileOutput(PartitionedOutput):
     will be truncated during resume so duplicates are
     prevented. Tailing the output file will result in undefined
     behavior.
-
-    Args:
-
-        path: Path to file.
-
-        end: String to write after each item. Defaults to newline.
-
     """
 
     def __init__(self, path: Path, end: str = "\n"):
+        """Init.
+
+        Args:
+            path:
+                Path to file.
+            end:
+                String to write after each item. Defaults to newline.
+        """
         self._path = path
         self._end = end
 
     def list_parts(self):
+        """The file is a single partition."""
         return [str(self._path)]
 
     def part_fn(self, item_key):
-        # Only one partition.
+        """Only one partition."""
         return 0
 
     def build_part(self, for_part, resume_state):
+        """See ABC docstring."""
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert for_part == str(self._path), "Can't resume writing to different file"

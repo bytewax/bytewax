@@ -24,18 +24,16 @@ use super::*;
 /// Window start times are inclusive, but end times are exclusive.
 ///
 /// Args:
-///
-///   length (datetime.timedelta): Length of windows.
-///
-///   offset (datetime.timedelta): Duration between start times of
-///     adjacent windows.
-///
-///   align_to (datetime.datetime): Align windows so this instant
-///     starts a window. This must be a constant. You can use this to
-///     align all windows to hour boundaries, e.g.
+///   length (datetime.timedelta):
+///     Length of windows.
+///   offset (datetime.timedelta):
+///     Duration between start times of adjacent windows.
+///   align_to (datetime.datetime):
+///     Align windows so this instant starts a window. This must be a
+///     constant. You can use this to align all windows to hour
+///     boundaries, e.g.
 ///
 /// Returns:
-///
 ///   Config object. Pass this as the `window_config` parameter to
 ///   your windowing operator.
 #[pyclass(module="bytewax.window", extends=WindowConfig)]

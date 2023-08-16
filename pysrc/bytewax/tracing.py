@@ -33,8 +33,8 @@ This makes the setup easier, but it's less flexible.
 from .bytewax import (  # noqa: F401
     JaegerConfig,
     OtlpTracingConfig,
-    setup_tracing,
     TracingConfig,
+    setup_tracing,
 )
 
 __all__ = [
