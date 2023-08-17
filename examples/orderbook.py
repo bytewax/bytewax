@@ -39,7 +39,7 @@ class CoinbaseFeedInput(PartitionedInput):
         self.product_ids = product_ids
 
     def list_parts(self):
-        return set(self.product_ids)
+        return self.product_ids
 
     def build_part(self, for_key, resume_state):
         assert resume_state is None

@@ -199,8 +199,8 @@ class _KafkaSink(StatelessSink):
         self._producer = producer
         self._topic = topic
 
-    def write_batch(self, batch):
-        for key, value in batch:
+    def write_batch(self, items):
+        for key, value in items:
             self._producer.produce(self._topic, value, key)
         self._producer.flush()
         # Pass items through

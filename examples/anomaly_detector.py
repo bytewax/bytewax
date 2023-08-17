@@ -11,7 +11,7 @@ class RandomMetricSource(StatefulSource):
 
     def next_batch(self):
         next(self.iterator)
-        return ["ALL", random.randrange(0, 10)]
+        return [("ALL", random.randrange(0, 10))]
 
     def snapshot(self):
         return None

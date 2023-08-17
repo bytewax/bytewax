@@ -21,7 +21,6 @@ use timely::progress::Timestamp;
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::pyo3_extensions::extract_state_pair;
-use crate::pyo3_extensions::wrap_state_pair;
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::*;
@@ -295,10 +294,10 @@ where
                                         .or_insert_with(BTreeMap::new)
                                         .entry(part.clone())
                                         .or_insert_with(Vec::new)
-                                        .extend(items.clone());
+                                        .append(items);
                                     None
                                 } else {
-                                    Some(((*worker, part.clone()), items.clone()))
+                                    Some(((*worker, part.clone()), items.drain(..).collect()))
                                 }
                             })
                             .collect();
