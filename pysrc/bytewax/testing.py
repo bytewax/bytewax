@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
-from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.inputs import Batcher, PartitionedInput, StatefulSource
 from bytewax.outputs import DynamicOutput, StatelessSink
 
 from .bytewax import cluster_main, run_main
@@ -17,20 +17,20 @@ __all__ = [
 
 
 class _IterSource(StatefulSource):
-    def __init__(self, it, resume_state):
-        self._last_idx = -1 if resume_state is None else resume_state
-        self._it = enumerate(it)
+    def __init__(self, ib, batch_size, resume_state):
+        self._start_idx = 0 if resume_state is None else resume_state
+        it = iter(ib)
+        self._batcher = Batcher(it, batch_size)
         # Resume to one after the last completed read index.
-        for _i in range(self._last_idx + 1):
-            next(self._it)
+        self._batcher.skip(self._start_idx)
 
     def next_batch(self):
-        # next will raise StopIteration on its own.
-        self._last_idx, item = next(self._it)
-        return [item]
+        batch = self._batcher.next_batch()
+        self._start_idx += len(batch)
+        return batch
 
     def snapshot(self):
-        return self._last_idx
+        return self._start_idx
 
 
 class TestingInput(PartitionedInput):
@@ -38,9 +38,10 @@ class TestingInput(PartitionedInput):
 
     You only want to use this for unit testing.
 
-    The iterable must be identical on all workers; this will
-    automatically distribute the items across workers and handle
-    recovery.
+    The iterable must be identical on all workers.
+
+    There is no parallelism; only one worker will actually consume the
+    iterable.
 
     Be careful using a generator as the iterable; if you fail and
     attempt to resume the dataflow without rebuilding it, the
@@ -51,22 +52,28 @@ class TestingInput(PartitionedInput):
 
     __test__ = False
 
-    def __init__(self, it: Iterable[Any]):
+    def __init__(self, ib: Iterable[Any], batch_size: int = 1):
         """Init.
 
         Args:
-            it: Iterable for input.
+            ib:
+                Iterable for input.
+            batch_size:
+                Number of items from the iterable to emit in each
+                batch. Defaults to 1.
+
         """
-        self._it = it
+        self._ib = ib
+        self._batch_size = batch_size
 
     def list_parts(self):
-        """The iterator is read on a single worker."""
-        return ["iter"]
+        """The iterable is read on a single worker."""
+        return ["iterable"]
 
     def build_part(self, for_key, resume_state):
         """See ABC docstring."""
-        assert for_key == "iter"
-        return _IterSource(self._it, resume_state)
+        assert for_key == "iterable"
+        return _IterSource(self._ib, self._batch_size, resume_state)
 
 
 class _ListSink(StatelessSink):

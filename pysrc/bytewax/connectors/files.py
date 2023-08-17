@@ -1,12 +1,11 @@
 """Connectors for local text files."""
 import os
 from csv import DictReader
-from itertools import islice
 from pathlib import Path
 from typing import Callable, Union
 from zlib import adler32
 
-from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.inputs import Batcher, PartitionedInput, StatefulSource
 from bytewax.outputs import PartitionedOutput, StatefulSink
 
 __all__ = [
@@ -33,19 +32,20 @@ def _readlines(f):
         yield line
 
 
+def _strip_n(s):
+    return s.rstrip("\n")
+
+
 class _FileSource(StatefulSource):
     def __init__(self, path, batch_size, resume_state):
-        self._batch_size = batch_size
         self._f = open(path, "rt")
         if resume_state is not None:
             self._f.seek(resume_state)
-        self._it = _readlines(self._f)
+        it = map(_strip_n, _readlines(self._f))
+        self._batcher = Batcher(it, batch_size)
 
     def next_batch(self):
-        batch = [line.rstrip("\n") for line in islice(self._it, self._batch_size)]
-        if len(batch) <= 0:
-            raise StopIteration()
-        return batch
+        return self._batcher.next_batch()
 
     def snapshot(self):
         return self._f.tell()
@@ -147,19 +147,16 @@ class FileInput(PartitionedInput):
 
 class _CSVSource(StatefulSource):
     def __init__(self, path, batch_size, resume_state, fmtparams):
-        self._batch_size = batch_size
         self._f = open(path, "rt", newline="")
-        self._reader = DictReader(_readlines(self._f), **fmtparams)
+        reader = DictReader(_readlines(self._f), **fmtparams)
         # Force reading of the header.
-        _ = self._reader.fieldnames
+        _ = reader.fieldnames
+        self._batcher = Batcher(reader, batch_size)
         if resume_state is not None:
             self._f.seek(resume_state)
 
     def next_batch(self):
-        batch = list(islice(self._reader, self._batch_size))
-        if len(batch) <= 0:
-            raise StopIteration()
-        return batch
+        return self._batcher.next_batch()
 
     def snapshot(self):
         return self._f.tell()

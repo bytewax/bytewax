@@ -1,4 +1,4 @@
-"""Low-level input interfaces.
+"""Low-level input interfaces and input helpers.
 
 If you want pre-built connectors for various external systems, see
 `bytewax.connectors`. That is also a rich source of examples.
@@ -10,12 +10,14 @@ Subclass the types here to implement input for your own custom source.
 import asyncio
 import sys
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterable
 from datetime import datetime, timedelta
-from typing import Any, List, Optional
+from itertools import islice
+from typing import Any, Iterable, List, Optional
 
 __all__ = [
     "AsyncBatcher",
+    "Batcher",
     "DynamicInput",
     "Input",
     "PartitionedInput",
@@ -262,38 +264,99 @@ class DynamicInput(Input):
         ...
 
 
-class AsyncBatcher:
-    """Poll an async iter synchronously with a time and length limit.
+class Batcher:
+    """Batch an iterable.
 
-    This is great for allowing async input sources to play well with
-    Bytewax's requirement that calling `next` on sources should never
-    block.
+    Use this to easily generate batches of items for a source's
+    `next_batch` method.
 
     """
 
-    def __init__(self, ait: AsyncIterator, loop=None):
+    def __init__(self, ib: Iterable[Any], batch_size: int):
         """Init.
 
         Args:
-            ait:
-                The underlying source async iterator of items.
+            ib:
+                The underlying source iterable of items.
+            batch_size:
+                Maximum number of items to return in a batch.
+
+        """
+        # Ensure that we have the stateful iterator of the source.
+        self._it = iter(ib)
+        self._batch_size = batch_size
+
+    def skip(self, n: int) -> None:
+        """Skip the iterator forward some number of items.
+
+        Args:
+            n:
+                Number of items to skip from the current position.
+
+        """
+        # Taken from `consume`
+        # https://docs.python.org/3/library/itertools.html#itertools-recipes
+        # Apparently faster than a for loop.
+        next(islice(self._it, n, n), None)
+
+    def next_batch(self) -> List[Any]:
+        """Gather a batch of items.
+
+        Returns:
+            The gathered batch of items.
+
+        Raises:
+            StopIteration:
+                When there are no more batches.
+        """
+        batch = list(islice(self._it, self._batch_size))
+        if len(batch) <= 0:
+            raise StopIteration()
+        return batch
+
+
+class AsyncBatcher:
+    """Batch an async iterable synchronously up to a timeout.
+
+    This allows using an async iterator as an input source. The
+    `next_batch` method on an input source must never block, this
+    allows running an async iterator up to a timeout so that you
+    correctly cooperatively multitask with the rest of the dataflow.
+
+    """
+
+    def __init__(
+        self,
+        aib: AsyncIterable,
+        timeout: timedelta,
+        batch_size: int = sys.maxsize,
+        loop=None,
+    ):
+        """Init.
+
+        Args:
+            aib:
+                The underlying source async iterable of items.
+            timeout:
+                Duration of time to repeatedly poll the source
+                async iterator for items.
+            batch_size:
+                Maximum number of items to include in a batch, even if
+                the timeout has not been hit. Defaults to "no limit".
             loop:
                 Custom `asyncio` run loop to use, if any.
+
         """
-        self._ait = ait
+        # Ensure that we have the stateful iterator of the source.
+        self._ait = aib.__aiter__()
+        self._timeout = timeout
+        self._batch_size = batch_size
 
         self._loop = loop if loop is not None else asyncio.new_event_loop()
         self._task = None
 
-    def next_batch(self, timeout: timedelta, max_len: int = sys.maxsize) -> List[Any]:
+    def next_batch(self) -> List[Any]:
         """Gather a batch of items up to some limits.
-
-        Args:
-            timeout: Duration of time to repeatedly poll the source
-                async iterator for items.
-
-            max_len: Maximum number of items to return, even if the
-                timeout has not been hit. Defaults to "no limit".
 
         Returns:
             The gathered batch of items.
@@ -302,14 +365,15 @@ class AsyncBatcher:
             will return a list with length up to `max_len`.
 
         Raises:
-            StopIteration: When there are no more batches.
+            StopIteration:
+                When there are no more batches.
 
         """
 
         async def anext_batch():
             batch = []
             # Only try to gather this many items.
-            for _ in range(max_len):
+            for _ in range(self._batch_size):
                 if self._task is None:
                     self._task = self._loop.create_task(self._ait.__anext__())
 
@@ -342,7 +406,7 @@ class AsyncBatcher:
             # `wait_for` will raise `CancelledError` at the internal
             # await point in `anext_batch` if the timeout is hit.
             batch = self._loop.run_until_complete(
-                asyncio.wait_for(anext_batch(), timeout.total_seconds())
+                asyncio.wait_for(anext_batch(), self._timeout.total_seconds())
             )
             return batch
         except StopAsyncIteration:

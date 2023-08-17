@@ -19,11 +19,11 @@ async def _sse_agen(url):
 class WikiSource(StatefulSource):
     def __init__(self):
         agen = _sse_agen("https://stream.wikimedia.org/v2/stream/recentchange")
-        self._batcher = AsyncBatcher(agen)
+        # Gather up to 0.25 sec of items.
+        self._batcher = AsyncBatcher(agen, timedelta(seconds=0.25))
 
     def next_batch(self):
-        # Gather up to 0.25 sec of items.
-        return self._batcher.next_batch(timedelta(seconds=0.25))
+        return self._batcher.next_batch()
 
     def snapshot(self):
         return None
