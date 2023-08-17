@@ -198,7 +198,7 @@ where
         output: PartitionedOutput,
         loads: &Stream<S, Snapshot>,
         min_batch_size: usize,
-        timeout: chrono::Duration,
+        timeout: Option<chrono::Duration>,
         // TODO: Make this return a clock stream or no downstream once
         // we have non-linear dataflows.
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)>;
@@ -215,7 +215,7 @@ where
         output: PartitionedOutput,
         loads: &Stream<S, Snapshot>,
         min_batch_size: usize,
-        timeout: chrono::Duration,
+        timeout: Option<chrono::Duration>,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)> {
         let this_worker = self.scope().w_index();
 
@@ -259,7 +259,10 @@ where
             let mut ncater = EagerNotificator::new(init_caps, (parts, awoken));
 
             let mut last_activation = Instant::now();
-            let timeout = timeout.to_std().unwrap();
+            let timeout = timeout.map(|t| {
+                t.to_std()
+                    .expect("output's timeout should be a positive timedelta")
+            });
             let mut routed_tmp: BTreeMap<(WorkerIndex, StateKey), Vec<(StateKey, TdPyAny)>> =
                 BTreeMap::new();
 
@@ -285,9 +288,14 @@ where
                                     return None;
                                 }
 
-                                if items.len() >= min_batch_size
-                                    || last_activation.elapsed() >= timeout
-                                {
+                                let timeout_condition = timeout
+                                    // If timeout is Some, check that enough time
+                                    // has passed sine last_activation.
+                                    .map(|t| last_activation.elapsed() >= t)
+                                    // If timeout is None, set this to false and only activate
+                                    // once items.len() >= min_batch_size.
+                                    .unwrap_or(false);
+                                if items.len() >= min_batch_size || timeout_condition {
                                     last_activation = Instant::now();
                                     items_inbuf
                                         .entry(*epoch)
@@ -492,7 +500,7 @@ where
         step_id: StepId,
         output: DynamicOutput,
         min_batch_size: usize,
-        timeout: chrono::Duration,
+        timeout: Option<chrono::Duration>,
     ) -> PyResult<Stream<S, TdPyAny>>;
 }
 
@@ -506,13 +514,16 @@ where
         step_id: StepId,
         output: DynamicOutput,
         min_batch_size: usize,
-        timeout: chrono::Duration,
+        timeout: Option<chrono::Duration>,
     ) -> PyResult<Stream<S, TdPyAny>> {
         let worker_index = self.scope().w_index();
         let worker_count = self.scope().w_count();
         let mut sink = Some(output.build(py, worker_index, worker_count)?);
         let mut last_activation = Instant::now();
-        let timeout = timeout.to_std().unwrap();
+        let timeout = timeout.map(|t| {
+            t.to_std()
+                .expect("output's timeout should be a positive timedelta")
+        });
 
         let downstream = self.unary_frontier(Pipeline, &step_id.0, |_init_cap, _info| {
             let mut tmp_incoming: Vec<TdPyAny> = Vec::with_capacity(min_batch_size);
@@ -521,9 +532,14 @@ where
                 sink = sink.take().and_then(|sink| {
                     input.for_each(|cap, incoming| {
                         tmp_incoming.extend(incoming.take());
-                        if tmp_incoming.len() >= min_batch_size
-                            || last_activation.elapsed() >= timeout
-                        {
+                        let timeout_condition = timeout
+                            // If timeout is Some, check that enough time
+                            // has passed sine last_activation.
+                            .map(|t| last_activation.elapsed() >= t)
+                            // If timeout is None, set this to false and only activate
+                            // once items.len() >= min_batch_size.
+                            .unwrap_or(false);
+                        if tmp_incoming.len() >= min_batch_size || timeout_condition {
                             last_activation = Instant::now();
                             let mut output_session = output.session(&cap);
 

@@ -1,19 +1,8 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
-from bytewax.outputs import (
-    StatelessSink,
-    DynamicOutput,
-    PartitionedOutput,
-    StatefulSink,
-)
-from bytewax.inputs import (
-    StatelessSource,
-    DynamicInput,
-    PartitionedInput,
-    StatefulSource,
-)
-from bytewax.connectors.stdio import StdOutput
+from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.outputs import PartitionedOutput, StatefulSink
 
 
 class Source(StatefulSource):

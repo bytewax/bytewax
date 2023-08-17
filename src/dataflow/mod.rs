@@ -134,7 +134,7 @@ impl Dataflow {
             step_id,
             output,
             min_batch_size,
-            timeout: timeout.unwrap_or_else(|| chrono::Duration::milliseconds(1)),
+            timeout,
         });
     }
 
@@ -889,7 +889,7 @@ pub(crate) enum Step {
         step_id: StepId,
         output: Output,
         min_batch_size: usize,
-        timeout: chrono::Duration,
+        timeout: Option<chrono::Duration>,
     },
 }
 
