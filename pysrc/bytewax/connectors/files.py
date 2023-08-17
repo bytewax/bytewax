@@ -87,9 +87,6 @@ class DirInput(PartitionedInput):
         if not dir_path.is_dir():
             msg = f"input directory `{dir_path}` is not a directory"
             raise ValueError(msg)
-        if batch_size <= 0:
-            msg = "Batch size must be greater than 0"
-            raise ValueError(msg)
 
         self._dir_path = dir_path
         self._glob_pat = glob_pat
