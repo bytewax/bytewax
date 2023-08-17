@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "bytewax"
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -13,7 +13,6 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -24,11 +23,13 @@ classifiers = [
 dependencies = [
     "jsonpickle>=3",
 ]
+
 extras = [
     "dev",
     "docs",
     "kafka",
     "test",
+    "fmt"
 ]
 
 [project.optional-dependencies]
@@ -42,9 +43,11 @@ test = [
 docs = [
     "pdoc3==0.10.0",
 ]
-dev = [
+fmt = [
     "black==22.3.0",
-    "bytewax[kafka,test,docs]",
+]
+dev = [
+    "bytewax[kafka,test,docs,fmt]",
     "pre-commit==2.19.0",
     "ruff==0.0.284",
 ]
