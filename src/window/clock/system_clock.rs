@@ -1,10 +1,10 @@
 use std::task::Poll;
 
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
+use chrono::Utc;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use pyo3::PyResult;
-
-use crate::add_pymethods;
 
 use super::*;
 
@@ -21,6 +21,22 @@ use super::*;
 #[derive(Clone)]
 pub(crate) struct SystemClockConfig {}
 
+#[pymethods]
+impl SystemClockConfig {
+    #[new]
+    fn new() -> (Self, ClockConfig) {
+        let self_ = Self {};
+        let super_ = ClockConfig::new();
+        (self_, super_)
+    }
+
+    fn __json__<'py>(&self, py: Python<'py>) -> PyResult<&'py PyDict> {
+        let dict = PyDict::new(py);
+        dict.set_item("type", "SystemClockConfig")?;
+        Ok(dict)
+    }
+}
+
 impl<V> ClockBuilder<V> for SystemClockConfig {
     fn build(&self, _py: Python) -> PyResult<Builder<V>> {
         Ok(Box::new(move |_resume_snapshot| {
@@ -28,13 +44,6 @@ impl<V> ClockBuilder<V> for SystemClockConfig {
         }))
     }
 }
-
-add_pymethods!(
-    SystemClockConfig,
-    parent: ClockConfig,
-    signature: (),
-    args {}
-);
 
 /// Use the current system time.
 pub(crate) struct SystemClock {

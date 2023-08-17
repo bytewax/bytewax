@@ -1,9 +1,7 @@
 use pyo3::prelude::*;
-use pyo3_extensions::PyConfigClass;
 use std::thread;
 use std::time::Duration;
 
-pub(crate) mod common;
 pub(crate) mod dataflow;
 pub(crate) mod errors;
 pub(crate) mod inputs;
@@ -34,31 +32,6 @@ fn sleep_release_gil(py: Python, secs: u64) {
     });
 }
 
-/// Helper function used to setup tracing and logging from the Rust side.
-///
-/// Args:
-///   tracing_config: A subclass of TracingConfig for a specific backend
-///   log_level: String of the log level, on of ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"]
-///
-/// By default it starts a tracer that logs all ERROR messages to stdout.
-///
-/// Note: to make this work, you have to keep a reference of the returned object:
-///
-/// ```python
-/// tracer = setup_tracing()
-/// ```
-#[pyfunction]
-fn setup_tracing(
-    py: Python,
-    tracing_config: Option<Py<tracing::TracingConfig>>,
-    log_level: Option<String>,
-) -> PyResult<crate::tracing::BytewaxTracer> {
-    let tracer = py.allow_threads(crate::tracing::BytewaxTracer::new);
-    let builder = tracing_config.map(|conf| conf.downcast(py).unwrap());
-    py.allow_threads(|| tracer.setup(builder, log_level))?;
-    Ok(tracer)
-}
-
 #[pymodule]
 #[pyo3(name = "bytewax")]
 fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
@@ -70,7 +43,6 @@ fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(sleep_keep_gil, m)?)?;
     m.add_function(wrap_pyfunction!(sleep_release_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(setup_tracing, m)?)?;
 
     Ok(())
 }

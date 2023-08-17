@@ -296,14 +296,14 @@ impl<'source> FromPyObject<'source> for TdPyCallable {
 }
 
 impl IntoPy<PyObject> for TdPyCallable {
-    fn into_py(self, _py: Python) -> Py<PyAny> {
+    fn into_py(self, _py: Python) -> PyObject {
         self.0
     }
 }
 
 impl ToPyObject for TdPyCallable {
-    fn to_object(&self, py: Python) -> Py<PyAny> {
-        self.0.clone_ref(py)
+    fn to_object(&self, py: Python) -> PyObject {
+        self.0.to_object(py)
     }
 }
 

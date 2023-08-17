@@ -71,29 +71,11 @@ use clock::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig,
 #[pyclass(module = "bytewax.window", subclass)]
 pub(crate) struct WindowConfig;
 
-impl WindowConfig {
-    /// Create an "empty" [`Self`] just for use in `__getnewargs__`.
-    #[allow(dead_code)]
-    pub(crate) fn pickle_new(py: Python) -> Py<Self> {
-        PyCell::new(py, WindowConfig {}).unwrap().into()
-    }
-}
-
 #[pymethods]
 impl WindowConfig {
     #[new]
     fn new() -> Self {
         Self {}
-    }
-
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| HashMap::from([("type", "WindowConfig".into_py(py))]))
-    }
-
-    /// Unpickle from tuple of arguments.
-    fn __setstate__(&mut self, _state: &PyAny) -> PyResult<()> {
-        Ok(())
     }
 }
 

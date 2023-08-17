@@ -9,13 +9,9 @@
 //! We can't call into this structure directly from Timely because PyO3 does
 //! not like generics.
 
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::*;
-use std::collections::HashMap;
+use pyo3::types::{PyDict, PyList};
 
-use crate::common::pickle_extract;
-use crate::errors::PythonException;
 use crate::inputs::Input;
 use crate::outputs::Output;
 use crate::pyo3_extensions::TdPyCallable;
@@ -29,9 +25,7 @@ use crate::window::WindowConfig;
 /// of the same name.
 // TODO: Right now this is just a linear dataflow only.
 #[pyclass(module = "bytewax.dataflow")]
-#[derive(Clone)]
 pub(crate) struct Dataflow {
-    #[pyo3(get)]
     pub(crate) steps: Vec<Step>,
 }
 
@@ -40,23 +34,6 @@ impl Dataflow {
     #[new]
     fn new() -> Self {
         Self { steps: Vec::new() }
-    }
-
-    /// Return a representation of this class as a PyDict.
-    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
-        Python::with_gil(|py| {
-            HashMap::from([
-                ("type", "Dataflow".into_py(py)),
-                ("steps", self.steps.clone().into_py(py)),
-            ])
-        })
-    }
-
-    /// Unpickle from a PyDict of arguments.
-    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
-        let dict: &PyDict = state.downcast()?;
-        self.steps = pickle_extract(dict, "steps").reraise("error unpickling Dataflow steps")?;
-        Ok(())
     }
 
     /// At least one input is required on every dataflow.
@@ -717,6 +694,117 @@ impl Dataflow {
             mapper,
         });
     }
+
+    fn __json__<'py>(&'py self, py: Python<'py>) -> PyResult<&'py PyDict> {
+        let dict = PyDict::new(py);
+        dict.set_item("type", "Dataflow")?;
+        let steps = PyList::empty(py);
+        for step in &self.steps {
+            let step_dict = PyDict::new(py);
+            match step {
+                Step::Redistribute => {
+                    step_dict.set_item("type", "Redistribute")?;
+                }
+                Step::Input { step_id, input } => {
+                    step_dict.set_item("type", "Input")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("input", input)?;
+                }
+                Step::Map { mapper } => {
+                    step_dict.set_item("type", "Map")?;
+                    step_dict.set_item("mapper", mapper)?;
+                }
+                Step::FlatMap { mapper } => {
+                    step_dict.set_item("type", "FlatMap")?;
+                    step_dict.set_item("mapper", mapper)?;
+                }
+                Step::Filter { predicate } => {
+                    step_dict.set_item("type", "Filter")?;
+                    step_dict.set_item("predicate", predicate)?;
+                }
+                Step::FilterMap { mapper } => {
+                    step_dict.set_item("type", "FilterMap")?;
+                    step_dict.set_item("mapper", mapper)?;
+                }
+                Step::FoldWindow {
+                    step_id,
+                    clock_config,
+                    window_config,
+                    builder,
+                    folder,
+                } => {
+                    step_dict.set_item("type", "FoldWindow")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("clock_config", clock_config)?;
+                    step_dict.set_item("window_config", window_config)?;
+                    step_dict.set_item("builder", builder)?;
+                    step_dict.set_item("folder", folder)?;
+                }
+                Step::Inspect { inspector } => {
+                    step_dict.set_item("type", "Inspect")?;
+                    step_dict.set_item("inspector", inspector)?;
+                }
+                Step::InspectWorker { inspector } => {
+                    step_dict.set_item("type", "Inspect")?;
+                    step_dict.set_item("inspector", inspector)?;
+                }
+                Step::InspectEpoch { inspector } => {
+                    step_dict.set_item("type", "InspectEpoch")?;
+                    step_dict.set_item("inspector", inspector)?;
+                }
+                Step::Reduce {
+                    step_id,
+                    reducer,
+                    is_complete,
+                } => {
+                    step_dict.set_item("type", "Reduce")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("reducer", reducer)?;
+                    step_dict.set_item("is_complete", is_complete)?;
+                }
+                Step::ReduceWindow {
+                    step_id,
+                    clock_config,
+                    window_config,
+                    reducer,
+                } => {
+                    step_dict.set_item("type", "ReduceWindow")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("clock_config", clock_config)?;
+                    step_dict.set_item("window_config", window_config)?;
+                    step_dict.set_item("reducer", reducer)?;
+                }
+                Step::CollectWindow {
+                    step_id,
+                    clock_config,
+                    window_config,
+                } => {
+                    step_dict.set_item("type", "CollectWindow")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("clock_config", clock_config)?;
+                    step_dict.set_item("window_config", window_config)?;
+                }
+                Step::StatefulMap {
+                    step_id,
+                    builder,
+                    mapper,
+                } => {
+                    step_dict.set_item("type", "StatefulMap")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("builder", builder)?;
+                    step_dict.set_item("mapper", mapper)?;
+                }
+                Step::Output { step_id, output } => {
+                    step_dict.set_item("type", "Output")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("output", output)?;
+                }
+            }
+            steps.append(step_dict)?;
+        }
+        dict.set_item("steps", steps)?;
+        Ok(dict)
+    }
 }
 
 /// The definition of one step in a Bytewax dataflow graph.
@@ -786,204 +874,6 @@ pub(crate) enum Step {
         step_id: StepId,
         output: Output,
     },
-}
-
-/// Decode Steps from Python (name, funcs...) dict.
-///
-/// Required for pickling.
-impl<'source> FromPyObject<'source> for Step {
-    fn extract(obj: &'source PyAny) -> PyResult<Self> {
-        let dict: &PyDict = obj.downcast()?;
-        let step: &str = dict
-            .get_item("type")
-            .expect("Unable to extract step, missing `type` field.")
-            .extract()?;
-        match step {
-            "Input" => Ok(Self::Input {
-                step_id: pickle_extract(dict, "step_id")?,
-                input: pickle_extract(dict, "input")?,
-            }),
-            "Map" => Ok(Self::Map {
-                mapper: pickle_extract(dict, "mapper")?,
-            }),
-            "FlatMap" => Ok(Self::FlatMap {
-                mapper: pickle_extract(dict, "mapper")?,
-            }),
-            "Filter" => Ok(Self::Filter {
-                predicate: pickle_extract(dict, "predicate")?,
-            }),
-            "FilterMap" => Ok(Self::FilterMap {
-                mapper: pickle_extract(dict, "mapper")?,
-            }),
-            "FoldWindow" => Ok(Self::FoldWindow {
-                step_id: pickle_extract(dict, "step_id")?,
-                clock_config: pickle_extract(dict, "clock_config")?,
-                window_config: pickle_extract(dict, "window_config")?,
-                builder: pickle_extract(dict, "builder")?,
-                folder: pickle_extract(dict, "folder")?,
-            }),
-            "Inspect" => Ok(Self::Inspect {
-                inspector: pickle_extract(dict, "inspector")?,
-            }),
-            "InspectWorker" => Ok(Self::InspectWorker {
-                inspector: pickle_extract(dict, "inspector")?,
-            }),
-            "InspectEpoch" => Ok(Self::InspectEpoch {
-                inspector: pickle_extract(dict, "inspector")?,
-            }),
-            "Redistribute" => Ok(Self::Redistribute),
-            "Reduce" => Ok(Self::Reduce {
-                step_id: pickle_extract(dict, "step_id")?,
-                reducer: pickle_extract(dict, "reducer")?,
-                is_complete: pickle_extract(dict, "is_complete")?,
-            }),
-            "ReduceWindow" => Ok(Self::ReduceWindow {
-                step_id: pickle_extract(dict, "step_id")?,
-                clock_config: pickle_extract(dict, "clock_config")?,
-                window_config: pickle_extract(dict, "window_config")?,
-                reducer: pickle_extract(dict, "reducer")?,
-            }),
-            "CollectWindow" => Ok(Self::CollectWindow {
-                step_id: pickle_extract(dict, "step_id")?,
-                clock_config: pickle_extract(dict, "clock_config")?,
-                window_config: pickle_extract(dict, "window_config")?,
-            }),
-            "StatefulMap" => Ok(Self::StatefulMap {
-                step_id: pickle_extract(dict, "step_id")?,
-                builder: pickle_extract(dict, "builder")?,
-                mapper: pickle_extract(dict, "mapper")?,
-            }),
-            "Output" => Ok(Self::Output {
-                step_id: pickle_extract(dict, "step_id")?,
-                output: pickle_extract(dict, "output")?,
-            }),
-            &_ => Err(PyValueError::new_err(format!(
-                "bad python repr when unpickling Step: {dict:?}"
-            ))),
-        }
-        .reraise("error unpickling Dataflow step")
-    }
-}
-
-/// Represent Steps in Python as (name, funcs...) tuples.
-///
-/// Required for pickling.
-impl IntoPy<PyObject> for Step {
-    fn into_py(self, py: Python) -> Py<PyAny> {
-        match self {
-            Self::Redistribute => {
-                HashMap::from([("type", IntoPy::<PyObject>::into_py("Redistribute", py))])
-                    .into_py(py)
-            }
-            Self::Input { step_id, input } => HashMap::from([
-                ("type", "Input".into_py(py)),
-                ("step_id", step_id.into_py(py)),
-                ("input", input.into_py(py)),
-            ])
-            .into_py(py),
-            Self::Map { mapper } => {
-                HashMap::from([("type", "Map".into_py(py)), ("mapper", mapper.into_py(py))])
-                    .into_py(py)
-            }
-            Self::FlatMap { mapper } => HashMap::from([
-                ("type", "FlatMap".into_py(py)),
-                ("mapper", mapper.into_py(py)),
-            ])
-            .into_py(py),
-            Self::Filter { predicate } => HashMap::from([
-                ("type", "Filter".into_py(py)),
-                ("predicate", predicate.into_py(py)),
-            ])
-            .into_py(py),
-            Self::FilterMap { mapper } => HashMap::from([
-                ("type", "FilterMap".into_py(py)),
-                ("mapper", mapper.into_py(py)),
-            ])
-            .into_py(py),
-            Self::FoldWindow {
-                step_id,
-                clock_config,
-                window_config,
-                builder,
-                folder,
-            } => HashMap::from([
-                ("type", "FoldWindow".into_py(py)),
-                ("step_id", step_id.into_py(py)),
-                ("clock_config", clock_config.into_py(py)),
-                ("window_config", window_config.into_py(py)),
-                ("builder", builder.into_py(py)),
-                ("folder", folder.into_py(py)),
-            ])
-            .into_py(py),
-            Self::Inspect { inspector } => HashMap::from([
-                ("type", "Inspect".into_py(py)),
-                ("inspector", inspector.into_py(py)),
-            ])
-            .into_py(py),
-            Self::InspectWorker { inspector } => HashMap::from([
-                ("type", "Inspect".into_py(py)),
-                ("inspector", inspector.into_py(py)),
-            ])
-            .into_py(py),
-            Self::InspectEpoch { inspector } => HashMap::from([
-                ("type", "InspectEpoch".into_py(py)),
-                ("inspector", inspector.into_py(py)),
-            ])
-            .into_py(py),
-            Self::Reduce {
-                step_id,
-                reducer,
-                is_complete,
-            } => HashMap::from([
-                ("type", "Reduce".into_py(py)),
-                ("step_id", step_id.into_py(py)),
-                ("reducer", reducer.into_py(py)),
-                ("is_complete", is_complete.into_py(py)),
-            ])
-            .into_py(py),
-            Self::ReduceWindow {
-                step_id,
-                clock_config,
-                window_config,
-                reducer,
-            } => HashMap::from([
-                ("type", "ReduceWindow".into_py(py)),
-                ("step_id", step_id.into_py(py)),
-                ("clock_config", clock_config.into_py(py)),
-                ("window_config", window_config.into_py(py)),
-                ("reducer", reducer.into_py(py)),
-            ])
-            .into_py(py),
-            Self::CollectWindow {
-                step_id,
-                clock_config,
-                window_config,
-            } => HashMap::from([
-                ("type", "CollectWindow".into_py(py)),
-                ("step_id", step_id.into_py(py)),
-                ("clock_config", clock_config.into_py(py)),
-                ("window_config", window_config.into_py(py)),
-            ])
-            .into_py(py),
-            Self::StatefulMap {
-                step_id,
-                builder,
-                mapper,
-            } => HashMap::from([
-                ("type", "StatefulMap".into_py(py)),
-                ("step_id", step_id.into_py(py)),
-                ("builder", builder.into_py(py)),
-                ("mapper", mapper.into_py(py)),
-            ])
-            .into_py(py),
-            Self::Output { step_id, output } => HashMap::from([
-                ("type", "Output".into_py(py)),
-                ("step_id", step_id.into_py(py)),
-                ("output", output.into_py(py)),
-            ])
-            .into_py(py),
-        }
-    }
 }
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {

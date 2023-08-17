@@ -1,12 +1,11 @@
-use opentelemetry::{
-    runtime::Tokio,
-    sdk::trace::{config, Sampler, Tracer},
-};
+use opentelemetry::runtime::Tokio;
+use opentelemetry::sdk::trace::config;
+use opentelemetry::sdk::trace::Sampler;
+use opentelemetry::sdk::trace::Tracer;
 use pyo3::prelude::*;
 
-use crate::add_pymethods;
-
-use super::{TracerBuilder, TracingConfig};
+use super::TracerBuilder;
+use super::TracingConfig;
 
 /// Configure tracing to send traces to a Jaeger instance.
 ///
@@ -36,6 +35,25 @@ pub(crate) struct JaegerConfig {
     pub(crate) sampling_ratio: f64,
 }
 
+#[pymethods]
+impl JaegerConfig {
+    #[new]
+    #[pyo3(signature=(service_name, endpoint=None, sampling_ratio=1.0))]
+    fn new(
+        service_name: String,
+        endpoint: Option<String>,
+        sampling_ratio: f64,
+    ) -> (Self, TracingConfig) {
+        let self_ = Self {
+            service_name,
+            endpoint,
+            sampling_ratio,
+        };
+        let super_ = TracingConfig::new();
+        (self_, super_)
+    }
+}
+
 impl TracerBuilder for JaegerConfig {
     fn build(&self) -> PyResult<Tracer> {
         opentelemetry::global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
@@ -53,14 +71,3 @@ impl TracerBuilder for JaegerConfig {
         Ok(tracer.install_batch(Tokio).unwrap())
     }
 }
-
-add_pymethods!(
-    JaegerConfig,
-    parent: TracingConfig,
-    signature: (service_name, endpoint=None, sampling_ratio=1.0),
-    args {
-        service_name: String => String::new(),
-        endpoint: Option<String> => None,
-        sampling_ratio: f64 => 1.0
-    }
-);

@@ -159,6 +159,12 @@ impl IntoPy<Py<PyAny>> for StepId {
     }
 }
 
+impl ToPyObject for StepId {
+    fn to_object(&self, py: Python<'_>) -> PyObject {
+        self.0.to_object(py)
+    }
+}
+
 impl std::fmt::Display for StepId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(&self.0, f)
