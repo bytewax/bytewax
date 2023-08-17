@@ -122,6 +122,11 @@ impl Dataflow {
     ///   min_batch_size (int):
     ///       minimum number of messages to receive before writing
     ///       to the output (default = 1)
+    ///   timeout (Optional[timedelta]):
+    ///       timeout after which items are emitted even if
+    ///       `min_batch_size` is not reached.
+    ///       If this is not set, items won't be emitted until
+    ///       `min_batch_size` is reached.
     #[pyo3(signature = (step_id, output, min_batch_size = 1, timeout = None))]
     fn output(
         &mut self,
