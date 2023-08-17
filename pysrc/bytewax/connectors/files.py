@@ -57,11 +57,12 @@ class _FileSource(StatefulSource):
 class DirInput(PartitionedInput):
     """Read all files in a filesystem directory line-by-line.
 
-    The directory must exist and contain identical data on all
-    workers, so either run on a single machine or use a shared mount.
+    The directory must exist on all workers. All unique file names
+    within the directory across all workers will be read.
 
-    Individual files are the unit of parallelism. Thus, lines from
-    different files are interleaved.
+    Individual files are the unit of parallelism; only one worker will
+    read each unique file name. Thus, lines from different files are
+    interleaved.
 
     Can support exactly-once processing.
 
@@ -110,7 +111,7 @@ class DirInput(PartitionedInput):
 class FileInput(PartitionedInput):
     """Read a single file line-by-line from the filesystem.
 
-    This file must exist and be identical on all workers.
+    The file must exist on at least one worker.
 
     There is no parallelism; only one worker will actually read the
     file.
@@ -134,7 +135,10 @@ class FileInput(PartitionedInput):
 
     def list_parts(self):
         """The file is a single partition."""
-        return [str(self._path)]
+        if self._path.exists():
+            return [str(self._path)]
+        else:
+            return []
 
     def build_part(self, for_part, resume_state):
         """See ABC docstring."""
@@ -168,9 +172,9 @@ class _CSVSource(StatefulSource):
 
 
 class CSVInput(FileInput):
-    """Read a single CSV file row-by-row as keyed dictionaries.
+    """Read a single CSV file row-by-row as keyed-by-column dicts.
 
-    The CSV file must exist and be identical on all workers.
+    The CSV file must exist on at least one worker.
 
     There is no parallelism; only one worker will actually read the
     file.
