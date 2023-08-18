@@ -15,7 +15,7 @@ from pytest import raises
 def test_dir_input():
     flow = Dataflow()
 
-    flow.input("inp", DirInput(Path("pytests/fixtures/parts")))
+    flow.input("inp", DirInput(Path("pytests/fixtures/dir_input")))
 
     out = []
     flow.output("out", TestingOutput(out))
@@ -43,7 +43,7 @@ def test_dir_input_raises_on_non_exist():
 
 
 def test_dir_input_raises_on_file():
-    path = Path("pytests/fixtures/parts/partition-1.txt")
+    path = Path("pytests/fixtures/dir_input/partition-1.txt")
 
     with raises(ValueError) as exinfo:
         flow = Dataflow()
@@ -56,7 +56,7 @@ def test_dir_input_raises_on_file():
 
 
 def test_file_input():
-    file_path = Path("pytests/fixtures/parts/partition-1.txt")
+    file_path = Path("pytests/fixtures/dir_input/partition-1.txt")
 
     flow = Dataflow()
 
@@ -103,7 +103,7 @@ def test_file_input_supports_blank_lines():
 
 
 def test_file_input_resume_state():
-    file_path = Path("pytests/fixtures/parts/partition-1.txt")
+    file_path = Path("pytests/fixtures/dir_input/partition-1.txt")
     inp = FileInput(file_path, batch_size=1)
     part = inp.build_part(str(file_path), None)
     assert part.next_batch() == ["one1"]
