@@ -1,5 +1,14 @@
-from bytewax.testing import TestingInput
+from bytewax.testing import TestingInput, ffwd_iter
 from pytest import raises
+
+
+def test_ffwd_iter():
+    it = iter(range(5))
+    assert next(it) == 0
+    ffwd_iter(it, 3)
+    assert next(it) == 4
+    with raises(StopIteration):
+        next(it)
 
 
 def test_input():

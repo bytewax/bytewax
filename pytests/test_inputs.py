@@ -1,27 +1,18 @@
 import asyncio
 from datetime import timedelta
 
-from bytewax.inputs import AsyncBatcher, Batcher
+from bytewax.inputs import batch, batch_async
 from pytest import raises
 
 
 def test_batcher():
-    batcher = Batcher(range(5), 3)
-    assert batcher.next_batch() == [0, 1, 2]
-    assert batcher.next_batch() == [3, 4]
+    batcher = batch(range(5), 3)
+    assert next(batcher) == [0, 1, 2]
+    assert next(batcher) == [3, 4]
     with raises(StopIteration):
-        batcher.next_batch()
+        next(batcher)
     with raises(StopIteration):
-        batcher.next_batch()
-
-
-def test_batcher_skip():
-    batcher = Batcher(range(5), 3)
-    assert batcher.next_batch() == [0, 1, 2]
-    batcher.skip(1)
-    assert batcher.next_batch() == [4]
-    with raises(StopIteration):
-        batcher.next_batch()
+        next(batcher)
 
 
 async def _gen():
@@ -30,10 +21,10 @@ async def _gen():
         yield i
 
 
-def test_async_batcher():
-    batcher = AsyncBatcher(_gen(), timeout=timedelta(seconds=10), batch_size=2)
-    assert batcher.next_batch() == [0, 1]
-    assert batcher.next_batch() == [2, 3]
-    assert batcher.next_batch() == [4]
+def test_batch_async():
+    batcher = batch_async(_gen(), timeout=timedelta(seconds=1), batch_size=2)
+    assert next(batcher) == [0, 1]
+    assert next(batcher) == [2, 3]
+    assert next(batcher) == [4]
     with raises(StopIteration):
-        batcher.next_batch()
+        next(batcher)

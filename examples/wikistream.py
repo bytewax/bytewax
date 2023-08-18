@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from aiohttp_sse_client.client import EventSource
 from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import AsyncBatcher, PartitionedInput, StatefulSource
+from bytewax.inputs import PartitionedInput, StatefulSource, batch_async
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 
@@ -20,10 +20,10 @@ class WikiSource(StatefulSource):
     def __init__(self):
         agen = _sse_agen("https://stream.wikimedia.org/v2/stream/recentchange")
         # Gather up to 0.25 sec of or 1000 items.
-        self._batcher = AsyncBatcher(agen, timedelta(seconds=0.25), 1000)
+        self._batcher = batch_async(agen, timedelta(seconds=0.25), 1000)
 
     def next_batch(self):
-        return self._batcher.next_batch()
+        return next(self._batcher)
 
     def snapshot(self):
         return None

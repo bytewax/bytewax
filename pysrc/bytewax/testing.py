@@ -1,8 +1,9 @@
 """Helper tools for testing dataflows."""
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from itertools import islice
+from typing import Any, Iterable, Iterator
 
-from bytewax.inputs import Batcher, PartitionedInput, StatefulSource
+from bytewax.inputs import PartitionedInput, StatefulSource, batch
 from bytewax.outputs import DynamicOutput, StatelessSink
 
 from .bytewax import cluster_main, run_main
@@ -10,22 +11,39 @@ from .bytewax import cluster_main, run_main
 __all__ = [
     "run_main",
     "cluster_main",
+    "ffwd_iter",
     "poll_next_batch",
     "TestingInput",
     "TestingOutput",
 ]
 
 
+def ffwd_iter(it: Iterator[Any], n: int) -> None:
+    """Skip an iterator forward some number of items.
+
+    Args:
+        it:
+            A stateful iterator to advance.
+        n:
+            Number of items to skip from the current position.
+
+    """
+    # Taken from `consume`
+    # https://docs.python.org/3/library/itertools.html#itertools-recipes
+    # Apparently faster than a for loop.
+    next(islice(it, n, n), None)
+
+
 class _IterSource(StatefulSource):
     def __init__(self, ib, batch_size, resume_state):
         self._start_idx = 0 if resume_state is None else resume_state
         it = iter(ib)
-        self._batcher = Batcher(it, batch_size)
         # Resume to one after the last completed read index.
-        self._batcher.skip(self._start_idx)
+        ffwd_iter(it, self._start_idx)
+        self._batcher = batch(it, batch_size)
 
     def next_batch(self):
-        batch = self._batcher.next_batch()
+        batch = next(self._batcher)
         self._start_idx += len(batch)
         return batch
 

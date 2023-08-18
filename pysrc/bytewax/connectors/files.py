@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Callable, Union
 from zlib import adler32
 
-from bytewax.inputs import Batcher, PartitionedInput, StatefulSource
+from bytewax.inputs import PartitionedInput, StatefulSource, batch
 from bytewax.outputs import PartitionedOutput, StatefulSink
 
 __all__ = [
@@ -42,10 +42,10 @@ class _FileSource(StatefulSource):
         if resume_state is not None:
             self._f.seek(resume_state)
         it = map(_strip_n, _readlines(self._f))
-        self._batcher = Batcher(it, batch_size)
+        self._batcher = batch(it, batch_size)
 
     def next_batch(self):
-        return self._batcher.next_batch()
+        return next(self._batcher)
 
     def snapshot(self):
         return self._f.tell()
@@ -151,12 +151,12 @@ class _CSVSource(StatefulSource):
         reader = DictReader(_readlines(self._f), **fmtparams)
         # Force reading of the header.
         _ = reader.fieldnames
-        self._batcher = Batcher(reader, batch_size)
         if resume_state is not None:
             self._f.seek(resume_state)
+        self._batcher = batch(reader, batch_size)
 
     def next_batch(self):
-        return self._batcher.next_batch()
+        return next(self._batcher)
 
     def snapshot(self):
         return self._f.tell()
