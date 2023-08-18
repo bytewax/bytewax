@@ -215,7 +215,7 @@ class _FileSink(StatefulSink):
         self._end = end
 
     def write_batch(self, items):
-        for item in items:
+        for (_key, item) in items:
             self._f.write(item)
             self._f.write(self._end)
         self._f.flush()
