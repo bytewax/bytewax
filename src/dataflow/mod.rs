@@ -814,10 +814,17 @@ impl Dataflow {
                     step_dict.set_item("builder", builder)?;
                     step_dict.set_item("mapper", mapper)?;
                 }
-                Step::Output { step_id, output } => {
+                Step::Output {
+                    step_id,
+                    output,
+                    min_batch_size,
+                    timeout,
+                } => {
                     step_dict.set_item("type", "Output")?;
                     step_dict.set_item("step_id", step_id)?;
                     step_dict.set_item("output", output)?;
+                    step_dict.set_item("min_batch_size", min_batch_size)?;
+                    step_dict.set_item("timeout", timeout)?;
                 }
             }
             steps.append(step_dict)?;

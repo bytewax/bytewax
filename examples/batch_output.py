@@ -51,4 +51,4 @@ class Out(PartitionedOutput):
 
 flow = Dataflow()
 flow.input("in", In())
-flow.output("out", Out(), min_batch_size=10, timeout=timedelta(seconds=2.0))
+flow.output("out", Out(), min_batch_size=5, timeout=timedelta(seconds=2.0))
