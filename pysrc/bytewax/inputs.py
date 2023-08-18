@@ -8,7 +8,6 @@ Subclass the types here to implement input for your own custom source.
 """
 
 import asyncio
-import sys
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
 from datetime import datetime, timedelta
@@ -329,7 +328,7 @@ class AsyncBatcher:
         self,
         aib: AsyncIterable,
         timeout: timedelta,
-        batch_size: int = sys.maxsize,
+        batch_size: int,
         loop=None,
     ):
         """Init.
@@ -342,7 +341,7 @@ class AsyncBatcher:
                 async iterator for items.
             batch_size:
                 Maximum number of items to include in a batch, even if
-                the timeout has not been hit. Defaults to "no limit".
+                the timeout has not been hit.
             loop:
                 Custom `asyncio` run loop to use, if any.
 
