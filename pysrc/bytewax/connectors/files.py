@@ -220,6 +220,8 @@ class _FileSink(StatefulSink):
             self._f.write(self._end)
         self._f.flush()
         os.fsync(self._f.fileno())
+        # Pass items through
+        return items
 
     def snapshot(self):
         return self._f.tell()

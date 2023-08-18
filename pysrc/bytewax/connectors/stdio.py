@@ -10,6 +10,7 @@ class _PrintSink(StatelessSink):
     def write_batch(self, items):
         for item in items:
             print(item)
+        return items
 
 
 class StdOutput(DynamicOutput):
