@@ -58,7 +58,7 @@ impl WindowBuilder for SessionWindow {
 }
 
 pub(crate) struct SessionWindower {
-    /// How long to wait before cosidering
+    /// How long to wait before considering
     /// the session closed.
     gap: Duration,
 
