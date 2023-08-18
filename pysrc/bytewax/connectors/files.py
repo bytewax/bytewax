@@ -1,11 +1,11 @@
 """Connectors for local text files."""
-import csv
 import os
+from csv import DictReader
 from pathlib import Path
 from typing import Callable, Union
 from zlib import adler32
 
-from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.inputs import PartitionedInput, StatefulSource, batch
 from bytewax.outputs import PartitionedOutput, StatefulSink
 
 __all__ = [
@@ -17,19 +17,35 @@ __all__ = [
 ]
 
 
+def _readlines(f):
+    """Turn a file into a generator of lines but support `tell`.
+
+    Python files don't support `tell` to learn the offset if you use
+    them in iterator mode via `next`, so re-create that iterator using
+    `readline`.
+
+    """
+    while True:
+        line = f.readline()
+        if len(line) <= 0:
+            break
+        yield line
+
+
+def _strip_n(s):
+    return s.rstrip("\n")
+
+
 class _FileSource(StatefulSource):
-    def __init__(self, path, resume_state):
-        resume_offset = 0 if resume_state is None else resume_state
+    def __init__(self, path, batch_size, resume_state):
         self._f = open(path, "rt")
-        self._f.seek(resume_offset)
+        if resume_state is not None:
+            self._f.seek(resume_state)
+        it = map(_strip_n, _readlines(self._f))
+        self._batcher = batch(it, batch_size)
 
     def next_batch(self):
-        line = self._f.readline().rstrip("\n")
-        if len(line) <= 0:
-            raise StopIteration()
-        # TODO: Could provide a "line batch size" parameter on file
-        # inputs.
-        return [line]
+        return next(self._batcher)
 
     def snapshot(self):
         return self._f.tell()
@@ -41,23 +57,29 @@ class _FileSource(StatefulSource):
 class DirInput(PartitionedInput):
     """Read all files in a filesystem directory line-by-line.
 
-    The directory must exist and contain identical data on all
-    workers, so either run on a single machine or use a shared mount.
+    The directory must exist on all workers. All unique file names
+    within the directory across all workers will be read.
 
-    Individual files are the unit of parallelism. Thus, lines from
-    different files are interleaved.
+    Individual files are the unit of parallelism; only one worker will
+    read each unique file name. Thus, lines from different files are
+    interleaved.
 
     Can support exactly-once processing.
+
     """
 
-    def __init__(self, dir_path: Path, glob_pat: str = "*"):
+    def __init__(self, dir_path: Path, glob_pat: str = "*", batch_size: int = 1000):
         """Init.
 
         Args:
-            dir_path: Path to directory.
+            dir_path:
+                Path to directory.
+            glob_pat:
+                Pattern of files to read from the directory. Defaults
+                to `"*"` or all files.
+            batch_size:
+                Number of lines to read per batch. Defaults to 1000.
 
-            glob_pat: Pattern of files to read from the
-                directory. Defaults to `"*"` or all files.
         """
         if not dir_path.exists():
             msg = f"input directory `{dir_path}` does not exist"
@@ -68,6 +90,7 @@ class DirInput(PartitionedInput):
 
         self._dir_path = dir_path
         self._glob_pat = glob_pat
+        self._batch_size = batch_size
 
     def list_parts(self):
         """Each file is a separate partition."""
@@ -79,58 +102,61 @@ class DirInput(PartitionedInput):
     def build_part(self, for_part, resume_state):
         """See ABC docstring."""
         path = self._dir_path / for_part
-        return _FileSource(path, resume_state)
+        return _FileSource(path, self._batch_size, resume_state)
 
 
 class FileInput(PartitionedInput):
     """Read a single file line-by-line from the filesystem.
 
-    This file must exist and be identical on all workers.
+    The file must exist on at least one worker.
 
     There is no parallelism; only one worker will actually read the
     file.
     """
 
-    def __init__(self, path: Union[Path, str]):
+    def __init__(self, path: Union[Path, str], batch_size: int = 1000):
         """Init.
 
         Args:
-            path: Path to file.
+            path:
+                Path to file.
+            batch_size:
+                Number of lines to read per batch. Defaults to 1000.
+
         """
         if not isinstance(path, Path):
             path = Path(path)
+
         self._path = path
+        self._batch_size = batch_size
 
     def list_parts(self):
         """The file is a single partition."""
-        return [str(self._path)]
+        if self._path.exists():
+            return [str(self._path)]
+        else:
+            return []
 
     def build_part(self, for_part, resume_state):
         """See ABC docstring."""
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert for_part == str(self._path), "Can't resume reading from different file"
-        return _FileSource(self._path, resume_state)
+        return _FileSource(self._path, self._batch_size, resume_state)
 
 
 class _CSVSource(StatefulSource):
-    def __init__(self, path, resume_state, fmtparams):
-        self._fmtparams = fmtparams
-        self._f = open(path, "rt")
-        header_line = self._f.readline()
-        self._header = next(csv.reader([header_line], **self._fmtparams))
+    def __init__(self, path, batch_size, resume_state, fmtparams):
+        self._f = open(path, "rt", newline="")
+        reader = DictReader(_readlines(self._f), **fmtparams)
+        # Force reading of the header.
+        _ = reader.fieldnames
         if resume_state is not None:
             self._f.seek(resume_state)
+        self._batcher = batch(reader, batch_size)
 
     def next_batch(self):
-        line = self._f.readline()
-        if len(line) <= 0:
-            raise StopIteration()
-
-        csv_line = dict(zip(self._header, next(csv.reader([line], **self._fmtparams))))
-        # TODO: Could provide a "line batch size" parameter on file
-        # inputs.
-        return [csv_line]
+        return next(self._batcher)
 
     def snapshot(self):
         return self._f.tell()
@@ -140,14 +166,9 @@ class _CSVSource(StatefulSource):
 
 
 class CSVInput(FileInput):
-    """Read a single csv file line-by-line from the filesystem.
+    """Read a single CSV file row-by-row as keyed-by-column dicts.
 
-    Will read the first row as the header.
-
-    For each successive line  it will return a dictionary
-    with the header as keys like the DictReader() method.
-
-    This csv file must exist and be identical on all workers.
+    The CSV file must exist on at least one worker.
 
     There is no parallelism; only one worker will actually read the
     file.
@@ -186,24 +207,26 @@ class CSVInput(FileInput):
 
     """
 
-    def __init__(self, path: Path, **fmtparams):
+    def __init__(self, path: Path, batch_size: int = 1000, **fmtparams):
         """Init.
 
         Args:
             path:
                 Path to file.
+            batch_size:
+                Number of lines to read per batch. Defaults to 1000.
             **fmtparams:
                 Any custom formatting arguments you can pass to
                 [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
 
         """
-        super().__init__(path)
+        super().__init__(path, batch_size)
         self._fmtparams = fmtparams
 
     def build_part(self, for_part, resume_state):
         """See ABC docstring."""
         assert for_part == str(self._path), "Can't resume reading from different file"
-        return _CSVSource(self._path, resume_state, self._fmtparams)
+        return _CSVSource(self._path, self._batch_size, resume_state, self._fmtparams)
 
 
 class _FileSink(StatefulSink):

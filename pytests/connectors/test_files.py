@@ -15,7 +15,7 @@ from pytest import raises
 def test_dir_input():
     flow = Dataflow()
 
-    flow.input("inp", DirInput(Path("examples/sample_data/cluster")))
+    flow.input("inp", DirInput(Path("pytests/fixtures/dir_input")))
 
     out = []
     flow.output("out", TestingOutput(out))
@@ -30,7 +30,7 @@ def test_dir_input():
 
 
 def test_dir_input_raises_on_non_exist():
-    path = Path("examples/sample_data/bluster")
+    path = Path("pytests/fixtures/bluster")
 
     with raises(ValueError) as exinfo:
         flow = Dataflow()
@@ -43,7 +43,7 @@ def test_dir_input_raises_on_non_exist():
 
 
 def test_dir_input_raises_on_file():
-    path = Path("examples/sample_data/cluster/partition-1.txt")
+    path = Path("pytests/fixtures/dir_input/partition-1.txt")
 
     with raises(ValueError) as exinfo:
         flow = Dataflow()
@@ -56,7 +56,7 @@ def test_dir_input_raises_on_file():
 
 
 def test_file_input():
-    file_path = Path("examples/sample_data/cluster/partition-1.txt")
+    file_path = Path("pytests/fixtures/dir_input/partition-1.txt")
 
     flow = Dataflow()
 
@@ -77,8 +77,56 @@ def test_file_input():
     ]
 
 
+def test_file_input_supports_blank_lines():
+    file_path = Path("pytests/fixtures/blank-lines.txt")
+
+    flow = Dataflow()
+
+    flow.input("inp", FileInput(file_path))
+
+    out = []
+    flow.output("out", TestingOutput(out))
+
+    run_main(flow)
+
+    assert out == [
+        "one",
+        "",
+        "two",
+        "",
+        "",
+        "three",
+        "four",
+        "",
+        "five",
+    ]
+
+
+def test_file_input_resume_state():
+    file_path = Path("pytests/fixtures/dir_input/partition-1.txt")
+    inp = FileInput(file_path, batch_size=1)
+    part = inp.build_part(str(file_path), None)
+    assert part.next_batch() == ["one1"]
+    assert part.next_batch() == ["one2"]
+    resume_state = part.snapshot()
+    assert part.next_batch() == ["one3"]
+    assert part.next_batch() == ["one4"]
+    part.close()
+
+    inp = FileInput(file_path, batch_size=1)
+    part = inp.build_part(str(file_path), resume_state)
+    assert part.snapshot() == resume_state
+    assert part.next_batch() == ["one3"]
+    assert part.next_batch() == ["one4"]
+    assert part.next_batch() == ["one5"]
+    assert part.next_batch() == ["one6"]
+    with raises(StopIteration):
+        part.next_batch()
+    part.close()
+
+
 def test_csv_file_input():
-    file_path = Path("examples/sample_data/metrics.csv")
+    file_path = Path("pytests/fixtures/metrics.csv")
 
     flow = Dataflow()
 
@@ -139,29 +187,6 @@ def test_csv_file_input():
             "instance": "77c1ca",
         },
     ]
-
-
-def test_file_input_resume_state():
-    file_path = Path("examples/sample_data/cluster/partition-1.txt")
-    inp = FileInput(file_path)
-    part = inp.build_part(str(file_path), None)
-    assert part.next_batch() == ["one1"]
-    assert part.next_batch() == ["one2"]
-    resume_state = part.snapshot()
-    assert part.next_batch() == ["one3"]
-    assert part.next_batch() == ["one4"]
-    part.close()
-
-    inp = FileInput(file_path)
-    part = inp.build_part(str(file_path), resume_state)
-    assert part.snapshot() == resume_state
-    assert part.next_batch() == ["one3"]
-    assert part.next_batch() == ["one4"]
-    assert part.next_batch() == ["one5"]
-    assert part.next_batch() == ["one6"]
-    with raises(StopIteration):
-        part.next_batch()
-    part.close()
 
 
 def test_file_output(tmp_path):
