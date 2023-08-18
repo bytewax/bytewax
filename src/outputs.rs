@@ -273,7 +273,7 @@ where
                         for (worker, (part, item)) in incoming.take() {
                             routed_tmp
                                 .entry((worker, part))
-                                .or_insert_with(Vec::new)
+                                .or_insert_with(|| Vec::with_capacity(min_batch_size))
                                 .push(item);
                         }
 
