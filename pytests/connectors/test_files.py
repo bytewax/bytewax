@@ -223,18 +223,18 @@ def test_file_output_resume_state(tmp_path):
 
     out = FileOutput(file_path)
     part = out.build_part(str(file_path), None)
-    part.write_batch(["one1"])
-    part.write_batch(["one2"])
-    part.write_batch(["one3"])
+    part.write_batch([("ALL", "one1")])
+    part.write_batch([("ALL", "one2")])
+    part.write_batch([("ALL", "one3")])
     resume_state = part.snapshot()
-    part.write_batch(["one4"])
+    part.write_batch([("ALL", "one4")])
     part.close()
 
     out = FileOutput(file_path)
     part = out.build_part(str(file_path), resume_state)
     assert part.snapshot() == resume_state
-    part.write_batch(["two4"])
-    part.write_batch(["two5"])
+    part.write_batch([("ALL", "two4")])
+    part.write_batch([("ALL", "two5")])
     part.close()
 
     with open(file_path, "rt") as f:

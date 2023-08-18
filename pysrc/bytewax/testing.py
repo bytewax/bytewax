@@ -75,6 +75,7 @@ class _ListSink(StatelessSink):
 
     def write_batch(self, items):
         self._ls += items
+        return items
 
 
 class TestingOutput(DynamicOutput):
