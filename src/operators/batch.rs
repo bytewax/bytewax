@@ -20,10 +20,8 @@ impl BatchLogic {
     pub(crate) fn builder(size: usize, timeout: Duration) -> impl Fn(Option<TdPyAny>) -> Self {
         move |resume_snapshot| {
             let acc = resume_snapshot
-                .and_then(|state| {
-                    let state: Option<Vec<TdPyAny>> =
-                        unwrap_any!(Python::with_gil(|py| state.extract(py)));
-                    state
+                .and_then(|state| -> Option<Vec<TdPyAny>> {
+                    unwrap_any!(Python::with_gil(|py| state.extract(py)))
                 })
                 .unwrap_or_default();
             Self {
