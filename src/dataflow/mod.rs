@@ -37,7 +37,10 @@ impl Dataflow {
     }
 
     fn batch(&mut self, step_id: StepId, size: usize, timeout: chrono::Duration) {
-        assert!(timeout > chrono::Duration::zero());
+        assert!(
+            timeout >= chrono::Duration::zero(),
+            "batch timeout should be a positive timedelta"
+        );
         self.steps.push(Step::Batch {
             step_id,
             size,
@@ -128,6 +131,7 @@ impl Dataflow {
     ///       Uniquely identifies this step for recovery.
     ///   output (bytewax.outputs.Output):
     ///       Output definition.
+    #[pyo3(signature = (step_id, output, *, batched_input = false))]
     fn output(&mut self, step_id: StepId, output: Output, batched_input: bool) {
         self.steps.push(Step::Output {
             step_id,

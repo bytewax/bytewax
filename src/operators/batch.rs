@@ -12,7 +12,7 @@ use super::stateful_unary::{LogicFate, StatefulLogic};
 pub(crate) struct BatchLogic {
     size: usize,
     timeout: Duration,
-    last_activation: Instant,
+    last_drain: Instant,
     acc: Vec<TdPyAny>,
 }
 
@@ -30,41 +30,42 @@ impl BatchLogic {
                 size,
                 acc,
                 timeout,
-                last_activation: Instant::now(),
+                last_drain: Instant::now(),
             }
         }
+    }
+
+    /// Drain self.acc, convert it to a TdPyAny and return it
+    fn drain_acc(&mut self) -> TdPyAny {
+        self.last_drain = Instant::now();
+        Python::with_gil(|py| {
+            self.acc
+                .drain(..)
+                .collect::<Vec<TdPyAny>>()
+                .to_object(py)
+                .into()
+        })
     }
 }
 
 impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for BatchLogic {
     fn on_awake(&mut self, next_value: Poll<Option<TdPyAny>>) -> Option<TdPyAny> {
-        if let Poll::Ready(Some(value)) = next_value {
-            self.acc.push(value);
-            if self.acc.len() >= self.size || self.last_activation.elapsed() >= self.timeout {
-                Python::with_gil(|py| {
-                    Some(
-                        self.acc
-                            .drain(..)
-                            .collect::<Vec<TdPyAny>>()
-                            .to_object(py)
-                            .into(),
-                    )
-                })
-            } else {
-                None
+        let timeout_expired = self.last_drain.elapsed() >= self.timeout;
+        match next_value {
+            Poll::Ready(Some(value)) => {
+                self.acc.push(value);
+                if self.acc.len() >= self.size || timeout_expired {
+                    Some(self.drain_acc())
+                } else {
+                    None
+                }
             }
-        } else if self.last_activation.elapsed() >= self.timeout {
-            Python::with_gil(|py| {
-                Some(
-                    self.acc
-                        .drain(..)
-                        .collect::<Vec<TdPyAny>>()
-                        .to_object(py)
-                        .into(),
-                )
-            })
-        } else {
-            None
+            // Emit remaining items if the input reached EOF
+            Poll::Ready(None) => Some(self.drain_acc()),
+            // Emit items if timeout has expired, even if
+            // no item was received during this awake
+            _ if timeout_expired => Some(self.drain_acc()),
+            _ => None,
         }
     }
 
@@ -77,7 +78,11 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for BatchLogic {
     }
 
     fn next_awake(&self) -> Option<chrono::DateTime<chrono::Utc>> {
-        None
+        // Request an awake when the timeout expires
+        Some(
+            chrono::Utc::now()
+                + chrono::Duration::from_std(self.timeout + self.last_drain.elapsed()).unwrap(),
+        )
     }
 
     fn snapshot(&self) -> TdPyAny {
