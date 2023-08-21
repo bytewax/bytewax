@@ -77,10 +77,8 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for BatchLogic {
 
     fn next_awake(&self) -> Option<chrono::DateTime<chrono::Utc>> {
         // Request an awake when the timeout expires
-        Some(
-            chrono::Utc::now()
-                + chrono::Duration::from_std(self.timeout + self.last_drain.elapsed()).unwrap(),
-        )
+        let remaining_time = self.timeout.saturating_sub(self.last_drain.elapsed());
+        Some(chrono::Utc::now() + chrono::Duration::from_std(remaining_time).unwrap())
     }
 
     fn snapshot(&self) -> TdPyAny {

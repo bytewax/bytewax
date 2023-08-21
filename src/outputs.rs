@@ -194,7 +194,6 @@ where
         step_id: StepId,
         output: PartitionedOutput,
         loads: &Stream<S, Snapshot>,
-        batched_input: bool,
         // TODO: Make this return a clock stream or no downstream once
         // we have non-linear dataflows.
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)>;
@@ -210,7 +209,6 @@ where
         step_id: StepId,
         output: PartitionedOutput,
         loads: &Stream<S, Snapshot>,
-        batched_input: bool,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)> {
         let this_worker = self.scope().w_index();
 
@@ -264,32 +262,12 @@ where
                         incoming.swap(&mut routed_tmp);
                         for (worker, (part, (key, value))) in routed_tmp.drain(..) {
                             assert!(worker == this_worker);
-
-                            if batched_input {
-                                items_inbuf
-                                    .entry(*epoch)
-                                    .or_insert_with(BTreeMap::new)
-                                    .entry(part)
-                                    .or_insert_with(Vec::new)
-                                    .extend(Python::with_gil(|py| {
-                                        // `value` here has to be a python type
-                                        // that can be converted to a vec.
-                                        // We extract each element and add the key to each.
-                                        value
-                                            .extract::<Vec<TdPyAny>>(py)
-                                            .expect("Batch input should be an iterable")
-                                            .into_iter()
-                                            .map(|value| (key.clone(), value))
-                                            .collect::<Vec<(StateKey, TdPyAny)>>()
-                                    }));
-                            } else {
-                                items_inbuf
-                                    .entry(*epoch)
-                                    .or_insert_with(BTreeMap::new)
-                                    .entry(part)
-                                    .or_insert_with(Vec::new)
-                                    .push((key, value));
-                            }
+                            items_inbuf
+                                .entry(*epoch)
+                                .or_insert_with(BTreeMap::new)
+                                .entry(part)
+                                .or_insert_with(Vec::new)
+                                .push((key, value));
                         }
 
                         ncater.notify_at(*epoch);
@@ -483,7 +461,6 @@ where
         py: Python,
         step_id: StepId,
         output: DynamicOutput,
-        batched_input: bool,
     ) -> PyResult<Stream<S, TdPyAny>>;
 }
 
@@ -496,7 +473,6 @@ where
         py: Python,
         step_id: StepId,
         output: DynamicOutput,
-        batched_input: bool,
     ) -> PyResult<Stream<S, TdPyAny>> {
         let worker_index = self.scope().w_index();
         let worker_count = self.scope().w_count();
@@ -510,19 +486,6 @@ where
                     input.for_each(|cap, incoming| {
                         assert!(tmp_incoming.is_empty());
                         incoming.swap(&mut tmp_incoming);
-
-                        if batched_input {
-                            tmp_incoming = tmp_incoming
-                                .drain(..)
-                                .flat_map(|batch| -> Vec<TdPyAny> {
-                                    Python::with_gil(|py| {
-                                        batch.extract(py).expect(
-                                            "batched input for output should be an iterable",
-                                        )
-                                    })
-                                })
-                                .collect();
-                        }
 
                         let mut output_session = output.session(&cap);
                         unwrap_any!(Python::with_gil(|py| sink

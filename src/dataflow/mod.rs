@@ -36,18 +36,6 @@ impl Dataflow {
         Self { steps: Vec::new() }
     }
 
-    fn batch(&mut self, step_id: StepId, size: usize, timeout: chrono::Duration) {
-        assert!(
-            timeout >= chrono::Duration::zero(),
-            "batch timeout should be a positive timedelta"
-        );
-        self.steps.push(Step::Batch {
-            step_id,
-            size,
-            timeout,
-        });
-    }
-
     /// At least one input is required on every dataflow.
     ///
     /// Emits items downstream from the input source.
@@ -116,6 +104,20 @@ impl Dataflow {
         self.steps.push(Step::Redistribute);
     }
 
+    /// Batch incoming items until either a batch size has been reached or a timeout has passed.
+    /// This is a stateful operator.
+    fn batch(&mut self, step_id: StepId, size: usize, timeout: chrono::Duration) {
+        assert!(
+            timeout >= chrono::Duration::zero(),
+            "batch timeout should be a positive timedelta"
+        );
+        self.steps.push(Step::Batch {
+            step_id,
+            size,
+            timeout,
+        });
+    }
+
     /// Write data to an output.
     ///
     /// At least one output is required on every dataflow.
@@ -131,13 +133,8 @@ impl Dataflow {
     ///       Uniquely identifies this step for recovery.
     ///   output (bytewax.outputs.Output):
     ///       Output definition.
-    #[pyo3(signature = (step_id, output, *, batched_input = false))]
-    fn output(&mut self, step_id: StepId, output: Output, batched_input: bool) {
-        self.steps.push(Step::Output {
-            step_id,
-            output,
-            batched_input,
-        });
+    fn output(&mut self, step_id: StepId, output: Output) {
+        self.steps.push(Step::Output { step_id, output });
     }
 
     /// Filter selectively keeps only some items.
@@ -821,15 +818,10 @@ impl Dataflow {
                     step_dict.set_item("builder", builder)?;
                     step_dict.set_item("mapper", mapper)?;
                 }
-                Step::Output {
-                    step_id,
-                    output,
-                    batched_input,
-                } => {
+                Step::Output { step_id, output } => {
                     step_dict.set_item("type", "Output")?;
                     step_dict.set_item("step_id", step_id)?;
                     step_dict.set_item("output", output)?;
-                    step_dict.set_item("batched_input", batched_input)?;
                 }
             }
             steps.append(step_dict)?;
@@ -910,7 +902,6 @@ pub(crate) enum Step {
     Output {
         step_id: StepId,
         output: Output,
-        batched_input: bool,
     },
 }
 
