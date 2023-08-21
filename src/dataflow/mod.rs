@@ -36,6 +36,15 @@ impl Dataflow {
         Self { steps: Vec::new() }
     }
 
+    fn batch(&mut self, step_id: StepId, size: usize, timeout: chrono::Duration) {
+        assert!(timeout > chrono::Duration::zero());
+        self.steps.push(Step::Batch {
+            step_id,
+            size,
+            timeout,
+        });
+    }
+
     /// At least one input is required on every dataflow.
     ///
     /// Emits items downstream from the input source.
@@ -119,8 +128,12 @@ impl Dataflow {
     ///       Uniquely identifies this step for recovery.
     ///   output (bytewax.outputs.Output):
     ///       Output definition.
-    fn output(&mut self, step_id: StepId, output: Output) {
-        self.steps.push(Step::Output { step_id, output });
+    fn output(&mut self, step_id: StepId, output: Output, batched_input: bool) {
+        self.steps.push(Step::Output {
+            step_id,
+            output,
+            batched_input,
+        });
     }
 
     /// Filter selectively keeps only some items.
@@ -702,6 +715,16 @@ impl Dataflow {
         for step in &self.steps {
             let step_dict = PyDict::new(py);
             match step {
+                Step::Batch {
+                    step_id,
+                    size,
+                    timeout,
+                } => {
+                    step_dict.set_item("type", "Batch")?;
+                    step_dict.set_item("step_id", step_id)?;
+                    step_dict.set_item("size", size)?;
+                    step_dict.set_item("timeout", timeout)?;
+                }
                 Step::Redistribute => {
                     step_dict.set_item("type", "Redistribute")?;
                 }
@@ -794,10 +817,15 @@ impl Dataflow {
                     step_dict.set_item("builder", builder)?;
                     step_dict.set_item("mapper", mapper)?;
                 }
-                Step::Output { step_id, output } => {
+                Step::Output {
+                    step_id,
+                    output,
+                    batched_input,
+                } => {
                     step_dict.set_item("type", "Output")?;
                     step_dict.set_item("step_id", step_id)?;
                     step_dict.set_item("output", output)?;
+                    step_dict.set_item("batched_input", batched_input)?;
                 }
             }
             steps.append(step_dict)?;
@@ -816,6 +844,11 @@ impl Dataflow {
 /// for Timely's operators. We try to keep the same semantics here.
 #[derive(Clone)]
 pub(crate) enum Step {
+    Batch {
+        step_id: StepId,
+        size: usize,
+        timeout: chrono::Duration,
+    },
     Redistribute,
     Input {
         step_id: StepId,
@@ -873,6 +906,7 @@ pub(crate) enum Step {
     Output {
         step_id: StepId,
         output: Output,
+        batched_input: bool,
     },
 }
 

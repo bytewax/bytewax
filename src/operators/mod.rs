@@ -18,6 +18,7 @@ use crate::timely::WorkerIndex;
 use crate::try_unwrap;
 use crate::unwrap_any;
 
+pub(crate) mod batch;
 pub(crate) mod collect_window;
 pub(crate) mod fold_window;
 pub(crate) mod reduce;

@@ -194,6 +194,7 @@ where
         step_id: StepId,
         output: PartitionedOutput,
         loads: &Stream<S, Snapshot>,
+        batched_input: bool,
         // TODO: Make this return a clock stream or no downstream once
         // we have non-linear dataflows.
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)>;
@@ -209,6 +210,7 @@ where
         step_id: StepId,
         output: PartitionedOutput,
         loads: &Stream<S, Snapshot>,
+        batched_input: bool,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)> {
         let this_worker = self.scope().w_index();
 
@@ -461,6 +463,7 @@ where
         py: Python,
         step_id: StepId,
         output: DynamicOutput,
+        batched_input: bool,
     ) -> PyResult<Stream<S, TdPyAny>>;
 }
 
@@ -473,6 +476,7 @@ where
         py: Python,
         step_id: StepId,
         output: DynamicOutput,
+        batched_input: bool,
     ) -> PyResult<Stream<S, TdPyAny>> {
         let worker_index = self.scope().w_index();
         let worker_count = self.scope().w_count();
@@ -486,6 +490,20 @@ where
                     input.for_each(|cap, incoming| {
                         assert!(tmp_incoming.is_empty());
                         incoming.swap(&mut tmp_incoming);
+
+                        if batched_input {
+                            tmp_incoming = tmp_incoming
+                                .drain(..)
+                                .flat_map(|batch| {
+                                    let res: Vec<TdPyAny> = Python::with_gil(|py| {
+                                        batch
+                                            .extract(py)
+                                            .expect("Batch input should be an iterable")
+                                    });
+                                    res
+                                })
+                                .collect();
+                        }
 
                         let mut output_session = output.session(&cap);
                         unwrap_any!(Python::with_gil(|py| sink

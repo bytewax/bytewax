@@ -27,6 +27,7 @@ use crate::dataflow::Step;
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::inputs::*;
+use crate::operators::batch::BatchLogic;
 use crate::operators::collect_window::CollectWindowLogic;
 use crate::operators::fold_window::FoldWindowLogic;
 use crate::operators::reduce::ReduceLogic;
@@ -241,6 +242,23 @@ where
             // for a while when it's moved into the closure.
             let step = step.clone();
             match step {
+                Step::Batch {
+                    step_id,
+                    size,
+                    timeout,
+                } => {
+                    let (output, snap) = stream.map(extract_state_pair).stateful_unary(
+                        step_id,
+                        BatchLogic::builder(
+                            size,
+                            timeout.to_std().expect("positive duration for batch size"),
+                        ),
+                        resume_epoch,
+                        &loads,
+                    );
+                    stream = output.map(wrap_state_pair);
+                    snaps.push(snap);
+                }
                 // The exchange operator wraps the number to a modulo of workers_count,
                 // so we can pass any valid u64 without specifying the range.
                 Step::Redistribute => stream = stream.exchange(move |_| fastrand::u64(..)),
@@ -427,10 +445,14 @@ where
                     stream = output.map(wrap_state_pair);
                     snaps.push(snap);
                 }
-                Step::Output { step_id, output } => {
+                Step::Output {
+                    step_id,
+                    output,
+                    batched_input,
+                } => {
                     if let Ok(output) = output.extract(py) {
                         let (output, snap) = stream
-                            .partitioned_output(py, step_id, output, &loads)
+                            .partitioned_output(py, step_id, output, &loads, batched_input)
                             .reraise("error building PartitionedOutput")?;
                         let clock = output.map(|_| ());
 
@@ -439,7 +461,7 @@ where
                         stream = output;
                     } else if let Ok(output) = output.extract(py) {
                         let output = stream
-                            .dynamic_output(py, step_id, output)
+                            .dynamic_output(py, step_id, output, batched_input)
                             .reraise("error building DynamicOutput")?;
                         let clock = output.map(|_| ());
 
