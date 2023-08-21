@@ -55,13 +55,12 @@ flow.input("in", In())
 # Add key for stateful operator
 flow.map(lambda x: ("ALL", x))
 flow.batch("batch", size=10, timeout=timedelta(seconds=1))
-flow.flat_map(lambda x: x[1])
-flow.map(lambda x: ("ALL", x))
+flow.flat_map(lambda x: [("ALL", i) for i in x[1]])
 flow.output("out", Out())
 
 # Rebatch again after the output unpacked the items, use a
 # dynamic output this time
-flow.batch("batch", size=3, timeout=timedelta(seconds=1))
+flow.batch("batch", size=3, timeout=timedelta(seconds=2))
 # Map to a string, and show the batches rather than the single items
-flow.map(lambda x: f"Dynamic out: {x}")
+flow.map(lambda x: f"Dynamic out batch: {x[1]}")
 flow.output("out", StdOutput())
