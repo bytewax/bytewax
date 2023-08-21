@@ -33,16 +33,21 @@ impl BatchLogic {
         }
     }
 
-    /// Drain self.acc, convert it to a TdPyAny and return it
-    fn drain_acc(&mut self) -> TdPyAny {
+    /// Drain self.acc, convert it to a TdPyAny and return it.
+    /// If self.acc is empty, return None, but still set self.last_drain.
+    fn drain_acc(&mut self) -> Option<TdPyAny> {
         self.last_drain = Instant::now();
-        Python::with_gil(|py| {
-            self.acc
-                .drain(..)
-                .collect::<Vec<TdPyAny>>()
-                .to_object(py)
-                .into()
-        })
+        if self.acc.is_empty() {
+            None
+        } else {
+            Some(Python::with_gil(|py| {
+                self.acc
+                    .drain(..)
+                    .collect::<Vec<TdPyAny>>()
+                    .to_object(py)
+                    .into()
+            }))
+        }
     }
 }
 
@@ -53,16 +58,16 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for BatchLogic {
             Poll::Ready(Some(value)) => {
                 self.acc.push(value);
                 if self.acc.len() >= self.size || timeout_expired {
-                    Some(self.drain_acc())
+                    self.drain_acc()
                 } else {
                     None
                 }
             }
             // Emit remaining items if the input reached EOF
-            Poll::Ready(None) => Some(self.drain_acc()),
+            Poll::Ready(None) => self.drain_acc(),
             // Emit items if timeout has expired, even if
             // no item was received during this awake
-            _ if timeout_expired => Some(self.drain_acc()),
+            _ if timeout_expired => self.drain_acc(),
             _ => None,
         }
     }

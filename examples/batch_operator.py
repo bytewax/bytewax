@@ -16,7 +16,7 @@ class Source(StatelessSource):
         if self._worker_index != 0:
             raise StopIteration()
 
-        self._next_awake += timedelta(seconds=0.2)
+        self._next_awake += timedelta(seconds=0.3)
         self._counter += 1
 
         if self._counter >= 20:
@@ -55,16 +55,13 @@ flow.input("in", In())
 # Add key for stateful operator
 flow.map(lambda x: ("ALL", x))
 flow.batch("batch", size=10, timeout=timedelta(seconds=1))
-flow.output("out", Out(), batched_input=True)
+flow.flat_map(lambda x: x[1])
+flow.map(lambda x: ("ALL", x))
+flow.output("out", Out())
 
 # Rebatch again after the output unpacked the items, use a
 # dynamic output this time
 flow.batch("batch", size=3, timeout=timedelta(seconds=1))
-# XXX: To work with a dynamic output, we need to remove the key, otherwise the key
-# will be seen as the first element of the batch, and the whole batch will be
-# seen as the second element.
-flow.map(lambda key__batch: key__batch[1])
-# Map the items to show a different label. We have a batch here, so we need to
-# trea it like such
-flow.map(lambda batch: [f"Dynamic out: {i}" for i in batch])
-flow.output("out", StdOutput(), batched_input=True)
+# Map to a string, and show the batches rather than the single items
+flow.map(lambda x: f"Dynamic out: {x}")
+flow.output("out", StdOutput())
