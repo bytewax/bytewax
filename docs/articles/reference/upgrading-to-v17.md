@@ -2,8 +2,7 @@
 
 Bytewax v0.17 introduces major changes to the way that recovery works
 in order to support rescaling. In v0.17, the number of workers in a
-Dataflow can now be changed after the initial run, and will handle
-recovery gracefully.
+cluster can now be changed by stopping the dataflow execution and specifying a different number of workers on resume.
 
 In addition to rescaling, we've changed the Bytewax inputs and outputs
 API to support batching which has yielded significant performance
