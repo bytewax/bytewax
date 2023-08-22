@@ -8,8 +8,9 @@ In addition to rescaling, we've changed the Bytewax inputs and outputs
 API to support batching which has yielded significant performance
 improvements.
 
-In this article, we'll cover some of the updates we've made to our API
-to make upgrading your Dataflows to v0.17 easier.
+In this article, we'll go over the updates we've made to our API and
+explain the changes you'll need to make to your dataflows to upgrade
+to v0.17.
 
 ## Recovery changes
 
@@ -73,14 +74,16 @@ You must remember to move the files with the prefix `part-*.` all together.
 
 An important consideration when creating the initial number of
 recovery partitions; When rescaling the number of workers, the number
-of initial recovery partitions is currently fixed. If you are scaling
-up the number of workers in your cluster to increase the total
-throughput of your dataflow, the work of writing recovery data to the
-recovery partitions will still be limited to the initial number of
-recovery partitions. If you will likely scale up your dataflow to
-accomodate increased demand, we recommend that that you consider
-creating more recovery partitions than you will initially need. Having
-multiple recovery partitions handled by a single worker is fine.
+of recovery partitions is currently fixed.
+
+If you are scaling up the number of workers in your cluster to
+increase the total throughput of your dataflow, the work of writing
+recovery data to the recovery partitions will still be limited to the
+initial number of recovery partitions. If you will likely scale up
+your dataflow to accomodate increased demand, we recommend that that
+you consider creating more recovery partitions than you will initially
+need. Having multiple recovery partitions handled by a single worker
+is fine.
 
 ## Epoch interval -> Snapshot interval
 
@@ -102,26 +105,18 @@ When running a Dataflow with recovery enabled, it is recommended to
 back up your recovery partitions on a regular basis for disaster
 recovery.
 
-The `backup-interval` is a system time duration in seconds to keep
-extra state snapshots around within each recovery partition. It
-defaults to one day.
+The `backup-interval` parameter is the length of time to wait before
+"garbage collecting" older snapshots. This enables a dataflow to
+successfully resume when backups of recovery partitions happen at
+different times, which will be true in most distributed deployments.
 
-During recovery, each of the recovery partitions is read to determine
-what the most recently completed snapshot was. In order for recovery
-to happen, that snapshot must be available in each of the recovery
-partitions. If one worker did not complete writing it's snapshot,
-Bytewax must use an earlier snapshot that exists in all recovery
-partitions.
+This value should be set in excess of the interval you can guarantee
+that all recovery partitions will be backed up to account for
+transient failures. It defaults to one day.
 
-The `backup-interval` parameter can be understood as the length of
-time to wait before "garbage collecting" older snapshots that are no
-longer needed. In order to accomodate recovery scenarios where a
-backup of these recovery partitions did not complete for some workers,
-we delay "garbage collecting" those older snapshots for this period.
-
-This parameter defaults to one day. We recommend that you tune this
-parameter to be well in excess of the interval you back up recovery
-partitions to account for transient failures.
+If you attempt to resume from a set of recovery partitions for which
+the oldest and youngest backups are more than the backup interval
+apart, the resumed dataflow could have corrupted state.
 
 ## Input and Output changes
 
@@ -145,39 +140,29 @@ should return the empty list.
 
 ### Next awake
 
-Bytewax operators are a cooperative multitasking system. Calling functions that block for
-an indefinite period of time, like `time.sleep`, blocks the
-progress of *all* work in a Dataflow.
+Input sources now have an optional `next_awake` method which you can
+use to schedule when the next `next_batch` call should occur. You can
+use this to "sleep" the input operator for a fixed amount of time
+while you are waiting for more input.
 
-Many input sources are best utilized in a "polling" fashion, and
-should not be called frequently. In order to support this pattern,
-v0.17 adds the `next_awake` method to the `StatefulSource` and
-`StatelessSource` classes.
-
-The default behavior (when `next_awake` returns `None`) is to activate
-the input immediately if any item was returned in `next`. If no items
-were returned in `next`, we will wait for 1ms before reactivating the
-input source. The short cooldown helps avoid high cpu load if there's
-no work to do.
-
-`next_awake` is called before `self.next`, and if the
-datetime returned is in the future, `self.next` won't be
-called until that datetime has passed.
-
-Always use this method to wait for input rather than
-using a `time.sleep` in your connector.
+The default behavior uses a simple heuristic to prevent a spin loop
+when there is no input. Always use `next_awake` rather than using a
+`time.sleep` in an input source.
 
 See the `periodic_input.py` example in the examples directory for an
 implementation that uses this functionality.
 
 ## Async input adapter
 
-We've included a new `bytewax.inputs.batcher_async` to help you use async Python libraries in Bytewax
-input sources. It lets you wrap an async iterator and specify a maximum time and size to collect items into a batch.
+We've included a new `bytewax.inputs.batcher_async` to help you use
+async Python libraries in Bytewax input sources. It lets you wrap an
+async iterator and specify a maximum time and size to collect items
+into a batch.
 
 ## Using Kafka for recovery is now removed
 
-v0.17 removes the deprecated `KafkaRecoveryConfig` as a recovery store.
+v0.17 removes the deprecated `KafkaRecoveryConfig` as a recovery store
+to support the ability to rescale the number of workers.
 
 ## Support for additional platforms
 
