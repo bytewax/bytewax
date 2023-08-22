@@ -85,7 +85,7 @@ multiple recovery partitions handled by a single worker is fine.
 ## Epoch interval -> Snapshot interval
 
 We've renamed the cli option of `epoch-interval` to
-`snapshot-interval`. The snapshot interval is the system time duration
+`snapshot-interval` to better describe its affect on dataflow execution. The snapshot interval is the system time duration
 (in seconds) to snapshot state for recovery.
 
 Recovering a dataflow can only happen on the boundaries of the most
