@@ -76,7 +76,7 @@ class _KafkaSource(StatefulSource):
                     break
                 else:
                     # Discard all the messages in this batch too
-                    msg = f"error consuming from Kafka topic `{self.topic!r}`: "
+                    msg = f"error consuming from Kafka topic `{self._topic!r}`: "
                     f"{msg.error()}"
                     raise RuntimeError(msg)
             batch.append((msg.key(), msg.value()))
