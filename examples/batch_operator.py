@@ -1,66 +1,53 @@
-from datetime import datetime, timedelta, timezone
+"""Showcase the use of the `batch` operator.
+
+The operator can be used to batch items, with both a size limit
+and a timeout.
+
+`flow.batch` is a stateful operator, so you need to add a key to each
+element for proper routing.
+
+To show its abilities, we use an input that simulates a periodic source,
+with events coming in at regular intervals, and see how batches work
+with both the size and time limits.
+"""
+from datetime import timedelta
 
 from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import DynamicInput, StatelessSource
-from bytewax.outputs import PartitionedOutput, StatefulSink
+from bytewax.testing import TestingPeriodicInput
 
 
-class Source(StatelessSource):
-    def __init__(self, worker_index):
-        self._worker_index = worker_index
-        self._counter = 0
-        self._next_awake = datetime.now(timezone.utc)
-
-    def next_batch(self):
-        if self._worker_index != 0:
-            raise StopIteration()
-
-        self._next_awake += timedelta(seconds=0.3)
-        self._counter += 1
-
-        if self._counter >= 20:
-            raise StopIteration()
-
-        return [self._counter]
-
-    def next_awake(self):
-        return self._next_awake
+def add_key(x):
+    return ("ALL", x)
 
 
-class In(DynamicInput):
-    def build(self, worker_index, worker_count):
-        return Source(worker_index)
-
-
-class Sink(StatefulSink):
-    def __init__(self, name):
-        self._name = name
-
-    def write_batch(self, values):
-        for i in values:
-            print(f"Output part {self._name}: {i}")
-
-
-class Out(PartitionedOutput):
-    def list_parts(self):
-        return ["1", "2", "3", "4", "5"]
-
-    def build_part(self, for_part, resume_state):
-        return Sink(for_part)
+def calc_avg(key__batch):
+    key, batch = key__batch
+    return sum(batch) / len(batch)
 
 
 flow = Dataflow()
-flow.input("in", In())
-# Add key for stateful operator
-flow.map(lambda x: ("ALL", x))
-flow.batch("batch", size=10, timeout=timedelta(seconds=1))
-flow.flat_map(lambda x: [("ALL", i) for i in x[1]])
-flow.output("out", Out())
+# Emit 20 items, with a key for the stateful operator
+# and a 0.25 seconds timeout, so ~4 items per second
+flow.input(
+    "in",
+    TestingPeriodicInput(timedelta(seconds=0.25), limit=20, cb=add_key),
+)
 
-# Rebatch again after the output unpacked the items, use a
-# dynamic output this time
-flow.batch("batch", size=3, timeout=timedelta(seconds=2))
-# Map to a string, and show the batches rather than the single items
-flow.map(lambda x: f"Dynamic out batch: {x[1]}")
+# Batch for either 3 elements, or 1 second. This should emit at
+# the size limit since we emit more than 3 items per second.
+flow.batch("batch", size=3, timeout=timedelta(seconds=1))
+flow.inspect(lambda x: print(f"Batch:\t\t{x[1]}"))
+
+# Do some operation on the whole batch
+flow.map(calc_avg)
+flow.inspect(lambda x: print(f"Avg:\t\t{x}"))
+
+# Now batch for either 10 elements or 1 second.
+# This time, the batching should happen at the time limit,
+# since we don't emit items fast enough to fill the size
+# before the timeout triggers.
+flow.map(add_key)
+flow.batch("batch", size=10, timeout=timedelta(seconds=1))
+flow.map(lambda x: f"Avg batch:\t{x[1]}")
 flow.output("out", StdOutput())

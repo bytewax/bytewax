@@ -12,7 +12,7 @@ use super::stateful_unary::{LogicFate, StatefulLogic};
 pub(crate) struct BatchLogic {
     size: usize,
     timeout: Duration,
-    last_drain: Instant,
+    start: Instant,
     acc: Vec<TdPyAny>,
 }
 
@@ -23,56 +23,39 @@ impl BatchLogic {
                 .and_then(|state| -> Option<Vec<TdPyAny>> {
                     unwrap_any!(Python::with_gil(|py| state.extract(py)))
                 })
-                .unwrap_or_default();
+                // Since we know the max size of the vec, allocate
+                // with all the necessary capacity here.
+                .unwrap_or_else(|| Vec::with_capacity(size));
             Self {
                 size,
                 acc,
                 timeout,
-                last_drain: Instant::now(),
+                start: Instant::now(),
             }
-        }
-    }
-
-    /// Drain self.acc, convert it to a TdPyAny and return it.
-    /// If self.acc is empty, return None, but still set self.last_drain.
-    fn drain_acc(&mut self) -> Option<TdPyAny> {
-        self.last_drain = Instant::now();
-        if self.acc.is_empty() {
-            None
-        } else {
-            Some(Python::with_gil(|py| {
-                self.acc
-                    .drain(..)
-                    .collect::<Vec<TdPyAny>>()
-                    .to_object(py)
-                    .into()
-            }))
         }
     }
 }
 
 impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for BatchLogic {
     fn on_awake(&mut self, next_value: Poll<Option<TdPyAny>>) -> Option<TdPyAny> {
-        let timeout_expired = self.last_drain.elapsed() >= self.timeout;
-        match next_value {
-            Poll::Ready(Some(value)) => {
-                self.acc.push(value);
-                if self.acc.len() >= self.size || timeout_expired {
-                    self.drain_acc()
-                } else {
-                    None
-                }
-            }
-            // Emit remaining items if the input reached EOF
-            Poll::Ready(None) => self.drain_acc(),
-            // Emit items if timeout has expired, even if
-            // no item was received during this awake
-            _ if timeout_expired => self.drain_acc(),
-            _ => None,
+        let eof = matches!(next_value, Poll::Ready(None));
+        if let Poll::Ready(Some(value)) = next_value {
+            self.acc.push(value);
+        }
+
+        let timeout_expired = self.start.elapsed() >= self.timeout;
+        let reached_size = self.acc.len() >= self.size;
+
+        if (reached_size || timeout_expired || eof) && !self.acc.is_empty() {
+            Some(Python::with_gil(|py| {
+                std::mem::take(&mut self.acc).to_object(py).into()
+            }))
+        } else {
+            None
         }
     }
 
-    fn fate(&self) -> super::stateful_unary::LogicFate {
+    fn fate(&self) -> LogicFate {
         if self.acc.is_empty() {
             LogicFate::Discard
         } else {
@@ -82,7 +65,7 @@ impl StatefulLogic<TdPyAny, TdPyAny, Option<TdPyAny>> for BatchLogic {
 
     fn next_awake(&self) -> Option<chrono::DateTime<chrono::Utc>> {
         // Request an awake when the timeout expires
-        let remaining_time = self.timeout.saturating_sub(self.last_drain.elapsed());
+        let remaining_time = self.timeout.saturating_sub(self.start.elapsed());
         Some(chrono::Utc::now() + chrono::Duration::from_std(remaining_time).unwrap())
     }
 
