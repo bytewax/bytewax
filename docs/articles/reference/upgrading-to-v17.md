@@ -172,14 +172,8 @@ implementation that uses this functionality.
 
 ## Async input adapter
 
-We've included an Async input adapter to help people bridge Async
-input sources with our new batched input system.
-
-The new `AsyncBatcher` class which lets you specify a maximum timeout
-period to wait, or a batch size to output when it is met when the
-input source is an async iterator. This lets you more easily play
-nicely with cooperative multitasking but still use Python libraries
-with async APIs.
+We've included a new `bytewax.inputs.batcher_async` to help you use async Python libraries in Bytewax
+input sources. It lets you wrap an async iterator and specify a maximum time and size to collect items into a batch.
 
 ## Using Kafka for recovery is now removed
 
