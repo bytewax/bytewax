@@ -145,8 +145,7 @@ should return the empty list.
 
 ### Next awake
 
-Bytewax makes use of a sort of cooperative multitasking system
-in order to schedule work. Calling functions that block for
+Bytewax operators are a cooperative multitasking system. Calling functions that block for
 an indefinite period of time, like `time.sleep`, blocks the
 progress of *all* work in a Dataflow.
 
