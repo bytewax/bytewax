@@ -17,7 +17,7 @@ In v0.17, recovery has been changed to support rescaling the number of
 workers in a dataflow. The number of recovery partitions is no longer
 tied to the number of workers in a cluster.
 
-Recovery partitions created with versions of Bytewax prior to v0.17
+SQLite recovery DBs created with versions of Bytewax prior to v0.17
 are not compatible with this release.
 
 ### Creating recovery partitions
