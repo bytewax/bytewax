@@ -6,12 +6,15 @@ use std::collections::BTreeSet;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::fmt::Display;
 use std::hash::BuildHasher;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::time::Duration;
 
 use num::CheckedSub;
+use opentelemetry::global;
+use opentelemetry::KeyValue;
 use serde::Deserialize;
 use serde::Serialize;
 use timely::communication::message::RefOrMut;
@@ -33,6 +36,8 @@ use timely::progress::Timestamp;
 use timely::worker::AsWorker;
 use timely::Data;
 use timely::ExchangeData;
+
+use crate::with_timer;
 
 /// Timely's name for a dataflow stream where you only care about the
 /// progress messages.
@@ -847,7 +852,7 @@ where
         builder: impl FnMut(&P) -> W + 'static,
     ) -> ClockStream<S>
     where
-        P: ExchangeData + Hash + Ord + Eq + Debug,
+        P: ExchangeData + Hash + Ord + Eq + Debug + Display,
         W: Writer<Item = V> + 'static;
 }
 
@@ -866,10 +871,30 @@ where
         mut builder: impl FnMut(&P) -> W + 'static,
     ) -> ClockStream<S>
     where
-        P: ExchangeData + Hash + Ord + Eq + Debug,
+        P: ExchangeData + Hash + Ord + Eq + Debug + Display,
         W: Writer<Item = V> + 'static,
     {
         let this_worker = self.scope().w_index();
+
+        let meter = global::meter("dataflow");
+        let histogram = meter
+            .f64_histogram("partd_write.duration")
+            .with_description("partitioned state write duration in seconds")
+            .init();
+        let worker_label = KeyValue::new("worker_id", this_worker.0.to_string());
+        // Create a map of metric labels to use for each part_id
+        let part_label_map: HashMap<P, Vec<KeyValue>> = local_parts
+            .iter()
+            .map(|part_key| {
+                (
+                    part_key.clone(),
+                    vec![
+                        worker_label.clone(),
+                        KeyValue::new("part_id", part_key.to_string()),
+                    ],
+                )
+            })
+            .collect();
 
         let all_parts = local_parts.into_broadcast(&self.scope(), S::Timestamp::minimum());
         let primary_updates = all_parts.assign_primaries(format!("{name}.assign_primaries"));
@@ -932,10 +957,13 @@ where
                                 let part = parts
                                     .get_mut(&part_key)
                                     .unwrap_or_else(|| {
-                                        panic!("Items routed to partition {part_key:?} but this worker only has {known_parts:?}");
+                                        panic!("Items routed to partition {part_key} but this worker only has {known_parts:?}");
                                     });
 
-                                part.write_batch(items);
+                                let labels = part_label_map
+                                    .get(&part_key)
+                                    .expect("No metric labels found for part key {part_key}");
+                                with_timer!(histogram, labels, part.write_batch(items));
                             }
                         }
                     },
@@ -1016,7 +1044,7 @@ where
         epoch: S::Timestamp,
     ) -> Stream<S, L::Item>
     where
-        P: ExchangeData + Ord + Eq + Debug,
+        P: ExchangeData + Hash + Ord + Eq + Debug + Display,
         L: BatchIterator + 'static,
         L::Item: Data;
 }
@@ -1073,11 +1101,32 @@ where
         epoch: S::Timestamp,
     ) -> Stream<S, L::Item>
     where
-        P: ExchangeData + Ord + Eq + Debug,
+        P: ExchangeData + Hash + Ord + Eq + Debug + Display,
         L: BatchIterator + 'static,
         L::Item: Data,
     {
         let this_worker = self.w_index();
+
+        let meter = global::meter("dataflow");
+        let histogram = meter
+            .f64_histogram("partd_load.builder.duration")
+            .with_description("partitioned state load duration in seconds")
+            .init();
+        let worker_label = KeyValue::new("worker_id", this_worker.0.to_string());
+        // Create a map of metric labels to use for each part_id
+        let part_label_map: HashMap<P, Vec<KeyValue>> = local_parts
+            .iter()
+            .map(|part_key| {
+                (
+                    part_key.clone(),
+                    vec![
+                        worker_label.clone(),
+                        KeyValue::new("name", name.to_string()),
+                        KeyValue::new("part_id", part_key.to_string()),
+                    ],
+                )
+            })
+            .collect();
 
         // This will emit the routing table in the 0th epoch. The
         // below code reads all of a partition in the epoch it is
@@ -1118,8 +1167,11 @@ where
 
                         for (part_key, worker) in inbuf.drain(..) {
                             if worker == this_worker {
-                                let part = builder(&part_key);
-                                tracing::debug!("Init-ing {part_key:?} at epoch {epoch:?}");
+                                let labels = part_label_map
+                                    .get(&part_key)
+                                    .expect("No metric labels found for part key {part_key}");
+                                let part = with_timer!(histogram, labels, builder(&part_key));
+                                tracing::debug!("Init-ing {part_key} at epoch {epoch:?}");
                                 let entry = LoadPartEntry {
                                     cap: cap.delayed(epoch),
                                     key: part_key,

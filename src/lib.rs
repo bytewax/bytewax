@@ -5,6 +5,7 @@ use std::time::Duration;
 pub(crate) mod dataflow;
 pub(crate) mod errors;
 pub(crate) mod inputs;
+pub(crate) mod metrics;
 pub(crate) mod operators;
 pub(crate) mod outputs;
 pub(crate) mod pyo3_extensions;

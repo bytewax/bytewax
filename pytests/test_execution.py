@@ -12,7 +12,7 @@ def test_run(entry_point):
     flow = Dataflow()
     inp = range(3)
     flow.input("inp", TestingInput(inp))
-    flow.map(lambda x: x + 1)
+    flow.map("add one", lambda x: x + 1)
     out = []
     flow.output("out", TestingOutput(out))
 
@@ -33,7 +33,7 @@ def test_reraises_exception(entry_point):
         else:
             return item
 
-    flow.map(boom)
+    flow.map("explode", boom)
     out = []
     flow.output("out", TestingOutput(out))
 

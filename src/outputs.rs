@@ -5,7 +5,9 @@
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 
+use opentelemetry::{global, KeyValue};
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
@@ -26,6 +28,7 @@ use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::*;
 use crate::timely::*;
 use crate::unwrap_any;
+use crate::with_timer;
 
 /// Represents a `bytewax.outputs.Output` from Python.
 #[derive(Clone)]
@@ -212,7 +215,30 @@ where
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)> {
         let this_worker = self.scope().w_index();
 
+        // Set up metrics for this output
+        let meter = global::meter("dataflow");
+        let counter = meter.u64_counter("partitioned_output.items_total").init();
+        let step_label = KeyValue::new("step_id", step_id.0.to_string());
+        let histogram = meter
+            .f64_histogram("partitioned_output.duration")
+            .with_description("Partitioned output duration in seconds")
+            .init();
+
         let local_parts = output.list_parts(py).reraise("error listing partitions")?;
+        // Create a map of metric labels to use for each part_id
+        let part_label_map: HashMap<StateKey, Vec<KeyValue>> = local_parts
+            .iter()
+            .map(|state_key| {
+                (
+                    state_key.clone(),
+                    vec![
+                        step_label.clone(),
+                        KeyValue::new("part_id", state_key.0.to_string()),
+                    ],
+                )
+            })
+            .collect();
+
         let all_parts = local_parts.into_broadcast(&self.scope(), S::Timestamp::minimum());
         let primary_updates = all_parts.assign_primaries(format!("{step_id}.assign_primaries"));
 
@@ -286,6 +312,9 @@ where
                             // order.
                             if let Some(part_to_items) = items_inbuf.remove(epoch) {
                                 for (part_key, mut items) in part_to_items {
+                                    let metric_labels = part_label_map
+                                        .get(&part_key)
+                                        .expect("No metric labels found for part key {part_key}");
                                     let part = parts
                                         .entry(part_key.clone())
                                         // If there's no resume data for
@@ -296,11 +325,15 @@ where
                                                 .build_part(py, part_key, None)
                                                 .reraise("error init StatefulSink")))
                                         });
-
-                                    unwrap_any!(Python::with_gil(|py| part.write_batch(
-                                        py,
-                                        items.iter().map(|(_k, v)| v).cloned().collect(),
-                                    )));
+                                    with_timer!(
+                                        histogram,
+                                        metric_labels,
+                                        unwrap_any!(Python::with_gil(|py| part.write_batch(
+                                            py,
+                                            items.iter().map(|(_k, v)| v).cloned().collect(),
+                                        )))
+                                    );
+                                    counter.add(items.len() as u64, metric_labels);
                                     // TODO: Move this back to the close
                                     // epoch block and .give(()). And
                                     // remove the clone above.
@@ -478,6 +511,18 @@ where
         let worker_count = self.scope().w_count();
         let mut sink = Some(output.build(py, worker_index, worker_count)?);
 
+        let meter = global::meter("dataflow");
+        let counter = meter
+            .u64_counter(format!("dynamic_output.{step_id}.items_total"))
+            .init();
+        let worker_index_label = KeyValue::new("worker_index", worker_index.0.to_string());
+        let step_label = KeyValue::new("step_id", step_id.0.to_string());
+        let metric_labels = vec![step_label, worker_index_label];
+        let histogram = meter
+            .f64_histogram("dynamic_output.duration")
+            .with_description("Dynamic output duration in seconds")
+            .init();
+
         let downstream = self.unary_frontier(Pipeline, &step_id.0, |_init_cap, _info| {
             let mut tmp_incoming: Vec<TdPyAny> = Vec::new();
 
@@ -488,9 +533,14 @@ where
                         incoming.swap(&mut tmp_incoming);
 
                         let mut output_session = output.session(&cap);
-                        unwrap_any!(Python::with_gil(|py| sink
-                            .write_batch(py, tmp_incoming.clone())
-                            .reraise("error writing output batch")));
+                        with_timer!(
+                            histogram,
+                            &metric_labels,
+                            unwrap_any!(Python::with_gil(|py| sink
+                                .write_batch(py, tmp_incoming.clone())
+                                .reraise("error writing output batch")))
+                        );
+                        counter.add(tmp_incoming.len() as u64, &metric_labels);
                         output_session.give_vec(&mut tmp_incoming);
                     });
 

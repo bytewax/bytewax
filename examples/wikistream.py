@@ -4,10 +4,15 @@ from datetime import datetime, timedelta, timezone
 
 # pip install aiohttp-sse-client
 from aiohttp_sse_client.client import EventSource
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.files import FileOutput
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import PartitionedInput, StatefulSource, batch_async
+from bytewax.tracing import setup_tracing
 from bytewax.window import SystemClockConfig, TumblingWindow
+
+tracer = setup_tracing(
+    log_level="TRACE",
+)
 
 
 async def _sse_agen(url):
@@ -52,9 +57,9 @@ def keep_max(max_count, new_count):
 flow = Dataflow()
 flow.input("inp", WikiStreamInput())
 # "event_json"
-flow.map(json.loads)
+flow.map("load_json", json.loads)
 # {"server_name": "server.name", ...}
-flow.map(initial_count)
+flow.map("initial_count", initial_count)
 # ("server.name", 1)
 flow.reduce_window(
     "sum",
@@ -67,4 +72,5 @@ flow.reduce_window(
 # ("server.name", sum_per_window)
 flow.stateful_map("keep_max", lambda: 0, keep_max)
 # ("server.name", max_per_window)
-flow.output("out", StdOutput())
+flow.map("format", lambda x: (x[0], f"{x[0]}, {x[1]}"))
+flow.output("out", FileOutput("wikifile.txt"))

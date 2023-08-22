@@ -7,6 +7,7 @@ use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::fmt;
 use std::fmt::Debug;
 use std::fs;
 use std::hash::BuildHasherDefault;
@@ -54,6 +55,12 @@ use crate::unwrap_any;
 /// The inner value will be up to [`PartitionCount`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub(crate) struct PartitionIndex(usize);
+
+impl fmt::Display for PartitionIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 /// Total number of recovery partitions.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, FromPyObject)]

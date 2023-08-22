@@ -72,20 +72,28 @@ def test_encoding_custom_input():
 
 def test_encoding_map():
     flow = Dataflow()
-    flow.map(lambda x: x + 1)
+    flow.map("add_one", lambda x: x + 1)
 
     assert encode_dataflow(flow) == json.dumps(
-        {"type": "Dataflow", "steps": [{"type": "Map", "mapper": "<lambda>"}]},
+        {
+            "type": "Dataflow",
+            "steps": [{"type": "Map", "step_id": "add_one", "mapper": "<lambda>"}],
+        },
         sort_keys=True,
     )
 
 
 def test_encoding_filter():
     flow = Dataflow()
-    flow.filter(lambda x: x == 1)
+    flow.filter("filter_one", lambda x: x == 1)
 
     assert encode_dataflow(flow) == json.dumps(
-        {"type": "Dataflow", "steps": [{"type": "Filter", "predicate": "<lambda>"}]},
+        {
+            "type": "Dataflow",
+            "steps": [
+                {"type": "Filter", "step_id": "filter_one", "predicate": "<lambda>"}
+            ],
+        },
         sort_keys=True,
     )
 
@@ -112,10 +120,13 @@ def test_encoding_reduce():
 
 def test_encoding_flat_map():
     flow = Dataflow()
-    flow.flat_map(lambda x: x + 1)
+    flow.flat_map("add_one", lambda x: x + 1)
 
     assert encode_dataflow(flow) == json.dumps(
-        {"type": "Dataflow", "steps": [{"type": "FlatMap", "mapper": "<lambda>"}]},
+        {
+            "type": "Dataflow",
+            "steps": [{"type": "FlatMap", "step_id": "add_one", "mapper": "<lambda>"}],
+        },
         sort_keys=True,
     )
 
@@ -178,9 +189,12 @@ def test_encoding_fold_window():
 
 def test_encoding_method_descriptor():
     flow = Dataflow()
-    flow.flat_map(str.split)
+    flow.flat_map("split", str.split)
 
     assert encode_dataflow(flow) == json.dumps(
-        {"type": "Dataflow", "steps": [{"type": "FlatMap", "mapper": "split"}]},
+        {
+            "type": "Dataflow",
+            "steps": [{"type": "FlatMap", "step_id": "split", "mapper": "split"}],
+        },
         sort_keys=True,
     )

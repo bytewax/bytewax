@@ -11,6 +11,6 @@ def get_flow(path):
     def mapper(item):
         return "ALL", f"{item}"
 
-    flow.map(mapper)
+    flow.map("all_mapper", mapper)
     flow.output("out", FileOutput(path))
     return flow

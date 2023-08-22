@@ -24,6 +24,7 @@ use crate::errors::prepend_tname;
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::inputs::EpochInterval;
+use crate::metrics::initialize_metrics;
 use crate::recovery::RecoveryConfig;
 use crate::unwrap_any;
 use crate::webserver::run_webserver;
@@ -57,6 +58,9 @@ fn start_server_runtime(df: &Py<Dataflow>) -> PyResult<Runtime> {
 
         Ok(dataflow_json)
     })?;
+
+    // Start the metrics subsystem
+    initialize_metrics()?;
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -337,6 +341,7 @@ pub(crate) fn cli_main(
     }
 
     let mut server_rt = None;
+
     // Initialize the tokio runtime for the webserver if we needed.
     if std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
         server_rt = Some(start_server_runtime(&flow)?);
