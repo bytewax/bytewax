@@ -14,8 +14,7 @@ to make upgrading your Dataflows to v0.17 easier.
 ## Recovery changes
 
 In v0.17, recovery has been changed to support rescaling the number of
-workers in a dataflow. The number of recovery partitions is no longer
-tied to the number of workers in a cluster.
+workers in a dataflow. You now pre-create a fixed number of SQLite recovery DB files before running the dataflow.
 
 SQLite recovery DBs created with versions of Bytewax prior to v0.17
 are not compatible with this release.
