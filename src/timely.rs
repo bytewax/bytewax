@@ -1,6 +1,5 @@
 //! Low-level, generic extensions for Timely.
 
-use std::cell::Cell;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -10,7 +9,6 @@ use std::fmt::Debug;
 use std::hash::BuildHasher;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::rc::Rc;
 use std::time::Duration;
 
 use num::CheckedSub;
@@ -1296,72 +1294,6 @@ where
                         },
                     );
                 });
-            }
-        });
-
-        clock
-    }
-}
-
-pub(crate) trait StoreLastOp<S, D>
-where
-    S: Scope,
-    S::Timestamp: TotalOrder,
-    D: Data,
-{
-    /// Consume a stream and store the last seen item for extraction
-    /// after a dataflow has finished execution.
-    ///
-    /// You'll want to keep a handle to the [`Rc`] "outside" the
-    /// dataflow so you can [`Option::take`] out the value later.
-    ///
-    /// [`timely::dataflow::operators::capture::capture::Capture`]
-    /// won't work for us because it does not emit a clock
-    /// stream. We'd have no way of knowing probing the completion of
-    /// the capture, and thus running the progress loading dataflow in
-    /// a way that is interruptable.
-    fn store_last(&self, into: Rc<Cell<Option<D>>>) -> ClockStream<S>;
-}
-
-impl<S, D> StoreLastOp<S, D> for Stream<S, D>
-where
-    S: Scope,
-    S::Timestamp: TotalOrder,
-    D: Data,
-{
-    fn store_last(&self, into: Rc<Cell<Option<D>>>) -> ClockStream<S> {
-        let mut op_builder = OperatorBuilder::new(String::from("store_last"), self.scope());
-
-        let mut input = op_builder.new_input(self, Pipeline);
-
-        let (mut clock_output, clock) = op_builder.new_output();
-
-        op_builder.build(move |init_caps| {
-            let mut inbuf = InBuffer::new();
-            let mut ncater = EagerNotificator::new(init_caps, into);
-
-            move |input_frontiers| {
-                input.buffer_notify(&mut inbuf, &mut ncater);
-
-                ncater.for_each(
-                    input_frontiers,
-                    |caps, into| {
-                        let cap = &caps[0];
-                        let epoch = cap.time();
-
-                        if let Some(mut items) = inbuf.remove(epoch) {
-                            // We only need to save the "last".
-                            if let Some(item) = items.pop() {
-                                into.set(Some(item));
-                            }
-                        }
-                    },
-                    |caps, _into| {
-                        let cap = &caps[0];
-
-                        clock_output.activate().session(cap).give(());
-                    },
-                );
             }
         });
 
