@@ -1,6 +1,6 @@
 //! Definition of a Bytewax worker.
 
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -39,7 +39,6 @@ use crate::pyo3_extensions::extract_state_pair;
 use crate::pyo3_extensions::wrap_state_pair;
 use crate::recovery::*;
 use crate::timely::AsWorkerExt;
-use crate::timely::StoreLastOp;
 use crate::window::clock::ClockBuilder;
 use crate::window::StatefulWindowUnary;
 use crate::window::WindowBuilder;
@@ -122,10 +121,10 @@ where
     let resume_from = recovery
         .as_ref()
         .map(|(bundle, _backup_interval)| -> PyResult<ResumeFrom> {
-            let resume_from = Rc::new(Cell::new(None));
-            let resume_from_d = resume_from.clone();
+            let resume_calc = Python::with_gil(|py| Rc::new(RefCell::new(ResumeCalc::new(py))));
+            let resume_calc_d = resume_calc.clone();
             let probe = Python::with_gil(|py| {
-                build_resume_calc_dataflow(py, worker.worker, bundle.clone_ref(py), resume_from_d)
+                build_resume_calc_dataflow(py, worker.worker, bundle.clone_ref(py), resume_calc_d)
                     .reraise("error building progress load dataflow")
             })?;
 
@@ -133,8 +132,9 @@ where
                 worker.run(probe);
             });
 
-            let resume_from = resume_from.take().unwrap_or_default();
+            let resume_from = resume_calc.borrow().resume_from()?;
             tracing::info!("Calculated {resume_from:?}");
+
             Ok(resume_from)
         })
         .transpose()?
@@ -168,10 +168,10 @@ where
 /// [`ResumeFrom`] is deterministic and so all workers will have
 /// converged to the same value.
 fn build_resume_calc_dataflow<A>(
-    py: Python,
+    _py: Python,
     worker: &mut TimelyWorker<A>,
     bundle: RecoveryBundle,
-    resume_from: Rc<Cell<Option<ResumeFrom>>>,
+    resume_calc: Rc<RefCell<ResumeCalc>>,
 ) -> PyResult<ProbeHandle<u64>>
 where
     A: Allocate,
@@ -179,15 +179,15 @@ where
     worker.dataflow(|scope| {
         let mut probe = ProbeHandle::new();
 
-        let (parts, exs, fronts) = bundle.read_progress(scope);
+        let (parts, exs, fronts, commits) = bundle.read_progress(scope);
         scope
             .resume_from(
-                py,
                 &parts.broadcast(),
                 &exs.broadcast(),
                 &fronts.broadcast(),
+                &commits.broadcast(),
+                resume_calc,
             )
-            .store_last(resume_from)
             .probe_with(&mut probe);
 
         Ok(probe)

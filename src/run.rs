@@ -105,7 +105,7 @@ pub(crate) fn run_main(
     epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
-    tracing::info!("Running single worker on single process");
+    tracing::warn!("Running single worker on single process");
 
     let epoch_interval = epoch_interval.unwrap_or_default();
     tracing::info!("Using epoch interval of {:?}", epoch_interval);
@@ -213,7 +213,7 @@ pub(crate) fn cluster_main(
     recovery_config: Option<Py<RecoveryConfig>>,
     worker_count_per_proc: usize,
 ) -> PyResult<()> {
-    tracing::info!(
+    tracing::warn!(
         "Running {} workers on process {}",
         worker_count_per_proc,
         proc_id
