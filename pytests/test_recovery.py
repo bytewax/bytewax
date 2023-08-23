@@ -258,9 +258,7 @@ def test_continuation(entry_point, recovery_config):
             ("b", 1, False),
         ]
     )
-    # Unfortunately `ListProxy`, which we'd use in the cluster entry
-    # point, does not have `clear`.
-    del out[:]
+    out.clear()
 
     # Continue again.
     entry_point(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -289,10 +287,7 @@ def test_continuation_with_no_new_input(entry_point, recovery_config):
     ]
 
     # Don't add new input.
-
-    # Unfortunately `ListProxy`, which we'd use in the cluster entry
-    # point, does not have `clear`.
-    del out[:]
+    out.clear()
 
     # Continue.
     entry_point(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -340,9 +335,7 @@ def test_rescale(tmp_path):
             ("b", 5, False),
         ]
     )
-    # Unfortunately `ListProxy`, which we'd use in the cluster entry
-    # point, does not have `clear`.
-    del out[:]
+    out.clear()
 
     # Continue with 5 workers.
     entry_point(5)
@@ -361,9 +354,7 @@ def test_rescale(tmp_path):
             ("b", 1, False),
         ]
     )
-    # Unfortunately `ListProxy`, which we'd use in the cluster entry
-    # point, does not have `clear`.
-    del out[:]
+    out.clear()
 
     # Continue again resizing down to 1 worker.
     entry_point(1)
