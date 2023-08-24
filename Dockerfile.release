@@ -15,6 +15,7 @@ FROM python:$PYTHON_VERSION-slim-bullseye AS runner
 COPY --from=build /venv /venv
 WORKDIR /bytewax
 COPY ./entrypoint.sh .
+COPY ./entrypoint-recovery.sh .
 
 ENV BYTEWAX_WORKDIR=/bytewax
 
