@@ -46,33 +46,7 @@ $ python -m bytewax.run my_dataflow     --addresses &quot;localhost:2021;localho
 $ python -m bytewax.run my_dataflow     --addresses &quot;localhost:2021;localhost:2022&quot;     --process-id 1
 </code></pre>
 <h2 id="recovery">Recovery</h2>
-<p>Bytewax allows you to <strong>recover</strong> a stateful dataflow; it will let you
-resume processing and output due to a failure without re-processing
-all initial data to re-calculate all internal state.</p>
-<p>It does this by snapshoting state and progress information for a
-single dataflow instance in a distributed set of SQLite databases in
-the <strong>recovery directory</strong> periodically. The <strong>epoch</strong> is period of
-this snapshotting. Bytewax defaults to a new epoch every 10 seconds,
-but you can change it with the <code>epoch_interval</code> parameter.</p>
-<p>When you run your dataflow it will start backing up recovery data
-automatically. Recovery data for multiple dataflows <em>must not</em> be
-mixed together.</p>
-<p>If the dataflow fails, first you must fix whatever underlying fault
-caused the issue. That might mean deploying new code which fixes a bug
-or resolving an issue with a connected system.</p>
-<p>Once that is done, re-run the dataflow using the <em>same recovery
-directory</em>. Bytewax will automatically read the progress of the
-previous dataflow execution and determine the most recent epoch that
-processing can resume at. Output should resume from that
-epoch. Because snapshotting only happens periodically, the dataflow
-can only resume on epoch boundaries.</p>
-<p>It is possible that your output systems will see duplicate data around
-the resume epoch; design your systems to support at-least-once
-processing.</p>
-<p>If you want to fully restart a dataflow and ignore previous state,
-delete the data in the recovery directory.</p>
-<p>Currently it is not possible to recover a dataflow with a different
-number of workers than when it failed.</p>
+<p>See the <code><a title="bytewax.recovery" href="/apidocs/bytewax.recovery">bytewax.recovery</a></code> module docstring for how to setup recovery.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -149,55 +123,23 @@ $ python -m bytewax.run my_dataflow \
     --process-id 1
 ```
 
-
 Recovery
 --------
 
-Bytewax allows you to **recover** a stateful dataflow; it will let you
-resume processing and output due to a failure without re-processing
-all initial data to re-calculate all internal state.
-
-It does this by snapshoting state and progress information for a
-single dataflow instance in a distributed set of SQLite databases in
-the **recovery directory** periodically. The **epoch** is period of
-this snapshotting. Bytewax defaults to a new epoch every 10 seconds,
-but you can change it with the `epoch_interval` parameter.
-
-When you run your dataflow it will start backing up recovery data
-automatically. Recovery data for multiple dataflows _must not_ be
-mixed together.
-
-If the dataflow fails, first you must fix whatever underlying fault
-caused the issue. That might mean deploying new code which fixes a bug
-or resolving an issue with a connected system.
-
-Once that is done, re-run the dataflow using the _same recovery
-directory_. Bytewax will automatically read the progress of the
-previous dataflow execution and determine the most recent epoch that
-processing can resume at. Output should resume from that
-epoch. Because snapshotting only happens periodically, the dataflow
-can only resume on epoch boundaries.
-
-It is possible that your output systems will see duplicate data around
-the resume epoch; design your systems to support at-least-once
-processing.
-
-If you want to fully restart a dataflow and ignore previous state,
-delete the data in the recovery directory.
-
-Currently it is not possible to recover a dataflow with a different
-number of workers than when it failed.
+See the `bytewax.recovery` module docstring for how to setup recovery.
 
 &#34;&#34;&#34;
+
 import argparse
 import ast
 import inspect
 import os
-import pathlib
 import sys
 import traceback
+from datetime import timedelta
+from pathlib import Path
 
-from bytewax.recovery import SqliteRecoveryConfig
+from bytewax.recovery import RecoveryConfig
 
 from .bytewax import cli_main
 
@@ -223,12 +165,12 @@ def _locate_dataflow(module_name, dataflow_name):
         # Reraise the ImportError if it occurred within the imported module.
         # Determine this by checking whether the trace has a depth &gt; 1.
         if sys.exc_info()[2].tb_next:
-            raise ImportError(
-                f&#34;While importing {module_name!r}, an ImportError was&#34;
-                f&#34; raised:\n\n{traceback.format_exc()}&#34;
-            ) from None
+            msg = f&#34;While importing {module_name!r}, an ImportError was raised:\n\n&#34;
+            f&#34;{traceback.format_exc()}&#34;
+            raise ImportError(msg) from None
         else:
-            raise ImportError(f&#34;Could not import {module_name!r}.&#34;) from None
+            msg = f&#34;Could not import {module_name!r}.&#34;
+            raise ImportError(msg) from None
 
     module = sys.modules[module_name]
 
@@ -237,9 +179,8 @@ def _locate_dataflow(module_name, dataflow_name):
     try:
         expr = ast.parse(dataflow_name.strip(), mode=&#34;eval&#34;).body
     except SyntaxError:
-        raise SyntaxError(
-            f&#34;Failed to parse {dataflow_name!r} as an attribute name or function call.&#34;
-        ) from None
+        msg = f&#34;Failed to parse {dataflow_name!r} as an attribute name or function call&#34;
+        raise SyntaxError(msg) from None
 
     if isinstance(expr, ast.Name):
         name = expr.id
@@ -248,9 +189,8 @@ def _locate_dataflow(module_name, dataflow_name):
     elif isinstance(expr, ast.Call):
         # Ensure the function name is an attribute name only.
         if not isinstance(expr.func, ast.Name):
-            raise TypeError(
-                f&#34;Function reference must be a simple name: {dataflow_name!r}.&#34;
-            )
+            msg = f&#34;Function reference must be a simple name: {dataflow_name!r}.&#34;
+            raise TypeError(msg)
 
         name = expr.func.id
 
@@ -261,20 +201,17 @@ def _locate_dataflow(module_name, dataflow_name):
         except ValueError:
             # literal_eval gives cryptic error messages, show a generic
             # message with the full expression instead.
-            raise ValueError(
-                f&#34;Failed to parse arguments as literal values: {dataflow_name!r}.&#34;
-            ) from None
+            msg = f&#34;Failed to parse arguments as literal values: {dataflow_name!r}&#34;
+            raise ValueError(msg) from None
     else:
-        raise ValueError(
-            f&#34;Failed to parse {dataflow_name!r} as an attribute name or function call.&#34;
-        )
+        msg = f&#34;Failed to parse {dataflow_name!r} as an attribute name or function call&#34;
+        raise ValueError(msg)
 
     try:
         attr = getattr(module, name)
     except AttributeError as e:
-        raise AttributeError(
-            f&#34;Failed to find attribute {name!r} in {module.__name__!r}.&#34;
-        ) from e
+        msg = f&#34;Failed to find attribute {name!r} in {module.__name__!r}.&#34;
+        raise AttributeError(msg) from e
 
     # If the attribute is a function, call it with any args and kwargs
     # to get the real application.
@@ -285,33 +222,22 @@ def _locate_dataflow(module_name, dataflow_name):
             if not _called_with_wrong_args(attr):
                 raise
 
-            raise TypeError(
-                f&#34;The factory {dataflow_name!r} in module&#34;
-                f&#34; {module.__name__!r} could not be called with the&#34;
-                &#34; specified arguments.&#34;
-            ) from e
+            msg = f&#34;The factory {dataflow_name!r} in module {module.__name__!r} &#34;
+            &#34;could not be called with the specified arguments&#34;
+            raise TypeError(msg) from e
     else:
         dataflow = attr
 
     if isinstance(dataflow, Dataflow):
         return dataflow
 
-    raise RuntimeError(
-        &#34;A valid Bytewax dataflow was not obtained from&#34;
-        f&#34; &#39;{module.__name__}:{dataflow_name}&#39;.&#34;
-    )
+    msg = &#34;A valid Bytewax dataflow was not obtained from &#34;
+    f&#34;&#39;{module.__name__}:{dataflow_name}&#39;&#34;
+    raise RuntimeError(msg)
 
 
 def _called_with_wrong_args(f):
-    &#34;&#34;&#34;Check whether calling a function raised a ``TypeError`` because
-    the call failed or because something in the factory raised the
-    error.
-
-    This is taken from Flask&#39;s codebase.
-
-    :param f: The function that was called.
-    :return: ``True`` if the call failed.
-    &#34;&#34;&#34;
+    # This is taken from Flask&#39;s codebase.
     tb = sys.exc_info()[2]
 
     try:
@@ -344,10 +270,13 @@ class _EnvDefault(argparse.Action):
 
 
 def _prepare_import(import_str):
-    &#34;&#34;&#34;Given a filename this will try to calculate the python path, add it
-    to the search path and return the actual module name that is expected.
+    &#34;&#34;&#34;Given a filename this will try to calculate the python path.
+
+    Add it to the search path and return the actual module name that
+    is expected.
 
     This is adapted from Flask&#39;s codebase.
+
     &#34;&#34;&#34;
     path, _, flow_name = import_str.partition(&#34;:&#34;)
     if flow_name == &#34;&#34;:
@@ -377,6 +306,10 @@ def _prepare_import(import_str):
     return &#34;.&#34;.join(module_name[::-1]) + f&#34;:{flow_name}&#34;
 
 
+def _parse_timedelta(s):
+    return timedelta(seconds=int(s))
+
+
 def _parse_args():
     parser = argparse.ArgumentParser(
         prog=&#34;python -m bytewax.run&#34;, description=&#34;Run a bytewax dataflow&#34;
@@ -385,9 +318,11 @@ def _parse_args():
         &#34;import_str&#34;,
         type=str,
         help=&#34;Dataflow import string in the format &#34;
-        &#34;&lt;module_name&gt;:&lt;dataflow_variable_or_factory&gt; &#34;
-        &#34;Example: src.dataflow:flow or src.dataflow:get_flow(&#39;string_argument&#39;)&#34;,
+        &#34;&lt;module_name&gt;[:&lt;dataflow_variable_or_factory&gt;] &#34;
+        &#34;Example: src.dataflow or src.dataflow:flow or &#34;
+        &#34;src.dataflow:get_flow(&#39;string_argument&#39;)&#34;,
     )
+
     scaling = parser.add_argument_group(
         &#34;Scaling&#34;,
         &#34;You should use either &#39;-p&#39; to spawn multiple processes &#34;
@@ -427,22 +362,38 @@ def _parse_args():
         envvar=&#34;BYTEWAX_ADDRESSES&#34;,
     )
 
-    # Config options for recovery
-    recovery = parser.add_argument_group(&#34;Recovery&#34;)
-    recovery.add_argument(
-        &#34;--sqlite-directory&#34;,
-        type=pathlib.Path,
-        help=&#34;Passing this argument enables sqlite recovery in the specified folder&#34;,
-        action=_EnvDefault,
-        envvar=&#34;BYTEWAX_SQLITE_DIRECTORY&#34;,
+    recovery = parser.add_argument_group(
+        &#34;Recovery&#34;, &#34;&#34;&#34;See the `bytewax.recovery` module docstring for more info.&#34;&#34;&#34;
     )
     recovery.add_argument(
-        &#34;--epoch-interval&#34;,
-        type=int,
-        default=10,
-        help=&#34;Number of seconds between state snapshots&#34;,
+        &#34;-r&#34;,
+        &#34;--recovery-directory&#34;,
+        type=Path,
+        help=&#34;&#34;&#34;Local file system directory to look for pre-initialized recovery
+        partitions; see `python -m bytewax.recovery` for how to init partitions&#34;&#34;&#34;,
         action=_EnvDefault,
-        envvar=&#34;BYTEWAX_EPOCH_INTERVAL&#34;,
+        envvar=&#34;BYTEWAX_RECOVERY_DIRECTORY&#34;,
+    )
+    parser.add_argument(
+        &#34;-s&#34;,
+        &#34;--snapshot-interval&#34;,
+        type=_parse_timedelta,
+        default=timedelta(seconds=10),
+        help=&#34;&#34;&#34;System time duration in seconds to snapshot state for recovery;
+        defaults to 10 sec&#34;&#34;&#34;,
+        action=_EnvDefault,
+        envvar=&#34;BYTEWAX_SNAPSHOT_INTERVAL&#34;,
+    )
+    recovery.add_argument(
+        &#34;-b&#34;,
+        &#34;--backup-interval&#34;,
+        type=_parse_timedelta,
+        default=timedelta(days=1),
+        help=&#34;&#34;&#34;System time duration in seconds to keep extra state snapshots around;
+        set this to the interval at which you are backing up recovery partitions;
+        defaults to 1 day&#34;&#34;&#34;,
+        action=_EnvDefault,
+        envvar=&#34;BYTEWAX_RECOVERY_BACKUP_INTERVAL&#34;,
     )
 
     args = parser.parse_args()
@@ -483,7 +434,8 @@ def _parse_args():
 
         warnings.warn(
             &#34;Both &#39;-p&#39; and &#39;-a/-i&#39; specified. &#34;
-            &#34;Ignoring the &#39;-p&#39; option, but this should be fixed&#34;
+            &#34;Ignoring the &#39;-p&#39; option, but this should be fixed&#34;,
+            stacklevel=1,
         )
         args.processes = None
 
@@ -493,20 +445,24 @@ def _parse_args():
 if __name__ == &#34;__main__&#34;:
     kwargs = vars(_parse_args())
 
-    # Prepare recovery config
-    sqlite_directory = kwargs.pop(&#34;sqlite_directory&#34;)
+    kwargs[&#34;epoch_interval&#34;] = kwargs.pop(&#34;snapshot_interval&#34;)
+
+    recovery_directory, backup_interval = kwargs.pop(&#34;recovery_directory&#34;), kwargs.pop(
+        &#34;backup_interval&#34;
+    )
     kwargs[&#34;recovery_config&#34;] = None
-    if sqlite_directory:
-        kwargs[&#34;recovery_config&#34;] = SqliteRecoveryConfig(sqlite_directory)
+    if recovery_directory is not None:
+        kwargs[&#34;recovery_config&#34;] = RecoveryConfig(recovery_directory, backup_interval)
 
     # Prepare addresses
     addresses = kwargs.pop(&#34;addresses&#34;)
-    if addresses:
+    if addresses is not None:
         kwargs[&#34;addresses&#34;] = addresses.split(&#34;;&#34;)
 
     # Import the dataflow
     module_str, _, attrs_str = kwargs.pop(&#34;import_str&#34;).partition(&#34;:&#34;)
     kwargs[&#34;flow&#34;] = _locate_dataflow(module_str, attrs_str)
+
     cli_main(**kwargs)</code></pre>
 </details>
 </section>

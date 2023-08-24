@@ -65,8 +65,8 @@ This makes the setup easier, but it&#39;s less flexible.
 from .bytewax import (  # noqa: F401
     JaegerConfig,
     OtlpTracingConfig,
-    setup_tracing,
     TracingConfig,
+    setup_tracing,
 )
 
 __all__ = [
@@ -85,7 +85,7 @@ __all__ = [
 <h2 class="api__article-subtitle" id="header-functions">Functions</h2>
 <dl>
 <dt id="bytewax.tracing.setup_tracing"><code class="language-python name flex">
-<span>def <span class="ident">setup_tracing</span></span>(<span>tracing_config, log_level)</span>
+<span>def <span class="ident">setup_tracing</span></span>(<span>tracing_config=None, log_level=None)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Helper function used to setup tracing and logging from the Rust side.</p>
@@ -136,7 +136,7 @@ samplig_ratio &lt;= 0 - most traces are not sampled</p></div>
 </dd>
 <dt id="bytewax.tracing.OtlpTracingConfig"><code class="language-python flex name class">
 <span>class <span class="ident">OtlpTracingConfig</span></span>
-<span>(</span><span>service_name, url, sampling_ratio=1.0)</span>
+<span>(</span><span>service_name, url=None, sampling_ratio=1.0)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Send traces to the opentelemetry collector:

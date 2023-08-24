@@ -41,13 +41,6 @@ __all__ = [
 <div class="desc"><p>A definition of a Bytewax dataflow graph.</p>
 <p>Use the methods defined on this class to add steps with operators
 of the same name.</p></div>
-<h3>Instance variables</h3>
-<dl>
-<dt id="bytewax.dataflow.Dataflow.steps"><code class="language-python name">var <span class="ident">steps</span></code></dt>
-<dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
-</dd>
-</dl>
 <h3>Methods</h3>
 <dl>
 <dt id="bytewax.dataflow.Dataflow.collect_window"><code class="language-python name flex">
@@ -66,16 +59,12 @@ clock.</p>
 <p>Currently, data is permanently allocated per-key. If you have
 an ever-growing key space, note this.</p>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
-<dd>Uniquely identifies this step for recovery.</dd>
-<dt><strong><code>clock_config</code></strong> :&ensp;<code><a title="bytewax.window.ClockConfig" href="/apidocs/bytewax.window#bytewax.window.ClockConfig">ClockConfig</a></code></dt>
-<dd>Clock config to
-use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
-<dt><strong><code>window_config</code></strong> :&ensp;<code><a title="bytewax.window.WindowConfig" href="/apidocs/bytewax.window#bytewax.window.WindowConfig">WindowConfig</a></code></dt>
-<dd>Windower
-config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
-</dl></div>
+<p>step_id (str):
+Uniquely identifies this step for recovery.
+clock_config (bytewax.window.ClockConfig):
+Clock config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.
+window_config (bytewax.window.WindowConfig):
+Windower config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</p></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.filter"><code class="language-python name flex">
 <span>def <span class="ident">filter</span></span>(<span>self, /, predicate)</span>
@@ -108,10 +97,8 @@ returns <code>True</code>.</p>
 3
 </code></pre>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>predicate</code></strong></dt>
-<dd><code>predicate(item: Any) =&gt; should_emit: bool</code></dd>
-</dl></div>
+<p>predicate:
+<code>predicate(item: Any) =&gt; should_emit: bool</code></p></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.filter_map"><code class="language-python name flex">
 <span>def <span class="ident">filter_map</span></span>(<span>self, /, mapper)</span>
@@ -128,7 +115,10 @@ is filtered out.</p>
 ...         return data[&quot;key&quot;], data
 ...
 &gt;&gt;&gt; flow.filter_map(validate)
-</code></pre></div>
+</code></pre>
+<h2 id="args">Args</h2>
+<p>mapper:
+<code>mapper(item: Any) =&gt; modified_item: Optional[Any]</code></p></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.flat_map"><code class="language-python name flex">
 <span>def <span class="ident">flat_map</span></span>(<span>self, /, mapper)</span>
@@ -160,10 +150,8 @@ hello
 world
 </code></pre>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>mapper</code></strong></dt>
-<dd><code>mapper(item: Any) =&gt; emit: Iterable[Any]</code></dd>
-</dl></div>
+<p>mapper:
+<code>mapper(item: Any) =&gt; emit: Iterable[Any]</code></p></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.fold_window"><code class="language-python name flex">
 <span>def <span class="ident">fold_window</span></span>(<span>self, /, step_id, clock_config, window_config, builder, folder)</span>
@@ -229,18 +217,16 @@ is defined within a window.</p>
 &gt;&gt;&gt; assert sorted(out) == sorted([(&quot;ALL&quot;, [&quot;a&quot;, &quot;b&quot;, &quot;c&quot;]), (&quot;ALL&quot;, [&quot;d&quot;, &quot;e&quot;])])
 </code></pre>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>step_id</code></strong></dt>
-<dd>Uniquely identifies this step for recovery.</dd>
-<dt><strong><code>clock_config</code></strong></dt>
-<dd>Clock config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
-<dt><strong><code>window_config</code></strong></dt>
-<dd>Windower config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
-<dt><strong><code>builder</code></strong></dt>
-<dd><code>builder(key: Any) =&gt; initial_accumulator: Any</code></dd>
-<dt><strong><code>folder</code></strong></dt>
-<dd><code>folder(accumulator: Any, value: Any) =&gt; updated_accumulator: Any</code></dd>
-</dl></div>
+<p>step_id (str):
+Uniquely identifies this step for recovery.
+clock_config (bytewax.window.ClockConfig):
+Clock config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.
+window_config (bytewax.window.WindowConfig):
+Windower config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.
+builder:
+<code>builder(key: Any) =&gt; initial_accumulator: Any</code>
+folder:
+<code>folder(accumulator: Any, value: Any) =&gt; updated_accumulator: Any</code></p></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.input"><code class="language-python name flex">
 <span>def <span class="ident">input</span></span>(<span>self, /, step_id, input)</span>
@@ -252,12 +238,10 @@ is defined within a window.</p>
 See <code><a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a></code> for a buffet of our built-in
 connector types.</p>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
-<dd>Uniquely identifies this step for recovery.</dd>
-<dt><strong><code>input</code></strong> :&ensp;<code><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></code></dt>
-<dd>Input definition.</dd>
-</dl></div>
+<p>step_id (str):
+Uniquely identifies this step for recovery.
+input (bytewax.inputs.Input):
+Input definition.</p></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.inspect"><code class="language-python name flex">
 <span>def <span class="ident">inspect</span></span>(<span>self, /, inspector)</span>
@@ -283,10 +267,8 @@ Saw 1
 Saw 2
 </code></pre>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>inspector</code></strong></dt>
-<dd><code>inspector(item: Any) =&gt; None</code></dd>
-</dl></div>
+<p>inspector:
+<code>inspector(item: Any) =&gt; None</code></p></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.inspect_epoch"><code class="language-python name flex">
 <span>def <span class="ident">inspect_epoch</span></span>(<span>self, /, inspector)</span>
@@ -309,15 +291,27 @@ epoch.</p>
 &gt;&gt;&gt; out = []
 &gt;&gt;&gt; flow.output(&quot;out&quot;, TestingOutput(out))  # Notice we don't print out.
 &gt;&gt;&gt; run_main(flow, epoch_interval=timedelta(seconds=0))
-Saw 0 @ 0
-Saw 1 @ 1
-Saw 2 @ 2
+Saw 0 @ 1
+Saw 1 @ 2
+Saw 2 @ 3
 </code></pre>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>inspector</code></strong></dt>
-<dd><code>inspector(epoch: int, item: Any) =&gt; None</code></dd>
-</dl></div>
+<p>inspector:
+<code>inspector(epoch: int, item: Any) =&gt; None</code></p></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.inspect_worker"><code class="language-python name flex">
+<span>def <span class="ident">inspect_worker</span></span>(<span>self, /, inspector)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Inspect worker allows you to observe, but not modify, items and
+their worker's index.</p>
+<p>It calls an <strong>inspector</strong> function on each item with its
+worker's index.</p>
+<p>It emits items downstream unmodified.</p>
+<p>It is commonly used for debugging.</p>
+<h2 id="args">Args</h2>
+<p>inspector:
+<code>inspector(item: Any, worker: int) =&gt; None</code></p></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.map"><code class="language-python name flex">
 <span>def <span class="ident">map</span></span>(<span>self, /, mapper)</span>
@@ -347,10 +341,8 @@ Saw 2 @ 2
 12
 </code></pre>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>mapper</code></strong></dt>
-<dd><code>mapper(item: Any) =&gt; updated_item: Any</code></dd>
-</dl></div>
+<p>mapper:
+<code>mapper(item: Any) =&gt; updated_item: Any</code></p></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.output"><code class="language-python name flex">
 <span>def <span class="ident">output</span></span>(<span>self, /, step_id, output)</span>
@@ -363,12 +355,55 @@ Saw 2 @ 2
 works. See <code><a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a></code> for a buffet of our built-in
 connector types.</p>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
-<dd>Uniquely identifies this step for recovery.</dd>
-<dt><strong><code>output</code></strong> :&ensp;<code><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></code></dt>
-<dd>Output definition.</dd>
-</dl></div>
+<p>step_id (str):
+Uniquely identifies this step for recovery.
+output (bytewax.outputs.Output):
+Output definition.</p></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.redistribute"><code class="language-python name flex">
+<span>def <span class="ident">redistribute</span></span>(<span>self, /)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Redistribute items randomly across all workers for the next step.</p>
+<p>Bytewax's execution model has workers executing all steps, but
+the state in each step is partitioned across workers by some
+key. Bytewax will only exchange an item between workers before
+stateful steps in order to ensure correctness, that they
+interact with the correct state for that key. Stateless
+operators (like <code>filter</code>) are run on all workers and do not
+result in exchanging items before or after they are run.</p>
+<p>This can result in certain ordering of operators to result in
+poor parallelization across an entire execution cluster. If
+the previous step (like a <code>reduce_window</code> or <code>input</code> with a
+<code>PartitionedInput</code>) concentrated items on a subset of workers
+in the cluster, but the next step is a CPU-intensive stateless
+step (like a <code>map</code>), it's possible that not all workers will
+contribute to processing the CPU-intesive step.</p>
+<p>This operation has a overhead, since it will need
+to serialize, send, and deserialize the items,
+so while it can significantly speed up the
+execution in some cases, it can also make it slower.</p>
+<p>A good use of this operator is to parallelize an IO
+bound step, like a network request, or a heavy,
+single-cpu workload, on a machine with multiple
+workers and multiple cpu cores that would remain
+unused otherwise.</p>
+<p>A bad use of this operator is if the operation you want
+to parallelize is already really fast as it is, as the
+overhead can overshadow the advantages of distributing
+the work.
+Another case where you could see regressions in performance is
+if the heavy CPU workload already spawns enough threads
+to use all the available cores. In this case multiple
+processes trying to compete for the cpu can end up being
+slower than doing the work serially.
+If the workers run on different machines though, it might
+again be a valuable use of the operator.</p>
+<p>Use this operator with caution, and measure whether you
+get an improvement out of it.</p>
+<p>Once the work has been spread to another worker, it will
+stay on those workers unless other operators explicitely
+move the item again (usually on output).</p></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.reduce"><code class="language-python name flex">
 <span>def <span class="ident">reduce</span></span>(<span>self, /, step_id, reducer, is_complete)</span>
@@ -435,16 +470,14 @@ sort, then use this operator.</p>
        {'user': 'a', 'type': 'logout'}])
 </code></pre>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
-<dd>Uniquely identifies this step for recovery.</dd>
-<dt><strong><code>reducer</code></strong></dt>
-<dd><code>reducer(accumulator: Any, value: Any) =&gt;
-updated_accumulator: Any</code></dd>
-<dt><strong><code>is_complete</code></strong></dt>
-<dd><code>is_complete(updated_accumulator: Any) =&gt;
-should_emit: bool</code></dd>
-</dl></div>
+<p>step_id (str):
+Uniquely identifies this step for recovery.
+reducer:
+<code>reducer(accumulator: Any, value: Any) =&gt;
+updated_accumulator: Any</code>
+is_complete:
+<code>is_complete(updated_accumulator: Any) =&gt;
+should_emit: bool</code></p></div>
 </dd>
 <dt id="bytewax.dataflow.Dataflow.reduce_window"><code class="language-python name flex">
 <span>def <span class="ident">reduce_window</span></span>(<span>self, /, step_id, clock_config, window_config, reducer)</span>
@@ -507,14 +540,12 @@ an ever-growing key space, note this.</p>
 </code></pre>
 <h2 id="args">Args</h2>
 <dl>
-<dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
-<dd>Uniquely identifies this step for recovery.</dd>
-<dt><strong><code>clock_config</code></strong> :&ensp;<code><a title="bytewax.window.ClockConfig" href="/apidocs/bytewax.window#bytewax.window.ClockConfig">ClockConfig</a></code></dt>
-<dd>Clock config to
-use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
-<dt><strong><code>window_config</code></strong> :&ensp;<code><a title="bytewax.window.WindowConfig" href="/apidocs/bytewax.window#bytewax.window.WindowConfig">WindowConfig</a></code></dt>
-<dd>Windower
-config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dd>
+<dt>step_id (str):</dt>
+<dt>Uniquely identifies this step for recovery.</dt>
+<dt>clock_config (bytewax.window.ClockConfig):</dt>
+<dt>Clock config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dt>
+<dt>window_config (bytewax.window.WindowConfig):</dt>
+<dt>Windower config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dt>
 <dt><strong><code>reducer</code></strong></dt>
 <dd><code>reducer(accumulator: Any, value: Any) =&gt;
 updated_accumulator: Any</code></dd>
@@ -589,15 +620,13 @@ a
 b
 </code></pre>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>step_id</code></strong> :&ensp;<code>str</code></dt>
-<dd>Uniquely identifies this step for recovery.</dd>
-<dt><strong><code>builder</code></strong></dt>
-<dd><code>builder(key: Any) =&gt; new_state: Any</code></dd>
-<dt><strong><code>mapper</code></strong></dt>
-<dd><code>mapper(state: Any, value: Any) =&gt; (updated_state:
-Any, updated_value: Any)</code></dd>
-</dl></div>
+<p>step_id (str):
+Uniquely identifies this step for recovery.
+builder:
+<code>builder(key: Any) =&gt; new_state: Any</code>
+mapper:
+<code>mapper(state: Any, value: Any) =&gt; (updated_state:
+Any, updated_value: Any)</code></p></div>
 </dd>
 </dl>
 </dd>
@@ -633,12 +662,13 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.input" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.input">input</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.inspect">inspect</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect_epoch" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.inspect_epoch">inspect_epoch</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect_worker" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.inspect_worker">inspect_worker</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.map">map</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.output" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.output">output</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.redistribute" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.redistribute">redistribute</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.reduce" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce">reduce</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.reduce_window" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce_window">reduce_window</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.stateful_map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.stateful_map">stateful_map</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.steps" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.steps">steps</a></li>
 </ul>
 </li>
 </ul>

@@ -4,7 +4,7 @@
 <h1 class="api__article-title">Module <strong>bytewax.inputs</strong></h1>
 </header>
 <section class="api__article-intro" id="section-intro">
-<p>Low-level input interfaces.</p>
+<p>Low-level input interfaces and input helpers.</p>
 <p>If you want pre-built connectors for various external systems, see
 <code><a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a></code>. That is also a rich source of examples.</p>
 <p>Subclass the types here to implement input for your own custom source.</p>
@@ -12,7 +12,7 @@
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Low-level input interfaces.
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Low-level input interfaces and input helpers.
 
 If you want pre-built connectors for various external systems, see
 `bytewax.connectors`. That is also a rich source of examples.
@@ -21,8 +21,12 @@ Subclass the types here to implement input for your own custom source.
 
 &#34;&#34;&#34;
 
+import asyncio
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Set
+from collections.abc import AsyncIterable
+from datetime import datetime, timedelta
+from itertools import islice
+from typing import Any, Iterable, Iterator, List, Optional
 
 __all__ = [
     &#34;DynamicInput&#34;,
@@ -30,10 +34,12 @@ __all__ = [
     &#34;PartitionedInput&#34;,
     &#34;StatefulSource&#34;,
     &#34;StatelessSource&#34;,
+    &#34;batch&#34;,
+    &#34;batch_async&#34;,
 ]
 
 
-class Input(ABC):
+class Input(ABC):  # noqa: B024
     &#34;&#34;&#34;Base class for all input types. Do not subclass this.
 
     If you want to implement a custom connector, instead subclass one
@@ -42,7 +48,9 @@ class Input(ABC):
     &#34;&#34;&#34;
 
     def __json__(self):
-        &#34;&#34;&#34;This is used by the Bytewax platform internally and should
+        &#34;&#34;&#34;JSON representation of this.
+
+        This is used by the Bytewax platform internally and should
         not be overridden.
 
         &#34;&#34;&#34;
@@ -55,23 +63,45 @@ class StatefulSource(ABC):
     &#34;&#34;&#34;Input source that maintains state of its position.&#34;&#34;&#34;
 
     @abstractmethod
-    def next(self) -&gt; Optional[Any]:
-        &#34;&#34;&#34;Attempt to get the next input item.
+    def next_batch(self) -&gt; List[Any]:
+        &#34;&#34;&#34;Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
-        never blocking but returning a bare `None` if there is no item
-        to emit currently.
+        never blocking but returning an empty list if there are no
+        items to emit yet.
 
         Returns:
-
-            An item or `None`.
+            An list of items immediately ready. May be empty if no new
+            items.
 
         Raises:
-
             StopIteration: When the source is complete.
 
         &#34;&#34;&#34;
         ...
+
+    def next_awake(self) -&gt; Optional[datetime]:
+        &#34;&#34;&#34;When to next attempt to get input items.
+
+        `next_batch()` will not be called until the most recently returned
+        time has past.
+
+        This will be called upon initialization of the source and
+        after `next_batch()`, but also possibly at other times. Multiple
+        times are not stored; you must return the next awake time on
+        every call, if any.
+
+        If this returns `None`, `next_batch()` will be called
+        immediately unless the previous batch had no items, in which
+        case there is a 1 millisecond delay.
+
+        Use this instead of `time.sleep` in `next_batch()`.
+
+        Returns:
+            Next awake time or `None` to indicate automatic behavior.
+
+        &#34;&#34;&#34;
+        return None
 
     @abstractmethod
     def snapshot(self) -&gt; Any:
@@ -88,21 +118,20 @@ class StatefulSource(ABC):
         This is guaranteed to never be called after `close()`.
 
         Returns:
-
             Resume state.
 
         &#34;&#34;&#34;
         ...
 
     def close(self) -&gt; None:
-        &#34;&#34;&#34;Do any cleanup on this source when the dataflow completes
-        on a finite input.
+        &#34;&#34;&#34;Cleanup this source when the dataflow completes.
 
-        This is not guaranteed to be called. It will not be called
-        during a crash.
+        This is not guaranteed to be called. It will only be called
+        when the dataflow finishes on finite input. It will not be
+        called during an abrupt or abort shutdown.
 
         &#34;&#34;&#34;
-        pass
+        return
 
 
 class PartitionedInput(Input):
@@ -119,17 +148,13 @@ class PartitionedInput(Input):
     &#34;&#34;&#34;
 
     @abstractmethod
-    def list_parts(self) -&gt; Set[str]:
-        &#34;&#34;&#34;List all partitions by a string key.
+    def list_parts(self) -&gt; List[str]:
+        &#34;&#34;&#34;List all local partitions this worker has access to.
 
-        This must consistently return the same keys when called by all
-        workers in all executions.
-
-        Keys must be unique within this dataflow step.
+        You do not need to list all partitions globally.
 
         Returns:
-
-            Partition keys.
+            Local partition keys.
 
         &#34;&#34;&#34;
         ...
@@ -139,36 +164,28 @@ class PartitionedInput(Input):
         self,
         for_part: str,
         resume_state: Optional[Any],
-    ) -&gt; Optional[StatefulSource]:
-        &#34;&#34;&#34;Build an input partition, resuming from the position
-        encoded in the resume state.
+    ) -&gt; StatefulSource:
+        &#34;&#34;&#34;Build anew or resume an input partition.
 
-        Will be called once within each cluster for each partition
-        key.
-
-        Will be called once on one worker in an execution for each
-        partition key in order to distribute partitions across all
-        workers.
-
-        Return `None` if for some reason this partition is no longer
-        valid and can be skipped coherently. Raise an exception if
-        not.
+        Will be called once per execution for each partition key on a
+        worker that reported that partition was local in `list_parts`.
 
         Do not pre-build state about a partition in the
         constructor. All state must be derived from `resume_state` for
         recovery to work properly.
 
         Args:
+            for_part:
+                Which partition to build. Will always be one of the
+                keys returned by `list_parts` on this worker.
 
-            for_part: Which partition to build.
-
-            resume_state: State data containing where in the input
-                stream this partition should be begin reading during
-                this execution.
+            resume_state:
+                State data containing where in the input stream this
+                partition should be begin reading during this
+                execution.
 
         Returns:
-
-            The built partition, or `None`.
+            The built partition.
 
         &#34;&#34;&#34;
         ...
@@ -178,38 +195,59 @@ class StatelessSource(ABC):
     &#34;&#34;&#34;Input source that is stateless.&#34;&#34;&#34;
 
     @abstractmethod
-    def next(self) -&gt; Optional[Any]:
-        &#34;&#34;&#34;Attempt to get the next input item.
+    def next_batch(self) -&gt; List[Any]:
+        &#34;&#34;&#34;Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
-        never blocking but yielding a bare `None` if there is no new
-        input.
+        never blocking but yielding an empty list if there are no new
+        items yet.
 
         Returns:
-
-            An item or `None`.
+            An list of items immediately ready. May be empty if no new
+            items.
 
         Raises:
-
             StopIteration: When the source is complete.
 
         &#34;&#34;&#34;
         ...
 
-    def close(self) -&gt; None:
-        &#34;&#34;&#34;Do any cleanup on this source when the dataflow completes
-        on a finite input.
+    def next_awake(self) -&gt; Optional[datetime]:
+        &#34;&#34;&#34;When to next attempt to get input items.
 
-        This is not guaranteed to be called. It will not be called
-        during a crash.
+        `next_batch()` will not be called until the most recently returned
+        time has past.
+
+        This will be called upon initialization of the source and
+        after `next_batch()`, but also possibly at other times. Multiple
+        times are not stored; you must return the next awake time on
+        every call, if any.
+
+        If this returns `None`, `next_batch()` will be called
+        immediately unless the previous batch had no items, in which
+        case there is a 1 millisecond delay.
+
+        Use this instead of `time.sleep` in `next_batch()`.
+
+        Returns:
+            Next awake time or `None` to indicate automatic behavior.
 
         &#34;&#34;&#34;
-        pass
+        return None
+
+    def close(self) -&gt; None:
+        &#34;&#34;&#34;Cleanup this source when the dataflow completes.
+
+        This is not guaranteed to be called. It will only be called
+        when the dataflow finishes on finite input. It will not be
+        called during an abrupt or abort shutdown.
+
+        &#34;&#34;&#34;
+        return
 
 
 class DynamicInput(Input):
-    &#34;&#34;&#34;An input that supports reading distinct items from any number
-    of workers concurrently.
+    &#34;&#34;&#34;An input where all workers can read distinct items.
 
     Does not support storing any resume state. Thus these kind of
     inputs only naively can support at-most-once processing.
@@ -222,22 +260,130 @@ class DynamicInput(Input):
 
     @abstractmethod
     def build(self, worker_index, worker_count) -&gt; StatelessSource:
-        &#34;&#34;&#34;Build an input source for a worker
+        &#34;&#34;&#34;Build an input source for a worker.
 
         Will be called once on each worker.
 
         Args:
-
-            worker_index: Index of this worker.
-
-            worker_count: Total number of workers.
+            worker_index:
+                Index of this worker.
+            worker_count:
+                Total number of workers.
 
         Returns:
-
             Input source.
 
         &#34;&#34;&#34;
-        ...</code></pre>
+        ...
+
+
+def batch(ib: Iterable[Any], batch_size: int) -&gt; Iterator[Any]:
+    &#34;&#34;&#34;Batch an iterable.
+
+    Use this to easily generate batches of items for a source&#39;s
+    `next_batch` method.
+
+    Args:
+        ib:
+            The underlying source iterable of items.
+        batch_size:
+            Maximum number of items to return in a batch.
+
+    Yields:
+        The next gathered batch of items.
+
+    &#34;&#34;&#34;
+    # Ensure that we have the stateful iterator of the source.
+    it = iter(ib)
+    while True:
+        batch = list(islice(it, batch_size))
+        if len(batch) &lt;= 0:
+            return
+        yield batch
+
+
+def batch_async(
+    aib: AsyncIterable,
+    timeout: timedelta,
+    batch_size: int,
+    loop=None,
+) -&gt; Iterator[Any]:
+    &#34;&#34;&#34;Batch an async iterable synchronously up to a timeout.
+
+    This allows using an async iterator as an input source. The
+    `next_batch` method on an input source must never block, this
+    allows running an async iterator up to a timeout so that you
+    correctly cooperatively multitask with the rest of the dataflow.
+
+    Args:
+        aib:
+            The underlying source async iterable of items.
+        timeout:
+            Duration of time to repeatedly poll the source
+            async iterator for items.
+        batch_size:
+            Maximum number of items to include in a batch, even if
+            the timeout has not been hit.
+        loop:
+            Custom `asyncio` run loop to use, if any.
+
+    Yields:
+        The next gathered batch of items.
+
+        This function will take up to `timeout` time to yield, or
+        will return a list with length up to `max_len`.
+
+    &#34;&#34;&#34;
+    # Ensure that we have the stateful iterator of the source.
+    ait = aib.__aiter__()
+
+    loop = loop if loop is not None else asyncio.new_event_loop()
+    task = None
+
+    async def anext_batch():
+        nonlocal task
+
+        batch = []
+        # Only try to gather this many items.
+        for _ in range(batch_size):
+            if task is None:
+                task = loop.create_task(ait.__anext__())
+
+            try:
+                # Prevent the `wait_for` cancellation from
+                # stopping the `__anext__` task; usually all
+                # sub-tasks are cancelled too. It&#39;ll be re-used in
+                # the next batch.
+                next_item = await asyncio.shield(task)
+            except asyncio.CancelledError:
+                # Timeout was hit and thus return the batch
+                # immediately.
+                break
+            except StopAsyncIteration:
+                if len(batch) &gt; 0:
+                    # Return a half-finished batch if we run out
+                    # of source items.
+                    break
+                else:
+                    # We can&#39;t raise `StopIteration` directly here
+                    # because it&#39;s part of the coro protocol and
+                    # would mess with this async function.
+                    raise
+
+            batch.append(next_item)
+            task = None
+        return batch
+
+    while True:
+        try:
+            # `wait_for` will raise `CancelledError` at the internal
+            # await point in `anext_batch` if the timeout is hit.
+            batch = loop.run_until_complete(
+                asyncio.wait_for(anext_batch(), timeout.total_seconds())
+            )
+            yield batch
+        except StopAsyncIteration:
+            return</code></pre>
 </details>
 </section>
 <section>
@@ -245,6 +391,164 @@ class DynamicInput(Input):
 <section>
 </section>
 <section>
+<h2 class="api__article-subtitle" id="header-functions">Functions</h2>
+<dl>
+<dt id="bytewax.inputs.batch"><code class="language-python name flex">
+<span>def <span class="ident">batch</span></span>(<span>ib: Iterable[Any], batch_size: int) ‑> Iterator[Any]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Batch an iterable.</p>
+<p>Use this to easily generate batches of items for a source's
+<code>next_batch</code> method.</p>
+<h2 id="args">Args</h2>
+<p>ib:
+The underlying source iterable of items.
+batch_size:
+Maximum number of items to return in a batch.</p>
+<h2 id="yields">Yields</h2>
+<p>The next gathered batch of items.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def batch(ib: Iterable[Any], batch_size: int) -&gt; Iterator[Any]:
+    &#34;&#34;&#34;Batch an iterable.
+
+    Use this to easily generate batches of items for a source&#39;s
+    `next_batch` method.
+
+    Args:
+        ib:
+            The underlying source iterable of items.
+        batch_size:
+            Maximum number of items to return in a batch.
+
+    Yields:
+        The next gathered batch of items.
+
+    &#34;&#34;&#34;
+    # Ensure that we have the stateful iterator of the source.
+    it = iter(ib)
+    while True:
+        batch = list(islice(it, batch_size))
+        if len(batch) &lt;= 0:
+            return
+        yield batch</code></pre>
+</details>
+</dd>
+<dt id="bytewax.inputs.batch_async"><code class="language-python name flex">
+<span>def <span class="ident">batch_async</span></span>(<span>aib: collections.abc.AsyncIterable, timeout: datetime.timedelta, batch_size: int, loop=None) ‑> Iterator[Any]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Batch an async iterable synchronously up to a timeout.</p>
+<p>This allows using an async iterator as an input source. The
+<code>next_batch</code> method on an input source must never block, this
+allows running an async iterator up to a timeout so that you
+correctly cooperatively multitask with the rest of the dataflow.</p>
+<h2 id="args">Args</h2>
+<p>aib:
+The underlying source async iterable of items.
+timeout:
+Duration of time to repeatedly poll the source
+async iterator for items.
+batch_size:
+Maximum number of items to include in a batch, even if
+the timeout has not been hit.
+loop:
+Custom <code>asyncio</code> run loop to use, if any.</p>
+<h2 id="yields">Yields</h2>
+<p>The next gathered batch of items.</p>
+<p>This function will take up to <code>timeout</code> time to yield, or
+will return a list with length up to <code>max_len</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def batch_async(
+    aib: AsyncIterable,
+    timeout: timedelta,
+    batch_size: int,
+    loop=None,
+) -&gt; Iterator[Any]:
+    &#34;&#34;&#34;Batch an async iterable synchronously up to a timeout.
+
+    This allows using an async iterator as an input source. The
+    `next_batch` method on an input source must never block, this
+    allows running an async iterator up to a timeout so that you
+    correctly cooperatively multitask with the rest of the dataflow.
+
+    Args:
+        aib:
+            The underlying source async iterable of items.
+        timeout:
+            Duration of time to repeatedly poll the source
+            async iterator for items.
+        batch_size:
+            Maximum number of items to include in a batch, even if
+            the timeout has not been hit.
+        loop:
+            Custom `asyncio` run loop to use, if any.
+
+    Yields:
+        The next gathered batch of items.
+
+        This function will take up to `timeout` time to yield, or
+        will return a list with length up to `max_len`.
+
+    &#34;&#34;&#34;
+    # Ensure that we have the stateful iterator of the source.
+    ait = aib.__aiter__()
+
+    loop = loop if loop is not None else asyncio.new_event_loop()
+    task = None
+
+    async def anext_batch():
+        nonlocal task
+
+        batch = []
+        # Only try to gather this many items.
+        for _ in range(batch_size):
+            if task is None:
+                task = loop.create_task(ait.__anext__())
+
+            try:
+                # Prevent the `wait_for` cancellation from
+                # stopping the `__anext__` task; usually all
+                # sub-tasks are cancelled too. It&#39;ll be re-used in
+                # the next batch.
+                next_item = await asyncio.shield(task)
+            except asyncio.CancelledError:
+                # Timeout was hit and thus return the batch
+                # immediately.
+                break
+            except StopAsyncIteration:
+                if len(batch) &gt; 0:
+                    # Return a half-finished batch if we run out
+                    # of source items.
+                    break
+                else:
+                    # We can&#39;t raise `StopIteration` directly here
+                    # because it&#39;s part of the coro protocol and
+                    # would mess with this async function.
+                    raise
+
+            batch.append(next_item)
+            task = None
+        return batch
+
+    while True:
+        try:
+            # `wait_for` will raise `CancelledError` at the internal
+            # await point in `anext_batch` if the timeout is hit.
+            batch = loop.run_until_complete(
+                asyncio.wait_for(anext_batch(), timeout.total_seconds())
+            )
+            yield batch
+        except StopAsyncIteration:
+            return</code></pre>
+</details>
+</dd>
+</dl>
 </section>
 <section>
 <h2 class="api__article-subtitle" id="header-classes">Classes</h2>
@@ -253,8 +557,7 @@ class DynamicInput(Input):
 <span>class <span class="ident">DynamicInput</span></span>
 </code></dt>
 <dd>
-<div class="desc"><p>An input that supports reading distinct items from any number
-of workers concurrently.</p>
+<div class="desc"><p>An input where all workers can read distinct items.</p>
 <p>Does not support storing any resume state. Thus these kind of
 inputs only naively can support at-most-once processing.</p>
 <p>The source must somehow support supplying disjoint data for each
@@ -265,8 +568,7 @@ dataflow will process these as duplicate items.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">class DynamicInput(Input):
-    &#34;&#34;&#34;An input that supports reading distinct items from any number
-    of workers concurrently.
+    &#34;&#34;&#34;An input where all workers can read distinct items.
 
     Does not support storing any resume state. Thus these kind of
     inputs only naively can support at-most-once processing.
@@ -279,18 +581,17 @@ dataflow will process these as duplicate items.</p></div>
 
     @abstractmethod
     def build(self, worker_index, worker_count) -&gt; StatelessSource:
-        &#34;&#34;&#34;Build an input source for a worker
+        &#34;&#34;&#34;Build an input source for a worker.
 
         Will be called once on each worker.
 
         Args:
-
-            worker_index: Index of this worker.
-
-            worker_count: Total number of workers.
+            worker_index:
+                Index of this worker.
+            worker_count:
+                Total number of workers.
 
         Returns:
-
             Input source.
 
         &#34;&#34;&#34;
@@ -307,15 +608,13 @@ dataflow will process these as duplicate items.</p></div>
 <span>def <span class="ident">build</span></span>(<span>self, worker_index, worker_count) ‑> <a title="bytewax.inputs.StatelessSource" href="/apidocs/bytewax.inputs#bytewax.inputs.StatelessSource">StatelessSource</a></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Build an input source for a worker</p>
+<div class="desc"><p>Build an input source for a worker.</p>
 <p>Will be called once on each worker.</p>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>worker_index</code></strong></dt>
-<dd>Index of this worker.</dd>
-<dt><strong><code>worker_count</code></strong></dt>
-<dd>Total number of workers.</dd>
-</dl>
+<p>worker_index:
+Index of this worker.
+worker_count:
+Total number of workers.</p>
 <h2 id="returns">Returns</h2>
 <p>Input source.</p></div>
 <details class="source">
@@ -324,18 +623,17 @@ dataflow will process these as duplicate items.</p></div>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@abstractmethod
 def build(self, worker_index, worker_count) -&gt; StatelessSource:
-    &#34;&#34;&#34;Build an input source for a worker
+    &#34;&#34;&#34;Build an input source for a worker.
 
     Will be called once on each worker.
 
     Args:
-
-        worker_index: Index of this worker.
-
-        worker_count: Total number of workers.
+        worker_index:
+            Index of this worker.
+        worker_count:
+            Total number of workers.
 
     Returns:
-
         Input source.
 
     &#34;&#34;&#34;
@@ -355,7 +653,7 @@ of the specific input sub-types below in this module.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class Input(ABC):
+<pre class="language-python line-numbers"><code class="language-python">class Input(ABC):  # noqa: B024
     &#34;&#34;&#34;Base class for all input types. Do not subclass this.
 
     If you want to implement a custom connector, instead subclass one
@@ -364,7 +662,9 @@ of the specific input sub-types below in this module.</p></div>
     &#34;&#34;&#34;
 
     def __json__(self):
-        &#34;&#34;&#34;This is used by the Bytewax platform internally and should
+        &#34;&#34;&#34;JSON representation of this.
+
+        This is used by the Bytewax platform internally and should
         not be overridden.
 
         &#34;&#34;&#34;
@@ -411,17 +711,13 @@ items.</p></div>
     &#34;&#34;&#34;
 
     @abstractmethod
-    def list_parts(self) -&gt; Set[str]:
-        &#34;&#34;&#34;List all partitions by a string key.
+    def list_parts(self) -&gt; List[str]:
+        &#34;&#34;&#34;List all local partitions this worker has access to.
 
-        This must consistently return the same keys when called by all
-        workers in all executions.
-
-        Keys must be unique within this dataflow step.
+        You do not need to list all partitions globally.
 
         Returns:
-
-            Partition keys.
+            Local partition keys.
 
         &#34;&#34;&#34;
         ...
@@ -431,36 +727,28 @@ items.</p></div>
         self,
         for_part: str,
         resume_state: Optional[Any],
-    ) -&gt; Optional[StatefulSource]:
-        &#34;&#34;&#34;Build an input partition, resuming from the position
-        encoded in the resume state.
+    ) -&gt; StatefulSource:
+        &#34;&#34;&#34;Build anew or resume an input partition.
 
-        Will be called once within each cluster for each partition
-        key.
-
-        Will be called once on one worker in an execution for each
-        partition key in order to distribute partitions across all
-        workers.
-
-        Return `None` if for some reason this partition is no longer
-        valid and can be skipped coherently. Raise an exception if
-        not.
+        Will be called once per execution for each partition key on a
+        worker that reported that partition was local in `list_parts`.
 
         Do not pre-build state about a partition in the
         constructor. All state must be derived from `resume_state` for
         recovery to work properly.
 
         Args:
+            for_part:
+                Which partition to build. Will always be one of the
+                keys returned by `list_parts` on this worker.
 
-            for_part: Which partition to build.
-
-            resume_state: State data containing where in the input
-                stream this partition should be begin reading during
-                this execution.
+            resume_state:
+                State data containing where in the input stream this
+                partition should be begin reading during this
+                execution.
 
         Returns:
-
-            The built partition, or `None`.
+            The built partition.
 
         &#34;&#34;&#34;
         ...</code></pre>
@@ -480,33 +768,25 @@ items.</p></div>
 <h3>Methods</h3>
 <dl>
 <dt id="bytewax.inputs.PartitionedInput.build_part"><code class="language-python name flex">
-<span>def <span class="ident">build_part</span></span>(<span>self, for_part: str, resume_state: Optional[Any]) ‑> Optional[<a title="bytewax.inputs.StatefulSource" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource">StatefulSource</a>]</span>
+<span>def <span class="ident">build_part</span></span>(<span>self, for_part: str, resume_state: Optional[Any]) ‑> <a title="bytewax.inputs.StatefulSource" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource">StatefulSource</a></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Build an input partition, resuming from the position
-encoded in the resume state.</p>
-<p>Will be called once within each cluster for each partition
-key.</p>
-<p>Will be called once on one worker in an execution for each
-partition key in order to distribute partitions across all
-workers.</p>
-<p>Return <code>None</code> if for some reason this partition is no longer
-valid and can be skipped coherently. Raise an exception if
-not.</p>
+<div class="desc"><p>Build anew or resume an input partition.</p>
+<p>Will be called once per execution for each partition key on a
+worker that reported that partition was local in <code>list_parts</code>.</p>
 <p>Do not pre-build state about a partition in the
 constructor. All state must be derived from <code>resume_state</code> for
 recovery to work properly.</p>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>for_part</code></strong></dt>
-<dd>Which partition to build.</dd>
-<dt><strong><code>resume_state</code></strong></dt>
-<dd>State data containing where in the input
-stream this partition should be begin reading during
-this execution.</dd>
-</dl>
+<p>for_part:
+Which partition to build. Will always be one of the
+keys returned by <code>list_parts</code> on this worker.</p>
+<p>resume_state:
+State data containing where in the input stream this
+partition should be begin reading during this
+execution.</p>
 <h2 id="returns">Returns</h2>
-<p>The built partition, or <code>None</code>.</p></div>
+<p>The built partition.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -516,67 +796,53 @@ def build_part(
     self,
     for_part: str,
     resume_state: Optional[Any],
-) -&gt; Optional[StatefulSource]:
-    &#34;&#34;&#34;Build an input partition, resuming from the position
-    encoded in the resume state.
+) -&gt; StatefulSource:
+    &#34;&#34;&#34;Build anew or resume an input partition.
 
-    Will be called once within each cluster for each partition
-    key.
-
-    Will be called once on one worker in an execution for each
-    partition key in order to distribute partitions across all
-    workers.
-
-    Return `None` if for some reason this partition is no longer
-    valid and can be skipped coherently. Raise an exception if
-    not.
+    Will be called once per execution for each partition key on a
+    worker that reported that partition was local in `list_parts`.
 
     Do not pre-build state about a partition in the
     constructor. All state must be derived from `resume_state` for
     recovery to work properly.
 
     Args:
+        for_part:
+            Which partition to build. Will always be one of the
+            keys returned by `list_parts` on this worker.
 
-        for_part: Which partition to build.
-
-        resume_state: State data containing where in the input
-            stream this partition should be begin reading during
-            this execution.
+        resume_state:
+            State data containing where in the input stream this
+            partition should be begin reading during this
+            execution.
 
     Returns:
-
-        The built partition, or `None`.
+        The built partition.
 
     &#34;&#34;&#34;
     ...</code></pre>
 </details>
 </dd>
 <dt id="bytewax.inputs.PartitionedInput.list_parts"><code class="language-python name flex">
-<span>def <span class="ident">list_parts</span></span>(<span>self) ‑> Set[str]</span>
+<span>def <span class="ident">list_parts</span></span>(<span>self) ‑> List[str]</span>
 </code></dt>
 <dd>
-<div class="desc"><p>List all partitions by a string key.</p>
-<p>This must consistently return the same keys when called by all
-workers in all executions.</p>
-<p>Keys must be unique within this dataflow step.</p>
+<div class="desc"><p>List all local partitions this worker has access to.</p>
+<p>You do not need to list all partitions globally.</p>
 <h2 id="returns">Returns</h2>
-<p>Partition keys.</p></div>
+<p>Local partition keys.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@abstractmethod
-def list_parts(self) -&gt; Set[str]:
-    &#34;&#34;&#34;List all partitions by a string key.
+def list_parts(self) -&gt; List[str]:
+    &#34;&#34;&#34;List all local partitions this worker has access to.
 
-    This must consistently return the same keys when called by all
-    workers in all executions.
-
-    Keys must be unique within this dataflow step.
+    You do not need to list all partitions globally.
 
     Returns:
-
-        Partition keys.
+        Local partition keys.
 
     &#34;&#34;&#34;
     ...</code></pre>
@@ -597,23 +863,45 @@ def list_parts(self) -&gt; Set[str]:
     &#34;&#34;&#34;Input source that maintains state of its position.&#34;&#34;&#34;
 
     @abstractmethod
-    def next(self) -&gt; Optional[Any]:
-        &#34;&#34;&#34;Attempt to get the next input item.
+    def next_batch(self) -&gt; List[Any]:
+        &#34;&#34;&#34;Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
-        never blocking but returning a bare `None` if there is no item
-        to emit currently.
+        never blocking but returning an empty list if there are no
+        items to emit yet.
 
         Returns:
-
-            An item or `None`.
+            An list of items immediately ready. May be empty if no new
+            items.
 
         Raises:
-
             StopIteration: When the source is complete.
 
         &#34;&#34;&#34;
         ...
+
+    def next_awake(self) -&gt; Optional[datetime]:
+        &#34;&#34;&#34;When to next attempt to get input items.
+
+        `next_batch()` will not be called until the most recently returned
+        time has past.
+
+        This will be called upon initialization of the source and
+        after `next_batch()`, but also possibly at other times. Multiple
+        times are not stored; you must return the next awake time on
+        every call, if any.
+
+        If this returns `None`, `next_batch()` will be called
+        immediately unless the previous batch had no items, in which
+        case there is a 1 millisecond delay.
+
+        Use this instead of `time.sleep` in `next_batch()`.
+
+        Returns:
+            Next awake time or `None` to indicate automatic behavior.
+
+        &#34;&#34;&#34;
+        return None
 
     @abstractmethod
     def snapshot(self) -&gt; Any:
@@ -630,21 +918,20 @@ def list_parts(self) -&gt; Set[str]:
         This is guaranteed to never be called after `close()`.
 
         Returns:
-
             Resume state.
 
         &#34;&#34;&#34;
         ...
 
     def close(self) -&gt; None:
-        &#34;&#34;&#34;Do any cleanup on this source when the dataflow completes
-        on a finite input.
+        &#34;&#34;&#34;Cleanup this source when the dataflow completes.
 
-        This is not guaranteed to be called. It will not be called
-        during a crash.
+        This is not guaranteed to be called. It will only be called
+        when the dataflow finishes on finite input. It will not be
+        called during an abrupt or abort shutdown.
 
         &#34;&#34;&#34;
-        pass</code></pre>
+        return</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -652,6 +939,7 @@ def list_parts(self) -&gt; Set[str]:
 </ul>
 <h3>Subclasses</h3>
 <ul class="hlist">
+<li>bytewax.connectors.files._CSVSource</li>
 <li>bytewax.connectors.files._FileSource</li>
 <li>bytewax.connectors.kafka._KafkaSource</li>
 <li>bytewax.testing._IterSource</li>
@@ -662,35 +950,81 @@ def list_parts(self) -&gt; Set[str]:
 <span>def <span class="ident">close</span></span>(<span>self) ‑> None</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Do any cleanup on this source when the dataflow completes
-on a finite input.</p>
-<p>This is not guaranteed to be called. It will not be called
-during a crash.</p></div>
+<div class="desc"><p>Cleanup this source when the dataflow completes.</p>
+<p>This is not guaranteed to be called. It will only be called
+when the dataflow finishes on finite input. It will not be
+called during an abrupt or abort shutdown.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">def close(self) -&gt; None:
-    &#34;&#34;&#34;Do any cleanup on this source when the dataflow completes
-    on a finite input.
+    &#34;&#34;&#34;Cleanup this source when the dataflow completes.
 
-    This is not guaranteed to be called. It will not be called
-    during a crash.
+    This is not guaranteed to be called. It will only be called
+    when the dataflow finishes on finite input. It will not be
+    called during an abrupt or abort shutdown.
 
     &#34;&#34;&#34;
-    pass</code></pre>
+    return</code></pre>
 </details>
 </dd>
-<dt id="bytewax.inputs.StatefulSource.next"><code class="language-python name flex">
-<span>def <span class="ident">next</span></span>(<span>self) ‑> Optional[Any]</span>
+<dt id="bytewax.inputs.StatefulSource.next_awake"><code class="language-python name flex">
+<span>def <span class="ident">next_awake</span></span>(<span>self) ‑> Optional[datetime.datetime]</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Attempt to get the next input item.</p>
-<p>This must participate in a kind of cooperative multi-tasking,
-never blocking but returning a bare <code>None</code> if there is no item
-to emit currently.</p>
+<div class="desc"><p>When to next attempt to get input items.</p>
+<p><code>next_batch()</code> will not be called until the most recently returned
+time has past.</p>
+<p>This will be called upon initialization of the source and
+after <code>next_batch()</code>, but also possibly at other times. Multiple
+times are not stored; you must return the next awake time on
+every call, if any.</p>
+<p>If this returns <code>None</code>, <code>next_batch()</code> will be called
+immediately unless the previous batch had no items, in which
+case there is a 1 millisecond delay.</p>
+<p>Use this instead of <code>time.sleep</code> in <code>next_batch()</code>.</p>
 <h2 id="returns">Returns</h2>
-<p>An item or <code>None</code>.</p>
+<p>Next awake time or <code>None</code> to indicate automatic behavior.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def next_awake(self) -&gt; Optional[datetime]:
+    &#34;&#34;&#34;When to next attempt to get input items.
+
+    `next_batch()` will not be called until the most recently returned
+    time has past.
+
+    This will be called upon initialization of the source and
+    after `next_batch()`, but also possibly at other times. Multiple
+    times are not stored; you must return the next awake time on
+    every call, if any.
+
+    If this returns `None`, `next_batch()` will be called
+    immediately unless the previous batch had no items, in which
+    case there is a 1 millisecond delay.
+
+    Use this instead of `time.sleep` in `next_batch()`.
+
+    Returns:
+        Next awake time or `None` to indicate automatic behavior.
+
+    &#34;&#34;&#34;
+    return None</code></pre>
+</details>
+</dd>
+<dt id="bytewax.inputs.StatefulSource.next_batch"><code class="language-python name flex">
+<span>def <span class="ident">next_batch</span></span>(<span>self) ‑> List[Any]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Attempt to get the next batch of input items.</p>
+<p>This must participate in a kind of cooperative multi-tasking,
+never blocking but returning an empty list if there are no
+items to emit yet.</p>
+<h2 id="returns">Returns</h2>
+<p>An list of items immediately ready. May be empty if no new
+items.</p>
 <h2 id="raises">Raises</h2>
 <dl>
 <dt><code>StopIteration</code></dt>
@@ -701,19 +1035,18 @@ to emit currently.</p>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@abstractmethod
-def next(self) -&gt; Optional[Any]:
-    &#34;&#34;&#34;Attempt to get the next input item.
+def next_batch(self) -&gt; List[Any]:
+    &#34;&#34;&#34;Attempt to get the next batch of input items.
 
     This must participate in a kind of cooperative multi-tasking,
-    never blocking but returning a bare `None` if there is no item
-    to emit currently.
+    never blocking but returning an empty list if there are no
+    items to emit yet.
 
     Returns:
-
-        An item or `None`.
+        An list of items immediately ready. May be empty if no new
+        items.
 
     Raises:
-
         StopIteration: When the source is complete.
 
     &#34;&#34;&#34;
@@ -753,7 +1086,6 @@ def snapshot(self) -&gt; Any:
     This is guaranteed to never be called after `close()`.
 
     Returns:
-
         Resume state.
 
     &#34;&#34;&#34;
@@ -775,33 +1107,55 @@ def snapshot(self) -&gt; Any:
     &#34;&#34;&#34;Input source that is stateless.&#34;&#34;&#34;
 
     @abstractmethod
-    def next(self) -&gt; Optional[Any]:
-        &#34;&#34;&#34;Attempt to get the next input item.
+    def next_batch(self) -&gt; List[Any]:
+        &#34;&#34;&#34;Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
-        never blocking but yielding a bare `None` if there is no new
-        input.
+        never blocking but yielding an empty list if there are no new
+        items yet.
 
         Returns:
-
-            An item or `None`.
+            An list of items immediately ready. May be empty if no new
+            items.
 
         Raises:
-
             StopIteration: When the source is complete.
 
         &#34;&#34;&#34;
         ...
 
-    def close(self) -&gt; None:
-        &#34;&#34;&#34;Do any cleanup on this source when the dataflow completes
-        on a finite input.
+    def next_awake(self) -&gt; Optional[datetime]:
+        &#34;&#34;&#34;When to next attempt to get input items.
 
-        This is not guaranteed to be called. It will not be called
-        during a crash.
+        `next_batch()` will not be called until the most recently returned
+        time has past.
+
+        This will be called upon initialization of the source and
+        after `next_batch()`, but also possibly at other times. Multiple
+        times are not stored; you must return the next awake time on
+        every call, if any.
+
+        If this returns `None`, `next_batch()` will be called
+        immediately unless the previous batch had no items, in which
+        case there is a 1 millisecond delay.
+
+        Use this instead of `time.sleep` in `next_batch()`.
+
+        Returns:
+            Next awake time or `None` to indicate automatic behavior.
 
         &#34;&#34;&#34;
-        pass</code></pre>
+        return None
+
+    def close(self) -&gt; None:
+        &#34;&#34;&#34;Cleanup this source when the dataflow completes.
+
+        This is not guaranteed to be called. It will only be called
+        when the dataflow finishes on finite input. It will not be
+        called during an abrupt or abort shutdown.
+
+        &#34;&#34;&#34;
+        return</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -813,35 +1167,81 @@ def snapshot(self) -&gt; Any:
 <span>def <span class="ident">close</span></span>(<span>self) ‑> None</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Do any cleanup on this source when the dataflow completes
-on a finite input.</p>
-<p>This is not guaranteed to be called. It will not be called
-during a crash.</p></div>
+<div class="desc"><p>Cleanup this source when the dataflow completes.</p>
+<p>This is not guaranteed to be called. It will only be called
+when the dataflow finishes on finite input. It will not be
+called during an abrupt or abort shutdown.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">def close(self) -&gt; None:
-    &#34;&#34;&#34;Do any cleanup on this source when the dataflow completes
-    on a finite input.
+    &#34;&#34;&#34;Cleanup this source when the dataflow completes.
 
-    This is not guaranteed to be called. It will not be called
-    during a crash.
+    This is not guaranteed to be called. It will only be called
+    when the dataflow finishes on finite input. It will not be
+    called during an abrupt or abort shutdown.
 
     &#34;&#34;&#34;
-    pass</code></pre>
+    return</code></pre>
 </details>
 </dd>
-<dt id="bytewax.inputs.StatelessSource.next"><code class="language-python name flex">
-<span>def <span class="ident">next</span></span>(<span>self) ‑> Optional[Any]</span>
+<dt id="bytewax.inputs.StatelessSource.next_awake"><code class="language-python name flex">
+<span>def <span class="ident">next_awake</span></span>(<span>self) ‑> Optional[datetime.datetime]</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Attempt to get the next input item.</p>
-<p>This must participate in a kind of cooperative multi-tasking,
-never blocking but yielding a bare <code>None</code> if there is no new
-input.</p>
+<div class="desc"><p>When to next attempt to get input items.</p>
+<p><code>next_batch()</code> will not be called until the most recently returned
+time has past.</p>
+<p>This will be called upon initialization of the source and
+after <code>next_batch()</code>, but also possibly at other times. Multiple
+times are not stored; you must return the next awake time on
+every call, if any.</p>
+<p>If this returns <code>None</code>, <code>next_batch()</code> will be called
+immediately unless the previous batch had no items, in which
+case there is a 1 millisecond delay.</p>
+<p>Use this instead of <code>time.sleep</code> in <code>next_batch()</code>.</p>
 <h2 id="returns">Returns</h2>
-<p>An item or <code>None</code>.</p>
+<p>Next awake time or <code>None</code> to indicate automatic behavior.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def next_awake(self) -&gt; Optional[datetime]:
+    &#34;&#34;&#34;When to next attempt to get input items.
+
+    `next_batch()` will not be called until the most recently returned
+    time has past.
+
+    This will be called upon initialization of the source and
+    after `next_batch()`, but also possibly at other times. Multiple
+    times are not stored; you must return the next awake time on
+    every call, if any.
+
+    If this returns `None`, `next_batch()` will be called
+    immediately unless the previous batch had no items, in which
+    case there is a 1 millisecond delay.
+
+    Use this instead of `time.sleep` in `next_batch()`.
+
+    Returns:
+        Next awake time or `None` to indicate automatic behavior.
+
+    &#34;&#34;&#34;
+    return None</code></pre>
+</details>
+</dd>
+<dt id="bytewax.inputs.StatelessSource.next_batch"><code class="language-python name flex">
+<span>def <span class="ident">next_batch</span></span>(<span>self) ‑> List[Any]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Attempt to get the next batch of input items.</p>
+<p>This must participate in a kind of cooperative multi-tasking,
+never blocking but yielding an empty list if there are no new
+items yet.</p>
+<h2 id="returns">Returns</h2>
+<p>An list of items immediately ready. May be empty if no new
+items.</p>
 <h2 id="raises">Raises</h2>
 <dl>
 <dt><code>StopIteration</code></dt>
@@ -852,19 +1252,18 @@ input.</p>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@abstractmethod
-def next(self) -&gt; Optional[Any]:
-    &#34;&#34;&#34;Attempt to get the next input item.
+def next_batch(self) -&gt; List[Any]:
+    &#34;&#34;&#34;Attempt to get the next batch of input items.
 
     This must participate in a kind of cooperative multi-tasking,
-    never blocking but yielding a bare `None` if there is no new
-    input.
+    never blocking but yielding an empty list if there are no new
+    items yet.
 
     Returns:
-
-        An item or `None`.
+        An list of items immediately ready. May be empty if no new
+        items.
 
     Raises:
-
         StopIteration: When the source is complete.
 
     &#34;&#34;&#34;
@@ -892,6 +1291,13 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.batch" href="/apidocs/bytewax.inputs#bytewax.inputs.batch">batch</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.batch_async" href="/apidocs/bytewax.inputs#bytewax.inputs.batch_async">batch_async</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
@@ -914,7 +1320,8 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.StatefulSource" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource">StatefulSource</a></h4>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatefulSource.close" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource.close">close</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatefulSource.next" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource.next">next</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatefulSource.next_awake" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource.next_awake">next_awake</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatefulSource.next_batch" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource.next_batch">next_batch</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatefulSource.snapshot" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource.snapshot">snapshot</a></li>
 </ul>
 </li>
@@ -922,7 +1329,8 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.inputs.StatelessSource" href="/apidocs/bytewax.inputs#bytewax.inputs.StatelessSource">StatelessSource</a></h4>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatelessSource.close" href="/apidocs/bytewax.inputs#bytewax.inputs.StatelessSource.close">close</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatelessSource.next" href="/apidocs/bytewax.inputs#bytewax.inputs.StatelessSource.next">next</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatelessSource.next_awake" href="/apidocs/bytewax.inputs#bytewax.inputs.StatelessSource.next_awake">next_awake</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.inputs.StatelessSource.next_batch" href="/apidocs/bytewax.inputs#bytewax.inputs.StatelessSource.next_batch">next_batch</a></li>
 </ul>
 </li>
 </ul>
