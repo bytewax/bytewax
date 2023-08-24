@@ -188,9 +188,18 @@ recovery.
 import argparse
 from pathlib import Path
 
-from .bytewax import RecoveryConfig, init_db_dir  # noqa: F401
+from .bytewax import (
+    InconsistentPartitionsError,
+    MissingPartitionsError,
+    NoPartitionsError,
+    RecoveryConfig,
+    init_db_dir,
+)
 
 __all__ = [
+    "InconsistentPartitionsError",
+    "NoPartitionsError",
+    "MissingPartitionsError",
     "RecoveryConfig",
     "init_db_dir",
 ]

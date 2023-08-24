@@ -4,6 +4,7 @@
 //! `bytewax.recovery` Python module docstring. Read that first.
 
 use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::Debug;
@@ -15,12 +16,14 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use chrono::Duration;
+use pyo3::create_exception;
+use pyo3::exceptions::PyFileNotFoundError;
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
-use rusqlite::OptionalExtension;
 use rusqlite_migration::Migrations;
 use rusqlite_migration::M;
 use seahash::SeaHasher;
@@ -79,27 +82,12 @@ pub(crate) struct PartitionMeta(PartitionIndex, PartitionCount);
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ExecutionNumber(u64);
 
-#[allow(clippy::derivable_impls)]
-impl Default for ExecutionNumber {
-    fn default() -> Self {
-        Self(0)
-    }
-}
-
 /// The epoch a new dataflow execution should resume from the
 /// beginning of.
 ///
 /// This will be the dataflow frontier of the last execution.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ResumeEpoch(pub(crate) u64);
-
-impl Default for ResumeEpoch {
-    /// Note that the "starting" epoch is 1 and not 0 due to initial
-    /// routing messages needing to be distributed in 0.
-    fn default() -> Self {
-        ResumeEpoch(1)
-    }
-}
 
 /// Metadata about an execution.
 ///
@@ -116,6 +104,12 @@ pub(crate) struct WorkerFrontier(u64);
 /// This represents a row in the `fronts` table.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct FrontierMeta(ExecutionNumber, WorkerIndex, WorkerFrontier);
+
+/// Metadata about a commit in a recovery partition.
+///
+/// This represents a row in the `commits` table.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct CommitMeta(PartitionIndex, u64);
 
 /// System time duration to keep around state snapshots, even after
 /// they are no longer needed by the current execution.
@@ -143,8 +137,21 @@ impl IntoPy<Py<PyAny>> for BackupInterval {
 /// To resume a dataflow execution, you need to know which epoch to
 /// resume for state, but also which execution to label progress data
 /// with.
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+///
+/// This does not define [`Default`] and should only be calculated via
+/// [`ResumeCalc::resume_from`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) struct ResumeFrom(pub(crate) ExecutionNumber, pub(crate) ResumeEpoch);
+
+impl Default for ResumeFrom {
+    /// Starting execution and epoch if there is no recovery data.
+    ///
+    /// Note that the starting epoch is 1 and not 0 due to initial
+    /// routing messages needing to be distributed in 0.
+    fn default() -> Self {
+        Self(ExecutionNumber(0), ResumeEpoch(1))
+    }
+}
 
 /// Unique ID for a step in a dataflow.
 ///
@@ -398,9 +405,8 @@ fn get_migrations(py: Python) -> &Migrations<'static> {
             M::up(
                 "CREATE TABLE parts ( \
                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, \
-                 part_index INTEGER NOT NULL CHECK (part_index >= 0), \
+                 part_index INTEGER PRIMARY KEY NOT NULL CHECK (part_index >= 0), \
                  part_count INTEGER NOT NULL CHECK (part_count > 0), \
-                 PRIMARY KEY (part_index, part_count), \
                  CHECK (part_index < part_count) \
                  ) STRICT",
             ),
@@ -434,9 +440,8 @@ fn get_migrations(py: Python) -> &Migrations<'static> {
             M::up(
                 "CREATE TABLE commits ( \
                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, \
-                 part_index INTEGER NOT NULL, \
-                 gc_epoch INTEGER NOT NULL, \
-                 PRIMARY KEY (part_index, gc_epoch) \
+                 part_index INTEGER PRIMARY KEY NOT NULL, \
+                 commit_epoch INTEGER NOT NULL \
                  ) STRICT",
             ),
             // This is a sharded table.
@@ -539,7 +544,7 @@ impl Writer for FrontierWriter {
                 "INSERT INTO fronts (ex_num, worker_index, worker_frontier) \
                  VALUES (?1, ?2, ?3) \
                  ON CONFLICT (ex_num, worker_index) DO UPDATE \
-                 SET worker_frontier = excluded.worker_frontier",
+                 SET worker_frontier = EXCLUDED.worker_frontier",
                 (ex.0, worker_count.0, wf.0),
             )
             .unwrap();
@@ -567,6 +572,30 @@ impl Writer for SerializedSnapshotWriter {
                  ON CONFLICT (step_id, state_key, snap_epoch) DO UPDATE \
                  SET ser_change = EXCLUDED.ser_change",
                 (step_id.0, state_key.0, snap_epoch.0, ser_change),
+            )
+            .unwrap();
+        }
+        txn.commit().unwrap();
+    }
+}
+
+struct CommitWriter {
+    conn: Rc<RefCell<Connection>>,
+}
+
+impl Writer for CommitWriter {
+    type Item = CommitMeta;
+
+    fn write_batch(&mut self, items: Vec<Self::Item>) {
+        let mut conn = self.conn.borrow_mut();
+        let txn = conn.transaction().unwrap();
+        for commit in items {
+            tracing::trace!("Writing {commit:?}");
+            let CommitMeta(part_idx, commit_epoch) = commit;
+            txn.execute(
+                "INSERT INTO commits (part_index, commit_epoch) \
+                 VALUES (?1, ?2)",
+                (part_idx.0, commit_epoch),
             )
             .unwrap();
         }
@@ -820,23 +849,67 @@ impl BatchIterator for SerializedSnapshotLoader {
     }
 }
 
+struct CommitLoader {
+    conn: Rc<RefCell<Connection>>,
+    done: bool,
+}
+
+impl CommitLoader {
+    fn new(conn: Rc<RefCell<Connection>>) -> Self {
+        Self { conn, done: false }
+    }
+}
+
+impl BatchIterator for CommitLoader {
+    type Item = CommitMeta;
+
+    fn next_batch(&mut self) -> Option<Vec<Self::Item>> {
+        if !self.done {
+            let batch = self
+                .conn
+                .borrow()
+                .prepare(
+                    "SELECT part_index, commit_epoch \
+                     FROM commits",
+                )
+                .unwrap()
+                .query_map((), |row| {
+                    Ok(CommitMeta(PartitionIndex(row.get(0)?), row.get(1)?))
+                })
+                .unwrap()
+                .map(|res| res.expect("error unpacking CommitMeta"))
+                .collect();
+            self.done = true;
+            Some(batch)
+        } else {
+            None
+        }
+    }
+}
+
 struct RecoveryCommitter {
     conn: Rc<RefCell<Connection>>,
     part_key: PartitionIndex,
 }
 
 impl Committer<u64> for RecoveryCommitter {
+    /// This will be called when `epoch` is the earliest possible
+    /// resume epoch.
     fn commit(&mut self, epoch: &u64) {
         tracing::trace!("Committing / GCing epoch {epoch:?}");
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
         txn.execute(
-            "INSERT INTO commits (part_index, gc_epoch) VALUES (?1, ?2)",
+            "INSERT INTO commits (part_index, commit_epoch) \
+             VALUES (?1, ?2) \
+             ON CONFLICT (part_index) DO UPDATE \
+             SET commit_epoch = EXCLUDED.commit_epoch",
             (self.part_key.0, epoch),
         )
         .unwrap();
-        // Don't delete the max value for each epoch for each
-        // (step_id, state_key), since that's the resume state.
+        // We only delete snap_epoch < epoch because we might resume
+        // from epoch. Don't delete the max value for each epoch for
+        // each (step_id, state_key), since that's the resume state.
         txn.execute(
             "WITH max_epoch_snapshots AS ( \
              SELECT step_id, state_key, MAX(snap_epoch) AS snap_epoch \
@@ -858,9 +931,28 @@ impl Committer<u64> for RecoveryCommitter {
     }
 }
 
+create_exception!(
+    bytewax.recovery,
+    InconsistentPartitionsError,
+    PyValueError,
+    "Raised when it is not possible to resume without state corruption because at least two partitions are from greater than the backup interval apart."
+);
+create_exception!(
+    bytewax.recovery,
+    NoPartitionsError,
+    PyFileNotFoundError,
+    "Raised when no recovery partitions have been initialized on any worker in the recovery directory."
+);
+create_exception!(
+    bytewax.recovery,
+    MissingPartitionsError,
+    PyFileNotFoundError,
+    "Raised when an incomplete set of recovery partitions is detected."
+);
+
 impl RecoveryPart {
     fn init(py: Python, file: &Path, index: PartitionIndex, count: PartitionCount) -> PyResult<()> {
-        tracing::info!("Init recovery partition {index:?} / {count:?} at {file:?}");
+        tracing::debug!("Init recovery partition {index:?} / {count:?} at {file:?}");
         let conn = Rc::new(RefCell::new(
             Connection::open_with_flags(
                 file,
@@ -881,7 +973,7 @@ impl RecoveryPart {
     }
 
     fn open(py: Python, file: &Path) -> PyResult<Self> {
-        tracing::info!("Opening recovery partition at {file:?}");
+        tracing::debug!("Opening recovery partition at {file:?}");
         let conn = Rc::new(RefCell::new(
             Connection::open_with_flags(
                 file,
@@ -925,6 +1017,12 @@ impl RecoveryPart {
         }
     }
 
+    fn commit_writer(&self) -> CommitWriter {
+        CommitWriter {
+            conn: self.conn.clone(),
+        }
+    }
+
     fn part_loader(&self) -> PartitionMetaLoader {
         PartitionMetaLoader::new(self.conn.clone())
     }
@@ -944,6 +1042,10 @@ impl RecoveryPart {
         SerializedSnapshotLoader::new(self.conn.clone(), before, 1000)
     }
 
+    fn commit_loader(&self) -> CommitLoader {
+        CommitLoader::new(self.conn.clone())
+    }
+
     fn committer(&self, part_key: PartitionIndex) -> RecoveryCommitter {
         RecoveryCommitter {
             conn: self.conn.clone(),
@@ -953,88 +1055,104 @@ impl RecoveryPart {
 
     /// Calculate the resume execution and epoch. You must use this on
     /// a DB that has all progress data from all partitions written to
-    /// it, so it'll be an in-mem one during the resume from
+    /// it, so it must be an in-mem one during the resume from
     /// calculation.
-    ///
-    /// This will panic if the DB is missing any partitions.
-    ///
-    /// If there was not a previous execution, returns [`None`]. We
-    /// don't want to duplicate the logic of [`ResumeFrom::default`]
-    /// in this query because that's used if there's no recovery store
-    /// setup.
-    fn resume_from(&self) -> Option<ResumeFrom> {
+    fn resume_from(&self) -> PyResult<ResumeFrom> {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
 
-        txn
-            .query_row(
-                "SELECT part_count FROM parts GROUP BY part_index, part_count",
-                (),
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()
-            // This will error if we have mixed multiple flows or have
-            // mismatched part counts.
+        let part_counts = txn
+            .prepare("SELECT DISTINCT(part_count) FROM parts")
             .unwrap()
-            .and_then(|part_count| {
-                let found_part_count = txn
-                    .query_row("SELECT COUNT(part_index) FROM parts", (), |row| {
-                        row.get::<_, i64>(0)
-                    })
-                    .unwrap();
-                if part_count != found_part_count {
-                    panic!("Incomplete progress data (want {part_count} recovery partitions, found {found_part_count}; unable to calculate resume from");
-                }
+            .query_map((), |row| Ok(PartitionCount(row.get(0)?)))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        if part_counts.is_empty() {
+            let msg = "No recovery partitions found on any worker; can't resume";
+            return Err(NoPartitionsError::new_err(msg));
+        } else if part_counts.len() > 1 {
+            let msg = "Inconsistent partition counts in recovery partitions; can't resume";
+            return Err(PyValueError::new_err(msg));
+        }
 
-                txn
-                    .query_row(
-                        "WITH max_ex AS ( \
-                         SELECT ex_num, worker_count, resume_epoch \
-                         FROM exs \
-                         WHERE ex_num = (SELECT MAX(ex_num) FROM exs) \
-                         ), \
-                         default_progress AS ( \
-                         SELECT ex_num, value AS worker_index, resume_epoch AS worker_frontier \
-                         FROM generate_series(0, (SELECT worker_count - 1 FROM max_ex)) \
-                         CROSS JOIN max_ex \
-                         ), \
-                         explicit_progress AS ( \
-                         SELECT ex_num, worker_index, worker_frontier \
-                         FROM fronts \
-                         WHERE ex_num = (SELECT MAX(ex_num) FROM exs) \
-                         ), \
-                         max_progress AS ( \
-                         SELECT ex_num, worker_index, MAX(worker_frontier) AS worker_frontier \
-                         FROM (SELECT * FROM explicit_progress UNION SELECT * FROM default_progress) \
-                         GROUP BY ex_num, worker_index \
-                         ) \
-                         SELECT ex_num + 1, MIN(worker_frontier) \
-                         FROM max_progress",
-                        (),
-                        // `MIN(worker_frontier)` always returns a
-                        // single row with possible NULL, so we have
-                        // to handle the NULL within the row fn,
-                        // instead of assuming the result set might be
-                        // empty.
-                        |row| {
-                            let ex_num = row.get::<_, Option<u64>>(0)?.map(ExecutionNumber);
-                            let resume_epoch = row.get::<_, Option<u64>>(1)?.map(ResumeEpoch);
-                            Ok(ex_num.zip(resume_epoch).map(|(en, re)| ResumeFrom(en, re)))
-                        },
-                    )
-                    .unwrap()
-            })
+        let part_count = part_counts[0];
+        let expected_parts: BTreeSet<_> = part_count.iter().collect();
+        let found_parts = txn
+            .prepare("SELECT part_index FROM parts")
+            .unwrap()
+            .query_map((), |row| Ok(PartitionIndex(row.get(0)?)))
+            .unwrap()
+            .collect::<Result<BTreeSet<_>, _>>()
+            .unwrap();
+        let missing_parts = &expected_parts - &found_parts;
+        if !missing_parts.is_empty() {
+            let msg = format!(
+                "Missing recovery partitions {missing_parts:?} of {part_count:?}; can't resume"
+            );
+            return Err(MissingPartitionsError::new_err(msg));
+        }
+
+        let resume_from = txn
+            .query_row(
+                "WITH max_ex AS ( \
+                 SELECT ex_num, worker_count, resume_epoch \
+                 FROM exs \
+                 WHERE ex_num = (SELECT MAX(ex_num) FROM exs) \
+                 ), \
+                 default_progress AS ( \
+                 SELECT ex_num, value AS worker_index, resume_epoch AS worker_frontier \
+                 FROM generate_series(0, (SELECT worker_count - 1 FROM max_ex)) \
+                 CROSS JOIN max_ex \
+                 ), \
+                 explicit_progress AS ( \
+                 SELECT ex_num, worker_index, worker_frontier \
+                 FROM fronts \
+                 WHERE ex_num = (SELECT MAX(ex_num) FROM exs) \
+                 ), \
+                 max_progress AS ( \
+                 SELECT ex_num, worker_index, MAX(worker_frontier) AS worker_frontier \
+                 FROM (SELECT * FROM explicit_progress UNION SELECT * FROM default_progress) \
+                 GROUP BY ex_num, worker_index \
+                 ) \
+                 SELECT ex_num + 1, MIN(worker_frontier) \
+                 FROM max_progress",
+                (),
+                // `MIN(worker_frontier)` always returns a
+                // single row with possible NULL, so we have
+                // to handle the NULL within the row fn,
+                // instead of assuming the result set might be
+                // empty.
+                |row| {
+                    let ex_num = row.get::<_, Option<u64>>(0)?.map(ExecutionNumber);
+                    let resume_epoch = row.get::<_, Option<u64>>(1)?.map(ResumeEpoch);
+                    Ok(ex_num.zip(resume_epoch).map(|(en, re)| ResumeFrom(en, re)))
+                },
+            )
+            .unwrap()
+            .unwrap_or_default();
+
+        let ResumeFrom(_resume_ex, resume_epoch) = resume_from;
+        // These are partitions which for some reason have already
+        // been GC'd and so might be missing data in the resume epoch.
+        let state_missing_parts = txn
+            .prepare("SELECT part_index FROM commits WHERE commit_epoch > ?1")
+            .unwrap()
+            .query_map((resume_epoch.0,), |row| Ok(PartitionIndex(row.get(0)?)))
+            .unwrap()
+            .collect::<Result<BTreeSet<_>, _>>()
+            .unwrap();
+        if !state_missing_parts.is_empty() {
+            let delayed_parts = &expected_parts - &state_missing_parts;
+            let msg = format!(
+                "Recovery partitions {delayed_parts:?} of {part_count:?} are too old to resume without data loss; \
+                 do you have a newer backup of these partitions?"
+            );
+            return Err(InconsistentPartitionsError::new_err(msg));
+        }
+
+        Ok(resume_from)
     }
-}
-
-#[test]
-fn resume_from_empty() {
-    pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
-
-    let found = conn.resume_from();
-    let expected = None;
-    assert_eq!(found, expected);
 }
 
 #[test]
@@ -1044,21 +1162,8 @@ fn resume_from_only_parts() {
     conn.part_writer()
         .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
 
-    let found = conn.resume_from();
-    let expected = None;
-    assert_eq!(found, expected);
-}
-
-#[test]
-#[should_panic]
-fn resume_from_missing_parts() {
-    pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
-    conn.part_writer()
-        .write_batch(vec![PartitionMeta(PartitionIndex(1), PartitionCount(2))]);
-
-    let found = conn.resume_from();
-    let expected = None;
+    let found = conn.resume_from().unwrap();
+    let expected = ResumeFrom(ExecutionNumber(0), ResumeEpoch(1));
     assert_eq!(found, expected);
 }
 
@@ -1078,9 +1183,11 @@ fn resume_from_all_explict_fronts() {
         FrontierMeta(ExecutionNumber(1), WorkerIndex(1), WorkerFrontier(12)),
         FrontierMeta(ExecutionNumber(1), WorkerIndex(2), WorkerFrontier(13)),
     ]);
+    conn.commit_writer()
+        .write_batch(vec![CommitMeta(PartitionIndex(0), 12)]);
 
-    let found = conn.resume_from();
-    let expected = Some(ResumeFrom(ExecutionNumber(2), ResumeEpoch(12)));
+    let found = conn.resume_from().unwrap();
+    let expected = ResumeFrom(ExecutionNumber(2), ResumeEpoch(12));
     assert_eq!(found, expected);
 }
 
@@ -1099,10 +1206,40 @@ fn resume_from_default_fronts() {
         FrontierMeta(ExecutionNumber(1), WorkerIndex(0), WorkerFrontier(13)),
         FrontierMeta(ExecutionNumber(1), WorkerIndex(2), WorkerFrontier(13)),
     ]);
+    conn.commit_writer()
+        .write_batch(vec![CommitMeta(PartitionIndex(0), 11)]);
 
-    let found = conn.resume_from();
-    let expected = Some(ResumeFrom(ExecutionNumber(2), ResumeEpoch(11)));
+    let found = conn.resume_from().unwrap();
+    let expected = ResumeFrom(ExecutionNumber(2), ResumeEpoch(11));
     assert_eq!(found, expected);
+}
+
+#[test]
+fn resume_from_inconsistent_error() {
+    pyo3::prepare_freethreaded_python();
+    Python::with_gil(|py| {
+        let conn = RecoveryPart::init_open_mem(py);
+        conn.part_writer().write_batch(vec![
+            PartitionMeta(PartitionIndex(0), PartitionCount(2)),
+            PartitionMeta(PartitionIndex(1), PartitionCount(2)),
+        ]);
+        conn.ex_writer().write_batch(vec![ExecutionMeta(
+            ExecutionNumber(1),
+            WorkerCount(3),
+            ResumeEpoch(11),
+        )]);
+        conn.front_writer().write_batch(vec![
+            FrontierMeta(ExecutionNumber(1), WorkerIndex(0), WorkerFrontier(13)),
+            FrontierMeta(ExecutionNumber(1), WorkerIndex(2), WorkerFrontier(13)),
+        ]);
+        conn.commit_writer().write_batch(vec![
+            CommitMeta(PartitionIndex(0), 12),
+            CommitMeta(PartitionIndex(1), 12),
+        ]);
+
+        let found = conn.resume_from().unwrap_err();
+        assert!(found.is_instance_of::<InconsistentPartitionsError>(py));
+    });
 }
 
 /// Create and init a set of empty recovery partitions.
@@ -1491,37 +1628,31 @@ where
     }
 }
 
+pub(crate) type ProgressStream<S> = (
+    Stream<S, PartitionMeta>,
+    Stream<S, ExecutionMeta>,
+    Stream<S, FrontierMeta>,
+    Stream<S, CommitMeta>,
+);
+
 pub(crate) trait ReadProgressOp {
     /// Read all progress data into a dataflow.
     ///
     /// This'll be used in the calculate resume dataflow.
-    fn read_progress<S>(
-        self,
-        scope: &mut S,
-    ) -> (
-        Stream<S, PartitionMeta>,
-        Stream<S, ExecutionMeta>,
-        Stream<S, FrontierMeta>,
-    )
+    fn read_progress<S>(self, scope: &mut S) -> ProgressStream<S>
     where
         S: Scope<Timestamp = u64>;
 }
 
 impl ReadProgressOp for RecoveryBundle {
-    fn read_progress<S>(
-        self,
-        scope: &mut S,
-    ) -> (
-        Stream<S, PartitionMeta>,
-        Stream<S, ExecutionMeta>,
-        Stream<S, FrontierMeta>,
-    )
+    fn read_progress<S>(self, scope: &mut S) -> ProgressStream<S>
     where
         S: Scope<Timestamp = u64>,
     {
         let mut new_part_part = self.new_builder();
         let mut new_ex_part = self.new_builder();
         let mut new_front_part = self.new_builder();
+        let mut new_commit_part = self.new_builder();
         let parts = scope.partd_load(
             String::from("recovery_part_loader"),
             self.local_parts(),
@@ -1540,7 +1671,27 @@ impl ReadProgressOp for RecoveryBundle {
             move |part| new_front_part(part).borrow().front_loader(),
             S::Timestamp::minimum(),
         );
-        (parts, exs, fronts)
+        let commits = scope.partd_load(
+            String::from("recovery_commit_loader"),
+            self.local_parts(),
+            move |part| new_commit_part(part).borrow().commit_loader(),
+            S::Timestamp::minimum(),
+        );
+        (parts, exs, fronts, commits)
+    }
+}
+
+/// Use to calculate [`ResumeEpoch`] with
+/// [`ResumeFromOp::resume_from`].
+pub(crate) struct ResumeCalc(RecoveryPart);
+
+impl ResumeCalc {
+    pub(crate) fn new(py: Python) -> Self {
+        Self(RecoveryPart::init_open_mem(py))
+    }
+
+    pub(crate) fn resume_from(&self) -> PyResult<ResumeFrom> {
+        self.0.resume_from()
     }
 }
 
@@ -1556,11 +1707,12 @@ where
     /// works.
     fn resume_from(
         &self,
-        py: Python,
         parts: &Stream<S, PartitionMeta>,
         exs: &Stream<S, ExecutionMeta>,
         fronts: &Stream<S, FrontierMeta>,
-    ) -> Stream<S, ResumeFrom>;
+        commits: &Stream<S, CommitMeta>,
+        resume_calc: Rc<RefCell<ResumeCalc>>,
+    ) -> Stream<S, ()>;
 }
 
 impl<S> ResumeFromOp<S> for S
@@ -1569,18 +1721,18 @@ where
 {
     fn resume_from(
         &self,
-        py: Python,
         parts: &Stream<S, PartitionMeta>,
         exs: &Stream<S, ExecutionMeta>,
         fronts: &Stream<S, FrontierMeta>,
-    ) -> Stream<S, ResumeFrom> {
-        let in_mem = RecoveryPart::init_open_mem(py);
-
+        commits: &Stream<S, CommitMeta>,
+        resume_calc: Rc<RefCell<ResumeCalc>>,
+    ) -> Stream<S, ()> {
         let mut op_builder = OperatorBuilder::new(String::from("resume_from"), self.clone());
 
         let mut parts_input = op_builder.new_input(parts, Pipeline);
         let mut exs_input = op_builder.new_input(exs, Pipeline);
         let mut fronts_input = op_builder.new_input(fronts, Pipeline);
+        let mut commits_input = op_builder.new_input(commits, Pipeline);
 
         let (mut resume_from_output, resume_from) = op_builder.new_output();
 
@@ -1588,39 +1740,44 @@ where
             let mut parts_inbuf = InBuffer::new();
             let mut exs_inbuf = InBuffer::new();
             let mut fronts_inbuf = InBuffer::new();
-            let mut ncater = EagerNotificator::new(init_caps, in_mem);
+            let mut commits_inbuf = InBuffer::new();
+            let mut ncater = EagerNotificator::new(init_caps, resume_calc);
 
             move |input_frontiers| {
                 parts_input.buffer_notify(&mut parts_inbuf, &mut ncater);
                 exs_input.buffer_notify(&mut exs_inbuf, &mut ncater);
                 fronts_input.buffer_notify(&mut fronts_inbuf, &mut ncater);
+                commits_input.buffer_notify(&mut commits_inbuf, &mut ncater);
 
                 ncater.for_each(
                     input_frontiers,
-                    |caps, in_mem| {
+                    |caps, resume_calc| {
                         let cap = &caps[0];
                         let epoch = cap.time();
 
-                        let mut part_writer = in_mem.part_writer();
+                        let in_mem = &resume_calc.borrow().0;
+
                         if let Some(parts) = parts_inbuf.remove(epoch) {
+                            let mut part_writer = in_mem.part_writer();
                             part_writer.write_batch(parts);
                         }
-                        let mut ex_writer = in_mem.ex_writer();
                         if let Some(exs) = exs_inbuf.remove(epoch) {
+                            let mut ex_writer = in_mem.ex_writer();
                             ex_writer.write_batch(exs);
                         }
-                        let mut front_writer = in_mem.front_writer();
                         if let Some(fronts) = fronts_inbuf.remove(epoch) {
+                            let mut front_writer = in_mem.front_writer();
                             front_writer.write_batch(fronts);
                         }
+                        if let Some(commits) = commits_inbuf.remove(epoch) {
+                            let mut commit_writer = in_mem.commit_writer();
+                            commit_writer.write_batch(commits);
+                        }
                     },
-                    |caps, in_mem| {
+                    |caps, _in_mem| {
                         let cap = &caps[0];
 
-                        resume_from_output
-                            .activate()
-                            .session(cap)
-                            .give_iterator(in_mem.resume_from().into_iter());
+                        resume_from_output.activate().session(cap).give(());
                     },
                 );
             }
@@ -1630,8 +1787,17 @@ where
     }
 }
 
-pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
+pub(crate) fn register(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_db_dir, m)?)?;
     m.add_class::<RecoveryConfig>()?;
+    m.add(
+        "InconsistentPartitionsError",
+        py.get_type::<InconsistentPartitionsError>(),
+    )?;
+    m.add(
+        "MissingPartitionsError",
+        py.get_type::<MissingPartitionsError>(),
+    )?;
+    m.add("NoPartitionsError", py.get_type::<NoPartitionsError>())?;
     Ok(())
 }

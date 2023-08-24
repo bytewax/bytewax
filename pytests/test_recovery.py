@@ -1,7 +1,15 @@
+import os
+import shutil
 from datetime import timedelta
 
 from bytewax.dataflow import Dataflow
-from bytewax.recovery import RecoveryConfig, init_db_dir
+from bytewax.recovery import (
+    InconsistentPartitionsError,
+    MissingPartitionsError,
+    NoPartitionsError,
+    RecoveryConfig,
+    init_db_dir,
+)
 from bytewax.testing import TestingInput, TestingOutput, cluster_main, run_main
 from pytest import raises
 
@@ -258,9 +266,7 @@ def test_continuation(entry_point, recovery_config):
             ("b", 1, False),
         ]
     )
-    # Unfortunately `ListProxy`, which we'd use in the cluster entry
-    # point, does not have `clear`.
-    del out[:]
+    out.clear()
 
     # Continue again.
     entry_point(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -289,10 +295,7 @@ def test_continuation_with_no_new_input(entry_point, recovery_config):
     ]
 
     # Don't add new input.
-
-    # Unfortunately `ListProxy`, which we'd use in the cluster entry
-    # point, does not have `clear`.
-    del out[:]
+    out.clear()
 
     # Continue.
     entry_point(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -305,6 +308,14 @@ def test_rescale(tmp_path):
     init_db_dir(tmp_path, 3)
     recovery_config = RecoveryConfig(str(tmp_path))
 
+    inp = [
+        ("a", 4, False),
+        ("b", 4, False),
+    ]
+    out = []
+    flow = build_keep_max_dataflow(inp, None)
+    flow.output("out", TestingOutput(out))
+
     def entry_point(worker_count_per_proc):
         cluster_main(
             flow,
@@ -314,14 +325,6 @@ def test_rescale(tmp_path):
             recovery_config=recovery_config,
             worker_count_per_proc=worker_count_per_proc,
         )
-
-    inp = [
-        ("a", 4, False),
-        ("b", 4, False),
-    ]
-    out = []
-    flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingOutput(out))
 
     # We're going to do 2 continuations with different numbers of
     # workers each time. Start with 3 workers.
@@ -340,9 +343,7 @@ def test_rescale(tmp_path):
             ("b", 5, False),
         ]
     )
-    # Unfortunately `ListProxy`, which we'd use in the cluster entry
-    # point, does not have `clear`.
-    del out[:]
+    out.clear()
 
     # Continue with 5 workers.
     entry_point(5)
@@ -361,9 +362,7 @@ def test_rescale(tmp_path):
             ("b", 1, False),
         ]
     )
-    # Unfortunately `ListProxy`, which we'd use in the cluster entry
-    # point, does not have `clear`.
-    del out[:]
+    out.clear()
 
     # Continue again resizing down to 1 worker.
     entry_point(1)
@@ -373,3 +372,84 @@ def test_rescale(tmp_path):
         ("a", 8),
         ("b", 5),
     ]
+
+
+def test_no_parts(tmp_path):
+    # Don't init_db_dir.
+    recovery_config = RecoveryConfig(str(tmp_path))
+
+    inp = [
+        ("a", 4, False),
+        ("b", 4, False),
+    ]
+    out = []
+    flow = build_keep_max_dataflow(inp, None)
+    flow.output("out", TestingOutput(out))
+
+    with raises(NoPartitionsError):
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+
+
+def test_missing_parts(tmp_path):
+    init_db_dir(tmp_path, 3)
+    recovery_config = RecoveryConfig(str(tmp_path))
+
+    os.remove(tmp_path / "part-0.sqlite3")
+
+    inp = [
+        ("a", 4, False),
+        ("b", 4, False),
+    ]
+    out = []
+    flow = build_keep_max_dataflow(inp, None)
+    flow.output("out", TestingOutput(out))
+
+    with raises(MissingPartitionsError):
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+
+
+def test_inconsistent_parts(tmp_path):
+    part_count = 3
+
+    init_db_dir(tmp_path, part_count)
+    recovery_config = RecoveryConfig(str(tmp_path), backup_interval=ZERO_TD)
+
+    # Take an snapshot of all the initial partitions. Snapshot
+    # everything just to help with debugging this test.
+    for i in range(part_count):
+        shutil.copy(tmp_path / f"part-{i}.sqlite3", tmp_path / f"part-{i}.run0")
+
+    inp = [
+        ("a", 4, False),
+        ("b", 4, False),
+    ]
+    out = []
+    flow = build_keep_max_dataflow(inp, None)
+    flow.output("out", TestingOutput(out))
+
+    # Run the dataflow initially to completion.
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+
+    assert sorted(out) == [
+        ("a", 4),
+        ("b", 4),
+    ]
+
+    # Take an snapshot of all the partitions after the first run.
+    for i in range(part_count):
+        shutil.copy(tmp_path / f"part-{i}.sqlite3", tmp_path / f"part-{i}.run1")
+
+    # Continue but overwrite partition 0 with initial version. Because
+    # the backup interval is 0, we should have already thrown away
+    # state to resume at the initial epoch 1.
+    inp.extend(
+        [
+            ("a", 1, False),
+            ("b", 5, False),
+        ]
+    )
+    out.clear()
+    shutil.copy(tmp_path / "part-0.run0", tmp_path / "part-0.sqlite3")
+
+    with raises(InconsistentPartitionsError):
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
