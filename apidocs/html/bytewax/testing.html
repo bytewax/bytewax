@@ -9,12 +9,12 @@
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Helper tools for testing dataflows.
-&#34;&#34;&#34;
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Helper tools for testing dataflows.&#34;&#34;&#34;
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from itertools import islice
+from typing import Any, Iterable, Iterator
 
-from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.inputs import PartitionedInput, StatefulSource, batch
 from bytewax.outputs import DynamicOutput, StatelessSink
 
 from .bytewax import cluster_main, run_main
@@ -22,117 +22,149 @@ from .bytewax import cluster_main, run_main
 __all__ = [
     &#34;run_main&#34;,
     &#34;cluster_main&#34;,
-    &#34;poll_next&#34;,
+    &#34;ffwd_iter&#34;,
+    &#34;poll_next_batch&#34;,
     &#34;TestingInput&#34;,
     &#34;TestingOutput&#34;,
 ]
 
 
-class _IterSource(StatefulSource):
-    def __init__(self, it, resume_state):
-        self._idx = resume_state or -1
-        self._it = enumerate(it)
-        # Resume to one after the last completed read.
-        for i in range(self._idx + 1):
-            next(self._it)
+def ffwd_iter(it: Iterator[Any], n: int) -&gt; None:
+    &#34;&#34;&#34;Skip an iterator forward some number of items.
 
-    def next(self):
-        # next will raise StopIteration on its own.
-        self._idx, item = next(self._it)
-        return item
+    Args:
+        it:
+            A stateful iterator to advance.
+        n:
+            Number of items to skip from the current position.
+
+    &#34;&#34;&#34;
+    # Taken from `consume`
+    # https://docs.python.org/3/library/itertools.html#itertools-recipes
+    # Apparently faster than a for loop.
+    next(islice(it, n, n), None)
+
+
+class _IterSource(StatefulSource):
+    def __init__(self, ib, batch_size, resume_state):
+        self._start_idx = 0 if resume_state is None else resume_state
+        it = iter(ib)
+        # Resume to one after the last completed read index.
+        ffwd_iter(it, self._start_idx)
+        self._batcher = batch(it, batch_size)
+
+    def next_batch(self):
+        batch = next(self._batcher)
+        self._start_idx += len(batch)
+        return batch
 
     def snapshot(self):
-        return self._idx
+        return self._start_idx
 
 
 class TestingInput(PartitionedInput):
-    &#34;&#34;&#34;Produce input from a Python iterable. You only want to use this
-    for unit testing.
+    &#34;&#34;&#34;Produce input from a Python iterable.
 
-    The iterable must be identical on all workers; this will
-    automatically distribute the items across workers and handle
-    recovery.
+    You only want to use this for unit testing.
+
+    The iterable must be identical on all workers.
+
+    There is no parallelism; only one worker will actually consume the
+    iterable.
 
     Be careful using a generator as the iterable; if you fail and
     attempt to resume the dataflow without rebuilding it, the
     half-consumed generator will be re-used on recovery and early
     input will be lost so resume will see the correct data.
 
-    Args:
-
-        it: Iterable for input.
-
     &#34;&#34;&#34;
 
     __test__ = False
 
-    def __init__(self, it: Iterable[Any]):
-        self._it = it
+    def __init__(self, ib: Iterable[Any], batch_size: int = 1):
+        &#34;&#34;&#34;Init.
+
+        Args:
+            ib:
+                Iterable for input.
+            batch_size:
+                Number of items from the iterable to emit in each
+                batch. Defaults to 1.
+
+        &#34;&#34;&#34;
+        self._ib = ib
+        self._batch_size = batch_size
 
     def list_parts(self):
-        return {&#34;iter&#34;}
+        &#34;&#34;&#34;The iterable is read on a single worker.&#34;&#34;&#34;
+        return [&#34;iterable&#34;]
 
     def build_part(self, for_key, resume_state):
-        assert for_key == &#34;iter&#34;
-        return _IterSource(self._it, resume_state)
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        assert for_key == &#34;iterable&#34;
+        return _IterSource(self._ib, self._batch_size, resume_state)
 
 
 class _ListSink(StatelessSink):
     def __init__(self, ls):
         self._ls = ls
 
-    def write(self, item):
-        self._ls.append(item)
+    def write_batch(self, items):
+        self._ls += items
 
 
 class TestingOutput(DynamicOutput):
-    &#34;&#34;&#34;Append each output item to a list. You only want to use this
-    for unit testing.
+    &#34;&#34;&#34;Append each output item to a list.
+
+    You only want to use this for unit testing.
 
     Can support at-least-once processing. The list is not cleared
     between executions.
-
-    Args:
-
-        ls: List to append to.
 
     &#34;&#34;&#34;
 
     __test__ = False
 
     def __init__(self, ls):
+        &#34;&#34;&#34;Init.
+
+        Args:
+            ls: List to append to.
+        &#34;&#34;&#34;
         self._ls = ls
 
     def build(self, worker_index, worker_count):
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         return _ListSink(self._ls)
 
 
-def poll_next(source: StatefulSource, timeout=timedelta(seconds=5)):
-    &#34;&#34;&#34;Repeatedly poll an input source until it returns a value.
+def poll_next_batch(source: StatefulSource, timeout=timedelta(seconds=5)):
+    &#34;&#34;&#34;Repeatedly poll an input source until it returns a batch.
 
     You&#39;ll want to use this in unit tests of sources when there&#39;s some
     non-determinism in how items are read.
 
-    Args:
+    This is a busy-loop.
 
+    Args:
         source: To call `StatefulSource.next` on.
 
-    Returns:
+        timeout: How long to continuously poll for.
 
-        The next item found.
+    Returns:
+        The next batch found.
 
     Raises:
-
-        TimeoutError: If no item was returned within the timeout.
+        TimeoutError: If no batch was returned within the timeout.
 
     &#34;&#34;&#34;
-    item = None
+    batch = []
     start = datetime.now(timezone.utc)
-    while item is None:
+    while len(batch) &lt;= 0:
         if datetime.now(timezone.utc) - start &gt; timeout:
             raise TimeoutError()
-        item = source.next()
-    return item</code></pre>
+        batch = source.next_batch()
+    return batch</code></pre>
 </details>
 </section>
 <section>
@@ -174,64 +206,97 @@ this cluster (including this one).</dd>
 <dt><strong><code>epoch_interval</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
 <dd>System time length of each
 epoch. Defaults to 10 seconds.</dd>
-<dt><strong><code>recovery_config</code></strong></dt>
-<dd>State recovery config. See
-<code><a title="bytewax.recovery" href="/apidocs/bytewax.recovery">bytewax.recovery</a></code>. If <code>None</code>, state will not be
-persisted.</dd>
+<dt><strong><code>recovery_config</code></strong> :&ensp;<code><a title="bytewax.recovery.RecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></code></dt>
+<dd>State
+recovery config. If <code>None</code>, state will not be persisted.</dd>
 <dt><strong><code>worker_count_per_proc</code></strong></dt>
 <dd>Number of worker threads to start on
 each process.</dd>
 </dl></div>
 </dd>
-<dt id="bytewax.testing.poll_next"><code class="language-python name flex">
-<span>def <span class="ident">poll_next</span></span>(<span>source: <a title="bytewax.inputs.StatefulSource" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource">StatefulSource</a>, timeout=datetime.timedelta(seconds=5))</span>
+<dt id="bytewax.testing.ffwd_iter"><code class="language-python name flex">
+<span>def <span class="ident">ffwd_iter</span></span>(<span>it: Iterator[Any], n: int) ‑> None</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Repeatedly poll an input source until it returns a value.</p>
+<div class="desc"><p>Skip an iterator forward some number of items.</p>
+<h2 id="args">Args</h2>
+<p>it:
+A stateful iterator to advance.
+n:
+Number of items to skip from the current position.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def ffwd_iter(it: Iterator[Any], n: int) -&gt; None:
+    &#34;&#34;&#34;Skip an iterator forward some number of items.
+
+    Args:
+        it:
+            A stateful iterator to advance.
+        n:
+            Number of items to skip from the current position.
+
+    &#34;&#34;&#34;
+    # Taken from `consume`
+    # https://docs.python.org/3/library/itertools.html#itertools-recipes
+    # Apparently faster than a for loop.
+    next(islice(it, n, n), None)</code></pre>
+</details>
+</dd>
+<dt id="bytewax.testing.poll_next_batch"><code class="language-python name flex">
+<span>def <span class="ident">poll_next_batch</span></span>(<span>source: <a title="bytewax.inputs.StatefulSource" href="/apidocs/bytewax.inputs#bytewax.inputs.StatefulSource">StatefulSource</a>, timeout=datetime.timedelta(seconds=5))</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Repeatedly poll an input source until it returns a batch.</p>
 <p>You'll want to use this in unit tests of sources when there's some
 non-determinism in how items are read.</p>
+<p>This is a busy-loop.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>source</code></strong></dt>
 <dd>To call <code>StatefulSource.next</code> on.</dd>
+<dt><strong><code>timeout</code></strong></dt>
+<dd>How long to continuously poll for.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
-<p>The next item found.</p>
+<p>The next batch found.</p>
 <h2 id="raises">Raises</h2>
 <dl>
 <dt><code>TimeoutError</code></dt>
-<dd>If no item was returned within the timeout.</dd>
+<dd>If no batch was returned within the timeout.</dd>
 </dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def poll_next(source: StatefulSource, timeout=timedelta(seconds=5)):
-    &#34;&#34;&#34;Repeatedly poll an input source until it returns a value.
+<pre class="language-python line-numbers"><code class="language-python">def poll_next_batch(source: StatefulSource, timeout=timedelta(seconds=5)):
+    &#34;&#34;&#34;Repeatedly poll an input source until it returns a batch.
 
     You&#39;ll want to use this in unit tests of sources when there&#39;s some
     non-determinism in how items are read.
 
-    Args:
+    This is a busy-loop.
 
+    Args:
         source: To call `StatefulSource.next` on.
 
-    Returns:
+        timeout: How long to continuously poll for.
 
-        The next item found.
+    Returns:
+        The next batch found.
 
     Raises:
-
-        TimeoutError: If no item was returned within the timeout.
+        TimeoutError: If no batch was returned within the timeout.
 
     &#34;&#34;&#34;
-    item = None
+    batch = []
     start = datetime.now(timezone.utc)
-    while item is None:
+    while len(batch) &lt;= 0:
         if datetime.now(timezone.utc) - start &gt; timeout:
             raise TimeoutError()
-        item = source.next()
-    return item</code></pre>
+        batch = source.next_batch()
+    return batch</code></pre>
 </details>
 </dd>
 <dt id="bytewax.testing.run_main"><code class="language-python name flex">
@@ -259,10 +324,9 @@ non-determinism in how items are read.</p>
 <dt><strong><code>epoch_interval</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
 <dd>System time length of each
 epoch. Defaults to 10 seconds.</dd>
-<dt><strong><code>recovery_config</code></strong></dt>
-<dd>State recovery config. See
-<code><a title="bytewax.recovery" href="/apidocs/bytewax.recovery">bytewax.recovery</a></code>. If <code>None</code>, state will not be
-persisted.</dd>
+<dt><strong><code>recovery_config</code></strong> :&ensp;<code><a title="bytewax.recovery.RecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></code></dt>
+<dd>State
+recovery config. If <code>None</code>, state will not be persisted.</dd>
 </dl></div>
 </dd>
 </dl>
@@ -272,57 +336,70 @@ persisted.</dd>
 <dl>
 <dt id="bytewax.testing.TestingInput"><code class="language-python flex name class">
 <span>class <span class="ident">TestingInput</span></span>
-<span>(</span><span>it: Iterable[Any])</span>
+<span>(</span><span>ib: Iterable[Any], batch_size: int = 1)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Produce input from a Python iterable. You only want to use this
-for unit testing.</p>
-<p>The iterable must be identical on all workers; this will
-automatically distribute the items across workers and handle
-recovery.</p>
+<div class="desc"><p>Produce input from a Python iterable.</p>
+<p>You only want to use this for unit testing.</p>
+<p>The iterable must be identical on all workers.</p>
+<p>There is no parallelism; only one worker will actually consume the
+iterable.</p>
 <p>Be careful using a generator as the iterable; if you fail and
 attempt to resume the dataflow without rebuilding it, the
 half-consumed generator will be re-used on recovery and early
 input will be lost so resume will see the correct data.</p>
+<p>Init.</p>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>it</code></strong></dt>
-<dd>Iterable for input.</dd>
-</dl></div>
+<p>ib:
+Iterable for input.
+batch_size:
+Number of items from the iterable to emit in each
+batch. Defaults to 1.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">class TestingInput(PartitionedInput):
-    &#34;&#34;&#34;Produce input from a Python iterable. You only want to use this
-    for unit testing.
+    &#34;&#34;&#34;Produce input from a Python iterable.
 
-    The iterable must be identical on all workers; this will
-    automatically distribute the items across workers and handle
-    recovery.
+    You only want to use this for unit testing.
+
+    The iterable must be identical on all workers.
+
+    There is no parallelism; only one worker will actually consume the
+    iterable.
 
     Be careful using a generator as the iterable; if you fail and
     attempt to resume the dataflow without rebuilding it, the
     half-consumed generator will be re-used on recovery and early
     input will be lost so resume will see the correct data.
 
-    Args:
-
-        it: Iterable for input.
-
     &#34;&#34;&#34;
 
     __test__ = False
 
-    def __init__(self, it: Iterable[Any]):
-        self._it = it
+    def __init__(self, ib: Iterable[Any], batch_size: int = 1):
+        &#34;&#34;&#34;Init.
+
+        Args:
+            ib:
+                Iterable for input.
+            batch_size:
+                Number of items from the iterable to emit in each
+                batch. Defaults to 1.
+
+        &#34;&#34;&#34;
+        self._ib = ib
+        self._batch_size = batch_size
 
     def list_parts(self):
-        return {&#34;iter&#34;}
+        &#34;&#34;&#34;The iterable is read on a single worker.&#34;&#34;&#34;
+        return [&#34;iterable&#34;]
 
     def build_part(self, for_key, resume_state):
-        assert for_key == &#34;iter&#34;
-        return _IterSource(self._it, resume_state)</code></pre>
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        assert for_key == &#34;iterable&#34;
+        return _IterSource(self._ib, self._batch_size, resume_state)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -330,25 +407,49 @@ input will be lost so resume will see the correct data.</p>
 <li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
 <li>abc.ABC</li>
 </ul>
-<h3>Inherited members</h3>
-<ul class="hlist">
-<li><code class="language-python"><b><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></b></code>:
-<ul class="hlist">
-<li><code class="language-python"><a title="bytewax.inputs.PartitionedInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.build_part">build_part</a></code></li>
-<li><code class="language-python"><a title="bytewax.inputs.PartitionedInput.list_parts" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.list_parts">list_parts</a></code></li>
-</ul>
-</li>
-</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.testing.TestingInput.build_part"><code class="language-python name flex">
+<span>def <span class="ident">build_part</span></span>(<span>self, for_key, resume_state)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>See ABC docstring.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def build_part(self, for_key, resume_state):
+    &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+    assert for_key == &#34;iterable&#34;
+    return _IterSource(self._ib, self._batch_size, resume_state)</code></pre>
+</details>
+</dd>
+<dt id="bytewax.testing.TestingInput.list_parts"><code class="language-python name flex">
+<span>def <span class="ident">list_parts</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>The iterable is read on a single worker.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def list_parts(self):
+    &#34;&#34;&#34;The iterable is read on a single worker.&#34;&#34;&#34;
+    return [&#34;iterable&#34;]</code></pre>
+</details>
+</dd>
+</dl>
 </dd>
 <dt id="bytewax.testing.TestingOutput"><code class="language-python flex name class">
 <span>class <span class="ident">TestingOutput</span></span>
 <span>(</span><span>ls)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Append each output item to a list. You only want to use this
-for unit testing.</p>
+<div class="desc"><p>Append each output item to a list.</p>
+<p>You only want to use this for unit testing.</p>
 <p>Can support at-least-once processing. The list is not cleared
 between executions.</p>
+<p>Init.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>ls</code></strong></dt>
@@ -359,24 +460,27 @@ between executions.</p>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">class TestingOutput(DynamicOutput):
-    &#34;&#34;&#34;Append each output item to a list. You only want to use this
-    for unit testing.
+    &#34;&#34;&#34;Append each output item to a list.
+
+    You only want to use this for unit testing.
 
     Can support at-least-once processing. The list is not cleared
     between executions.
-
-    Args:
-
-        ls: List to append to.
 
     &#34;&#34;&#34;
 
     __test__ = False
 
     def __init__(self, ls):
+        &#34;&#34;&#34;Init.
+
+        Args:
+            ls: List to append to.
+        &#34;&#34;&#34;
         self._ls = ls
 
     def build(self, worker_index, worker_count):
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         return _ListSink(self._ls)</code></pre>
 </details>
 <h3>Ancestors</h3>
@@ -385,14 +489,23 @@ between executions.</p>
 <li><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></li>
 <li>abc.ABC</li>
 </ul>
-<h3>Inherited members</h3>
-<ul class="hlist">
-<li><code class="language-python"><b><a title="bytewax.outputs.DynamicOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput">DynamicOutput</a></b></code>:
-<ul class="hlist">
-<li><code class="language-python"><a title="bytewax.outputs.DynamicOutput.build" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput.build">build</a></code></li>
-</ul>
-</li>
-</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.testing.TestingOutput.build"><code class="language-python name flex">
+<span>def <span class="ident">build</span></span>(<span>self, worker_index, worker_count)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>See ABC docstring.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def build(self, worker_index, worker_count):
+    &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+    return _ListSink(self._ls)</code></pre>
+</details>
+</dd>
+</dl>
 </dd>
 </dl>
 </section>
@@ -416,7 +529,8 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.testing.cluster_main" href="/apidocs/bytewax.testing#bytewax.testing.cluster_main">cluster_main</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.testing.poll_next" href="/apidocs/bytewax.testing#bytewax.testing.poll_next">poll_next</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.testing.ffwd_iter" href="/apidocs/bytewax.testing#bytewax.testing.ffwd_iter">ffwd_iter</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.testing.poll_next_batch" href="/apidocs/bytewax.testing#bytewax.testing.poll_next_batch">poll_next_batch</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.testing.run_main" href="/apidocs/bytewax.testing#bytewax.testing.run_main">run_main</a></li>
 </ul>
 </li>
@@ -425,9 +539,16 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.testing.TestingInput" href="/apidocs/bytewax.testing#bytewax.testing.TestingInput">TestingInput</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.testing.TestingInput.build_part" href="/apidocs/bytewax.testing#bytewax.testing.TestingInput.build_part">build_part</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.testing.TestingInput.list_parts" href="/apidocs/bytewax.testing#bytewax.testing.TestingInput.list_parts">list_parts</a></li>
+</ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.testing.TestingOutput" href="/apidocs/bytewax.testing#bytewax.testing.TestingOutput">TestingOutput</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.testing.TestingOutput.build" href="/apidocs/bytewax.testing#bytewax.testing.TestingOutput.build">build</a></li>
+</ul>
 </li>
 </ul>
 </li>

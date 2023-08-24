@@ -1,9 +1,15 @@
 # Bytewax Changelog
 
+All notable changes to this project will be documented in this file. For help with updating to new Bytewax versions, please see the [migration guide](https://bytewax.io/docs/reference/migration).
+
 ## Latest
 
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
+
+## v0.17.0
+
+### Changed
 
 - *Breaking change* Recovery system re-worked. Kafka-based recovery
   removed. SQLite recovery file format changed; existing recovery DB
@@ -13,6 +19,35 @@ notes on GitHub when we make a new release.__
 - Dataflow execution supports rescaling over resumes. You can now
   change the number of workers and still get proper execution and
   recovery.
+
+- `epoch-interval` has been renamed to `snapshot-interval`
+
+- The `list-parts` method of `PartitionedInput` has been changed to
+  return a `List[str]` and should only reflect the available
+  inputs that a given worker has access to. You no longer need
+  to return the complete set of partitions for all workers.
+
+- The `next` method of `StatefulSource` and `StatelessSource` has
+  been changed to `next_batch` and should return a `List` of elements,
+  or the empty list if there are no elements to return.
+
+### Added
+
+- Added new cli parameter `backup-interval`, to configure the length of
+  time to wait before "garbage collecting" older recovery snapshots.
+
+- Added `next_awake` to input classes, which can be used to schedule
+  when the next call to `next_batch` should occur. Use `next_awake`
+  instead of `time.sleep`.
+
+- Added `bytewax.inputs.batcher_async` to bridge async Python libraries
+  in Bytewax input sources.
+
+- Added support for linux/aarch64 and linux/armv7 platforms.
+
+### Removed
+
+- `KafkaRecoveryConfig` has been removed as a recovery store.
 
 ## v0.16.2
 

@@ -4,26 +4,372 @@
 <h1 class="api__article-title">Module <strong>bytewax.recovery</strong></h1>
 </header>
 <section class="api__article-intro" id="section-intro">
-<p>Low-level recovery interfaces.</p>
+<p>Failure recovery.</p>
+<p>Bytewax allows you to <strong>recover</strong> a stateful dataflow; it will let you
+resume processing and output due to a failure <em>without</em> re-processing
+all initial data to re-calculate all internal state. It does this by
+periodically snapshotting all internal state and having a way to
+resume from a recent snapshot.</p>
+<p>See <code>python -m bytewax.recovery --help</code> for an overview of
+initializing recovery partitions.</p>
+<h2 id="overview">Overview</h2>
+<p>Bytewax implements recovery by periodically snapshoting state and
+progress information for a single dataflow instance in a partitioned
+set of <strong>recovery partitions</strong>, <a href="https://sqlite.org/">SQLite</a>
+databases in the <strong>recovery directory</strong>. Recovery data for multiple
+dataflows <em>must not</em> be mixed together.</p>
+<p>When you run your dataflow it will start backing up recovery data
+automatically. Each run of a dataflow cluster is called an
+<strong>execution</strong>.</p>
+<p>If the dataflow fails, first you must fix whatever underlying fault
+caused the issue. That might mean deploying new code which fixes a
+bug, re-creating destroyed VMs, or resolving an issue with a connected
+system.</p>
+<p>Once that is done, re-run the dataflow using the <em>same recovery
+directory</em>. Bytewax will automatically read the progress of the
+previous dataflow execution and determine the most recent coordinated
+snapshot to resume processing from.</p>
+<p>Because snapshotting only happens periodically, it is possible that
+your output systems will see duplicate data around resume with some
+input and output connectors. See documentation for each connector for
+how it is designed and what kinds of guarantees it can enable. In
+general, design your systems to be idempotent or support at-least-once
+processing.</p>
+<h2 id="setup">Setup</h2>
+<p>Recovery partitions must be pre-initialized before running the
+dataflow initially. This is done by executing this module:</p>
+<pre><code>$ python -m bytewax.recovery db_dir/ 4
+</code></pre>
+<p>The second parameter (e.g. <code>4</code>) is the number of recovery partitions
+to create. This number is fixed and cannot be changed later without
+manual SQLite interventions. In general, we recommend picking a number
+of partitions equal to the maximum number of workers you think you
+will ever rescale to.</p>
+<p>This will create a set of partitions:</p>
+<pre><code>$ ls db_dir/
+part-0.sqlite3
+part-1.sqlite3
+part-2.sqlite3
+part-3.sqlite3
+</code></pre>
+<p>Once the recovery partition files have been created, they must be
+placed in locations that are accessible to the workers. The cluster
+has a whole must have access to all partitions, but any given worker
+need not have access to any partition in particular (or any at
+all). It is ok if a given partition is accesible by multiple workers;
+only one worker will use it.</p>
+<p>Although the partition init script will not create these, partitions
+after execution may consist of multiple files:</p>
+<pre><code>$ ls db_dir/
+part-0.sqlite3
+part-0.sqlite3-shm
+part-0.sqlite3-wal
+part-1.sqlite3
+part-2.sqlite3
+part-3.sqlite3
+part-3.sqlite3-shm
+part-3.sqlite3-wal
+</code></pre>
+<p>You must move the files with the prefix <code>part-*.</code> all together.</p>
+<p>In general, you'll want to your environment to try and evenly
+distribute partitions among your workers.</p>
+<p>If you are not running in a cluster environment but on a single
+machine, placing all the partitions in a single local filesystem
+directory is fine.</p>
+<h2 id="execution">Execution</h2>
+<p>To enable recovery when you execute a dataflow, pass the <code>-r</code> flag to
+<code><a title="bytewax.run" href="/apidocs/bytewax.run">bytewax.run</a></code> and specify the recovery directory.</p>
+<pre><code>$ python -m bytewax.run ... -r db_dir/
+</code></pre>
+<p>See the module docstring for <code><a title="bytewax.run" href="/apidocs/bytewax.run">bytewax.run</a></code> for more information.</p>
+<h2 id="resume">Resume</h2>
+<p>If a dataflow aborts, abruptly shuts down, or gracefully exits due to
+EOF, you can resume the dataflow via running it again pointing at the
+same recovery directory. Bytewax will automatically find the most
+recent consistent snapshot to resume from.</p>
+<p>This requires that the workers in the next execution collectively have
+access to all of the recovery partitions.</p>
+<p>This next execution does not need to have the same number of workers
+as the previous one; you are allowed to rescale the cluster and state
+will find its way to the proper workers.</p>
+<p>If you want to fully restart a dataflow at the beginning of input and
+ignore all previous state, delete partitions in the recovery
+directory.</p>
+<h2 id="continuation">Continuation</h2>
+<p>Another use of the recovery system is to allow a dataflow to be
+<strong>continued</strong> in a followup execution with new data. For example, you
+might be processing a large log file, run a dataflow on it, and
+calculate some metrics. You could then append to that log file, resume
+the dataflow and it would be processed without needing to re-read and
+re-process the initial part of the log file.</p>
+<p>Bytewax snapshots the dataflow at the end of all input to support this
+use case. You'll need to read the specific documentation for each
+connector to see what kind of resume semantics it has.</p>
+<h2 id="snapshotting">Snapshotting</h2>
+<p>The <strong>snapshot interval</strong> is the system time interval at which an
+execution cluster synchronizes and snapshots its progress and
+state. You can adjust this duration via the <code>-s</code> parameter to
+<code><a title="bytewax.run" href="/apidocs/bytewax.run">bytewax.run</a></code>. It defaults to every 10 seconds.</p>
+<p>The dataflow can only resume on snapshot interval boundaries.</p>
+<p>In general, the longer this duration is, the less overhead there will
+be while the dataflow is executing, but the further back the dataflow
+might have to resume from in case of failure.</p>
+<h2 id="backup-and-disaster-recovery">Backup And Disaster Recovery</h2>
+<p>Usually in a production environment, you'll want to durably back up
+your recovery partitions from the machines that are executing the
+dataflow in case they are destroyed. This can be done through a
+variety of mechanisms, like a <a href="https://litestream.io/alternatives/cron/">cron job that runs a backup
+command</a> or
+<a href="https://litestream.io/how-it-works/">litestream</a>.</p>
+<p>The recovery system also tries to be efficient and does not want
+recovery data to grow without bound. It will <strong>garbage collect</strong>
+snapshot data that is no longer necessary to support resumeing from an
+epoch far in the past.</p>
+<p>Bytewax can only resume a dataflow when it is able to find a
+consistent snapshot which exists across all recovery partitions. If
+you need to re-constitute a cluster from these backups, there is then
+the problem that unless the backups are all from an identical point in
+time, there might not be an overlapping snapshot among them.</p>
+<p>The <strong>backup interval</strong> is the system time interval for which snapshot
+data should be retained longer than when it would be otherwise garbage
+collected. This generally should be set slightly longer than your
+backup latency. This gives a larger window for independent backup
+processes for each partition to complete and still enable a succesful
+recovery.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Low-level recovery interfaces.
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Failure recovery.
+
+Bytewax allows you to **recover** a stateful dataflow; it will let you
+resume processing and output due to a failure _without_ re-processing
+all initial data to re-calculate all internal state. It does this by
+periodically snapshotting all internal state and having a way to
+resume from a recent snapshot.
+
+See `python -m bytewax.recovery --help` for an overview of
+initializing recovery partitions.
+
+Overview
+--------
+
+Bytewax implements recovery by periodically snapshoting state and
+progress information for a single dataflow instance in a partitioned
+set of **recovery partitions**, [SQLite](https://sqlite.org/)
+databases in the **recovery directory**. Recovery data for multiple
+dataflows _must not_ be mixed together.
+
+When you run your dataflow it will start backing up recovery data
+automatically. Each run of a dataflow cluster is called an
+**execution**.
+
+If the dataflow fails, first you must fix whatever underlying fault
+caused the issue. That might mean deploying new code which fixes a
+bug, re-creating destroyed VMs, or resolving an issue with a connected
+system.
+
+Once that is done, re-run the dataflow using the _same recovery
+directory_. Bytewax will automatically read the progress of the
+previous dataflow execution and determine the most recent coordinated
+snapshot to resume processing from.
+
+Because snapshotting only happens periodically, it is possible that
+your output systems will see duplicate data around resume with some
+input and output connectors. See documentation for each connector for
+how it is designed and what kinds of guarantees it can enable. In
+general, design your systems to be idempotent or support at-least-once
+processing.
+
+Setup
+-----
+
+Recovery partitions must be pre-initialized before running the
+dataflow initially. This is done by executing this module:
+
+```
+$ python -m bytewax.recovery db_dir/ 4
+```
+
+The second parameter (e.g. `4`) is the number of recovery partitions
+to create. This number is fixed and cannot be changed later without
+manual SQLite interventions. In general, we recommend picking a number
+of partitions equal to the maximum number of workers you think you
+will ever rescale to.
+
+This will create a set of partitions:
+
+```
+$ ls db_dir/
+part-0.sqlite3
+part-1.sqlite3
+part-2.sqlite3
+part-3.sqlite3
+```
+
+Once the recovery partition files have been created, they must be
+placed in locations that are accessible to the workers. The cluster
+has a whole must have access to all partitions, but any given worker
+need not have access to any partition in particular (or any at
+all). It is ok if a given partition is accesible by multiple workers;
+only one worker will use it.
+
+Although the partition init script will not create these, partitions
+after execution may consist of multiple files:
+
+```
+$ ls db_dir/
+part-0.sqlite3
+part-0.sqlite3-shm
+part-0.sqlite3-wal
+part-1.sqlite3
+part-2.sqlite3
+part-3.sqlite3
+part-3.sqlite3-shm
+part-3.sqlite3-wal
+```
+
+You must move the files with the prefix `part-*.` all together.
+
+In general, you&#39;ll want to your environment to try and evenly
+distribute partitions among your workers.
+
+If you are not running in a cluster environment but on a single
+machine, placing all the partitions in a single local filesystem
+directory is fine.
+
+Execution
+---------
+
+To enable recovery when you execute a dataflow, pass the `-r` flag to
+`bytewax.run` and specify the recovery directory.
+
+```
+$ python -m bytewax.run ... -r db_dir/
+```
+
+See the module docstring for `bytewax.run` for more information.
+
+Resume
+------
+
+If a dataflow aborts, abruptly shuts down, or gracefully exits due to
+EOF, you can resume the dataflow via running it again pointing at the
+same recovery directory. Bytewax will automatically find the most
+recent consistent snapshot to resume from.
+
+This requires that the workers in the next execution collectively have
+access to all of the recovery partitions.
+
+This next execution does not need to have the same number of workers
+as the previous one; you are allowed to rescale the cluster and state
+will find its way to the proper workers.
+
+If you want to fully restart a dataflow at the beginning of input and
+ignore all previous state, delete partitions in the recovery
+directory.
+
+Continuation
+------------
+
+Another use of the recovery system is to allow a dataflow to be
+**continued** in a followup execution with new data. For example, you
+might be processing a large log file, run a dataflow on it, and
+calculate some metrics. You could then append to that log file, resume
+the dataflow and it would be processed without needing to re-read and
+re-process the initial part of the log file.
+
+Bytewax snapshots the dataflow at the end of all input to support this
+use case. You&#39;ll need to read the specific documentation for each
+connector to see what kind of resume semantics it has.
+
+Snapshotting
+------------
+
+The **snapshot interval** is the system time interval at which an
+execution cluster synchronizes and snapshots its progress and
+state. You can adjust this duration via the `-s` parameter to
+`bytewax.run`. It defaults to every 10 seconds.
+
+The dataflow can only resume on snapshot interval boundaries.
+
+In general, the longer this duration is, the less overhead there will
+be while the dataflow is executing, but the further back the dataflow
+might have to resume from in case of failure.
+
+Backup and Disaster Recovery
+----------------------------
+
+Usually in a production environment, you&#39;ll want to durably back up
+your recovery partitions from the machines that are executing the
+dataflow in case they are destroyed. This can be done through a
+variety of mechanisms, like a [cron job that runs a backup
+command](https://litestream.io/alternatives/cron/) or
+[litestream](https://litestream.io/how-it-works/).
+
+The recovery system also tries to be efficient and does not want
+recovery data to grow without bound. It will **garbage collect**
+snapshot data that is no longer necessary to support resumeing from an
+epoch far in the past.
+
+Bytewax can only resume a dataflow when it is able to find a
+consistent snapshot which exists across all recovery partitions. If
+you need to re-constitute a cluster from these backups, there is then
+the problem that unless the backups are all from an identical point in
+time, there might not be an overlapping snapshot among them.
+
+The **backup interval** is the system time interval for which snapshot
+data should be retained longer than when it would be otherwise garbage
+collected. This generally should be set slightly longer than your
+backup latency. This gives a larger window for independent backup
+processes for each partition to complete and still enable a succesful
+recovery.
 
 &#34;&#34;&#34;
 
-from .bytewax import (  # noqa: F401
-    KafkaRecoveryConfig,
+import argparse
+from pathlib import Path
+
+from .bytewax import (
+    InconsistentPartitionsError,
+    MissingPartitionsError,
+    NoPartitionsError,
     RecoveryConfig,
-    SqliteRecoveryConfig,
+    init_db_dir,
 )
 
 __all__ = [
-    &#34;KafkaRecoveryConfig&#34;,
+    &#34;InconsistentPartitionsError&#34;,
+    &#34;NoPartitionsError&#34;,
+    &#34;MissingPartitionsError&#34;,
     &#34;RecoveryConfig&#34;,
-    &#34;SqliteRecoveryConfig&#34;,
-]</code></pre>
+    &#34;init_db_dir&#34;,
+]
+
+
+def _parse_args():
+    parser = argparse.ArgumentParser(
+        prog=&#34;python -m bytewax.recovery&#34;,
+        description=&#34;Create and init a set of empty recovery partitions.&#34;,
+        epilog=&#34;&#34;&#34;See the `bytewax.recovery` module docstring for more
+        info.&#34;&#34;&#34;,
+    )
+    parser.add_argument(
+        &#34;db_dir&#34;,
+        type=Path,
+        help=&#34;Local directory to create partitions in&#34;,
+    )
+    parser.add_argument(
+        &#34;part_count&#34;,
+        type=int,
+        help=&#34;Number of partitions to create&#34;,
+    )
+    return parser.parse_args()
+
+
+if __name__ == &#34;__main__&#34;:
+    args = _parse_args()
+    init_db_dir(args.db_dir, args.part_count)</code></pre>
 </details>
 </section>
 <section>
@@ -31,132 +377,100 @@ __all__ = [
 <section>
 </section>
 <section>
+<h2 class="api__article-subtitle" id="header-functions">Functions</h2>
+<dl>
+<dt id="bytewax.recovery.init_db_dir"><code class="language-python name flex">
+<span>def <span class="ident">init_db_dir</span></span>(<span>db_dir, count)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Create and init a set of empty recovery partitions.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>db_dir</code></strong> :&ensp;<code>path.Path</code></dt>
+<dd>Local directory to create partitions in.</dd>
+<dt><strong><code>count</code></strong> :&ensp;<code>int</code></dt>
+<dd>Number of partitions to create.</dd>
+</dl></div>
+</dd>
+</dl>
 </section>
 <section>
 <h2 class="api__article-subtitle" id="header-classes">Classes</h2>
 <dl>
-<dt id="bytewax.recovery.KafkaRecoveryConfig"><code class="language-python flex name class">
-<span>class <span class="ident">KafkaRecoveryConfig</span></span>
-<span>(</span><span>brokers, topic_prefix)</span>
+<dt id="bytewax.recovery.InconsistentPartitionsError"><code class="language-python flex name class">
+<span>class <span class="ident">InconsistentPartitionsError</span></span>
+<span>(</span><span>*args, **kwargs)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Use <a href="https://kafka.apache.org/">Kafka</a> to store recovery data.</p>
-<p>Uses a "progress" topic and a "state" topic with a number of
-partitions equal to the number of workers. Will take advantage of
-log compaction so that topic size is proportional to state size,
-not epoch count.</p>
-<p>Use a distinct topic prefix per dataflow so recovery data is not
-mixed.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import run_main, TestingInput
-&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
-&gt;&gt;&gt; from bytewax.dataflow import Dataflow
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
-&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
-&gt;&gt;&gt; recovery_config = KafkaRecoveryConfig(
-...     [&quot;localhost:9092&quot;],
-...     &quot;sample-dataflow&quot;,
-... )
-&gt;&gt;&gt; run_main(
-...     flow,
-...     recovery_config=recovery_config,
-... ) # doctest:+SKIP
-</code></pre>
-<p>If there's no previous recovery data, topics will automatically be
-created with the correct number of partitions and log compaction
-enabled</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>brokers</code></strong> :&ensp;<code>List[str]</code></dt>
-<dd>List of <code>host:port</code> strings of Kafka
-brokers.</dd>
-<dt><strong><code>topic_prefix</code></strong> :&ensp;<code>str</code></dt>
-<dd>Prefix used for naming topics. Must be
-distinct per-dataflow. Two topics will be created using
-this prefix <code>"topic_prefix-progress"</code> and
-<code>"topic_prefix-state"</code>.</dd>
-</dl>
-<h2 id="returns">Returns</h2>
-<p>Config object. Pass this as the <code>recovery_config</code> argument to
-your execution entry point.</p></div>
+<div class="desc"><p>Raised when it is not possible to resume without state corruption because at least two partitions are from greater than the backup interval apart.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.recovery.RecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></li>
+<li>builtins.ValueError</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
 </ul>
-<h3>Instance variables</h3>
-<dl>
-<dt id="bytewax.recovery.KafkaRecoveryConfig.brokers"><code class="language-python name">var <span class="ident">brokers</span></code></dt>
-<dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
-<dt id="bytewax.recovery.KafkaRecoveryConfig.topic_prefix"><code class="language-python name">var <span class="ident">topic_prefix</span></code></dt>
+<dt id="bytewax.recovery.MissingPartitionsError"><code class="language-python flex name class">
+<span>class <span class="ident">MissingPartitionsError</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
 <dd>
-<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+<div class="desc"><p>Raised when an incomplete set of recovery partitions is detected.</p></div>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.FileNotFoundError</li>
+<li>builtins.OSError</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
 </dd>
-</dl>
+<dt id="bytewax.recovery.NoPartitionsError"><code class="language-python flex name class">
+<span>class <span class="ident">NoPartitionsError</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Raised when no recovery partitions have been initialized on any worker in the recovery directory.</p></div>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.FileNotFoundError</li>
+<li>builtins.OSError</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
 </dd>
 <dt id="bytewax.recovery.RecoveryConfig"><code class="language-python flex name class">
 <span>class <span class="ident">RecoveryConfig</span></span>
+<span>(</span><span>db_dir, backup_interval=None, snapshot_serde=None)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Base class for a recovery config.</p>
-<p>This describes how each worker in a dataflow cluster should store
-its recovery data.</p>
-<p>Use a specific subclass of this that matches the kind of storage
-system you are going to use. See the subclasses in this module.</p></div>
-<h3>Subclasses</h3>
-<ul class="hlist">
-<li><a title="bytewax.recovery.KafkaRecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.KafkaRecoveryConfig">KafkaRecoveryConfig</a></li>
-<li><a title="bytewax.recovery.SqliteRecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.SqliteRecoveryConfig">SqliteRecoveryConfig</a></li>
-</ul>
-</dd>
-<dt id="bytewax.recovery.SqliteRecoveryConfig"><code class="language-python flex name class">
-<span>class <span class="ident">SqliteRecoveryConfig</span></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Use <a href="https://sqlite.org/index.html">SQLite</a> to store recovery
-data.</p>
-<p>Creates a SQLite DB per-worker in a given directory. Multiple DBs
-are used to allow workers to write without contention.</p>
-<p>Use a distinct directory per dataflow so recovery data is not
-mixed.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from tempfile import TemporaryDirectory
-&gt;&gt;&gt; from bytewax.testing import run_main, TestingInput
-&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
-&gt;&gt;&gt; from bytewax.dataflow import Dataflow
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
-&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
-&gt;&gt;&gt; tmp_dir = TemporaryDirectory()  # We'll store this somewhere temporary for this test.
-&gt;&gt;&gt; recovery_config = SqliteRecoveryConfig(tmp_dir.name)
-&gt;&gt;&gt; run_main(
-...     flow,
-...     recovery_config=recovery_config,
-... )
-0
-1
-2
-</code></pre>
-<p>DB files and tables will automatically be created if there's no
-previous recovery data.</p>
+<div class="desc"><p>Configuration settings for recovery.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>db_dir</code></strong> :&ensp;<code>Path</code></dt>
-<dd>Existing directory to store per-worker DBs
-in. Must be distinct per-dataflow. DB files will have
-names like <code>"worker0.sqlite3"</code>. You can use <code>"."</code> for the
-current directory.</dd>
-</dl>
-<h2 id="returns">Returns</h2>
-<p>Config object. Pass this as the <code>recovery_config</code> argument to
-your execution entry point.</p></div>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li><a title="bytewax.recovery.RecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></li>
-</ul>
+<dd>Local filesystem directory to search for recovery
+database partitions.</dd>
+<dt><strong><code>backup_interval</code></strong> :&ensp;<code>datetime.duration</code></dt>
+<dd>Amount of system time to
+wait to permanently delete a state snapshot after it is no
+longer needed. You should set this to the interval at which
+you are backing up the recovery partitions off of the
+workers into archival storage (e.g. S3). Defaults to zero
+duration.</dd>
+<dt><strong><code>snapshot_serde</code></strong> :&ensp;<code>SnapshotSerde</code></dt>
+<dd>Serialization to use when
+encoding state snapshot objects in the recovery partitions.</dd>
+</dl></div>
 <h3>Instance variables</h3>
 <dl>
-<dt id="bytewax.recovery.SqliteRecoveryConfig.db_dir"><code class="language-python name">var <span class="ident">db_dir</span></code></dt>
+<dt id="bytewax.recovery.RecoveryConfig.backup_interval"><code class="language-python name">var <span class="ident">backup_interval</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+<dt id="bytewax.recovery.RecoveryConfig.db_dir"><code class="language-python name">var <span class="ident">db_dir</span></code></dt>
+<dd>
+<div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
+</dd>
+<dt id="bytewax.recovery.RecoveryConfig.snapshot_serde"><code class="language-python name">var <span class="ident">snapshot_serde</span></code></dt>
 <dd>
 <div class="desc"><p>Return an attribute of instance, which is of type owner.</p></div>
 </dd>
@@ -181,22 +495,29 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.init_db_dir" href="/apidocs/bytewax.recovery#bytewax.recovery.init_db_dir">init_db_dir</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.recovery.KafkaRecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.KafkaRecoveryConfig">KafkaRecoveryConfig</a></h4>
-<ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.KafkaRecoveryConfig.brokers" href="/apidocs/bytewax.recovery#bytewax.recovery.KafkaRecoveryConfig.brokers">brokers</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.KafkaRecoveryConfig.topic_prefix" href="/apidocs/bytewax.recovery#bytewax.recovery.KafkaRecoveryConfig.topic_prefix">topic_prefix</a></li>
-</ul>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.recovery.InconsistentPartitionsError" href="/apidocs/bytewax.recovery#bytewax.recovery.InconsistentPartitionsError">InconsistentPartitionsError</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.recovery.MissingPartitionsError" href="/apidocs/bytewax.recovery#bytewax.recovery.MissingPartitionsError">MissingPartitionsError</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.recovery.NoPartitionsError" href="/apidocs/bytewax.recovery#bytewax.recovery.NoPartitionsError">NoPartitionsError</a></h4>
 </li>
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.recovery.RecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.RecoveryConfig">RecoveryConfig</a></h4>
-</li>
-<li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.recovery.SqliteRecoveryConfig" href="/apidocs/bytewax.recovery#bytewax.recovery.SqliteRecoveryConfig">SqliteRecoveryConfig</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.SqliteRecoveryConfig.db_dir" href="/apidocs/bytewax.recovery#bytewax.recovery.SqliteRecoveryConfig.db_dir">db_dir</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.RecoveryConfig.backup_interval" href="/apidocs/bytewax.recovery#bytewax.recovery.RecoveryConfig.backup_interval">backup_interval</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.RecoveryConfig.db_dir" href="/apidocs/bytewax.recovery#bytewax.recovery.RecoveryConfig.db_dir">db_dir</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.recovery.RecoveryConfig.snapshot_serde" href="/apidocs/bytewax.recovery#bytewax.recovery.RecoveryConfig.snapshot_serde">snapshot_serde</a></li>
 </ul>
 </li>
 </ul>

@@ -187,6 +187,7 @@ you'd like to use.</p></div>
 </dd>
 <dt id="bytewax.window.EventClockConfig"><code class="language-python flex name class">
 <span>class <span class="ident">EventClockConfig</span></span>
+<span>(</span><span>dt_getter, wait_for_system_duration)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Use a getter function to lookup the timestamp for each item.</p>
@@ -197,16 +198,13 @@ will be correctly processed as long as they are not out of order
 more than the waiting duration in system time.</p>
 <p>If the dataflow has no more input, all windows are closed.</p>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>dt_getter</code></strong></dt>
-<dd>Python function to get a datetime from an event. The
-datetime returned must have tzinfo set to
+<p>dt_getter:
+Python function to get a datetime from an event. The datetime
+returned must have tzinfo set to
 <code>timezone.utc</code>. E.g. <code>datetime(1970, 1, 1,
-tzinfo=timezone.utc)</code></dd>
-<dt><strong><code>wait_for_system_duration</code></strong></dt>
-<dd>How much system time to wait before
-considering an event late.</dd>
-</dl>
+tzinfo=timezone.utc)</code>
+wait_for_system_duration:
+How much system time to wait before considering an event late.</p>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>clock_config</code> parameter to
 your windowing operator.</p></div>
@@ -228,15 +226,17 @@ your windowing operator.</p></div>
 </dd>
 <dt id="bytewax.window.SessionWindow"><code class="language-python flex name class">
 <span>class <span class="ident">SessionWindow</span></span>
+<span>(</span><span>gap)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Session windowing with a fixed inactivity gap.
 Each time a new item is received, it is added to the latest
 window if the time since the latest event is &lt; gap.
 Otherwise a new window is created that starts at current clock's time.</p>
-<p>Args:</p>
-<p>gap (datetime.timedelta): Gap of inactivity before considering
-a session closed. The gap should not be negative.</p>
+<p>Args:
+gap (datetime.timedelta):
+Gap of inactivity before considering a session closed. The
+gap should not be negative.</p>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>window_config</code> parameter to
 your windowing operator.</p></div>
@@ -254,6 +254,7 @@ your windowing operator.</p></div>
 </dd>
 <dt id="bytewax.window.SlidingWindow"><code class="language-python flex name class">
 <span>class <span class="ident">SlidingWindow</span></span>
+<span>(</span><span>length, offset, align_to)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Sliding windows of fixed duration.</p>
@@ -266,17 +267,14 @@ multiple windows.</p>
 can fall in up to one window, but might fall into none.</p>
 <p>Window start times are inclusive, but end times are exclusive.</p>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>length</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
-<dd>Length of windows.</dd>
-<dt><strong><code>offset</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
-<dd>Duration between start times of
-adjacent windows.</dd>
-<dt><strong><code>align_to</code></strong> :&ensp;<code>datetime.datetime</code></dt>
-<dd>Align windows so this instant
-starts a window. This must be a constant. You can use this to
-align all windows to hour boundaries, e.g.</dd>
-</dl>
+<p>length (datetime.timedelta):
+Length of windows.
+offset (datetime.timedelta):
+Duration between start times of adjacent windows.
+align_to (datetime.datetime):
+Align windows so this instant starts a window. This must be a
+constant. You can use this to align all windows to hour
+boundaries, e.g.</p>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>window_config</code> parameter to
 your windowing operator.</p></div>
@@ -317,20 +315,19 @@ your windowing operator.</p></div>
 </dd>
 <dt id="bytewax.window.TumblingWindow"><code class="language-python flex name class">
 <span>class <span class="ident">TumblingWindow</span></span>
+<span>(</span><span>length, align_to)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Tumbling windows of fixed duration.</p>
 <p>Each item will fall in exactly one window.</p>
 <p>Window start times are inclusive, but end times are exclusive.</p>
 <h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>length</code></strong> :&ensp;<code>datetime.timedelta</code></dt>
-<dd>Length of windows.</dd>
-<dt><strong><code>align_to</code></strong> :&ensp;<code>datetime.datetime</code></dt>
-<dd>Align windows so this instant
-starts a window. This must be a constant. You can use this to
-align all windows to hour boundaries, e.g.</dd>
-</dl>
+<p>length (datetime.timedelta):
+Length of windows.
+align_to (datetime.datetime):
+Align windows so this instant starts a window. This must be a
+constant. You can use this to align all windows to hour
+boundaries, e.g.</p>
 <h2 id="returns">Returns</h2>
 <p>Config object. Pass this as the <code>window_config</code> parameter to
 your windowing operator.</p></div>
