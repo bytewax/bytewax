@@ -154,6 +154,4 @@ jobs:
     - name: Tag latest
       if: ${{ matrix.python-version == '3.9' }}
       run: |
-        docker pull ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }}
-        docker tag ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }} ${{ needs.release.outputs.latest-image-tag }}
-        docker push ${{ needs.release.outputs.latest-image-tag }}
+        docker buildx imagetools create -t ${{ needs.release.outputs.latest-image-tag }} ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }}
