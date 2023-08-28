@@ -1,0 +1,279 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.serde</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<p>Serialization for recovery and transport.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Serialization for recovery and transport.&#34;&#34;&#34;
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+import jsonpickle
+
+__all__ = [
+    &#34;JsonPickleSerde&#34;,
+    &#34;Serde&#34;,
+]
+
+
+class Serde(ABC):
+    &#34;&#34;&#34;A serialization format.
+
+    This must support serializing arbitray Python objects and
+    reconstituting them exactly. This means using things like
+    `json.dumps` and `json.loads` directly will not work, as they do
+    not support things like datetimes, integer keys, etc.
+
+    Even if all of your dataflow&#39;s state is serializeable by a format,
+    Bytewax generates Python objects to store internal data, and they
+    must round-trip correctly or there will be errors.
+
+    &#34;&#34;&#34;
+
+    @staticmethod
+    @abstractmethod
+    def ser(obj: Any) -&gt; str:
+        &#34;&#34;&#34;Serialize the given object.&#34;&#34;&#34;
+        ...
+
+    @staticmethod
+    @abstractmethod
+    def de(s: str) -&gt; Any:
+        &#34;&#34;&#34;Deserialize the given object.&#34;&#34;&#34;
+        ...
+
+
+class JsonPickleSerde(Serde):
+    &#34;&#34;&#34;Serialize objects using `jsonpickle`.
+
+    See [`jsonpickle`](https://github.com/jsonpickle/jsonpickle) for
+    more info.
+
+    &#34;&#34;&#34;
+
+    @staticmethod
+    def ser(obj):
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        # Enable `keys`, otherwise all __dict__ keys are coereced to
+        # strings, which might not be true in general.
+        return jsonpickle.encode(obj, keys=True)
+
+    @staticmethod
+    def de(s):
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        return jsonpickle.decode(s, keys=True)</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
+<dl>
+<dt id="bytewax.serde.JsonPickleSerde"><code class="language-python flex name class">
+<span>class <span class="ident">JsonPickleSerde</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Serialize objects using <code>jsonpickle</code>.</p>
+<p>See <a href="https://github.com/jsonpickle/jsonpickle"><code>jsonpickle</code></a> for
+more info.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class JsonPickleSerde(Serde):
+    &#34;&#34;&#34;Serialize objects using `jsonpickle`.
+
+    See [`jsonpickle`](https://github.com/jsonpickle/jsonpickle) for
+    more info.
+
+    &#34;&#34;&#34;
+
+    @staticmethod
+    def ser(obj):
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        # Enable `keys`, otherwise all __dict__ keys are coereced to
+        # strings, which might not be true in general.
+        return jsonpickle.encode(obj, keys=True)
+
+    @staticmethod
+    def de(s):
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        return jsonpickle.decode(s, keys=True)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.serde.Serde" href="/apidocs/bytewax.serde#bytewax.serde.Serde">Serde</a></li>
+<li>abc.ABC</li>
+</ul>
+<h3>Static methods</h3>
+<dl>
+<dt id="bytewax.serde.JsonPickleSerde.de"><code class="language-python name flex">
+<span>def <span class="ident">de</span></span>(<span>s)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>See ABC docstring.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@staticmethod
+def de(s):
+    &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+    return jsonpickle.decode(s, keys=True)</code></pre>
+</details>
+</dd>
+<dt id="bytewax.serde.JsonPickleSerde.ser"><code class="language-python name flex">
+<span>def <span class="ident">ser</span></span>(<span>obj)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>See ABC docstring.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@staticmethod
+def ser(obj):
+    &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+    # Enable `keys`, otherwise all __dict__ keys are coereced to
+    # strings, which might not be true in general.
+    return jsonpickle.encode(obj, keys=True)</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.serde.Serde"><code class="language-python flex name class">
+<span>class <span class="ident">Serde</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>A serialization format.</p>
+<p>This must support serializing arbitray Python objects and
+reconstituting them exactly. This means using things like
+<code>json.dumps</code> and <code>json.loads</code> directly will not work, as they do
+not support things like datetimes, integer keys, etc.</p>
+<p>Even if all of your dataflow's state is serializeable by a format,
+Bytewax generates Python objects to store internal data, and they
+must round-trip correctly or there will be errors.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class Serde(ABC):
+    &#34;&#34;&#34;A serialization format.
+
+    This must support serializing arbitray Python objects and
+    reconstituting them exactly. This means using things like
+    `json.dumps` and `json.loads` directly will not work, as they do
+    not support things like datetimes, integer keys, etc.
+
+    Even if all of your dataflow&#39;s state is serializeable by a format,
+    Bytewax generates Python objects to store internal data, and they
+    must round-trip correctly or there will be errors.
+
+    &#34;&#34;&#34;
+
+    @staticmethod
+    @abstractmethod
+    def ser(obj: Any) -&gt; str:
+        &#34;&#34;&#34;Serialize the given object.&#34;&#34;&#34;
+        ...
+
+    @staticmethod
+    @abstractmethod
+    def de(s: str) -&gt; Any:
+        &#34;&#34;&#34;Deserialize the given object.&#34;&#34;&#34;
+        ...</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>abc.ABC</li>
+</ul>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="bytewax.serde.JsonPickleSerde" href="/apidocs/bytewax.serde#bytewax.serde.JsonPickleSerde">JsonPickleSerde</a></li>
+</ul>
+<h3>Static methods</h3>
+<dl>
+<dt id="bytewax.serde.Serde.de"><code class="language-python name flex">
+<span>def <span class="ident">de</span></span>(<span>s: str) ‑> Any</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Deserialize the given object.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@staticmethod
+@abstractmethod
+def de(s: str) -&gt; Any:
+    &#34;&#34;&#34;Deserialize the given object.&#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+<dt id="bytewax.serde.Serde.ser"><code class="language-python name flex">
+<span>def <span class="ident">ser</span></span>(<span>obj: Any) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Serialize the given object.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@staticmethod
+@abstractmethod
+def ser(obj: Any) -&gt; str:
+    &#34;&#34;&#34;Serialize the given object.&#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax" href="/apidocs/">bytewax</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
+<ul class="api__sidebar-nav-classes">
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.serde.JsonPickleSerde" href="/apidocs/bytewax.serde#bytewax.serde.JsonPickleSerde">JsonPickleSerde</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.serde.JsonPickleSerde.de" href="/apidocs/bytewax.serde#bytewax.serde.JsonPickleSerde.de">de</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.serde.JsonPickleSerde.ser" href="/apidocs/bytewax.serde#bytewax.serde.JsonPickleSerde.ser">ser</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.serde.Serde" href="/apidocs/bytewax.serde#bytewax.serde.Serde">Serde</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.serde.Serde.de" href="/apidocs/bytewax.serde#bytewax.serde.Serde.de">de</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.serde.Serde.ser" href="/apidocs/bytewax.serde#bytewax.serde.Serde.ser">ser</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
