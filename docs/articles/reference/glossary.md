@@ -58,7 +58,8 @@ garbage collected.
 A single run of a dataflow cluster from initial input or resume until
 failure or completion.
 
-Whenever you recover a dataflow, you start a different execution.
+Whenever you recover a dataflow, you start a new different resume
+execution.
 
 Executions are never concurrent. The entire previous cluster must be
 stopped before a new execution can begin.
@@ -181,6 +182,10 @@ workers in the cluster for routing and opening of the partition.
 A single OS process that is collectively executing dataflow logic via
 some number of contained worker threads. Processes are grouped into a
 cluster and might not necessarily be on the same machine.
+
+## Resume (Execution)
+
+An execution which is
 
 ## Snapshot(, State)
 
