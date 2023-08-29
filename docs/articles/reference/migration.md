@@ -1,5 +1,3 @@
-# Migrating from older Bytewax versions
-
 This guide can help you upgrade code through breaking changes from one
 Bytewax version to the next. For a detailed list of all changes, see
 the [CHANGELOG](https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md).
