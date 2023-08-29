@@ -58,7 +58,8 @@ garbage collected.
 A single run of a dataflow cluster from initial input or resume until
 failure or completion.
 
-Whenever you recover a dataflow, you start a different execution.
+Whenever you recover a dataflow, you start a new different resume
+execution.
 
 Executions are never concurrent. The entire previous cluster must be
 stopped before a new execution can begin.
@@ -103,8 +104,8 @@ that worker.
 
 A single unit of data flowing through a dataflow.
 
-Sometimes certain operators require that items have a specific shape,
-e.g. `(key, value)` 2-tuple.
+Sometimes certain operators require that items have a specific
+shape. See state key.
 
 ## Notificator
 
@@ -154,16 +155,49 @@ items.
 
 All stateful operators take a step ID in order to label recovery data.
 
+## Partition(, {Input, Output})
+
+One disjoint sub-dataset that can be read or written to
+independently. A single partition is always meant to be interpreted as
+part of the total set of partitions so that the entire dataset is
+processed.
+
+E.g. A single Kafka topic has partitions; individual log files from a
+cluster of computers should be analyzed together; a CSV is broken into
+100 MB chunks.
+
+## Primary (Worker for a Partition)
+
+Used in the context of partitioned input and output. This is the
+single worker that will have responsibility for reading or writing to
+this partition.
+
+There is a primary assignment process by which workers broadcast the
+partitions they have access to and then the first worker calculates
+assignments for all partitions and broadcasts those results to all
+workers in the cluster for routing and opening of the partition.
+
 ## Process(, Worker)
 
 A single OS process that is collectively executing dataflow logic via
 some number of contained worker threads. Processes are grouped into a
 cluster and might not necessarily be on the same machine.
 
-## Snapshot(, Recovery)
+## Resume (Execution)
 
-A blob of serialized bytes that is a freeze frame snapshot of operator
-state at the end of an epoch.
+An execution which is
+
+## Snapshot(, State)
+
+A freeze frame snapshot of a step's state at the end of an epoch.
+
+## State Key
+
+A string that is used to route data to the same worker so that all
+data for a key will modify the same state.
+
+Usually specified via an operator taking `(key, value)` 2-tuples as
+input items. See item.
 
 ## Step
 

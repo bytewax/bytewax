@@ -1,63 +1,62 @@
-One of the powers of Bytewax is the ability to develop dataflows that
-accumulate state as they process data. By default, this state is just
-stored in memory and will be lost if the dataflow is restarted or
-there is a fault. Bytewax provides some tools and techniques to allow
-you to **recover** your state and resume the dataflow after a fault.
+Bytewax allows you to **recover** a stateful dataflow; it will let you
+resume processing and output due to a failure _without_ re-processing
+all initial data to re-calculate all internal state. It does this by
+periodically snapshotting all internal state and having a way to
+resume from a recent snapshot.
 
-## Prerequisites
+Here, we'll give a quick tutorial on how to enable the most basic form
+of recovery. For more advanced settings and details, see the [module
+docstring for `bytewax.recovery`](/apidocs/bytewax.recovery).
 
-Not all dataflows are possible to be recovered. There are a few
-requirements:
+## Create Recovery Partitions
 
-1. _Replayable Input_ - Your data source needs to support re-playing
-   input from a specific point in the past we call the **resume
-   state** to resume making progress from where the failure happened.
+Recovery partitions must be pre-initialized before running the
+dataflow initially. This is done by executing this module:
 
-2. _At-least-once Output_ - Bytewax only provides at-least-once
-   guarantees when sending data into a downstream system when
-   performing a recovery. You should design your architecture to
-   support this via some sort of idempotency.
+```
+$ python -m bytewax.recovery db_dir/ 4
+```
 
-3. _Metadata around input order for manual input_ - The `resume_state`
-   is the minimum unit of recovery for inputs using a `ManualInputConfig`.
-   You will need to design your input builder to be able to resume from
-   a location of failure. If you're using `KafkaInputConfig`, we handle
-   this for you.
+This will create a set of partitions:
 
-## Enabling Recovery
+```
+$ ls db_dir/
+part-0.sqlite3
+part-1.sqlite3
+part-2.sqlite3
+part-3.sqlite3
+```
 
-Your dataflow needs a few features to enable recovery on Bytewax:
+## Executing with Recovery
 
-1. You must design your [input
-   builder](/docs/getting-started/ins_and_outs) to be able to resume
-   and replay all data from the `resume_state` onwards. Do not
-   ignore this argument!
+To enable recovery when you execute a dataflow, pass the `-r` flag to
+`bytewax.run` and specify the recovery directory.
 
-2. Create a **recovery config** for your workers to know how to
-   connect to the **recovery store**, the database or file system that
-   will store recovery data. See our API docs for `bytewax.recovery`
-   on our supported options.
+```
+$ python -m bytewax.run ... -r db_dir/
+```
 
-3. Pass the recovery config as the `recovery_config` argument to
-   whatever execution [entry point](/docs/getting-started/execution/)
-   (e.g. `cluster_main()`) you are using.
+As the dataflow executes, it now will automatically back up state
+snapshot and progress data.
 
-4. Run the dataflow! Bytewax will automatically snapshots of state and
-   the resume epoch to the recovery store.
+If you terminate the process after 10 seconds, Bytewax will have saved
+snapshots of all operator state.
 
-## Performing Recovery
+## Resuming
 
-If a dataflow has failed, follow this high-level game plan to recover
-and have it resume processing from where it failed:
+If a dataflow aborts, abruptly shuts down, or gracefully exits due to
+EOF, you can resume the dataflow via running it again pointing at the
+same recovery directory. Bytewax will automatically find the most
+recent consistent snapshot to resume from.
 
-1. Terminate the dataflow processes.
+Re-execute the above command and you should see the dataflow resume
+from the last snapshot.
 
-2. Restart your dataflow using the same recovery config. Bytewax will
-   read the input state from the recovery store and resume output
-   from the latest possible location in the stream.
+## Caveats
 
-## Examples
-
-Here are some concrete examples of using the recovery machinery.
-
-- [Recoverable Streaming Shopping Cart Application](/guides/recoverable-streaming-shopping-cart-application)
+Because snapshotting only happens periodically, it is possible that
+your output systems will see duplicate data around resume with some
+input and output connectors. See documentation for each connector for
+how it is designed and what kinds of guarantees it can enable. In
+general, design your systems to be idempotent or support at-least-once
+processing.

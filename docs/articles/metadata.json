@@ -76,6 +76,10 @@
         "filename": "glossary"
       },
       {
+        "title": "Rescaling",
+        "filename": "rescaling"
+      },
+      {
         "title": "Migration Guide",
         "filename": "migration"
       }
