@@ -32,6 +32,9 @@ directory_. Bytewax will automatically read the progress of the
 previous dataflow execution and determine the most recent coordinated
 snapshot to resume processing from.
 
+Caveats
+-------
+
 Because snapshotting only happens periodically, it is possible that
 your output systems will see duplicate data around resume with some
 input and output connectors. See documentation for each connector for
@@ -105,6 +108,9 @@ To enable recovery when you execute a dataflow, pass the `-r` flag to
 ```
 $ python -m bytewax.run ... -r db_dir/
 ```
+
+As the dataflow executes, it now will automatically back up state
+snapshot and progress data.
 
 See the module docstring for `bytewax.run` for more information.
 
