@@ -194,10 +194,6 @@ graph LR;
     I[input] -- "⧖" ----> M[reduce] --> O[output]
 ```
 
-It is this additional layer of abstraction of the long-lived recovery
-partition, the primary assignment system, and the routing system which
-enables start-stop recovery in Bytewax.
-
 As an explicitly worked out example without the ⍷ shorthand, if we had
 a dataflow execution of three workers, periodically writing out state
 snapshots to two recovery partitions:
@@ -249,3 +245,21 @@ graph LR;
         W4I[input] -- "⧖" -----> W4M[reduce] --> W4O[output]
     end
 ```
+
+## Conclusion
+
+The combination of three features enables start-stop rescaling in
+Bytewax:
+
+1. State snapshots are routed in a consistent way to a fixed number of
+   recovery partitions, regardless of cluster size.
+
+2. The primary assignment system that allow distributed reading and
+   writing of recovery partitions.
+
+3. Loaded snapshots and incoming data are routed using the same keys
+   so state is re-distributed across a new execution cluster
+   correctly.
+
+Hopefully, rescaling will be a useful tool for ensuring your dataflows
+have a long and productive life in production.
