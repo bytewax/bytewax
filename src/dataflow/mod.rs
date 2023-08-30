@@ -106,14 +106,23 @@ impl Dataflow {
 
     /// Batch incoming items until either a batch size has been reached or a timeout has passed.
     /// This is a stateful operator.
-    fn batch(&mut self, step_id: StepId, size: usize, timeout: chrono::Duration) {
+    ///
+    /// Args:
+    ///   step_id (str):
+    ///       Uniquely identifies this step for recovery.
+    ///   max_size (int):
+    ///       Maximum size of the batch.
+    ///   timeout (datetime.timedelta):
+    ///       Timeout before emitting the batch, even if max_size
+    ///       was not reached yet.
+    fn batch(&mut self, step_id: StepId, max_size: usize, timeout: chrono::Duration) {
         assert!(
             timeout >= chrono::Duration::zero(),
             "batch timeout should be a positive timedelta"
         );
         self.steps.push(Step::Batch {
             step_id,
-            size,
+            max_size,
             timeout,
         });
     }
@@ -718,12 +727,12 @@ impl Dataflow {
             match step {
                 Step::Batch {
                     step_id,
-                    size,
+                    max_size,
                     timeout,
                 } => {
                     step_dict.set_item("type", "Batch")?;
                     step_dict.set_item("step_id", step_id)?;
-                    step_dict.set_item("size", size)?;
+                    step_dict.set_item("max_size", max_size)?;
                     step_dict.set_item("timeout", timeout)?;
                 }
                 Step::Redistribute => {
@@ -842,7 +851,7 @@ impl Dataflow {
 pub(crate) enum Step {
     Batch {
         step_id: StepId,
-        size: usize,
+        max_size: usize,
         timeout: chrono::Duration,
     },
     Redistribute,

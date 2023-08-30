@@ -17,7 +17,7 @@ def test_batch_operator():
     flow.input("in", TestingInput(in_data))
     # Use a long timeout to avoid triggering that.
     # We can't easily test system time based behavior.
-    flow.batch("batch", size=3, timeout=timedelta(seconds=10))
+    flow.batch("batch", max_size=3, timeout=timedelta(seconds=10))
     out = []
     flow.output("out", TestingOutput(out))
     run_main(flow)

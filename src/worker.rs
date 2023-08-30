@@ -244,7 +244,7 @@ where
             match step {
                 Step::Batch {
                     step_id,
-                    size,
+                    max_size: size,
                     timeout,
                 } => {
                     let (output, snap) = stream.map(extract_state_pair).stateful_unary(

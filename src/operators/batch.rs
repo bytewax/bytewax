@@ -23,9 +23,7 @@ impl BatchLogic {
                 .and_then(|state| -> Option<Vec<TdPyAny>> {
                     unwrap_any!(Python::with_gil(|py| state.extract(py)))
                 })
-                // Since we know the max size of the vec, allocate
-                // with all the necessary capacity here.
-                .unwrap_or_else(|| Vec::with_capacity(size));
+                .unwrap_or_else(Vec::new);
             Self {
                 size,
                 acc,

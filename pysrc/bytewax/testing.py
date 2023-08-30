@@ -4,10 +4,8 @@ from itertools import islice
 from typing import Any, Iterable, Iterator
 
 from bytewax.inputs import (
-    DynamicInput,
     PartitionedInput,
     StatefulSource,
-    StatelessSource,
     batch,
 )
 from bytewax.outputs import DynamicOutput, StatelessSink
@@ -160,62 +158,3 @@ def poll_next_batch(source: StatefulSource, timeout=timedelta(seconds=5)):
             raise TimeoutError()
         batch = source.next_batch()
     return batch
-
-
-class _PeriodicSource(StatelessSource):
-    def __init__(self, should_emit, frequency, limit, cb):
-        self._should_emit = should_emit
-        self._counter = 0
-        self._next_awake = datetime.now(timezone.utc)
-        self._frequency = frequency
-        self._limit = limit
-        self._cb = cb
-
-    def next_batch(self):
-        if not self._should_emit:
-            raise StopIteration()
-
-        self._next_awake += self._frequency
-        self._counter += 1
-
-        if self._limit is not None and self._counter >= self._limit:
-            raise StopIteration()
-
-        return [self._cb(self._counter)]
-
-    def next_awake(self):
-        return self._next_awake
-
-
-class TestingPeriodicInput(DynamicInput):
-    """An input that emits an increasing counter at the requested frequency.
-
-    The counter can be optionally passed to a user provided callback
-    so that items can be modified as needed before being emitted.
-
-    Elements are only emitted on the first worker, all other workers do nothing.
-
-    Args:
-        frequency: The period at which items will be emitted.
-
-        limit: [optional] how many items to emit before stopping.
-
-        cb: [optional] a callback that will be called for each item with the
-            item itself as first and only argument
-    """
-
-    __test__ = False
-
-    def __init__(self, frequency, *, limit=None, cb=None):
-        self._frequency = frequency
-        self._limit = limit
-
-        def default_cb(x):
-            return x
-
-        self._cb = cb or default_cb
-
-    def build(self, worker_index, worker_count):
-        return _PeriodicSource(
-            worker_index == 0, self._frequency, self._limit, self._cb
-        )
