@@ -23,7 +23,7 @@ impl BatchLogic {
                 .and_then(|state| -> Option<Vec<TdPyAny>> {
                     unwrap_any!(Python::with_gil(|py| state.extract(py)))
                 })
-                .unwrap_or_else(Vec::new);
+                .unwrap_or_default();
             Self {
                 size,
                 acc,
