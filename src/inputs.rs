@@ -593,7 +593,7 @@ impl DynamicInput {
         let meter = global::meter("dataflow");
         let counter = meter.u64_counter("dynamic_input.items_total").init();
         let worker_index_label = KeyValue::new("worker_index", worker_index.0.to_string());
-        let step_label = KeyValue::new("step_id", step_id.0.to_string());
+        let step_label = KeyValue::new("step_id", step_id.0);
         let metric_labels = vec![step_label, worker_index_label];
         let histogram = meter
             .f64_histogram("dynamic_input.next_batch.duration")

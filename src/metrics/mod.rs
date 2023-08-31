@@ -48,6 +48,6 @@ pub(crate) fn initialize_metrics() -> PyResult<()> {
             .unwrap(),
         )
         .build();
-    global::set_meter_provider(provider.clone());
+    global::set_meter_provider(provider);
     Ok(())
 }
