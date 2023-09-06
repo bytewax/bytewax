@@ -28,11 +28,11 @@ wc = TumblingWindow(
 flow = Dataflow()
 flow.input("inp", FileInput("examples/sample_data/wordcount.txt"))
 # Full line WITH uppercase
-flow.map(lower)
+flow.map("lower", lower)
 # full line lowercased
-flow.flat_map(tokenize)
+flow.flat_map("tokenize", tokenize)
 # word
-flow.map(initial_count)
+flow.map("initial_count", initial_count)
 # ("word, 1")
 flow.reduce_window(
     "sum",

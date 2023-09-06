@@ -49,9 +49,9 @@ window_config = TumblingWindow(
 
 flow = Dataflow()
 flow.input("inp", FileInput("wordcount.txt"))
-flow.map("lowercase words", lower)
-flow.flat_map("tokenize input", tokenize)
-flow.map("initial count", initial_count)
+flow.map("lowercase_words", lower)
+flow.flat_map("tokenize_input", tokenize)
+flow.map("initial_count", initial_count)
 flow.reduce_window("sum", clock_config, window_config, add)
 flow.output("out", StdOutput())
 ```

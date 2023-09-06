@@ -194,6 +194,7 @@ impl PartitionedInput {
 
         let local_parts = self.list_parts(py).reraise("error listing partitions")?;
         let step_label = KeyValue::new("step_id", step_id.0.to_string());
+        let worker_index_label = KeyValue::new("worker_id", this_worker.0.to_string());
         let part_label_map: HashMap<StateKey, Vec<KeyValue>> = local_parts
             .iter()
             .map(|state_key| {
@@ -201,6 +202,7 @@ impl PartitionedInput {
                     state_key.clone(),
                     vec![
                         step_label.clone(),
+                        worker_index_label.clone(),
                         KeyValue::new("part_id", state_key.0.to_string()),
                     ],
                 )
@@ -592,7 +594,7 @@ impl DynamicInput {
 
         let meter = global::meter("dataflow");
         let counter = meter.u64_counter("dynamic_input.items_total").init();
-        let worker_index_label = KeyValue::new("worker_index", worker_index.0.to_string());
+        let worker_index_label = KeyValue::new("worker_id", worker_index.0.to_string());
         let step_label = KeyValue::new("step_id", step_id.0);
         let metric_labels = vec![step_label, worker_index_label];
         let histogram = meter

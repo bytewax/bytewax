@@ -12,7 +12,7 @@ def test_run(entry_point):
     flow = Dataflow()
     inp = range(3)
     flow.input("inp", TestingInput(inp))
-    flow.map("add one", lambda x: x + 1)
+    flow.map("add_one", lambda x: x + 1)
     out = []
     flow.output("out", TestingOutput(out))
 

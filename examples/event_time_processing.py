@@ -39,7 +39,7 @@ def parse_value(key__data):
     return json.loads(data)
 
 
-flow.map(parse_value)
+flow.map("parse_value", parse_value)
 
 
 # Divide the readings by sensor type, so that we only
@@ -96,5 +96,5 @@ def format_event(event):
     )
 
 
-flow.map(format_event)
+flow.map("format_event", format_event)
 flow.output("out", StdOutput())

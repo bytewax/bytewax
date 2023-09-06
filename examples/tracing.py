@@ -35,7 +35,7 @@ def stringy(x):
 
 flow = Dataflow()
 flow.input("inp", TestingInput(inp()))
-flow.map(double)
-flow.map(minus_one)
-flow.map(stringy)
+flow.map("double", double)
+flow.map("minus_one", minus_one)
+flow.map("stringy", stringy)
 flow.output("out", StdOutput())

@@ -93,11 +93,11 @@ wc = TumblingWindow(
 
 flow = Dataflow()
 flow.input("input", FakeWebEventsInput())
-flow.map(json.loads)
+flow.map("load_json", json.loads)
 # {"page_url_path": "/path", "event_timestamp": "2022-01-02 03:04:05", ...}
-flow.map(add_date_columns)
+flow.map("add_date_columns", add_date_columns)
 # {"page_url_path": "/path", "year": 2022, "month": 1, "day": 5, ... }
-flow.map(group_by_page)
+flow.map("group_by_page", group_by_page)
 # ("/path", DataFrame([{
 #     "page_url_path": "/path",
 #     "year": 2022,

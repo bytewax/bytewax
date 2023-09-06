@@ -210,6 +210,7 @@ where
     A: Allocate,
 {
     let this_worker = worker.w_index();
+    let this_worker_label = KeyValue::new("worker_id", this_worker.0.to_string());
 
     // Remember! Never build different numbers of Timely operators on
     // different workers! Timely does not like that and you'll see a
@@ -316,7 +317,10 @@ where
                         .f64_histogram("map.mapper.duration")
                         .with_description("map step duration in seconds")
                         .init();
-                    let labels = vec![KeyValue::new("step_id", step_id.0)];
+                    let labels = vec![
+                        KeyValue::new("step_id", step_id.0),
+                        this_worker_label.clone(),
+                    ];
                     stream =
                         stream.map(move |item| with_timer!(histogram, labels, map(&mapper, item)));
                 }
@@ -325,7 +329,10 @@ where
                         .f64_histogram("flat_map.mapper.duration")
                         .with_description("flat_map duration in seconds")
                         .init();
-                    let labels = vec![KeyValue::new("step_id", step_id.0)];
+                    let labels = vec![
+                        KeyValue::new("step_id", step_id.0),
+                        this_worker_label.clone(),
+                    ];
                     stream = stream.flat_map(move |item| {
                         with_timer!(histogram, labels, flat_map(&mapper, item))
                     });
@@ -335,7 +342,10 @@ where
                         .f64_histogram("filter.predicate.duration")
                         .with_description("filter predicate duration in seconds")
                         .init();
-                    let labels = vec![KeyValue::new("step_id", step_id.0)];
+                    let labels = vec![
+                        KeyValue::new("step_id", step_id.0),
+                        this_worker_label.clone(),
+                    ];
                     stream = stream.filter(move |item| {
                         with_timer!(histogram, labels, filter(&predicate, item))
                     });
@@ -345,7 +355,10 @@ where
                         .f64_histogram("filter_map.mapper.duration")
                         .with_description("filter_map mapper duration in seconds")
                         .init();
-                    let labels = vec![KeyValue::new("step_id", step_id.0)];
+                    let labels = vec![
+                        KeyValue::new("step_id", step_id.0),
+                        this_worker_label.clone(),
+                    ];
                     stream = stream
                         .map(move |item| with_timer!(histogram, labels, map(&mapper, item)))
                         .filter(move |item| Python::with_gil(|py| !item.is_none(py)));

@@ -219,6 +219,7 @@ where
         let meter = global::meter("dataflow");
         let counter = meter.u64_counter("partitioned_output.items_total").init();
         let step_label = KeyValue::new("step_id", step_id.0.to_string());
+        let worker_index_label = KeyValue::new("worker_id", this_worker.0.to_string());
         let histogram = meter
             .f64_histogram("partitioned_output.duration")
             .with_description("Partitioned output duration in seconds")
@@ -233,6 +234,7 @@ where
                     state_key.clone(),
                     vec![
                         step_label.clone(),
+                        worker_index_label.clone(),
                         KeyValue::new("part_id", state_key.0.to_string()),
                     ],
                 )

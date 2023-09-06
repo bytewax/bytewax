@@ -4,15 +4,10 @@ from datetime import datetime, timedelta, timezone
 
 # pip install aiohttp-sse-client
 from aiohttp_sse_client.client import EventSource
-from bytewax.connectors.files import FileOutput
+from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import PartitionedInput, StatefulSource, batch_async
-from bytewax.tracing import setup_tracing
 from bytewax.window import SystemClockConfig, TumblingWindow
-
-tracer = setup_tracing(
-    log_level="TRACE",
-)
 
 
 async def _sse_agen(url):
@@ -73,4 +68,4 @@ flow.reduce_window(
 flow.stateful_map("keep_max", lambda: 0, keep_max)
 # ("server.name", max_per_window)
 flow.map("format", lambda x: (x[0], f"{x[0]}, {x[1]}"))
-flow.output("out", FileOutput("wikifile.txt"))
+flow.output("out", StdOutput())

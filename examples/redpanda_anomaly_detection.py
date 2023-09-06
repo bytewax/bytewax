@@ -36,7 +36,7 @@ def group_instance_and_normalize(key__data):
     return data["instance"], data
 
 
-flow.map(group_instance_and_normalize)
+flow.map("group_and_normalize", group_instance_and_normalize)
 
 
 class AnomalyDetector(anomaly.HalfSpaceTrees):
@@ -86,6 +86,6 @@ def format_output(event):
     )
 
 
-flow.filter(lambda x: bool(x[1][4]))
-flow.map(format_output)
+flow.filter("filter_anomalies", lambda x: bool(x[1][4]))
+flow.map("format", format_output)
 flow.output("out", StdOutput())

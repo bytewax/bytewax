@@ -21,10 +21,10 @@ def serialize_with_key(key_payload):
     return new_key_bytes, json.dumps(payload).encode("utf-8")
 
 
-flow.map(deserialize)
+flow.map("deserialize", deserialize)
 flow.output("out", StdOutput())
 
-flow.map(serialize_with_key)
+flow.map("serialize_with_key", serialize_with_key)
 flow.output(
     "out",
     KafkaOutput(
