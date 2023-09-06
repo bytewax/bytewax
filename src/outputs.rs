@@ -512,9 +512,7 @@ where
         let mut sink = Some(output.build(py, worker_index, worker_count)?);
 
         let meter = global::meter("dataflow");
-        let counter = meter
-            .u64_counter(format!("dynamic_output.{step_id}.items_total"))
-            .init();
+        let counter = meter.u64_counter("dynamic_output.items_total").init();
         let worker_index_label = KeyValue::new("worker_index", worker_index.0.to_string());
         let step_label = KeyValue::new("step_id", step_id.0.to_string());
         let metric_labels = vec![step_label, worker_index_label];

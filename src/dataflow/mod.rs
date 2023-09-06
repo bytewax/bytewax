@@ -146,7 +146,7 @@ impl Dataflow {
     /// >>> flow.input("inp", TestingInput(range(4)))
     /// >>> def is_odd(item):
     /// ...     return item % 2 != 0
-    /// >>> flow.filter("filter odd", is_odd)
+    /// >>> flow.filter("filter_odd", is_odd)
     /// >>> flow.output("out", StdOutput())
     /// >>> run_main(flow)
     /// 1

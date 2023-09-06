@@ -45,7 +45,7 @@ pub(crate) fn initialize_metrics() -> PyResult<()> {
                     record_min_max: true,
                 }),
             )
-            .unwrap(),
+            .map_err(|err| PyErr::new::<PyRuntimeError, _>(err.to_string()))?,
         )
         .build();
     global::set_meter_provider(provider);
