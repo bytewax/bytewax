@@ -76,6 +76,45 @@ jobs:
           name: wheels
           path: dist
 
+  linux_glibc_227:
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11']
+        target: ['x86_64']
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - uses: mkroening/rust-toolchain-toml@main
+      - name: Run Rust tests
+        run: cargo test --no-default-features
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          command: build
+          container: bytewax/glib-2.27-builder:v2
+          args: --release -o dist -i python${{ matrix.python-version }}
+          sccache: true
+      - name: Run tests
+        shell: bash
+        run: |
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          pip install $WHEEL_FILE'[dev]' -v --force-reinstall
+          PY_IGNORE_IMPORTMISMATCH=1 pytest
+      - name: Upload wheels
+        uses: actions/upload-artifact@v3
+        with:
+          name: wheels
+          path: dist
+
   macos:
     strategy:
       matrix:
