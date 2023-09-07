@@ -102,7 +102,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           command: build
-          args: --release -o dist -i python${{ matrix.python-version }} --compatibility manylinux2010 musllinux_1_1
+          args: --release -o dist -i python${{ matrix.python-version }} --compatibility musllinux_1_1
           sccache: true
       - name: Run tests
         shell: bash
