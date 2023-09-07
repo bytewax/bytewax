@@ -61,7 +61,6 @@ jobs:
         with:
           target: ${{ matrix.target }}
           command: build
-          manylinux: auto
           args: --release -o dist -i python${{ matrix.python-version }}
           sccache: true
       - name: Run tests
@@ -71,6 +70,46 @@ jobs:
           pip install $WHEEL_FILE'[dev]' -v --force-reinstall
           PY_IGNORE_IMPORTMISMATCH=1 pytest
         if: ${{ matrix.target == 'x86_64' }}
+      - name: Upload wheels
+        uses: actions/upload-artifact@v3
+        with:
+          name: wheels
+          path: dist
+
+  linux_musl:
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11']
+        target: ['x86_64']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install musl tools
+        run: sudo apt-get install -y musl-tools
+      - uses: mkroening/rust-toolchain-toml@main
+      - name: Run Rust tests
+        run: cargo test --no-default-features
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          command: build
+          args: --release -o dist -i python${{ matrix.python-version }} --compatibility manylinux2010 musllinux_1_1
+          sccache: true
+      - name: Run tests
+        shell: bash
+        run: |
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          pip install $WHEEL_FILE'[dev]' -v --force-reinstall
+          PY_IGNORE_IMPORTMISMATCH=1 pytest
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
