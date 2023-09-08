@@ -98,9 +98,10 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Sccache Setup
         uses: mozilla-actions/sccache-action@v0.0.3
-      - name: Rust Toolchain
+      - name: Create tmp dir for rust-toolchain
         run: |
-          rustup default 1.68.2
+          mkdir -p ${{ runner.temp }}
+      - uses: mkroening/rust-toolchain-toml@main
       - name: Run Rust tests
         run: cargo test --no-default-features
       - name: Build wheel
