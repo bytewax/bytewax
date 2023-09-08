@@ -96,7 +96,11 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - uses: mkroening/rust-toolchain-toml@main
+      - name: Sccache Setup
+        uses: mozilla-actions/sccache-action@v0.0.3
+      - name: Rust Toolchain
+        run: |
+          rustup default 1.68.2
       - name: Run Rust tests
         run: cargo test --no-default-features
       - name: Build wheel
