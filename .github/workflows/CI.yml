@@ -76,12 +76,15 @@ jobs:
           name: wheels
           path: dist
 
-  linux_musl:
+  linux_glibc_227:
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    runs-on: ubuntu-20.04
     strategy:
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11']
-        target: ['x86_64']
-    runs-on: ubuntu-latest
+    container: bytewax/glib-2.27-builder:v2
     steps:
       - uses: actions/checkout@v3
       - uses: actions/cache@v3
@@ -93,17 +96,22 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Install musl tools
-        run: sudo apt-get install -y musl-tools
       - uses: mkroening/rust-toolchain-toml@main
       - name: Run Rust tests
         run: cargo test --no-default-features
-      - uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          command: build
-          args: --release -o dist -i python${{ matrix.python-version }} --compatibility musllinux_1_1
-          sccache: true
+      - name: Build wheel
+        run: |
+          maturin build --release -o dist --interpreter python${{ matrix.python-version }}
+      - name: Pytest
+        run: |
+          PATH=`echo $PATH | sed -e "s/3.7/${{ matrix.python-version }}/g"`
+          echo $PATH
+          which python
+          python -V
+          pip -V
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          pip install $WHEEL_FILE'[dev]' -v
+          PY_IGNORE_IMPORTMISMATCH=1 pytest
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
