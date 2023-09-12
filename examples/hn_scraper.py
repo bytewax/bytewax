@@ -2,7 +2,6 @@
 from datetime import timedelta
 
 import requests
-from bs4 import BeautifulSoup
 from bytewax.connectors.periodic import SimplePollingInput
 from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
@@ -10,39 +9,33 @@ from bytewax.dataflow import Dataflow
 
 class HNInput(SimplePollingInput):
     def next_item(self):
-        return requests.get("https://news.ycombinator.com")
+        # Extract the first 10 item ids from newstories api.
+        # You can then use the id to fetch metadata about
+        # an hackernews item
+        return requests.get(
+            "https://hacker-news.firebaseio.com/v0/newstories.json"
+        ).json()[:10]
 
 
-def recurse_hn(html: str):
-    webpages = []
-    soup = BeautifulSoup(html, "html.parser")
-    items = soup.select("tr[class='athing']")
-    for lineItem in items:
-        ranking = lineItem.select_one("span[class='rank']").text
-        title = lineItem.find("span", {"class": "titleline"}).text.strip()
+def extract_json(response):
+    return response.json()
 
-        link = lineItem.find("span", {"class": "titleline"}).find("a").get("href")
-        if "item?id=" in link:
-            link = f"https://news.ycombinator.com/{link}"
 
-        webpages.append(
-            {
-                "title": title,
-                "link": link,
-                "ranking": ranking,
-            }
-        )
-    return webpages
+def download_details(hn_id):
+    return requests.get(f"https://hacker-news.firebaseio.com/v0/item/{hn_id}.json")
 
 
 flow = Dataflow()
 flow.input("in", HNInput(timedelta(hours=1)))
-flow.map(lambda res: res.content)
-flow.map(recurse_hn)
 flow.flat_map(lambda x: x)
+# flow.inspect(print)
 # If you run this dataflow with multiple workers, downloads in
 # the next `map` will be parallelized thanks to .redistribute()
 flow.redistribute()
-flow.map(lambda x: {**x, "content": requests.get(x["link"]).content})
-flow.map(lambda x: f"DOWNLOADED {x['title']}")
+flow.map(download_details)
+flow.map(extract_json)
+# flow.inspect(print)
+flow.map(lambda x: {**x, "content": requests.get(x["url"]).content})
+# We could do something useful, but we just print the title instead
+flow.map(lambda x: f"Downloaded: {x['title']}")
 flow.output("out", StdOutput())
