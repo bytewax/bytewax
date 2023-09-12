@@ -29,6 +29,7 @@ system.</p>
 directory</em>. Bytewax will automatically read the progress of the
 previous dataflow execution and determine the most recent coordinated
 snapshot to resume processing from.</p>
+<h2 id="caveats">Caveats</h2>
 <p>Because snapshotting only happens periodically, it is possible that
 your output systems will see duplicate data around resume with some
 input and output connectors. See documentation for each connector for
@@ -81,6 +82,8 @@ directory is fine.</p>
 <code><a title="bytewax.run" href="/apidocs/bytewax.run">bytewax.run</a></code> and specify the recovery directory.</p>
 <pre><code>$ python -m bytewax.run ... -r db_dir/
 </code></pre>
+<p>As the dataflow executes, it now will automatically back up state
+snapshot and progress data.</p>
 <p>See the module docstring for <code><a title="bytewax.run" href="/apidocs/bytewax.run">bytewax.run</a></code> for more information.</p>
 <h2 id="resume">Resume</h2>
 <p>If a dataflow aborts, abruptly shuts down, or gracefully exits due to
@@ -174,6 +177,9 @@ directory_. Bytewax will automatically read the progress of the
 previous dataflow execution and determine the most recent coordinated
 snapshot to resume processing from.
 
+Caveats
+-------
+
 Because snapshotting only happens periodically, it is possible that
 your output systems will see duplicate data around resume with some
 input and output connectors. See documentation for each connector for
@@ -247,6 +253,9 @@ To enable recovery when you execute a dataflow, pass the `-r` flag to
 ```
 $ python -m bytewax.run ... -r db_dir/
 ```
+
+As the dataflow executes, it now will automatically back up state
+snapshot and progress data.
 
 See the module docstring for `bytewax.run` for more information.
 

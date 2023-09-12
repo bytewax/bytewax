@@ -7,6 +7,17 @@ All notable changes to this project will be documented in this file. For help wi
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## v0.17.1
+
+- Adds the `batch` operator to Dataflows. Calling `Dataflow.batch`
+  will batch incoming items until either a batch size has been reached
+  or a timeout has passed.
+
+- Adds the `SimplePollingInput` source. Subclass this input source to
+  periodically source new input for a dataflow.
+
+- Re-adds GLIBC 2.27 builds to support older linux distributions.
+
 ## v0.17.0
 
 ### Changed

@@ -14,7 +14,11 @@ from datetime import datetime, timedelta, timezone
 from itertools import islice
 from typing import Any, Iterable, Iterator
 
-from bytewax.inputs import PartitionedInput, StatefulSource, batch
+from bytewax.inputs import (
+    PartitionedInput,
+    StatefulSource,
+    batch,
+)
 from bytewax.outputs import DynamicOutput, StatelessSink
 
 from .bytewax import cluster_main, run_main
