@@ -44,6 +44,11 @@ class SimplePollingInput(PartitionedInput):
     Subclass this input source and write the `next_item` function
     that will be called at the defined interval.
 
+    Example:
+    >>> class URLInput(SimplePollingInput):
+    >>>     def next_item(self):
+    >>>         return requests.get("https://example.com")
+
     Notes:
     - The `interval` parameter is capped at a minimum of 10ms, but it can be as
       large as needed.
