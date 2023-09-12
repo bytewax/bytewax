@@ -1,10 +1,6 @@
 use opentelemetry::{
     global,
-    sdk::{
-        metrics::{Aggregation, Instrument, MeterProvider, Stream},
-        Resource,
-    },
-    KeyValue,
+    sdk::metrics::{Aggregation, Instrument, MeterProvider, Stream},
 };
 use prometheus::default_registry;
 use pyo3::{exceptions::PyRuntimeError, PyErr, PyResult};
@@ -33,10 +29,9 @@ pub(crate) fn initialize_metrics() -> PyResult<()> {
     // Create a global MeterProvider
     let provider = MeterProvider::builder()
         .with_reader(exporter)
-        .with_resource(Resource::new([KeyValue::new("service.name", "dataflow")])) // TODO: Dataflow name here?
         .with_view(
             opentelemetry_sdk::metrics::new_view(
-                Instrument::new().name("*.duration"), // Must match histogram name
+                Instrument::new().name("*duration*"), // Must match histogram name
                 Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
                     boundaries: vec![
                         0.0, 0.0005, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0,

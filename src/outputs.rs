@@ -216,12 +216,14 @@ where
         let this_worker = self.scope().w_index();
 
         // Set up metrics for this output
-        let meter = global::meter("dataflow");
-        let counter = meter.u64_counter("partitioned_output.items_total").init();
+        let meter = global::meter("bytewax");
+        let counter = meter
+            .u64_counter("bytewax_partitioned_output_items_total")
+            .init();
         let step_label = KeyValue::new("step_id", step_id.0.to_string());
         let worker_index_label = KeyValue::new("worker_id", this_worker.0.to_string());
         let histogram = meter
-            .f64_histogram("partitioned_output.duration")
+            .f64_histogram("bytewax_partitioned_output_duration_seconds")
             .with_description("Partitioned output duration in seconds")
             .init();
 
@@ -513,13 +515,15 @@ where
         let worker_count = self.scope().w_count();
         let mut sink = Some(output.build(py, worker_index, worker_count)?);
 
-        let meter = global::meter("dataflow");
-        let counter = meter.u64_counter("dynamic_output.items_total").init();
-        let worker_index_label = KeyValue::new("worker_index", worker_index.0.to_string());
+        let meter = global::meter("bytewax");
+        let counter = meter
+            .u64_counter("bytewax_dynamic_output_items_total")
+            .init();
         let step_label = KeyValue::new("step_id", step_id.0.to_string());
+        let worker_index_label = KeyValue::new("worker_index", worker_index.0.to_string());
         let metric_labels = vec![step_label, worker_index_label];
         let histogram = meter
-            .f64_histogram("dynamic_output.duration")
+            .f64_histogram("dynamic_output_duration_seconds")
             .with_description("Dynamic output duration in seconds")
             .init();
 

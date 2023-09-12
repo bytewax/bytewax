@@ -211,10 +211,12 @@ impl PartitionedInput {
         let all_parts = local_parts.into_broadcast(scope, S::Timestamp::minimum());
         let primary_updates = all_parts.assign_primaries(format!("{step_id}.assign_primaries"));
 
-        let meter = global::meter("dataflow");
-        let counter = meter.u64_counter("partitioned_input.items_total").init();
+        let meter = global::meter("bytewax");
+        let counter = meter
+            .u64_counter("bytewax_partitioned_input_items_total")
+            .init();
         let histogram = meter
-            .f64_histogram("partitioned_input.next_batch.duration")
+            .f64_histogram("bytewax_partitioned_input_next_batch_duration_seconds")
             .with_description("Partitioned input next_batch duration in seconds")
             .init();
 
@@ -592,13 +594,15 @@ impl DynamicInput {
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
 
-        let meter = global::meter("dataflow");
-        let counter = meter.u64_counter("dynamic_input.items_total").init();
+        let meter = global::meter("bytewax");
+        let counter = meter
+            .u64_counter("bytewax_dynamic_input_items_total")
+            .init();
         let worker_index_label = KeyValue::new("worker_id", worker_index.0.to_string());
         let step_label = KeyValue::new("step_id", step_id.0);
         let metric_labels = vec![step_label, worker_index_label];
         let histogram = meter
-            .f64_histogram("dynamic_input.next_batch.duration")
+            .f64_histogram("bytewax_dynamic_input_next_batch_duration_seconds")
             .with_description("dynamic_input next_batch duration in seconds")
             .init();
 

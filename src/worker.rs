@@ -239,7 +239,7 @@ where
         let mut stream = empty(scope);
 
         // Top level metrics meter
-        let meter = global::meter("dataflow");
+        let meter = global::meter("bytewax");
 
         for step in &flow.steps {
             // All these closure lifetimes are static, so tell
@@ -314,8 +314,8 @@ where
                 }
                 Step::Map { step_id, mapper } => {
                     let histogram = meter
-                        .f64_histogram("map.mapper.duration")
-                        .with_description("map step duration in seconds")
+                        .f64_histogram("bytewax_map_duration_seconds")
+                        .with_description("map mapper fn duration in seconds")
                         .init();
                     let labels = vec![
                         KeyValue::new("step_id", step_id.0),
@@ -326,8 +326,8 @@ where
                 }
                 Step::FlatMap { step_id, mapper } => {
                     let histogram = meter
-                        .f64_histogram("flat_map.mapper.duration")
-                        .with_description("flat_map duration in seconds")
+                        .f64_histogram("bytewax_flat_map_duration_seconds")
+                        .with_description("flat_map mapper fn duration in seconds")
                         .init();
                     let labels = vec![
                         KeyValue::new("step_id", step_id.0),
@@ -339,7 +339,7 @@ where
                 }
                 Step::Filter { step_id, predicate } => {
                     let histogram = meter
-                        .f64_histogram("filter.predicate.duration")
+                        .f64_histogram("bytewax_filter_duration_seconds")
                         .with_description("filter predicate duration in seconds")
                         .init();
                     let labels = vec![
@@ -352,7 +352,7 @@ where
                 }
                 Step::FilterMap { step_id, mapper } => {
                     let histogram = meter
-                        .f64_histogram("filter_map.mapper.duration")
+                        .f64_histogram("bytewax_filter_map_duration_seconds")
                         .with_description("filter_map mapper duration in seconds")
                         .init();
                     let labels = vec![

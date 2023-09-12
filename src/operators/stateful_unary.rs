@@ -198,9 +198,9 @@ where
         let partd_self = self.partition(format!("{step_id}.self_partition"), &workers, self_pf);
         let partd_loads = loads.partition(format!("{step_id}.load_partition"), &workers, loads_pf);
 
-        let meter = global::meter("dataflow");
+        let meter = global::meter("bytewax");
         let logic_histogram = meter
-            .f64_histogram("stateful_unary.logic.duration")
+            .f64_histogram("bytewax_stateful_unary_logic_duration_seconds")
             .with_description("stateful_unary logic duration in seconds")
             .init();
         let labels = vec![
@@ -209,7 +209,7 @@ where
         ];
 
         let snapshot_histogram = meter
-            .f64_histogram("stateful_unary.snapshot.duration")
+            .f64_histogram("bytewax_stateful_unary_snapshot_duration_seconds")
             .with_description("stateful_unary logic snapshot duration in seconds")
             .init();
 
