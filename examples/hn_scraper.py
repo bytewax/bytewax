@@ -17,12 +17,17 @@ class HNInput(SimplePollingInput):
         ).json()[:10]
 
 
-def extract_json(response):
-    return response.json()
+def download_metadata(hn_id):
+    # Given an hacker news id returned from the api, fetch metadata
+    return requests.get(
+        f"https://hacker-news.firebaseio.com/v0/item/{hn_id}.json"
+    ).json()
 
 
-def download_details(hn_id):
-    return requests.get(f"https://hacker-news.firebaseio.com/v0/item/{hn_id}.json")
+def download_content(metadata):
+    content = requests.get(metadata["url"]).content
+    # Return a dict with metadata plus the content of the page
+    return {**metadata, "content": content}
 
 
 flow = Dataflow()
@@ -32,10 +37,9 @@ flow.flat_map(lambda x: x)
 # If you run this dataflow with multiple workers, downloads in
 # the next `map` will be parallelized thanks to .redistribute()
 flow.redistribute()
-flow.map(download_details)
-flow.map(extract_json)
+flow.map(download_metadata)
 # flow.inspect(print)
-flow.map(lambda x: {**x, "content": requests.get(x["url"]).content})
+flow.map(download_content)
 # We could do something useful, but we just print the title instead
 flow.map(lambda x: f"Downloaded: {x['title']}")
 flow.output("out", StdOutput())
