@@ -1,3 +1,5 @@
 [toolchain]
 channel = "1.68.2"
 components = [ "rustfmt", "clippy" ]
+# FYI, if you're going to use rust-analyzer, you'll have to install it
+# manually using `rustup component add rust-analyzer`.

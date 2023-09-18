@@ -1,11 +1,37 @@
 # Bytewax Changelog
 
-All notable changes to this project will be documented in this file. For help with updating to new Bytewax versions, please see the [migration guide](https://bytewax.io/docs/reference/migration).
+All notable changes to this project will be documented in this file.
+For help with updating to new Bytewax versions, please see the
+[migration guide](https://bytewax.io/docs/reference/migration).
 
 ## Latest
 
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
+
+- *Breaking change* Non-linear dataflows are now possible via a fluent
+  API. Each operator method returns a handle to the `Stream`s it
+  produces; add further steps via those returned handles, not the root
+  `Dataflow`. See the migration guide for more info.
+
+- New operators can be added in Python, made by grouping existing
+  operators. See `bytewax.dataflow` module docstring for more info.
+
+- A ton of new operators: `collect`, `count_final`, `count_window`,
+  `flatten`, `inspect_debug`, `join_inner`, `merge`, `split`,
+  `stateful_flat_map`, `unary`, `scheduled_unary`. Documentation for
+  all operators are in `bytewax.operators` now.
+
+- *Breaking change* `step_id` has been renamed to `step_name` and all
+  operators must take a `step_name` argument now.
+
+- *Breaking change* `output` operator does not forward downstream its
+  items. Add operators on the upstream handle instead.
+
+- `fold` and `reduce` operators now have a `eof_is_complete` optional
+  argument.
+
+- `collect_window` operator now can collect into `set`s and `dict`s.
 
 - *Breaking change* IO classes and connectors have been renamed to
   better reflect their semantics and match up with documentation.

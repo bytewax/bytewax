@@ -3,8 +3,10 @@ import datetime
 import inspect
 import json
 import types
+from collections import ChainMap
+from typing import List, Protocol, runtime_checkable
 
-from .bytewax import Dataflow
+from bytewax.dataflow import Dataflow, Operator
 
 
 class DataflowEncoder(json.JSONEncoder):
@@ -46,3 +48,76 @@ class DataflowEncoder(json.JSONEncoder):
 def encode_dataflow(dataflow: Dataflow):
     """Encode this dataflow into JSON."""
     return json.dumps(dataflow, cls=DataflowEncoder, sort_keys=True)
+
+
+@runtime_checkable
+class _Graphable(Protocol):
+    substeps: List[Operator]
+
+    def _get_id(self) -> str:
+        ...
+
+
+def _to_plantuml_step(
+    step: _Graphable,
+    stream_to_orig_port: ChainMap[str, str],
+    recursive: bool = False,
+) -> List[str]:
+    step_id = step.step_id
+    lines = [
+        f"component {step_id} [",
+        f"    {step_id} ({type(step).__name__})",
+        "]",
+        f"component {step_id} " "{",  # noqa: ISC001
+    ]
+
+    inner_lines = []
+
+    for port in step.inp_ports.values():
+        inner_lines.append(f"portin {port.port_id}")
+    for port in step.out_ports.values():
+        inner_lines.append(f"portout {port.port_id}")
+        stream_to_orig_port[port.stream_id] = port.port_id
+
+    for port in step.inp_ports.values():
+        from_port_id = stream_to_orig_port[port.stream_id]
+        if recursive:
+            inner_lines.append(f"{from_port_id} --> {port.port_id} : {port.stream_id}")
+        else:
+            inner_lines.append(f"{from_port_id} --> {port.port_id}")
+
+    if recursive:
+        # Add in an "inner scope". Rewrite the port that originated a
+        # stream from the true output port to the fake input port on
+        # this containing step.
+        stream_to_orig_port = stream_to_orig_port.new_child()
+        for port in step.inp_ports.values():
+            stream_to_orig_port[port.stream_id] = port.port_id
+
+        for substep in step.substeps:
+            inner_lines += _to_plantuml_step(substep, stream_to_orig_port, recursive)
+
+        # Now also connect all the inner outputs to the containing
+        # outputs.
+        if len(step.substeps) > 0:
+            for port in step.out_ports.values():
+                from_port_id = stream_to_orig_port[port.stream_id]
+                inner_lines.append(
+                    f"{from_port_id} --> {port.port_id} : {port.stream_id}"
+                )
+
+    lines += ["    " + line for line in inner_lines]
+
+    lines.append("}")
+    return lines
+
+
+def to_plantuml(step: _Graphable, recursive: bool = False) -> str:
+    lines = [
+        "@startuml",
+    ]
+    stream_to_orig_port = ChainMap()
+    for substep in step.substeps:
+        lines += _to_plantuml_step(substep, stream_to_orig_port, recursive)
+    lines.append("@enduml")
+    return "\n".join(lines)

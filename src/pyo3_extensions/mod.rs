@@ -1,7 +1,5 @@
 //! Newtypes around PyO3 types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
-use crate::errors::PythonException;
-use crate::recovery::StateKey;
 use crate::try_unwrap;
 use crate::unwrap_any;
 use pyo3::basic::CompareOp;
@@ -76,6 +74,12 @@ impl From<&PyString> for TdPyAny {
 impl From<Py<PyAny>> for TdPyAny {
     fn from(x: Py<PyAny>) -> Self {
         Self(x)
+    }
+}
+
+impl<'a> Into<&'a PyObject> for &'a TdPyAny {
+    fn into(self: Self) -> &'a PyObject {
+        &self.0
     }
 }
 
@@ -221,33 +225,6 @@ impl PartialEq for TdPyAny {
     }
 }
 
-/// Turn a Python 2-tuple of `(key, value)` into a Rust 2-tuple for
-/// routing into Timely's stateful operators.
-pub(crate) fn extract_state_pair(key_value_pytuple: TdPyAny) -> (StateKey, TdPyAny) {
-    Python::with_gil(|py| {
-        let (key, value): (TdPyAny, TdPyAny) = unwrap_any!(key_value_pytuple
-            .extract(py)
-            .raise_with::<PyTypeError>(|| format!(
-            "Dataflow requires a `(key, value)` 2-tuple \
-             as input to every stateful operator for routing; \
-             got `{key_value_pytuple:?}` instead"
-        )));
-        let key: StateKey = unwrap_any!(key.extract(py).raise_with::<PyTypeError>(|| format!(
-            "Stateful logic functions must return string or integer keys \
-             in `(key, value)`; got `{key:?}` instead"
-        )));
-        (key, value)
-    })
-}
-
-/// Turn a Rust 2-tuple of `(key, value)` into a Python 2-tuple.
-pub(crate) fn wrap_state_pair(key_value: (StateKey, TdPyAny)) -> TdPyAny {
-    Python::with_gil(|py| {
-        let key_value_pytuple: Py<PyAny> = key_value.into_py(py);
-        key_value_pytuple.into()
-    })
-}
-
 /// A Python iterator that only gets the GIL when calling [`next`] and
 /// automatically wraps in [`TdPyAny`].
 ///
@@ -316,6 +293,10 @@ impl TdPyCallable {
     #[allow(dead_code)]
     pub(crate) fn pickle_new(py: Python) -> Self {
         Self(py.eval("print", None, None).unwrap().into())
+    }
+
+    pub(crate) fn as_ref<'py>(&'py self, py: Python<'py>) -> &'py PyAny {
+        self.0.as_ref(py)
     }
 
     pub(crate) fn clone_ref(&self, py: Python) -> Self {

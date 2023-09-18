@@ -7,6 +7,10 @@ def double(x):
     return x * 2
 
 
+def halve(x):
+    return x // 2
+
+
 def minus_one(x):
     return x - 1
 
@@ -15,9 +19,9 @@ def stringy(x):
     return f"<dance>{x}</dance>"
 
 
-flow = Dataflow()
-flow.input("inp", TestingSource(range(10)))
-flow.map(double)
-flow.map(minus_one)
-flow.map(stringy)
-flow.output("out", StdOutSink())
+flow = Dataflow("basic")
+
+inp = flow.input("inp", TestingSource(range(10)))
+evens, odds = inp.split("e_o", lambda x: x % 2 == 0)
+combo = evens.map("halve", halve).merge("merge", odds.map("double", double))
+combo.map("minus_one", minus_one).map("stringy", stringy).output("out", StdOutSink())

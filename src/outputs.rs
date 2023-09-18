@@ -21,8 +21,7 @@ use timely::progress::Timestamp;
 
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
-use crate::pyo3_extensions::extract_state_pair;
-use crate::pyo3_extensions::wrap_state_pair;
+use crate::operators::ExtractKeyOp;
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::*;
@@ -199,9 +198,7 @@ where
         step_id: StepId,
         sink: FixedPartitionedSink,
         loads: &Stream<S, Snapshot>,
-        // TODO: Make this return a clock stream or no downstream once
-        // we have non-linear dataflows.
-    ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)>;
+    ) -> PyResult<(ClockStream<S>, Stream<S, Snapshot>)>;
 }
 
 impl<S> PartitionedOutputOp<S> for Stream<S, TdPyAny>
@@ -214,7 +211,7 @@ where
         step_id: StepId,
         sink: FixedPartitionedSink,
         loads: &Stream<S, Snapshot>,
-    ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)> {
+    ) -> PyResult<(ClockStream<S>, Stream<S, Snapshot>)> {
         let this_worker = self.scope().w_index();
 
         // Set up metrics for this output
@@ -250,7 +247,7 @@ where
 
         let pf = sink.build_part_assigner(py)?;
         let routed_self = self
-            .map(extract_state_pair)
+            .extract_key(step_id.clone())
             .partition(
                 format!("{step_id}.partition"),
                 &all_parts.map(|(part, _worker)| part),
@@ -317,7 +314,7 @@ where
                             // need to ensure that writes happen in epoch
                             // order.
                             if let Some(part_to_items) = items_inbuf.remove(epoch) {
-                                for (part_key, mut items) in part_to_items {
+                                for (part_key, items) in part_to_items {
                                     let metric_labels = part_label_map
                                         .get(&part_key)
                                         .expect("No metric labels found for part key {part_key}");
@@ -331,22 +328,18 @@ where
                                                 .build_part(py, part_key, None)
                                                 .reraise("error init StatefulSink")))
                                         });
+
+                                    let batch: Vec<_> =
+                                        items.into_iter().map(|(_k, v)| v).collect();
+                                    counter.add(batch.len() as u64, metric_labels);
                                     with_timer!(
                                         histogram,
                                         metric_labels,
-                                        unwrap_any!(Python::with_gil(|py| part.write_batch(
-                                            py,
-                                            items.iter().map(|(_k, v)| v).cloned().collect(),
-                                        )))
+                                        unwrap_any!(Python::with_gil(
+                                            |py| part.write_batch(py, batch,)
+                                        ))
                                     );
-                                    counter.add(items.len() as u64, metric_labels);
-                                    // TODO: Move this back to the close
-                                    // epoch block and .give(()). And
-                                    // remove the clone above.
-                                    clock_output
-                                        .activate()
-                                        .session(clock_cap)
-                                        .give_vec(&mut items);
+
                                     awoken.insert(part_key);
                                 }
                             }
@@ -355,6 +348,8 @@ where
                             let clock_cap = &caps[0];
                             let snaps_cap = &caps[1];
                             let epoch = clock_cap.time();
+
+                            clock_output.activate().session(clock_cap).give(());
 
                             // Always snapshot before building. If we have
                             // an incoming load, it means we have recovery
@@ -409,7 +404,7 @@ where
             }
         });
 
-        Ok((clock.map(wrap_state_pair), snaps))
+        Ok((clock, snaps))
     }
 }
 
@@ -504,7 +499,7 @@ where
         py: Python,
         step_id: StepId,
         sink: DynamicSink,
-    ) -> PyResult<Stream<S, TdPyAny>>;
+    ) -> PyResult<ClockStream<S>>;
 }
 
 impl<S> DynamicOutputOp<S> for Stream<S, TdPyAny>
@@ -516,7 +511,7 @@ where
         py: Python,
         step_id: StepId,
         sink: DynamicSink,
-    ) -> PyResult<Stream<S, TdPyAny>> {
+    ) -> PyResult<ClockStream<S>> {
         let worker_index = self.scope().w_index();
         let worker_count = self.scope().w_count();
         let mut part = Some(sink.build(py, worker_index, worker_count)?);
@@ -543,15 +538,18 @@ where
                         incoming.swap(&mut tmp_incoming);
 
                         let mut output_session = output.session(&cap);
+
+                        let batch = tmp_incoming.split_off(0);
+                        counter.add(batch.len() as u64, &metric_labels);
                         with_timer!(
                             histogram,
                             &metric_labels,
                             unwrap_any!(Python::with_gil(|py| sink
-                                .write_batch(py, tmp_incoming.clone())
+                                .write_batch(py, batch)
                                 .reraise("error writing output batch")))
                         );
-                        counter.add(tmp_incoming.len() as u64, &metric_labels);
-                        output_session.give_vec(&mut tmp_incoming);
+
+                        output_session.give(());
                     });
 
                     if input.frontier().is_empty() {

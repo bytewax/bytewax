@@ -1,11 +1,8 @@
-import operator
 import re
-from datetime import datetime, timedelta, timezone
 
 from bytewax.connectors.files import FileSource
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.window import SystemClockConfig, TumblingWindow
 
 
 def lower(line):
@@ -16,32 +13,16 @@ def tokenize(line):
     return re.findall(r'[^\s!,.?":;0-9]+', line)
 
 
-def initial_count(word):
-    return word, 1
-
-
-cc = SystemClockConfig()
-wc = TumblingWindow(
-    length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
-)
-
-flow = Dataflow()
-flow.input("inp", FileSource("examples/sample_data/wordcount.txt"))
+flow = Dataflow("wordcount")
+lines = flow.input("inp", FileSource("examples/sample_data/wordcount.txt"))
 # Full line WITH uppercase
-flow.map("lower", lower)
+lower_lines = lines.map("lower", lower)
 # full line lowercased
-flow.flat_map("tokenize", tokenize)
-# word
-flow.map("initial_count", initial_count)
-# ("word, 1")
-flow.reduce_window(
-    "sum",
-    SystemClockConfig(),
-    TumblingWindow(
-        length=timedelta(seconds=5),
-        align_to=datetime(2023, 1, 1, tzinfo=timezone.utc),
-    ),
-    operator.add,
+lower_words = lower_lines.flat_map("tokenize", tokenize)
+# "word"
+word_counts = lower_words.count_final(
+    "count",
+    lambda word: word,
 )
 # ("word", count)
-flow.output("out", StdOutSink())
+word_counts.output("out", StdOutSink())

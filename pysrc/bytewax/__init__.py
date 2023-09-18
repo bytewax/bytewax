@@ -5,7 +5,12 @@ scalable dataflows in a streaming or batch context.
 documentation.](https://github.com/bytewax/bytewax)
 
 """  # noqa: D205
+
+import bytewax.dataflow
+import bytewax.operators
+
 __all__ = []
+
 
 __pdoc__ = {
     # This is the PyO3 module that has to be named "bytewax". Hide it
@@ -13,3 +18,7 @@ __pdoc__ = {
     # their final locations.
     "bytewax": False,
 }
+
+
+# Load all the built-in operators under their default names.
+bytewax.dataflow.load_mod_ops(bytewax.operators)

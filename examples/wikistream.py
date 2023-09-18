@@ -1,5 +1,4 @@
 import json
-import operator
 from datetime import datetime, timedelta, timezone
 
 # pip install aiohttp-sse-client
@@ -33,39 +32,45 @@ class WikiSource(FixedPartitionedSource):
     def list_parts(self):
         return ["single-part"]
 
-    def build_part(self, for_key, resume_state):
-        assert for_key == "single-part"
-        assert resume_state is None
+    def build_part(self, _for_key, _resume_state):
         return WikiPartition()
 
 
-def initial_count(data_dict):
-    return data_dict["server_name"], 1
+flow = Dataflow("wikistream")
+inp = flow.input("inp", WikiSource()).map("load_json", json.loads)
+# { "server_name": ..., ... }
+
+
+def get_server_name(data_dict):
+    return data_dict["server_name"]
+
+
+server_counts = inp.count_window(
+    "count",
+    SystemClockConfig(),
+    TumblingWindow(
+        length=timedelta(seconds=2), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+    ),
+    get_server_name,
+)
+# ("server.name", count_per_window)
 
 
 def keep_max(max_count, new_count):
+    if max_count is None:
+        max_count = 0
     new_max = max(max_count, new_count)
     # print(f"Just got {new_count}, old max was {max_count}, new max is {new_max}")
     return new_max, new_max
 
 
-flow = Dataflow()
-flow.input("inp", WikiSource())
-# "event_json"
-flow.map("load_json", json.loads)
-# {"server_name": "server.name", ...}
-flow.map("initial_count", initial_count)
-# ("server.name", 1)
-flow.reduce_window(
-    "sum",
-    SystemClockConfig(),
-    TumblingWindow(
-        length=timedelta(seconds=2), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
-    ),
-    operator.add,
-)
-# ("server.name", sum_per_window)
-flow.stateful_map("keep_max", lambda: 0, keep_max)
+max_count_per_window = server_counts.stateful_map("keep_max", keep_max)
 # ("server.name", max_per_window)
-flow.map("format", lambda x: (x[0], f"{x[0]}, {x[1]}"))
-flow.output("out", StdOutSink())
+
+
+def format_nice(name_max):
+    server_name, max_per_window = name_max
+    return f"{server_name}, {max_per_window}"
+
+
+max_count_per_window.map("format", format_nice).output("out", StdOutSink())

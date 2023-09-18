@@ -32,7 +32,7 @@ use crate::worker::worker_main;
 
 /// Start the tokio runtime for the webserver.
 /// Keep a reference to the runtime for as long as you need it running.
-fn start_server_runtime(df: &Py<Dataflow>) -> PyResult<Runtime> {
+fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
     let mut json_path =
         PathBuf::from(std::env::var("BYTEWAX_DATAFLOW_API_CACHE_PATH").unwrap_or(".".to_string()));
     json_path.push("dataflow.json");
@@ -105,7 +105,7 @@ fn start_server_runtime(df: &Py<Dataflow>) -> PyResult<Runtime> {
 )]
 pub(crate) fn run_main(
     py: Python,
-    flow: Py<Dataflow>,
+    flow: Dataflow,
     epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
@@ -210,7 +210,7 @@ pub(crate) fn run_main(
 )]
 pub(crate) fn cluster_main(
     py: Python,
-    flow: Py<Dataflow>,
+    flow: Dataflow,
     addresses: Option<Vec<String>>,
     proc_id: usize,
     epoch_interval: Option<EpochInterval>,
@@ -326,7 +326,7 @@ pub(crate) fn cluster_main(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn cli_main(
     py: Python,
-    flow: Py<Dataflow>,
+    flow: Dataflow,
     workers_per_process: Option<usize>,
     process_id: Option<usize>,
     addresses: Option<Vec<String>>,
@@ -337,7 +337,7 @@ pub(crate) fn cli_main(
 
     // Initialize the tokio runtime for the webserver if we needed.
     if std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
-        _server_rt = Some(start_server_runtime(&flow)?);
+        _server_rt = Some(start_server_runtime(flow.clone_ref(py))?);
     };
 
     let workers_per_process = workers_per_process.unwrap_or(1);
@@ -370,7 +370,7 @@ pub(crate) fn cli_main(
 )]
 pub(crate) fn test_cluster(
     py: Python,
-    flow: Py<Dataflow>,
+    flow: Dataflow,
     epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
     processes: usize,

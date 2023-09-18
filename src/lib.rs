@@ -1,6 +1,4 @@
 use pyo3::prelude::*;
-use std::thread;
-use std::time::Duration;
 
 pub(crate) mod dataflow;
 pub(crate) mod errors;
@@ -21,29 +19,13 @@ pub(crate) mod worker;
 #[macro_use]
 pub(crate) mod macros;
 
-#[pyfunction]
-fn sleep_keep_gil(secs: u64) {
-    thread::sleep(Duration::from_secs(secs));
-}
-
-#[pyfunction]
-fn sleep_release_gil(py: Python, secs: u64) {
-    py.allow_threads(|| {
-        thread::sleep(Duration::from_secs(secs));
-    });
-}
-
 #[pymodule]
 #[pyo3(name = "bytewax")]
 fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
-    dataflow::register(py, m)?;
-    run::register(py, m)?;
     recovery::register(py, m)?;
-    window::register(py, m)?;
+    run::register(py, m)?;
     tracing::register(py, m)?;
-
-    m.add_function(wrap_pyfunction!(sleep_keep_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(sleep_release_gil, m)?)?;
+    window::register(py, m)?;
 
     Ok(())
 }
