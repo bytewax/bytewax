@@ -112,8 +112,10 @@ def _locate_dataflow(module_name, dataflow_name):
         # Reraise the ImportError if it occurred within the imported module.
         # Determine this by checking whether the trace has a depth > 1.
         if sys.exc_info()[2].tb_next:
-            msg = f"While importing {module_name!r}, an ImportError was raised:\n\n"
-            f"{traceback.format_exc()}"
+            msg = (
+                f"While importing {module_name!r}, an ImportError was raised:\n\n"
+                f"{traceback.format_exc()}"
+            )
             raise ImportError(msg) from None
         else:
             msg = f"Could not import {module_name!r}."

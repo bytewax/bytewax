@@ -284,6 +284,12 @@ impl RecoveryConfig {
     pub(crate) fn build(&self, py: Python) -> PyResult<(RecoveryBundle, BackupInterval)> {
         let mut part_paths = HashMap::new();
         let sqlite_ext = OsStr::new("sqlite3");
+        if !self.db_dir.is_dir() {
+            return Err(PyFileNotFoundError::new_err(format!(
+                "recovery directory {:?} does not exist; see the `bytewax.recovery` module docstring for more info",
+                self.db_dir
+            )));
+        }
         for entry in fs::read_dir(self.db_dir.clone()).reraise("Error listing recovery DB dir")? {
             let path = entry.reraise("Error accessing recovery DB file")?.path();
             if path.extension().map_or(false, |ext| *ext == *sqlite_ext) {
@@ -1252,6 +1258,12 @@ fn resume_from_inconsistent_error() {
 #[pyfunction]
 fn init_db_dir(py: Python, db_dir: PathBuf, count: PartitionCount) -> PyResult<()> {
     tracing::warn!("Creating {count:?} recovery partitions in {db_dir:?}");
+    if !db_dir.is_dir() {
+        return Err(PyFileNotFoundError::new_err(format!(
+            "recovery directory {:?} does not exist; please create it with `mkdir`",
+            db_dir
+        )));
+    }
     for index in count.iter() {
         let part_file = db_dir.join(format!("part-{}.sqlite3", index.0));
         RecoveryPart::init(py, &part_file, index, count)
