@@ -1260,8 +1260,8 @@ fn init_db_dir(py: Python, db_dir: PathBuf, count: PartitionCount) -> PyResult<(
     tracing::warn!("Creating {count:?} recovery partitions in {db_dir:?}");
     if !db_dir.is_dir() {
         return Err(PyFileNotFoundError::new_err(format!(
-            "recovery directory \"{}\" does not exist; please create it with `mkdir`",
-            db_dir.display(),
+            "recovery directory {:?} does not exist; please create it with `mkdir`",
+            db_dir
         )));
     }
     for index in count.iter() {
