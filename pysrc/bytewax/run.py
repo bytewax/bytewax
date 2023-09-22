@@ -171,8 +171,10 @@ def _locate_dataflow(module_name, dataflow_name):
             if not _called_with_wrong_args(attr):
                 raise
 
-            msg = f"The factory {dataflow_name!r} in module {module.__name__!r} "
-            "could not be called with the specified arguments"
+            msg = (
+                f"The factory {dataflow_name!r} in module {module.__name__!r} "
+                "could not be called with the specified arguments"
+            )
             raise TypeError(msg) from e
     else:
         dataflow = attr
@@ -180,8 +182,10 @@ def _locate_dataflow(module_name, dataflow_name):
     if isinstance(dataflow, Dataflow):
         return dataflow
 
-    msg = "A valid Bytewax dataflow was not obtained from "
-    f"'{module.__name__}:{dataflow_name}'"
+    msg = (
+        "A valid Bytewax dataflow was not obtained from "
+        f"'{module.__name__}:{dataflow_name}'"
+    )
     raise RuntimeError(msg)
 
 
