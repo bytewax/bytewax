@@ -46,7 +46,13 @@ Setup
 -----
 
 Recovery partitions must be pre-initialized before running the
-dataflow initially. This is done by executing this module:
+dataflow initially. First, create the directory to hold the partitions.
+
+```
+$ mkdir db_dir
+```
+
+Then create the partitions by executing this module:
 
 ```
 $ python -m bytewax.recovery db_dir/ 4
