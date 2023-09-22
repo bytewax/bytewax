@@ -286,8 +286,8 @@ impl RecoveryConfig {
         let sqlite_ext = OsStr::new("sqlite3");
         if !self.db_dir.is_dir() {
             return Err(PyFileNotFoundError::new_err(format!(
-                "recovery directory \"{}\" does not exist; see the `bytewax.recovery` module docstring for more info",
-                self.db_dir.display(),
+                "recovery directory {:?} does not exist; see the `bytewax.recovery` module docstring for more info",
+                self.db_dir
             )));
         }
         for entry in fs::read_dir(self.db_dir.clone()).reraise("Error listing recovery DB dir")? {
