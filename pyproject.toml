@@ -49,7 +49,7 @@ fmt = [
 dev = [
     "bytewax[kafka,test,docs,fmt]",
     "pre-commit==2.19.0",
-    "ruff==0.0.284",
+    "ruff==0.0.291",
 ]
 
 [project.urls]
@@ -84,6 +84,12 @@ select = [
     "EM",
     "F",
     "I",
+    "ISC",
+    "PL",
+    "W",
+]
+ignore = [
+    "PLR",
 ]
 
 [tool.ruff.pydocstyle]
