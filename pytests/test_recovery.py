@@ -36,7 +36,7 @@ def build_keep_max_dataflow(inp, explode_on):
             raise RuntimeError(msg)
         return key, value
 
-    flow.map(trigger)
+    flow.map("trigger", trigger)
 
     def keep_max(previous_max, new_item):
         if previous_max is None:

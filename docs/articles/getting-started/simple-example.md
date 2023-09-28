@@ -49,9 +49,9 @@ window_config = TumblingWindow(
 
 flow = Dataflow()
 flow.input("inp", FileInput("wordcount.txt"))
-flow.map(lower)
-flow.flat_map(tokenize)
-flow.map(initial_count)
+flow.map("lowercase_words", lower)
+flow.flat_map("tokenize_input", tokenize)
+flow.map("initial_count", initial_count)
 flow.reduce_window("sum", clock_config, window_config, add)
 flow.output("out", StdOutput())
 ```
@@ -142,7 +142,7 @@ def lower(line):
     return line.lower()
 
 
-flow.map(lower)
+flow.map("lowercase_words", lower)
 ```
 
 For each item that our generator produces, the map operator will use the [built-in string function `lower()`](https://docs.python.org/3/library/stdtypes.html#str.lower) to emit downstream a copy of the string with all characters converted to lowercase.
@@ -174,7 +174,7 @@ results in:
 To make use of `tokenize` function, we'll use the [flat map operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.flat_map):
 
 ```python
-flow.flat_map(tokenize)
+flow.flat_map("tokenize", tokenize)
 ```
 
 The flat map operator defines a step which calls a function on each input item. Each word in the list we return from our function will then be emitted downstream individually.
@@ -200,7 +200,7 @@ window_config = TumblingWindow(
     length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
 )
 
-flow.map(initial_count)
+flow.map("initial_count", initial_count)
 flow.reduce_window("sum", clock_config, window_config, add)
 ```
 

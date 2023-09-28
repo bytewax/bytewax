@@ -43,7 +43,7 @@ from bytewax.connectors.stdio import StdOutput
 
 flow = Dataflow()
 flow.input("inp", TestingInput(range(3)))
-flow.map(lambda item: item + 1)
+flow.map("add_one", lambda item: item + 1)
 flow.output("out", StdOutput())
 ```
 
@@ -71,7 +71,7 @@ from bytewax.connectors.stdio import StdOutput
 def get_flow(input_range):
     flow = Dataflow()
     flow.input("inp", TestingInput(range(input_range)))
-    flow.map(lambda item: item + 1)
+    flow.map("add_one", lambda item: item + 1)
     flow.output("out", StdOutput())
     return flow
 ```

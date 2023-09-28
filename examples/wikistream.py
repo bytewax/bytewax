@@ -52,9 +52,9 @@ def keep_max(max_count, new_count):
 flow = Dataflow()
 flow.input("inp", WikiStreamInput())
 # "event_json"
-flow.map(json.loads)
+flow.map("load_json", json.loads)
 # {"server_name": "server.name", ...}
-flow.map(initial_count)
+flow.map("initial_count", initial_count)
 # ("server.name", 1)
 flow.reduce_window(
     "sum",
@@ -67,4 +67,5 @@ flow.reduce_window(
 # ("server.name", sum_per_window)
 flow.stateful_map("keep_max", lambda: 0, keep_max)
 # ("server.name", max_per_window)
+flow.map("format", lambda x: (x[0], f"{x[0]}, {x[1]}"))
 flow.output("out", StdOutput())

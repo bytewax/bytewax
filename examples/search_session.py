@@ -102,17 +102,17 @@ def calc_ctr(search_session):
 flow = Dataflow()
 flow.input("inp", TestingInput(IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS))
 # event
-flow.map(initial_session)
+flow.map("initial_session", initial_session)
 # (user, [event])
 # TODO: reduce_window with clock so we can get the mean CTR per minute.
 flow.reduce("sessionizer", operator.add, session_has_closed)
 # (user, [event, ...])
-flow.map(remove_key)
+flow.map("remove_key", remove_key)
 # [event, ...]
 # Take a user session and split it up into a search session, one per
 # search.
-flow.flat_map(split_into_searches)
-flow.filter(has_search)
+flow.flat_map("split_into_searches", split_into_searches)
+flow.filter("filter_search", has_search)
 # Calculate search CTR per search.
-flow.map(calc_ctr)
+flow.map("calc_ctr", calc_ctr)
 flow.output("out", StdOutput())

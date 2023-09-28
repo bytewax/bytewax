@@ -40,7 +40,7 @@ flow = Dataflow()
 flow.input("inp", TestingInput(inp))
 
 # Operate on input
-flow.flat_map(split_sentence)
+flow.flat_map("split", split_sentence)
 
 flow.output("out", StdOutput())
 run_main(flow)
@@ -57,7 +57,7 @@ flow = Dataflow()
 flow.input("inp", TestingInput(inp))
 
 # Operate on input
-flow.flat_map(lambda s: s.split())
+flow.flat_map("split", lambda s: s.split())
 
 flow.output("out", StdOutput())
 run_main(flow)
@@ -74,7 +74,7 @@ flow = Dataflow()
 flow.input("inp", TestingInput(inp))
 
 # Operate on input
-flow.flat_map(str.split)
+flow.flat_map("str_split", str.split)
 
 flow.output("out", StdOutput())
 run_main(flow)
@@ -163,11 +163,11 @@ def user_reducer(all_events, new_events):
 
 def collect_user_events(flow, clock, window):
     # event
-    flow.map(lambda e: (e["user_id"], [e["type"]]))
+    flow.map("key_by_user_id", lambda e: (e["user_id"], [e["type"]]))
     # (user_id, [event])
     flow.reduce_window("reducer", clock, window, user_reducer)
     # (user_id, events_for_user)
-    flow.map(lambda e: {"user_id": e[0], "all_events": e[1]})
+    flow.map("collected_events", lambda e: {"user_id": e[0], "all_events": e[1]})
 
 
 clock = SystemClockConfig()

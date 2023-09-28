@@ -58,7 +58,7 @@ def test_map():
     def add_one(item):
         return item + 1
 
-    flow.map(add_one)
+    flow.map("add_one", add_one)
 
     out = []
     flow.output("out", TestingOutput(out))
@@ -79,7 +79,7 @@ def test_filter_map():
             return None
         return item + 1
 
-    flow.filter_map(make_odd)
+    flow.filter_map("make_odd", make_odd)
 
     out = []
     flow.output("out", TestingOutput(out))
@@ -98,7 +98,7 @@ def test_flat_map():
     def split_into_words(sentence):
         return sentence.split()
 
-    flow.flat_map(split_into_words)
+    flow.flat_map("split_into_words", split_into_words)
 
     out = []
     flow.output("out", TestingOutput(out))
@@ -117,7 +117,7 @@ def test_filter():
     def is_odd(item):
         return item % 2 != 0
 
-    flow.filter(is_odd)
+    flow.filter("is_odd", is_odd)
 
     out = []
     flow.output("out", TestingOutput(out))
@@ -191,12 +191,12 @@ def test_reduce(recovery_config):
         else:
             return [item]
 
-    flow.flat_map(trigger)
+    flow.flat_map("trigger", trigger)
 
     def user_as_key(event):
         return (event["user"], [event])
 
-    flow.map(user_as_key)
+    flow.map("user_as_key", user_as_key)
 
     def extend_session(session, event):
         return session + event
@@ -268,12 +268,12 @@ def test_stateful_map(recovery_config):
         else:
             return [item]
 
-    flow.flat_map(trigger)
+    flow.flat_map("trigger", trigger)
 
     def add_key(item):
         return item, item
 
-    flow.map(add_key)
+    flow.map("add_key", add_key)
 
     def build_seen():
         return set()
@@ -294,7 +294,7 @@ def test_stateful_map(recovery_config):
         else:
             return []
 
-    flow.flat_map(remove_seen)
+    flow.flat_map("remove_seen", remove_seen)
 
     out = []
     flow.output("out", TestingOutput(out))
@@ -370,7 +370,7 @@ def test_stateful_map_error_on_non_string_key():
         # strings.
         return event["user"], event
 
-    flow.map(add_key)
+    flow.map("add_key", add_key)
 
     def running_count(type_to_count, event):
         type_to_count[event["type"]] += 1
@@ -420,7 +420,7 @@ def test_reduce_window(recovery_config):
         else:
             return [item]
 
-    flow.flat_map(trigger)
+    flow.flat_map("trigger", trigger)
 
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(0)
@@ -437,7 +437,7 @@ def test_reduce_window(recovery_config):
         key, event = key__event
         return (key, event["val"])
 
-    flow.map(extract_val)
+    flow.map("extract_val", extract_val)
 
     out = []
     flow.output("out", TestingOutput(out))
@@ -493,12 +493,12 @@ def test_fold_window(recovery_config):
         else:
             return [item]
 
-    flow.flat_map(trigger)
+    flow.flat_map("trigger", trigger)
 
     def key_off_user(event):
         return (event["user"], event)
 
-    flow.map(key_off_user)
+    flow.map("key_off_user", key_off_user)
 
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
@@ -565,7 +565,7 @@ def test_collect_window(recovery_config):
         else:
             return [item]
 
-    flow.flat_map(trigger)
+    flow.flat_map("trigger", trigger)
 
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(0)

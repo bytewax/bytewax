@@ -4,6 +4,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
+use opentelemetry::global;
+use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -43,6 +45,7 @@ use crate::timely::AsWorkerExt;
 use crate::window::clock::ClockBuilder;
 use crate::window::StatefulWindowUnary;
 use crate::window::WindowBuilder;
+use crate::with_timer;
 
 /// Bytewax worker.
 ///
@@ -208,6 +211,7 @@ where
     A: Allocate,
 {
     let this_worker = worker.w_index();
+    let this_worker_label = KeyValue::new("worker_id", this_worker.0.to_string());
 
     // Remember! Never build different numbers of Timely operators on
     // different workers! Timely does not like that and you'll see a
@@ -234,6 +238,9 @@ where
         // Start with an empty stream. We might overwrite it with
         // input later.
         let mut stream = empty(scope);
+
+        // Top level metrics meter
+        let meter = global::meter("bytewax");
 
         for step in &flow.steps {
             // All these closure lifetimes are static, so tell
@@ -323,18 +330,55 @@ where
                         return Err(tracked_err::<PyTypeError>("unknown input type"));
                     }
                 }
-                Step::Map { mapper } => {
-                    stream = stream.map(move |item| map(&mapper, item));
+                Step::Map { step_id, mapper } => {
+                    let histogram = meter
+                        .f64_histogram("bytewax_map_duration_seconds")
+                        .with_description("map mapper fn duration in seconds")
+                        .init();
+                    let labels = vec![
+                        KeyValue::new("step_id", step_id.0),
+                        this_worker_label.clone(),
+                    ];
+                    stream =
+                        stream.map(move |item| with_timer!(histogram, labels, map(&mapper, item)));
                 }
-                Step::FlatMap { mapper } => {
-                    stream = stream.flat_map(move |item| flat_map(&mapper, item));
+                Step::FlatMap { step_id, mapper } => {
+                    let histogram = meter
+                        .f64_histogram("bytewax_flat_map_duration_seconds")
+                        .with_description("flat_map mapper fn duration in seconds")
+                        .init();
+                    let labels = vec![
+                        KeyValue::new("step_id", step_id.0),
+                        this_worker_label.clone(),
+                    ];
+                    stream = stream.flat_map(move |item| {
+                        with_timer!(histogram, labels, flat_map(&mapper, item))
+                    });
                 }
-                Step::Filter { predicate } => {
-                    stream = stream.filter(move |item| filter(&predicate, item));
+                Step::Filter { step_id, predicate } => {
+                    let histogram = meter
+                        .f64_histogram("bytewax_filter_duration_seconds")
+                        .with_description("filter predicate duration in seconds")
+                        .init();
+                    let labels = vec![
+                        KeyValue::new("step_id", step_id.0),
+                        this_worker_label.clone(),
+                    ];
+                    stream = stream.filter(move |item| {
+                        with_timer!(histogram, labels, filter(&predicate, item))
+                    });
                 }
-                Step::FilterMap { mapper } => {
+                Step::FilterMap { step_id, mapper } => {
+                    let histogram = meter
+                        .f64_histogram("bytewax_filter_map_duration_seconds")
+                        .with_description("filter_map mapper duration in seconds")
+                        .init();
+                    let labels = vec![
+                        KeyValue::new("step_id", step_id.0),
+                        this_worker_label.clone(),
+                    ];
                     stream = stream
-                        .map(move |item| map(&mapper, item))
+                        .map(move |item| with_timer!(histogram, labels, map(&mapper, item)))
                         .filter(move |item| Python::with_gil(|py| !item.is_none(py)));
                 }
                 Step::FoldWindow {

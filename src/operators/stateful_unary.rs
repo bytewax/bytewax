@@ -20,6 +20,8 @@ use std::task::Poll;
 
 use chrono::DateTime;
 use chrono::Utc;
+use opentelemetry::global;
+use opentelemetry::KeyValue;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
@@ -38,6 +40,7 @@ use crate::timely::*;
 
 pub(crate) use crate::recovery::*;
 use crate::unwrap_any;
+use crate::with_timer;
 
 /// If a [`StatefulLogic`] for a key should be retained by
 /// [`StatefulUnary::stateful_unary`].
@@ -194,6 +197,21 @@ where
         let loads_pf = BuildHasherDefault::<DefaultHasher>::default();
         let partd_self = self.partition(format!("{step_id}.self_partition"), &workers, self_pf);
         let partd_loads = loads.partition(format!("{step_id}.load_partition"), &workers, loads_pf);
+
+        let meter = global::meter("bytewax");
+        let logic_histogram = meter
+            .f64_histogram("bytewax_stateful_unary_logic_duration_seconds")
+            .with_description("stateful_unary logic duration in seconds")
+            .init();
+        let labels = vec![
+            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("worker_id", this_worker.0.to_string()),
+        ];
+
+        let snapshot_histogram = meter
+            .f64_histogram("bytewax_stateful_unary_snapshot_duration_seconds")
+            .with_description("stateful_unary logic snapshot duration in seconds")
+            .init();
 
         let op_name = format!("{step_id}.stateful_unary");
         let mut op_builder = OperatorBuilder::new(op_name.clone(), self.scope());
@@ -418,7 +436,7 @@ where
                                 let mut logic = current_logic
                                     .remove(&key)
                                     .unwrap_or_else(|| logic_builder(None));
-                                let output = logic.on_awake(next_value);
+                                let output = with_timer!(logic_histogram, labels, logic.on_awake(next_value));
                                 output_session.give_iterator(
                                     output.into_iter().map(|item| (key.clone(), item)),
                                 );
@@ -474,7 +492,7 @@ where
                                     // awake at value, if any.
                                     let change = if let Some(logic) = current_logic.get(&state_key)
                                     {
-                                        let logic_state = logic.snapshot();
+                                        let logic_state = with_timer!(snapshot_histogram, labels, logic.snapshot());
                                         let next_awake =
                                             current_next_awake.get(&state_key).cloned();
                                         let state = unwrap_any!(Python::with_gil(

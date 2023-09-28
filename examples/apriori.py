@@ -47,9 +47,9 @@ wc = TumblingWindow(
 out = []
 flow = Dataflow()
 flow.input("inp", FileInput("examples/sample_data/apriori.txt"))
-flow.map(lower)
-flow.flat_map(tokenize)
-flow.map(initial_count)
+flow.map("lower", lower)
+flow.flat_map("tokenize", tokenize)
+flow.map("initial_count", initial_count)
 flow.reduce_window("reduce", cc, wc, operator.add)
 flow.output("out", TestingOutput(out))
 
@@ -57,10 +57,12 @@ flow.output("out", TestingOutput(out))
 out2 = []
 flow2 = Dataflow()
 flow2.input("input", FileInput("examples/sample_data/apriori.txt"))
-flow2.map(lower)
-flow2.filter(is_most_common)  # count basket only with popular products
-flow2.flat_map(build_pairs)
-flow2.map(initial_count)
+flow2.map("lower", lower)
+flow2.filter(
+    "is_most_common", is_most_common
+)  # count basket only with popular products
+flow2.flat_map("build_pairs", build_pairs)
+flow2.map("initial_count", initial_count)
 flow2.reduce_window("reduce", cc, wc, operator.add)
 flow2.output("out", TestingOutput(out2))
 

@@ -5,10 +5,13 @@
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 
 use chrono::DateTime;
 use chrono::Duration;
 use chrono::Utc;
+use opentelemetry::global;
+use opentelemetry::KeyValue;
 use pyo3::exceptions::PyStopIteration;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
@@ -27,6 +30,7 @@ use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
 use crate::timely::*;
 use crate::unwrap_any;
+use crate::with_timer;
 
 const DEFAULT_COOLDOWN: Duration = Duration::milliseconds(1);
 
@@ -189,8 +193,32 @@ impl PartitionedInput {
         let this_worker = scope.w_index();
 
         let local_parts = self.list_parts(py).reraise("error listing partitions")?;
+        let step_label = KeyValue::new("step_id", step_id.0.to_string());
+        let worker_index_label = KeyValue::new("worker_id", this_worker.0.to_string());
+        let part_label_map: HashMap<StateKey, Vec<KeyValue>> = local_parts
+            .iter()
+            .map(|state_key| {
+                (
+                    state_key.clone(),
+                    vec![
+                        step_label.clone(),
+                        worker_index_label.clone(),
+                        KeyValue::new("part_id", state_key.0.to_string()),
+                    ],
+                )
+            })
+            .collect();
         let all_parts = local_parts.into_broadcast(scope, S::Timestamp::minimum());
         let primary_updates = all_parts.assign_primaries(format!("{step_id}.assign_primaries"));
+
+        let meter = global::meter("bytewax");
+        let counter = meter
+            .u64_counter("bytewax_partitioned_input_items_total")
+            .init();
+        let histogram = meter
+            .f64_histogram("bytewax_partitioned_input_next_batch_duration_seconds")
+            .with_description("Partitioned input next_batch duration in seconds")
+            .init();
 
         let routed_loads = loads
             .filter_snaps(step_id.clone())
@@ -332,14 +360,23 @@ impl PartitionedInput {
                                 *part_state.downstream_cap.time() == *part_state.snap_cap.time()
                             );
                             let epoch = part_state.downstream_cap.time();
+                            let metric_labels = part_label_map
+                                .get(part_key)
+                                .expect("No metric labels found for part key {part_key}");
 
                             if !probe.less_than(epoch) && now >= part_state.next_awake {
                                 if let Some(mut batch) =
-                                    unwrap_any!(Python::with_gil(|py| part_state
-                                        .part
-                                        .next_batch(py).reraise("error getting next input batch")))
+                                    with_timer!(
+                                        histogram, metric_labels,
+                                        unwrap_any!(
+                                            Python::with_gil(|py| part_state
+                                                             .part
+                                                             .next_batch(py).reraise("error getting next input batch"))
+                                        )
+                                    )
                                 {
                                     if !batch.is_empty() {
+                                        counter.add(batch.len() as u64, metric_labels);
                                         handle
                                             .session(&part_state.downstream_cap)
                                             .give_vec(&mut batch);
@@ -557,6 +594,18 @@ impl DynamicInput {
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
 
+        let meter = global::meter("bytewax");
+        let counter = meter
+            .u64_counter("bytewax_dynamic_input_items_total")
+            .init();
+        let worker_index_label = KeyValue::new("worker_id", worker_index.0.to_string());
+        let step_label = KeyValue::new("step_id", step_id.0);
+        let metric_labels = vec![step_label, worker_index_label];
+        let histogram = meter
+            .f64_histogram("bytewax_dynamic_input_next_batch_duration_seconds")
+            .with_description("dynamic_input next_batch duration in seconds")
+            .init();
+
         op_builder.build(move |mut init_caps| {
             let now = Utc::now();
 
@@ -585,12 +634,16 @@ impl DynamicInput {
                         let epoch = part_state.output_cap.time();
 
                         if !probe.less_than(epoch) && now >= part_state.next_awake {
-                            if let Some(mut batch) = unwrap_any!(Python::with_gil(|py| part_state
-                                .part
-                                .next_batch(py)
-                                .reraise("error getting next input batch")))
-                            {
+                            if let Some(mut batch) = with_timer!(
+                                histogram,
+                                metric_labels,
+                                unwrap_any!(Python::with_gil(|py| part_state
+                                    .part
+                                    .next_batch(py)
+                                    .reraise("error getting next input batch")))
+                            ) {
                                 if !batch.is_empty() {
+                                    counter.add(batch.len() as u64, &metric_labels);
                                     output_wrapper
                                         .activate()
                                         .session(&part_state.output_cap)

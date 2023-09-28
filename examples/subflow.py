@@ -13,7 +13,7 @@ def calc_counts(flow):
     """Add steps to this flow which counts the frequencies of input
     items and emits (item, count) tuples downstream."""
     # `str` format required for reduce_window key
-    flow.map(lambda x: (str(x), 1))
+    flow.map("add_key", lambda x: (str(x), 1))
     flow.reduce_window(
         "sum",
         SystemClockConfig(),
@@ -44,13 +44,13 @@ def format_output(count_count):
 flow = Dataflow()
 flow.input("inp", FileInput("examples/sample_data/wordcount.txt"))
 # "at this point we have full sentences as items in the dataflow"
-flow.flat_map(str.split)
+flow.flat_map("split", str.split)
 # "words"
 calc_counts(flow)
 # ("word", count)
-flow.map(get_count)
+flow.map("get_count", get_count)
 # count
 calc_counts(flow)
-flow.map(format_output)
+flow.map("format_output", format_output)
 # (that_same_count, num_words_with_the_same_count)
 flow.output("out", StdOutput())

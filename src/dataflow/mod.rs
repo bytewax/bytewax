@@ -139,7 +139,7 @@ impl Dataflow {
     ///
     /// Args:
     ///   step_id (str):
-    ///       Uniquely identifies this step for recovery.
+    ///       Uniquely identifies this step.
     ///   output (bytewax.outputs.Output):
     ///       Output definition.
     fn output(&mut self, step_id: StepId, output: Output) {
@@ -169,17 +169,19 @@ impl Dataflow {
     /// >>> flow.input("inp", TestingInput(range(4)))
     /// >>> def is_odd(item):
     /// ...     return item % 2 != 0
-    /// >>> flow.filter(is_odd)
+    /// >>> flow.filter("filter_odd", is_odd)
     /// >>> flow.output("out", StdOutput())
     /// >>> run_main(flow)
     /// 1
     /// 3
     ///
     /// Args:
+    ///   step_id (str):
+    ///       Uniquely identifies this step.
     ///   predicate:
     ///       `predicate(item: Any) => should_emit: bool`
-    fn filter(&mut self, predicate: TdPyCallable) {
-        self.steps.push(Step::Filter { predicate });
+    fn filter(&mut self, step_id: StepId, predicate: TdPyCallable) {
+        self.steps.push(Step::Filter { step_id, predicate });
     }
 
     /// Filter map acts as a normal map function,
@@ -193,13 +195,15 @@ impl Dataflow {
     /// ...     else:
     /// ...         return data["key"], data
     /// ...
-    /// >>> flow.filter_map(validate)
+    /// >>> flow.filter_map("validate", validate)
     ///
     /// Args:
+    ///     step_id (str):
+    ///       Uniquely identifies this step.
     ///     mapper:
     ///         `mapper(item: Any) => modified_item: Optional[Any]`
-    fn filter_map(&mut self, mapper: TdPyCallable) {
-        self.steps.push(Step::FilterMap { mapper });
+    fn filter_map(&mut self, step_id: StepId, mapper: TdPyCallable) {
+        self.steps.push(Step::FilterMap { step_id, mapper });
     }
 
     /// Flat map is a one-to-many transformation of items.
@@ -224,17 +228,19 @@ impl Dataflow {
     /// >>> flow.input("inp", TestingInput(inp))
     /// >>> def split_into_words(sentence):
     /// ...     return sentence.split()
-    /// >>> flow.flat_map(split_into_words)
+    /// >>> flow.flat_map("split_words", split_into_words)
     /// >>> flow.output("out", StdOutput())
     /// >>> run_main(flow)
     /// hello
     /// world
     ///
     /// Args:
+    ///   step_id (str):
+    ///       Uniquely identifies this step.
     ///   mapper:
     ///       `mapper(item: Any) => emit: Iterable[Any]`
-    fn flat_map(&mut self, mapper: TdPyCallable) {
-        self.steps.push(Step::FlatMap { mapper });
+    fn flat_map(&mut self, step_id: StepId, mapper: TdPyCallable) {
+        self.steps.push(Step::FlatMap { step_id, mapper });
     }
 
     /// Inspect allows you to observe, but not modify, items.
@@ -335,7 +341,7 @@ impl Dataflow {
     /// >>> flow.input("inp", TestingInput(range(3)))
     /// >>> def add_one(item):
     /// ...     return item + 10
-    /// >>> flow.map(add_one)
+    /// >>> flow.map("add_one", add_one)
     /// >>> flow.output("out", StdOutput())
     /// >>> run_main(flow)
     /// 10
@@ -343,10 +349,12 @@ impl Dataflow {
     /// 12
     ///
     /// Args:
+    ///   step_id (str):
+    ///       Uniquely identifies this step.
     ///   mapper:
     ///       `mapper(item: Any) => updated_item: Any`
-    fn map(&mut self, mapper: TdPyCallable) {
-        self.steps.push(Step::Map { mapper });
+    fn map(&mut self, step_id: StepId, mapper: TdPyCallable) {
+        self.steps.push(Step::Map { step_id, mapper });
     }
 
     /// Reduce lets you combine items for a key into an accumulator.
@@ -397,7 +405,7 @@ impl Dataflow {
     /// >>> flow.input("inp", TestingInput(inp))
     /// >>> def user_as_key(event):
     /// ...     return event["user"], [event]
-    /// >>> flow.map(user_as_key)
+    /// >>> flow.map("user_as_key", user_as_key)
     /// >>> def extend_session(session, events):
     /// ...     session.extend(events)
     /// ...     return session
@@ -412,7 +420,7 @@ impl Dataflow {
     ///
     /// Args:
     ///   step_id (str):
-    ///       Uniquely identifies this step for recovery.
+    ///       Uniquely identifies this step.
     ///   reducer:
     ///       `reducer(accumulator: Any, value: Any) =>
     ///       updated_accumulator: Any`
@@ -490,7 +498,7 @@ impl Dataflow {
     ///
     /// Args:
     ///   step_id (str):
-    ///       Uniquely identifies this step for recovery.
+    ///       Uniquely identifies this step.
     ///   clock_config (bytewax.window.ClockConfig):
     ///       Clock config to use. See `bytewax.window`.
     ///   window_config (bytewax.window.WindowConfig):
@@ -572,7 +580,7 @@ impl Dataflow {
     /// >>> def extract_val(key__event):
     /// ...    key, event = key__event
     /// ...    return (key, event["val"])
-    /// >>> flow.map(extract_val)
+    /// >>> flow.map("extract_val", extract_val)
     /// >>> out = []
     /// >>> flow.output("out", TestingOutput(out))
     /// >>> run_main(flow)
@@ -580,7 +588,7 @@ impl Dataflow {
     ///
     /// Args:
     ///   step_id (str):
-    ///       Uniquely identifies this step for recovery.
+    ///       Uniquely identifies this step.
     ///   clock_config (bytewax.window.ClockConfig):
     ///       Clock config to use. See `bytewax.window`.
     ///   window_config (bytewax.window.WindowConfig):
@@ -619,7 +627,7 @@ impl Dataflow {
     ///
     /// Args:
     ///   step_id (str):
-    ///       Uniquely identifies this step for recovery.
+    ///       Uniquely identifies this step.
     ///   clock_config (bytewax.window.ClockConfig):
     ///       Clock config to use. See `bytewax.window`.
     ///   window_config (bytewax.window.WindowConfig):
@@ -680,7 +688,7 @@ impl Dataflow {
     /// >>> flow.input("inp", TestingInput(inp))
     /// >>> def self_as_key(item):
     /// ...     return item, item
-    /// >>> flow.map(self_as_key)
+    /// >>> flow.map("self_as_key", self_as_key)
     /// >>> def build_count():
     /// ...     return 0
     /// >>> def check(running_count, item):
@@ -696,7 +704,7 @@ impl Dataflow {
     /// ...         return []
     /// ...     else:
     /// ...         return [item]
-    /// >>> flow.flat_map(remove_none_and_key)
+    /// >>> flow.flat_map("remove_none_and_key", remove_none_and_key)
     /// >>> flow.output("out", StdOutput())
     /// >>> run_main(flow)
     /// a
@@ -704,7 +712,7 @@ impl Dataflow {
     ///
     /// Args:
     ///   step_id (str):
-    ///       Uniquely identifies this step for recovery.
+    ///       Uniquely identifies this step.
     ///   builder:
     ///       `builder(key: Any) => new_state: Any`
     ///   mapper:
@@ -743,20 +751,24 @@ impl Dataflow {
                     step_dict.set_item("step_id", step_id)?;
                     step_dict.set_item("input", input)?;
                 }
-                Step::Map { mapper } => {
+                Step::Map { step_id, mapper } => {
                     step_dict.set_item("type", "Map")?;
+                    step_dict.set_item("step_id", step_id)?;
                     step_dict.set_item("mapper", mapper)?;
                 }
-                Step::FlatMap { mapper } => {
+                Step::FlatMap { step_id, mapper } => {
                     step_dict.set_item("type", "FlatMap")?;
+                    step_dict.set_item("step_id", step_id)?;
                     step_dict.set_item("mapper", mapper)?;
                 }
-                Step::Filter { predicate } => {
+                Step::Filter { step_id, predicate } => {
                     step_dict.set_item("type", "Filter")?;
+                    step_dict.set_item("step_id", step_id)?;
                     step_dict.set_item("predicate", predicate)?;
                 }
-                Step::FilterMap { mapper } => {
+                Step::FilterMap { step_id, mapper } => {
                     step_dict.set_item("type", "FilterMap")?;
+                    step_dict.set_item("step_id", step_id)?;
                     step_dict.set_item("mapper", mapper)?;
                 }
                 Step::FoldWindow {
@@ -860,15 +872,19 @@ pub(crate) enum Step {
         input: Input,
     },
     Map {
+        step_id: StepId,
         mapper: TdPyCallable,
     },
     FlatMap {
+        step_id: StepId,
         mapper: TdPyCallable,
     },
     Filter {
+        step_id: StepId,
         predicate: TdPyCallable,
     },
     FilterMap {
+        step_id: StepId,
         mapper: TdPyCallable,
     },
     FoldWindow {
