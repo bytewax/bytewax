@@ -60,7 +60,7 @@ def test_cluster_can_be_ctrl_c():
         [
             "python",
             "-m",
-            "bytewax.run",
+            "bytewax.testing",
             flow_path,
             # Spawn 2 processes
             "-p",

@@ -275,20 +275,11 @@ def _parse_args():
         "Example: src.dataflow or src.dataflow:flow or "
         "src.dataflow:get_flow('string_argument')",
     )
-
     scaling = parser.add_argument_group(
         "Scaling",
         "You should use either '-p' to spawn multiple processes "
         "on this same machine, or '-i/-a' to spawn a single process "
         "on different machines",
-    )
-    scaling.add_argument(
-        "-p",
-        "--processes",
-        type=int,
-        help="Number of separate processes to run",
-        action=_EnvDefault,
-        envvar="BYTEWAX_PROCESSES",
     )
     scaling.add_argument(
         "-w",
@@ -376,21 +367,6 @@ def _parse_args():
                 )
         else:
             parser.error("the addresses option is required if a process_id is passed")
-
-    # The dataflow should either run as a local multiprocess cluster,
-    # or a single process with urls for the others, so we manually
-    # validate the options to avoid confusion.
-    if args.processes is not None and (
-        args.process_id is not None or args.addresses is not None
-    ):
-        import warnings
-
-        warnings.warn(
-            "Both '-p' and '-a/-i' specified. "
-            "Ignoring the '-p' option, but this should be fixed",
-            stacklevel=1,
-        )
-        args.processes = None
 
     return args
 

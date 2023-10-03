@@ -1,6 +1,8 @@
 """Helper tools for testing dataflows."""
+import argparse
 from datetime import datetime, timedelta, timezone
 from itertools import islice
+from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from bytewax.inputs import (
@@ -9,8 +11,14 @@ from bytewax.inputs import (
     batch,
 )
 from bytewax.outputs import DynamicOutput, StatelessSink
+from bytewax.recovery import RecoveryConfig
+from bytewax.run import _EnvDefault, _locate_dataflow, _parse_timedelta, _prepare_import
 
-from .bytewax import cluster_main, run_main
+from .bytewax import (
+    cluster_main,
+    run_main,
+    test_cluster,
+)
 
 __all__ = [
     "run_main",
@@ -158,3 +166,110 @@ def poll_next_batch(source: StatefulSource, timeout=timedelta(seconds=5)):
             raise TimeoutError()
         batch = source.next_batch()
     return batch
+
+
+def _parse_args():
+    parser = argparse.ArgumentParser(
+        prog="python -m bytewax.run", description="Run a bytewax dataflow"
+    )
+    parser.add_argument(
+        "import_str",
+        type=str,
+        help="Dataflow import string in the format "
+        "<module_name>[:<dataflow_variable_or_factory>] "
+        "Example: src.dataflow or src.dataflow:flow or "
+        "src.dataflow:get_flow('string_argument')",
+    )
+    scaling = parser.add_argument_group(
+        "Scaling",
+        "You should use either '-p' to spawn multiple processes "
+        "on this same machine, or '-i/-a' to spawn a single process "
+        "on different machines",
+    )
+    scaling.add_argument(
+        "-w",
+        "--workers-per-process",
+        type=int,
+        help="Number of workers for each process",
+        action=_EnvDefault,
+        envvar="BYTEWAX_WORKERS_PER_PROCESS",
+    )
+    scaling.add_argument(
+        "-p",
+        "--processes",
+        type=int,
+        help="Number of separate processes to run",
+        action=_EnvDefault,
+        envvar="BYTEWAX_PROCESSES",
+    )
+    scaling.add_argument(
+        "-a",
+        "--addresses",
+        help="Addresses of other processes, separated by semicolon:\n"
+        '-a "localhost:2021;localhost:2022;localhost:2023" ',
+        action=_EnvDefault,
+        envvar="BYTEWAX_ADDRESSES",
+    )
+
+    recovery = parser.add_argument_group(
+        "Recovery", """See the `bytewax.recovery` module docstring for more info."""
+    )
+    recovery.add_argument(
+        "-r",
+        "--recovery-directory",
+        type=Path,
+        help="""Local file system directory to look for pre-initialized recovery
+        partitions; see `python -m bytewax.recovery` for how to init partitions""",
+        action=_EnvDefault,
+        envvar="BYTEWAX_RECOVERY_DIRECTORY",
+    )
+    parser.add_argument(
+        "-s",
+        "--snapshot-interval",
+        type=_parse_timedelta,
+        default=timedelta(seconds=10),
+        help="""System time duration in seconds to snapshot state for recovery;
+        defaults to 10 sec""",
+        action=_EnvDefault,
+        envvar="BYTEWAX_SNAPSHOT_INTERVAL",
+    )
+    recovery.add_argument(
+        "-b",
+        "--backup-interval",
+        type=_parse_timedelta,
+        default=timedelta(days=1),
+        help="""System time duration in seconds to keep extra state snapshots around;
+        set this to the interval at which you are backing up recovery partitions;
+        defaults to 1 day""",
+        action=_EnvDefault,
+        envvar="BYTEWAX_RECOVERY_BACKUP_INTERVAL",
+    )
+
+    args = parser.parse_args()
+    args.import_str = _prepare_import(args.import_str)
+
+    return args
+
+
+if __name__ == "__main__":
+    kwargs = vars(_parse_args())
+
+    kwargs["epoch_interval"] = kwargs.pop("snapshot_interval")
+
+    recovery_directory, backup_interval = kwargs.pop("recovery_directory"), kwargs.pop(
+        "backup_interval"
+    )
+    kwargs["recovery_config"] = None
+    if recovery_directory is not None:
+        kwargs["recovery_config"] = RecoveryConfig(recovery_directory, backup_interval)
+
+    # Prepare addresses
+    addresses = kwargs.pop("addresses")
+    if addresses is not None:
+        kwargs["addresses"] = addresses.split(";")
+
+    # Import the dataflow
+    module_str, _, attrs_str = kwargs.pop("import_str").partition(":")
+    kwargs["flow"] = _locate_dataflow(module_str, attrs_str)
+
+    test_cluster(**kwargs)

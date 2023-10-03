@@ -321,117 +321,118 @@ pub(crate) fn cluster_main(
 /// bytewax.run`. See the module docstring for use.
 #[pyfunction]
 #[pyo3(
-    signature=(flow, *, processes=1, workers_per_process=1, process_id=None, addresses=None, epoch_interval=None, recovery_config=None)
+    signature=(flow, *, workers_per_process=1, process_id=None, addresses=None, epoch_interval=None, recovery_config=None)
 )]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn cli_main(
     py: Python,
     flow: Py<Dataflow>,
-    processes: Option<usize>,
     workers_per_process: Option<usize>,
     process_id: Option<usize>,
     addresses: Option<Vec<String>>,
     epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
-    if processes.is_some() && (process_id.is_some() || addresses.is_some()) {
-        return Err(tracked_err::<PyRuntimeError>(
-            "Can't specify both 'processes' and 'process_id/addresses'",
-        ));
-    }
-
-    let mut server_rt = None;
+    let mut _server_rt = None;
 
     // Initialize the tokio runtime for the webserver if we needed.
     if std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
-        server_rt = Some(start_server_runtime(&flow)?);
-        // Also remove the env var so other processes don't run the server.
-        std::env::remove_var("BYTEWAX_DATAFLOW_API_ENABLED");
+        _server_rt = Some(start_server_runtime(&flow)?);
     };
 
-    if let Some(proc_id) = process_id {
+    let workers_per_process = workers_per_process.unwrap_or(1);
+
+    if workers_per_process == 1 && addresses.is_none() {
+        run_main(py, flow, epoch_interval, recovery_config)?;
+    } else {
         cluster_main(
             py,
             flow,
             addresses,
-            proc_id,
+            process_id.unwrap_or(0),
             epoch_interval,
             recovery_config,
-            workers_per_process.unwrap_or(1),
-        )
-    } else {
-        let proc_id = std::env::var("__BYTEWAX_PROC_ID").ok();
-
-        let processes = processes.unwrap_or(1);
-        let workers_per_process = workers_per_process.unwrap_or(1);
-
-        if processes == 1 && workers_per_process == 1 {
-            run_main(py, flow, epoch_interval, recovery_config)
-        } else {
-            let addresses = (0..processes)
-                .map(|proc_id| format!("localhost:{}", proc_id as u64 + 2101))
-                .collect();
-
-            if let Some(proc_id) = proc_id {
-                cluster_main(
-                    py,
-                    flow,
-                    Some(addresses),
-                    proc_id.parse().unwrap(),
-                    epoch_interval,
-                    recovery_config,
-                    workers_per_process,
-                )?;
-            } else {
-                let mut ps: Vec<_> = (0..processes)
-                    .map(|proc_id| {
-                        let mut args = std::env::args();
-                        Command::new(args.next().unwrap())
-                            .env("__BYTEWAX_PROC_ID", proc_id.to_string())
-                            .args(args.collect::<Vec<String>>())
-                            .spawn()
-                            .unwrap()
-                    })
-                    .collect();
-                // Allow threads here in order to not block any other
-                // background threads from taking the GIL
-                py.allow_threads(|| -> PyResult<()> {
-                    let cooldown = Duration::from_millis(1);
-                    loop {
-                        if ps.iter_mut().all(|ps| !matches!(ps.try_wait(), Ok(None))) {
-                            return Ok(());
-                        }
-
-                        let check = Python::with_gil(|py| py.check_signals());
-                        if check.is_err() {
-                            for process in ps.iter_mut() {
-                                process.kill()?;
-                            }
-                            // Don't forget to shutdown the server runtime.
-                            // If we just drop the runtime, it will wait indefinitely
-                            // that the server stops, so we need to stop it manually.
-                            if let Some(rt) = server_rt.take() {
-                                rt.shutdown_timeout(Duration::from_secs(0));
-                            }
-
-                            // The ? here will always exit since we just checked
-                            // that `check` is Result::Err.
-                            check.reraise(
-                                "interrupt signal received, all processes have been shut down",
-                            )?;
-                        }
-                        thread::sleep(cooldown);
-                    }
-                })?;
-            }
-            Ok(())
-        }
+            workers_per_process,
+        )?;
     }
+    Ok(())
+}
+
+/// Execute a dataflow over multiple processes.
+///
+/// Blocks until execution is complete.
+///
+/// This function is only used for testing.
+///
+#[pyfunction]
+#[pyo3(
+    signature = (flow, *, epoch_interval = None, recovery_config = None, processes = 1, workers_per_process = 1)
+)]
+pub(crate) fn test_cluster(
+    py: Python,
+    flow: Py<Dataflow>,
+    epoch_interval: Option<EpochInterval>,
+    recovery_config: Option<Py<RecoveryConfig>>,
+    processes: usize,
+    workers_per_process: usize,
+) -> PyResult<()> {
+    let proc_id = std::env::var("__BYTEWAX_PROC_ID").ok();
+
+    let addresses = (0..processes)
+        .map(|proc_id| format!("localhost:{}", proc_id as u64 + 2101))
+        .collect();
+
+    if let Some(proc_id) = proc_id {
+        cluster_main(
+            py,
+            flow,
+            Some(addresses),
+            proc_id.parse().unwrap(),
+            epoch_interval,
+            recovery_config,
+            workers_per_process,
+        )?;
+    } else {
+        let mut ps: Vec<_> = (0..processes)
+            .map(|proc_id| {
+                let mut args = std::env::args();
+                Command::new(args.next().unwrap())
+                    .env("__BYTEWAX_PROC_ID", proc_id.to_string())
+                    .args(args.collect::<Vec<String>>())
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        // Allow threads here in order to not block any other
+        // background threads from taking the GIL
+        py.allow_threads(|| -> PyResult<()> {
+            let cooldown = Duration::from_millis(1);
+            loop {
+                if ps.iter_mut().all(|ps| !matches!(ps.try_wait(), Ok(None))) {
+                    return Ok(());
+                }
+
+                let check = Python::with_gil(|py| py.check_signals());
+                if check.is_err() {
+                    for process in ps.iter_mut() {
+                        process.kill()?;
+                    }
+                    // The ? here will always exit since we just checked
+                    // that `check` is Result::Err.
+                    check
+                        .reraise("interrupt signal received, all processes have been shut down")?;
+                }
+                thread::sleep(cooldown);
+            }
+        })?;
+    }
+    Ok(())
 }
 
 pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_main, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
     m.add_function(wrap_pyfunction!(cli_main, m)?)?;
+    m.add_function(wrap_pyfunction!(test_cluster, m)?)?;
     Ok(())
 }
