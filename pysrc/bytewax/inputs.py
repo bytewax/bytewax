@@ -8,11 +8,12 @@ Subclass the types here to implement input for your own custom source.
 """
 
 import asyncio
+import queue
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
 from datetime import datetime, timedelta
 from itertools import islice
-from typing import Any, Iterable, Iterator, List, Optional
+from typing import Any, Callable, Iterable, Iterator, List, Optional
 
 __all__ = [
     "DynamicInput",
@@ -22,6 +23,8 @@ __all__ = [
     "StatelessSource",
     "batch",
     "batch_async",
+    "batch_getter",
+    "batch_getter_ex",
 ]
 
 
@@ -263,7 +266,7 @@ class DynamicInput(Input):
         ...
 
 
-def batch(ib: Iterable[Any], batch_size: int) -> Iterator[Any]:
+def batch(ib: Iterable[Any], batch_size: int) -> Iterator[List[Any]]:
     """Batch an iterable.
 
     Use this to easily generate batches of items for a source's
@@ -273,7 +276,7 @@ def batch(ib: Iterable[Any], batch_size: int) -> Iterator[Any]:
         ib:
             The underlying source iterable of items.
         batch_size:
-            Maximum number of items to return in a batch.
+            Maximum number of items to yield in a batch.
 
     Yields:
         The next gathered batch of items.
@@ -288,12 +291,90 @@ def batch(ib: Iterable[Any], batch_size: int) -> Iterator[Any]:
         yield batch
 
 
+def batch_getter(
+    getter: Callable[[], Any], batch_size: int, yield_on: Any = None
+) -> Iterator[List[Any]]:
+    """Batch from a getter function that might not return an item.
+
+     Use this to easily generate batches of items for a source's
+    `next_batch` method.
+
+    Args:
+        getter:
+            Function to call to get the next item. Should raise
+            `StopIteration` on EOF.
+
+        batch_size:
+            Maximum number of items to yield in a batch.
+
+        yield_on:
+            Sentinel value that indicates that there are no more items
+            yet, and to return the current batch. Defaults to `None`.
+
+    Yields:
+        The next gathered batch of items.
+
+    """
+    while True:
+        batch = []
+        while len(batch) < batch_size:
+            try:
+                item = getter()
+                if item != yield_on:
+                    batch.append(item)
+                else:
+                    break
+            except StopIteration:
+                yield batch
+                return
+        yield batch
+
+
+def batch_getter_ex(
+    getter: Callable[[], Any], batch_size: int, yield_ex: Exception = queue.Empty
+) -> Iterator[List[Any]]:
+    """Batch from a getter function that raises on no items yet.
+
+     Use this to easily generate batches of items for a source's
+    `next_batch` method.
+
+    Args:
+        getter:
+            Function to call to get the next item. Should raise
+            `StopIteration` on EOF.
+
+        batch_size:
+            Maximum number of items to return in a batch.
+
+        yield_ex:
+            Exception raised by `getter` that indicates that there are
+            no more items yet, and to return the current
+            batch. Defaults to `queue.Empty`.
+
+    Yields:
+        The next gathered batch of items.
+
+    """
+    while True:
+        batch = []
+        while len(batch) < batch_size:
+            try:
+                item = getter()
+                batch.append(item)
+            except yield_ex:
+                break
+            except StopIteration:
+                yield batch
+                return
+        yield batch
+
+
 def batch_async(
     aib: AsyncIterable,
     timeout: timedelta,
     batch_size: int,
     loop=None,
-) -> Iterator[Any]:
+) -> Iterator[List[Any]]:
     """Batch an async iterable synchronously up to a timeout.
 
     This allows using an async iterator as an input source. The
@@ -308,7 +389,7 @@ def batch_async(
             Duration of time to repeatedly poll the source
             async iterator for items.
         batch_size:
-            Maximum number of items to include in a batch, even if
+            Maximum number of items to yield in a batch, even if
             the timeout has not been hit.
         loop:
             Custom `asyncio` run loop to use, if any.
