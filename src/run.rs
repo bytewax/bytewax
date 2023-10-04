@@ -358,11 +358,11 @@ pub(crate) fn cli_main(
     Ok(())
 }
 
-/// Execute a dataflow over multiple processes.
+/// Execute a Dataflow by spawning multiple Python processes.
 ///
 /// Blocks until execution is complete.
 ///
-/// This function is only used for testing.
+/// This function should only be used for testing purposes.
 ///
 #[pyfunction]
 #[pyo3(

@@ -185,7 +185,7 @@ cluster and might not necessarily be on the same machine.
 
 ## Resume (Execution)
 
-An execution which is
+An execution which is started from a snapshot of a previous execution.
 
 ## Snapshot(, State)
 

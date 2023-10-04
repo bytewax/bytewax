@@ -8,8 +8,8 @@ dataflow. Workers can be grouped into separate **processes**, but
 refer to the individual threads within.
 
 Bytewax's execution model uses identical workers. Workers execute all
-steps in a dataflow and automatically trade data to ensure the
-semantics of the operators. If a dataflow is run on multiple
+steps (including input and output) in a dataflow and automatically
+trade data to ensure the semantics of the operators. If a dataflow is run on multiple
 processes, there will be a slight overhead added to aggregating
 operators due to pickling and network communication, but it will allow
 you to read from input partitions in parallel for higher throughput.
@@ -116,28 +116,26 @@ run_main(flow)
 
 ## Local Cluster
 
-By changing the `-p/--processes` and `-w/--workers-per-process` arguments,
-you can spawn multiple processes, and mulitple workers per process,
-letting `bytewax.run` handle the communication between them.
+By changing the `-w/--workers-per-process` argument,
+you can spawn multiple workers within a single process.
 
-For example you can run the previous dataflow with 2 processes, and 3 workers
-per process, for a total of 6 workers using the exact same file, changing
-only the command:
+For example you can run the previous dataflow with 3 workers
+by changing only the command:
 
 ```
-$ python -m bytewax.run -p2 -w3 simple:flow
+$ python -m bytewax.run -w3 simple:flow
 ```
 
 ## Manually Handled Cluster
 
-If you want to run single processes on possibly different machines on the same network,
-you can use the `-i/--process-id`,`-a/--addresses` parameters.
+If you want to run multiple processes on a single machine, or different machines on
+the same network, you can use the `-i/--process-id`,`-a/--addresses` parameters.
 
 It allows you to start up a single process within a cluster
 of processes that you are manually coordinating. We recommend you
 checkout the documentation for [waxctl](/docs/deployment/waxctl/) our
-command line tool which facilitates running a dataflow on Kubernetes.
-
+command line tool which facilitates running a multiple dataflow processes
+locally, or on Kubernetes.
 
 The `-a/--addresses` parameter represents a list of addresses for all the processes,
 separated by a ';'.
@@ -156,6 +154,3 @@ And on the `cluster_two` machine as:
 ```
 $ python -m bytewax.run simple:flow -w3 -i1 -a "cluster_one:2101;cluster_two:2101"
 ```
-
-This is only needed if you want to run the dataflow on multiple machines,
-or if you need better control of the addresses/ports used by default by the run script.

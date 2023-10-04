@@ -35,18 +35,16 @@ $ python -m bytewax.run "my_dataflow:get_flow('/tmp/file')"
 By default this script will run a single worker on a single process.
 You can modify this by using other parameters:
 
-### Local cluster
+### Multiple worker threads
 
-You can run multiple processes, and multiple workers for each process, by
-adding the `-p/--processes` and `-w/--workers-per-process` parameters, without
+You can run a single processes with multiple worker threads, by
+adding the `-w/--workers-per-process` parameter, without
 changing anything in the code:
 
 ```
-# Runs 3 processes, with 2 workers each, for a total of 6 workers
-$ python -m bytewax.run my_dataflow -p3 -w2
+# Runs a process with 2 workers:
+$ python -m bytewax.run my_dataflow -w2
 ```
-
-Bytewax will handle the communication setup between processes/workers.
 
 ### Manual cluster
 
@@ -263,7 +261,12 @@ def _parse_timedelta(s):
     return timedelta(seconds=int(s))
 
 
-def _parse_args():
+def _create_arg_parser():
+    """Create and return an argparse instance.
+
+    This function returns the parser, as we add options for scaling
+    that are used only for testing in the testing namespace.
+    """
     parser = argparse.ArgumentParser(
         prog="python -m bytewax.run", description="Run a bytewax dataflow"
     )
@@ -274,36 +277,6 @@ def _parse_args():
         "<module_name>[:<dataflow_variable_or_factory>] "
         "Example: src.dataflow or src.dataflow:flow or "
         "src.dataflow:get_flow('string_argument')",
-    )
-    scaling = parser.add_argument_group(
-        "Scaling",
-        "You should use either '-p' to spawn multiple processes "
-        "on this same machine, or '-i/-a' to spawn a single process "
-        "on different machines",
-    )
-    scaling.add_argument(
-        "-w",
-        "--workers-per-process",
-        type=int,
-        help="Number of workers for each process",
-        action=_EnvDefault,
-        envvar="BYTEWAX_WORKERS_PER_PROCESS",
-    )
-    scaling.add_argument(
-        "-i",
-        "--process-id",
-        type=int,
-        help="Process id",
-        action=_EnvDefault,
-        envvar="BYTEWAX_PROCESS_ID",
-    )
-    scaling.add_argument(
-        "-a",
-        "--addresses",
-        help="Addresses of other processes, separated by semicolon:\n"
-        '-a "localhost:2021;localhost:2022;localhost:2023" ',
-        action=_EnvDefault,
-        envvar="BYTEWAX_ADDRESSES",
     )
 
     recovery = parser.add_argument_group(
@@ -340,7 +313,46 @@ def _parse_args():
         envvar="BYTEWAX_RECOVERY_BACKUP_INTERVAL",
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def _parse_args():
+    arg_parser = _create_arg_parser()
+
+    # Add scaling arguments for the run namespace
+    scaling = arg_parser.add_argument_group(
+        "Scaling",
+        "You should use either '-p' to spawn multiple processes "
+        "on this same machine, or '-i/-a' to spawn a single process "
+        "on different machines",
+    )
+    scaling.add_argument(
+        "-w",
+        "--workers-per-process",
+        type=int,
+        help="Number of workers for each process",
+        action=_EnvDefault,
+        envvar="BYTEWAX_WORKERS_PER_PROCESS",
+    )
+    scaling.add_argument(
+        "-i",
+        "--process-id",
+        type=int,
+        help="Process id",
+        action=_EnvDefault,
+        envvar="BYTEWAX_PROCESS_ID",
+    )
+    scaling.add_argument(
+        "-a",
+        "--addresses",
+        help="Addresses of other processes, separated by semicolon:\n"
+        '-a "localhost:2021;localhost:2022;localhost:2023" ',
+        action=_EnvDefault,
+        envvar="BYTEWAX_ADDRESSES",
+    )
+
+    args = arg_parser.parse_args()
+
     args.import_str = _prepare_import(args.import_str)
 
     # First of all check if a process_id was set with a different
@@ -366,14 +378,15 @@ def _parse_args():
                     [address.strip() for address in hostfile if address.strip() != ""]
                 )
         else:
-            parser.error("the addresses option is required if a process_id is passed")
+            arg_parser.error(
+                "the addresses option is required if a process_id is passed"
+            )
 
     return args
 
 
 if __name__ == "__main__":
     kwargs = vars(_parse_args())
-
     kwargs["epoch_interval"] = kwargs.pop("snapshot_interval")
 
     recovery_directory, backup_interval = kwargs.pop("recovery_directory"), kwargs.pop(
