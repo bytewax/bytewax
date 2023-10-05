@@ -2,9 +2,9 @@ import os
 import uuid
 from concurrent.futures import wait
 
-from bytewax.connectors.kafka import KafkaInput, KafkaOutput
+from bytewax.connectors.kafka import KafkaSink, KafkaSource
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput, TestingOutput, poll_next_batch, run_main
+from bytewax.testing import TestingSink, TestingSource, poll_next_batch, run_main
 from confluent_kafka import (
     OFFSET_BEGINNING,
     Consumer,
@@ -58,10 +58,10 @@ def test_input(tmp_topic1, tmp_topic2):
 
     flow = Dataflow()
 
-    flow.input("inp", KafkaInput([KAFKA_BROKER], topics, tail=False))
+    flow.input("inp", KafkaSource([KAFKA_BROKER], topics, tail=False))
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -84,7 +84,7 @@ def test_input_resume_state(tmp_topic):
             inp.append((key, value))
     producer.flush()
 
-    inp = KafkaInput([KAFKA_BROKER], topics, tail=False)
+    inp = KafkaSource([KAFKA_BROKER], topics, tail=False)
     part = inp.build_part(f"{partition}-{tmp_topic}", None)
     assert poll_next_batch(part) == [(b"key-0-0", b"value-0-0")]
     assert poll_next_batch(part) == [(b"key-0-1", b"value-0-1")]
@@ -92,7 +92,7 @@ def test_input_resume_state(tmp_topic):
     assert poll_next_batch(part) == [(b"key-0-2", b"value-0-2")]
     part.close()
 
-    inp = KafkaInput([KAFKA_BROKER], topics, tail=False)
+    inp = KafkaSource([KAFKA_BROKER], topics, tail=False)
     part = inp.build_part(f"{partition}-{tmp_topic}", resume_state)
     assert part.snapshot() == resume_state
     assert poll_next_batch(part) == [(b"key-0-2", b"value-0-2")]
@@ -104,10 +104,10 @@ def test_input_resume_state(tmp_topic):
 def test_input_raises_on_topic_not_exist():
     flow = Dataflow()
 
-    flow.input("inp", KafkaInput([KAFKA_BROKER], ["missing-topic"], tail=False))
+    flow.input("inp", KafkaSource([KAFKA_BROKER], ["missing-topic"], tail=False))
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     with raises(Exception) as exinfo:
         run_main(flow)
@@ -120,14 +120,14 @@ def test_input_raises_on_topic_not_exist():
 
 def test_input_raises_on_str_brokers(tmp_topic):
     with raises(TypeError) as exinfo:
-        KafkaInput(KAFKA_BROKER, [tmp_topic], tail=False)
+        KafkaSource(KAFKA_BROKER, [tmp_topic], tail=False)
 
     assert str(exinfo.value) == "brokers must be an iterable and not a string"
 
 
 def test_input_raises_on_str_topics(tmp_topic):
     with raises(TypeError) as exinfo:
-        KafkaInput([KAFKA_BROKER], tmp_topic, tail=False)
+        KafkaSource([KAFKA_BROKER], tmp_topic, tail=False)
 
     assert str(exinfo.value) == "topics must be an iterable and not a string"
 
@@ -140,9 +140,9 @@ def test_output(tmp_topic):
         (b"key-0-1", b"value-0-1"),
         (b"key-0-2", b"value-0-2"),
     ]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
-    flow.output("out", KafkaOutput([KAFKA_BROKER], tmp_topic))
+    flow.output("out", KafkaSink([KAFKA_BROKER], tmp_topic))
 
     run_main(flow)
 

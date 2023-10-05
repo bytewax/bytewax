@@ -10,7 +10,7 @@ from bytewax.recovery import (
     RecoveryConfig,
     init_db_dir,
 )
-from bytewax.testing import TestingInput, TestingOutput, cluster_main, run_main
+from bytewax.testing import TestingSink, TestingSource, cluster_main, run_main
 from pytest import raises
 
 ZERO_TD = timedelta(seconds=0)
@@ -27,7 +27,7 @@ def build_keep_max_dataflow(inp, explode_on):
     """
     flow = Dataflow()
 
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     def trigger(item):
         key, value, should_explode = item
@@ -74,7 +74,7 @@ def test_recover_with_latest_state(recovery_config):
 
     out = []
     flow = build_keep_max_dataflow(inp, "BOOM1")
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     # First execution.
     with raises(RuntimeError):
@@ -88,7 +88,7 @@ def test_recover_with_latest_state(recovery_config):
     # Disable first bomb.
     out = []
     flow = build_keep_max_dataflow(inp, "BOOM2")
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     # Second execution.
     with raises(RuntimeError):
@@ -103,7 +103,7 @@ def test_recover_with_latest_state(recovery_config):
     # Disable second bomb.
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     # Recover.
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -139,7 +139,7 @@ def test_recover_doesnt_gc_last_write(recovery_config):
 
     out = []
     flow = build_keep_max_dataflow(inp, "BOOM1")
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     # First execution.
     with raises(RuntimeError):
@@ -156,7 +156,7 @@ def test_recover_doesnt_gc_last_write(recovery_config):
     # Disable bomb.
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     # Recover.
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -191,7 +191,7 @@ def test_recover_respects_delete(recovery_config):
 
     out = []
     flow = build_keep_max_dataflow(inp, "BOOM1")
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     # First execution.
     with raises(RuntimeError):
@@ -207,7 +207,7 @@ def test_recover_respects_delete(recovery_config):
     # Disable bomb.
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     # Recover.
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -228,7 +228,7 @@ def test_continuation(entry_point, recovery_config):
 
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     entry_point(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
@@ -285,7 +285,7 @@ def test_continuation_with_no_new_input(entry_point, recovery_config):
     ]
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     entry_point(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
@@ -314,7 +314,7 @@ def test_rescale(tmp_path):
     ]
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     def entry_point(worker_count_per_proc):
         cluster_main(
@@ -384,7 +384,7 @@ def test_no_parts(tmp_path):
     ]
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     with raises(NoPartitionsError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -402,7 +402,7 @@ def test_missing_parts(tmp_path):
     ]
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     with raises(MissingPartitionsError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -425,7 +425,7 @@ def test_inconsistent_parts(tmp_path):
     ]
     out = []
     flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     # Run the dataflow initially to completion.
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)

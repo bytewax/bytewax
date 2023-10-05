@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Event
 
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput, TestingOutput, run_main
+from bytewax.testing import TestingSink, TestingSource, run_main
 from bytewax.window import EventClockConfig, TumblingWindow
 from pytest import raises
 
@@ -14,12 +14,12 @@ ZERO_TD = timedelta(seconds=0)
 def test_batch_operator():
     in_data = [("ALL", x) for x in range(10)]
     flow = Dataflow()
-    flow.input("in", TestingInput(in_data))
+    flow.input("in", TestingSource(in_data))
     # Use a long timeout to avoid triggering that.
     # We can't easily test system time based behavior.
     flow.batch("batch", max_size=3, timeout=timedelta(seconds=10))
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
     run_main(flow)
     assert sorted(out) == sorted(
         [
@@ -34,7 +34,7 @@ def test_batch_operator():
 def test_requires_input():
     flow = Dataflow()
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     with raises(ValueError):
         run_main(flow)
@@ -43,7 +43,7 @@ def test_requires_input():
 def test_requires_output():
     flow = Dataflow()
     inp = range(3)
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     with raises(ValueError):
         run_main(flow)
@@ -53,7 +53,7 @@ def test_map():
     flow = Dataflow()
 
     inp = [0, 1, 2]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     def add_one(item):
         return item + 1
@@ -61,7 +61,7 @@ def test_map():
     flow.map("add_one", add_one)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -72,7 +72,7 @@ def test_filter_map():
     flow = Dataflow()
 
     inp = [0, 1, 2, 3, 4, 5]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     def make_odd(item):
         if item % 2 != 0:
@@ -82,7 +82,7 @@ def test_filter_map():
     flow.filter_map("make_odd", make_odd)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -93,7 +93,7 @@ def test_flat_map():
     flow = Dataflow()
 
     inp = ["split this"]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     def split_into_words(sentence):
         return sentence.split()
@@ -101,7 +101,7 @@ def test_flat_map():
     flow.flat_map("split_into_words", split_into_words)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -112,7 +112,7 @@ def test_filter():
     flow = Dataflow()
 
     inp = [1, 2, 3]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     def is_odd(item):
         return item % 2 != 0
@@ -120,7 +120,7 @@ def test_filter():
     flow.filter("is_odd", is_odd)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -131,13 +131,13 @@ def test_inspect():
     flow = Dataflow()
 
     inp = ["a"]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     seen = []
     flow.inspect(seen.append)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -150,13 +150,13 @@ def test_inspect_epoch():
     flow = Dataflow()
 
     inp = ["a"]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     seen = []
     flow.inspect_epoch(lambda epoch, item: seen.append((epoch, item)))
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -176,7 +176,7 @@ def test_reduce(recovery_config):
         {"user": "a", "type": "logout"},
         {"user": "b", "type": "logout"},
     ]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     armed = Event()
     armed.set()
@@ -207,7 +207,7 @@ def test_reduce(recovery_config):
     flow.reduce("sessionizer", extend_session, session_complete)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -253,7 +253,7 @@ def test_stateful_map(recovery_config):
         "c",
         "a",
     ]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     armed = Event()
     armed.set()
@@ -297,7 +297,7 @@ def test_stateful_map(recovery_config):
     flow.flat_map("remove_seen", remove_seen)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -332,7 +332,7 @@ def test_stateful_map_error_on_non_kv_tuple():
         {"user": "b", "type": "login"},
         {"user": "b", "type": "post"},
     ]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     def running_count(type_to_count, event):
         type_to_count[event["type"]] += 1
@@ -342,7 +342,7 @@ def test_stateful_map_error_on_non_kv_tuple():
     flow.stateful_map("running_count", lambda: defaultdict(int), running_count)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     expect = (
         "Dataflow requires a `(key, value)` 2-tuple as input to every stateful "
@@ -363,7 +363,7 @@ def test_stateful_map_error_on_non_string_key():
         {"user": {"id": 2}, "type": "login"},
         {"user": {"id": 2}, "type": "post"},
     ]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     def add_key(event):
         # Note that event["user"] is an entire dict, but keys must be
@@ -380,7 +380,7 @@ def test_stateful_map_error_on_non_string_key():
     flow.stateful_map("running_count", lambda: defaultdict(int), running_count)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     with raises(
         TypeError,
@@ -405,7 +405,7 @@ def test_reduce_window(recovery_config):
         ("ALL", {"time": align_to + timedelta(seconds=13), "val": 1}),
     ]
 
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     armed = Event()
     armed.set()
@@ -440,7 +440,7 @@ def test_reduce_window(recovery_config):
     flow.map("extract_val", extract_val)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -478,7 +478,7 @@ def test_fold_window(recovery_config):
         {"time": align_to + timedelta(seconds=24), "user": "b", "type": "post"},
     ]
 
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     armed = Event()
     armed.set()
@@ -515,7 +515,7 @@ def test_fold_window(recovery_config):
     flow.fold_window("count", clock_config, window_config, dict, count)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -550,7 +550,7 @@ def test_collect_window(recovery_config):
         ("ALL", {"time": align_to + timedelta(seconds=13), "val": 1}),
     ]
 
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     armed = Event()
     armed.set()
@@ -575,7 +575,7 @@ def test_collect_window(recovery_config):
     flow.collect_window("add", clock_config, window_config)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -615,13 +615,13 @@ def test_output_emits_downstream():
     flow = Dataflow()
 
     inp = [0, 1, 2]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     out1 = []
-    flow.output("out1", TestingOutput(out1))
+    flow.output("out1", TestingSink(out1))
 
     out2 = []
-    flow.output("out2", TestingOutput(out2))
+    flow.output("out2", TestingSink(out2))
 
     run_main(flow)
 

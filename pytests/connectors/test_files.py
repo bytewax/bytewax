@@ -1,24 +1,24 @@
 from pathlib import Path
 
 from bytewax.connectors.files import (
-    CSVInput,
-    DirInput,
-    DirOutput,
-    FileInput,
-    FileOutput,
+    CSVSource,
+    DirSink,
+    DirSource,
+    FileSink,
+    FileSource,
 )
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput, TestingOutput, run_main
+from bytewax.testing import TestingSink, TestingSource, run_main
 from pytest import raises
 
 
 def test_dir_input():
     flow = Dataflow()
 
-    flow.input("inp", DirInput(Path("pytests/fixtures/dir_input")))
+    flow.input("inp", DirSource(Path("pytests/fixtures/dir_input")))
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -35,7 +35,7 @@ def test_dir_input_raises_on_non_exist():
     with raises(ValueError) as exinfo:
         flow = Dataflow()
 
-        flow.input("inp", DirInput(path))
+        flow.input("inp", DirSource(path))
 
         run_main(flow)
 
@@ -48,7 +48,7 @@ def test_dir_input_raises_on_file():
     with raises(ValueError) as exinfo:
         flow = Dataflow()
 
-        flow.input("inp", DirInput(path))
+        flow.input("inp", DirSource(path))
 
         run_main(flow)
 
@@ -60,10 +60,10 @@ def test_file_input():
 
     flow = Dataflow()
 
-    flow.input("inp", FileInput(file_path))
+    flow.input("inp", FileSource(file_path))
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -82,10 +82,10 @@ def test_file_input_supports_blank_lines():
 
     flow = Dataflow()
 
-    flow.input("inp", FileInput(file_path))
+    flow.input("inp", FileSource(file_path))
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -104,7 +104,7 @@ def test_file_input_supports_blank_lines():
 
 def test_file_input_resume_state():
     file_path = Path("pytests/fixtures/dir_input/partition-1.txt")
-    inp = FileInput(file_path, batch_size=1)
+    inp = FileSource(file_path, batch_size=1)
     part = inp.build_part(str(file_path), None)
     assert part.next_batch() == ["one1"]
     assert part.next_batch() == ["one2"]
@@ -113,7 +113,7 @@ def test_file_input_resume_state():
     assert part.next_batch() == ["one4"]
     part.close()
 
-    inp = FileInput(file_path, batch_size=1)
+    inp = FileSource(file_path, batch_size=1)
     part = inp.build_part(str(file_path), resume_state)
     assert part.snapshot() == resume_state
     assert part.next_batch() == ["one3"]
@@ -130,10 +130,10 @@ def test_csv_file_input():
 
     flow = Dataflow()
 
-    flow.input("inp", CSVInput(file_path))
+    flow.input("inp", CSVSource(file_path))
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -199,9 +199,9 @@ def test_file_output(tmp_path):
         ("2", "2"),
         ("3", "3"),
     ]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
-    flow.output("out", FileOutput(file_path))
+    flow.output("out", FileSink(file_path))
 
     run_main(flow)
 
@@ -222,11 +222,11 @@ def test_dir_output(tmp_path):
         ("1", "1"),
         ("2", "2"),
     ]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     # Route each item to the partition index that is int version of
     # the key (which must be a str).
-    flow.output("out", DirOutput(tmp_path, 3, assign_file=int))
+    flow.output("out", DirSink(tmp_path, 3, assign_file=int))
 
     run_main(flow)
 
@@ -246,7 +246,7 @@ def test_dir_output(tmp_path):
 def test_file_output_resume_state(tmp_path):
     file_path = tmp_path / "out.txt"
 
-    out = FileOutput(file_path)
+    out = FileSink(file_path)
     part = out.build_part(str(file_path), None)
     part.write_batch(["one1"])
     part.write_batch(["one2"])
@@ -255,7 +255,7 @@ def test_file_output_resume_state(tmp_path):
     part.write_batch(["one4"])
     part.close()
 
-    out = FileOutput(file_path)
+    out = FileSink(file_path)
     part = out.build_part(str(file_path), resume_state)
     assert part.snapshot() == resume_state
     part.write_batch(["two4"])

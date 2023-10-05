@@ -2,18 +2,18 @@ from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import (
-    DynamicInput,
-    PartitionedInput,
-    StatefulSource,
-    StatelessSource,
+    DynamicSource,
+    FixedPartitionedSource,
+    StatefulSourcePartition,
+    StatelessSourcePartition,
 )
-from bytewax.testing import TestingOutput, run_main
+from bytewax.testing import TestingSink, run_main
 
 
 def test_next_awake_in_dynamic_input():
     """Test that the `next` method is not called before `next_awake` time."""
 
-    class TestSource(StatelessSource):
+    class TestPartition(StatelessSourcePartition):
         def __init__(self):
             self._next_awake = datetime.now(timezone.utc)
             self._iter = iter(list(range(5)))
@@ -31,14 +31,14 @@ def test_next_awake_in_dynamic_input():
         def next_awake(self):
             return self._next_awake
 
-    class TestInput(DynamicInput):
+    class TestSource(DynamicSource):
         def build(self, worker_index, worker_count):
-            return TestSource()
+            return TestPartition()
 
     out = []
     flow = Dataflow()
-    flow.input("in", TestInput())
-    flow.output("out", TestingOutput(out))
+    flow.input("in", TestSource())
+    flow.output("out", TestingSink(out))
     # If next is called before the next_awake time has passed,
     # the dataflow will crash and the test won't pass.
     run_main(flow)
@@ -49,7 +49,7 @@ def test_next_awake_in_dynamic_input():
 def test_next_awake_in_partitioned_input():
     """Test that the `next` method is not called before `next_awake` time."""
 
-    class TestSource(StatefulSource):
+    class TestPartition(StatefulSourcePartition):
         def __init__(self, cooldown):
             self._cooldown = cooldown
             self._next_awake = datetime.now(timezone.utc)
@@ -72,22 +72,22 @@ def test_next_awake_in_partitioned_input():
         def snapshot(self):
             pass
 
-    class TestInput(PartitionedInput):
+    class TestSource(FixedPartitionedSource):
         def list_parts(self):
             return ["one", "two", "three"]
 
         def build_part(self, for_part, resume_state):
             if for_part == "one":
-                return TestSource(cooldown=timedelta(seconds=0.1))
+                return TestPartition(cooldown=timedelta(seconds=0.1))
             if for_part == "two":
-                return TestSource(cooldown=timedelta(seconds=0.2))
+                return TestPartition(cooldown=timedelta(seconds=0.2))
             if for_part == "three":
-                return TestSource(cooldown=timedelta(seconds=0.3))
+                return TestPartition(cooldown=timedelta(seconds=0.3))
 
     out = []
     flow = Dataflow()
-    flow.input("in", TestInput())
-    flow.output("out", TestingOutput(out))
+    flow.input("in", TestSource())
+    flow.output("out", TestingSink(out))
     # If next is called before the next_awake time has passed,
     # the dataflow will crash and the test won't pass.
     run_main(flow)

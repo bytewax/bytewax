@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from bytewax._encoder import encode_dataflow
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import PartitionedInput
+from bytewax.inputs import FixedPartitionedSource
 from bytewax.window import EventClockConfig, TumblingWindow
 
 
@@ -44,22 +44,22 @@ def test_encoding_custom_object():
 def test_encoding_custom_input():
     flow = Dataflow()
 
-    class MyCustomInput(PartitionedInput):
+    class MyCustomSource(FixedPartitionedSource):
         def list_parts(self):
             return ["one"]
 
         def build_part(self, for_key, resume_state):
             ...
 
-    flow.input("inp", MyCustomInput())
+    flow.input("inp", MyCustomSource())
 
     assert encode_dataflow(flow) == json.dumps(
         {
             "type": "Dataflow",
             "steps": [
                 {
-                    "input": {
-                        "type": "MyCustomInput",
+                    "source": {
+                        "type": "MyCustomSource",
                     },
                     "step_id": "inp",
                     "type": "Input",
