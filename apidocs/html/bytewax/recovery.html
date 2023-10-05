@@ -38,7 +38,10 @@ general, design your systems to be idempotent or support at-least-once
 processing.</p>
 <h2 id="setup">Setup</h2>
 <p>Recovery partitions must be pre-initialized before running the
-dataflow initially. This is done by executing this module:</p>
+dataflow initially. First, create the directory to hold the partitions.</p>
+<pre><code>$ mkdir db_dir
+</code></pre>
+<p>Then create the partitions by executing this module:</p>
 <pre><code>$ python -m bytewax.recovery db_dir/ 4
 </code></pre>
 <p>The second parameter (e.g. <code>4</code>) is the number of recovery partitions
@@ -191,7 +194,13 @@ Setup
 -----
 
 Recovery partitions must be pre-initialized before running the
-dataflow initially. This is done by executing this module:
+dataflow initially. First, create the directory to hold the partitions.
+
+```
+$ mkdir db_dir
+```
+
+Then create the partitions by executing this module:
 
 ```
 $ python -m bytewax.recovery db_dir/ 4

@@ -46,8 +46,10 @@ def _list_parts(client, topics):
         cluster_metadata = client.list_topics(topic)
         topic_metadata = cluster_metadata.topics[topic]
         if topic_metadata.error is not None:
-            msg = f&#34;error listing partitions for Kafka topic `{topic!r}`: &#34;
-            f&#34;{topic_metadata.error.str()}&#34;
+            msg = (
+                f&#34;error listing partitions for Kafka topic `{topic!r}`: &#34;
+                f&#34;{topic_metadata.error.str()}&#34;
+            )
             raise RuntimeError(msg)
         part_idxs = topic_metadata.partitions.keys()
         for i in part_idxs:
@@ -90,9 +92,11 @@ class _KafkaSource(StatefulSource):
                     break
                 else:
                     # Discard all the messages in this batch too
-                    msg = f&#34;error consuming from Kafka topic `{self._topic!r}`: &#34;
-                    f&#34;{msg.error()}&#34;
-                    raise RuntimeError(msg)
+                    err_msg = (
+                        f&#34;error consuming from Kafka topic `{self._topic!r}`: &#34;
+                        f&#34;{msg.error()}&#34;
+                    )
+                    raise RuntimeError(err_msg)
             batch.append((msg.key(), msg.value()))
             last_offset = msg.offset()
 
