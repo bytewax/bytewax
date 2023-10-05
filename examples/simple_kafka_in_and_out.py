@@ -1,11 +1,11 @@
 import json
 
-from bytewax.connectors.kafka import KafkaInput, KafkaOutput
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.kafka import KafkaSink, KafkaSource
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 
 flow = Dataflow()
-flow.input("inp", KafkaInput(["localhost:9092"], ["input_topic"]))
+flow.input("inp", KafkaSource(["localhost:9092"], ["input_topic"]))
 
 
 def deserialize(key_bytes__payload_bytes):
@@ -22,12 +22,12 @@ def serialize_with_key(key_payload):
 
 
 flow.map("deserialize", deserialize)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())
 
 flow.map("serialize_with_key", serialize_with_key)
 flow.output(
     "out",
-    KafkaOutput(
+    KafkaSink(
         brokers=["localhost:9092"],
         topic="output_topic",
     ),

@@ -1,16 +1,16 @@
 from datetime import datetime, timedelta, timezone
 
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import (
-    DynamicInput,
-    PartitionedInput,
-    StatefulSource,
-    StatelessSource,
+    DynamicSource,
+    FixedPartitionedSource,
+    StatefulSourcePartition,
+    StatelessSourcePartition,
 )
 
 
-class PeriodicSource(StatelessSource):
+class PeriodicPartition(StatelessSourcePartition):
     def __init__(self, frequency):
         self.frequency = frequency
         self._next_awake = datetime.now(timezone.utc)
@@ -30,20 +30,20 @@ class PeriodicSource(StatelessSource):
         return [f"delay (ms): {delay.total_seconds() * 1000:.3f}"]
 
 
-class PeriodicInput(DynamicInput):
+class PeriodicSource(DynamicSource):
     def __init__(self, frequency):
         self.frequency = frequency
 
     def build(self, worker_index, worker_count):
-        return PeriodicSource(frequency=self.frequency)
+        return PeriodicPartition(frequency=self.frequency)
 
 
 stateless_flow = Dataflow()
-stateless_flow.input("periodic", PeriodicInput(timedelta(seconds=1)))
-stateless_flow.output("stdout", StdOutput())
+stateless_flow.input("periodic", PeriodicSource(timedelta(seconds=1)))
+stateless_flow.output("stdout", StdOutSink())
 
 
-class StatefulPeriodicSource(StatefulSource):
+class ResumablePeriodicPartition(StatefulSourcePartition):
     def __init__(self, frequency, next_awake, counter):
         self.frequency = frequency
         self._next_awake = next_awake
@@ -69,7 +69,7 @@ class StatefulPeriodicSource(StatefulSource):
         return self._next_awake
 
 
-class PeriodicPartitionedInput(PartitionedInput):
+class ResumablePeriodicSource(FixedPartitionedSource):
     def __init__(self, frequency):
         self.frequency = frequency
 
@@ -83,9 +83,9 @@ class PeriodicPartitionedInput(PartitionedInput):
             resume_state.get("next_awake", datetime.now(timezone.utc).isoformat())
         )
         counter = resume_state.get("counter", 0)
-        return StatefulPeriodicSource(self.frequency, next_awake, counter)
+        return ResumablePeriodicPartition(self.frequency, next_awake, counter)
 
 
 stateful_flow = Dataflow()
-stateful_flow.input("periodic", PeriodicPartitionedInput(timedelta(seconds=1)))
-stateful_flow.output("stdout", StdOutput())
+stateful_flow.input("periodic", ResumablePeriodicSource(timedelta(seconds=1)))
+stateful_flow.output("stdout", StdOutSink())

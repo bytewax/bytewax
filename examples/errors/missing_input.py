@@ -2,7 +2,7 @@
 This dataflow crashes because we never add an input operator.
 """
 
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 
 
@@ -12,6 +12,6 @@ def stringify(x):
 
 flow = Dataflow()
 # XXX: Error here
-# flow.input("inp", TestingInput(10))
+# flow.input("inp", TestingSource(10))
 flow.map(stringify)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())

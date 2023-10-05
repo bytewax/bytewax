@@ -1,8 +1,8 @@
 import operator
 from datetime import datetime, timedelta, timezone
 
-from bytewax.connectors.files import FileInput
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.files import FileSource
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.window import SystemClockConfig, TumblingWindow
 
@@ -42,7 +42,7 @@ def format_output(count_count):
 
 
 flow = Dataflow()
-flow.input("inp", FileInput("examples/sample_data/wordcount.txt"))
+flow.input("inp", FileSource("examples/sample_data/wordcount.txt"))
 # "at this point we have full sentences as items in the dataflow"
 flow.flat_map("split", str.split)
 # "words"
@@ -53,4 +53,4 @@ flow.map("get_count", get_count)
 calc_counts(flow)
 flow.map("format_output", format_output)
 # (that_same_count, num_words_with_the_same_count)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())

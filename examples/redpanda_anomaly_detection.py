@@ -10,14 +10,14 @@
 
 import json
 
-from bytewax.connectors.kafka import KafkaInput
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.kafka import KafkaSource
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from river import anomaly
 
 # Define the dataflow object and kafka input.
 flow = Dataflow()
-flow.input("inp", KafkaInput(["localhost:9092"], ["ec2_metrics"]))
+flow.input("inp", KafkaSource(["localhost:9092"], ["ec2_metrics"]))
 
 
 def group_instance_and_normalize(key__data):
@@ -88,4 +88,4 @@ def format_output(event):
 
 flow.filter("filter_anomalies", lambda x: bool(x[1][4]))
 flow.map("format", format_output)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())

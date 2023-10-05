@@ -2,12 +2,12 @@
 This dataflow crashes when building the input source.
 We cause the crash by returning None in DynamicInput.build.
 """
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import DynamicInput
+from bytewax.inputs import DynamicSource
 
 
-class NumberInput(DynamicInput):
+class NumberSource(DynamicSource):
     def __init__(self, n):
         self._n = n
 
@@ -21,6 +21,6 @@ def stringify(x):
 
 
 flow = Dataflow()
-flow.input("inp", NumberInput(10))
+flow.input("inp", NumberSource(10))
 flow.map(stringify)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())

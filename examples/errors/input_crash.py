@@ -2,12 +2,12 @@
 This dataflow crashes for an Exception while getting the next input.
 We cause the crash by raising an Exception in DynamicInput.next
 """
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import DynamicInput, StatelessSource
+from bytewax.inputs import DynamicSource, StatelessSourcePartition
 
 
-class NumberSource(StatelessSource):
+class NumberPartition(StatelessSourcePartition):
     def __init__(self, n):
         self.iterator = iter(range(n))
 
@@ -21,12 +21,12 @@ class NumberSource(StatelessSource):
         pass
 
 
-class NumberInput(DynamicInput):
+class NumberSource(DynamicSource):
     def __init__(self, n):
         self._n = n
 
     def build(self, worker_index, worker_count):
-        return NumberSource(self._n)
+        return NumberPartition(self._n)
 
 
 def stringify(x):
@@ -34,6 +34,6 @@ def stringify(x):
 
 
 flow = Dataflow()
-flow.input("inp", NumberInput(10))
+flow.input("inp", NumberSource(10))
 flow.map(stringify)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())

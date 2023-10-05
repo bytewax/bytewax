@@ -1,14 +1,14 @@
 import json
 
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 
 # pip install websocket-client
 from websocket import create_connection
 
 
-class CoinfbaseSource(StatefulSource):
+class CoinbasePartition(StatefulSourcePartition):
     def __init__(self, product_id):
         self.product_id = product_id
         self.ws = create_connection("wss://ws-feed.exchange.coinbase.com")
@@ -34,7 +34,7 @@ class CoinfbaseSource(StatefulSource):
         self.ws.close()
 
 
-class CoinbaseFeedInput(PartitionedInput):
+class ConbaseFeedSource(FixedPartitionedSource):
     def __init__(self, product_ids):
         self.product_ids = product_ids
 
@@ -43,7 +43,7 @@ class CoinbaseFeedInput(PartitionedInput):
 
     def build_part(self, for_key, resume_state):
         assert resume_state is None
-        return CoinfbaseSource(for_key)
+        return CoinbasePartition(for_key)
 
 
 def key_on_product(data):
@@ -119,7 +119,7 @@ class OrderBook:
 
 
 flow = Dataflow()
-flow.input("input", CoinbaseFeedInput(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"]))
+flow.input("input", ConbaseFeedSource(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"]))
 flow.map("load_json", json.loads)
 # {
 #     'type': 'l2update',
@@ -139,4 +139,4 @@ flow.stateful_map("order_book", lambda: OrderBook(), OrderBook.update)
 flow.filter(
     lambda x: x[-1]["spread"] / x[-1]["ask"] > 0.0001
 )  # filter on 0.1% spread as a per
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())
