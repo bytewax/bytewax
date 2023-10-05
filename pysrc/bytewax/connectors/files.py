@@ -165,7 +165,7 @@ class _CSVPartition(StatefulSourcePartition):
         self._f.close()
 
 
-class CSVSource(DirSource):
+class CSVSource(FileSource):
     """Read a single CSV file row-by-row as keyed-by-column dicts.
 
     The CSV file must exist on at least one worker.
