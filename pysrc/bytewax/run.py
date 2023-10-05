@@ -46,7 +46,7 @@ changing anything in the code:
 $ python -m bytewax.run my_dataflow -w2
 ```
 
-### Manual cluster
+### Multiple processes
 
 You can also manually handle the multiple processes, and run them on different
 machines, by using the `-a/--addresses` and `-i/--process-id` parameters.
