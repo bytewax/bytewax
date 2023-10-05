@@ -131,9 +131,11 @@ $ python -m bytewax.run -w3 simple:flow
 If you want to run multiple processes on a single machine, or different machines on
 the same network, you can use the `-i/--process-id`,`-a/--addresses` parameters.
 
-It allows you to start up a single process within a cluster
-of processes that you are manually coordinating. We recommend you
-checkout the documentation for [waxctl](/docs/deployment/waxctl/) our
+Each invocation of `bytewax.run` with `-i` starts up a single
+process. By executing this command multiple times, you can create a
+cluster of Bytewax processes on one machine or multiple machines. We
+recommend you checkout the documentation for
+[waxctl](/docs/deployment/waxctl/) our
 command line tool which facilitates running a multiple dataflow processes
 locally, or on Kubernetes.
 
