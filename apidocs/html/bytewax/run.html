@@ -165,8 +165,10 @@ def _locate_dataflow(module_name, dataflow_name):
         # Reraise the ImportError if it occurred within the imported module.
         # Determine this by checking whether the trace has a depth &gt; 1.
         if sys.exc_info()[2].tb_next:
-            msg = f&#34;While importing {module_name!r}, an ImportError was raised:\n\n&#34;
-            f&#34;{traceback.format_exc()}&#34;
+            msg = (
+                f&#34;While importing {module_name!r}, an ImportError was raised:\n\n&#34;
+                f&#34;{traceback.format_exc()}&#34;
+            )
             raise ImportError(msg) from None
         else:
             msg = f&#34;Could not import {module_name!r}.&#34;
@@ -222,8 +224,10 @@ def _locate_dataflow(module_name, dataflow_name):
             if not _called_with_wrong_args(attr):
                 raise
 
-            msg = f&#34;The factory {dataflow_name!r} in module {module.__name__!r} &#34;
-            &#34;could not be called with the specified arguments&#34;
+            msg = (
+                f&#34;The factory {dataflow_name!r} in module {module.__name__!r} &#34;
+                &#34;could not be called with the specified arguments&#34;
+            )
             raise TypeError(msg) from e
     else:
         dataflow = attr
@@ -231,8 +235,10 @@ def _locate_dataflow(module_name, dataflow_name):
     if isinstance(dataflow, Dataflow):
         return dataflow
 
-    msg = &#34;A valid Bytewax dataflow was not obtained from &#34;
-    f&#34;&#39;{module.__name__}:{dataflow_name}&#39;&#34;
+    msg = (
+        &#34;A valid Bytewax dataflow was not obtained from &#34;
+        f&#34;&#39;{module.__name__}:{dataflow_name}&#39;&#34;
+    )
     raise RuntimeError(msg)
 
 

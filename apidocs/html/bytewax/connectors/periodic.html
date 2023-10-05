@@ -1,0 +1,264 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.connectors.periodic</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<p>Periodic interval base class to build custom input sources.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Periodic interval base class to build custom input sources.&#34;&#34;&#34;
+from abc import abstractmethod
+from datetime import datetime, timedelta, timezone
+from math import ceil
+from typing import Any, Optional
+
+from bytewax.inputs import PartitionedInput, StatefulSource
+
+__all__ = [
+    &#34;SimplePollingInput&#34;,
+]
+
+
+class _SimplePollingSource(StatefulSource):
+    def __init__(self, interval: timedelta, align_to: Optional[datetime], getter):
+        now = datetime.now(timezone.utc)
+        if align_to is not None:
+            assert now &gt; align_to, &#34;align_to must be in the past&#34;
+            self._align_to = align_to
+            # Next awake is the next datetime that is an integer
+            # number of intervals from the align_to date.
+            self._next_awake = align_to + (interval * ceil((now - align_to) / interval))
+        else:
+            self._align_to = now
+            self._next_awake = now
+
+        self._interval = interval
+        self._getter = getter
+
+    def next_batch(self):
+        self._next_awake += self._interval
+        return [self._getter()]
+
+    def next_awake(self):
+        return self._next_awake
+
+    def snapshot(self):
+        return None
+
+
+class SimplePollingInput(PartitionedInput):
+    &#34;&#34;&#34;Calls a user defined function at a regular interval.
+
+    Subclass this input source and write the `next_item` function
+    that will be called at the defined interval.
+
+    Example:
+    &gt;&gt;&gt; class URLInput(SimplePollingInput):
+    ...     def next_item(self):
+    ...         return requests.get(&#34;https://example.com&#34;)
+    ...
+
+    Notes:
+    - The `interval` parameter is capped at a minimum of 10ms, but it can be as
+      large as needed.
+    - If you need fast input polling, consider writing a custom input source,
+      where you can also batch items to avoid doing too much IO.
+    &#34;&#34;&#34;
+
+    def __init__(self, interval: timedelta, align_to: Optional[datetime] = None):
+        &#34;&#34;&#34;Create a PeriodicInput.
+
+        Args:
+            interval: The interval between awakes. Must be &gt;= 10ms.
+            align_to: Align awake times to the given datetime.
+        &#34;&#34;&#34;
+        if interval &lt; timedelta(milliseconds=10):
+            msg = &#34;The interval for SimplePollingInput must be &gt;= 10ms&#34;
+            raise ValueError(msg)
+        self._interval = interval
+        self._align_to = align_to
+
+    def list_parts(self):
+        &#34;&#34;&#34;Only emit a single tick.&#34;&#34;&#34;
+        return [&#34;singleton&#34;]
+
+    def build_part(self, for_part, _resume_state):  # noqa: D102
+        assert for_part == &#34;singleton&#34;
+        # Ignore resume state
+        return _SimplePollingSource(self._interval, None, self.next_item)
+
+    @abstractmethod
+    def next_item(self) -&gt; Any:
+        &#34;&#34;&#34;This function will be called at regular inerval.&#34;&#34;&#34;
+        ...</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
+<dl>
+<dt id="bytewax.connectors.periodic.SimplePollingInput"><code class="language-python flex name class">
+<span>class <span class="ident">SimplePollingInput</span></span>
+<span>(</span><span>interval: datetime.timedelta, align_to: Optional[datetime.datetime] = None)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Calls a user defined function at a regular interval.</p>
+<p>Subclass this input source and write the <code>next_item</code> function
+that will be called at the defined interval.</p>
+<p>Example:</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; class URLInput(SimplePollingInput):
+...     def next_item(self):
+...         return requests.get(&quot;https://example.com&quot;)
+...
+</code></pre>
+<p>Notes:
+- The <code>interval</code> parameter is capped at a minimum of 10ms, but it can be as
+large as needed.
+- If you need fast input polling, consider writing a custom input source,
+where you can also batch items to avoid doing too much IO.</p>
+<p>Create a PeriodicInput.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>interval</code></strong></dt>
+<dd>The interval between awakes. Must be &gt;= 10ms.</dd>
+<dt><strong><code>align_to</code></strong></dt>
+<dd>Align awake times to the given datetime.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class SimplePollingInput(PartitionedInput):
+    &#34;&#34;&#34;Calls a user defined function at a regular interval.
+
+    Subclass this input source and write the `next_item` function
+    that will be called at the defined interval.
+
+    Example:
+    &gt;&gt;&gt; class URLInput(SimplePollingInput):
+    ...     def next_item(self):
+    ...         return requests.get(&#34;https://example.com&#34;)
+    ...
+
+    Notes:
+    - The `interval` parameter is capped at a minimum of 10ms, but it can be as
+      large as needed.
+    - If you need fast input polling, consider writing a custom input source,
+      where you can also batch items to avoid doing too much IO.
+    &#34;&#34;&#34;
+
+    def __init__(self, interval: timedelta, align_to: Optional[datetime] = None):
+        &#34;&#34;&#34;Create a PeriodicInput.
+
+        Args:
+            interval: The interval between awakes. Must be &gt;= 10ms.
+            align_to: Align awake times to the given datetime.
+        &#34;&#34;&#34;
+        if interval &lt; timedelta(milliseconds=10):
+            msg = &#34;The interval for SimplePollingInput must be &gt;= 10ms&#34;
+            raise ValueError(msg)
+        self._interval = interval
+        self._align_to = align_to
+
+    def list_parts(self):
+        &#34;&#34;&#34;Only emit a single tick.&#34;&#34;&#34;
+        return [&#34;singleton&#34;]
+
+    def build_part(self, for_part, _resume_state):  # noqa: D102
+        assert for_part == &#34;singleton&#34;
+        # Ignore resume state
+        return _SimplePollingSource(self._interval, None, self.next_item)
+
+    @abstractmethod
+    def next_item(self) -&gt; Any:
+        &#34;&#34;&#34;This function will be called at regular inerval.&#34;&#34;&#34;
+        ...</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></li>
+<li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
+<li>abc.ABC</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.connectors.periodic.SimplePollingInput.list_parts"><code class="language-python name flex">
+<span>def <span class="ident">list_parts</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Only emit a single tick.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def list_parts(self):
+    &#34;&#34;&#34;Only emit a single tick.&#34;&#34;&#34;
+    return [&#34;singleton&#34;]</code></pre>
+</details>
+</dd>
+<dt id="bytewax.connectors.periodic.SimplePollingInput.next_item"><code class="language-python name flex">
+<span>def <span class="ident">next_item</span></span>(<span>self) ‑> Any</span>
+</code></dt>
+<dd>
+<div class="desc"><p>This function will be called at regular inerval.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@abstractmethod
+def next_item(self) -&gt; Any:
+    &#34;&#34;&#34;This function will be called at regular inerval.&#34;&#34;&#34;
+    ...</code></pre>
+</details>
+</dd>
+</dl>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code class="language-python"><b><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></b></code>:
+<ul class="hlist">
+<li><code class="language-python"><a title="bytewax.inputs.PartitionedInput.build_part" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput.build_part">build_part</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
+</dl>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
+<ul class="api__sidebar-nav-classes">
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.periodic.SimplePollingInput" href="/apidocs/bytewax.connectors/periodic#bytewax.connectors.periodic.SimplePollingInput">SimplePollingInput</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.periodic.SimplePollingInput.list_parts" href="/apidocs/bytewax.connectors/periodic#bytewax.connectors.periodic.SimplePollingInput.list_parts">list_parts</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.periodic.SimplePollingInput.next_item" href="/apidocs/bytewax.connectors/periodic#bytewax.connectors.periodic.SimplePollingInput.next_item">next_item</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
