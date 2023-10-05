@@ -126,7 +126,7 @@ by changing only the command:
 $ python -m bytewax.run -w3 simple:flow
 ```
 
-## Manually Handled Cluster
+## Multi-Process Cluster
 
 If you want to run multiple processes on a single machine, or different machines on
 the same network, you can use the `-i/--process-id`,`-a/--addresses` parameters.
