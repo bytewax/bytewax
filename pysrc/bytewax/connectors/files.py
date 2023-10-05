@@ -5,15 +5,15 @@ from pathlib import Path
 from typing import Callable, Union
 from zlib import adler32
 
-from bytewax.inputs import PartitionedInput, StatefulSource, batch
-from bytewax.outputs import PartitionedOutput, StatefulSink
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch
+from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
 
 __all__ = [
-    "CSVInput",
-    "DirInput",
-    "DirOutput",
-    "FileInput",
-    "FileOutput",
+    "CSVSource",
+    "DirSink",
+    "DirSource",
+    "FileSink",
+    "FileSource",
 ]
 
 
@@ -36,7 +36,7 @@ def _strip_n(s):
     return s.rstrip("\n")
 
 
-class _FileSource(StatefulSource):
+class _FileSourcePartition(StatefulSourcePartition):
     def __init__(self, path, batch_size, resume_state):
         self._f = open(path, "rt")
         if resume_state is not None:
@@ -54,7 +54,7 @@ class _FileSource(StatefulSource):
         self._f.close()
 
 
-class DirInput(PartitionedInput):
+class DirSource(FixedPartitionedSource):
     """Read all files in a filesystem directory line-by-line.
 
     The directory must exist on all workers. All unique file names
@@ -102,10 +102,10 @@ class DirInput(PartitionedInput):
     def build_part(self, for_part, resume_state):
         """See ABC docstring."""
         path = self._dir_path / for_part
-        return _FileSource(path, self._batch_size, resume_state)
+        return _FileSourcePartition(path, self._batch_size, resume_state)
 
 
-class FileInput(PartitionedInput):
+class FileSource(FixedPartitionedSource):
     """Read a single file line-by-line from the filesystem.
 
     The file must exist on at least one worker.
@@ -142,10 +142,10 @@ class FileInput(PartitionedInput):
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert for_part == str(self._path), "Can't resume reading from different file"
-        return _FileSource(self._path, self._batch_size, resume_state)
+        return _FileSourcePartition(self._path, self._batch_size, resume_state)
 
 
-class _CSVSource(StatefulSource):
+class _CSVPartition(StatefulSourcePartition):
     def __init__(self, path, batch_size, resume_state, fmtparams):
         self._f = open(path, "rt", newline="")
         reader = DictReader(_readlines(self._f), **fmtparams)
@@ -165,7 +165,7 @@ class _CSVSource(StatefulSource):
         self._f.close()
 
 
-class CSVInput(FileInput):
+class CSVSource(DirSource):
     """Read a single CSV file row-by-row as keyed-by-column dicts.
 
     The CSV file must exist on at least one worker.
@@ -226,10 +226,12 @@ class CSVInput(FileInput):
     def build_part(self, for_part, resume_state):
         """See ABC docstring."""
         assert for_part == str(self._path), "Can't resume reading from different file"
-        return _CSVSource(self._path, self._batch_size, resume_state, self._fmtparams)
+        return _CSVPartition(
+            self._path, self._batch_size, resume_state, self._fmtparams
+        )
 
 
-class _FileSink(StatefulSink):
+class _FileSinkPartition(StatefulSinkPartition):
     def __init__(self, path, resume_state, end):
         resume_offset = 0 if resume_state is None else resume_state
         self._f = open(path, "at")
@@ -251,7 +253,7 @@ class _FileSink(StatefulSink):
         self._f.close()
 
 
-class DirOutput(PartitionedOutput):
+class DirSink(FixedPartitionedSink):
     """Write to a set of files in a filesystem directory line-by-line.
 
     Items consumed from the dataflow must look like two-tuples of
@@ -316,10 +318,10 @@ class DirOutput(PartitionedOutput):
     def build_part(self, for_part, resume_state):
         """See ABC docstring."""
         path = self._dir_path / for_part
-        return _FileSink(path, resume_state, self._end)
+        return _FileSinkPartition(path, resume_state, self._end)
 
 
-class FileOutput(PartitionedOutput):
+class FileSink(FixedPartitionedSink):
     """Write to a single file line-by-line on the filesystem.
 
     Items consumed from the dataflow must look like a string. Use a
@@ -361,4 +363,4 @@ class FileOutput(PartitionedOutput):
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert for_part == str(self._path), "Can't resume writing to different file"
-        return _FileSink(self._path, resume_state, self._end)
+        return _FileSinkPartition(self._path, resume_state, self._end)

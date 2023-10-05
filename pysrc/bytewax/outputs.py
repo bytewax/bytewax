@@ -3,7 +3,7 @@
 If you want pre-built connectors for various external systems, see
 `bytewax.connectors`. That is also a rich source of examples.
 
-Subclass the types here to implement input for your own custom sink.
+Subclass the types here to implement output for your own custom sink.
 
 """
 
@@ -12,19 +12,21 @@ from typing import Any, List, Optional
 from zlib import adler32
 
 __all__ = [
-    "DynamicOutput",
-    "Output",
-    "PartitionedOutput",
-    "StatefulSink",
-    "StatelessSink",
+    "DynamicSink",
+    "FixedPartitionedSink",
+    "Sink",
+    "StatefulSinkPartition",
+    "StatelessSinkPartition",
 ]
 
 
-class Output(ABC):  # noqa: B024
-    """Base class for all output types. Do not subclass this.
+class Sink(ABC):  # noqa: B024
+    """A destination to write output items.
+
+    Base class for all output sinks. Do not subclass this.
 
     If you want to implement a custom connector, instead subclass one
-    of the specific output sub-types below in this module.
+    of the specific sink sub-types below in this module.
 
     """
 
@@ -40,8 +42,8 @@ class Output(ABC):  # noqa: B024
         }
 
 
-class StatefulSink(ABC):
-    """Output sink that maintains state of its position."""
+class StatefulSinkPartition(ABC):
+    """Output partition that maintains state of its position."""
 
     @abstractmethod
     def write_batch(self, values: List[Any]) -> None:
@@ -61,13 +63,13 @@ class StatefulSink(ABC):
         ...
 
     def snapshot(self) -> Any:
-        """Snapshot the position of the next write of this sink.
+        """Snapshot the position of the next write of this partition.
 
         This will be returned to you via the `resume_state` parameter
         of your output builder.
 
         Be careful of "off by one" errors in resume state. This should
-        return a state that, when built into a sink, resumes writing
+        return a state that, when built into a partition, resumes writing
         _after the last written item_, not overwriting the same item.
 
         This is guaranteed to never be called after `close()`.
@@ -79,7 +81,7 @@ class StatefulSink(ABC):
         return None
 
     def close(self) -> None:
-        """Cleanup this sink when the dataflow completes.
+        """Cleanup this partition when the dataflow completes.
 
         This is not guaranteed to be called. It will only be called
         when the dataflow finishes on finite input. It will not be
@@ -89,10 +91,10 @@ class StatefulSink(ABC):
         return
 
 
-class PartitionedOutput(Output):
-    """An output with a fixed number of independent partitions.
+class FixedPartitionedSink(Sink):
+    """An output sink with a fixed number of independent partitions.
 
-    Will maintain the state of each sink and re-build using it during
+    Will maintain the state of each partition and re-build using it during
     resume. If the sink supports seeking and overwriting, this output
     can support exactly-once processing.
 
@@ -143,7 +145,7 @@ class PartitionedOutput(Output):
         self,
         for_part: str,
         resume_state: Optional[Any],
-    ) -> StatefulSink:
+    ) -> StatefulSinkPartition:
         """Build anew or resume an output partition.
 
         Will be called once per execution for each partition key on a
@@ -170,8 +172,8 @@ class PartitionedOutput(Output):
         ...
 
 
-class StatelessSink(ABC):
-    """Output sink that is stateless."""
+class StatelessSinkPartition(ABC):
+    """Output partition that is stateless."""
 
     @abstractmethod
     def write_batch(self, items: List[Any]) -> None:
@@ -188,7 +190,7 @@ class StatelessSink(ABC):
         ...
 
     def close(self) -> None:
-        """Cleanup this sink when the dataflow completes.
+        """Cleanup this partition when the dataflow completes.
 
         This is not guaranteed to be called. It will only be called
         when the dataflow finishes on finite input. It will not be
@@ -198,8 +200,8 @@ class StatelessSink(ABC):
         return
 
 
-class DynamicOutput(Output):
-    """An output where all workers write items concurrently.
+class DynamicSink(Sink):
+    """An output sink where all workers write items concurrently.
 
     Does not support storing any resume state. Thus these kind of
     outputs only naively can support at-least-once processing.
@@ -207,8 +209,8 @@ class DynamicOutput(Output):
     """
 
     @abstractmethod
-    def build(self, worker_index, worker_count) -> StatelessSink:
-        """Build an output sink for a worker.
+    def build(self, worker_index, worker_count) -> StatelessSinkPartition:
+        """Build an output partition for a worker.
 
         Will be called once on each worker.
 
@@ -219,7 +221,7 @@ class DynamicOutput(Output):
                 Total number of workers.
 
         Returns:
-            Output sink.
+            The built partition.
 
         """
         ...

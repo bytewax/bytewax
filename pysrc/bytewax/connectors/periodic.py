@@ -4,14 +4,14 @@ from datetime import datetime, timedelta, timezone
 from math import ceil
 from typing import Any, Optional
 
-from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 
 __all__ = [
-    "SimplePollingInput",
+    "SimplePollingSource",
 ]
 
 
-class _SimplePollingSource(StatefulSource):
+class _SimplePollingSourcePartition(StatefulSourcePartition):
     def __init__(self, interval: timedelta, align_to: Optional[datetime], getter):
         now = datetime.now(timezone.utc)
         if align_to is not None:
@@ -38,14 +38,14 @@ class _SimplePollingSource(StatefulSource):
         return None
 
 
-class SimplePollingInput(PartitionedInput):
+class SimplePollingSource(FixedPartitionedSource):
     """Calls a user defined function at a regular interval.
 
     Subclass this input source and write the `next_item` function
     that will be called at the defined interval.
 
     Example:
-    >>> class URLInput(SimplePollingInput):
+    >>> class URLSource(SimplePollingSource):
     ...     def next_item(self):
     ...         return requests.get("https://example.com")
     ...
@@ -77,7 +77,7 @@ class SimplePollingInput(PartitionedInput):
     def build_part(self, for_part, _resume_state):  # noqa: D102
         assert for_part == "singleton"
         # Ignore resume state
-        return _SimplePollingSource(self._interval, None, self.next_item)
+        return _SimplePollingSourcePartition(self._interval, None, self.next_item)
 
     @abstractmethod
     def next_item(self) -> Any:

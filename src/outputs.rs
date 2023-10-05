@@ -30,21 +30,21 @@ use crate::timely::*;
 use crate::unwrap_any;
 use crate::with_timer;
 
-/// Represents a `bytewax.outputs.Output` from Python.
+/// Represents a `bytewax.outputs.Sink` from Python.
 #[derive(Clone)]
-pub(crate) struct Output(Py<PyAny>);
+pub(crate) struct Sink(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for Output {
+impl<'source> FromPyObject<'source> for Sink {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
             .import("bytewax.outputs")?
-            .getattr("Output")?
+            .getattr("Sink")?
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "output must subclass `bytewax.outputs.Output`",
+                "sink must subclass `bytewax.outputs.Sink`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -52,19 +52,19 @@ impl<'source> FromPyObject<'source> for Output {
     }
 }
 
-impl IntoPy<Py<PyAny>> for Output {
+impl IntoPy<Py<PyAny>> for Sink {
     fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
         self.0
     }
 }
 
-impl ToPyObject for Output {
+impl ToPyObject for Sink {
     fn to_object(&self, py: Python<'_>) -> PyObject {
         self.0.to_object(py)
     }
 }
 
-impl Output {
+impl Sink {
     pub(crate) fn extract<'p, D>(&'p self, py: Python<'p>) -> PyResult<D>
     where
         D: FromPyObject<'p>,
@@ -75,19 +75,19 @@ impl Output {
 
 /// Represents a `bytewax.outputs.PartitionedOutput` from Python.
 #[derive(Clone)]
-pub(crate) struct PartitionedOutput(Py<PyAny>);
+pub(crate) struct FixedPartitionedSink(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for PartitionedOutput {
+impl<'source> FromPyObject<'source> for FixedPartitionedSink {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
             .import("bytewax.outputs")?
-            .getattr("PartitionedOutput")?
+            .getattr("FixedPartitionedSink")?
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "partitioned output must subclass `bytewax.outputs.PartitionedOutput`",
+                "fixed partitioned sink must subclass `bytewax.outputs.FixedPartitionedSink`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -95,7 +95,7 @@ impl<'source> FromPyObject<'source> for PartitionedOutput {
     }
 }
 
-impl PartitionedOutput {
+impl FixedPartitionedSink {
     fn list_parts(&self, py: Python) -> PyResult<Vec<StateKey>> {
         self.0.call_method0(py, "list_parts")?.extract(py)
     }
@@ -105,7 +105,7 @@ impl PartitionedOutput {
         py: Python,
         for_part: &StateKey,
         resume_state: Option<TdPyAny>,
-    ) -> PyResult<StatefulSink> {
+    ) -> PyResult<StatefulPartition> {
         self.0
             .call_method1(py, "build_part", (for_part.clone(), resume_state))?
             .extract(py)
@@ -118,20 +118,20 @@ impl PartitionedOutput {
     }
 }
 
-/// Represents a `bytewax.outputs.StatefulSink` in Python.
-struct StatefulSink(Py<PyAny>);
+/// Represents a `bytewax.outputs.StatefulSinkPartition` in Python.
+struct StatefulPartition(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for StatefulSink {
+impl<'source> FromPyObject<'source> for StatefulPartition {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
             .import("bytewax.outputs")?
-            .getattr("StatefulSink")?
+            .getattr("StatefulSinkPartition")?
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "stateful sink must subclass `bytewax.outputs.StatefulSink`",
+                "stateful sink partition must subclass `bytewax.outputs.StatefulSinkPartition`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -139,7 +139,7 @@ impl<'source> FromPyObject<'source> for StatefulSink {
     }
 }
 
-impl StatefulSink {
+impl StatefulPartition {
     fn write_batch(&self, py: Python, values: Vec<TdPyAny>) -> PyResult<()> {
         let _ = self
             .0
@@ -157,9 +157,11 @@ impl StatefulSink {
     }
 }
 
-impl Drop for StatefulSink {
+impl Drop for StatefulPartition {
     fn drop(&mut self) {
-        unwrap_any!(Python::with_gil(|py| self.close(py)).reraise("error closing StatefulSink"));
+        unwrap_any!(
+            Python::with_gil(|py| self.close(py)).reraise("error closing StatefulSinkPartition")
+        );
     }
 }
 
@@ -195,7 +197,7 @@ where
         &self,
         py: Python,
         step_id: StepId,
-        output: PartitionedOutput,
+        sink: FixedPartitionedSink,
         loads: &Stream<S, Snapshot>,
         // TODO: Make this return a clock stream or no downstream once
         // we have non-linear dataflows.
@@ -210,7 +212,7 @@ where
         &self,
         py: Python,
         step_id: StepId,
-        output: PartitionedOutput,
+        sink: FixedPartitionedSink,
         loads: &Stream<S, Snapshot>,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)> {
         let this_worker = self.scope().w_index();
@@ -227,7 +229,7 @@ where
             .with_description("Partitioned output duration in seconds")
             .init();
 
-        let local_parts = output.list_parts(py).reraise("error listing partitions")?;
+        let local_parts = sink.list_parts(py).reraise("error listing partitions")?;
         // Create a map of metric labels to use for each part_id
         let part_label_map: HashMap<StateKey, Vec<KeyValue>> = local_parts
             .iter()
@@ -246,7 +248,7 @@ where
         let all_parts = local_parts.into_broadcast(&self.scope(), S::Timestamp::minimum());
         let primary_updates = all_parts.assign_primaries(format!("{step_id}.assign_primaries"));
 
-        let pf = output.build_part_assigner(py)?;
+        let pf = sink.build_part_assigner(py)?;
         let routed_self = self
             .map(extract_state_pair)
             .partition(
@@ -271,7 +273,7 @@ where
         let (mut snaps_output, snaps) = op_builder.new_output();
 
         op_builder.build(move |init_caps| {
-            let parts: BTreeMap<StateKey, StatefulSink> = BTreeMap::new();
+            let parts: BTreeMap<StateKey, StatefulPartition> = BTreeMap::new();
             // Which partitions were written to in this epoch. We only
             // snapshot those.
             let awoken: BTreeSet<StateKey> = BTreeSet::new();
@@ -325,7 +327,7 @@ where
                                         // this partition, lazily create
                                         // it.
                                         .or_insert_with_key(|part_key| {
-                                            unwrap_any!(Python::with_gil(|py| output
+                                            unwrap_any!(Python::with_gil(|py| sink
                                                 .build_part(py, part_key, None)
                                                 .reraise("error init StatefulSink")))
                                         });
@@ -387,8 +389,7 @@ where
                                         match change {
                                             StateChange::Upsert(state) => {
                                                 let part = unwrap_any!(Python::with_gil(|py| {
-                                                    output
-                                                        .build_part(py, &part_key, Some(state))
+                                                    sink.build_part(py, &part_key, Some(state))
                                                         .reraise("error resuming StatefulSink")
                                                 }));
                                                 parts.insert(part_key, part);
@@ -412,21 +413,21 @@ where
     }
 }
 
-/// Represents a `bytewax.outputs.DynamicOutput` from Python.
+/// Represents a `bytewax.outputs.DynamicSink` from Python.
 #[derive(Clone)]
-pub(crate) struct DynamicOutput(Py<PyAny>);
+pub(crate) struct DynamicSink(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for DynamicOutput {
+impl<'source> FromPyObject<'source> for DynamicSink {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
             .import("bytewax.outputs")?
-            .getattr("DynamicOutput")?
+            .getattr("DynamicSink")?
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "dynamic output must subclass `bytewax.outputs.DynamicOutput`",
+                "dynamic sink must subclass `bytewax.outputs.DynamicSink`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -434,28 +435,33 @@ impl<'source> FromPyObject<'source> for DynamicOutput {
     }
 }
 
-impl DynamicOutput {
-    fn build(self, py: Python, index: WorkerIndex, count: WorkerCount) -> PyResult<StatelessSink> {
+impl DynamicSink {
+    fn build(
+        self,
+        py: Python,
+        index: WorkerIndex,
+        count: WorkerCount,
+    ) -> PyResult<StatelessPartition> {
         self.0
             .call_method1(py, "build", (index.0, count.0))?
             .extract(py)
     }
 }
 
-/// Represents a `bytewax.outputs.StatelessSink` in Python.
-struct StatelessSink(Py<PyAny>);
+/// Represents a `bytewax.outputs.StatelessSinkPartition` in Python.
+struct StatelessPartition(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for StatelessSink {
+impl<'source> FromPyObject<'source> for StatelessPartition {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
             .import("bytewax.outputs")?
-            .getattr("StatelessSink")?
+            .getattr("StatelessSinkPartition")?
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(tracked_err::<PyTypeError>(
-                "stateless sink must subclass `bytewax.outputs.StatelessSink`",
+                "stateless sink partition must subclass `bytewax.outputs.StatelessSinkPartition`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -463,7 +469,7 @@ impl<'source> FromPyObject<'source> for StatelessSink {
     }
 }
 
-impl StatelessSink {
+impl StatelessPartition {
     fn write_batch(&self, py: Python, items: Vec<TdPyAny>) -> PyResult<()> {
         let _ = self
             .0
@@ -477,11 +483,11 @@ impl StatelessSink {
     }
 }
 
-impl Drop for StatelessSink {
+impl Drop for StatelessPartition {
     fn drop(&mut self) {
         unwrap_any!(Python::with_gil(|py| self
             .close(py)
-            .reraise("error closing StatelessSink")));
+            .reraise("error closing StatelessSinkPartition")));
     }
 }
 
@@ -497,7 +503,7 @@ where
         &self,
         py: Python,
         step_id: StepId,
-        output: DynamicOutput,
+        sink: DynamicSink,
     ) -> PyResult<Stream<S, TdPyAny>>;
 }
 
@@ -509,11 +515,11 @@ where
         &self,
         py: Python,
         step_id: StepId,
-        output: DynamicOutput,
+        sink: DynamicSink,
     ) -> PyResult<Stream<S, TdPyAny>> {
         let worker_index = self.scope().w_index();
         let worker_count = self.scope().w_count();
-        let mut sink = Some(output.build(py, worker_index, worker_count)?);
+        let mut part = Some(sink.build(py, worker_index, worker_count)?);
 
         let meter = global::meter("bytewax");
         let counter = meter
@@ -531,7 +537,7 @@ where
             let mut tmp_incoming: Vec<TdPyAny> = Vec::new();
 
             move |input, output| {
-                sink = sink.take().and_then(|sink| {
+                part = part.take().and_then(|sink| {
                     input.for_each(|cap, incoming| {
                         assert!(tmp_incoming.is_empty());
                         incoming.swap(&mut tmp_incoming);

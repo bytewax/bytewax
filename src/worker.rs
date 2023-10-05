@@ -302,8 +302,11 @@ where
                         .map(wrap_state_pair);
                     snaps.push(snap);
                 }
-                Step::Input { step_id, input } => {
-                    if let Ok(input) = input.extract::<PartitionedInput>(py) {
+                Step::Input {
+                    step_id,
+                    source: input,
+                } => {
+                    if let Ok(input) = input.extract::<FixedPartitionedSource>(py) {
                         let (output, snap) = input
                             .partitioned_input(
                                 py,
@@ -319,7 +322,7 @@ where
                         inputs.push(output.clone());
                         stream = output;
                         snaps.push(snap);
-                    } else if let Ok(input) = input.extract::<DynamicInput>(py) {
+                    } else if let Ok(input) = input.extract::<DynamicSource>(py) {
                         let output = input
                             .dynamic_input(py, scope, step_id, epoch_interval, &probe, resume_epoch)
                             .reraise("error building DynamicInput")?;
@@ -489,7 +492,10 @@ where
                     stream = output.map(wrap_state_pair);
                     snaps.push(snap);
                 }
-                Step::Output { step_id, output } => {
+                Step::Output {
+                    step_id,
+                    sink: output,
+                } => {
                     if let Ok(output) = output.extract(py) {
                         let (output, snap) = stream
                             .partitioned_output(py, step_id, output, &loads)

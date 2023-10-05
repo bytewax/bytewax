@@ -4,21 +4,21 @@ from itertools import islice
 from typing import Any, Iterable, Iterator
 
 from bytewax.inputs import (
-    PartitionedInput,
-    StatefulSource,
+    FixedPartitionedSource,
+    StatefulSourcePartition,
     batch,
 )
-from bytewax.outputs import DynamicOutput, StatelessSink
+from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 from .bytewax import cluster_main, run_main
 
 __all__ = [
-    "run_main",
+    "TestingSink",
+    "TestingSource",
     "cluster_main",
     "ffwd_iter",
     "poll_next_batch",
-    "TestingInput",
-    "TestingOutput",
+    "run_main",
 ]
 
 
@@ -38,7 +38,7 @@ def ffwd_iter(it: Iterator[Any], n: int) -> None:
     next(islice(it, n, n), None)
 
 
-class _IterSource(StatefulSource):
+class _IterSourcePartition(StatefulSourcePartition):
     def __init__(self, ib, batch_size, resume_state):
         self._start_idx = 0 if resume_state is None else resume_state
         it = iter(ib)
@@ -55,7 +55,7 @@ class _IterSource(StatefulSource):
         return self._start_idx
 
 
-class TestingInput(PartitionedInput):
+class TestingSource(FixedPartitionedSource):
     """Produce input from a Python iterable.
 
     You only want to use this for unit testing.
@@ -95,10 +95,10 @@ class TestingInput(PartitionedInput):
     def build_part(self, for_key, resume_state):
         """See ABC docstring."""
         assert for_key == "iterable"
-        return _IterSource(self._ib, self._batch_size, resume_state)
+        return _IterSourcePartition(self._ib, self._batch_size, resume_state)
 
 
-class _ListSink(StatelessSink):
+class _ListSinkPartition(StatelessSinkPartition):
     def __init__(self, ls):
         self._ls = ls
 
@@ -106,7 +106,7 @@ class _ListSink(StatelessSink):
         self._ls += items
 
 
-class TestingOutput(DynamicOutput):
+class TestingSink(DynamicSink):
     """Append each output item to a list.
 
     You only want to use this for unit testing.
@@ -128,10 +128,10 @@ class TestingOutput(DynamicOutput):
 
     def build(self, worker_index, worker_count):
         """See ABC docstring."""
-        return _ListSink(self._ls)
+        return _ListSinkPartition(self._ls)
 
 
-def poll_next_batch(source: StatefulSource, timeout=timedelta(seconds=5)):
+def poll_next_batch(part, timeout=timedelta(seconds=5)):
     """Repeatedly poll an input source until it returns a batch.
 
     You'll want to use this in unit tests of sources when there's some
@@ -140,7 +140,7 @@ def poll_next_batch(source: StatefulSource, timeout=timedelta(seconds=5)):
     This is a busy-loop.
 
     Args:
-        source: To call `StatefulSource.next` on.
+        part: To call `next` on.
 
         timeout: How long to continuously poll for.
 
@@ -156,5 +156,5 @@ def poll_next_batch(source: StatefulSource, timeout=timedelta(seconds=5)):
     while len(batch) <= 0:
         if datetime.now(timezone.utc) - start > timeout:
             raise TimeoutError()
-        batch = source.next_batch()
+        batch = part.next_batch()
     return batch
