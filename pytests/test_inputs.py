@@ -1,9 +1,25 @@
 import asyncio
 import queue
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
-from bytewax.inputs import batch, batch_async, batch_getter, batch_getter_ex
+from bytewax.inputs import (
+    _SimplePollingPartition,
+    batch,
+    batch_async,
+    batch_getter,
+    batch_getter_ex,
+)
 from pytest import raises
+
+
+def test_simple_polling_source_align_to():
+    part = _SimplePollingPartition(
+        interval=timedelta(minutes=30),
+        align_to=datetime(2023, 1, 1, 4, 0, tzinfo=timezone.utc),
+        getter=lambda: True,
+        now_getter=lambda: datetime(2023, 1, 1, 5, 15, tzinfo=timezone.utc),
+    )
+    assert part.next_awake() == datetime(2023, 1, 1, 5, 30, tzinfo=timezone.utc)
 
 
 def test_batch():
