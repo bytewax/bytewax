@@ -35,9 +35,9 @@ $ python -m bytewax.run "my_dataflow:get_flow('/tmp/file')"
 By default this script will run a single worker on a single process.
 You can modify this by using other parameters:
 
-### Multiple worker threads
+### Multiple workers
 
-You can run a single processes with multiple worker threads, by
+You can run a single processes with multiple workers, by
 adding the `-w/--workers-per-process` parameter, without
 changing anything in the code:
 
@@ -322,9 +322,8 @@ def _parse_args():
     # Add scaling arguments for the run namespace
     scaling = arg_parser.add_argument_group(
         "Scaling",
-        "You should use either '-p' to spawn multiple processes "
-        "on this same machine, or '-i/-a' to spawn a single process "
-        "on different machines",
+        "You should use either '-w' to spawn multiple workers "
+        "within a process, or '-i/-a' to manage multiple processes",
     )
     scaling.add_argument(
         "-w",
