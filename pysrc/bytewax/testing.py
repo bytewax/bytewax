@@ -177,9 +177,8 @@ def _parse_args():
     # Add scaling arguments for the testing namespace
     scaling = parser.add_argument_group(
         "Scaling",
-        "You should use either '-p' to spawn multiple processes "
-        "on this same machine, or '-i/-a' to spawn a single process "
-        "on different machines",
+        "This testing entrypoint supports using '-p' to spawn multiple ",
+        "processes, and '-w' to run multiple workers within a process.",
     )
     scaling.add_argument(
         "-w",
@@ -196,14 +195,6 @@ def _parse_args():
         help="Number of separate processes to run",
         action=_EnvDefault,
         envvar="BYTEWAX_PROCESSES",
-    )
-    scaling.add_argument(
-        "-a",
-        "--addresses",
-        help="Addresses of other processes, separated by semicolon:\n"
-        '-a "localhost:2021;localhost:2022;localhost:2023" ',
-        action=_EnvDefault,
-        envvar="BYTEWAX_ADDRESSES",
     )
 
     args = parser.parse_args()
