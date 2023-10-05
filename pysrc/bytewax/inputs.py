@@ -299,37 +299,44 @@ class _SimplePollingPartition(StatefulSourcePartition):
 class SimplePollingSource(FixedPartitionedSource):
     """Calls a user defined function at a regular interval.
 
-    Subclass this input source and write the `next_item` function
-    that will be called at the defined interval.
-
-    Example:
     >>> class URLSource(SimplePollingSource):
+    ...     def __init__(self):
+    ...         super(interval=timedelta(seconds=10))
+    ...
     ...     def next_item(self):
     ...         return requests.get("https://example.com")
-    ...
 
-    Notes:
-    - The `interval` parameter is capped at a minimum of 10ms, but it can be as
-      large as needed.
-    - If you need fast input polling, consider writing a custom input source,
-      where you can also batch items to avoid doing too much IO.
+    There is no parallelism; only one worker will poll this source.
+
+    Does not support storing any resume state. Thus these kind of
+    sources only naively can support at-most-once processing.
+
+    This is best for low-throughput polling on the order of seconds to
+    hours.
+
+    If you need a high-throughput source, avoid this. Instead create a
+    source using one of the other `Source` subclasses where you can
+    have increased paralellism, batching, and finer control over
+    timing.
+
     """
 
     def __init__(self, interval: timedelta, align_to: Optional[datetime] = None):
-        """Create a PeriodicInput.
+        """Init.
 
         Args:
-            interval: The interval between awakes. Must be >= 10ms.
-            align_to: Align awake times to the given datetime.
+            interval:
+                The interval between calling `next_item`.
+            align_to:
+                Align awake times to the given datetime. Defaults to
+                now.
+
         """
-        if interval < timedelta(milliseconds=10):
-            msg = "The interval for SimplePollingInput must be >= 10ms"
-            raise ValueError(msg)
         self._interval = interval
         self._align_to = align_to
 
     def list_parts(self):
-        """Only emit a single tick."""
+        """Assumes the source has a single partition."""
         return ["singleton"]
 
     def build_part(self, _for_part, _resume_state):
@@ -338,7 +345,12 @@ class SimplePollingSource(FixedPartitionedSource):
 
     @abstractmethod
     def next_item(self) -> Any:
-        """This function will be called at regular inerval."""
+        """Override with custom logic to poll your source.
+
+        Returns:
+            Next item to emit into the dataflow.
+
+        """
         ...
 
 
