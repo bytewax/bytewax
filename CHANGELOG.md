@@ -11,7 +11,13 @@ notes on GitHub when we make a new release.__
   better reflect their semantics and match up with documentation.
 
 - Moves the ability to start multiple Python processes with the
-  `-p` or `--processes` to the testing namespace.
+  `-p` or `--processes` to the `bytewax.testing` module.
+
+- *Breaking change* `SimplePollingSource` moved from
+  `bytewax.connectors.periodic` to `bytewax.inputs` since it is an
+  input helper.
+
+- `SimplePollingSource`'s `align_to` argument now works.
 
 ## v0.17.1
 
