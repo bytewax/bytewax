@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file. For help wi
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- *Breaking change* IO classes and connectors have been renamed to
+  better reflect their semantics and match up with documentation.
+
 ## v0.17.1
 
 - Adds the `batch` operator to Dataflows. Calling `Dataflow.batch`

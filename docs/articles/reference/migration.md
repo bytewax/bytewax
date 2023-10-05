@@ -2,6 +2,45 @@ This guide can help you upgrade code through breaking changes from one
 Bytewax version to the next. For a detailed list of all changes, see
 the [CHANGELOG](https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md).
 
+## From v0.17 to Latest
+
+### Renamed IO Classes
+
+We have renamed the IO classes to better match their semantics and the
+way they are talked about in the documentation. Their functionality
+are unchanged. You should be able to search and replace for the old
+names and have them work correctly.
+
+| Old | New |
+-------------
+| `Input` | `Source` |
+| `PartitionedInput` | `FixedPartitionedSource` |
+| `DynamicInput` | `DynamicSource` |
+| `StatefulSource` | `StatefulSourcePartition` |
+| `StatelessSource` | `StatelessSourcePartition` |
+| `SimplePollingInput` | `SimplePollingSource` |
+| `Output` | `Sink` |
+| `PartitionedOutput` | `FixedPartitionedSink` |
+| `DynamicOutput` | `DynamicSink` |
+| `StatefulSink` | `StatefulSinkPartition` |
+| `StatelessSink` | `StatelessSinkPartition` |
+
+We have also updated the names of the built-in connectors to match
+this new naming scheme.
+
+| Old | New |
+-------------
+| `FileInput` | `FileSource` |
+| `FileOutput` | `FileSink` |
+| `DirInput` | `DirSource` |
+| `DirOutput` | `DirSink` |
+| `CSVInput` | `CSVSource` |
+| `StdOutput` | `StdOutSink` |
+| `KafkaInput` | `KafkaSource` |
+| `KafkaOutput` | `KafkaSink` |
+| `TestingInput` | `TestingSource` |
+| `TestingOutput` | `TestingSink` |
+
 ## From v0.16 to v0.17
 
 Bytewax v0.17 introduces major changes to the way that recovery works
@@ -210,7 +249,7 @@ flow.capture(StdOutputConfig())
 
 In v0.16+:
 
-``` python
+``` python doctest:SKIP
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutput
 
@@ -226,7 +265,7 @@ In Bytewax v0.16, the way that Dataflows are run has been simplified, and most e
 
 Similar to other Python frameworks like Flask and FastAPI, Dataflows can now be run using a Datfaflow import string in the `<module_name>:<dataflow_variable_name_or_factory_function>` format. As an example, given a file named `dataflow.py` with the following contents:
 
-``` python
+``` python doctest:SKIP
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingInput
 from bytewax.connectors.stdio import StdOutput

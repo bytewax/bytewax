@@ -21,8 +21,8 @@ import re
 from datetime import timedelta, datetime, timezone
 
 from bytewax.dataflow import Dataflow
-from bytewax.connectors.files import FileInput
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.files import FileSource
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 
@@ -48,12 +48,12 @@ window_config = TumblingWindow(
 )
 
 flow = Dataflow()
-flow.input("inp", FileInput("wordcount.txt"))
+flow.input("inp", FileSource("wordcount.txt"))
 flow.map("lowercase_words", lower)
 flow.flat_map("tokenize_input", tokenize)
 flow.map("initial_count", initial_count)
 flow.reduce_window("sum", clock_config, window_config, add)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())
 ```
 
 ## Running the example
@@ -119,18 +119,18 @@ a **dataflow object**, `bytewax.dataflow.Dataflow`.
 
 ```python
 flow = Dataflow()
-flow.input("input", FileInput("wordcount.txt"))
+flow.input("input", FileSource("wordcount.txt"))
 ```
 
 To emit input into our dataflow, our program needs an **input
-operator** that takes an **input object**. To start, we'll use one of
-our prepackaged inputs, `bytewax.connectors.files.FileInput`. This
-will read the text file line-by-line and emit each line into the
-dataflow at that point.
+operator** that takes an **source**. To start, we'll use one of our
+prepackaged sources, `bytewax.connectors.files.FileSource`. This will
+read the text file line-by-line and emit each line into the dataflow
+at that point.
 
-To read more about other options for input, see the [module docs for
+To read more about other options for sources, see the [module docs for
 `bytewax.connectors`](/apidocs/bytewax.connectors/index) or on how to
-make your own custom inputs, see [the module docs for
+make your own custom sources, see [the module docs for
 `bytewax.inputs`](/apidocs/bytewax.inputs).
 
 ### Lowercase all characters in the line
@@ -224,10 +224,13 @@ How does reduce_window know **when** to emit combined items? That is what `clock
 The last part of our dataflow program will use an [output operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.output) to mark the output of our reduction as the dataflow's final output.
 
 ```python
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())
 ```
 
-This means that whatever items are flowing through this point in the dataflow will be passed on as output. We use [StdOutput](/apidocs/bytewax.connectors/stdio#bytewax.connectors.stdio.StdOutput) to route our output to the system's standard output.
+This means that whatever items are flowing through this point in the
+dataflow will be passed on to a **sink**. We use
+[StdOutSink](/apidocs/bytewax.connectors/stdio#bytewax.connectors.stdio.StdOutSink)
+to route our output to the system's standard output.
 
 ### Running
 
