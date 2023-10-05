@@ -114,7 +114,7 @@ run_main(flow)
 3
 ```
 
-## Local Cluster
+## Single Process Cluster
 
 By changing the `-w/--workers-per-process` argument,
 you can spawn multiple workers within a single process.
