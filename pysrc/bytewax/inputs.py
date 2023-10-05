@@ -13,7 +13,6 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
 from datetime import datetime, timedelta, timezone
 from itertools import islice
-from math import ceil
 from typing import Any, Callable, Iterable, Iterator, List, Optional
 
 __all__ = [
@@ -270,21 +269,21 @@ class DynamicSource(Source):
         ...
 
 
-class _SimplePollingSourcePartition(StatefulSourcePartition):
-    def __init__(self, interval: timedelta, align_to: Optional[datetime], getter):
-        now = datetime.now(timezone.utc)
-        if align_to is not None:
-            assert now > align_to, "align_to must be in the past"
-            self._align_to = align_to
-            # Next awake is the next datetime that is an integer
-            # number of intervals from the align_to date.
-            self._next_awake = align_to + (interval * ceil((now - align_to) / interval))
-        else:
-            self._align_to = now
-            self._next_awake = now
-
+class _SimplePollingPartition(StatefulSourcePartition):
+    def __init__(
+        self, interval, align_to, getter, now_getter=lambda: datetime.now(timezone.utc)
+    ):
         self._interval = interval
         self._getter = getter
+
+        now = now_getter()
+        if align_to is not None:
+            # Hell yeah timedelta implements remainder.
+            since_last_awake = (now - align_to) % interval
+            until_next_awake = interval - since_last_awake
+            self._next_awake = now + until_next_awake
+        else:
+            self._next_awake = now
 
     def next_batch(self):
         self._next_awake += self._interval
@@ -333,10 +332,9 @@ class SimplePollingSource(FixedPartitionedSource):
         """Only emit a single tick."""
         return ["singleton"]
 
-    def build_part(self, for_part, _resume_state):  # noqa: D102
-        assert for_part == "singleton"
-        # Ignore resume state
-        return _SimplePollingSourcePartition(self._interval, None, self.next_item)
+    def build_part(self, _for_part, _resume_state):
+        """See ABC docstring."""
+        return _SimplePollingPartition(self._interval, self._align_to, self.next_item)
 
     @abstractmethod
     def next_item(self) -> Any:
