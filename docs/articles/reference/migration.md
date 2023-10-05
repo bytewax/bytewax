@@ -12,7 +12,7 @@ are unchanged. You should be able to search and replace for the old
 names and have them work correctly.
 
 | Old | New |
--------------
+|-----|-----|
 | `Input` | `Source` |
 | `PartitionedInput` | `FixedPartitionedSource` |
 | `DynamicInput` | `DynamicSource` |
@@ -29,7 +29,7 @@ We have also updated the names of the built-in connectors to match
 this new naming scheme.
 
 | Old | New |
--------------
+|-----|-----|
 | `FileInput` | `FileSource` |
 | `FileOutput` | `FileSink` |
 | `DirInput` | `DirSource` |
