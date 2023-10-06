@@ -10,6 +10,9 @@ notes on GitHub when we make a new release.__
 - *Breaking change* IO classes and connectors have been renamed to
   better reflect their semantics and match up with documentation.
 
+- Moves the ability to start multiple Python processes with the
+  `-p` or `--processes` to the testing namespace.
+
 ## v0.17.1
 
 - Adds the `batch` operator to Dataflows. Calling `Dataflow.batch`
