@@ -280,7 +280,13 @@ class _SimplePollingPartition(StatefulSourcePartition):
         if align_to is not None:
             # Hell yeah timedelta implements remainder.
             since_last_awake = (now - align_to) % interval
-            until_next_awake = interval - since_last_awake
+            if since_last_awake > timedelta(seconds=0):
+                until_next_awake = interval - since_last_awake
+            else:
+                # If now is exactly on the align_to mark (remainder is
+                # 0), don't wait a whole interval; activate
+                # immediately.
+                until_next_awake = timedelta(seconds=0)
             self._next_awake = now + until_next_awake
         else:
             self._next_awake = now
