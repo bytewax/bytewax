@@ -215,10 +215,6 @@ if __name__ == "__main__":
     if recovery_directory is not None:
         kwargs["recovery_config"] = RecoveryConfig(recovery_directory, backup_interval)
 
-    # Prepare addresses
-    addresses = kwargs.pop("addresses")
-    if addresses is not None:
-        kwargs["addresses"] = addresses.split(";")
 
     # Import the dataflow
     module_str, _, attrs_str = kwargs.pop("import_str").partition(":")
