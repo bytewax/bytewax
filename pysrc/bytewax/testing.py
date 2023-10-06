@@ -215,7 +215,6 @@ if __name__ == "__main__":
     if recovery_directory is not None:
         kwargs["recovery_config"] = RecoveryConfig(recovery_directory, backup_interval)
 
-
     # Import the dataflow
     module_str, _, attrs_str = kwargs.pop("import_str").partition(":")
     kwargs["flow"] = _locate_dataflow(module_str, attrs_str)
