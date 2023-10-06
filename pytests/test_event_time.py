@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput, TestingOutput, run_main
+from bytewax.testing import TestingSink, TestingSource, run_main
 from bytewax.window import EventClockConfig, TumblingWindow
 
 
@@ -35,12 +35,12 @@ def test_event_time_processing():
     wc = TumblingWindow(align_to=align_to, length=window_length)
 
     flow = Dataflow()
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
     flow.map("extract_sensor_type", extract_sensor_type)
     flow.fold_window("running_average", cc, wc, list, acc_values)
     flow.map("format_output", lambda x: {f"{x[0]}_avg": sum(x[1]) / len(x[1])})
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
     run_main(flow)
 
     expected = [

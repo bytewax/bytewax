@@ -21,8 +21,8 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-from bytewax.connectors.kafka import KafkaInput
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.kafka import KafkaSource
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.window import EventClockConfig, TumblingWindow
 
@@ -30,7 +30,7 @@ from bytewax.window import EventClockConfig, TumblingWindow
 flow = Dataflow()
 
 
-flow.input("inp", KafkaInput(["localhost:9092"], ["sensors"], tail=False))
+flow.input("inp", KafkaSource(["localhost:9092"], ["sensors"], tail=False))
 
 
 # We expect a json string that represents a reading from a sensor.
@@ -97,4 +97,4 @@ def format_event(event):
 
 
 flow.map("format_event", format_event)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())

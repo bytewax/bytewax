@@ -4,9 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 # pip install aiohttp-sse-client
 from aiohttp_sse_client.client import EventSource
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import PartitionedInput, StatefulSource, batch_async
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch_async
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 
@@ -16,7 +16,7 @@ async def _sse_agen(url):
             yield event.data
 
 
-class WikiSource(StatefulSource):
+class WikiPartition(StatefulSourcePartition):
     def __init__(self):
         agen = _sse_agen("https://stream.wikimedia.org/v2/stream/recentchange")
         # Gather up to 0.25 sec of or 1000 items.
@@ -29,14 +29,14 @@ class WikiSource(StatefulSource):
         return None
 
 
-class WikiStreamInput(PartitionedInput):
+class WikiSource(FixedPartitionedSource):
     def list_parts(self):
         return ["single-part"]
 
     def build_part(self, for_key, resume_state):
         assert for_key == "single-part"
         assert resume_state is None
-        return WikiSource()
+        return WikiPartition()
 
 
 def initial_count(data_dict):
@@ -50,7 +50,7 @@ def keep_max(max_count, new_count):
 
 
 flow = Dataflow()
-flow.input("inp", WikiStreamInput())
+flow.input("inp", WikiSource())
 # "event_json"
 flow.map("load_json", json.loads)
 # {"server_name": "server.name", ...}
@@ -68,4 +68,4 @@ flow.reduce_window(
 flow.stateful_map("keep_max", lambda: 0, keep_max)
 # ("server.name", max_per_window)
 flow.map("format", lambda x: (x[0], f"{x[0]}, {x[1]}"))
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())

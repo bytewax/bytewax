@@ -4,15 +4,15 @@ from datetime import datetime, timedelta, timezone
 # pip install pandas pyarrow fake-web-events
 import pandas
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import PartitionedInput, StatefulSource
-from bytewax.outputs import PartitionedOutput, StatefulSink
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
 from bytewax.window import SystemClockConfig, TumblingWindow
 from fake_web_events import Simulation
 from pandas import DataFrame
 from pyarrow import Table, parquet
 
 
-class SimulatedSource(StatefulSource):
+class SimulatedPartition(StatefulSourcePartition):
     def __init__(self):
         self.events = Simulation(user_pool_size=5, sessions_per_day=100).run(
             duration_seconds=10
@@ -22,23 +22,20 @@ class SimulatedSource(StatefulSource):
         return [json.dumps(next(self.events))]
 
     def snapshot(self):
-        pass
-
-    def close(self):
-        pass
+        return None
 
 
-class FakeWebEventsInput(PartitionedInput):
+class FakeWebEventsSource(FixedPartitionedSource):
     def list_parts(self):
-        return {"singleton"}
+        return ["singleton"]
 
     def build_part(self, for_key, resume_state):
         assert for_key == "singleton"
         assert resume_state is None
-        return SimulatedSource()
+        return SimulatedPartition()
 
 
-class ParquetSink(StatefulSink):
+class ParquetPartition(StatefulSinkPartition):
     def write(self, value):
         table = Table.from_pandas(value)
         parquet.write_to_dataset(
@@ -48,21 +45,18 @@ class ParquetSink(StatefulSink):
         )
 
     def snapshot(self):
-        pass
-
-    def close(self):
-        pass
+        return None
 
 
-class ParquetOutput(PartitionedOutput):
+class ParquetSink(FixedPartitionedSink):
     def list_parts(self):
-        return {"singleton"}
+        return ["singleton"]
 
     def assign_part(self, item_key):
         return "singleton"
 
     def build_part(self, for_part, resume_state):
-        return ParquetSink()
+        return ParquetPartition()
 
 
 def add_date_columns(event):
@@ -92,7 +86,7 @@ wc = TumblingWindow(
 )
 
 flow = Dataflow()
-flow.input("input", FakeWebEventsInput())
+flow.input("input", FakeWebEventsSource())
 flow.map("load_json", json.loads)
 # {"page_url_path": "/path", "event_timestamp": "2022-01-02 03:04:05", ...}
 flow.map("add_date_columns", add_date_columns)
@@ -107,4 +101,4 @@ flow.map("group_by_page", group_by_page)
 # }]))
 flow.reduce_window("reducer", cc, wc, append_event)
 # ("/path", DataFrame([{"page_url_path": "/path", ...}, ...]))
-flow.output("out", ParquetOutput())
+flow.output("out", ParquetSink())

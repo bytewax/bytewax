@@ -1,7 +1,7 @@
 import re
 
-from bytewax.connectors.files import FileInput
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.files import FileSource
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 
 
@@ -30,7 +30,7 @@ def add(running_count, new_count):
 
 
 flow = Dataflow()
-flow.input("inp", FileInput("examples/sample_data/wordcount.txt"))
+flow.input("inp", FileSource("examples/sample_data/wordcount.txt"))
 # "Here, we have FULL sentences."
 flow.map("lower", lower)
 # "here, we have lowercase sentences."
@@ -40,4 +40,4 @@ flow.map("initial_count", initial_count)
 # ("word", 1)
 flow.stateful_map("running_count", count_builder, add)
 # ("word", running_count)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())

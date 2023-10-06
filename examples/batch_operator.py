@@ -12,12 +12,12 @@ with both the size and time limits.
 """
 from datetime import datetime, timedelta, timezone
 
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 
 
-class PeriodicSource(StatefulSource):
+class PeriodicPartition(StatefulSourcePartition):
     def __init__(self):
         self._counter = 0
         self._next_awake = datetime.now(timezone.utc)
@@ -39,12 +39,12 @@ class PeriodicSource(StatefulSource):
         return None
 
 
-class PeriodicInput(PartitionedInput):
+class PeriodicSource(FixedPartitionedSource):
     def list_parts(self):
         return ["singleton"]
 
     def build_part(self, for_part, resume_state):
-        return PeriodicSource()
+        return PeriodicPartition()
 
 
 def add_key(x):
@@ -58,7 +58,7 @@ def calc_avg(key__batch):
 
 flow = Dataflow()
 # Emit 20 items, with a 0.25 seconds timeout, so ~4 items per second
-flow.input("in", PeriodicInput())
+flow.input("in", PeriodicSource())
 # Add a key for the stateful operator
 flow.map(add_key)
 
@@ -78,4 +78,4 @@ flow.inspect(lambda x: print(f"Avg:\t\t{x}"))
 flow.map(add_key)
 flow.batch("batch", max_size=10, timeout=timedelta(seconds=1))
 flow.map(lambda x: f"Avg batch:\t{x[1]}")
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())

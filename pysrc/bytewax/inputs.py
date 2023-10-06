@@ -16,11 +16,11 @@ from itertools import islice
 from typing import Any, Callable, Iterable, Iterator, List, Optional
 
 __all__ = [
-    "DynamicInput",
-    "Input",
-    "PartitionedInput",
-    "StatefulSource",
-    "StatelessSource",
+    "DynamicSource",
+    "FixedPartitionedSource",
+    "Source",
+    "StatefulSourcePartition",
+    "StatelessSourcePartition",
     "batch",
     "batch_async",
     "batch_getter",
@@ -28,11 +28,13 @@ __all__ = [
 ]
 
 
-class Input(ABC):  # noqa: B024
-    """Base class for all input types. Do not subclass this.
+class Source(ABC):  # noqa: B024
+    """A location to read input items from.
+
+    Base class for all input sources. Do not subclass this.
 
     If you want to implement a custom connector, instead subclass one
-    of the specific input sub-types below in this module.
+    of the specific source sub-types below in this module.
 
     """
 
@@ -48,8 +50,8 @@ class Input(ABC):  # noqa: B024
         }
 
 
-class StatefulSource(ABC):
-    """Input source that maintains state of its position."""
+class StatefulSourcePartition(ABC):
+    """Input partition that maintains state of its position."""
 
     @abstractmethod
     def next_batch(self) -> List[Any]:
@@ -94,13 +96,13 @@ class StatefulSource(ABC):
 
     @abstractmethod
     def snapshot(self) -> Any:
-        """Snapshot the position of the next read of this source.
+        """Snapshot the position of the next read of this partition.
 
         This will be returned to you via the `resume_state` parameter
         of your input builder.
 
         Be careful of "off by one" errors in resume state. This should
-        return a state that, when built into a source, resumes reading
+        return a state that, when built into a partition, resumes reading
         _after the last read item item_, not the same item that
         `next()` last returned.
 
@@ -113,7 +115,7 @@ class StatefulSource(ABC):
         ...
 
     def close(self) -> None:
-        """Cleanup this source when the dataflow completes.
+        """Cleanup this partition when the dataflow completes.
 
         This is not guaranteed to be called. It will only be called
         when the dataflow finishes on finite input. It will not be
@@ -123,8 +125,8 @@ class StatefulSource(ABC):
         return
 
 
-class PartitionedInput(Input):
-    """An input with a fixed number of independent partitions.
+class FixedPartitionedSource(Source):
+    """An input source with a fixed number of independent partitions.
 
     Will maintain the state of each source and re-build using it
     during resume. If the source supports seeking, this input can
@@ -153,7 +155,7 @@ class PartitionedInput(Input):
         self,
         for_part: str,
         resume_state: Optional[Any],
-    ) -> StatefulSource:
+    ) -> StatefulSourcePartition:
         """Build anew or resume an input partition.
 
         Will be called once per execution for each partition key on a
@@ -180,8 +182,8 @@ class PartitionedInput(Input):
         ...
 
 
-class StatelessSource(ABC):
-    """Input source that is stateless."""
+class StatelessSourcePartition(ABC):
+    """Input partition that is stateless."""
 
     @abstractmethod
     def next_batch(self) -> List[Any]:
@@ -225,7 +227,7 @@ class StatelessSource(ABC):
         return None
 
     def close(self) -> None:
-        """Cleanup this source when the dataflow completes.
+        """Cleanup this partition when the dataflow completes.
 
         This is not guaranteed to be called. It will only be called
         when the dataflow finishes on finite input. It will not be
@@ -235,11 +237,11 @@ class StatelessSource(ABC):
         return
 
 
-class DynamicInput(Input):
-    """An input where all workers can read distinct items.
+class DynamicSource(Source):
+    """An input source where all workers can read distinct items.
 
     Does not support storing any resume state. Thus these kind of
-    inputs only naively can support at-most-once processing.
+    sources only naively can support at-most-once processing.
 
     The source must somehow support supplying disjoint data for each
     worker. If you re-read the same items on multiple workers, the
@@ -248,7 +250,7 @@ class DynamicInput(Input):
     """
 
     @abstractmethod
-    def build(self, worker_index, worker_count) -> StatelessSource:
+    def build(self, worker_index, worker_count) -> StatelessSourcePartition:
         """Build an input source for a worker.
 
         Will be called once on each worker.
@@ -260,7 +262,7 @@ class DynamicInput(Input):
                 Total number of workers.
 
         Returns:
-            Input source.
+            The built partition.
 
         """
         ...

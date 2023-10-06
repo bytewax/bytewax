@@ -1,9 +1,9 @@
 import os
 import time
 
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput
+from bytewax.testing import TestingSource
 from bytewax.tracing import OtlpTracingConfig, setup_tracing
 
 tracer = setup_tracing(
@@ -34,8 +34,8 @@ def stringy(x):
 
 
 flow = Dataflow()
-flow.input("inp", TestingInput(inp()))
+flow.input("inp", TestingSource(inp()))
 flow.map("double", double)
 flow.map("minus_one", minus_one)
 flow.map("stringy", stringy)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())

@@ -2,12 +2,12 @@
 from datetime import timedelta
 
 import requests
-from bytewax.connectors.periodic import SimplePollingInput
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.periodic import SimplePollingSource
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 
 
-class HNInput(SimplePollingInput):
+class HNSource(SimplePollingSource):
     def next_item(self):
         # Extract the first 10 item ids from newstories api.
         # You can then use the id to fetch metadata about
@@ -31,7 +31,7 @@ def download_content(metadata):
 
 
 flow = Dataflow()
-flow.input("in", HNInput(timedelta(hours=1)))
+flow.input("in", HNSource(timedelta(hours=1)))
 flow.flat_map(lambda x: x)
 # flow.inspect(print)
 # If you run this dataflow with multiple workers, downloads in
@@ -42,4 +42,4 @@ flow.map(download_metadata)
 flow.map(download_content)
 # We could do something useful, but we just print the title instead
 flow.map(lambda x: f"Downloaded: {x['title']}")
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())

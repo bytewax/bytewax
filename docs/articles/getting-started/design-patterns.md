@@ -22,8 +22,8 @@ The following sets of examples are equivalent.
 
 ```python
 from bytewax.dataflow import Dataflow
-from bytewax.testing import run_main, TestingInput
-from bytewax.connectors.stdio import StdOutput
+from bytewax.testing import run_main, TestingSource
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.window import SystemClockConfig, TumblingWindow
 from datetime import timedelta, datetime, timezone
 ```
@@ -37,12 +37,12 @@ def split_sentence(sentence):
 
 inp = ["hello world"]
 flow = Dataflow()
-flow.input("inp", TestingInput(inp))
+flow.input("inp", TestingSource(inp))
 
 # Operate on input
 flow.flat_map("split", split_sentence)
 
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())
 run_main(flow)
 ```
 
@@ -54,12 +54,12 @@ world
 ```python
 inp = ["hello world"]
 flow = Dataflow()
-flow.input("inp", TestingInput(inp))
+flow.input("inp", TestingSource(inp))
 
 # Operate on input
 flow.flat_map("split", lambda s: s.split())
 
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())
 run_main(flow)
 ```
 
@@ -71,12 +71,12 @@ world
 ```python
 inp = ["hello world"]
 flow = Dataflow()
-flow.input("inp", TestingInput(inp))
+flow.input("inp", TestingSource(inp))
 
 # Operate on input
 flow.flat_map("str_split", str.split)
 
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())
 run_main(flow)
 ```
 
@@ -100,11 +100,11 @@ window = TumblingWindow(
 
 inp = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
-flow.input("inp", TestingInput(inp))
+flow.input("inp", TestingSource(inp))
 
 # Operate on input
 flow.reduce_window("reduce", clock, window, add_to_list)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())
 
 run_main(flow)
 ```
@@ -116,11 +116,11 @@ run_main(flow)
 ```python
 inp = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
-flow.input("inp", TestingInput(inp))
+flow.input("inp", TestingSource(inp))
 
 # Operate on input
 flow.reduce_window("reduce", clock, window, lambda l1, l2: l1 + l2)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())
 
 run_main(flow)
 ```
@@ -134,11 +134,11 @@ import operator
 
 inp = [("a", ["x"]), ("a", ["y"])]
 flow = Dataflow()
-flow.input("inp", TestingInput(inp))
+flow.input("inp", TestingSource(inp))
 
 # Operate on input
 flow.reduce_window("reduce", clock, window, operator.add)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())
 
 run_main(flow)
 ```
@@ -177,11 +177,11 @@ window = TumblingWindow(
 
 inp = [{"user_id": "1", "type": "login"}, {"user_id": "1", "type": "logout"}]
 flow = Dataflow()
-flow.input("inp", TestingInput(inp))
+flow.input("inp", TestingSource(inp))
 
 # Operate on input
 collect_user_events(flow, clock, window)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())
 
 run_main(flow)
 ```

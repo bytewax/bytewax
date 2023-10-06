@@ -38,13 +38,13 @@ Write your dataflow to a file named `./simple.py`:
 ```python
 # ./simple.py
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput
-from bytewax.connectors.stdio import StdOutput
+from bytewax.testing import TestingSource
+from bytewax.connectors.stdio import StdOutSink
 
 flow = Dataflow()
-flow.input("inp", TestingInput(range(3)))
+flow.input("inp", TestingSource(range(3)))
 flow.map("add_one", lambda item: item + 1)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())
 ```
 
 To run this flow, you should use `simple:flow`:
@@ -64,15 +64,15 @@ rather than being defined in the file:
 ```python
 # ./parametric.py
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput
-from bytewax.connectors.stdio import StdOutput
+from bytewax.testing import TestingSource
+from bytewax.connectors.stdio import StdOutSink
 
 
 def get_flow(input_range):
     flow = Dataflow()
-    flow.input("inp", TestingInput(range(input_range)))
+    flow.input("inp", TestingSource(range(input_range)))
     flow.map("add_one", lambda item: item + 1)
-    flow.output("out", StdOutput())
+    flow.output("out", StdOutSink())
     return flow
 ```
 

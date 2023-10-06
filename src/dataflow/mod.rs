@@ -12,8 +12,8 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
-use crate::inputs::Input;
-use crate::outputs::Output;
+use crate::inputs::Source;
+use crate::outputs::Sink;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::StepId;
 use crate::window::clock::ClockConfig;
@@ -47,10 +47,10 @@ impl Dataflow {
     /// Args:
     ///   step_id (str):
     ///       Uniquely identifies this step for recovery.
-    ///   input (bytewax.inputs.Input):
-    ///       Input definition.
-    fn input(&mut self, step_id: StepId, input: Input) {
-        self.steps.push(Step::Input { step_id, input });
+    ///   source (bytewax.inputs.Source):
+    ///       Source to read items from.
+    fn input(&mut self, step_id: StepId, source: Source) {
+        self.steps.push(Step::Input { step_id, source });
     }
 
     /// Redistribute items randomly across all workers for the next step.
@@ -140,10 +140,10 @@ impl Dataflow {
     /// Args:
     ///   step_id (str):
     ///       Uniquely identifies this step.
-    ///   output (bytewax.outputs.Output):
-    ///       Output definition.
-    fn output(&mut self, step_id: StepId, output: Output) {
-        self.steps.push(Step::Output { step_id, output });
+    ///   sink (bytewax.outputs.Sink):
+    ///       Sink to write items to.
+    fn output(&mut self, step_id: StepId, sink: Sink) {
+        self.steps.push(Step::Output { step_id, sink });
     }
 
     /// Filter selectively keeps only some items.
@@ -160,17 +160,17 @@ impl Dataflow {
     /// - Removing sentinels
     /// - Removing stop words
     ///
-    /// >>> from bytewax.testing import TestingInput
-    /// >>> from bytewax.connectors.stdio import StdOutput
+    /// >>> from bytewax.testing import TestingSource
+    /// >>> from bytewax.connectors.stdio import StdOutSink
     /// >>> from bytewax.testing import run_main
     /// >>> from bytewax.dataflow import Dataflow
     /// >>>
     /// >>> flow = Dataflow()
-    /// >>> flow.input("inp", TestingInput(range(4)))
+    /// >>> flow.input("inp", TestingSource(range(4)))
     /// >>> def is_odd(item):
     /// ...     return item % 2 != 0
     /// >>> flow.filter("filter_odd", is_odd)
-    /// >>> flow.output("out", StdOutput())
+    /// >>> flow.output("out", StdOutSink())
     /// >>> run_main(flow)
     /// 1
     /// 3
@@ -219,17 +219,17 @@ impl Dataflow {
     /// - Flattening hierarchical objects
     /// - Breaking up aggregations for further processing
     ///
-    /// >>> from bytewax.testing import TestingInput
-    /// >>> from bytewax.connectors.stdio import StdOutput
+    /// >>> from bytewax.testing import TestingSource
+    /// >>> from bytewax.connectors.stdio import StdOutSink
     /// >>> from bytewax.testing import run_main
     /// >>> from bytewax.dataflow import Dataflow
     /// >>> flow = Dataflow()
     /// >>> inp = ["hello world"]
-    /// >>> flow.input("inp", TestingInput(inp))
+    /// >>> flow.input("inp", TestingSource(inp))
     /// >>> def split_into_words(sentence):
     /// ...     return sentence.split()
     /// >>> flow.flat_map("split_words", split_into_words)
-    /// >>> flow.output("out", StdOutput())
+    /// >>> flow.output("out", StdOutSink())
     /// >>> run_main(flow)
     /// hello
     /// world
@@ -251,16 +251,16 @@ impl Dataflow {
     ///
     /// It is commonly used for debugging.
     ///
-    /// >>> from bytewax.testing import TestingInput, TestingOutput
+    /// >>> from bytewax.testing import TestingSource, TestingSink
     /// >>> from bytewax.testing import run_main
     /// >>> from bytewax.dataflow import Dataflow
     /// >>> flow = Dataflow()
-    /// >>> flow.input("inp", TestingInput(range(3)))
+    /// >>> flow.input("inp", TestingSource(range(3)))
     /// >>> def log(item):
     /// ...     print("Saw", item)
     /// >>> flow.inspect(log)
     /// >>> out = []
-    /// >>> flow.output("out", TestingOutput(out))  # Notice we don't print out.
+    /// >>> flow.output("out", TestingSink(out))  # Notice we don't print out.
     /// >>> run_main(flow)
     /// Saw 0
     /// Saw 1
@@ -284,15 +284,15 @@ impl Dataflow {
     /// It is commonly used for debugging.
     ///
     /// >>> from datetime import timedelta
-    /// >>> from bytewax.testing import TestingInput, TestingOutput, run_main
+    /// >>> from bytewax.testing import TestingSource, TestingSink, run_main
     /// >>> from bytewax.dataflow import Dataflow
     /// >>> flow = Dataflow()
-    /// >>> flow.input("inp", TestingInput(range(3)))
+    /// >>> flow.input("inp", TestingSource(range(3)))
     /// >>> def log(epoch, item):
     /// ...    print(f"Saw {item} @ {epoch}")
     /// >>> flow.inspect_epoch(log)
     /// >>> out = []
-    /// >>> flow.output("out", TestingOutput(out))  # Notice we don't print out.
+    /// >>> flow.output("out", TestingSink(out))  # Notice we don't print out.
     /// >>> run_main(flow, epoch_interval=timedelta(seconds=0))
     /// Saw 0 @ 1
     /// Saw 1 @ 2
@@ -334,15 +334,15 @@ impl Dataflow {
     /// - Turning JSON into objects
     /// - So many things
     ///
-    /// >>> from bytewax.connectors.stdio import StdOutput
-    /// >>> from bytewax.testing import run_main, TestingInput
+    /// >>> from bytewax.connectors.stdio import StdOutSink
+    /// >>> from bytewax.testing import run_main, TestingSource
     /// >>> from bytewax.dataflow import Dataflow
     /// >>> flow = Dataflow()
-    /// >>> flow.input("inp", TestingInput(range(3)))
+    /// >>> flow.input("inp", TestingSource(range(3)))
     /// >>> def add_one(item):
     /// ...     return item + 10
     /// >>> flow.map("add_one", add_one)
-    /// >>> flow.output("out", StdOutput())
+    /// >>> flow.output("out", StdOutSink())
     /// >>> run_main(flow)
     /// 10
     /// 11
@@ -392,8 +392,8 @@ impl Dataflow {
     /// - Summarizing data
     ///
     /// >>> from bytewax.dataflow import Dataflow
-    /// >>> from bytewax.testing import TestingInput, run_main
-    /// >>> from bytewax.connectors.stdio import StdOutput
+    /// >>> from bytewax.testing import TestingSource, run_main
+    /// >>> from bytewax.connectors.stdio import StdOutSink
     /// >>> flow = Dataflow()
     /// >>> inp = [
     /// ...     {"user": "a", "type": "login"},
@@ -402,7 +402,7 @@ impl Dataflow {
     /// ...     {"user": "b", "type": "logout"},
     /// ...     {"user": "a", "type": "logout"},
     /// ... ]
-    /// >>> flow.input("inp", TestingInput(inp))
+    /// >>> flow.input("inp", TestingSource(inp))
     /// >>> def user_as_key(event):
     /// ...     return event["user"], [event]
     /// >>> flow.map("user_as_key", user_as_key)
@@ -412,7 +412,7 @@ impl Dataflow {
     /// >>> def session_complete(session):
     /// ...     return any(event["type"] == "logout" for event in session)
     /// >>> flow.reduce("sessionizer", extend_session, session_complete)
-    /// >>> flow.output("out", StdOutput())
+    /// >>> flow.output("out", StdOutSink())
     /// >>> run_main(flow)
     /// ('b', [{'user': 'b', 'type': 'login'}, {'user': 'b', 'type': 'logout'}])
     /// ('a', [{'user': 'a', 'type': 'login'}, {'user': 'a', 'type': 'post'},
@@ -461,7 +461,7 @@ impl Dataflow {
     ///
     /// >>> from datetime import datetime, timedelta, timezone
     /// >>> from bytewax.dataflow import Dataflow
-    /// >>> from bytewax.testing import run_main, TestingInput, TestingOutput
+    /// >>> from bytewax.testing import run_main, TestingSource, TestingSink
     /// >>> from bytewax.window import TumblingWindow, EventClockConfig
     /// >>> align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
     /// >>>
@@ -476,7 +476,7 @@ impl Dataflow {
     /// ...     ("ALL", {"time": align_to + timedelta(seconds=16), "val": "e"})
     /// ... ]
     /// >>>
-    /// >>> flow.input("inp", TestingInput(inp))
+    /// >>> flow.input("inp", TestingSource(inp))
     /// >>>
     /// >>> clock_config = EventClockConfig(
     /// ...     lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
@@ -490,7 +490,7 @@ impl Dataflow {
     /// >>> flow.fold_window("sum", clock_config, window_config, list, add)
     /// >>>
     /// >>> out = []
-    /// >>> flow.output("out", TestingOutput(out))
+    /// >>> flow.output("out", TestingSink(out))
     /// >>>
     /// >>> run_main(flow)
     /// >>>
@@ -556,7 +556,7 @@ impl Dataflow {
     /// - Sessionization
     ///
     /// >>> from datetime import datetime, timedelta, timezone
-    /// >>> from bytewax.testing import TestingInput, TestingOutput, run_main
+    /// >>> from bytewax.testing import TestingSource, TestingSink, run_main
     /// >>> from bytewax.window import EventClockConfig, TumblingWindow
     /// >>> align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
     /// >>> flow = Dataflow()
@@ -566,7 +566,7 @@ impl Dataflow {
     /// ...     ("a", {"time": align_to + timedelta(seconds=8), "val": 1}),
     /// ...     ("b", {"time": align_to + timedelta(seconds=12), "val": 1}),
     /// ... ]
-    /// >>> flow.input("inp", TestingInput(inp))
+    /// >>> flow.input("inp", TestingSource(inp))
     /// >>> def add(acc, x):
     /// ...     acc["val"] += x["val"]
     /// ...     return acc
@@ -582,7 +582,7 @@ impl Dataflow {
     /// ...    return (key, event["val"])
     /// >>> flow.map("extract_val", extract_val)
     /// >>> out = []
-    /// >>> flow.output("out", TestingOutput(out))
+    /// >>> flow.output("out", TestingSink(out))
     /// >>> run_main(flow)
     /// >>> assert sorted(out) == sorted([('b', 1), ('a', 2), ('b', 1)])
     ///
@@ -675,8 +675,8 @@ impl Dataflow {
     /// - Anomaly detection
     /// - State machines
     ///
-    /// >>> from bytewax.testing import TestingInput, run_main
-    /// >>> from bytewax.connectors.stdio import StdOutput
+    /// >>> from bytewax.testing import TestingSource, run_main
+    /// >>> from bytewax.connectors.stdio import StdOutSink
     /// >>> flow = Dataflow()
     /// >>> inp = [
     /// ...     "a",
@@ -685,7 +685,7 @@ impl Dataflow {
     /// ...     "a",
     /// ...     "b",
     /// ... ]
-    /// >>> flow.input("inp", TestingInput(inp))
+    /// >>> flow.input("inp", TestingSource(inp))
     /// >>> def self_as_key(item):
     /// ...     return item, item
     /// >>> flow.map("self_as_key", self_as_key)
@@ -705,7 +705,7 @@ impl Dataflow {
     /// ...     else:
     /// ...         return [item]
     /// >>> flow.flat_map("remove_none_and_key", remove_none_and_key)
-    /// >>> flow.output("out", StdOutput())
+    /// >>> flow.output("out", StdOutSink())
     /// >>> run_main(flow)
     /// a
     /// b
@@ -746,10 +746,10 @@ impl Dataflow {
                 Step::Redistribute => {
                     step_dict.set_item("type", "Redistribute")?;
                 }
-                Step::Input { step_id, input } => {
+                Step::Input { step_id, source } => {
                     step_dict.set_item("type", "Input")?;
                     step_dict.set_item("step_id", step_id)?;
-                    step_dict.set_item("input", input)?;
+                    step_dict.set_item("source", source)?;
                 }
                 Step::Map { step_id, mapper } => {
                     step_dict.set_item("type", "Map")?;
@@ -839,10 +839,10 @@ impl Dataflow {
                     step_dict.set_item("builder", builder)?;
                     step_dict.set_item("mapper", mapper)?;
                 }
-                Step::Output { step_id, output } => {
+                Step::Output { step_id, sink } => {
                     step_dict.set_item("type", "Output")?;
                     step_dict.set_item("step_id", step_id)?;
-                    step_dict.set_item("output", output)?;
+                    step_dict.set_item("sink", sink)?;
                 }
             }
             steps.append(step_dict)?;
@@ -869,7 +869,7 @@ pub(crate) enum Step {
     Redistribute,
     Input {
         step_id: StepId,
-        input: Input,
+        source: Source,
     },
     Map {
         step_id: StepId,
@@ -926,7 +926,7 @@ pub(crate) enum Step {
     },
     Output {
         step_id: StepId,
-        output: Output,
+        sink: Sink,
     },
 }
 

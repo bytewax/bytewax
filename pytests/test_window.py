@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput, TestingOutput, run_main
+from bytewax.testing import TestingSink, TestingSource, run_main
 from bytewax.window import (
     EventClockConfig,
     SessionWindow,
@@ -30,7 +30,7 @@ def test_session_window():
         ("ALL", {"time": align_to + timedelta(seconds=1), "val": "h"}),
     ]
 
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
@@ -44,7 +44,7 @@ def test_session_window():
     flow.fold_window("sum", clock_config, window_config, list, add)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
     assert sorted(out) == sorted(
@@ -81,7 +81,7 @@ def test_sliding_window():
         ("ALL", {"time": align_to + timedelta(seconds=1), "val": "h"}),
     ]
 
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
@@ -97,7 +97,7 @@ def test_sliding_window():
     flow.fold_window("sum", clock_config, window_config, list, add)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
     assert sorted(out) == sorted(
@@ -125,7 +125,7 @@ def test_tumbling_window():
         ("ALL", {"time": align_to + timedelta(seconds=16), "val": "e"}),
     ]
 
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
@@ -139,7 +139,7 @@ def test_tumbling_window():
     flow.fold_window("sum", clock_config, window_config, list, add)
 
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     run_main(flow)
 

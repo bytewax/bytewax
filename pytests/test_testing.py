@@ -1,4 +1,4 @@
-from bytewax.testing import TestingInput, ffwd_iter
+from bytewax.testing import TestingSource, ffwd_iter
 from pytest import raises
 
 
@@ -12,7 +12,7 @@ def test_ffwd_iter():
 
 
 def test_input():
-    inp = TestingInput(range(3))
+    inp = TestingSource(range(3))
     part = inp.build_part("iterable", None)
     assert part.next_batch() == [0]
     assert part.next_batch() == [1]
@@ -23,7 +23,7 @@ def test_input():
 
 
 def test_input_resume_state():
-    inp = TestingInput(range(3))
+    inp = TestingSource(range(3))
     part = inp.build_part("iterable", None)
     assert part.next_batch() == [0]
     assert part.next_batch() == [1]
@@ -32,7 +32,7 @@ def test_input_resume_state():
     assert part.next_batch() == [2]
     part.close()
 
-    inp = TestingInput(range(3))
+    inp = TestingSource(range(3))
     part = inp.build_part("iterable", resume_state)
     assert part.snapshot() == resume_state
     assert part.next_batch() == [2]
@@ -42,7 +42,7 @@ def test_input_resume_state():
 
 
 def test_input_batch_size():
-    inp = TestingInput(range(5), batch_size=2)
+    inp = TestingSource(range(5), batch_size=2)
     part = inp.build_part("iterable", None)
     assert part.next_batch() == [0, 1]
     assert part.next_batch() == [2, 3]

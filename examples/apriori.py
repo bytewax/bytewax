@@ -3,9 +3,9 @@ import operator
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-from bytewax.connectors.files import FileInput
+from bytewax.connectors.files import DirSource
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingOutput, run_main
+from bytewax.testing import TestingSink, run_main
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 
@@ -46,17 +46,17 @@ wc = TumblingWindow(
 # first pass - count products
 out = []
 flow = Dataflow()
-flow.input("inp", FileInput("examples/sample_data/apriori.txt"))
+flow.input("inp", DirSource("examples/sample_data/apriori.txt"))
 flow.map("lower", lower)
 flow.flat_map("tokenize", tokenize)
 flow.map("initial_count", initial_count)
 flow.reduce_window("reduce", cc, wc, operator.add)
-flow.output("out", TestingOutput(out))
+flow.output("out", TestingSink(out))
 
 # second pass - count pairs
 out2 = []
 flow2 = Dataflow()
-flow2.input("input", FileInput("examples/sample_data/apriori.txt"))
+flow2.input("input", DirSource("examples/sample_data/apriori.txt"))
 flow2.map("lower", lower)
 flow2.filter(
     "is_most_common", is_most_common
@@ -64,7 +64,7 @@ flow2.filter(
 flow2.flat_map("build_pairs", build_pairs)
 flow2.map("initial_count", initial_count)
 flow2.reduce_window("reduce", cc, wc, operator.add)
-flow2.output("out", TestingOutput(out2))
+flow2.output("out", TestingSink(out2))
 
 
 run_main(flow)

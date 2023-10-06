@@ -1,11 +1,11 @@
 import random
 
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import PartitionedInput, StatefulSource
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 
 
-class RandomMetricSource(StatefulSource):
+class RandomMetricPartition(StatefulSourcePartition):
     def __init__(self):
         self.iterator = iter(list(range(20)))
 
@@ -20,14 +20,14 @@ class RandomMetricSource(StatefulSource):
         pass
 
 
-class RandomMetricInput(PartitionedInput):
+class RandomMetricSource(FixedPartitionedSource):
     def list_parts(self):
         return ["singleton"]
 
     def build_part(self, for_part, resume_state):
         assert for_part == "singleton"
         assert resume_state is None
-        return RandomMetricSource()
+        return RandomMetricPartition()
 
 
 class ZTestDetector:
@@ -82,8 +82,8 @@ def output_builder(worker_index, worker_count):
 
 
 flow = Dataflow()
-flow.input("inp", RandomMetricInput())
+flow.input("inp", RandomMetricSource())
 # ("metric", value)
 flow.stateful_map("AnomalyDetector", lambda: ZTestDetector(2.0), ZTestDetector.push)
 # ("metric", (value, mu, sigma, is_anomalous))
-flow.output("output", StdOutput())
+flow.output("output", StdOutSink())

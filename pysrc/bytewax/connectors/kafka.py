@@ -16,12 +16,12 @@ from confluent_kafka import (
 )
 from confluent_kafka.admin import AdminClient
 
-from bytewax.inputs import PartitionedInput, StatefulSource
-from bytewax.outputs import DynamicOutput, StatelessSink
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 __all__ = [
-    "KafkaInput",
-    "KafkaOutput",
+    "KafkaSource",
+    "KafkaSink",
 ]
 
 
@@ -42,7 +42,7 @@ def _list_parts(client, topics):
             yield f"{i}-{topic}"
 
 
-class _KafkaSource(StatefulSource):
+class _KafkaSourcePartition(StatefulSourcePartition):
     def __init__(
         self,
         consumer,
@@ -98,7 +98,7 @@ class _KafkaSource(StatefulSource):
         self._consumer.close()
 
 
-class KafkaInput(PartitionedInput):
+class KafkaSource(FixedPartitionedSource):
     """Use a set of Kafka topics as an input source.
 
     Kafka messages are emitted into the dataflow as two-tuples of
@@ -188,7 +188,7 @@ class KafkaInput(PartitionedInput):
         }
         config.update(self._add_config)
         consumer = Consumer(config)
-        return _KafkaSource(
+        return _KafkaSourcePartition(
             consumer,
             topic,
             part_idx,
@@ -198,7 +198,7 @@ class KafkaInput(PartitionedInput):
         )
 
 
-class _KafkaSink(StatelessSink):
+class _KafkaSinkPartition(StatelessSinkPartition):
     def __init__(self, producer, topic):
         self._producer = producer
         self._topic = topic
@@ -213,7 +213,7 @@ class _KafkaSink(StatelessSink):
         self._producer.flush()
 
 
-class KafkaOutput(DynamicOutput):
+class KafkaSink(DynamicSink):
     """Use a single Kafka topic as an output sink.
 
     Items consumed from the dataflow must look like two-tuples of
@@ -257,4 +257,4 @@ class KafkaOutput(DynamicOutput):
         }
         config.update(self._add_config)
         producer = Producer(config)
-        return _KafkaSink(producer, self._topic)
+        return _KafkaSinkPartition(producer, self._topic)

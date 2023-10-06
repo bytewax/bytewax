@@ -2,9 +2,9 @@ import operator
 from dataclasses import dataclass
 from typing import List
 
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput
+from bytewax.testing import TestingSource
 
 
 @dataclass
@@ -100,7 +100,7 @@ def calc_ctr(search_session):
 
 
 flow = Dataflow()
-flow.input("inp", TestingInput(IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS))
+flow.input("inp", TestingSource(IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS))
 # event
 flow.map("initial_session", initial_session)
 # (user, [event])
@@ -115,4 +115,4 @@ flow.flat_map("split_into_searches", split_into_searches)
 flow.filter("filter_search", has_search)
 # Calculate search CTR per search.
 flow.map("calc_ctr", calc_ctr)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())

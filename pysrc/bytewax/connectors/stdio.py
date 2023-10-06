@@ -1,18 +1,18 @@
 """Connectors to console IO."""
-from bytewax.outputs import DynamicOutput, StatelessSink
+from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 __all__ = [
-    "StdOutput",
+    "StdOutSink",
 ]
 
 
-class _PrintSink(StatelessSink):
+class _PrintSinkPartition(StatelessSinkPartition):
     def write_batch(self, items):
         for item in items:
             print(item)
 
 
-class StdOutput(DynamicOutput):
+class StdOutSink(DynamicSink):
     """Write each output item to stdout on that worker.
 
     Items consumed from the dataflow must look like a string. Use a
@@ -27,4 +27,4 @@ class StdOutput(DynamicOutput):
 
     def build(self, worker_index, worker_count):
         """See ABC docstring."""
-        return _PrintSink()
+        return _PrintSinkPartition()

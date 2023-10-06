@@ -4,17 +4,17 @@ import subprocess
 import tempfile
 
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput, TestingOutput
+from bytewax.testing import TestingSink, TestingSource
 from pytest import mark, raises
 
 
 def test_run(entry_point):
     flow = Dataflow()
     inp = range(3)
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
     flow.map("add_one", lambda x: x + 1)
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     entry_point(flow)
 
@@ -24,7 +24,7 @@ def test_run(entry_point):
 def test_reraises_exception(entry_point):
     flow = Dataflow()
     inp = range(3)
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
     def boom(item):
         if item == 0:
@@ -35,7 +35,7 @@ def test_reraises_exception(entry_point):
 
     flow.map("explode", boom)
     out = []
-    flow.output("out", TestingOutput(out))
+    flow.output("out", TestingSink(out))
 
     with raises(RuntimeError):
         entry_point(flow)

@@ -1,15 +1,15 @@
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput, run_main
+from bytewax.testing import TestingSource, run_main
 
 
 def test_std_output(capfd):
     flow = Dataflow()
 
     inp = ["a", "b"]
-    flow.input("inp", TestingInput(inp))
+    flow.input("inp", TestingSource(inp))
 
-    flow.output("out", StdOutput())
+    flow.output("out", StdOutSink())
 
     run_main(flow)
 

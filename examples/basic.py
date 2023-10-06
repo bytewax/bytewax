@@ -1,6 +1,6 @@
-from bytewax.connectors.stdio import StdOutput
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput
+from bytewax.testing import TestingSource
 
 
 def double(x):
@@ -16,8 +16,8 @@ def stringy(x):
 
 
 flow = Dataflow()
-flow.input("inp", TestingInput(range(10)))
+flow.input("inp", TestingSource(range(10)))
 flow.map(double)
 flow.map(minus_one)
 flow.map(stringy)
-flow.output("out", StdOutput())
+flow.output("out", StdOutSink())
