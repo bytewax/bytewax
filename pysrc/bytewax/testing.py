@@ -177,7 +177,7 @@ def _parse_args():
     # Add scaling arguments for the testing namespace
     scaling = parser.add_argument_group(
         "Scaling",
-        "This testing entrypoint supports using '-p' to spawn multiple ",
+        "This testing entrypoint supports using '-p' to spawn multiple "
         "processes, and '-w' to run multiple workers within a process.",
     )
     scaling.add_argument(
