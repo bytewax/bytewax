@@ -255,7 +255,6 @@ name = "bytewax"
 version = "0.17.1"
 dependencies = [
  "axum 0.5.17",
- "bincode",
  "chrono",
  "fastrand",
  "num",
