@@ -185,7 +185,9 @@ cluster and might not necessarily be on the same machine.
 
 ## Resume (Execution)
 
-An execution which is
+An execution which is started using the recovery data from a previous execution. It will "pick up" near where the previous execution left off.
+
+The progress of this new execution begins from the resume epoch. All relevant state snapshots are re-loaded.
 
 ## Snapshot(, State)
 

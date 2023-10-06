@@ -9,8 +9,19 @@ from bytewax.inputs import (
     batch,
 )
 from bytewax.outputs import DynamicOutput, StatelessSink
+from bytewax.recovery import RecoveryConfig
+from bytewax.run import (
+    _create_arg_parser,
+    _EnvDefault,
+    _locate_dataflow,
+    _prepare_import,
+)
 
-from .bytewax import cluster_main, run_main
+from .bytewax import (
+    cluster_main,
+    run_main,
+    test_cluster,
+)
 
 __all__ = [
     "run_main",
@@ -158,3 +169,54 @@ def poll_next_batch(source: StatefulSource, timeout=timedelta(seconds=5)):
             raise TimeoutError()
         batch = source.next_batch()
     return batch
+
+
+def _parse_args():
+    parser = _create_arg_parser()
+
+    # Add scaling arguments for the testing namespace
+    scaling = parser.add_argument_group(
+        "Scaling",
+        "This testing entrypoint supports using '-p' to spawn multiple "
+        "processes, and '-w' to run multiple workers within a process.",
+    )
+    scaling.add_argument(
+        "-w",
+        "--workers-per-process",
+        type=int,
+        help="Number of workers for each process",
+        action=_EnvDefault,
+        envvar="BYTEWAX_WORKERS_PER_PROCESS",
+    )
+    scaling.add_argument(
+        "-p",
+        "--processes",
+        type=int,
+        help="Number of separate processes to run",
+        action=_EnvDefault,
+        envvar="BYTEWAX_PROCESSES",
+    )
+
+    args = parser.parse_args()
+    args.import_str = _prepare_import(args.import_str)
+
+    return args
+
+
+if __name__ == "__main__":
+    kwargs = vars(_parse_args())
+
+    kwargs["epoch_interval"] = kwargs.pop("snapshot_interval")
+
+    recovery_directory, backup_interval = kwargs.pop("recovery_directory"), kwargs.pop(
+        "backup_interval"
+    )
+    kwargs["recovery_config"] = None
+    if recovery_directory is not None:
+        kwargs["recovery_config"] = RecoveryConfig(recovery_directory, backup_interval)
+
+    # Import the dataflow
+    module_str, _, attrs_str = kwargs.pop("import_str").partition(":")
+    kwargs["flow"] = _locate_dataflow(module_str, attrs_str)
+
+    test_cluster(**kwargs)

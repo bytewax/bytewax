@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file. For help wi
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Moves the ability to start multiple Python processes with the
+  `-p` or `--processes` to the testing namespace.
+
 ## v0.17.1
 
 - Adds the `batch` operator to Dataflows. Calling `Dataflow.batch`
