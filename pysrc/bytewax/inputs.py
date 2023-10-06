@@ -11,13 +11,14 @@ import asyncio
 import queue
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from itertools import islice
 from typing import Any, Callable, Iterable, Iterator, List, Optional
 
 __all__ = [
     "DynamicSource",
     "FixedPartitionedSource",
+    "SimplePollingSource",
     "Source",
     "StatefulSourcePartition",
     "StatelessSourcePartition",
@@ -263,6 +264,97 @@ class DynamicSource(Source):
 
         Returns:
             The built partition.
+
+        """
+        ...
+
+
+class _SimplePollingPartition(StatefulSourcePartition):
+    def __init__(
+        self, interval, align_to, getter, now_getter=lambda: datetime.now(timezone.utc)
+    ):
+        self._interval = interval
+        self._getter = getter
+
+        now = now_getter()
+        if align_to is not None:
+            # Hell yeah timedelta implements remainder.
+            since_last_awake = (now - align_to) % interval
+            if since_last_awake > timedelta(seconds=0):
+                until_next_awake = interval - since_last_awake
+            else:
+                # If now is exactly on the align_to mark (remainder is
+                # 0), don't wait a whole interval; activate
+                # immediately.
+                until_next_awake = timedelta(seconds=0)
+            self._next_awake = now + until_next_awake
+        else:
+            self._next_awake = now
+
+    def next_batch(self):
+        self._next_awake += self._interval
+        return [self._getter()]
+
+    def next_awake(self):
+        return self._next_awake
+
+    def snapshot(self):
+        return None
+
+
+class SimplePollingSource(FixedPartitionedSource):
+    """Calls a user defined function at a regular interval.
+
+    >>> class URLSource(SimplePollingSource):
+    ...     def __init__(self):
+    ...         super(interval=timedelta(seconds=10))
+    ...
+    ...     def next_item(self):
+    ...         return requests.get("https://example.com")
+
+    There is no parallelism; only one worker will poll this source.
+
+    Does not support storing any resume state. Thus these kind of
+    sources only naively can support at-most-once processing.
+
+    This is best for low-throughput polling on the order of seconds to
+    hours.
+
+    If you need a high-throughput source, avoid this. Instead create a
+    source using one of the other `Source` subclasses where you can
+    have increased paralellism, batching, and finer control over
+    timing.
+
+    """
+
+    def __init__(self, interval: timedelta, align_to: Optional[datetime] = None):
+        """Init.
+
+        Args:
+            interval:
+                The interval between calling `next_item`.
+            align_to:
+                Align awake times to the given datetime. Defaults to
+                now.
+
+        """
+        self._interval = interval
+        self._align_to = align_to
+
+    def list_parts(self):
+        """Assumes the source has a single partition."""
+        return ["singleton"]
+
+    def build_part(self, _for_part, _resume_state):
+        """See ABC docstring."""
+        return _SimplePollingPartition(self._interval, self._align_to, self.next_item)
+
+    @abstractmethod
+    def next_item(self) -> Any:
+        """Override with custom logic to poll your source.
+
+        Returns:
+            Next item to emit into the dataflow.
 
         """
         ...
