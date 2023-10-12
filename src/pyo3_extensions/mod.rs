@@ -4,6 +4,7 @@ use crate::errors::PythonException;
 use crate::recovery::StateKey;
 use crate::try_unwrap;
 use crate::unwrap_any;
+use crate::window::WindowMetadata;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -242,6 +243,14 @@ pub(crate) fn extract_state_pair(key_value_pytuple: TdPyAny) -> (StateKey, TdPyA
 
 /// Turn a Rust 2-tuple of `(key, value)` into a Python 2-tuple.
 pub(crate) fn wrap_state_pair(key_value: (StateKey, TdPyAny)) -> TdPyAny {
+    Python::with_gil(|py| {
+        let key_value_pytuple: Py<PyAny> = key_value.into_py(py);
+        key_value_pytuple.into()
+    })
+}
+
+/// Turn a Rust 2-tuple of `(key, (WindowMetadata, value))` into a Python tuple.
+pub(crate) fn wrap_window_state_pair(key_value: (StateKey, (WindowMetadata, TdPyAny))) -> TdPyAny {
     Python::with_gil(|py| {
         let key_value_pytuple: Py<PyAny> = key_value.into_py(py);
         key_value_pytuple.into()

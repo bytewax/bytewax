@@ -5,7 +5,7 @@ from threading import Event
 
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource, run_main
-from bytewax.window import EventClockConfig, TumblingWindow
+from bytewax.window import EventClockConfig, TumblingWindow, WindowMetadata
 from pytest import raises
 
 ZERO_TD = timedelta(seconds=0)
@@ -433,8 +433,8 @@ def test_reduce_window(recovery_config):
 
     flow.reduce_window("add", clock_config, window_config, add)
 
-    def extract_val(key__event):
-        key, event = key__event
+    def extract_val(key__metadata_event):
+        key, (metadata, event) = key__metadata_event
         return (key, event["val"])
 
     flow.map("extract_val", extract_val)
@@ -521,7 +521,13 @@ def test_fold_window(recovery_config):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     assert out == [
-        ("a", {"login": 1, "post": 2}),
+        (
+            "a",
+            (
+                WindowMetadata(align_to, align_to + timedelta(seconds=10)),
+                {"login": 1, "post": 2},
+            ),
+        ),
     ]
 
     # Disable bomb
@@ -532,9 +538,33 @@ def test_fold_window(recovery_config):
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     assert len(out) == 3
-    assert ("b", {"login": 1}) in out
-    assert ("b", {"post": 2}) in out
-    assert ("a", {"post": 1}) in out
+    assert (
+        "b",
+        (
+            WindowMetadata(
+                align_to + timedelta(seconds=10), align_to + timedelta(seconds=20)
+            ),
+            {"login": 1},
+        ),
+    ) in out
+    assert (
+        "b",
+        (
+            WindowMetadata(
+                align_to + timedelta(seconds=20), align_to + timedelta(seconds=30)
+            ),
+            {"post": 2},
+        ),
+    ) in out
+    assert (
+        "a",
+        (
+            WindowMetadata(
+                align_to + timedelta(seconds=10), align_to + timedelta(seconds=20)
+            ),
+            {"post": 1},
+        ),
+    ) in out
 
 
 def test_collect_window(recovery_config):
@@ -581,15 +611,14 @@ def test_collect_window(recovery_config):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
     # Only the first window closed here
-    assert out == [
-        (
-            "ALL",
-            [
-                {"time": align_to, "val": 1},
-                {"time": align_to + timedelta(seconds=4), "val": 1},
-                {"time": align_to + timedelta(seconds=8), "val": 1},
-            ],
-        )
+    key, (metadata, vals) = out.pop(0)
+    assert key == "ALL"
+
+    assert metadata.close_time == align_to + timedelta(seconds=10)
+    assert vals == [
+        {"time": align_to, "val": 1},
+        {"time": align_to + timedelta(seconds=4), "val": 1},
+        {"time": align_to + timedelta(seconds=8), "val": 1},
     ]
 
     # Disable bomb
@@ -599,15 +628,13 @@ def test_collect_window(recovery_config):
     # Recover
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
-    # But it remembers the first item of the second window.
-    assert out == [
-        (
-            "ALL",
-            [
-                {"time": align_to + timedelta(seconds=12), "val": 1},
-                {"time": align_to + timedelta(seconds=13), "val": 1},
-            ],
-        )
+    key, (metadata, vals) = out.pop(0)
+    assert key == "ALL"
+
+    assert metadata.close_time == align_to + timedelta(seconds=20)
+    assert vals == [
+        {"time": align_to + timedelta(seconds=12), "val": 1},
+        {"time": align_to + timedelta(seconds=13), "val": 1},
     ]
 
 

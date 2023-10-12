@@ -38,7 +38,7 @@ def test_event_time_processing():
     flow.input("inp", TestingSource(inp))
     flow.map("extract_sensor_type", extract_sensor_type)
     flow.fold_window("running_average", cc, wc, list, acc_values)
-    flow.map("format_output", lambda x: {f"{x[0]}_avg": sum(x[1]) / len(x[1])})
+    flow.map("format_output", lambda x: {f"{x[0]}_avg": sum(x[1][1]) / len(x[1][1])})
     out = []
     flow.output("out", TestingSink(out))
     run_main(flow)
