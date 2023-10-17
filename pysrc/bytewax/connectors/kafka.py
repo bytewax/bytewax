@@ -52,6 +52,7 @@ class _KafkaSourcePartition(StatefulSourcePartition):
         starting_offset,
         resume_state,
         batch_size,
+        registry,
     ):
         self._offset = starting_offset if resume_state is None else resume_state
         # Assign does not activate consumer grouping.
@@ -60,6 +61,7 @@ class _KafkaSourcePartition(StatefulSourcePartition):
         self._topic = topic
         self._batch_size = batch_size
         self._eof = False
+        self._registry = registry
 
     def next_batch(self, _sched: datetime) -> List[Any]:
         if self._eof:
@@ -84,7 +86,12 @@ class _KafkaSourcePartition(StatefulSourcePartition):
                         f"{msg.error()}"
                     )
                     raise RuntimeError(err_msg)
-            batch.append((msg.key(), msg.value()))
+            if self._registry is None:
+                value = msg.value()
+            else:
+                value = self._registry.decode(msg.value())
+
+            batch.append((msg.key(), value))
             last_offset = msg.offset()
 
         # Resume reading from the next message, not this one.
@@ -118,6 +125,7 @@ class KafkaSource(FixedPartitionedSource):
         starting_offset: int = OFFSET_BEGINNING,
         add_config: Dict[str, str] = None,
         batch_size: int = 1,
+        registry=None,
     ):
         """Init.
 
@@ -159,6 +167,7 @@ class KafkaSource(FixedPartitionedSource):
         self._starting_offset = starting_offset
         self._add_config = {} if add_config is None else add_config
         self._batch_size = batch_size
+        self._registry = registry
 
     def list_parts(self):
         """Each Kafka partition is an input partition."""
@@ -189,6 +198,11 @@ class KafkaSource(FixedPartitionedSource):
         }
         config.update(self._add_config)
         consumer = Consumer(config)
+        if self._registry is None:
+            registry = None
+        else:
+            registry = self._registry.build_part()
+
         return _KafkaSourcePartition(
             consumer,
             topic,
@@ -196,6 +210,7 @@ class KafkaSource(FixedPartitionedSource):
             self._starting_offset,
             resume_state,
             self._batch_size,
+            registry,
         )
 
 
