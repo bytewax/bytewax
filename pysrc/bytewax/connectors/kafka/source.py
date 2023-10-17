@@ -1,29 +1,19 @@
-"""Connectors for [Kafka](https://kafka.apache.org).
+"""KafkaSource."""
 
-Importing this module requires the
-[`confluent-kafka`](https://github.com/confluentinc/confluent-kafka-python)
-package to be installed.
-
-"""
 from datetime import datetime
-from typing import Dict, Iterable, List, Optional, Tuple, Union
+from typing import Dict, Iterable, List, Optional
 
 from confluent_kafka import (
     OFFSET_BEGINNING,
     Consumer,
     KafkaError,
-    Producer,
     TopicPartition,
 )
 from confluent_kafka.admin import AdminClient
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
-from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
-__all__ = [
-    "KafkaSource",
-    "KafkaSink",
-]
+from .message import KafkaMessage
 
 
 def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
@@ -31,6 +21,7 @@ def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
         # List topics one-by-one so if auto-create is turned on,
         # we respect that.
         cluster_metadata = client.list_topics(topic)
+        assert cluster_metadata.topics is not None
         topic_metadata = cluster_metadata.topics[topic]
         if topic_metadata.error is not None:
             msg = (
@@ -38,14 +29,13 @@ def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
                 f"{topic_metadata.error.str()}"
             )
             raise RuntimeError(msg)
+        assert topic_metadata.partitions is not None
         part_idxs = topic_metadata.partitions.keys()
         for i in part_idxs:
             yield f"{i}-{topic}"
 
 
-class _KafkaSourcePartition(
-    StatefulSourcePartition[Tuple[bytes, bytes], Optional[int]]
-):
+class _KafkaSourcePartition(StatefulSourcePartition[KafkaMessage, Optional[int]]):
     def __init__(
         self,
         consumer,
@@ -54,6 +44,7 @@ class _KafkaSourcePartition(
         starting_offset,
         resume_state,
         batch_size,
+        raise_on_errors,
     ):
         self._offset = starting_offset if resume_state is None else resume_state
         # Assign does not activate consumer grouping.
@@ -62,8 +53,9 @@ class _KafkaSourcePartition(
         self._topic = topic
         self._batch_size = batch_size
         self._eof = False
+        self._raise_on_errors = raise_on_errors
 
-    def next_batch(self, sched: datetime) -> List[Tuple[bytes, bytes]]:
+    def next_batch(self, sched: datetime) -> List[KafkaMessage]:
         if self._eof:
             raise StopIteration()
 
@@ -79,14 +71,26 @@ class _KafkaSourcePartition(
                     # this batch
                     self._eof = True
                     break
-                else:
+                elif self._raise_on_errors:
                     # Discard all the messages in this batch too
                     err_msg = (
                         f"error consuming from Kafka topic `{self._topic!r}`: "
                         f"{msg.error()}"
                     )
                     raise RuntimeError(err_msg)
-            batch.append((msg.key(), msg.value()))
+
+            kafka_msg = KafkaMessage(
+                key=msg.key(),
+                value=msg.value(),
+                error=msg.error(),
+                topic=msg.topic(),
+                headers=msg.headers(),
+                latency=msg.latency(),
+                offset=msg.offset(),
+                partition=msg.partition(),
+                timestamp=msg.timestamp(),
+            )
+            batch.append(kafka_msg)
             last_offset = msg.offset()
 
         # Resume reading from the next message, not this one.
@@ -101,15 +105,14 @@ class _KafkaSourcePartition(
         self._consumer.close()
 
 
-class KafkaSource(FixedPartitionedSource[Tuple[bytes, bytes], Optional[int]]):
+class KafkaSource(FixedPartitionedSource[KafkaMessage, Optional[int]]):
     """Use a set of Kafka topics as an input source.
 
-    Kafka messages are emitted into the dataflow as two-tuples of
-    `(key_bytes, value_bytes)`.
-
     Partitions are the unit of parallelism.
-
     Can support exactly-once processing.
+
+    Messages are emitted into the dataflow
+    as `bytewax.connectors.kafka.KafkaMessage` objects.
     """
 
     def __init__(
@@ -120,6 +123,7 @@ class KafkaSource(FixedPartitionedSource[Tuple[bytes, bytes], Optional[int]]):
         starting_offset: int = OFFSET_BEGINNING,
         add_config: Optional[Dict[str, str]] = None,
         batch_size: int = 1,
+        raise_on_errors: bool = True,
     ):
         """Init.
 
@@ -147,7 +151,10 @@ class KafkaSource(FixedPartitionedSource[Tuple[bytes, bytes], Optional[int]]):
                 for lower latency, but negatively affects
                 throughput. If you need higher throughput, set this to
                 a higher value (eg: 1000)
-
+            raise_on_errors:
+                If set to False, errors won't stop the dataflow, and the
+                KafkaMessage.error field will be set. It's up to you to
+                properly handle the error later
         """
         if isinstance(brokers, str):
             msg = "brokers must be an iterable and not a string"
@@ -161,6 +168,7 @@ class KafkaSource(FixedPartitionedSource[Tuple[bytes, bytes], Optional[int]]):
         self._starting_offset = starting_offset
         self._add_config = {} if add_config is None else add_config
         self._batch_size = batch_size
+        self._raise_on_errors = raise_on_errors
 
     def list_parts(self) -> List[str]:
         """Each Kafka partition is an input partition."""
@@ -176,8 +184,8 @@ class KafkaSource(FixedPartitionedSource[Tuple[bytes, bytes], Optional[int]]):
         self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -> _KafkaSourcePartition:
         """See ABC docstring."""
-        part_idx, topic = for_part.split("-", 1)
-        part_idx = int(part_idx)  # type: ignore
+        idx, topic = for_part.split("-", 1)
+        part_idx = int(idx)
         # TODO: Warn and then return None. This might be an indication
         # of dataflow continuation with a new topic (to enable
         # re-partitioning), which is fine.
@@ -200,70 +208,5 @@ class KafkaSource(FixedPartitionedSource[Tuple[bytes, bytes], Optional[int]]):
             self._starting_offset,
             resume_state,
             self._batch_size,
+            self._raise_on_errors,
         )
-
-
-class _KafkaSinkPartition(
-    StatelessSinkPartition[Tuple[Union[str, bytes], Union[str, bytes]]]
-):
-    def __init__(self, producer, topic):
-        self._producer = producer
-        self._topic = topic
-
-    def write_batch(
-        self, items: List[Tuple[Union[str, bytes], Union[str, bytes]]]
-    ) -> None:
-        for key, value in items:
-            self._producer.produce(self._topic, value, key)
-            self._producer.poll(0)
-        self._producer.flush()
-
-    def close(self) -> None:
-        self._producer.flush()
-
-
-class KafkaSink(DynamicSink[Tuple[Union[str, bytes], Union[str, bytes]]]):
-    """Use a single Kafka topic as an output sink.
-
-    Items consumed from the dataflow must look like two-tuples of
-    `(key_bytes, value_bytes)`. Default partition routing is used.
-
-    Workers are the unit of parallelism.
-
-    Can support at-least-once processing. Messages from the resume
-    epoch will be duplicated right after resume.
-
-    """
-
-    def __init__(
-        self,
-        brokers: Iterable[str],
-        topic: str,
-        add_config: Optional[Dict[str, str]] = None,
-    ):
-        """Init.
-
-        Args:
-            brokers:
-                List of `host:port` strings of Kafka brokers.
-            topic:
-                Topic to produce to.
-            add_config:
-                Any additional configuration properties. See [the
-                `rdkafka`
-                documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
-                for options.
-
-        """
-        self._brokers = brokers
-        self._topic = topic
-        self._add_config = {} if add_config is None else add_config
-
-    def build(self, worker_index: int, worker_count: int) -> _KafkaSinkPartition:
-        """See ABC docstring."""
-        config = {
-            "bootstrap.servers": ",".join(self._brokers),
-        }
-        config.update(self._add_config)
-        producer = Producer(config)
-        return _KafkaSinkPartition(producer, self._topic)
