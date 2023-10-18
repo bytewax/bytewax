@@ -5,9 +5,14 @@ Importing this module requires the
 package to be installed.
 
 """
+import io
+from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
+import avro.schema
+import requests
+from avro.io import BinaryDecoder, BinaryEncoder, DatumReader, DatumWriter
 from confluent_kafka import (
     OFFSET_BEGINNING,
     Consumer,
@@ -16,6 +21,9 @@ from confluent_kafka import (
     TopicPartition,
 )
 from confluent_kafka.admin import AdminClient
+from confluent_kafka.schema_registry import SchemaRegistryClient
+from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
+from confluent_kafka.serialization import MessageField, SerializationContext
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
@@ -23,7 +31,88 @@ from bytewax.outputs import DynamicSink, StatelessSinkPartition
 __all__ = [
     "KafkaSource",
     "KafkaSink",
+    "RedpandaSchemaRegistry",
 ]
+
+
+class SchemaSerializer(ABC):
+    @abstractmethod
+    def encode(self, data: dict) -> bytes:
+        ...
+
+    @abstractmethod
+    def decode(self, data: bytes) -> dict:
+        ...
+
+
+class SchemaRegistry(ABC):
+    @abstractmethod
+    def serializer(self) -> SchemaSerializer:
+        ...
+
+
+class ConfluentSerializer(SchemaSerializer):
+    def __init__(self, schema_registry_client, topic):
+        self.deserializer = AvroDeserializer(schema_registry_client)
+        self.serializer = AvroSerializer(
+            schema_registry_client,
+            schema_registry_client.get_latest_version("sensor_value").schema.schema_str,
+        )
+        self.ctx = SerializationContext(
+            topic,
+            MessageField.VALUE,
+        )
+
+    def encode(self, data):
+        return self.serializer(data, self.ctx)
+
+    def decode(self, data):
+        return self.deserializer(data, self.ctx)
+
+
+class ConfluentSchemaRegistry(SchemaRegistry):
+    def __init__(self, sr_conf, topic):
+        self._schema_registry_client = SchemaRegistryClient(sr_conf)
+        self._topic = topic
+
+    def serializer(self):
+        return ConfluentSerializer(self._schema_registry_client, self._topic)
+
+
+class RedpandaSchemaRegistry(SchemaRegistry):
+    def __init__(
+        self,
+        subject: str,
+        base_url: str = "http://localhost:18081",
+    ):
+        self.base_url = base_url
+        self.subject = subject
+        schema_content = requests.get(
+            f"{self.base_url}/subjects/{self.subject}/versions/latest/schema"
+        ).content
+        self._schema = avro.schema.parse(schema_content)
+
+    def serializer(self):
+        return RedpandaSchemaSerializer(self._schema)
+
+
+class RedpandaSchemaSerializer(SchemaSerializer):
+    def __init__(self, schema):
+        self._schema = schema
+        self._reader = DatumReader(schema)
+
+    def decode(self, msg):
+        message_bytes = io.BytesIO(msg)
+        decoder = BinaryDecoder(message_bytes)
+        event_dict = self._reader.read(decoder)
+        return event_dict
+
+    def encode(self, data):
+        writer = DatumWriter(self._schema)
+        bytes_writer = io.BytesIO()
+        encoder = BinaryEncoder(bytes_writer)
+        writer.write(data, encoder)
+        return bytes_writer.getvalue()
 
 
 def _list_parts(client, topics):
@@ -52,7 +141,7 @@ class _KafkaSourcePartition(StatefulSourcePartition):
         starting_offset,
         resume_state,
         batch_size,
-        registry,
+        serializer,
     ):
         self._offset = starting_offset if resume_state is None else resume_state
         # Assign does not activate consumer grouping.
@@ -61,7 +150,7 @@ class _KafkaSourcePartition(StatefulSourcePartition):
         self._topic = topic
         self._batch_size = batch_size
         self._eof = False
-        self._registry = registry
+        self._serializer = serializer
 
     def next_batch(self, _sched: datetime) -> List[Any]:
         if self._eof:
@@ -86,10 +175,10 @@ class _KafkaSourcePartition(StatefulSourcePartition):
                         f"{msg.error()}"
                     )
                     raise RuntimeError(err_msg)
-            if self._registry is None:
+            if self._serializer is None:
                 value = msg.value()
             else:
-                value = self._registry.decode(msg.value())
+                value = self._serializer.decode(msg.value())
 
             batch.append((msg.key(), value))
             last_offset = msg.offset()
@@ -125,7 +214,7 @@ class KafkaSource(FixedPartitionedSource):
         starting_offset: int = OFFSET_BEGINNING,
         add_config: Dict[str, str] = None,
         batch_size: int = 1,
-        registry=None,
+        schema_registry: SchemaRegistry = None,
     ):
         """Init.
 
@@ -167,7 +256,7 @@ class KafkaSource(FixedPartitionedSource):
         self._starting_offset = starting_offset
         self._add_config = {} if add_config is None else add_config
         self._batch_size = batch_size
-        self._registry = registry
+        self._registry = schema_registry
 
     def list_parts(self):
         """Each Kafka partition is an input partition."""
@@ -175,6 +264,9 @@ class KafkaSource(FixedPartitionedSource):
             "bootstrap.servers": ",".join(self._brokers),
         }
         config.update(self._add_config)
+        # del config["schema.registry.url"]
+        # del config["basic.auth.credentials.source"]
+        # del config["basic.auth.user.info"]
         client = AdminClient(config)
 
         return list(_list_parts(client, self._topics))
@@ -197,11 +289,20 @@ class KafkaSource(FixedPartitionedSource):
             "enable.partition.eof": str(not self._tail),
         }
         config.update(self._add_config)
+        removed = {
+            key: config.pop(key)
+            for key in [
+                # "schema.registry.url",
+                # "basic.auth.credentials.source",
+                # "basic.auth.user.info",
+            ]
+        }
         consumer = Consumer(config)
+        config.update(removed)
         if self._registry is None:
-            registry = None
+            serializer = None
         else:
-            registry = self._registry.build_part()
+            serializer = self._registry.serializer()
 
         return _KafkaSourcePartition(
             consumer,
@@ -210,17 +311,22 @@ class KafkaSource(FixedPartitionedSource):
             self._starting_offset,
             resume_state,
             self._batch_size,
-            registry,
+            serializer,
         )
 
 
 class _KafkaSinkPartition(StatelessSinkPartition):
-    def __init__(self, producer, topic):
+    def __init__(self, producer, topic, serializer):
         self._producer = producer
         self._topic = topic
+        self._serializer = serializer
 
     def write_batch(self, batch):
-        for key, value in batch:
+        for key, _value in batch:
+            if self._serializer is not None:
+                value = self._serializer.encode(_value)
+            else:
+                value = _value
             self._producer.produce(self._topic, value, key)
             self._producer.poll(0)
         self._producer.flush()
@@ -247,6 +353,7 @@ class KafkaSink(DynamicSink):
         brokers: Iterable[str],
         topic: str,
         add_config: Dict[str, str] = None,
+        schema_registry: SchemaRegistry = None,
     ):
         """Init.
 
@@ -265,6 +372,7 @@ class KafkaSink(DynamicSink):
         self._brokers = brokers
         self._topic = topic
         self._add_config = {} if add_config is None else add_config
+        self._registry = schema_registry
 
     def build(self, worker_index, worker_count):
         """See ABC docstring."""
@@ -272,5 +380,18 @@ class KafkaSink(DynamicSink):
             "bootstrap.servers": ",".join(self._brokers),
         }
         config.update(self._add_config)
+        removed = {
+            key: config.pop(key)
+            for key in [
+                # "schema.registry.url",
+                # "basic.auth.credentials.source",
+                # "basic.auth.user.info",
+            ]
+        }
         producer = Producer(config)
-        return _KafkaSinkPartition(producer, self._topic)
+        config.update(removed)
+        if self._registry is not None:
+            serializer = self._registry.serializer()
+        else:
+            serializer = None
+        return _KafkaSinkPartition(producer, self._topic, serializer)

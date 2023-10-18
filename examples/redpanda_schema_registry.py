@@ -1,93 +1,77 @@
-import io
+from bytewax.connectors.kafka import (
+    KafkaSink,
+    KafkaSource,
+    RedpandaSchemaRegistry,
+    ConfluentSchemaRegistry,
+)
 
-import avro.schema
-import requests
-from avro.io import BinaryDecoder, BinaryEncoder, DatumReader, DatumWriter
-from bytewax.connectors.kafka import KafkaSource, KafkaSink
-from bytewax.connectors.stdio import StdOutSink
+# from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-
-
-# def deserialize(data):
-#     print(f"Received: {data[1]}")
-#     return registry.decode(data[1])
+from confluent_kafka import Producer
 
 
 def modify(key_data):
+    from random import random
+    from time import sleep
+
     key, data = key_data
-    # breakpoint()
     data["value"] += 1
-    return data
+
+    # Avoid sending/reading messages as fast as possible
+    sleep(random())
+    return "ALL", data
 
 
-# def serialize(data):
-#     print(f"Received: {data}")
-#     return "ALL", registry.encode(data)
+def read_ccloud_config(config_file):
+    conf = {}
+    with open(config_file) as fh:
+        for line in fh:
+            line = line.strip()
+            if len(line) != 0 and line[0] != "#":
+                parameter, value = line.strip().split("=", 1)
+                conf[parameter] = value.strip()
+    return conf
 
 
-class RedpandaSchemaRegistry:
-    def __init__(
-        self,
-        subject: str,
-        base_url: str = "http://localhost:18081",
-        schema_content: str = None,
-    ):
-        self.base_url = base_url
-        self.subject = subject
-        self.schema_content = (
-            schema_content
-            or requests.get(
-                f"{self.base_url}/subjects/{self.subject}/versions/latest/schema"
-            ).content
-        )
-
-    def build_part(self):
-        part = RedpandaSchemaRegistry(self.subject, self.base_url, self.schema_content)
-        part._schema = avro.schema.parse(self.schema_content)
-        part._reader = DatumReader(part._schema)
-        return part
-
-    def decode(self, msg):
-        message_bytes = io.BytesIO(msg)
-        decoder = BinaryDecoder(message_bytes)
-        event_dict = self._reader.read(decoder)
-        return event_dict
-
-    def encode(self, data):
-        writer = DatumWriter(self._schema)
-        bytes_writer = io.BytesIO()
-        encoder = BinaryEncoder(bytes_writer)
-        writer.write(data, encoder)
-        return bytes_writer.getvalue()
-
-
-registry_builder = RedpandaSchemaRegistry("sensor-value")
+add_config = read_ccloud_config("client.properties")
+# registry = RedpandaSchemaRegistry("sensor-value")
+# print(add_config)
+registry = ConfluentSchemaRegistry(
+    {
+        "url": add_config.pop("schema.registry.url"),
+        "basic.auth.user.info": add_config.pop("basic.auth.user.info"),
+    },
+    "test_topic",
+)
 flow = Dataflow()
 flow.input(
     "redpanda-input",
     KafkaSource(
         ["localhost:19092"],
         topics=["test_topic"],
-        registry=registry_builder,
+        schema_registry=registry,
+        add_config=add_config,
     ),
 )
-# flow.map("deserialize", deserialize)
+flow.redistribute()
 flow.map("modify", modify)
-# flow.map("serialize", serialize)
-# flow.output("redpanda-out", KafkaSink(["localhost:19092"], "test_topic"))
-flow.output("stdout", StdOutSink())
+flow.inspect(print)
+flow.output(
+    "redpanda-out",
+    KafkaSink(
+        ["localhost:19092"],
+        "test_topic",
+        schema_registry=registry,
+        add_config=add_config,
+    ),
+)
 
 
-registry = registry_builder.build_part()
-
-
-def create_temperature_events():
-    from confluent_kafka import Producer
-
-    producer = Producer({"bootstrap.servers": "localhost:19092"})
-    event = {"timestamp": 212, "identifier": "test", "value": 123}
-    producer.produce("test_topic", registry.encode(event))
-    producer.flush()
-
-
-create_temperature_events()
+# Produce an event to start the loop
+print("Producing the first message")
+serializer = registry.serializer()
+add_config.pop("basic.auth.credentials.source")
+producer = Producer({"bootstrap.servers": "localhost:19092", **add_config})
+event = {"timestamp": 212, "identifier": "test", "value": 123}
+producer.produce("test_topic", serializer.encode(event))
+producer.flush()
