@@ -3,7 +3,7 @@ import operator
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-from bytewax.connectors.files import DirSource
+from bytewax.connectors.files import FileSource
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, run_main
 from bytewax.window import SystemClockConfig, TumblingWindow
@@ -46,7 +46,7 @@ wc = TumblingWindow(
 # first pass - count products
 out = []
 flow = Dataflow()
-flow.input("inp", DirSource("examples/sample_data/apriori.txt"))
+flow.input("inp", FileSource("examples/sample_data/apriori.txt"))
 flow.map("lower", lower)
 flow.flat_map("tokenize", tokenize)
 flow.map("initial_count", initial_count)
@@ -56,7 +56,7 @@ flow.output("out", TestingSink(out))
 # second pass - count pairs
 out2 = []
 flow2 = Dataflow()
-flow2.input("input", DirSource("examples/sample_data/apriori.txt"))
+flow2.input("input", FileSource("examples/sample_data/apriori.txt"))
 flow2.map("lower", lower)
 flow2.filter(
     "is_most_common", is_most_common
@@ -69,7 +69,7 @@ flow2.output("out", TestingSink(out2))
 
 run_main(flow)
 for item in out:
-    pair, count = item
+    pair, (metadata, count) = item
     product_counter[pair] = count
 
 print("most popular products:")
@@ -82,7 +82,7 @@ for product, count in product_counter.most_common(3):
 most_popular_pairs: Counter = Counter()
 run_main(flow2)
 for item in out2:
-    pair, count = item
+    pair, (metadata, count) = item
     most_popular_pairs[pair] = count
 
 print("most popular pairs:")

@@ -48,7 +48,7 @@ def extract_sensor_type(event):
     return event["type"], event
 
 
-flow.map(extract_sensor_type)
+flow.map("extract_type", extract_sensor_type)
 
 
 # Here is where we use the event time processing, with
@@ -85,7 +85,7 @@ flow.fold_window("running_average", cc, wc, list, acc_values)
 # Calculate the average of the values for each window, and
 # format the data to a string
 def format_event(event):
-    key, data = event
+    key, (metadata, data) = event
     values = [x[0] for x in data]
     dates = [datetime.fromisoformat(x[1]) for x in data]
     return (

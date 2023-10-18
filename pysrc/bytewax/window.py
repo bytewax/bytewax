@@ -48,6 +48,13 @@ worker processes and threads all reading relevant data simultaneously,
 you have to specifically collect and manually sort data that you need
 to process in strict time order.
 
+Output
+------
+
+Output from windowing operators is in the form of
+`(key, (metadata, values))` where metadata is an instance of
+`bytewax.window.WindowMetadata`.
+
 Recovery
 --------
 

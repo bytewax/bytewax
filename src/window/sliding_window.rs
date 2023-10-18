@@ -214,9 +214,9 @@ impl Windower for SlidingWindower {
     fn next_close(&self) -> Option<DateTime<Utc>> {
         self.close_times
             .values()
-            .min_by(|(_x_open, x_close), (_y_open, y_close)| x_close.cmp(y_close))
+            .min_by(|(_, x_close), (_, y_close)| x_close.cmp(y_close))
             .cloned()
-            .map(|(_open_time, close_time)| close_time)
+            .map(|(_, close_time)| close_time)
     }
 
     fn snapshot(&self) -> TdPyAny {
