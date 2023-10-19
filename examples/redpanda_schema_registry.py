@@ -1,13 +1,16 @@
 from bytewax.connectors.kafka import (
+    ConfluentSchemaRegistry,
     KafkaSink,
     KafkaSource,
     RedpandaSchemaRegistry,
-    ConfluentSchemaRegistry,
 )
-
-# from bytewax.connectors.stdio import StdOutSink
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from confluent_kafka import Producer
+
+import logging
+
+logging.basicConfig(format=logging.BASIC_FORMAT, level=logging.DEBUG)
 
 
 def modify(key_data):
@@ -15,11 +18,18 @@ def modify(key_data):
     from time import sleep
 
     key, data = key_data
+    if "initial_value" not in data:
+        data["initial_value"] = data["value"]
     data["value"] += 1
+    data["diff"] = data["value"] - data["initial_value"]
 
     # Avoid sending/reading messages as fast as possible
     sleep(random())
     return "ALL", data
+
+
+def modify2(data):
+    return {"a random": "object schema", "because": ["you", "know"]}
 
 
 def read_ccloud_config(config_file):
@@ -41,7 +51,7 @@ registry = ConfluentSchemaRegistry(
         "url": add_config.pop("schema.registry.url"),
         "basic.auth.user.info": add_config.pop("basic.auth.user.info"),
     },
-    "test_topic",
+    "sensor_value",
 )
 flow = Dataflow()
 flow.input(
@@ -54,8 +64,9 @@ flow.input(
     ),
 )
 flow.redistribute()
-flow.map("modify", modify)
+flow.map("modify", modify2)
 flow.inspect(print)
+flow.output("stdout", StdOutSink())
 flow.output(
     "redpanda-out",
     KafkaSink(
@@ -69,9 +80,9 @@ flow.output(
 
 # Produce an event to start the loop
 print("Producing the first message")
-serializer = registry.serializer()
+serializer = registry.serde("test_topic")
 add_config.pop("basic.auth.credentials.source")
 producer = Producer({"bootstrap.servers": "localhost:19092", **add_config})
-event = {"timestamp": 212, "identifier": "test", "value": 123}
-producer.produce("test_topic", serializer.encode(event))
+event = {"timestamp": 212, "identifier": "test", "value": 1}
+producer.produce("test_topic", serializer.ser(event))
 producer.flush()

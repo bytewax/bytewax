@@ -6,6 +6,7 @@ package to be installed.
 
 """
 import io
+import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
@@ -23,7 +24,11 @@ from confluent_kafka import (
 from confluent_kafka.admin import AdminClient
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
-from confluent_kafka.serialization import MessageField, SerializationContext
+from confluent_kafka.serialization import (
+    MessageField,
+    SerializationContext,
+    SerializationError,
+)
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
@@ -32,59 +37,77 @@ __all__ = [
     "KafkaSource",
     "KafkaSink",
     "RedpandaSchemaRegistry",
+    "ConfluentSchemaRegistry",
 ]
 
+logger = logging.getLogger(__name__)
 
-class SchemaSerializer(ABC):
+
+class SchemaSerde(ABC):
     @abstractmethod
-    def encode(self, data: dict) -> bytes:
+    def ser(self, obj: dict) -> bytes:
         ...
 
     @abstractmethod
-    def decode(self, data: bytes) -> dict:
+    def de(self, data: bytes) -> dict:
         ...
 
 
 class SchemaRegistry(ABC):
     @abstractmethod
-    def serializer(self) -> SchemaSerializer:
+    def serde(self, *args, **kwargs) -> SchemaSerde:
         ...
 
 
-class ConfluentSerializer(SchemaSerializer):
-    def __init__(self, schema_registry_client, topic):
-        self.deserializer = AvroDeserializer(schema_registry_client)
-        self.serializer = AvroSerializer(
-            schema_registry_client,
-            schema_registry_client.get_latest_version("sensor_value").schema.schema_str,
-        )
-        self.ctx = SerializationContext(
-            topic,
-            MessageField.VALUE,
-        )
+class _ConfluentSerde(SchemaSerde):
+    def __init__(self, client, schema_str, topic, raise_on_error):
+        self.deserializer = AvroDeserializer(client, schema_str)
+        self.serializer = AvroSerializer(client, schema_str)
+        self.ctx = SerializationContext(topic, MessageField.VALUE)
+        self._raise_on_error = raise_on_error
 
-    def encode(self, data):
-        return self.serializer(data, self.ctx)
+    def ser(self, data):
+        try:
+            return self.serializer(data, self.ctx)
+        except SerializationError as e:
+            logger.warn(f"Error serializing data: {data}")
+            if self._raise_on_error:
+                raise e
 
-    def decode(self, data):
-        return self.deserializer(data, self.ctx)
+    def de(self, data):
+        try:
+            return self.deserializer(data, self.ctx)
+        except SerializationError as e:
+            logger.warn(f"Error deserializing data: {data}")
+            if self._raise_on_error:
+                raise e
 
 
 class ConfluentSchemaRegistry(SchemaRegistry):
-    def __init__(self, sr_conf, topic):
-        self._schema_registry_client = SchemaRegistryClient(sr_conf)
-        self._topic = topic
+    """TODO."""
 
-    def serializer(self):
-        return ConfluentSerializer(self._schema_registry_client, self._topic)
+    def __init__(self, sr_conf, subject, raise_on_error: bool = True):
+        """TODO."""
+        self._raise_on_error = raise_on_error
+        self._client = SchemaRegistryClient(sr_conf)
+        self._schema_str = self._client.get_latest_version(subject).schema.schema_str
+
+    def serde(self, topic):
+        """TODO."""
+        return _ConfluentSerde(
+            self._client, self._schema_str, topic, self._raise_on_error
+        )
 
 
 class RedpandaSchemaRegistry(SchemaRegistry):
+    """TODO."""
+
     def __init__(
         self,
         subject: str,
         base_url: str = "http://localhost:18081",
     ):
+        """TODO."""
         self.base_url = base_url
         self.subject = subject
         schema_content = requests.get(
@@ -92,27 +115,28 @@ class RedpandaSchemaRegistry(SchemaRegistry):
         ).content
         self._schema = avro.schema.parse(schema_content)
 
-    def serializer(self):
-        return RedpandaSchemaSerializer(self._schema)
+    def serde(self):
+        """TODO."""
+        return _RedpandaSerde(self._schema)
 
 
-class RedpandaSchemaSerializer(SchemaSerializer):
+class _RedpandaSerde(SchemaSerde):
     def __init__(self, schema):
         self._schema = schema
         self._reader = DatumReader(schema)
 
-    def decode(self, msg):
-        message_bytes = io.BytesIO(msg)
-        decoder = BinaryDecoder(message_bytes)
-        event_dict = self._reader.read(decoder)
-        return event_dict
-
-    def encode(self, data):
+    def ser(self, data):
         writer = DatumWriter(self._schema)
         bytes_writer = io.BytesIO()
         encoder = BinaryEncoder(bytes_writer)
         writer.write(data, encoder)
         return bytes_writer.getvalue()
+
+    def de(self, msg):
+        message_bytes = io.BytesIO(msg)
+        decoder = BinaryDecoder(message_bytes)
+        event_dict = self._reader.read(decoder)
+        return event_dict
 
 
 def _list_parts(client, topics):
@@ -141,7 +165,7 @@ class _KafkaSourcePartition(StatefulSourcePartition):
         starting_offset,
         resume_state,
         batch_size,
-        serializer,
+        serde,
     ):
         self._offset = starting_offset if resume_state is None else resume_state
         # Assign does not activate consumer grouping.
@@ -150,7 +174,7 @@ class _KafkaSourcePartition(StatefulSourcePartition):
         self._topic = topic
         self._batch_size = batch_size
         self._eof = False
-        self._serializer = serializer
+        self._serde = serde
 
     def next_batch(self, _sched: datetime) -> List[Any]:
         if self._eof:
@@ -175,10 +199,16 @@ class _KafkaSourcePartition(StatefulSourcePartition):
                         f"{msg.error()}"
                     )
                     raise RuntimeError(err_msg)
-            if self._serializer is None:
+            if self._serde is None:
                 value = msg.value()
             else:
-                value = self._serializer.decode(msg.value())
+                try:
+                    value = self._serde.de(msg.value())
+                except SerializationError as e:
+                    err = f"Error serializing data: {msg.value()}"
+                    e.add_note(err)
+                    raise e
+                    # raise RuntimeError(err) from e
 
             batch.append((msg.key(), value))
             last_offset = msg.offset()
@@ -242,6 +272,11 @@ class KafkaSource(FixedPartitionedSource):
                 for lower latency, but negatively affects
                 throughput. If you need higher throughput, set this to
                 a higher value (eg: 1000)
+            schema_registry:
+                A schema registry to use to retrieve a schema to decode
+                messages. See:
+                - `bytewax.connectors.kafka.RedpandaSchemaRegistry`
+                - `bytewax.connectors.kafka.ConfluentSchemaRegistry`
 
         """
         if isinstance(brokers, str):
@@ -264,9 +299,6 @@ class KafkaSource(FixedPartitionedSource):
             "bootstrap.servers": ",".join(self._brokers),
         }
         config.update(self._add_config)
-        # del config["schema.registry.url"]
-        # del config["basic.auth.credentials.source"]
-        # del config["basic.auth.user.info"]
         client = AdminClient(config)
 
         return list(_list_parts(client, self._topics))
@@ -289,20 +321,11 @@ class KafkaSource(FixedPartitionedSource):
             "enable.partition.eof": str(not self._tail),
         }
         config.update(self._add_config)
-        removed = {
-            key: config.pop(key)
-            for key in [
-                # "schema.registry.url",
-                # "basic.auth.credentials.source",
-                # "basic.auth.user.info",
-            ]
-        }
         consumer = Consumer(config)
-        config.update(removed)
         if self._registry is None:
             serializer = None
         else:
-            serializer = self._registry.serializer()
+            serializer = self._registry.serde(topic)
 
         return _KafkaSourcePartition(
             consumer,
@@ -324,7 +347,7 @@ class _KafkaSinkPartition(StatelessSinkPartition):
     def write_batch(self, batch):
         for key, _value in batch:
             if self._serializer is not None:
-                value = self._serializer.encode(_value)
+                value = self._serializer.ser(_value)
             else:
                 value = _value
             self._producer.produce(self._topic, value, key)
@@ -380,18 +403,9 @@ class KafkaSink(DynamicSink):
             "bootstrap.servers": ",".join(self._brokers),
         }
         config.update(self._add_config)
-        removed = {
-            key: config.pop(key)
-            for key in [
-                # "schema.registry.url",
-                # "basic.auth.credentials.source",
-                # "basic.auth.user.info",
-            ]
-        }
         producer = Producer(config)
-        config.update(removed)
         if self._registry is not None:
-            serializer = self._registry.serializer()
+            serializer = self._registry.serde(self._topic)
         else:
             serializer = None
         return _KafkaSinkPartition(producer, self._topic, serializer)
