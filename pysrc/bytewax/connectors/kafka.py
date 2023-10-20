@@ -8,6 +8,7 @@ package to be installed.
 import io
 import logging
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -86,11 +87,32 @@ class _ConfluentSerde(SchemaSerde):
 class ConfluentSchemaRegistry(SchemaRegistry):
     """TODO."""
 
-    def __init__(self, sr_conf, subject, raise_on_error: bool = True):
+    def __init__(
+        self,
+        sr_conf,
+        schema_id: Optional[int] = None,
+        subject: Optional[str] = None,
+        version: Optional[int] = None,
+        raise_on_error: bool = True,
+    ):
         """TODO."""
         self._raise_on_error = raise_on_error
         self._client = SchemaRegistryClient(sr_conf)
-        self._schema_str = self._client.get_latest_version(subject).schema.schema_str
+        if schema_id is not None:
+            self._schema_str = self._client.get_schema(schema_id).schema_str
+        else:
+            if subject is None:
+                raise ValueError(
+                    "subject MUST be specified if no schema_id is provided"
+                )
+            if version is not None:
+                self._schema_str = self._client.get_version(
+                    subject, version
+                ).schema.schema_str
+            else:
+                self._schema_str = self._client.get_latest_version(
+                    subject
+                ).schema.schema_str
 
     def serde(self, topic):
         """TODO."""
@@ -104,15 +126,25 @@ class RedpandaSchemaRegistry(SchemaRegistry):
 
     def __init__(
         self,
-        subject: str,
         base_url: str = "http://localhost:18081",
+        schema_id: Optional[int] = None,
+        subject: Optional[str] = None,
+        version: Optional[int] = None,
+        raise_on_error: bool = True,
     ):
         """TODO."""
-        self.base_url = base_url
-        self.subject = subject
-        schema_content = requests.get(
-            f"{self.base_url}/subjects/{self.subject}/versions/latest/schema"
-        ).content
+        if schema_id is not None:
+            url = f"{base_url}/schemas/{schema_id}/schema"
+        else:
+            if subject is None:
+                raise ValueError(
+                    "subject MUST be specified if no schema_id is provided"
+                )
+            if version is not None:
+                url = f"{base_url}/subjects/{subject}/versions/{version}/schema"
+            else:
+                url = f"{base_url}/subjects/{subject}/versions/latest/schema"
+        schema_content = requests.get(url).content
         self._schema = avro.schema.parse(schema_content)
 
     def serde(self):
@@ -154,6 +186,20 @@ def _list_parts(client, topics):
         part_idxs = topic_metadata.partitions.keys()
         for i in part_idxs:
             yield f"{i}-{topic}"
+
+
+@dataclass
+class KafkaMessage:
+    """TODO."""
+
+    key: Any
+    topic: Any
+    value: Any
+    headers: Any
+    latency: Any
+    offset: Any
+    partition: Any
+    timestamp: Any
 
 
 class _KafkaSourcePartition(StatefulSourcePartition):
@@ -205,12 +251,20 @@ class _KafkaSourcePartition(StatefulSourcePartition):
                 try:
                     value = self._serde.de(msg.value())
                 except SerializationError as e:
-                    err = f"Error serializing data: {msg.value()}"
-                    e.add_note(err)
+                    logger.warning(f"Error serializing data: {msg.value()}")
                     raise e
-                    # raise RuntimeError(err) from e
 
-            batch.append((msg.key(), value))
+            k_msg = KafkaMessage(
+                headers=msg.headers(),
+                key=msg.key(),
+                latency=msg.latency(),
+                offset=msg.offset(),
+                partition=msg.partition(),
+                timestamp=msg.timestamp(),
+                topic=msg.topic(),
+                value=value,
+            )
+            batch.append((msg.key(), k_msg))
             last_offset = msg.offset()
 
         # Resume reading from the next message, not this one.
@@ -345,11 +399,16 @@ class _KafkaSinkPartition(StatelessSinkPartition):
         self._serializer = serializer
 
     def write_batch(self, batch):
-        for key, _value in batch:
-            if self._serializer is not None:
-                value = self._serializer.ser(_value)
+        for key, msg in batch:
+            if isinstance(msg, KafkaMessage):
+                value = msg.value
             else:
-                value = _value
+                value = msg
+
+            if self._serializer is not None:
+                value = self._serializer.ser(value)
+                if value is None:
+                    continue
             self._producer.produce(self._topic, value, key)
             self._producer.poll(0)
         self._producer.flush()
