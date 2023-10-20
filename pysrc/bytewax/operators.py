@@ -26,7 +26,6 @@ from bytewax.window import ClockConfig, WindowConfig
 __all__ = [
     "KeyedStream",
     "UnaryLogic",
-    "UnaryNotifyLogic",
     "assert_keyed",
     "batch",
     "collect",
@@ -59,15 +58,13 @@ __all__ = [
     "reduce",
     "reduce_window",
     "split",
-    "stateful_flat_map",
     "stateful_map",
     "unary",
-    "unary_notify",
 ]
 
 
-class UnaryNotifyLogic(ABC):
-    """Define the behavior of a `unary_notify` operator.
+class UnaryLogic(ABC):
+    """Define the behavior of a `unary` operator.
 
     The operator will call these methods in the order defined here:
     `on_item` once for any items, `on_notify` if the notification time
@@ -96,24 +93,6 @@ class UnaryNotifyLogic(ABC):
 
     @abstractmethod
     def notify_at(self) -> Optional[datetime]:
-        ...
-
-    @abstractmethod
-    def snapshot(self) -> Any:
-        ...
-
-
-class UnaryLogic(ABC):
-    @abstractmethod
-    def on_item(self, value: Any) -> Iterable[Any]:
-        ...
-
-    @abstractmethod
-    def on_eof(self) -> Iterable[Any]:
-        ...
-
-    @abstractmethod
-    def is_complete(self) -> bool:
         ...
 
     @abstractmethod
@@ -152,7 +131,7 @@ class _BatchState:
 
 
 @dataclass
-class _BatchShimLogic(UnaryNotifyLogic):
+class _BatchShimLogic(UnaryLogic):
     timeout: timedelta = field(repr=False)
     batch_size: int = field(repr=False)
     state: Optional[_BatchState]
@@ -192,11 +171,11 @@ class _BatchShimLogic(UnaryNotifyLogic):
 def batch(
     up: KeyedStream, step_name: str, timeout: timedelta, batch_size: int
 ) -> KeyedStream:
-    def shim_builder(resume_state: Optional[Any]) -> UnaryNotifyLogic:
+    def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
         state = resume_state if resume_state is not None else _BatchState()
         return _BatchShimLogic(timeout, batch_size, state)
 
-    return up.unary_notify("shim_unary_notify", shim_builder)
+    return up.unary("shim_unary", shim_builder)
 
 
 @operator()
@@ -285,9 +264,9 @@ def filter_map(
     up: Stream, step_name: str, mapper: Callable[[Any], Optional[Any]]
 ) -> Stream:
     def shim_mapper(x):
-        x = mapper(x)
-        if x is not None:
-            return [x]
+        y = mapper(x)
+        if y is not None:
+            return [y]
 
         return []
 
@@ -315,7 +294,7 @@ class _FoldShimLogic(UnaryLogic):
     eof_is_complete: bool = field(repr=False)
     state: Optional[_FoldState]
 
-    def on_item(self, v: Any) -> Iterable[Any]:
+    def on_item(self, _now: datetime, v: Any) -> Iterable[Any]:
         if self.state is None:
             self.state = _FoldState(self.builder())
 
@@ -336,6 +315,9 @@ class _FoldShimLogic(UnaryLogic):
 
         return []
 
+    def on_notify(self, _s: datetime) -> Iterable[Any]:
+        return []
+
     def on_eof(self) -> Iterable[Any]:
         if self.eof_is_complete:
             acc = self.state.acc
@@ -346,6 +328,9 @@ class _FoldShimLogic(UnaryLogic):
 
     def is_complete(self) -> bool:
         return self.state is None
+
+    def notify_at(self) -> Optional[datetime]:
+        return None
 
     def snapshot(self) -> Any:
         return self.state
@@ -377,8 +362,7 @@ def fold_window(
     builder: Callable[[], Any],
     folder: Callable[[Any, Any], Any],
 ) -> KeyedStream:
-    down = up._scope._new_stream("down")
-    return KeyedStream(down.stream_id, down._scope)
+    return KeyedStream._assert_from(up._scope._new_stream("down"))
 
 
 def _get_collect_folder(t: Type) -> Callable:
@@ -621,8 +605,8 @@ def map(  # noqa: A001
     mapper: Callable[[Any], Any],
 ) -> Stream:
     def shim_mapper(x):
-        x = mapper(x)
-        return [x]
+        y = mapper(x)
+        return [y]
 
     return up.flat_map("shim_flat_map", shim_mapper)
 
@@ -641,8 +625,8 @@ def map_value(
                 f"got a {type(k_v)!r} instead"
             )
             raise TypeError(msg) from ex
-        v = mapper(v)
-        return (k, v)
+        w = mapper(v)
+        return (k, w)
 
     return up.map("shim_map", shim_mapper).assert_keyed("shim_assert")
 
@@ -760,44 +744,27 @@ def split(
 
 
 @dataclass
-class _StatefulFlatMapShimLogic(UnaryLogic):
+class _StatefulMapShimLogic(UnaryLogic):
     step_name: str
-    mapper: Callable[[Optional[Any], Any], Tuple[Optional[Any], Iterable[Any]]] = field(
-        repr=False
-    )
+    mapper: Callable[[Any, Any], Tuple[Any, Iterable[Any]]] = field(repr=False)
     state: Optional[Any]
 
-    def on_item(self, v: Any) -> Iterable[Any]:
+    def on_item(self, _now: datetime, v: Any) -> Iterable[Any]:
         res = self.mapper(self.state, v)
         try:
-            self.state, vs = res
+            self.state, w = res
         except TypeError as ex:
             msg = (
                 f"return value of `mapper` {_f_repr(self.mapper)} "
                 f"in step {self.step_name!r} "
-                "must be a 2-tuple of `(updated_state, emit_items)`; "
+                "must be a 2-tuple of `(updated_state, emit_item)`; "
                 f"got a {type(res)!r} instead"
             )
             raise TypeError(msg) from ex
+        return [w]
 
-        try:
-            if isinstance(vs, str):
-                msg = (
-                    "returning a `str` for `emit_items` would emit each character; "
-                    "you almost assuredly did't want that; "
-                    "if you do, turn it into a `list(s)`"
-                )
-                raise TypeError(msg)
-
-            return vs
-        except TypeError as ex:
-            msg = (
-                f"2nd return value of `mapper` {_f_repr(self.mapper)} "
-                f"in step {self.step_name!r} "
-                "must be an iterable `emit_items`; "
-                f"got a {type(res)!r} instead"
-            )
-            raise TypeError(msg) from ex
+    def on_notify(self, _s: datetime) -> Iterable[Any]:
+        return []
 
     def on_eof(self) -> Iterable[Any]:
         return []
@@ -805,92 +772,31 @@ class _StatefulFlatMapShimLogic(UnaryLogic):
     def is_complete(self) -> bool:
         return self.state is None
 
+    def notify_at(self) -> Optional[datetime]:
+        return None
+
     def snapshot(self) -> Any:
         return self.state
-
-
-@operator()
-def stateful_flat_map(
-    up: KeyedStream,
-    step_name: str,
-    mapper: Callable[[Optional[Any], Any], Tuple[Optional[Any], Iterable[Any]]],
-) -> KeyedStream:
-    def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
-        return _StatefulFlatMapShimLogic(step_name, mapper, resume_state)
-
-    return up.unary("shim_unary", shim_builder)
 
 
 @operator()
 def stateful_map(
     up: KeyedStream,
     step_name: str,
-    mapper: Callable[[Optional[Any], Any], Tuple[Optional[Any], Any]],
+    builder: Callable[[], Any],
+    mapper: Callable[[Any, Any], Tuple[Any, Iterable[Any]]],
 ) -> KeyedStream:
-    def shim_mapper(s, v):
-        res = mapper(s, v)
-        try:
-            s, v = res
-        except TypeError as ex:
-            msg = (
-                f"return value of `mapper` {_f_repr(mapper)} in step {step_name!r} "
-                "must be a 2-tuple of `(updated_state, emit_item)`; "
-                f"got a {type(res)!r} instead"
-            )
-            raise TypeError(msg) from ex
-        return (s, [v])
+    def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
+        state = resume_state if resume_state is not None else builder()
+        return _StatefulMapShimLogic(step_name, mapper, state)
 
-    return up.stateful_flat_map("shim_statful_flat_map", shim_mapper)
+    return up.unary("shim_unary", shim_builder)
 
 
-@dataclass
-class _UnaryShimLogic(UnaryNotifyLogic):
-    inner: UnaryLogic
-
-    def on_item(self, _now: datetime, value: Any) -> Iterable[Any]:
-        return self.inner.on_item(value)
-
-    def on_notify(self, _sched: datetime) -> Iterable[Any]:
-        return []
-
-    def on_eof(self) -> Iterable[Any]:
-        return self.inner.on_eof()
-
-    def is_complete(self) -> bool:
-        return self.inner.is_complete()
-
-    def notify_at(self) -> Optional[datetime]:
-        return None
-
-    def snapshot(self) -> Any:
-        return self.inner.snapshot()
-
-
-@operator()
+@operator(_core=True)
 def unary(
     up: KeyedStream,
     step_name: str,
     builder: Callable[[Optional[Any]], UnaryLogic],
 ) -> KeyedStream:
-    def shim_builder(resume_state: Optional[Any]) -> UnaryNotifyLogic:
-        inner = builder(resume_state)
-        if not isinstance(inner, UnaryLogic):
-            msg = (
-                f"return value of `builder` {_f_repr(builder)} "
-                f"in step {step_name!r} must be a `bytewax.operators.UnaryLogic`; "
-                f"got {type(inner)!r} instead"
-            )
-            raise TypeError(msg)
-        return _UnaryShimLogic(inner)
-
-    return up.unary_notify("shim_unary_notify", shim_builder)
-
-
-@operator(_core=True)
-def unary_notify(
-    up: KeyedStream,
-    step_name: str,
-    builder: Callable[[Optional[Any]], UnaryNotifyLogic],
-) -> KeyedStream:
-    down = up._scope._new_stream("down")
-    return KeyedStream(down.stream_id, down._scope)
+    return KeyedStream._assert_from(up._scope._new_stream("down"))

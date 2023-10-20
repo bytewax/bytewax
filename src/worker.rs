@@ -437,13 +437,12 @@ where
                         streams.insert_downstream(py, &step, "trues", trues)?;
                         streams.insert_downstream(py, &step, "falses", falses)?;
                     }
-                    "unary_notify" => {
+                    "unary" => {
                         let builder = step.get_arg(py, "builder")?.extract(py)?;
 
                         let up = streams.get_upstream(py, &step, "up")?;
 
-                        let (down, snap) =
-                            up.unary_notify(py, step_id, builder, resume_epoch, &loads)?;
+                        let (down, snap) = up.unary(py, step_id, builder, resume_epoch, &loads)?;
 
                         snaps.push(snap);
 

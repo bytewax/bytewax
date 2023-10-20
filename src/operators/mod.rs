@@ -309,11 +309,11 @@ where
     }
 }
 
-pub(crate) trait UnaryNotifyOp<S>
+pub(crate) trait UnaryOp<S>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn unary_notify(
+    fn unary(
         &self,
         py: Python,
         step_id: StepId,
@@ -323,19 +323,19 @@ where
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)>;
 }
 
-struct UnaryNotifyLogic(PyObject);
+struct UnaryLogic(PyObject);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for UnaryNotifyLogic {
+impl<'source> FromPyObject<'source> for UnaryLogic {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
             .import("bytewax.operators")?
-            .getattr("UnaryNotifyLogic")?
+            .getattr("UnaryLogic")?
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(PyTypeError::new_err(
-                "logic must subclass `bytewax.operators.UnaryNotifyLogic`",
+                "logic must subclass `bytewax.operators.UnaryLogic`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -343,7 +343,7 @@ impl<'source> FromPyObject<'source> for UnaryNotifyLogic {
     }
 }
 
-impl UnaryNotifyLogic {
+impl UnaryLogic {
     fn on_item<'py>(
         &'py self,
         py: Python<'py>,
@@ -395,11 +395,11 @@ impl UnaryNotifyLogic {
     }
 }
 
-impl<S> UnaryNotifyOp<S> for Stream<S, TdPyAny>
+impl<S> UnaryOp<S> for Stream<S, TdPyAny>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn unary_notify(
+    fn unary(
         &self,
         _py: Python,
         step_id: StepId,
@@ -470,7 +470,7 @@ where
             // each key representing the state at the frontier epoch;
             // we only modify state carefully in epoch order once we
             // know we won't be getting any input on closed epochs.
-            let mut logics: HashMap<StateKey, UnaryNotifyLogic> = HashMap::new();
+            let mut logics: HashMap<StateKey, UnaryLogic> = HashMap::new();
             // Contains the last known return value for
             // `logic.notify_at` for each key (if any). We don't
             // snapshot this because the logic itself should contain
@@ -594,7 +594,7 @@ where
                                                 unwrap_any!((|| {
                                                     builder
                                                         .call1(py, (None::<PyObject>,))?
-                                                        .extract::<UnaryNotifyLogic>(py)
+                                                        .extract::<UnaryLogic>(py)
                                                 })(
                                                 ))
                                             });
@@ -790,7 +790,7 @@ where
                                                 StateChange::Upsert(state) => {
                                                     let logic = builder
                                                         .call1(py, (Some(state),))?
-                                                        .extract::<UnaryNotifyLogic>(py)?;
+                                                        .extract::<UnaryLogic>(py)?;
                                                     if let Some(notify_at) = logic.notify_at(py)? {
                                                         sched_cache.insert(key.clone(), notify_at);
                                                     }
