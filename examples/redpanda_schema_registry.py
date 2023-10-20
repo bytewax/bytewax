@@ -26,6 +26,24 @@ def modify(key_msg):
 # If a message in the topic is not compatible with the schema,
 # the dataflow will crash
 registry = RedpandaSchemaRegistry(subject="sensor-value")
+# By default, the client will fetch the latest version.
+# You can also specify the version:
+# >>> registry = RedpandaSchemaRegistry(subject="sensor-value", version=1)
+#
+# Or, if you have it, the schema_id:
+# >>> registry = RedpandaSchemaRegistry(schema_id=10001)
+#
+# Alternatively, you can use ConfluentSchemaRegistry:
+# >>> registry = ConfluentSchemaRegistry(
+# ...    schema_id=10001,
+# ...    conf={
+# ...        "bootstrap.servers": "...",
+# ...        "sasl.username": "...",
+# ...        "sasl.password": "...",
+# ...        "url": "...",
+# ...        "basic.auth.user.info": "...",
+# ...    },
+# ... )
 
 flow = Dataflow()
 flow.input(

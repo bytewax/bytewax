@@ -147,7 +147,7 @@ class RedpandaSchemaRegistry(SchemaRegistry):
         schema_content = requests.get(url).content
         self._schema = avro.schema.parse(schema_content)
 
-    def serde(self):
+    def serde(self, *args, **kwargs):
         """TODO."""
         return _RedpandaSerde(self._schema)
 
