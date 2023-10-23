@@ -1,3 +1,4 @@
+import pickle
 from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
@@ -237,3 +238,10 @@ def test_tumbling_window():
             ),
         ]
     )
+
+
+def test_windowmetadata_pickles():
+    meta = WindowMetadata(datetime.now(timezone.utc), datetime.now(timezone.utc))
+
+    dumped = pickle.dumps(meta)
+    assert pickle.loads(dumped) == meta

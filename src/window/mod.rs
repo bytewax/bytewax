@@ -206,6 +206,28 @@ impl WindowMetadata {
         )
     }
 
+    /// Return a representation of this class as a PyDict for pickling.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {
+            HashMap::from([
+                ("open_time", self.open_time.into_py(py)),
+                ("close_time", self.close_time.into_py(py)),
+            ])
+        })
+    }
+
+    /// Required boilerplate for unpickling
+    fn __getnewargs__(&self) -> (DateTime<Utc>, DateTime<Utc>) {
+        (Utc::now(), Utc::now())
+    }
+
+    /// Unpickle from a PyDict of arguments.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        self.open_time = state.get_item("open_time")?.extract()?;
+        self.close_time = state.get_item("close_time")?.extract()?;
+        Ok(())
+    }
+
     /// Comparisons between WindowMetadata instances should use their
     /// close times.
     fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
