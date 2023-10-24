@@ -18,109 +18,131 @@ from typing import (
     Type,
 )
 
-from bytewax.dataflow import Dataflow, Stream, Unpackable, _f_repr, operator
+from bytewax.dataflow import Dataflow, KeyedStream, Stream, f_repr, operator
 from bytewax.inputs import Source
 from bytewax.outputs import Sink
 from bytewax.window import ClockConfig, WindowConfig
 
-__all__ = [
-    "KeyedStream",
-    "UnaryLogic",
-    "assert_keyed",
-    "batch",
-    "collect",
-    "collect_window",
-    "count_final",
-    "count_window",
-    "filter",
-    "filter_map",
-    "filter_value",
-    "flat_map",
-    "fold",
-    "fold_window",
-    "input",
-    "inspect",
-    "inspect_debug",
-    "inspect_epoch",
-    "inspect_worker",
-    "join_inner",
-    "join_inner_window",
-    "key_on",
-    "map",
-    "map_value",
-    "max_final",
-    "max_window",
-    "merge",
-    "min_final",
-    "min_window",
-    "output",
-    "redistribute",
-    "reduce",
-    "reduce_window",
-    "split",
-    "stateful_map",
-    "unary",
-]
-
 
 class UnaryLogic(ABC):
-    """Define the behavior of a `unary` operator.
+    """Abstract class to define the behavior of a `unary` operator.
 
-    The operator will call these methods in the order defined here:
-    `on_item` once for any items, `on_notify` if the notification time
-    has passed, `on_eof` if the upstream is EOF, `is_complete` to
-    determine if this logic should be discarded, then if it is
-    retained `notify_at` to determine the next awake time, then
-    finally `snapshot` will be periodically be called.
+    The operator will call these methods in order: `on_item` once for
+    any items queued, then `on_notify` if the notification time has
+    passed, then `on_eof` if the upstream is EOF and no new items will
+    be received this execution, then `is_complete` to determine if
+    this logic should be discarded, then if it is retained
+    `notify_at`, then `snapshot` will be periodically be called.
 
     """
 
     @abstractmethod
     def on_item(self, now: datetime, value: Any) -> Iterable[Any]:
+        """Called on each new upstream item.
+
+        This will be called multiple times in a row if there are
+        multiple items from upstream.
+
+        Args:
+            now: The current `datetime`.
+
+            value: The value of the upstream `(key, value)`.
+
+        Returns:
+            Any values to emit downstream. They will be wrapped in
+            `(key, value)` automatically.
+
+        """
         ...
 
     @abstractmethod
     def on_notify(self, sched: datetime) -> Iterable[Any]:
+        """Called when the scheduled notification time has passed.
+
+        Args:
+            sched: The scheduled notification time.
+
+        Returns:
+            Any values to emit downstream. They will be wrapped in
+            `(key, value)` automatically.
+
+        """
         ...
 
     @abstractmethod
     def on_eof(self) -> Iterable[Any]:
+        """The upstream has no more items on this execution.
+
+        This will only be called once per execution after `on_item` is
+        done being called.
+
+        Returns:
+            Any values to emit downstream. They will be wrapped in
+            `(key, value)` automatically.
+
+        """
         ...
 
     @abstractmethod
     def is_complete(self) -> bool:
+        """Should this logic should be deleted?
+
+        Usually this requires having an instance variable you mark in
+        `on_*` when this logic is no longer needed.
+
+        This will be called if any of the `on_*` methods were called.
+
+        It will be deleted right after this call.
+
+        """
         ...
 
     @abstractmethod
     def notify_at(self) -> Optional[datetime]:
+        """Return the next notification time.
+
+        This will be called once right after the logic is built, and
+        if any of the `on_*` methods were called if the logic was
+        retained by `is_complete`.
+
+        This must always return the next notification time. The
+        operator only stores a single next time, so if
+
+        Returns:
+            Scheduled time. If `None`, no `on_notify` callback will
+            occur.
+
+        """
         ...
 
     @abstractmethod
     def snapshot(self) -> Any:
+        """State to store for recovery.
+
+        This will be called periodically by the runtime.
+
+        The value returned here will be passed back to the `builder`
+        function of `unary` when resuming.
+
+        The state must be `pickle`-able.
+
+        """
         ...
 
 
 @operator(_core=True)
-def _noop(up: Stream, step_name: str) -> Stream:
+def _noop(up: Stream, step_id: str) -> Stream:
+    """No-op; is compiled out when making the Timely dataflow.
+
+    Sometimes necessary to ensure `Dataflow` structure is valid.
+
+    """
     return up._scope._new_stream("down")
 
 
-@dataclass(frozen=True)
-class KeyedStream(Stream):
-    @classmethod
-    def _assert_from(cls, stream: Stream) -> "KeyedStream":
-        return KeyedStream(stream.stream_id, stream._scope)
-
-    @classmethod
-    def _help_msg(cls) -> str:
-        return (
-            "use `key_on` to add a key or "
-            "`assert_keyed` if the stream is already a `(key, value)`"
-        )
-
-
 @operator()
-def assert_keyed(up: Stream, step_name: str) -> KeyedStream:
+def assert_keyed(up: Stream, step_id: str) -> KeyedStream:
+    """Mark that this stream contains `(key, value)` 2-tuples."""
     return KeyedStream._assert_from(up._noop("shim_noop"))
 
 
@@ -132,8 +154,9 @@ class _BatchState:
 
 @dataclass
 class _BatchShimLogic(UnaryLogic):
-    timeout: timedelta = field(repr=False)
-    batch_size: int = field(repr=False)
+    step_id: str
+    timeout: timedelta
+    batch_size: int
     state: Optional[_BatchState]
 
     def on_item(self, now: datetime, v: Any) -> Iterable[Any]:
@@ -169,17 +192,52 @@ class _BatchShimLogic(UnaryLogic):
 
 @operator()
 def batch(
-    up: KeyedStream, step_name: str, timeout: timedelta, batch_size: int
+    up: KeyedStream, step_id: str, timeout: timedelta, batch_size: int
 ) -> KeyedStream:
+    """Batch incoming items up to a size or a timeout.
+
+    Args:
+        up: Stream.
+
+        timeout: Timeout before emitting the batch, even if max_size
+            was not reached.
+
+        batch_size: Maximum size of the batch.
+
+    Yields:
+        Batches of items gathered into a `list`.
+
+    """
+
     def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
         state = resume_state if resume_state is not None else _BatchState()
-        return _BatchShimLogic(timeout, batch_size, state)
+        return _BatchShimLogic(step_id, timeout, batch_size, state)
 
     return up.unary("shim_unary", shim_builder)
 
 
+# TODO: Return another output stream with the unique `(key, obj)`
+# mappings? In case you need to re-join? Or actually we could do the
+# join here...
 @operator()
-def count_final(up: Stream, step_name: str, key: Callable[[Any], str]) -> KeyedStream:
+def count_final(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStream:
+    """Count the number of occurrences of items in the entire stream.
+
+    This will only return counts once the upstream is EOF. You'll need
+    to use `count_window` on infinite data.
+
+    Args:
+        up: Stream.
+
+        key: Function to convert each item into a string key. The
+            counting machinery does not compare the items directly,
+            instead it groups by this string key.
+
+    Yields:
+        `(key, count)`
+
+    """
+
     def never_complete(_):
         return False
 
@@ -193,11 +251,26 @@ def count_final(up: Stream, step_name: str, key: Callable[[Any], str]) -> KeyedS
 @operator()
 def count_window(
     up: Stream,
-    step_name: str,
+    step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
     key: Callable[[Any], str],
 ) -> KeyedStream:
+    """Count the number of occurrences of items in a window.
+
+    This will only return counts once the window has closed.
+
+    Args:
+        up: Stream.
+
+        key: Function to convert each item into a string key. The
+            counting machinery does not compare the items directly,
+            instead it groups by this string key.
+
+    Yields:
+        `(key, count)` per window.
+
+    """
     return (
         up.map("key", lambda x: (key(x), 1))
         .assert_keyed("shim_assert")
@@ -208,27 +281,27 @@ def count_window(
 @operator(_core=True)
 def flat_map(
     up: Stream,
-    step_name: str,
+    step_id: str,
     mapper: Callable[[Any], Iterable[Any]],
 ) -> Stream:
     return up._scope._new_stream("down")
 
 
 @operator()
-def flatten(up: Stream, step_name: str) -> Stream:
+def flatten(up: Stream, step_id: str) -> Stream:
     return up.flat_map("shim_flat_map", lambda xs: xs)
 
 
 @operator()
 def filter(  # noqa: A001
-    up: Stream, step_name: str, predicate: Callable[[Any], bool]
+    up: Stream, step_id: str, predicate: Callable[[Any], bool]
 ) -> Stream:
     def shim_mapper(x):
         keep = predicate(x)
         if not isinstance(keep, bool):
             msg = (
-                f"return value of `predicate` {_f_repr(predicate)} "
-                f"in step {step_name!r} must be a bool; "
+                f"return value of `predicate` {f_repr(predicate)} "
+                f"in step {step_id!r} must be a bool; "
                 f"got a {type(keep)!r} instead"
             )
             raise TypeError(msg)
@@ -242,14 +315,14 @@ def filter(  # noqa: A001
 
 @operator()
 def filter_value(
-    up: KeyedStream, step_name: str, predicate: Callable[[Any], bool]
+    up: KeyedStream, step_id: str, predicate: Callable[[Any], bool]
 ) -> KeyedStream:
     def shim_predicate(k_v):
         try:
             k, v = k_v
         except TypeError as ex:
             msg = (
-                f"step {step_name!r} requires `(key, value)` 2-tuple "
+                f"step {step_id!r} requires `(key, value)` 2-tuple "
                 "as upstream for routing; "
                 f"got a {type(k_v)!r} instead"
             )
@@ -261,7 +334,7 @@ def filter_value(
 
 @operator()
 def filter_map(
-    up: Stream, step_name: str, mapper: Callable[[Any], Optional[Any]]
+    up: Stream, step_id: str, mapper: Callable[[Any], Optional[Any]]
 ) -> Stream:
     def shim_mapper(x):
         y = mapper(x)
@@ -287,11 +360,11 @@ class _FoldState:
 
 @dataclass
 class _FoldShimLogic(UnaryLogic):
-    step_name: str = field(repr=False)
-    builder: Callable[[], Any] = field(repr=False)
-    folder: Callable[[Any, Any], Any] = field(repr=False)
-    is_fold_complete: Callable[[Any], bool] = field(repr=False)
-    eof_is_complete: bool = field(repr=False)
+    step_id: str
+    builder: Callable[[], Any]
+    folder: Callable[[Any, Any], Any]
+    is_fold_complete: Callable[[Any], bool]
+    eof_is_complete: bool
     state: Optional[_FoldState]
 
     def on_item(self, _now: datetime, v: Any) -> Iterable[Any]:
@@ -300,15 +373,15 @@ class _FoldShimLogic(UnaryLogic):
 
         self.state.acc = self.folder(self.state.acc, v)
 
-        done = self.is_fold_complete(self.state.acc)
-        if not isinstance(done, bool):
+        is_c = self.is_fold_complete(self.state.acc)
+        if not isinstance(is_c, bool):
             msg = (
-                f"return value of `is_complete` {_f_repr(self.is_fold_complete)} "
-                f"in step {self.step_name!r} must be a bool; "
-                f"got a {type(done)!r} instead"
+                f"return value of `is_complete` {f_repr(self.is_fold_complete)} "
+                f"in step {self.step_id!r} must be a bool; "
+                f"got a {type(is_c)!r} instead"
             )
             raise TypeError(msg)
-        if done:
+        if is_c:
             acc = self.state.acc
             self.state = None
             return [acc]
@@ -339,7 +412,7 @@ class _FoldShimLogic(UnaryLogic):
 @operator()
 def fold(
     up: KeyedStream,
-    step_name: str,
+    step_id: str,
     builder: Callable[[], Any],
     folder: Callable[[Any, Any], Any],
     is_complete: Callable[[Any], bool],
@@ -347,7 +420,7 @@ def fold(
 ) -> KeyedStream:
     def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
         return _FoldShimLogic(
-            step_name, builder, folder, is_complete, eof_is_complete, resume_state
+            step_id, builder, folder, is_complete, eof_is_complete, resume_state
         )
 
     return up.unary("shim_unary", shim_builder)
@@ -356,7 +429,7 @@ def fold(
 @operator(_core=True)
 def fold_window(
     up: KeyedStream,
-    step_name: str,
+    step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
     builder: Callable[[], Any],
@@ -397,7 +470,7 @@ def _get_collect_folder(t: Type) -> Callable:
 @operator()
 def collect(
     up: KeyedStream,
-    step_name: str,
+    step_id: str,
     is_complete: Callable[[Any], bool],
     into: Type = list,
     eof_is_complete: bool = True,
@@ -410,7 +483,7 @@ def collect(
 @operator()
 def collect_window(
     up: KeyedStream,
-    step_name: str,
+    step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
     into: Type = list,
@@ -423,7 +496,7 @@ def collect_window(
 @operator(_core=True)
 def input(  # noqa: A001
     flow: Dataflow,
-    step_name: str,
+    step_id: str,
     source: Source,
 ) -> Stream:
     """Emits items downstream from an input source.
@@ -436,7 +509,7 @@ def input(  # noqa: A001
 
 
     Args:
-        step_name:
+        step_id:
 
             Uniquely identifies this step for recovery.
 
@@ -453,13 +526,13 @@ def input(  # noqa: A001
 @operator()
 def inspect(
     up: Stream,
-    step_name: str,
+    step_id: str,
     inspector: Callable[[Any], None] = None,
 ) -> Stream:
     if inspector is None:
 
         def inspector(x):
-            print(f"{step_name}: {x!r}")
+            print(f"{step_id}: {x!r}")
 
     def shim_inspector(x, _epoch, _worker_idx):
         inspector(x)
@@ -470,7 +543,7 @@ def inspect(
 @operator(_core=True)
 def inspect_debug(
     up: Stream,
-    step_name: str,
+    step_id: str,
     inspector: Callable[[Any, int, int], None],
 ) -> Stream:
     return up._scope._new_stream("down")
@@ -479,13 +552,13 @@ def inspect_debug(
 @operator()
 def inspect_epoch(
     up: Stream,
-    step_name: str,
+    step_id: str,
     inspector: Callable[[Any, int], None] = None,
 ) -> Stream:
     if inspector is None:
 
         def inspector(x, epoch):
-            print(f"{step_name} @{epoch}: {x!r}")
+            print(f"{step_id} @{epoch}: {x!r}")
 
     def shim_inspector(x, epoch, _worker_idx):
         inspector(x, epoch)
@@ -496,13 +569,13 @@ def inspect_epoch(
 @operator()
 def inspect_worker(
     up: Stream,
-    step_name: str,
+    step_id: str,
     inspector: Callable[[Any, int], None] = None,
 ) -> Stream:
     if inspector is None:
 
         def inspector(x, worker_idx):
-            print(f"{step_name} on W{worker_idx}: {x!r}")
+            print(f"{step_id} on W{worker_idx}: {x!r}")
 
     def shim_inspector(x, _epoch, worker_idx):
         inspector(x, worker_idx)
@@ -534,7 +607,7 @@ class _JoinState:
 @operator()
 def _keyed_idx(
     left: KeyedStream,
-    step_name: str,
+    step_id: str,
     right: KeyedStream,
 ) -> KeyedStream:
     def build_inject_idx(i):
@@ -551,7 +624,7 @@ def _keyed_idx(
 @operator()
 def join_inner(
     left: KeyedStream,
-    step_name: str,
+    step_id: str,
     right: KeyedStream,
     _is_complete: Callable[[_JoinState], bool] = _JoinState.all_set,
 ) -> Stream:
@@ -570,7 +643,7 @@ def join_inner(
 @operator()
 def join_inner_window(
     left: KeyedStream,
-    step_name: str,
+    step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
     right: KeyedStream,
@@ -590,7 +663,7 @@ def join_inner_window(
 
 
 @operator()
-def key_on(up: Stream, step_name: str, key: Callable[[Any], str]) -> KeyedStream:
+def key_on(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStream:
     def shim_mapper(v):
         k = key(v)
         return (k, v)
@@ -601,7 +674,7 @@ def key_on(up: Stream, step_name: str, key: Callable[[Any], str]) -> KeyedStream
 @operator()
 def map(  # noqa: A001
     up: Stream,
-    step_name: str,
+    step_id: str,
     mapper: Callable[[Any], Any],
 ) -> Stream:
     def shim_mapper(x):
@@ -613,14 +686,14 @@ def map(  # noqa: A001
 
 @operator()
 def map_value(
-    up: KeyedStream, step_name: str, mapper: Callable[[Any], Any]
+    up: KeyedStream, step_id: str, mapper: Callable[[Any], Any]
 ) -> KeyedStream:
     def shim_mapper(k_v):
         try:
             k, v = k_v
         except TypeError as ex:
             msg = (
-                f"step {step_name!r} requires `(key, value)` 2-tuple "
+                f"step {step_id!r} requires `(key, value)` 2-tuple "
                 "as upstream for routing; "
                 f"got a {type(k_v)!r} instead"
             )
@@ -633,7 +706,7 @@ def map_value(
 
 @operator()
 def max_final(
-    up: KeyedStream, step_name: str, clock: ClockConfig, windower: WindowConfig
+    up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
 ) -> KeyedStream:
     def never_complete(_):
         return False
@@ -643,7 +716,7 @@ def max_final(
 
 @operator()
 def max_window(
-    up: KeyedStream, step_name: str, clock: ClockConfig, windower: WindowConfig
+    up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
 ) -> KeyedStream:
     return up.reduce_window("shim_reduce_window", clock, windower, max)
 
@@ -651,13 +724,13 @@ def max_window(
 # TODO: Handle *rights multiple merge. This requires changes in build
 # the `Input` inner dataclass.
 @operator(_core=True)
-def merge(left: Stream, step_name: str, right: Stream) -> Stream:
+def merge(left: Stream, step_id: str, right: Stream) -> Stream:
     return left._scope._new_stream("down")
 
 
 @operator()
 def min_final(
-    up: KeyedStream, step_name: str, clock: ClockConfig, windower: WindowConfig
+    up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
 ) -> KeyedStream:
     def never_complete(_):
         return False
@@ -667,25 +740,25 @@ def min_final(
 
 @operator()
 def min_window(
-    up: KeyedStream, step_name: str, clock: ClockConfig, windower: WindowConfig
+    up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
 ) -> KeyedStream:
     return up.reduce_window("shim_reduce_window", clock, windower, min)
 
 
 @operator(_core=True)
-def output(up: Stream, step_name: str, sink: Sink) -> None:
+def output(up: Stream, step_id: str, sink: Sink) -> None:
     return None
 
 
 @operator(_core=True)
-def redistribute(up: Stream, step_name: str) -> Stream:
+def redistribute(up: Stream, step_id: str) -> Stream:
     return up._scope._new_stream("down")
 
 
 @operator()
 def reduce(
     up: KeyedStream,
-    step_name: str,
+    step_id: str,
     reducer: Callable[[Any, Any], Any],
     is_complete: Callable[[Any], bool],
     eof_is_complete: bool = True,
@@ -707,7 +780,7 @@ def reduce(
 @operator()
 def reduce_window(
     up: KeyedStream,
-    step_name: str,
+    step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
     reducer: Callable[[Any, Any], Any],
@@ -729,15 +802,28 @@ def reduce_window(
 
 
 @dataclass(frozen=True)
-class SplitOut(Unpackable):
+class SplitOut:
+    """Streams returned from `split` operator.
+
+    You can tuple unpack this for convenience.
+
+    >>> flow = Dataflow("my_flow")
+    >>> nums = flow.input("nums", TestingSource([1, 2, 3]))
+    >>> evens, odds = nums.split("split_even", lambda x: x % 2 == 0)
+
+    """
+
     trues: Stream
     falses: Stream
+
+    def __iter__(self):
+        return (self.trues, self.falses)
 
 
 @operator(_core=True)
 def split(
     up: Stream,
-    step_name: str,
+    step_id: str,
     predicate: Callable[[Any], bool],
 ) -> SplitOut:
     return SplitOut(up._scope._new_stream("trues"), up._scope._new_stream("falses"))
@@ -745,7 +831,7 @@ def split(
 
 @dataclass
 class _StatefulMapShimLogic(UnaryLogic):
-    step_name: str
+    step_id: str
     mapper: Callable[[Any, Any], Tuple[Any, Iterable[Any]]] = field(repr=False)
     state: Optional[Any]
 
@@ -755,8 +841,8 @@ class _StatefulMapShimLogic(UnaryLogic):
             self.state, w = res
         except TypeError as ex:
             msg = (
-                f"return value of `mapper` {_f_repr(self.mapper)} "
-                f"in step {self.step_name!r} "
+                f"return value of `mapper` {f_repr(self.mapper)} "
+                f"in step {self.step_id!r} "
                 "must be a 2-tuple of `(updated_state, emit_item)`; "
                 f"got a {type(res)!r} instead"
             )
@@ -782,13 +868,13 @@ class _StatefulMapShimLogic(UnaryLogic):
 @operator()
 def stateful_map(
     up: KeyedStream,
-    step_name: str,
+    step_id: str,
     builder: Callable[[], Any],
     mapper: Callable[[Any, Any], Tuple[Any, Iterable[Any]]],
 ) -> KeyedStream:
     def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
         state = resume_state if resume_state is not None else builder()
-        return _StatefulMapShimLogic(step_name, mapper, state)
+        return _StatefulMapShimLogic(step_id, mapper, state)
 
     return up.unary("shim_unary", shim_builder)
 
@@ -796,7 +882,7 @@ def stateful_map(
 @operator(_core=True)
 def unary(
     up: KeyedStream,
-    step_name: str,
+    step_id: str,
     builder: Callable[[Optional[Any]], UnaryLogic],
 ) -> KeyedStream:
     return KeyedStream._assert_from(up._scope._new_stream("down"))
