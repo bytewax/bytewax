@@ -1,3 +1,4 @@
+import pickle
 from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
@@ -7,6 +8,7 @@ from bytewax.window import (
     SessionWindow,
     SlidingWindow,
     TumblingWindow,
+    WindowMetadata,
 )
 
 
@@ -49,9 +51,36 @@ def test_session_window():
     run_main(flow)
     assert sorted(out) == sorted(
         [
-            ("ALL", ["a", "b"]),
-            ("ALL", ["c", "d", "e", "f"]),
-            ("ALL", ["g"]),
+            (
+                "ALL",
+                (
+                    WindowMetadata(
+                        align_to + timedelta(seconds=1),
+                        align_to + timedelta(seconds=5),
+                    ),
+                    ["a", "b"],
+                ),
+            ),
+            (
+                "ALL",
+                (
+                    WindowMetadata(
+                        align_to + timedelta(seconds=11),
+                        align_to + timedelta(seconds=14),
+                    ),
+                    ["c", "d", "e", "f"],
+                ),
+            ),
+            (
+                "ALL",
+                (
+                    WindowMetadata(
+                        align_to + timedelta(seconds=20),
+                        align_to + timedelta(seconds=20),
+                    ),
+                    ["g"],
+                ),
+            ),
         ]
     )
 
@@ -102,11 +131,56 @@ def test_sliding_window():
     run_main(flow)
     assert sorted(out) == sorted(
         [
-            ("ALL", ["a", "b"]),
-            ("ALL", ["a", "b", "c"]),
-            ("ALL", ["c", "d", "e", "f"]),
-            ("ALL", ["d", "e", "f", "g"]),
-            ("ALL", ["g"]),
+            (
+                "ALL",
+                (
+                    WindowMetadata(
+                        align_to - timedelta(seconds=5),
+                        align_to + timedelta(seconds=5),
+                    ),
+                    ["a", "b"],
+                ),
+            ),
+            (
+                "ALL",
+                (
+                    WindowMetadata(
+                        align_to,
+                        align_to + timedelta(seconds=10),
+                    ),
+                    ["a", "b", "c"],
+                ),
+            ),
+            (
+                "ALL",
+                (
+                    WindowMetadata(
+                        align_to + timedelta(seconds=5),
+                        align_to + timedelta(seconds=15),
+                    ),
+                    ["c", "d", "e", "f"],
+                ),
+            ),
+            (
+                "ALL",
+                (
+                    WindowMetadata(
+                        align_to + timedelta(seconds=10),
+                        align_to + timedelta(seconds=20),
+                    ),
+                    ["d", "e", "f", "g"],
+                ),
+            ),
+            (
+                "ALL",
+                (
+                    WindowMetadata(
+                        align_to + timedelta(seconds=15),
+                        align_to + timedelta(seconds=25),
+                    ),
+                    ["g"],
+                ),
+            ),
         ]
     )
 
@@ -143,4 +217,31 @@ def test_tumbling_window():
 
     run_main(flow)
 
-    assert sorted(out) == sorted([("ALL", ["a", "b", "c"]), ("ALL", ["d", "e"])])
+    assert sorted(out) == sorted(
+        [
+            (
+                "ALL",
+                (
+                    WindowMetadata(align_to, align_to + timedelta(seconds=10)),
+                    ["a", "b", "c"],
+                ),
+            ),
+            (
+                "ALL",
+                (
+                    WindowMetadata(
+                        align_to + timedelta(seconds=10),
+                        align_to + timedelta(seconds=20),
+                    ),
+                    ["d", "e"],
+                ),
+            ),
+        ]
+    )
+
+
+def test_windowmetadata_pickles():
+    meta = WindowMetadata(datetime.now(timezone.utc), datetime.now(timezone.utc))
+
+    dumped = pickle.dumps(meta)
+    assert pickle.loads(dumped) == meta

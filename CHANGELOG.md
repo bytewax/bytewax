@@ -7,6 +7,13 @@ All notable changes to this project will be documented in this file. For help wi
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+
+- *Breaking change* Window operators now emit WindowMetadata
+  objects downstream. These objects can be used to introspect
+  the open_time and close_time of windows.
+  This changes the output type of windowing operators from:
+  `(key, values)` to `(key, (metadata, values))`.
+
 - *Breaking change* IO classes and connectors have been renamed to
   better reflect their semantics and match up with documentation.
 

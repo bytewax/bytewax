@@ -26,12 +26,12 @@ def calc_counts(flow):
 
 
 def get_count(word_count):
-    word, count = word_count
+    word, (metadata, count) = word_count
     return count
 
 
 def format_output(count_count):
-    times_appearing, num_words_with_the_same_count = count_count
+    times_appearing, (metadata, num_words_with_the_same_count) = count_count
     if num_words_with_the_same_count == 1:
         return f"There was one word with a count of {times_appearing}"
     else:

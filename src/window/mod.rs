@@ -38,6 +38,7 @@ use std::task::Poll;
 use chrono::prelude::*;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+use pyo3::pyclass::CompareOp;
 use pyo3::types::PyDict;
 use serde::Deserialize;
 use serde::Serialize;
@@ -155,6 +156,96 @@ impl IntoPy<PyObject> for WindowKey {
     }
 }
 
+/// Metadata object for a window.
+///
+///  Args:
+///    key (WindowKey):
+///      Internal window ID
+///    open_time (datetime.datetime)
+///      The time that the window starts.
+///    close_time (datetime.datetime)
+///      The time that the window closes. For some window
+///      types(SessionWindow), this value can change as new
+///      data is received.
+///
+/// Returns:
+///   WindowMetadata object
+#[pyclass(module = "bytewax.window")]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct WindowMetadata {
+    #[pyo3(get)]
+    pub(crate) open_time: DateTime<Utc>,
+    #[pyo3(get)]
+    pub(crate) close_time: DateTime<Utc>,
+}
+
+impl From<(&WindowKey, &(DateTime<Utc>, DateTime<Utc>))> for WindowMetadata {
+    fn from(value: (&WindowKey, &(DateTime<Utc>, DateTime<Utc>))) -> Self {
+        let (_key, (open_time, close_time)) = value;
+        Self {
+            open_time: *open_time,
+            close_time: *close_time,
+        }
+    }
+}
+
+#[pymethods]
+impl WindowMetadata {
+    #[new]
+    fn new(open_time: DateTime<Utc>, close_time: DateTime<Utc>) -> Self {
+        Self {
+            open_time,
+            close_time,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "WindowMetadata(open_time: {}, close_time: {})",
+            self.open_time, self.close_time
+        )
+    }
+
+    /// Return a representation of this class as a PyDict for pickling.
+    fn __getstate__(&self) -> HashMap<&str, Py<PyAny>> {
+        Python::with_gil(|py| {
+            HashMap::from([
+                ("open_time", self.open_time.into_py(py)),
+                ("close_time", self.close_time.into_py(py)),
+            ])
+        })
+    }
+
+    /// Required boilerplate for unpickling
+    fn __getnewargs__(&self) -> (DateTime<Utc>, DateTime<Utc>) {
+        (Utc::now(), Utc::now())
+    }
+
+    /// Unpickle from a PyDict of arguments.
+    fn __setstate__(&mut self, state: &PyAny) -> PyResult<()> {
+        self.open_time = state.get_item("open_time")?.extract()?;
+        self.close_time = state.get_item("close_time")?.extract()?;
+        Ok(())
+    }
+
+    /// Comparisons between WindowMetadata instances should use their
+    /// close times.
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
+        match op {
+            CompareOp::Lt => Ok(self.close_time < other.close_time),
+            CompareOp::Le => Ok(self.close_time <= other.close_time),
+            CompareOp::Eq => {
+                Ok(self.close_time == other.close_time && self.open_time == other.open_time)
+            }
+            CompareOp::Ne => {
+                Ok(self.close_time != other.close_time && self.open_time != other.open_time)
+            }
+            CompareOp::Gt => Ok(self.close_time > other.close_time),
+            CompareOp::Ge => Ok(self.close_time >= other.close_time),
+        }
+    }
+}
+
 /// An error that can occur when windowing an item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum InsertError {
@@ -170,8 +261,7 @@ pub(crate) enum InsertError {
 /// A separate instance of this is created for each key in the
 /// stateful stream. There is no way to interact across keys.
 pub(crate) trait Windower {
-    /// Attempt to insert an incoming value into a window, creating it
-    /// if necessary.
+    /// Attempt to insert close_time incoming value into a close_time, creating it
     ///
     /// If the current item is "late" for all windows, return
     /// [`WindowError::Late`].
@@ -185,10 +275,13 @@ pub(crate) trait Windower {
 
     /// Look at the current watermark, determine which windows are now
     /// closed, return them, and remove them from internal state.
-    fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<WindowKey>;
+    fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<(WindowKey, WindowMetadata)>;
 
     /// Is this windower currently tracking any windows?
     fn is_empty(&self) -> bool;
+
+    /// Return the window metadata for a given key.
+    fn get_metadata(&self, key: &WindowKey) -> Option<WindowMetadata>;
 
     /// Return the system time estimate of the next window close, if
     /// any.
@@ -212,7 +305,7 @@ pub(crate) enum WindowError<V> {
 
 /// Impl this trait to create a windowing operator.
 ///
-/// A separate instance of this will be create for each window a
+/// A separate instance of this will be created for each window a
 /// [`Windower`] creates. There is no way to interact across windows
 /// or keys.
 pub(crate) trait WindowLogic<V, R, I>
@@ -314,15 +407,22 @@ where
     }
 }
 
-impl<V, R, I, L, LB> StatefulLogic<V, Result<R, WindowError<V>>, Vec<Result<R, WindowError<V>>>>
-    for WindowStatefulLogic<V, R, I, L, LB>
+impl<V, R, I, L, LB>
+    StatefulLogic<
+        V,
+        Result<(WindowMetadata, R), WindowError<V>>,
+        Vec<Result<(WindowMetadata, R), WindowError<V>>>,
+    > for WindowStatefulLogic<V, R, I, L, LB>
 where
     V: Data + Debug,
     I: IntoIterator<Item = R>,
     L: WindowLogic<V, R, I>,
     LB: Fn(Option<TdPyAny>) -> L,
 {
-    fn on_awake(&mut self, next_value: Poll<Option<V>>) -> Vec<Result<R, WindowError<V>>> {
+    fn on_awake(
+        &mut self,
+        next_value: Poll<Option<V>>,
+    ) -> Vec<Result<(WindowMetadata, R), WindowError<V>>> {
         let mut output = Vec::new();
 
         let watermark = self.clock.watermark(&next_value);
@@ -345,21 +445,32 @@ where
                             .current_state
                             .entry(window_key)
                             .or_insert_with(|| (self.logic_builder)(None));
-                        let window_output = logic.with_next(Some((value, item_time)));
-                        output.extend(window_output.into_iter().map(Ok));
+                        let metadata = self
+                            .windower
+                            .get_metadata(&window_key)
+                            .expect("No window metadata found");
+                        let window_output = logic
+                            .with_next(Some((value, item_time)))
+                            .into_iter()
+                            .map(|output| Ok((metadata, output)));
+
+                        output.extend(window_output);
                     }
                 }
             }
         }
 
-        for closed_window in self.windower.drain_closed(&watermark) {
+        for (key, metadata) in self.windower.drain_closed(&watermark) {
             let mut logic = self
                 .current_state
-                .remove(&closed_window)
+                .remove(&key)
                 .expect("No logic for closed window");
 
-            let window_output = logic.with_next(None);
-            output.extend(window_output.into_iter().map(Ok));
+            let window_output = logic
+                .with_next(None)
+                .into_iter()
+                .map(|output| Ok((metadata, output)));
+            output.extend(window_output);
         }
 
         output
@@ -435,7 +546,7 @@ where
     ///
     /// # Output
     ///
-    /// The output will be a stream of `(key, value)` output
+    /// The output will be a stream of `(key, (metadat, value))` output
     /// 2-tuples. Values emitted by [`WindowLogic::exec`] will
     /// automatically be paired with the key in the output stream.
     #[allow(clippy::type_complexity)]
@@ -448,7 +559,7 @@ where
         resume_epoch: ResumeEpoch,
         loads: &Stream<S, Snapshot>,
     ) -> (
-        Stream<S, (StateKey, Result<R, WindowError<V>>)>,
+        Stream<S, (StateKey, Result<(WindowMetadata, R), WindowError<V>>)>,
         Stream<S, Snapshot>,
     )
     where
@@ -475,7 +586,7 @@ where
         resume_epoch: ResumeEpoch,
         loads: &Stream<S, Snapshot>,
     ) -> (
-        Stream<S, (StateKey, Result<R, WindowError<V>>)>,
+        Stream<S, (StateKey, Result<(WindowMetadata, R), WindowError<V>>)>,
         Stream<S, Snapshot>,
     )
     where
@@ -503,5 +614,6 @@ pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<TumblingWindow>()?;
     m.add_class::<SlidingWindow>()?;
     m.add_class::<SessionWindow>()?;
+    m.add_class::<WindowMetadata>()?;
     Ok(())
 }

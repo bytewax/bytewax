@@ -40,6 +40,7 @@ use crate::operators::*;
 use crate::outputs::*;
 use crate::pyo3_extensions::extract_state_pair;
 use crate::pyo3_extensions::wrap_state_pair;
+use crate::pyo3_extensions::wrap_window_state_pair;
 use crate::recovery::*;
 use crate::timely::AsWorkerExt;
 use crate::window::clock::ClockBuilder;
@@ -299,7 +300,7 @@ where
                         // For now, filter to just reductions and
                         // ignore late values.
                         .ok()
-                        .map(wrap_state_pair);
+                        .map(wrap_window_state_pair);
                     snaps.push(snap);
                 }
                 Step::Input {
@@ -416,7 +417,7 @@ where
                         // For now, filter to just reductions and
                         // ignore late values.
                         .ok()
-                        .map(wrap_state_pair);
+                        .map(wrap_window_state_pair);
                     snaps.push(snap);
                 }
                 Step::Inspect { inspector } => {
@@ -475,7 +476,7 @@ where
                         // For now, filter to just reductions and
                         // ignore late values.
                         .ok()
-                        .map(wrap_state_pair);
+                        .map(wrap_window_state_pair);
                     snaps.push(snap);
                 }
                 Step::StatefulMap {

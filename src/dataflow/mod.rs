@@ -456,13 +456,14 @@ impl Dataflow {
     ///   Values will be passed in window order, but no order
     ///   is defined within a window.
     ///
-    /// It emits `(key, accumulator)` tuples downstream when the window closes
+    /// It emits `(key, (window_metadata, accumulator))` tuples downstream when the
+    /// window closes.
     ///
     ///
     /// >>> from datetime import datetime, timedelta, timezone
     /// >>> from bytewax.dataflow import Dataflow
     /// >>> from bytewax.testing import run_main, TestingSource, TestingSink
-    /// >>> from bytewax.window import TumblingWindow, EventClockConfig
+    /// >>> from bytewax.window import TumblingWindow, EventClockConfig, WindowMetadata
     /// >>> align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
     /// >>>
     /// >>> flow = Dataflow()
@@ -493,8 +494,26 @@ impl Dataflow {
     /// >>> flow.output("out", TestingSink(out))
     /// >>>
     /// >>> run_main(flow)
-    /// >>>
-    /// >>> assert sorted(out) == sorted([("ALL", ["a", "b", "c"]), ("ALL", ["d", "e"])])
+    /// >>> assert sorted(out) == sorted([
+    /// ...     (
+    /// ...         "ALL",
+    /// ...         (
+    /// ...             WindowMetadata(
+    /// ...                 align_to, align_to + timedelta(seconds=10)
+    /// ...             ),
+    /// ...             ["a", "b", "c"]
+    /// ...         ),
+    /// ...     ),
+    /// ...     (
+    /// ...         "ALL",
+    /// ...         (
+    /// ...             WindowMetadata(
+    /// ...                 align_to + timedelta(seconds=10), align_to + timedelta(seconds=20)
+    /// ...             ),
+    /// ...             ["d", "e"],
+    /// ...         ),
+    /// ...     ),
+    /// ... ])
     ///
     /// Args:
     ///   step_id (str):
@@ -542,8 +561,8 @@ impl Dataflow {
     /// value for a key in this window, this function will not be
     /// called.
     ///
-    /// It emits `(key, accumulator)` tuples downstream at the end of
-    /// each window.
+    /// It emits `(key, (window_metadata, accumulator))` tuples downstream
+    /// at the end of each window.
     ///
     /// If the ordering of values is crucial, group in this operator,
     /// then sort afterwards.
@@ -577,8 +596,8 @@ impl Dataflow {
     /// ...     length=timedelta(seconds=10), align_to=align_to
     /// ... )
     /// >>> flow.reduce_window("count", clock_config, window_config, add)
-    /// >>> def extract_val(key__event):
-    /// ...    key, event = key__event
+    /// >>> def extract_val(key__metadata_event):
+    /// ...    key, (metadata, event) = key__metadata_event
     /// ...    return (key, event["val"])
     /// >>> flow.map("extract_val", extract_val)
     /// >>> out = []

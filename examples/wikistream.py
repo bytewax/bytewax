@@ -43,7 +43,8 @@ def initial_count(data_dict):
     return data_dict["server_name"], 1
 
 
-def keep_max(max_count, new_count):
+def keep_max(max_count, metadata__new_count):
+    _metadata, new_count = metadata__new_count
     new_max = max(max_count, new_count)
     # print(f"Just got {new_count}, old max was {max_count}, new max is {new_max}")
     return new_max, new_max
@@ -64,7 +65,7 @@ flow.reduce_window(
     ),
     operator.add,
 )
-# ("server.name", sum_per_window)
+# ("server.name", (metadata, sum_per_window))
 flow.stateful_map("keep_max", lambda: 0, keep_max)
 # ("server.name", max_per_window)
 flow.map("format", lambda x: (x[0], f"{x[0]}, {x[1]}"))

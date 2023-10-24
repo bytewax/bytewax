@@ -12,6 +12,7 @@ use crate::window::WindowConfig;
 use super::InsertError;
 use super::WindowBuilder;
 use super::WindowKey;
+use super::WindowMetadata;
 use super::Windower;
 
 /// Session windowing with a fixed inactivity gap.
@@ -215,13 +216,21 @@ impl Windower for SessionWindower {
             .expect("SessionWindower is not generating consistent sessions")
     }
 
-    fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<WindowKey> {
+    /// Return the session info for a given key as WindowMetadata.
+    fn get_metadata(&self, key: &WindowKey) -> Option<WindowMetadata> {
+        self.sessions
+            .iter()
+            .find(|session| &session.key() == key)
+            .map(|session| session.into())
+    }
+
+    fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<(WindowKey, WindowMetadata)> {
         // Vec::drain_filter would be nice here.
         let mut keys = vec![];
         self.sessions.retain(|s| {
             let is_open = s.is_open_at(watermark, &self.gap);
             if !is_open {
-                keys.push(s.key());
+                keys.push((s.key(), s.into()));
             }
             is_open
         });
@@ -293,7 +302,7 @@ fn test_insert() {
 }
 
 /// The Session struct is inside it's own module to avoid having the ability
-/// to access fields directly from outside, which might brake some of the assumptions we make:
+/// to access fields directly from outside, which might break some of the assumptions we make:
 /// - self.key can never change
 /// - self.start_time can never change
 /// - self.latest_event_time has to be valid, which is done through Session::try_insert
@@ -301,7 +310,10 @@ mod session {
     use chrono::{DateTime, Duration, Utc};
     use pyo3::{prelude::*, types::PyDict};
 
-    use crate::{pyo3_extensions::TdPyAny, window::WindowKey};
+    use crate::{
+        pyo3_extensions::TdPyAny,
+        window::{WindowKey, WindowMetadata},
+    };
 
     /// This struct represents a Session.
     #[derive(Clone, Debug, Eq)]
@@ -309,6 +321,15 @@ mod session {
         key: WindowKey,
         start: DateTime<Utc>,
         latest_event_time: DateTime<Utc>,
+    }
+
+    impl From<&Session> for WindowMetadata {
+        fn from(val: &Session) -> WindowMetadata {
+            WindowMetadata {
+                open_time: val.start,
+                close_time: val.latest_event_time,
+            }
+        }
     }
 
     impl Session {

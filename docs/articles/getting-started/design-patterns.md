@@ -24,7 +24,7 @@ The following sets of examples are equivalent.
 from bytewax.dataflow import Dataflow
 from bytewax.testing import run_main, TestingSource
 from bytewax.connectors.stdio import StdOutSink
-from bytewax.window import SystemClockConfig, TumblingWindow
+from bytewax.window import SystemClockConfig, TumblingWindow, WindowMetadata
 from datetime import timedelta, datetime, timezone
 ```
 
@@ -93,6 +93,11 @@ def add_to_list(l, items):
     return l
 
 
+def format_output(key__metadata_event):
+    key, (metadata, event) = key__metadata_event
+    return (key, event)
+
+
 clock = SystemClockConfig()
 window = TumblingWindow(
     length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
@@ -104,6 +109,7 @@ flow.input("inp", TestingSource(inp))
 
 # Operate on input
 flow.reduce_window("reduce", clock, window, add_to_list)
+flow.map("format_output", format_output)
 flow.output("out", StdOutSink())
 
 run_main(flow)
@@ -120,6 +126,7 @@ flow.input("inp", TestingSource(inp))
 
 # Operate on input
 flow.reduce_window("reduce", clock, window, lambda l1, l2: l1 + l2)
+flow.map("format_output", format_output)
 flow.output("out", StdOutSink())
 
 run_main(flow)
@@ -138,6 +145,7 @@ flow.input("inp", TestingSource(inp))
 
 # Operate on input
 flow.reduce_window("reduce", clock, window, operator.add)
+flow.map("format_output", format_output)
 flow.output("out", StdOutSink())
 
 run_main(flow)
@@ -166,6 +174,8 @@ def collect_user_events(flow, clock, window):
     flow.map("key_by_user_id", lambda e: (e["user_id"], [e["type"]]))
     # (user_id, [event])
     flow.reduce_window("reducer", clock, window, user_reducer)
+    # (user_id, (window_metadata, events_for_user))
+    flow.map("format_output", format_output)
     # (user_id, events_for_user)
     flow.map("collected_events", lambda e: {"user_id": e[0], "all_events": e[1]})
 
