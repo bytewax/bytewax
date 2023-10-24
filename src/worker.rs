@@ -291,6 +291,16 @@ where
 
                         streams.insert_downstream(py, &step, "down", up.clone())?;
                     }
+                    "branch" => {
+                        let predicate = step.get_arg(py, "predicate")?.extract(py)?;
+
+                        let up = streams.get_upstream(py, &step, "up")?;
+
+                        let (trues, falses) = up.split(py, step_id, predicate)?;
+
+                        streams.insert_downstream(py, &step, "trues", trues)?;
+                        streams.insert_downstream(py, &step, "falses", falses)?;
+                    }
                     "flat_map" => {
                         let mapper = step.get_arg(py, "mapper")?.extract(py)?;
 
@@ -426,16 +436,6 @@ where
                         let down = up.redistribute(step_id);
 
                         streams.insert_downstream(py, &step, "down", down)?;
-                    }
-                    "split" => {
-                        let predicate = step.get_arg(py, "predicate")?.extract(py)?;
-
-                        let up = streams.get_upstream(py, &step, "up")?;
-
-                        let (trues, falses) = up.split(py, step_id, predicate)?;
-
-                        streams.insert_downstream(py, &step, "trues", trues)?;
-                        streams.insert_downstream(py, &step, "falses", falses)?;
                     }
                     "unary" => {
                         let builder = step.get_arg(py, "builder")?.extract(py)?;

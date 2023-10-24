@@ -216,6 +216,34 @@ def batch(
     return up.unary("shim_unary", shim_builder)
 
 
+@dataclass(frozen=True)
+class BranchOut:
+    """Streams returned from `branch` operator.
+
+    You can tuple unpack this for convenience.
+
+    >>> flow = Dataflow("my_flow")
+    >>> nums = flow.input("nums", TestingSource([1, 2, 3]))
+    >>> evens, odds = nums.split("split_even", lambda x: x % 2 == 0)
+
+    """
+
+    trues: Stream
+    falses: Stream
+
+    def __iter__(self):
+        return (self.trues, self.falses)
+
+
+@operator(_core=True)
+def branch(
+    up: Stream,
+    step_id: str,
+    predicate: Callable[[Any], bool],
+) -> BranchOut:
+    return BranchOut(up._scope._new_stream("trues"), up._scope._new_stream("falses"))
+
+
 # TODO: Return another output stream with the unique `(key, obj)`
 # mappings? In case you need to re-join? Or actually we could do the
 # join here...
@@ -799,34 +827,6 @@ def reduce_window(
     return up.fold_window(
         "shim_fold_window", clock, windower, shim_builder, shim_folder
     )
-
-
-@dataclass(frozen=True)
-class SplitOut:
-    """Streams returned from `split` operator.
-
-    You can tuple unpack this for convenience.
-
-    >>> flow = Dataflow("my_flow")
-    >>> nums = flow.input("nums", TestingSource([1, 2, 3]))
-    >>> evens, odds = nums.split("split_even", lambda x: x % 2 == 0)
-
-    """
-
-    trues: Stream
-    falses: Stream
-
-    def __iter__(self):
-        return (self.trues, self.falses)
-
-
-@operator(_core=True)
-def split(
-    up: Stream,
-    step_id: str,
-    predicate: Callable[[Any], bool],
-) -> SplitOut:
-    return SplitOut(up._scope._new_stream("trues"), up._scope._new_stream("falses"))
 
 
 @dataclass
