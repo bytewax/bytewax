@@ -102,9 +102,8 @@ class ConfluentSchemaRegistry(SchemaRegistry):
             self._schema_str = self._client.get_schema(schema_id).schema_str
         else:
             if subject is None:
-                raise ValueError(
-                    "subject MUST be specified if no schema_id is provided"
-                )
+                msg = "subject MUST be specified if no schema_id is provided"
+                raise ValueError(msg)
             if version is not None:
                 self._schema_str = self._client.get_version(
                     subject, version
@@ -137,9 +136,8 @@ class RedpandaSchemaRegistry(SchemaRegistry):
             url = f"{base_url}/schemas/{schema_id}/schema"
         else:
             if subject is None:
-                raise ValueError(
-                    "subject MUST be specified if no schema_id is provided"
-                )
+                msg = "subject MUST be specified if no schema_id is provided"
+                raise ValueError(msg)
             if version is not None:
                 url = f"{base_url}/subjects/{subject}/versions/{version}/schema"
             else:
@@ -296,9 +294,9 @@ class KafkaSource(FixedPartitionedSource):
         topics: Iterable[str],
         tail: bool = True,
         starting_offset: int = OFFSET_BEGINNING,
-        add_config: Dict[str, str] = None,
+        add_config: Optional[Dict[str, str]] = None,
         batch_size: int = 1,
-        schema_registry: SchemaRegistry = None,
+        schema_registry: Optional[SchemaRegistry] = None,
     ):
         """Init.
 
@@ -434,8 +432,8 @@ class KafkaSink(DynamicSink):
         self,
         brokers: Iterable[str],
         topic: str,
-        add_config: Dict[str, str] = None,
-        schema_registry: SchemaRegistry = None,
+        add_config: Optional[Dict[str, str]] = None,
+        schema_registry: Optional[SchemaRegistry] = None,
     ):
         """Init.
 
@@ -449,6 +447,11 @@ class KafkaSink(DynamicSink):
                 `rdkafka`
                 documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
                 for options.
+            schema_registry:
+                A schema registry to use to retrieve a schema to encode
+                messages. See:
+                - `bytewax.connectors.kafka.RedpandaSchemaRegistry`
+                - `bytewax.connectors.kafka.ConfluentSchemaRegistry`
 
         """
         self._brokers = brokers
