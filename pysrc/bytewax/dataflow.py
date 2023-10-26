@@ -333,15 +333,16 @@ class Stream:
         raise NotImplementedError()
 
     def __getattr__(self, name):
+        msg = f"no operator named {name!r}"
+
         for subcls in _rec_subclasses(self.__class__):
             if hasattr(subcls, name):
                 msg = f"operator {name!r} can only be used on a {subcls!r}"
                 try:
-                    msg += f"; {self._help_msg()}"
+                    msg += f"; {subcls._help_msg()}"
                 except NotImplementedError:
                     pass
 
-        msg = f"no operator named {name!r}"
         raise AttributeError(msg)
 
 
@@ -573,8 +574,11 @@ def _gen_op_method(
         bound.apply_defaults()
 
         step_id = bound.arguments["step_id"]
+        if not isinstance(step_id, str):
+            msg = "'step_id' must be a string"
+            raise TypeError(msg)
         if "." in step_id:
-            msg = "step ID can't contain a period `.`"
+            msg = "'step_id' can't contain any periods '.'"
             raise ValueError(msg)
 
         # Pack *args and **kwargs into any special types.

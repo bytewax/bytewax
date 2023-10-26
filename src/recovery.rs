@@ -182,9 +182,9 @@ impl ToPyObject for StepId {
 /// Displays the step ID in quotes.
 impl std::fmt::Display for StepId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("\"")?;
+        f.write_str("'")?;
         std::fmt::Display::fmt(&self.0, f)?;
-        f.write_str("\"")?;
+        f.write_str("'")?;
         Ok(())
     }
 }
@@ -208,9 +208,9 @@ pub(crate) struct StateKey(pub(crate) String);
 /// Displays the state key in quotes.
 impl std::fmt::Display for StateKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("\"")?;
+        f.write_str("'")?;
         std::fmt::Display::fmt(&self.0, f)?;
-        f.write_str("\"")?;
+        f.write_str("'")?;
         Ok(())
     }
 }

@@ -268,13 +268,13 @@ where
                 let (key, value) = item
                     .extract::<(&PyAny, PyObject)>()
                     .raise_with::<PyTypeError>(|| {
-                        format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream routing; got a `{}` instead",
+                        format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
                             unwrap_any!(item.get_type().name()),
                         )
                     })?;
 
                 let key = key.extract::<StateKey>().raise_with::<PyTypeError>(|| {
-                    format!("step {for_step_id} requires string `key`s in input `(key, value)`; got a `{}` instead",
+                    format!("step {for_step_id} requires `str` keys in `(key, value)` from upstream; got a `{}` instead",
                         unwrap_any!(key.get_type().name()),
                     )
                 })?;
@@ -350,7 +350,12 @@ enum IsComplete {
 
 impl<'source> FromPyObject<'source> for IsComplete {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        if ob.extract::<bool>()? {
+        if ob.extract::<bool>().reraise_with(|| {
+            format!(
+                "`is_complete` was not a `bool`; got a `{}` instead",
+                unwrap_any!(ob.get_type().name())
+            )
+        })? {
             Ok(IsComplete::Discard)
         } else {
             Ok(IsComplete::Retain)
@@ -359,17 +364,35 @@ impl<'source> FromPyObject<'source> for IsComplete {
 }
 
 impl UnaryLogic {
+    fn extract_ret(res: &PyAny) -> PyResult<(&PyIterator, IsComplete)> {
+        let (iter, is_complete) = res.extract::<(&PyAny, &PyAny)>().reraise_with(|| {
+            format!(
+                "did not return a 2-tuple of `(emit, is_complete)`; got a `{}` instead",
+                unwrap_any!(res.get_type().name())
+            )
+        })?;
+        let is_complete = is_complete.extract::<IsComplete>()?;
+        let iter = iter.iter().reraise_with(|| {
+            format!(
+                "`emit` was not an iterator; got a `{}` instead",
+                unwrap_any!(iter.get_type().name())
+            )
+        })?;
+
+        Ok((iter, is_complete))
+    }
+
     fn on_item<'py>(
         &'py self,
         py: Python<'py>,
         py_now: PyObject,
         item: PyObject,
     ) -> PyResult<(&'py PyIterator, IsComplete)> {
-        self.0
+        let res = self
+            .0
             .as_ref(py)
-            .call_method1(intern!(py, "on_item"), (py_now, item))?
-            .extract()
-            .reraise("`on_item` did not return an iterator")
+            .call_method1(intern!(py, "on_item"), (py_now, item))?;
+        Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
     fn on_notify<'py>(
@@ -377,26 +400,28 @@ impl UnaryLogic {
         py: Python<'py>,
         sched: DateTime<Utc>,
     ) -> PyResult<(&'py PyIterator, IsComplete)> {
-        self.0
+        let res = self
+            .0
             .as_ref(py)
-            .call_method1(intern!(py, "on_notify"), (sched,))?
-            .extract()
-            .reraise("`on_notify` did not return an iterator")
+            .call_method1(intern!(py, "on_notify"), (sched, ))?;
+        Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
     fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(&'py PyIterator, IsComplete)> {
-        self.0
+        let res = self
+            .0
             .as_ref(py)
-            .call_method0("on_eof")?
-            .extract()
-            .reraise("`on_eof` did not return an iterator")
+            .call_method0("on_eof")?;
+        Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
     fn notify_at(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
-        self.0
-            .call_method0(py, intern!(py, "notify_at"))?
-            .extract(py)
-            .reraise("`notify_at` did not return a datetime")
+        let res = self.0
+            .as_ref(py)
+            .call_method0(intern!(py, "notify_at"))?;
+        res
+            .extract()
+            .reraise_with(|| format!("did not return a datetime; got a `{}` instead",  unwrap_any!(res.get_type().name())))
     }
 
     fn snapshot(&self, py: Python) -> PyResult<PyObject> {
@@ -614,7 +639,7 @@ where
                                             logic
                                                 .on_item(py, py_now.clone_ref(py), value)
                                                 .reraise_with(|| format!(
-                                                    "error calling `on_item` for {step_id}"
+                                                    "error calling `UnaryLogic.on_item` in step {step_id} for key {key}"
                                                 ))?
                                         );
 
@@ -656,7 +681,7 @@ where
                                             logic_histogram,
                                             labels,
                                             logic.on_notify(py, sched).reraise_with(|| format!(
-                                                "error calling `on_notify` for {step_id}"
+                                                "error calling `UnaryLogic.on_notify` in {step_id} for key {key}"
                                             ))?
                                         );
 
@@ -688,7 +713,7 @@ where
                                             logic_histogram,
                                             labels,
                                             logic.on_eof(py).reraise_with(|| format!(
-                                                "error calling `on_eof` for {step_id}"
+                                                "error calling `UnaryLogic.on_eof` in {step_id} for key {key}"
                                             ))?
                                         );
 
@@ -727,7 +752,7 @@ where
                                         // `awoken_keys_buffer`.
                                         if let Some(logic) = logics.get(key) {
                                             let sched = logic.notify_at(py).reraise_with(|| {
-                                                format!("error calling `notify_at` for {step_id}")
+                                                format!("error calling `UnaryLogic.notify_at` in {step_id} for key {key}")
                                             })?;
                                             if let Some(sched) = sched {
                                                 sched_cache.insert(key.clone(), sched);
@@ -762,7 +787,7 @@ where
                                                 snapshot_histogram,
                                                 labels,
                                                 logic.snapshot(py).reraise_with(|| {
-                                                format!("error calling `snapshot` for {step_id}")
+                                                    format!("error calling `UnaryLogic.snapshot` in {step_id} for key {key}")
                                             })?
                                             );
                                             StateChange::Upsert(state.into())
