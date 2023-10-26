@@ -23,7 +23,7 @@ def test_event_time_processing():
     ]
 
     def extract_sensor_type(event):
-        return event["type"], event
+        return event["type"]
 
     def acc_values(acc, event):
         acc.append(event["value"])
@@ -35,12 +35,14 @@ def test_event_time_processing():
     wc = TumblingWindow(align_to=align_to, length=window_length)
 
     flow = Dataflow("test_df")
-    flow.input("inp", TestingSource(inp))
-    flow.map("extract_sensor_type", extract_sensor_type)
-    flow.fold_window("running_average", cc, wc, list, acc_values)
-    flow.map("format_output", lambda x: {f"{x[0]}_avg": sum(x[1]) / len(x[1])})
+    stream = (
+        flow.input("inp", TestingSource(inp))
+        .key_on("extract_sensor_type", extract_sensor_type)
+        .fold_window("running_average", cc, wc, list, acc_values)
+        .map("format_output", lambda x: {f"{x[0]}_avg": sum(x[1]) / len(x[1])})
+    )
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
     run_main(flow)
 
     expected = [

@@ -11,15 +11,15 @@ from pytest import raises
 ZERO_TD = timedelta(seconds=0)
 
 
-def test_batch_operator():
+def test_batch():
     in_data = [("ALL", x) for x in range(10)]
-    flow = Dataflow("test")
-    flow.input("in", TestingSource(in_data))
+    flow = Dataflow("test_df")
+    stream = flow.input("in", TestingSource(in_data)).assert_keyed("key")
     # Use a long timeout to avoid triggering that.
     # We can't easily test system time based behavior.
-    flow.batch("batch", max_size=3, timeout=timedelta(seconds=10))
+    stream = stream.batch("batch", timedelta(seconds=10), 3)
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
     run_main(flow)
     assert sorted(out) == sorted(
         [
@@ -32,16 +32,15 @@ def test_batch_operator():
 
 
 def test_requires_input():
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
     out = []
-    flow.output("out", TestingSink(out))
 
     with raises(ValueError):
         run_main(flow)
 
 
 def test_requires_output():
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
     inp = range(3)
     flow.input("inp", TestingSource(inp))
 
@@ -50,18 +49,18 @@ def test_requires_output():
 
 
 def test_map():
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
 
     inp = [0, 1, 2]
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp))
 
     def add_one(item):
         return item + 1
 
-    flow.map("add_one", add_one)
+    stream = stream.map("add_one", add_one)
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -69,20 +68,20 @@ def test_map():
 
 
 def test_filter_map():
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
 
     inp = [0, 1, 2, 3, 4, 5]
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp))
 
     def make_odd(item):
         if item % 2 != 0:
             return None
         return item + 1
 
-    flow.filter_map("make_odd", make_odd)
+    stream = stream.filter_map("make_odd", make_odd)
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -90,18 +89,18 @@ def test_filter_map():
 
 
 def test_flat_map():
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
 
     inp = ["split this"]
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp))
 
     def split_into_words(sentence):
         return sentence.split()
 
-    flow.flat_map("split_into_words", split_into_words)
+    stream = stream.flat_map("split_into_words", split_into_words)
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -109,18 +108,18 @@ def test_flat_map():
 
 
 def test_filter():
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
 
     inp = [1, 2, 3]
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp))
 
     def is_odd(item):
         return item % 2 != 0
 
-    flow.filter("is_odd", is_odd)
+    stream = stream.filter("is_odd", is_odd)
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -128,16 +127,16 @@ def test_filter():
 
 
 def test_inspect():
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
 
     inp = ["a"]
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp))
 
     seen = []
-    flow.inspect(seen.append)
+    stream = stream.inspect("insp", seen.append)
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -147,16 +146,18 @@ def test_inspect():
 
 
 def test_inspect_epoch():
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
 
     inp = ["a"]
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp))
 
     seen = []
-    flow.inspect_epoch(lambda epoch, item: seen.append((epoch, item)))
+    stream = stream.inspect_epoch(
+        "insp", lambda item, epoch: seen.append((epoch, item))
+    )
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -166,7 +167,7 @@ def test_inspect_epoch():
 
 
 def test_reduce(recovery_config):
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
 
     inp = [
         {"user": "a", "type": "login"},
@@ -176,7 +177,7 @@ def test_reduce(recovery_config):
         {"user": "a", "type": "logout"},
         {"user": "b", "type": "logout"},
     ]
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp))
 
     armed = Event()
     armed.set()
@@ -191,12 +192,15 @@ def test_reduce(recovery_config):
         else:
             return [item]
 
-    flow.flat_map("trigger", trigger)
+    stream = stream.flat_map("trigger", trigger)
 
     def user_as_key(event):
-        return (event["user"], [event])
+        return event["user"]
 
-    flow.map("user_as_key", user_as_key)
+    def wrap_list(event):
+        return [event]
+
+    stream = stream.key_on("user_as_key", user_as_key).map_value("wrap_list", wrap_list)
 
     def extend_session(session, event):
         return session + event
@@ -204,10 +208,10 @@ def test_reduce(recovery_config):
     def session_complete(session):
         return any(event["type"] == "logout" for event in session)
 
-    flow.reduce("sessionizer", extend_session, session_complete)
+    stream = stream.reduce("sessionizer", extend_session, session_complete)
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -243,7 +247,7 @@ def test_reduce(recovery_config):
 
 
 def test_stateful_map(recovery_config):
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
 
     inp = [
         "a",
@@ -253,7 +257,7 @@ def test_stateful_map(recovery_config):
         "c",
         "a",
     ]
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp))
 
     armed = Event()
     armed.set()
@@ -268,12 +272,12 @@ def test_stateful_map(recovery_config):
         else:
             return [item]
 
-    flow.flat_map("trigger", trigger)
+    stream = stream.flat_map("trigger", trigger)
 
-    def add_key(item):
-        return item, item
+    def key_on_self(item):
+        return item
 
-    flow.map("add_key", add_key)
+    stream = stream.key_on("key_on_self", key_on_self)
 
     def build_seen():
         return set()
@@ -285,7 +289,7 @@ def test_stateful_map(recovery_config):
             seen.add(value)
             return seen, False
 
-    flow.stateful_map("build_seen", build_seen, check)
+    stream = stream.stateful_map("build_seen", build_seen, check)
 
     def remove_seen(key__is_seen):
         key, is_seen = key__is_seen
@@ -294,10 +298,10 @@ def test_stateful_map(recovery_config):
         else:
             return []
 
-    flow.flat_map("remove_seen", remove_seen)
+    stream = stream.flat_map("remove_seen", remove_seen)
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -324,7 +328,7 @@ def test_stateful_map(recovery_config):
 
 
 def test_stateful_map_error_on_non_kv_tuple():
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
 
     inp = [
         {"user": "a", "type": "login"},
@@ -332,29 +336,28 @@ def test_stateful_map_error_on_non_kv_tuple():
         {"user": "b", "type": "login"},
         {"user": "b", "type": "post"},
     ]
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp)).assert_keyed("lies")
 
     def running_count(type_to_count, event):
         type_to_count[event["type"]] += 1
         current_count = type_to_count[event["type"]]
         return type_to_count, [(event["type"], current_count)]
 
-    flow.stateful_map("running_count", lambda: defaultdict(int), running_count)
+    stream = stream.stateful_map(
+        "running_count", lambda: defaultdict(int), running_count
+    )
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
-    expect = (
-        "Dataflow requires a `(key, value)` 2-tuple as input to every stateful "
-        "operator for routing; got `{'user': 'a', 'type': 'login'}` instead"
-    )
+    expect = "requires `(key, value)` 2-tuple from upstream for routing"
 
     with raises(TypeError, match=re.escape(expect)):
         run_main(flow)
 
 
 def test_stateful_map_error_on_non_string_key():
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
 
     # Note that the resulting key will be an int.
     inp = [
@@ -363,38 +366,39 @@ def test_stateful_map_error_on_non_string_key():
         {"user": {"id": 2}, "type": "login"},
         {"user": {"id": 2}, "type": "post"},
     ]
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp))
 
     def add_key(event):
         # Note that event["user"] is an entire dict, but keys must be
         # strings.
-        return event["user"], event
+        return event["user"]
 
-    flow.map("add_key", add_key)
+    stream = stream.key_on("add_key", add_key)
 
     def running_count(type_to_count, event):
         type_to_count[event["type"]] += 1
         current_count = type_to_count[event["type"]]
         return type_to_count, [(event["type"], current_count)]
 
-    flow.stateful_map("running_count", lambda: defaultdict(int), running_count)
+    stream = stream.stateful_map(
+        "running_count", lambda: defaultdict(int), running_count
+    )
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
+
+    expect = "requires `str` keys in `(key, value)` from upstream"
 
     with raises(
         TypeError,
-        match=re.escape(
-            "Stateful logic functions must return string or integer keys in "
-            "`(key, value)`; got `{'id': 1}` instead"
-        ),
+        match=re.escape(expect),
     ):
         run_main(flow)
 
 
 def test_reduce_window(recovery_config):
     align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
 
     inp = [
         ("ALL", {"time": align_to, "val": 1}),
@@ -405,7 +409,7 @@ def test_reduce_window(recovery_config):
         ("ALL", {"time": align_to + timedelta(seconds=13), "val": 1}),
     ]
 
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp))
 
     armed = Event()
     armed.set()
@@ -420,7 +424,7 @@ def test_reduce_window(recovery_config):
         else:
             return [item]
 
-    flow.flat_map("trigger", trigger)
+    stream = stream.flat_map("trigger", trigger).assert_keyed("keyed")
 
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(0)
@@ -431,16 +435,16 @@ def test_reduce_window(recovery_config):
         acc["val"] += x["val"]
         return acc
 
-    flow.reduce_window("add", clock_config, window_config, add)
+    stream = stream.reduce_window("add", clock_config, window_config, add)
 
     def extract_val(key__event):
         key, event = key__event
         return (key, event["val"])
 
-    flow.map("extract_val", extract_val)
+    stream = stream.map("extract_val", extract_val)
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -461,7 +465,7 @@ def test_reduce_window(recovery_config):
 
 def test_fold_window(recovery_config):
     align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
 
     inp = [
         {"time": align_to, "user": "a", "type": "login"},
@@ -478,7 +482,7 @@ def test_fold_window(recovery_config):
         {"time": align_to + timedelta(seconds=24), "user": "b", "type": "post"},
     ]
 
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp))
 
     armed = Event()
     armed.set()
@@ -493,12 +497,12 @@ def test_fold_window(recovery_config):
         else:
             return [item]
 
-    flow.flat_map("trigger", trigger)
+    stream = stream.flat_map("trigger", trigger)
 
-    def key_off_user(event):
-        return (event["user"], event)
+    def key_on_user(event):
+        return event["user"]
 
-    flow.map("key_off_user", key_off_user)
+    stream = stream.key_on("key_on_user", key_on_user)
 
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
@@ -512,10 +516,10 @@ def test_fold_window(recovery_config):
         counts[typ] += 1
         return counts
 
-    flow.fold_window("count", clock_config, window_config, dict, count)
+    stream = stream.fold_window("count", clock_config, window_config, dict, count)
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -539,7 +543,7 @@ def test_fold_window(recovery_config):
 
 def test_collect_window(recovery_config):
     align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
-    flow = Dataflow("test")
+    flow = Dataflow("test_df")
 
     inp = [
         ("ALL", {"time": align_to, "val": 1}),
@@ -550,7 +554,7 @@ def test_collect_window(recovery_config):
         ("ALL", {"time": align_to + timedelta(seconds=13), "val": 1}),
     ]
 
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp))
 
     armed = Event()
     armed.set()
@@ -565,17 +569,17 @@ def test_collect_window(recovery_config):
         else:
             return [item]
 
-    flow.flat_map("trigger", trigger)
+    stream = stream.flat_map("trigger", trigger).assert_keyed("key")
 
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(0)
     )
     window_config = TumblingWindow(length=timedelta(seconds=10), align_to=align_to)
 
-    flow.collect_window("add", clock_config, window_config)
+    stream = stream.collect_window("add", clock_config, window_config)
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     with raises(RuntimeError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -609,21 +613,3 @@ def test_collect_window(recovery_config):
             ],
         )
     ]
-
-
-def test_output_emits_downstream():
-    flow = Dataflow("test")
-
-    inp = [0, 1, 2]
-    flow.input("inp", TestingSource(inp))
-
-    out1 = []
-    flow.output("out1", TestingSink(out1))
-
-    out2 = []
-    flow.output("out2", TestingSink(out2))
-
-    run_main(flow)
-
-    assert sorted(out1) == sorted(inp)
-    assert sorted(out2) == sorted(inp)

@@ -16,7 +16,7 @@ from pytest import raises
 ZERO_TD = timedelta(seconds=0)
 
 
-def build_keep_max_dataflow(inp, explode_on):
+def build_keep_max_dataflow(inp, explode_on, out):
     """Builds a set testing dataflow.
 
     It keeps track of the largest value seen for each key, but also
@@ -27,16 +27,16 @@ def build_keep_max_dataflow(inp, explode_on):
     """
     flow = Dataflow("test_df")
 
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp))
 
     def trigger(item):
         key, value, should_explode = item
         if should_explode == explode_on:
             msg = "BOOM"
             raise RuntimeError(msg)
-        return key, value
+        return (key, value)
 
-    flow.map("trigger", trigger)
+    stream = stream.map("trigger", trigger).assert_keyed("assert")
 
     def keep_max(previous_max, new_item):
         if previous_max is None:
@@ -48,7 +48,9 @@ def build_keep_max_dataflow(inp, explode_on):
                 new_max = None
         return new_max, new_max
 
-    flow.stateful_map("keep_max", lambda: None, keep_max)
+    stream.stateful_map("keep_max", lambda: None, keep_max).output(
+        "out", TestingSink(out)
+    )
 
     return flow
 
@@ -73,8 +75,7 @@ def test_recover_with_latest_state(recovery_config):
     ]
 
     out = []
-    flow = build_keep_max_dataflow(inp, "BOOM1")
-    flow.output("out", TestingSink(out))
+    flow = build_keep_max_dataflow(inp, "BOOM1", out)
 
     # First execution.
     with raises(RuntimeError):
@@ -87,8 +88,7 @@ def test_recover_with_latest_state(recovery_config):
 
     # Disable first bomb.
     out = []
-    flow = build_keep_max_dataflow(inp, "BOOM2")
-    flow.output("out", TestingSink(out))
+    flow = build_keep_max_dataflow(inp, "BOOM2", out)
 
     # Second execution.
     with raises(RuntimeError):
@@ -102,8 +102,7 @@ def test_recover_with_latest_state(recovery_config):
 
     # Disable second bomb.
     out = []
-    flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingSink(out))
+    flow = build_keep_max_dataflow(inp, None, out)
 
     # Recover.
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -138,8 +137,7 @@ def test_recover_doesnt_gc_last_write(recovery_config):
     ]
 
     out = []
-    flow = build_keep_max_dataflow(inp, "BOOM1")
-    flow.output("out", TestingSink(out))
+    flow = build_keep_max_dataflow(inp, "BOOM1", out)
 
     # First execution.
     with raises(RuntimeError):
@@ -155,8 +153,7 @@ def test_recover_doesnt_gc_last_write(recovery_config):
 
     # Disable bomb.
     out = []
-    flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingSink(out))
+    flow = build_keep_max_dataflow(inp, None, out)
 
     # Recover.
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -190,8 +187,7 @@ def test_recover_respects_delete(recovery_config):
     ]
 
     out = []
-    flow = build_keep_max_dataflow(inp, "BOOM1")
-    flow.output("out", TestingSink(out))
+    flow = build_keep_max_dataflow(inp, "BOOM1", out)
 
     # First execution.
     with raises(RuntimeError):
@@ -206,8 +202,7 @@ def test_recover_respects_delete(recovery_config):
 
     # Disable bomb.
     out = []
-    flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingSink(out))
+    flow = build_keep_max_dataflow(inp, None, out)
 
     # Recover.
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -227,8 +222,7 @@ def test_continuation(entry_point, recovery_config):
     ]
 
     out = []
-    flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingSink(out))
+    flow = build_keep_max_dataflow(inp, None, out)
 
     entry_point(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
@@ -284,8 +278,7 @@ def test_continuation_with_no_new_input(entry_point, recovery_config):
         ("b", 4, False),
     ]
     out = []
-    flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingSink(out))
+    flow = build_keep_max_dataflow(inp, None, out)
 
     entry_point(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
 
@@ -313,8 +306,7 @@ def test_rescale(tmp_path):
         ("b", 4, False),
     ]
     out = []
-    flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingSink(out))
+    flow = build_keep_max_dataflow(inp, None, out)
 
     def entry_point(worker_count_per_proc):
         cluster_main(
@@ -383,8 +375,7 @@ def test_no_parts(tmp_path):
         ("b", 4, False),
     ]
     out = []
-    flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingSink(out))
+    flow = build_keep_max_dataflow(inp, None, out)
 
     with raises(NoPartitionsError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -401,8 +392,7 @@ def test_missing_parts(tmp_path):
         ("b", 4, False),
     ]
     out = []
-    flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingSink(out))
+    flow = build_keep_max_dataflow(inp, None, out)
 
     with raises(MissingPartitionsError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -424,8 +414,7 @@ def test_inconsistent_parts(tmp_path):
         ("b", 4, False),
     ]
     out = []
-    flow = build_keep_max_dataflow(inp, None)
-    flow.output("out", TestingSink(out))
+    flow = build_keep_max_dataflow(inp, None, out)
 
     # Run the dataflow initially to completion.
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)

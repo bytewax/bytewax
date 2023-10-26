@@ -15,10 +15,10 @@ from pytest import raises
 def test_dir_input():
     flow = Dataflow("test_df")
 
-    flow.input("inp", DirSource(Path("pytests/fixtures/dir_input")))
+    stream = flow.input("inp", DirSource(Path("pytests/fixtures/dir_input")))
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -60,10 +60,10 @@ def test_file_input():
 
     flow = Dataflow("test_df")
 
-    flow.input("inp", FileSource(file_path))
+    stream = flow.input("inp", FileSource(file_path))
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -82,10 +82,10 @@ def test_file_input_supports_blank_lines():
 
     flow = Dataflow("test_df")
 
-    flow.input("inp", FileSource(file_path))
+    stream = flow.input("inp", FileSource(file_path))
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -130,10 +130,10 @@ def test_csv_file_input():
 
     flow = Dataflow("test_df")
 
-    flow.input("inp", CSVSource(file_path))
+    stream = flow.input("inp", CSVSource(file_path))
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -199,9 +199,7 @@ def test_file_output(tmp_path):
         ("2", "2"),
         ("3", "3"),
     ]
-    flow.input("inp", TestingSource(inp))
-
-    flow.output("out", FileSink(file_path))
+    flow.input("inp", TestingSource(inp)).output("out", FileSink(file_path))
 
     run_main(flow)
 
@@ -222,11 +220,11 @@ def test_dir_output(tmp_path):
         ("1", "1"),
         ("2", "2"),
     ]
-    flow.input("inp", TestingSource(inp))
-
     # Route each item to the partition index that is int version of
     # the key (which must be a str).
-    flow.output("out", DirSink(tmp_path, 3, assign_file=int))
+    flow.input("inp", TestingSource(inp)).output(
+        "out", DirSink(tmp_path, 3, assign_file=int)
+    )
 
     run_main(flow)
 

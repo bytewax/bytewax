@@ -7,9 +7,7 @@ def test_std_output(capfd):
     flow = Dataflow("test_df")
 
     inp = ["a", "b"]
-    flow.input("inp", TestingSource(inp))
-
-    flow.output("out", StdOutSink())
+    flow.input("inp", TestingSource(inp)).output("out", StdOutSink())
 
     run_main(flow)
 

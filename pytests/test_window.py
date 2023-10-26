@@ -30,7 +30,7 @@ def test_session_window():
         ("ALL", {"time": align_to + timedelta(seconds=1), "val": "h"}),
     ]
 
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp)).assert_keyed("key")
 
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
@@ -41,10 +41,10 @@ def test_session_window():
         acc.append(x["val"])
         return acc
 
-    flow.fold_window("sum", clock_config, window_config, list, add)
+    stream = stream.fold_window("sum", clock_config, window_config, list, add)
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
     assert sorted(out) == sorted(
@@ -81,7 +81,7 @@ def test_sliding_window():
         ("ALL", {"time": align_to + timedelta(seconds=1), "val": "h"}),
     ]
 
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp)).assert_keyed("key")
 
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
@@ -94,10 +94,10 @@ def test_sliding_window():
         acc.append(x["val"])
         return acc
 
-    flow.fold_window("sum", clock_config, window_config, list, add)
+    stream = stream.fold_window("sum", clock_config, window_config, list, add)
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
     assert sorted(out) == sorted(
@@ -125,7 +125,7 @@ def test_tumbling_window():
         ("ALL", {"time": align_to + timedelta(seconds=16), "val": "e"}),
     ]
 
-    flow.input("inp", TestingSource(inp))
+    stream = flow.input("inp", TestingSource(inp)).assert_keyed("key")
 
     clock_config = EventClockConfig(
         lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0)
@@ -136,10 +136,10 @@ def test_tumbling_window():
         acc.append(x["val"])
         return acc
 
-    flow.fold_window("sum", clock_config, window_config, list, add)
+    stream = stream.fold_window("sum", clock_config, window_config, list, add)
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
 
