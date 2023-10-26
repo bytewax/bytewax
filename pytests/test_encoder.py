@@ -23,7 +23,7 @@ class OrderBook:
 
 
 def test_encoding_custom_object():
-    flow = Dataflow()
+    flow = Dataflow("test")
     flow.stateful_map("avg", OrderBook, OrderBook.update)
     assert encode_dataflow(flow) == json.dumps(
         {
@@ -42,7 +42,7 @@ def test_encoding_custom_object():
 
 
 def test_encoding_custom_input():
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     class MyCustomSource(FixedPartitionedSource):
         def list_parts(self):
@@ -71,7 +71,7 @@ def test_encoding_custom_input():
 
 
 def test_encoding_map():
-    flow = Dataflow()
+    flow = Dataflow("test")
     flow.map("add_one", lambda x: x + 1)
 
     assert encode_dataflow(flow) == json.dumps(
@@ -84,7 +84,7 @@ def test_encoding_map():
 
 
 def test_encoding_filter():
-    flow = Dataflow()
+    flow = Dataflow("test")
     flow.filter("filter_one", lambda x: x == 1)
 
     assert encode_dataflow(flow) == json.dumps(
@@ -99,7 +99,7 @@ def test_encoding_filter():
 
 
 def test_encoding_reduce():
-    flow = Dataflow()
+    flow = Dataflow("test")
     flow.reduce("sessionizer", lambda x, y: x + y, lambda x, y: x == y)
 
     assert encode_dataflow(flow) == json.dumps(
@@ -119,7 +119,7 @@ def test_encoding_reduce():
 
 
 def test_encoding_flat_map():
-    flow = Dataflow()
+    flow = Dataflow("test")
     flow.flat_map("add_one", lambda x: x + 1)
 
     assert encode_dataflow(flow) == json.dumps(
@@ -132,7 +132,7 @@ def test_encoding_flat_map():
 
 
 def test_encoding_stateful_map():
-    flow = Dataflow()
+    flow = Dataflow("test")
     flow.stateful_map("order_book", lambda key: OrderBook(), OrderBook.update)
 
     assert encode_dataflow(flow) == json.dumps(
@@ -152,7 +152,7 @@ def test_encoding_stateful_map():
 
 
 def test_encoding_fold_window():
-    flow = Dataflow()
+    flow = Dataflow("test")
     align_to = datetime(2005, 7, 14, 12, 30, tzinfo=timezone.utc)
     wc = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
     cc = EventClockConfig(
@@ -188,7 +188,7 @@ def test_encoding_fold_window():
 
 
 def test_encoding_method_descriptor():
-    flow = Dataflow()
+    flow = Dataflow("test")
     flow.flat_map("split", str.split)
 
     assert encode_dataflow(flow) == json.dumps(

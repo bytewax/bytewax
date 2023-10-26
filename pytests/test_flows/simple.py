@@ -4,7 +4,7 @@ from bytewax.testing import TestingSource
 
 
 def get_flow(path):
-    flow = Dataflow()
+    flow = Dataflow("test_df")
     inp = range(1000)
     flow.input("inp", TestingSource(inp))
 

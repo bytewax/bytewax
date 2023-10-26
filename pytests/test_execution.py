@@ -9,7 +9,7 @@ from pytest import mark, raises
 
 
 def test_run(entry_point):
-    flow = Dataflow()
+    flow = Dataflow("test")
     inp = range(3)
     flow.input("inp", TestingSource(inp))
     flow.map("add_one", lambda x: x + 1)
@@ -22,7 +22,7 @@ def test_run(entry_point):
 
 
 def test_reraises_exception(entry_point):
-    flow = Dataflow()
+    flow = Dataflow("test")
     inp = range(3)
     flow.input("inp", TestingSource(inp))
 

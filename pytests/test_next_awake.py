@@ -36,7 +36,7 @@ def test_next_awake_in_dynamic_input():
             return TestPartition()
 
     out = []
-    flow = Dataflow()
+    flow = Dataflow("test_df")
     flow.input("in", TestSource())
     flow.output("out", TestingSink(out))
     # If next is called before the next_awake time has passed,
@@ -85,7 +85,7 @@ def test_next_awake_in_partitioned_input():
                 return TestPartition(cooldown=timedelta(seconds=0.3))
 
     out = []
-    flow = Dataflow()
+    flow = Dataflow("test_df")
     flow.input("in", TestSource())
     flow.output("out", TestingSink(out))
     # If next is called before the next_awake time has passed,

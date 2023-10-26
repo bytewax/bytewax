@@ -13,7 +13,7 @@ from bytewax.window import (
 def test_session_window():
     align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
 
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     inp = [
         # Session 1
@@ -59,7 +59,7 @@ def test_session_window():
 def test_sliding_window():
     align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
 
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     # Valign_to
     #  a  b   c   def g
@@ -114,7 +114,7 @@ def test_sliding_window():
 def test_tumbling_window():
     align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
 
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     inp = [
         ("ALL", {"time": align_to, "val": "a"}),

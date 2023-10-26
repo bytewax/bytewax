@@ -13,7 +13,7 @@ ZERO_TD = timedelta(seconds=0)
 
 def test_batch_operator():
     in_data = [("ALL", x) for x in range(10)]
-    flow = Dataflow()
+    flow = Dataflow("test")
     flow.input("in", TestingSource(in_data))
     # Use a long timeout to avoid triggering that.
     # We can't easily test system time based behavior.
@@ -32,7 +32,7 @@ def test_batch_operator():
 
 
 def test_requires_input():
-    flow = Dataflow()
+    flow = Dataflow("test")
     out = []
     flow.output("out", TestingSink(out))
 
@@ -41,7 +41,7 @@ def test_requires_input():
 
 
 def test_requires_output():
-    flow = Dataflow()
+    flow = Dataflow("test")
     inp = range(3)
     flow.input("inp", TestingSource(inp))
 
@@ -50,7 +50,7 @@ def test_requires_output():
 
 
 def test_map():
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     inp = [0, 1, 2]
     flow.input("inp", TestingSource(inp))
@@ -69,7 +69,7 @@ def test_map():
 
 
 def test_filter_map():
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     inp = [0, 1, 2, 3, 4, 5]
     flow.input("inp", TestingSource(inp))
@@ -90,7 +90,7 @@ def test_filter_map():
 
 
 def test_flat_map():
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     inp = ["split this"]
     flow.input("inp", TestingSource(inp))
@@ -109,7 +109,7 @@ def test_flat_map():
 
 
 def test_filter():
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     inp = [1, 2, 3]
     flow.input("inp", TestingSource(inp))
@@ -128,7 +128,7 @@ def test_filter():
 
 
 def test_inspect():
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     inp = ["a"]
     flow.input("inp", TestingSource(inp))
@@ -147,7 +147,7 @@ def test_inspect():
 
 
 def test_inspect_epoch():
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     inp = ["a"]
     flow.input("inp", TestingSource(inp))
@@ -166,7 +166,7 @@ def test_inspect_epoch():
 
 
 def test_reduce(recovery_config):
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     inp = [
         {"user": "a", "type": "login"},
@@ -243,7 +243,7 @@ def test_reduce(recovery_config):
 
 
 def test_stateful_map(recovery_config):
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     inp = [
         "a",
@@ -324,7 +324,7 @@ def test_stateful_map(recovery_config):
 
 
 def test_stateful_map_error_on_non_kv_tuple():
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     inp = [
         {"user": "a", "type": "login"},
@@ -354,7 +354,7 @@ def test_stateful_map_error_on_non_kv_tuple():
 
 
 def test_stateful_map_error_on_non_string_key():
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     # Note that the resulting key will be an int.
     inp = [
@@ -394,7 +394,7 @@ def test_stateful_map_error_on_non_string_key():
 
 def test_reduce_window(recovery_config):
     align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     inp = [
         ("ALL", {"time": align_to, "val": 1}),
@@ -461,7 +461,7 @@ def test_reduce_window(recovery_config):
 
 def test_fold_window(recovery_config):
     align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     inp = [
         {"time": align_to, "user": "a", "type": "login"},
@@ -539,7 +539,7 @@ def test_fold_window(recovery_config):
 
 def test_collect_window(recovery_config):
     align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     inp = [
         ("ALL", {"time": align_to, "val": 1}),
@@ -612,7 +612,7 @@ def test_collect_window(recovery_config):
 
 
 def test_output_emits_downstream():
-    flow = Dataflow()
+    flow = Dataflow("test")
 
     inp = [0, 1, 2]
     flow.input("inp", TestingSource(inp))

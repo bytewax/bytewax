@@ -81,7 +81,7 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 /// >>> from bytewax.dataflow import Dataflow
 /// >>> from bytewax.testing import TestingInput, run_main
 /// >>> from bytewax.connectors.stdio import StdOutput
-/// >>> flow = Dataflow()
+/// >>> flow = Dataflow("my_df")
 /// >>> flow.input("inp", TestingInput(range(3)))
 /// >>> flow.capture(StdOutput())
 /// >>> run_main(flow)
@@ -177,7 +177,7 @@ pub(crate) fn run_main(
 /// >>> from bytewax.dataflow import Dataflow
 /// >>> from bytewax.testing import TestingInput
 /// >>> from bytewax.connectors.stdio import StdOutput
-/// >>> flow = Dataflow()
+/// >>> flow = Dataflow("my_df")
 /// >>> flow.input("inp", TestingInput(range(3)))
 /// >>> flow.capture(StdOutput())
 /// >>> addresses = []  # In a real example, you'd find the "host:port" of all other Bytewax workers.

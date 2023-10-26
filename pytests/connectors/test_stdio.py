@@ -4,7 +4,7 @@ from bytewax.testing import TestingSource, run_main
 
 
 def test_std_output(capfd):
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     inp = ["a", "b"]
     flow.input("inp", TestingSource(inp))

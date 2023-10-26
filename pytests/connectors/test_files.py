@@ -13,7 +13,7 @@ from pytest import raises
 
 
 def test_dir_input():
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     flow.input("inp", DirSource(Path("pytests/fixtures/dir_input")))
 
@@ -33,7 +33,7 @@ def test_dir_input_raises_on_non_exist():
     path = Path("pytests/fixtures/bluster")
 
     with raises(ValueError) as exinfo:
-        flow = Dataflow()
+        flow = Dataflow("test_df")
 
         flow.input("inp", DirSource(path))
 
@@ -46,7 +46,7 @@ def test_dir_input_raises_on_file():
     path = Path("pytests/fixtures/dir_input/partition-1.txt")
 
     with raises(ValueError) as exinfo:
-        flow = Dataflow()
+        flow = Dataflow("test_df")
 
         flow.input("inp", DirSource(path))
 
@@ -58,7 +58,7 @@ def test_dir_input_raises_on_file():
 def test_file_input():
     file_path = Path("pytests/fixtures/dir_input/partition-1.txt")
 
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     flow.input("inp", FileSource(file_path))
 
@@ -80,7 +80,7 @@ def test_file_input():
 def test_file_input_supports_blank_lines():
     file_path = Path("pytests/fixtures/blank-lines.txt")
 
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     flow.input("inp", FileSource(file_path))
 
@@ -128,7 +128,7 @@ def test_file_input_resume_state():
 def test_csv_file_input():
     file_path = Path("pytests/fixtures/metrics.csv")
 
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     flow.input("inp", CSVSource(file_path))
 
@@ -192,7 +192,7 @@ def test_csv_file_input():
 def test_file_output(tmp_path):
     file_path = tmp_path / "out.txt"
 
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     inp = [
         ("1", "1"),
@@ -215,7 +215,7 @@ def test_file_output(tmp_path):
 
 
 def test_dir_output(tmp_path):
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     inp = [
         ("0", "0"),

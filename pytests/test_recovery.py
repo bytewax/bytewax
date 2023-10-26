@@ -25,7 +25,7 @@ def build_keep_max_dataflow(inp, explode_on):
     `should_explode` is truthy and `armed` is set.
 
     """
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     flow.input("inp", TestingSource(inp))
 

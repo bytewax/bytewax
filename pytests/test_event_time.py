@@ -34,7 +34,7 @@ def test_event_time_processing():
     )
     wc = TumblingWindow(align_to=align_to, length=window_length)
 
-    flow = Dataflow()
+    flow = Dataflow("test_df")
     flow.input("inp", TestingSource(inp))
     flow.map("extract_sensor_type", extract_sensor_type)
     flow.fold_window("running_average", cc, wc, list, acc_values)

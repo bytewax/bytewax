@@ -56,7 +56,7 @@ def test_input(tmp_topic1, tmp_topic2):
             inp.append((key, value))
     producer.flush()
 
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     flow.input("inp", KafkaSource([KAFKA_BROKER], topics, tail=False))
 
@@ -102,7 +102,7 @@ def test_input_resume_state(tmp_topic):
 
 
 def test_input_raises_on_topic_not_exist():
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     flow.input("inp", KafkaSource([KAFKA_BROKER], ["missing-topic"], tail=False))
 
@@ -133,7 +133,7 @@ def test_input_raises_on_str_topics(tmp_topic):
 
 
 def test_output(tmp_topic):
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     inp = [
         (b"key-0-0", b"value-0-0"),
