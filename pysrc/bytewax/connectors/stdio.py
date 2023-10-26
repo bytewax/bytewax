@@ -1,4 +1,6 @@
 """Connectors to console IO."""
+import sys
+
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 __all__ = [
@@ -9,7 +11,10 @@ __all__ = [
 class _PrintSinkPartition(StatelessSinkPartition):
     def write_batch(self, items):
         for item in items:
-            print(item)
+            line = str(item)
+            sys.stdout.write(line)
+            sys.stdout.write("\n")
+        sys.stdout.flush()
 
 
 class StdOutSink(DynamicSink):
