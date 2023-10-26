@@ -90,6 +90,7 @@ select = [
 ]
 ignore = [
     "PLR",
+    "D105",
 ]
 
 [tool.ruff.pydocstyle]
