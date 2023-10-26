@@ -1,6 +1,8 @@
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
+use crate::errors::PythonException;
 use crate::recovery::StepId;
 
 pub(crate) struct Dataflow(PyObject);
@@ -70,7 +72,7 @@ impl<'source> FromPyObject<'source> for StreamId {
 
 impl Operator {
     pub(crate) fn get_arg(&self, py: Python, attr_name: &str) -> PyResult<PyObject> {
-        self.0.getattr(py, "inp")?.getattr(py, attr_name)
+        self.0.getattr(py, attr_name)
     }
 
     pub(crate) fn name(&self, py: Python) -> PyResult<String> {
@@ -93,11 +95,27 @@ impl Operator {
         self.0.as_ref(py).is_instance(core_cls)
     }
 
-    pub(crate) fn get_stream_id(&self, py: Python, port_name: &str) -> PyResult<StreamId> {
+    pub(crate) fn get_port_stream(&self, py: Python, port_name: &str) -> PyResult<StreamId> {
         self.0
             .as_ref(py)
-            .getattr(port_name)?
+            .getattr(port_name)
+            .reraise_with(|| format!("operator did not have Port {port_name:?}"))?
             .getattr("stream_id")?
             .extract()
+    }
+
+    pub(crate) fn get_multiport_streams(
+        &self,
+        py: Python,
+        port_name: &str,
+    ) -> PyResult<Vec<StreamId>> {
+        let stream_ids = self
+            .0
+            .as_ref(py)
+            .getattr(port_name)
+            .reraise_with(|| format!("operator did not have MultiPort {port_name:?}"))?
+            .getattr("stream_ids")?
+            .extract::<&PyDict>()?;
+        stream_ids.values().extract()
     }
 }

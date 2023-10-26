@@ -210,11 +210,29 @@ where
         step: &Operator,
         port_name: &str,
     ) -> PyResult<&Stream<S, TdPyAny>> {
-        let stream_id = step.get_stream_id(py, port_name)?;
+        let stream_id = step.get_port_stream(py, port_name)?;
         self.0.get(&stream_id).ok_or_else(|| {
             let msg = format!("unknown {stream_id:?}");
             tracked_err::<PyValueError>(&msg)
         })
+    }
+
+    fn get_upmultistream(
+        &self,
+        py: Python,
+        step: &Operator,
+        port_name: &str,
+    ) -> PyResult<Vec<Stream<S, TdPyAny>>> {
+        let stream_ids = step.get_multiport_streams(py, port_name)?;
+        stream_ids
+            .into_iter()
+            .map(|stream_id| {
+                self.0.get(&stream_id).cloned().ok_or_else(|| {
+                    let msg = format!("unknown {stream_id:?}");
+                    tracked_err::<PyValueError>(&msg)
+                })
+            })
+            .collect()
     }
 
     fn insert_downstream(
@@ -224,7 +242,7 @@ where
         port_name: &str,
         stream: Stream<S, TdPyAny>,
     ) -> PyResult<()> {
-        let stream_id = step.get_stream_id(py, port_name)?;
+        let stream_id = step.get_port_stream(py, port_name)?;
         if self.0.insert(stream_id.clone(), stream).is_some() {
             let msg = format!("duplicate {stream_id:?}");
             Err(tracked_err::<PyValueError>(&msg))
@@ -285,30 +303,44 @@ where
                 let name = step.name(py)?;
                 match name.as_str() {
                     "_noop" => {
-                        let up = streams.get_upstream(py, &step, "up")?;
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `_noop` missing port")?;
 
                         // No-op op.
 
-                        streams.insert_downstream(py, &step, "down", up.clone())?;
+                        streams
+                            .insert_downstream(py, &step, "down", up.clone())
+                            .reraise("core operator `_noop` missing port")?;
                     }
                     "branch" => {
                         let predicate = step.get_arg(py, "predicate")?.extract(py)?;
 
-                        let up = streams.get_upstream(py, &step, "up")?;
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `branch` missing port")?;
 
-                        let (trues, falses) = up.split(py, step_id, predicate)?;
+                        let (trues, falses) = up.branch(py, step_id, predicate)?;
 
-                        streams.insert_downstream(py, &step, "trues", trues)?;
-                        streams.insert_downstream(py, &step, "falses", falses)?;
+                        streams
+                            .insert_downstream(py, &step, "trues", trues)
+                            .reraise("core operator `branch` missing port")?;
+                        streams
+                            .insert_downstream(py, &step, "falses", falses)
+                            .reraise("core operator `branch` missing port")?;
                     }
                     "flat_map" => {
                         let mapper = step.get_arg(py, "mapper")?.extract(py)?;
 
-                        let up = streams.get_upstream(py, &step, "up")?;
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `flat_map` missing port")?;
 
                         let down = up.flat_map(py, step_id, mapper)?;
 
-                        streams.insert_downstream(py, &step, "down", down)?;
+                        streams
+                            .insert_downstream(py, &step, "down", down)
+                            .reraise("core operator `flat_map` missing port")?;
                     }
                     // TODO: Rewrite windowing logic in Python.
                     "fold_window" => {
@@ -369,7 +401,9 @@ where
                             inputs.push(down.clone());
                             snaps.push(snap);
 
-                            streams.insert_downstream(py, &step, "down", down)?;
+                            streams
+                                .insert_downstream(py, &step, "down", down)
+                                .reraise("core operator `input` missing port")?;
                         } else if let Ok(source) = source.extract::<DynamicSource>(py) {
                             let down = source
                                 .dynamic_input(
@@ -384,7 +418,9 @@ where
 
                             inputs.push(down.clone());
 
-                            streams.insert_downstream(py, &step, "down", down)?;
+                            streams
+                                .insert_downstream(py, &step, "down", down)
+                                .reraise("core operator `input` missing port")?;
                         } else {
                             let msg = "unknown source type";
                             return Err(tracked_err::<PyTypeError>(msg));
@@ -393,23 +429,33 @@ where
                     "inspect_debug" => {
                         let inspector = step.get_arg(py, "inspector")?.extract(py)?;
 
-                        let up = streams.get_upstream(py, &step, "up")?;
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `inspect_debug` missing port")?;
 
                         let down = up.inspect_debug(py, step_id, inspector)?;
 
-                        streams.insert_downstream(py, &step, "down", down)?;
+                        streams
+                            .insert_downstream(py, &step, "down", down)
+                            .reraise("core operator `inspect_debug` missing port")?;
                     }
                     "merge_all" => {
-                        let ups = streams.get_upstream(py, &step, "ups")?;
+                        let ups = streams
+                            .get_upmultistream(py, &step, "ups")
+                            .reraise("core operator `merge_all` missing port")?;
 
-                        let down = left.merge(py, step_id, right)?;
+                        let down = scope.merge(py, step_id, ups)?;
 
-                        streams.insert_downstream(py, &step, "down", down)?;
+                        streams
+                            .insert_downstream(py, &step, "down", down)
+                            .reraise("core operator `merge_all` missing port")?;
                     }
                     "output" => {
                         let sink = step.get_arg(py, "sink")?.extract::<Sink>(py)?;
 
-                        let up = streams.get_upstream(py, &step, "up")?;
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `output` missing port")?;
 
                         if let Ok(sink) = sink.extract::<FixedPartitionedSink>(py) {
                             let (clock, snap) = up
@@ -430,22 +476,30 @@ where
                         }
                     }
                     "redistribute" => {
-                        let up = streams.get_upstream(py, &step, "up")?;
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `redistribute` missing port")?;
 
                         let down = up.redistribute(step_id);
 
-                        streams.insert_downstream(py, &step, "down", down)?;
+                        streams
+                            .insert_downstream(py, &step, "down", down)
+                            .reraise("core operator `redistribute` missing port")?;
                     }
                     "unary" => {
                         let builder = step.get_arg(py, "builder")?.extract(py)?;
 
-                        let up = streams.get_upstream(py, &step, "up")?;
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `unary` missing port")?;
 
                         let (down, snap) = up.unary(py, step_id, builder, resume_epoch, &loads)?;
 
                         snaps.push(snap);
 
-                        streams.insert_downstream(py, &step, "down", down)?;
+                        streams
+                            .insert_downstream(py, &step, "down", down)
+                            .reraise("core operator `unary` missing port")?;
                     }
                     name => {
                         let msg = format!("Unknown core operator {name:?}");

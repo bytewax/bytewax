@@ -25,7 +25,7 @@ use pyo3::types::PyIterator;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Branch;
-use timely::dataflow::operators::Concat;
+use timely::dataflow::operators::Concatenate;
 use timely::dataflow::operators::Exchange;
 use timely::dataflow::operators::Inspect;
 use timely::dataflow::operators::Map;
@@ -46,6 +46,44 @@ use crate::with_timer;
 
 pub(crate) mod fold_window;
 pub(crate) mod stateful_unary;
+
+pub(crate) trait BranchOp<S>
+where
+    S: Scope,
+{
+    fn branch(
+        &self,
+        py: Python,
+        step_id: StepId,
+        predicate: TdPyCallable,
+    ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, TdPyAny>)>;
+}
+
+impl<S> BranchOp<S> for Stream<S, TdPyAny>
+where
+    S: Scope,
+{
+    fn branch(
+        &self,
+        _py: Python,
+        step_id: StepId,
+        predicate: TdPyCallable,
+    ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, TdPyAny>)> {
+        let (falses, trues) = Branch::branch(self, move |_epoch, item| {
+            let item: &PyObject = item.into();
+
+            unwrap_any!(Python::with_gil(|py| predicate
+                .call1(py, (item,))
+                .reraise_with(|| format!("error calling predicate in step {step_id}"))?
+                .extract::<bool>(py)
+                .reraise_with(|| format!(
+                    "return value of `predicate` in step {step_id} must be a bool"
+                ))))
+        });
+
+        Ok((trues, falses))
+    }
+}
 
 pub(crate) trait FlatMapOp<S>
 where
@@ -173,11 +211,11 @@ where
         &self,
         py: Python,
         step_id: StepId,
-        right: &Stream<S, TdPyAny>,
+        ups: Vec<Stream<S, TdPyAny>>,
     ) -> PyResult<Stream<S, TdPyAny>>;
 }
 
-impl<S> MergeOp<S> for Stream<S, TdPyAny>
+impl<S> MergeOp<S> for S
 where
     S: Scope,
 {
@@ -185,9 +223,9 @@ where
         &self,
         _py: Python,
         _step_id: StepId,
-        right: &Stream<S, TdPyAny>,
+        ups: Vec<Stream<S, TdPyAny>>,
     ) -> PyResult<Stream<S, TdPyAny>> {
-        Ok(self.concat(right))
+        Ok(self.concatenate(ups))
     }
 }
 
@@ -206,44 +244,6 @@ where
 {
     fn redistribute(&self, _step_id: StepId) -> Stream<S, D> {
         self.exchange(move |_| fastrand::u64(..))
-    }
-}
-
-pub(crate) trait SplitOp<S>
-where
-    S: Scope,
-{
-    fn split(
-        &self,
-        py: Python,
-        step_id: StepId,
-        predicate: TdPyCallable,
-    ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, TdPyAny>)>;
-}
-
-impl<S> SplitOp<S> for Stream<S, TdPyAny>
-where
-    S: Scope,
-{
-    fn split(
-        &self,
-        _py: Python,
-        step_id: StepId,
-        predicate: TdPyCallable,
-    ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, TdPyAny>)> {
-        let (falses, trues) = self.branch(move |_epoch, item| {
-            let item: &PyObject = item.into();
-
-            unwrap_any!(Python::with_gil(|py| predicate
-                .call1(py, (item,))
-                .reraise_with(|| format!("error calling predicate in step {step_id}"))?
-                .extract::<bool>(py)
-                .reraise_with(|| format!(
-                    "return value of `predicate` in step {step_id} must be a bool"
-                ))))
-        });
-
-        Ok((trues, falses))
     }
 }
 
@@ -343,17 +343,32 @@ impl<'source> FromPyObject<'source> for UnaryLogic {
     }
 }
 
+enum IsComplete {
+    Retain,
+    Discard,
+}
+
+impl<'source> FromPyObject<'source> for IsComplete {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        if ob.extract::<bool>()? {
+            Ok(IsComplete::Discard)
+        } else {
+            Ok(IsComplete::Retain)
+        }
+    }
+}
+
 impl UnaryLogic {
     fn on_item<'py>(
         &'py self,
         py: Python<'py>,
         py_now: PyObject,
         item: PyObject,
-    ) -> PyResult<&'py PyIterator> {
+    ) -> PyResult<(&'py PyIterator, IsComplete)> {
         self.0
             .as_ref(py)
             .call_method1(intern!(py, "on_item"), (py_now, item))?
-            .iter()
+            .extract()
             .reraise("`on_item` did not return an iterator")
     }
 
@@ -361,26 +376,20 @@ impl UnaryLogic {
         &'py self,
         py: Python<'py>,
         sched: DateTime<Utc>,
-    ) -> PyResult<&'py PyIterator> {
+    ) -> PyResult<(&'py PyIterator, IsComplete)> {
         self.0
             .as_ref(py)
             .call_method1(intern!(py, "on_notify"), (sched,))?
-            .iter()
+            .extract()
             .reraise("`on_notify` did not return an iterator")
     }
 
-    fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<&'py PyIterator> {
+    fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(&'py PyIterator, IsComplete)> {
         self.0
             .as_ref(py)
             .call_method0("on_eof")?
-            .iter()
+            .extract()
             .reraise("`on_eof` did not return an iterator")
-    }
-
-    fn is_complete(&self, py: Python) -> PyResult<bool> {
-        self.0
-            .call_method0(py, intern!(py, "is_complete"))?
-            .extract(py)
     }
 
     fn notify_at(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
@@ -599,7 +608,7 @@ where
                                                 ))
                                             });
 
-                                        let output = with_timer!(
+                                        let (output, is_complete) = with_timer!(
                                             logic_histogram,
                                             labels,
                                             logic
@@ -608,9 +617,15 @@ where
                                                     "error calling `on_item` for {step_id}"
                                                 ))?
                                         );
+
                                         for value in output {
                                             kv_downstream_session
                                                 .give((key.clone(), value?.into()));
+                                        }
+
+                                        if let IsComplete::Discard = is_complete {
+                                            logics.remove(&key);
+                                            sched_cache.remove(&key);
                                         }
 
                                         awoken_keys_buffer.insert(key);
@@ -637,16 +652,22 @@ where
                                         // cleared the logic.
                                         let logic = logics.get(&key).unwrap();
 
-                                        let output = with_timer!(
+                                        let (output, is_complete) = with_timer!(
                                             logic_histogram,
                                             labels,
                                             logic.on_notify(py, sched).reraise_with(|| format!(
                                                 "error calling `on_notify` for {step_id}"
                                             ))?
                                         );
+
                                         for value in output {
                                             kv_downstream_session
                                                 .give((key.clone(), value?.into()));
+                                        }
+
+                                        if let IsComplete::Discard = is_complete {
+                                            logics.remove(&key);
+                                            sched_cache.remove(&key);
                                         }
 
                                         awoken_keys_buffer.insert(key);
@@ -659,18 +680,25 @@ where
                             // Then if EOF, call all logic that still
                             // exists.
                             if input_frontiers.is_eof() {
+                                let mut discarded_keys = Vec::new();
+
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     for (key, logic) in logics.iter() {
-                                        let output = with_timer!(
+                                        let (output, is_complete) = with_timer!(
                                             logic_histogram,
                                             labels,
                                             logic.on_eof(py).reraise_with(|| format!(
                                                 "error calling `on_eof` for {step_id}"
                                             ))?
                                         );
+
                                         for value in output {
                                             kv_downstream_session
                                                 .give((key.clone(), value?.into()));
+                                        }
+
+                                        if let IsComplete::Discard = is_complete {
+                                            discarded_keys.push(key.clone());
                                         }
 
                                         awoken_keys_buffer.insert(key.clone());
@@ -678,36 +706,11 @@ where
 
                                     Ok(())
                                 }));
-                            }
 
-                            // Then go through all awoken keys and see
-                            // if any are complete and should be
-                            // discarded.
-                            if !awoken_keys_buffer.is_empty() {
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    for key in awoken_keys_buffer.iter() {
-                                        // It's possible the logic was
-                                        // discarded on a previous
-                                        // activation but the epoch
-                                        // hasn't ended so the key is
-                                        // still in
-                                        // `awoken_keys_buffer`.
-                                        if let Some(logic) = logics.get(key) {
-                                            let is_complete =
-                                                logic.is_complete(py).reraise_with(|| {
-                                                    format!(
-                                                        "error calling `is_complete` for {step_id}"
-                                                    )
-                                                })?;
-                                            if is_complete {
-                                                logics.remove(key);
-                                                sched_cache.remove(key);
-                                            }
-                                        }
-                                    }
-
-                                    Ok(())
-                                }));
+                                for key in discarded_keys {
+                                    logics.remove(&key);
+                                    sched_cache.remove(&key);
+                                }
                             }
 
                             // Then go through all awoken keys and
@@ -765,11 +768,12 @@ where
                                             StateChange::Upsert(state.into())
                                         } else {
                                             // It's ok if there's no
-                                            // logic, because during this
-                                            // epoch it might have been
-                                            // discarded due to
-                                            // `is_complete` returning
-                                            // true.
+                                            // logic, because during
+                                            // this epoch it might
+                                            // have been discarded due
+                                            // to one of the `on_*`
+                                            // methods returning
+                                            // `IsComplete::Discard`.
                                             StateChange::Discard
                                         };
                                         let snap = Snapshot(step_id.clone(), key, change);

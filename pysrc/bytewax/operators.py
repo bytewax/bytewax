@@ -14,6 +14,7 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from functools import partial
 from typing import (
     Any,
     Callable,
@@ -38,19 +39,35 @@ from bytewax.outputs import Sink
 from bytewax.window import ClockConfig, WindowConfig
 
 
+def _none_builder():
+    return None
+
+
+def _never_complete(_):
+    return False
+
+
 class UnaryLogic(ABC):
     """Abstract class to define the behavior of a `unary` operator.
 
     The operator will call these methods in order: `on_item` once for
     any items queued, then `on_notify` if the notification time has
     passed, then `on_eof` if the upstream is EOF and no new items will
-    be received this execution, then `is_complete` to determine if
-    this logic should be discarded, then if it is retained
-    `notify_at`, then `snapshot` will be periodically be called.
+    be received this execution. If the logic is retained after all the
+    above calls then: `notify_at`. `snapshot` will be periodically be
+    called.
 
     """
 
+    #: This logic should be retained after this call to `on_*`.
+    #
+    #: If you always return this, this state will never be deleted and
+    #: if your key-space grows without bound, your memory usage will
+    #: also grow without bound.
     RETAIN: bool = False
+
+    #: This logic should be discarded immediately after this call to
+    #: `on_*`.
     DISCARD: bool = True
 
     @abstractmethod
@@ -66,8 +83,9 @@ class UnaryLogic(ABC):
             value: The value of the upstream `(key, value)`.
 
         Returns:
-            Any values to emit downstream. They will be wrapped in
-            `(key, value)` automatically.
+            A 2-tuple of: any values to emit downstream and wheither
+            to discard this logic. Values will be wrapped in `(key,
+            value)` automatically.
 
         """
         ...
@@ -80,8 +98,9 @@ class UnaryLogic(ABC):
             sched: The scheduled notification time.
 
         Returns:
-            Any values to emit downstream. They will be wrapped in
-            `(key, value)` automatically.
+            A 2-tuple of: any values to emit downstream and wheither
+            to discard this logic. Values will be wrapped in `(key,
+            value)` automatically.
 
         """
         ...
@@ -94,8 +113,9 @@ class UnaryLogic(ABC):
         done being called.
 
         Returns:
-            Any values to emit downstream. They will be wrapped in
-            `(key, value)` automatically.
+            A 2-tuple of: any values to emit downstream and wheither
+            to discard this logic. Values will be wrapped in `(key,
+            value)` automatically.
 
         """
         ...
@@ -182,15 +202,15 @@ class _BatchShimLogic(UnaryLogic):
 
         self.state.acc.append(v)
         if len(self.state.acc) >= self.batch_size:
-            return ([self.state.acc], self.DISCARD)
+            return ([self.state.acc], UnaryLogic.DISCARD)
 
-        return ([], self.RETAIN)
+        return ([], UnaryLogic.RETAIN)
 
     def on_notify(self, sched: datetime) -> Tuple[Iterable[Any], bool]:
-        return ([self.state.acc], self.DISCARD)
+        return ([self.state.acc], UnaryLogic.DISCARD)
 
     def on_eof(self) -> Tuple[Iterable[Any], bool]:
-        return ([self.state.acc], self.DISCARD)
+        return ([self.state.acc], UnaryLogic.DISCARD)
 
     def notify_at(self) -> Optional[datetime]:
         return self.state.timeout_at
@@ -293,14 +313,10 @@ def count_final(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStr
         `(key, count)`
 
     """
-
-    def never_complete(_):
-        return False
-
     return (
         up.map("key", lambda x: (key(x), 1))
         .assert_keyed("shim_assert")
-        .reduce("sum", lambda s, x: s + x, never_complete, eof_is_complete=True)
+        .reduce("sum", lambda s, x: s + x, _never_complete, eof_is_complete=True)
     )
 
 
@@ -436,18 +452,18 @@ class _FoldShimLogic(UnaryLogic):
             )
             raise TypeError(msg)
         if is_c:
-            return ([self.state.acc], self.DISCARD)
+            return ([self.state.acc], UnaryLogic.DISCARD)
 
-        return ([], self.RETAIN)
+        return ([], UnaryLogic.RETAIN)
 
     def on_notify(self, _s: datetime) -> Tuple[Iterable[Any], bool]:
-        return ([], self.RETAIN)
+        return ([], UnaryLogic.RETAIN)
 
     def on_eof(self) -> Tuple[Iterable[Any], bool]:
         if self.eof_is_complete:
-            return ([self.state.acc], self.DISCARD)
+            return ([self.state.acc], UnaryLogic.DISCARD)
 
-        return ([], self.RETAIN)
+        return ([], UnaryLogic.RETAIN)
 
     def notify_at(self) -> Optional[datetime]:
         return None
@@ -484,33 +500,36 @@ def fold_window(
     raise NotImplementedError()
 
 
-def _get_collect_folder(t: Type) -> Callable:
+def _list_collector(s, v):
+    s.append(v)
+    return s
+
+
+def _set_collector(s, v):
+    s.add(v)
+    return s
+
+
+def _dict_collector(s, k_v):
+    k, v = k_v
+    s[k] = v
+    return s
+
+
+def _get_collector(t: Type) -> Callable:
     if issubclass(t, list):
-
-        def shim_folder(s, v):
-            s.append(v)
-            return s
-
+        collector = _list_collector
     elif issubclass(t, set):
-
-        def shim_folder(s, v):
-            s.add(v)
-            return s
-
+        collector = _set_collector
     elif issubclass(t, dict):
-
-        def shim_folder(s, k_v):
-            k, v = k_v
-            s[k] = v
-            return s
-
+        collector = _dict_collector
     else:
         msg = (
             f"collect doesn't support `{t:!}`; "
             "only `list`, `set`, and `dict`; use `fold` operator directly"
         )
         raise TypeError(msg)
-    return shim_folder
+    return collector
 
 
 @operator()
@@ -521,9 +540,9 @@ def collect(
     into: Type = list,
     eof_is_complete: bool = True,
 ) -> KeyedStream:
-    shim_folder = _get_collect_folder(into)
+    collector = _get_collector(into)
 
-    return up.fold("shim_fold", into, shim_folder, is_complete, eof_is_complete)
+    return up.fold("shim_fold", into, collector, is_complete, eof_is_complete)
 
 
 @operator()
@@ -534,9 +553,9 @@ def collect_window(
     windower: WindowConfig,
     into: Type = list,
 ) -> KeyedStream:
-    shim_folder = _get_collect_folder(into)
+    collector = _get_collector(into)
 
-    return up.fold_window("shim_fold_window", clock, windower, into, shim_folder)
+    return up.fold_window("shim_fold_window", clock, windower, into, collector)
 
 
 @operator(_core=True)
@@ -561,10 +580,12 @@ def input(  # noqa: A001
 
         source:
 
-            Source to read items from.
+            `Source` to read items from.
 
-    Returns:
-        Single stream.
+    Yields:
+        Items from the source. See source documentation for what kind
+        of item that is.
+
     """
     raise NotImplementedError()
 
@@ -650,6 +671,10 @@ class _JoinState:
         return OrderedDict((key, self.vals[key]) for key in self.keys)
 
 
+def _int_dict_to_tuple(d: Dict[str, Any]) -> Tuple:
+    return tuple(d[str(i)] for i in range(len(d)))
+
+
 @operator()
 def join_inner(
     left: KeyedStream,
@@ -658,10 +683,19 @@ def join_inner(
     *rights: KeyedStream,
 ) -> KeyedStream:
     tables = {str(i + 1): right for i, right in enumerate(rights)}
+    # Keep things in argument order.
     tables["0"] = left
-    return left.flow.join_inner_named("shim_join_inner_named", **tables).map_value(
-        "unname"
+    return (
+        left.flow()
+        .join_inner_named("shim_join_inner_named", running=running, **tables)
+        .map_value("unname", _int_dict_to_tuple)
     )
+
+
+def _join_inner_folder(s: _JoinState, k_v):
+    k, v = k_v
+    s.set_val(k, v)
+    return s
 
 
 @operator()
@@ -674,19 +708,14 @@ def join_inner_named(
     **tables: KeyedStream,
 ) -> KeyedStream:
     ups = [
-        stream.map_value(f"inject_key_{key}", lambda v: (key, v))
+        stream.map_value(f"inject_key_{key}", partial(lambda v, key: (key, v), key))
         for key, stream in tables.items()
     ]
-    keys = frozenset(tables.keys())
-
-    def shim_folder(s: _JoinState, k_v):
-        k, v = k_v
-        s.set_val(k, v)
-        return s
+    keys = list(tables.keys())
 
     return (
         flow.merge_all("merge_ups", *ups)
-        .fold("join", lambda: _JoinState(keys), shim_folder, _JoinState.all_set)
+        .fold("join", lambda: _JoinState(keys), _join_inner_folder, _JoinState.all_set)
         .map_value("make_dict", _JoinState.asdict)
     )
 
@@ -699,15 +728,14 @@ def join_inner_window(
     windower: WindowConfig,
     right: KeyedStream,
 ) -> KeyedStream:
-    def shim_folder(s, i_v):
-        i, v = i_v
-        s._set(i, v)
-        return s
-
     return (
         left._keyed_idx("add_idx", right)
         .fold_window(
-            "shim_fold_window", clock, windower, lambda: _JoinState(2), shim_folder
+            "shim_fold_window",
+            clock,
+            windower,
+            lambda: _JoinState(list(range(2))),
+            _join_inner_folder,
         )
         .map_value("make_tuple", _JoinState.astuple)
     )
@@ -759,10 +787,7 @@ def map_value(
 def max_final(
     up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
 ) -> KeyedStream:
-    def never_complete(_):
-        return False
-
-    return up.reduce("shim_reduce", max, never_complete, eof_is_complete=True)
+    return up.reduce("shim_reduce", max, _never_complete, eof_is_complete=True)
 
 
 @operator()
@@ -779,17 +804,14 @@ def merge_all(flow: Dataflow, step_id: str, *ups: Stream) -> Stream:
 
 @operator()
 def merge(left: Stream, step_id: str, *rights: Stream) -> Stream:
-    return left.flow.merge_all("shim_merge_all", left, *rights)
+    return left.flow().merge_all("shim_merge_all", left, *rights)
 
 
 @operator()
 def min_final(
     up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
 ) -> KeyedStream:
-    def never_complete(_):
-        return False
-
-    return up.reduce("shim_reduce", min, never_complete, eof_is_complete=True)
+    return up.reduce("shim_reduce", min, _never_complete, eof_is_complete=True)
 
 
 @operator()
@@ -817,9 +839,6 @@ def reduce(
     is_complete: Callable[[Any], bool],
     eof_is_complete: bool = True,
 ) -> KeyedStream:
-    def shim_builder():
-        return None
-
     def shim_folder(s, v):
         if s is None:
             s = v
@@ -828,7 +847,9 @@ def reduce(
 
         return s
 
-    return up.fold("shim_fold", shim_builder, shim_folder, is_complete, eof_is_complete)
+    return up.fold(
+        "shim_fold", _none_builder, shim_folder, is_complete, eof_is_complete
+    )
 
 
 @operator()
@@ -839,9 +860,6 @@ def reduce_window(
     windower: WindowConfig,
     reducer: Callable[[Any, Any], Any],
 ) -> KeyedStream:
-    def shim_builder():
-        return None
-
     def shim_folder(s, v):
         if s is None:
             s = v
@@ -851,7 +869,7 @@ def reduce_window(
         return s
 
     return up.fold_window(
-        "shim_fold_window", clock, windower, shim_builder, shim_folder
+        "shim_fold_window", clock, windower, _none_builder, shim_folder
     )
 
 
@@ -891,10 +909,10 @@ class _StatefulMapShimLogic(UnaryLogic):
         return ([w], self.state is None)
 
     def on_notify(self, _s: datetime) -> Tuple[Iterable[Any], bool]:
-        return ([], self.RETAIN)
+        return ([], UnaryLogic.RETAIN)
 
     def on_eof(self) -> Tuple[Iterable[Any], bool]:
-        return ([], self.RETAIN)
+        return ([], UnaryLogic.RETAIN)
 
     def notify_at(self) -> Optional[datetime]:
         return None
