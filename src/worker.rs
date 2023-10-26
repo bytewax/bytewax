@@ -210,7 +210,7 @@ where
         step: &Operator,
         port_name: &str,
     ) -> PyResult<&Stream<S, TdPyAny>> {
-        let stream_id = step.get_upstream_id(py, port_name)?;
+        let stream_id = step.get_stream_id(py, port_name)?;
         self.0.get(&stream_id).ok_or_else(|| {
             let msg = format!("unknown {stream_id:?}");
             tracked_err::<PyValueError>(&msg)
@@ -224,7 +224,7 @@ where
         port_name: &str,
         stream: Stream<S, TdPyAny>,
     ) -> PyResult<()> {
-        let stream_id = step.get_downstream_id(py, port_name)?;
+        let stream_id = step.get_stream_id(py, port_name)?;
         if self.0.insert(stream_id.clone(), stream).is_some() {
             let msg = format!("duplicate {stream_id:?}");
             Err(tracked_err::<PyValueError>(&msg))
@@ -399,9 +399,8 @@ where
 
                         streams.insert_downstream(py, &step, "down", down)?;
                     }
-                    "merge" => {
-                        let left = streams.get_upstream(py, &step, "left")?;
-                        let right = streams.get_upstream(py, &step, "right")?;
+                    "merge_all" => {
+                        let ups = streams.get_upstream(py, &step, "ups")?;
 
                         let down = left.merge(py, step_id, right)?;
 

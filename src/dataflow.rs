@@ -93,20 +93,10 @@ impl Operator {
         self.0.as_ref(py).is_instance(core_cls)
     }
 
-    pub(crate) fn get_upstream_id(&self, py: Python, port_name: &str) -> PyResult<StreamId> {
+    pub(crate) fn get_stream_id(&self, py: Python, port_name: &str) -> PyResult<StreamId> {
         self.0
             .as_ref(py)
-            .getattr("inp_ports")?
-            .get_item(port_name)?
-            .getattr("stream_id")?
-            .extract()
-    }
-
-    pub(crate) fn get_downstream_id(&self, py: Python, port_name: &str) -> PyResult<StreamId> {
-        self.0
-            .as_ref(py)
-            .getattr("out_ports")?
-            .get_item(port_name)?
+            .getattr(port_name)?
             .getattr("stream_id")?
             .extract()
     }

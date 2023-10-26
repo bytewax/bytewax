@@ -1,30 +1,64 @@
 """Data model for dataflows and custom operators.
 
-Create a `Dataflow` instance, then use the operator methods extended
-onit to add computational steps. See `bytewax.operators` for all
-built-in operators.
+See the `bytewax` module docstring for the basics of building and
+running dataflows.
+
+# Custom Operators
+
+You can define new custom operators in terms groups of already
+existing operators. To do this you define an **operator builder
+function** and decorate it with `operator`.
+
+>>> @operator()
+... def add_to(up: Stream, step_id: str, y: int) -> Stream:
+...     return up.map("shim_map", lambda x: x + y)
+
+The builder function has many restraints on the kind of function that
+can be decorated:
+
+-
+
+# Loading Operators
+
+Built-in operators in `bytewax.operators` are automatically loaded
+when you `import bytewax` or any submodules, but custom operators that
+you define or are defined in other modules or packages must be
+**loaded** via `load_op` or `load_mod_ops`. This will add the operator
+methods to the relevant `Stream` classes.
+
+To load the example `add_one` operator above:
+
+>>> load_op(add_to)
+
+Now you can use
 
 >>> flow = Dataflow("my_flow")
 >>> nums = flow.input("nums", TestingSource([1, 2, 3]))
-
-## Custom Operators
+>>> bigger_nums = nums.add_to("my_op", 3)
+>>> bigger_nums.output("print", StdOutSink())
+4
+5
+6
 
 """
-
 import dataclasses
 import functools
 import inspect
 import sys
+import typing
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from inspect import BoundArguments, Parameter, Signature
-from types import FunctionType, ModuleType
+from inspect import Parameter, Signature
+from types import FunctionType, ModuleType, NoneType
 from typing import (
     Any,
     Callable,
+    ClassVar,
+    Dict,
     List,
     Optional,
     Protocol,
+    Tuple,
     Type,
     runtime_checkable,
 )
@@ -50,19 +84,23 @@ def f_repr(f: FunctionType) -> str:
 
 
 @dataclass(frozen=True)
-class Port:
-    port_id: str
-    stream_id: str
-
-
-@dataclass(frozen=True)
 class Operator:
+    """Abstract base class for an operator type.
+
+    Subclasses of this should be generated via the `operator` builder
+    function decorator. See the `bytewax.dataflow` module docstring
+    for a tutorial.
+
+    Subclasses will contain the specific configuration fields each
+    operator needs.
+
+    """
+
     step_id: str
     substeps: List["Operator"]
-    inp: Any
-    out: Any
-    inp_ports: OrderedDict[str, Port]
-    out_ports: OrderedDict[str, Port]
+    extend_cls: ClassVar[Type]
+    in_ports: ClassVar[List[str]]
+    out_ports: ClassVar[List[str]]
 
     def _get_id(self) -> str:
         return self.step_id
@@ -70,28 +108,20 @@ class Operator:
 
 @dataclass(frozen=True)
 class _CoreOperator(Operator):
-    core: bool = True
+    core: ClassVar[bool] = True
 
 
 @dataclass(frozen=True)
 class _Scope:
-    # This will be the ID of the `Dataflow` or `Operator` and is not
-    # unique.
+    # This will be the ID of the `Dataflow` or `Operator` to modify.
     parent_id: str
-    substeps: List[Operator] = field(default_factory=list, compare=False, repr=False)
-
-    def _new_nested_scope(self, parent_name: str) -> "_Scope":
-        fq_parent_id = f"{self.parent_id}.{parent_name}"
-        return _Scope(fq_parent_id)
-
-    def _new_stream(self, stream_name: str) -> "Stream":
-        fq_stream_id = f"{self.parent_id}.{stream_name}"
-        return Stream(fq_stream_id, self)
+    substeps: List[Operator] = field(compare=False, repr=False)
 
 
 @runtime_checkable
 class _HasScope(Protocol):
-    _scope: _Scope
+    def _get_scope(self) -> Optional[_Scope]:
+        ...
 
     def _with_scope(self, scope: _Scope):
         ...
@@ -99,14 +129,32 @@ class _HasScope(Protocol):
 
 @runtime_checkable
 class _ToRef(Protocol):
-    def _to_ref(self):
+    def _to_ref(self, port_id: str):
+        ...
+
+
+@runtime_checkable
+class _AsArgs(Protocol):
+    @staticmethod
+    def _from_args(args: Tuple):
+        ...
+
+    @staticmethod
+    def _into_args(obj) -> Tuple:
+        ...
+
+    @staticmethod
+    def _from_kwargs(kwargs: Dict):
+        ...
+
+    @staticmethod
+    def _into_kwargs(obj) -> Dict:
         ...
 
 
 def _rec_subclasses(cls):
     yield cls
     for subcls in cls.__subclasses__():
-        yield subcls
         yield from _rec_subclasses(subcls)
 
 
@@ -119,24 +167,25 @@ class DataflowId:
 
 @dataclass(frozen=True)
 class Dataflow:
-    """Create a dataflow.
+    """Dataflow definition.
 
-    Once you instantiate this, Use the `bytewax.operator` methods
-    extended onto this class (e.g. `input`) to create `Stream`s.
+    Once you instantiate this, Use the `bytewax.operators` methods
+    loaded onto this class (e.g. `bytewax.operators.input.input`) to
+    create `Stream`s.
 
     Operator methods are not documented here since you need to
-    dynamically `load_op` them. See `bytewax.operator` for all the
-    operator methods documentation.
+    dynamically `load_op` them. See `bytewax.operators` for all the
+    operator documentation.
 
     """
 
     flow_id: str
-    substeps: List["Operator"] = field(default_factory=list)
-    _scope: _Scope = field(default=None, compare=False)
+    substeps: List[Operator] = field(default_factory=list)
+    _scope: _Scope = field(default=None, compare=False)  # type: ignore[assignment]
 
     def __post_init__(self):
         if "." in self.flow_id:
-            msg = "flow ID can't contain `.`"
+            msg = "flow ID can't contain a period `.`"
             raise ValueError(msg)
         if self._scope is None:
             # The default context at the `Dataflow` level is recursive and
@@ -146,10 +195,13 @@ class Dataflow:
             # after init, though.
             object.__setattr__(self, "_scope", scope)
 
+    def _get_scope(self) -> Optional[_Scope]:
+        return self._scope
+
     def _with_scope(self, scope: _Scope) -> "Dataflow":
         return dataclasses.replace(self, _scope=scope)
 
-    def _to_ref(self) -> DataflowId:
+    def _to_ref(self, _port_id: str) -> DataflowId:
         return DataflowId(self.flow_id)
 
     def _get_id(self) -> str:
@@ -169,23 +221,29 @@ class Dataflow:
 
 
 @dataclass(frozen=True)
-class StreamId:
-    """Unique ID of a stream."""
-
+class Port:
+    port_id: str
     stream_id: str
+
+
+@dataclass(frozen=True)
+class MultiPort:
+    port_id: str
+    stream_ids: Dict[str, str]
 
 
 @dataclass(frozen=True)
 class Stream:
     """Handle to a specific stream of items you can add steps to.
 
-    Use the `bytewax.operator` methods extended onto this class (e.g.
-    `map`, `filter`, `key_on`) to create `Stream`s; you won't be
-    instantiating this manually.
+    Use the `bytewax.operators` methods loaded onto this class (e.g.
+    `bytewax.operators.map.map`, `bytewax.operators.filter.filter`,
+    `bytewax.operators.key_on.key_on`) to create `Stream`s; you won't
+    be instantiating this manually.
 
     Operator methods are not documented here since you need to
-    dynamically `load_op` them. See `bytewax.operator` for all the
-    operator method documentation.
+    dynamically `load_op` them. See `bytewax.operators` for all the
+    operator documentation.
 
     You can reference this stream multiple times to duplicate the data
     within.
@@ -195,33 +253,83 @@ class Stream:
     stream_id: str
     _scope: _Scope = field(compare=False)
 
+    def _get_scope(self) -> Optional[_Scope]:
+        return self._scope
+
     def _with_scope(self, scope: _Scope) -> "Stream":
         return dataclasses.replace(self, _scope=scope)
 
-    def _to_ref(self) -> StreamId:
-        return StreamId(self.stream_id)
+    def _to_ref(self, ref_id: str) -> Port:
+        return Port(ref_id, self.stream_id)
+
+    @staticmethod
+    def _from_args(args: Tuple) -> "MultiStream":
+        return MultiStream(
+            OrderedDict((str(i), stream) for i, stream in enumerate(args))
+        )
+
+    @staticmethod
+    def _into_args(obj: "MultiStream") -> Tuple:
+        return tuple(obj.streams.values())
+
+    @staticmethod
+    def _from_kwargs(kwargs: Dict[str, "Stream"]) -> "MultiStream":
+        return MultiStream(kwargs)
+
+    @staticmethod
+    def _into_kwargs(obj: "MultiStream") -> Dict[str, "Stream"]:
+        return dict(obj.streams)
+
+    @staticmethod
+    def _help_msg() -> str:
+        raise NotImplementedError()
 
     def __getattr__(self, name):
         for subcls in _rec_subclasses(self.__class__):
             if hasattr(subcls, name):
                 msg = f"operator {name!r} can only be used on a {subcls!r}"
                 try:
-                    msg += f"; {subcls._help_msg()}"
-                except AttributeError:
+                    msg += f"; {self._help_msg()}"
+                except NotImplementedError:
                     pass
-                raise AttributeError(msg)
 
         msg = f"no operator named {name!r}"
         raise AttributeError(msg)
 
 
 @dataclass(frozen=True)
+class MultiStream:
+    streams: Dict[str, Stream]
+
+    def _get_scope(self) -> Optional[_Scope]:
+        scopes = set(stream._scope for stream in self.streams.values())
+        assert len(scopes) <= 1
+        if len(scopes) <= 0:
+            return None
+
+        return next(iter(scopes))
+
+    def _with_scope(self, scope: _Scope) -> "MultiStream":
+        streams = {
+            name: stream._with_scope(scope) for name, stream in self.streams.items()
+        }
+        return dataclasses.replace(self, streams=streams)
+
+    def _to_ref(self, port_id: str) -> MultiPort:
+        return MultiPort(
+            port_id,
+            {name: stream.stream_id for name, stream in self.streams.items()},
+        )
+
+
+@dataclass(frozen=True)
 class KeyedStream(Stream):
     """A `Stream` that specifically contains `(key, value)` pairs.
 
-    Operators extended onto this all require their upstream to have
-    this shape. See `bytewax.operators.key_on` and
-    `bytewax.operators.assert_keyed` to create `KeyedStream`s.
+    Operators loaded onto this all require their upstream to have this
+    shape. See `bytewax.operators.key_on.key_on` and
+    `bytewax.operators.assert_keyed.assert_keyed` to create
+    `KeyedStream`s.
 
     """
 
@@ -237,203 +345,143 @@ class KeyedStream(Stream):
         )
 
 
-def _ref_type(anno) -> Type:
-    if anno is Parameter.empty:
-        return Any
-    elif inspect.isclass(anno) and issubclass(anno, _ToRef):
-        sig = inspect.signature(anno._to_ref)
-        return (
-            sig.return_annotation if sig.return_annotation != Signature.empty else Any
-        )
-    else:
-        return anno
-
-
-@classmethod
-def _from_bound(cls, bound: BoundArguments):
-    kwargs = dict(bound.arguments)
-    kwargs.pop("step_id")
-    for name, val in kwargs.items():
-        if isinstance(val, _ToRef):
-            kwargs[name] = val._to_ref()
-    return cls(**kwargs)
-
-
 def _gen_op_cls(
     builder: FunctionType,
     sig: Signature,
+    sig_types: Dict[str, Any],
     core: bool,
 ) -> Type[Operator]:
     if "step_id" not in sig.parameters:
-        msg = "builder function requires a `step_id` parameter"
+        msg = "builder function requires a 'step_id' parameter"
+        raise TypeError(msg)
+    if "out" in sig.parameters:
+        msg = "builder function can't have a parameter named 'out'"
+        raise TypeError(msg)
+    if "substeps" in sig.parameters:
+        msg = "builder function can't have a parameter named 'substeps'"
         raise TypeError(msg)
 
-    # Use an `OrderedDict` so the arguments are in the same order.
-    inp_fields = OrderedDict(
-        (name, _ref_type(param.annotation)) for name, param in sig.parameters.items()
-    )
-    # `step_id` is saved on the operator itself.
-    del inp_fields["step_id"]
-    inp_cls = dataclasses.make_dataclass(
-        "Inputs",
-        inp_fields,
-        frozen=True,
-        namespace={
-            "_from_bound": _from_bound,
-        },
-    )
-    inp_cls.__module__ = builder.__module__
+    # First add fields for all the input arguments.
+    in_fields = OrderedDict()
+    for name, param in sig.parameters.items():
+        typ = sig_types.get(name, Any)
 
-    if inspect.isclass(sig.return_annotation) and issubclass(
-        sig.return_annotation, Stream
-    ):
-        out_fields = OrderedDict([("down", StreamId)])
+        as_typ = typ
+        if inspect.isclass(typ) and issubclass(typ, _AsArgs):
+            if param.kind == Parameter.VAR_POSITIONAL:
+                method_types = typing.get_type_hints(typ._from_args)
+                as_typ = method_types.get("return", Any)
+            elif param.kind == Parameter.VAR_KEYWORD:
+                method_types = typing.get_type_hints(typ._from_kwargs)
+                as_typ = method_types.get("return", Any)
 
-        @classmethod
-        def _from_out(cls, out):
-            if not isinstance(out, Stream):
-                msg = (
-                    f"builder {f_repr(builder)} was annotated to return a `Stream`; "
-                    f"got {type(out)!r} instead"
-                )
-                raise TypeError(msg)
+        in_fields[name] = as_typ
 
-            out = out._to_ref()
-            return cls(out)
-
-    elif sig.return_annotation is None:
-        out_fields = OrderedDict()
-
-        @classmethod
-        def _from_out(cls, out):
-            if out is not None:
-                msg = (
-                    f"builder {f_repr(builder)} was annotated to return `None`; "
-                    f"got {type(out)!r} instead"
-                )
-                raise TypeError(msg)
-            return cls()
-
-    # This must be last because `Stream` is a dataclass itself.
-    elif dataclasses.is_dataclass(sig.return_annotation):
-        out_fields = OrderedDict(
-            (field.name, _ref_type(field.type))
-            for field in dataclasses.fields(sig.return_annotation)
-        )
-
-        @classmethod
-        def _from_out(cls, out):
-            if not dataclasses.is_dataclass(out):
-                msg = (
-                    f"builder {f_repr(builder)} was annotated to return a dataclass; "
-                    f"got {type(out)!r} instead"
-                )
-                raise TypeError(msg)
-            kwargs = {
-                field.name: getattr(out, field.name)
-                for field in dataclasses.fields(out)
-            }
-            for name, val in kwargs.items():
-                if isinstance(val, _ToRef):
-                    kwargs[name] = val._to_ref()
-            return cls(**kwargs)
-
-    else:
+    # Then add fields for the return values.
+    out_fields = OrderedDict()
+    out_type = sig_types.get("return", Parameter.empty)
+    if out_type == Parameter.empty:
         msg = (
-            "builder function requires a return type annotation; "
-            "must return a dataclass, a `Stream`, or `None`"
+            "builder function requires return type annotation; "
+            "this is usually `bytewax.dataflow.Stream`"
         )
         raise TypeError(msg)
+    elif inspect.isclass(out_type) and (
+        issubclass(out_type, Stream) or issubclass(out_type, MultiStream)
+    ):
+        out_fields["out"] = out_type
+    elif inspect.isclass(out_type) and issubclass(out_type, NoneType):
+        pass
+    elif dataclasses.is_dataclass(out_type):
+        for fld in dataclasses.fields(out_type):
+            if fld.name in in_fields:
+                msg = (
+                    f"{fld.name!r} is both a build function parameter "
+                    "and a return dataclass field name; rename one of them"
+                )
+                raise TypeError(msg)
+            out_fields[fld.name] = fld.type
+    else:
+        out_fields["out"] = out_type
 
-    out_cls = dataclasses.make_dataclass(
-        "Outputs",
-        out_fields,
-        frozen=True,
-        namespace={
-            "_from_out": _from_out,
-        },
-    )
-    out_cls.__module__ = builder.__module__
+    cls_fields = in_fields | out_fields
+
+    # Now update the types to any that store references instead.
+    for name, typ in cls_fields.items():
+        if inspect.isclass(typ) and issubclass(typ, _ToRef):
+            method_types = typing.get_type_hints(typ._to_ref)
+            cls_fields[name] = method_types.get("return", Any)
+
+    in_ports = []
+    out_ports = []
+    for name, typ in cls_fields.items():
+        if inspect.isclass(typ) and (
+            issubclass(typ, Port) or issubclass(typ, MultiPort)
+        ):
+            if name in in_fields:
+                in_ports.append(name)
+            elif name in out_fields:
+                out_ports.append(name)
+
+    # `step_id` is defined on the parent class.
+    del cls_fields["step_id"]
 
     # Add the class to extend as a class variable.
-    extend_cls = next(iter(sig.parameters.values())).annotation
+    extend_cls = sig_types.get(next(iter(sig.parameters.keys())), Parameter.empty)
     if extend_cls is Parameter.empty:
         msg = (
             "builder function requires type annotation on the first "
-            "parameter to know what class to extend; "
-            "this is usually `Stream`"
+            "parameter to know what class to load onto; "
+            "this is usually `bytewax.dataflow.Stream`"
         )
         raise TypeError(msg)
 
+    cls_doc = f"""`{builder.__name__}` operator definition.
+
+    Use the `{builder.__name__}` method extended onto
+    `{extend_cls.__module__}.{extend_cls.__name__}` to create a step
+    with this operator. See the `{builder.__name__}` method below its
+    documentation.
+
+    """
+
+    cls_ns = {
+        "__doc__": cls_doc,
+        "extend_cls": extend_cls,
+        "in_ports": in_ports,
+        "out_ports": out_ports,
+    }
+
     cls = dataclasses.make_dataclass(
         builder.__name__,
-        [
-            ("inp", inp_cls),
-            ("out", out_cls),
-        ],
+        cls_fields.items(),
         bases=(_CoreOperator if core else Operator,),
         frozen=True,
-        namespace={
-            "__doc__": "Operator class",
-            # Store the IO class definitions as a nested classes.
-            "Inputs": inp_cls,
-            "Outputs": out_cls,
-            "extend_cls": extend_cls,
-        },
+        namespace=cls_ns,
     )
     cls.__module__ = builder.__module__
-    inp_cls.__qualname__ = f"{cls.__qualname__}.{inp_cls.__name__}"
-    out_cls.__qualname__ = f"{cls.__qualname__}.{out_cls.__name__}"
 
-    mod = sys.modules[cls.__module__]
-    if not hasattr(mod, "__pdoc__"):
-        mod.__pdoc__ = {}
-    # mod.__pdoc__[f"{cls.__name__}"] = False
+    # Hide all the dataclass instance variables.
+    cls_mod = sys.modules[cls.__module__]
+    if not hasattr(cls_mod, "__pdoc__"):
+        cls_mod.__pdoc__ = {}  # type: ignore[attr-defined]
+    cls_mod.__pdoc__[f"{cls.__name__}.extend_cls"] = False
+    cls_mod.__pdoc__[f"{cls.__name__}.in_ports"] = False
+    cls_mod.__pdoc__[f"{cls.__name__}.out_ports"] = False
+    for name in cls_fields.keys():
+        cls_mod.__pdoc__[f"{cls.__name__}.{name}"] = False
+    if core:
+        cls_mod.__pdoc__[f"{cls.__name__}.core"] = False
 
     return cls
 
 
-def _magicmap(x, t: Type, f: Callable):
-    if isinstance(x, t):
-        return f(x)
-    elif isinstance(x, BoundArguments):
-        out = BoundArguments(x.signature, x.arguments)
-        for name, val in out.arguments.items():
-            if isinstance(val, t):
-                out.arguments[name] = f(val)
-        return out
-    elif dataclasses.is_dataclass(x):
-        fields_to_values = {
-            field.name: getattr(x, field.name) for field in dataclasses.fields(x)
-        }
-        mapped = {
-            name: f(val) for name, val in fields_to_values.items() if isinstance(val, t)
-        }
-        return dataclasses.replace(x, **mapped)
-    elif x is None:
-        return None
-    else:
-        raise TypeError()
-
-
-def _rescope(x, scope: _Scope):
-    return _magicmap(x, _HasScope, lambda val: val._with_scope(scope))
-
-
-def _extract_ports(save_dc, step_id: str) -> OrderedDict[str, Port]:
-    ports = OrderedDict()
-    for dc_f in dataclasses.fields(save_dc):
-        val = getattr(save_dc, dc_f.name)
-        if isinstance(val, StreamId):
-            fq_port_id = f"{step_id}.{dc_f.name}"
-            ports[dc_f.name] = Port(fq_port_id, val.stream_id)
-    return ports
-
-
 def _gen_op_method(
     sig: Signature,
+    sig_types: Dict[str, Any],
     builder: FunctionType,
     cls: Type[Operator],
+    core: bool,
 ) -> Callable:
     # Wraps ensures that docstrings and type annotations are the same.
     @functools.wraps(builder)
@@ -442,49 +490,111 @@ def _gen_op_method(
             bound = sig.bind(*args, **kwargs)
         except TypeError as ex:
             msg = (
-                f"operator {cls.__name__!r} extension method called incorrectly; "
+                f"operator {cls.__name__!r} method called incorrectly; "
                 "see cause above"
             )
             raise TypeError(msg) from ex
         bound.apply_defaults()
+
         step_id = bound.arguments["step_id"]
         if "." in step_id:
-            msg = "step ID can't contain `.`"
+            msg = "step ID can't contain a period `.`"
             raise ValueError(msg)
 
+        # Pack *args and **kwargs into any special types.
+        for name, param in sig.parameters.items():
+            val = bound.arguments[name]
+            typ = sig_types.get(name, Parameter.empty)
+            if inspect.isclass(typ) and issubclass(typ, _AsArgs):
+                if param.kind == Parameter.VAR_POSITIONAL:
+                    bound.arguments[name] = typ._from_args(val)
+                elif param.kind == Parameter.VAR_KEYWORD:
+                    bound.arguments[name] = typ._from_kwargs(val)
+
         outer_scopes = set(
-            val._scope for val in bound.arguments.values() if isinstance(val, _HasScope)
+            val._get_scope()
+            for val in bound.arguments.values()
+            if isinstance(val, _HasScope)
         )
+        outer_scopes.discard(None)
         assert len(outer_scopes) == 1
         # Get the singular outer_scope.
         outer_scope = next(iter(outer_scopes))
-
-        save_inp = cls.Inputs._from_bound(bound)
-
         # Re-scope input arguments that have a scope so internal calls
         # to operator methods will result in sub-steps.
-        inner_scope = outer_scope._new_nested_scope(step_id)
-
+        fq_inner_scope_id = f"{outer_scope.parent_id}.{step_id}"
+        inner_scope = _Scope(fq_inner_scope_id, [])
+        for name, val in bound.arguments.items():
+            if isinstance(val, _HasScope):
+                bound.arguments[name] = val._with_scope(inner_scope)
         # Creating the nested scope is what defines the new inner
         # fully-qualified step id. We pass this into the builder
         # function in case you need it for error messages.
         bound.arguments["step_id"] = inner_scope.parent_id
-        bound = _rescope(bound, inner_scope)
-        inp_ports = _extract_ports(save_inp, inner_scope.parent_id)
 
-        # Now call the builder to cause sub-steps to be built.
-        out = builder(*bound.args, **bound.kwargs)
+        # Save the input arguments.
+        cls_vals = dict(bound.arguments.items())
 
-        save_out = cls.Outputs._from_out(out)
-        out_ports = _extract_ports(save_out, inner_scope.parent_id)
+        # Now unpack the special *args and **kwargs types for calling.
+        for name, param in sig.parameters.items():
+            val = bound.arguments[name]
+            typ = sig_types.get(name, Parameter.empty)
+            if inspect.isclass(typ) and issubclass(typ, _AsArgs):
+                if param.kind == Parameter.VAR_POSITIONAL:
+                    bound.arguments[name] = typ._into_args(val)
+                elif param.kind == Parameter.VAR_KEYWORD:
+                    bound.arguments[name] = typ._into_kwargs(val)
+
+        try:
+            # Now call the builder to cause sub-steps to be built.
+            out = builder(*bound.args, **bound.kwargs)
+            assert not core
+        except NotImplementedError as ex:
+            assert core
+            out_type = sig_types.get("return", Parameter.empty)
+            if inspect.isclass(out_type) and issubclass(out_type, Stream):
+                fq_stream_id = f"{inner_scope.parent_id}.out"
+                out = Stream(fq_stream_id, inner_scope)
+            elif inspect.isclass(out_type) and issubclass(out_type, NoneType):
+                out = None
+            elif dataclasses.is_dataclass(out_type):
+                vals = {}
+                for fld in dataclasses.fields(out_type):
+                    if inspect.isclass(fld.type) and issubclass(fld.type, Stream):
+                        fq_stream_id = f"{inner_scope.parent_id}.{fld.name}"
+                        vals[fld.name] = Stream(fq_stream_id, inner_scope)
+                    else:
+                        msg = (
+                            "unsupported core operator dataclass field return type "
+                            f"{fld.type!r}"
+                        )
+                        raise TypeError(msg) from ex
+                out = out_type(**vals)
+            else:
+                msg = f"unsupported core operator return type {out_type!r}"
+                raise TypeError(msg) from ex
+
+        # Now unwrap output values into the cls.
+        if isinstance(out, Stream) or isinstance(out, MultiStream):
+            cls_vals["out"] = out
+        elif isinstance(out, NoneType):
+            pass
+        elif dataclasses.is_dataclass(out):
+            for fld in dataclasses.fields(out):
+                cls_vals[fld.name] = getattr(out, fld.name)
+        else:
+            cls_vals["out"] = out
+
+        # Turn into references.
+        for name, val in cls_vals.items():
+            if isinstance(val, _ToRef):
+                fq_ref_id = f"{inner_scope.parent_id}.{name}"
+                cls_vals[name] = val._to_ref(fq_ref_id)
+
         # Now actually build the step instance.
         step = cls(
-            step_id=inner_scope.parent_id,
             substeps=inner_scope.substeps,
-            inp=save_inp,
-            out=save_out,
-            inp_ports=inp_ports,
-            out_ports=out_ports,
+            **cls_vals,
         )
 
         # Check for ID clashes since this will cause streams to be
@@ -493,7 +603,7 @@ def _gen_op_method(
             if existing_step.step_id == step.step_id:
                 msg = (
                     f"step {step.step_id!r} already exists; "
-                    "do you have two steps with the same name?"
+                    "do you have two steps with the same ID?"
                 )
                 raise ValueError(msg)
 
@@ -502,7 +612,15 @@ def _gen_op_method(
 
         # Re-scope outputs that have a scope so calls to operator
         # methods will not still be added in this operator a substeps.
-        out = _rescope(out, outer_scope)
+        if isinstance(out, _HasScope):
+            out = out._with_scope(outer_scope)
+        elif dataclasses.is_dataclass(out):
+            vals = {}
+            for fld in dataclasses.fields(out):
+                val = getattr(out, fld.name)
+                if isinstance(val, _HasScope):
+                    vals[fld.name] = val._with_scope(outer_scope)
+            out = dataclasses.replace(out, **vals)
 
         return out
 
@@ -514,7 +632,7 @@ def _register_op(cls: Type[Operator]) -> None:
     # defining module.
     mod = sys.modules[cls.__module__]
     if not hasattr(mod, "__all_ops__"):
-        mod.__all_ops__ = []
+        mod.__all_ops__ = []  # type: ignore[attr-defined]
     mod.__all_ops__.append(cls.__name__)
 
 
@@ -529,8 +647,10 @@ def operator(_detect_parens=None, *, _core: bool = False) -> Callable:
 
     def inner_deco(builder: FunctionType) -> Type:
         sig = inspect.signature(builder)
-        cls = _gen_op_cls(builder, sig, _core)
-        cls.method = _gen_op_method(sig, builder, cls)
+        sig_types = typing.get_type_hints(builder)
+        cls = _gen_op_cls(builder, sig, sig_types, _core)
+        op_method = _gen_op_method(sig, sig_types, builder, cls, _core)
+        setattr(cls, op_method.__name__, op_method)
         _register_op(cls)
         # Note that although this is a function definition, a class will
         # be bound to the function name.
@@ -539,11 +659,11 @@ def operator(_detect_parens=None, *, _core: bool = False) -> Callable:
     return inner_deco
 
 
-def _monkey_patch(extend_cls: Type, op_method) -> None:
+def _monkey_patch(extend_cls: Type, name: str, op_method) -> None:
     # Monkey patch this method onto the relevent class. First check
     # that it isn't already set.
     try:
-        old_method = getattr(extend_cls, op_method.__name__)
+        old_method = getattr(extend_cls, name)
     except AttributeError:
         old_method = None
 
@@ -554,38 +674,39 @@ def _monkey_patch(extend_cls: Type, op_method) -> None:
         old_rep = f_repr(old_method)
         msg = (
             f"{extend_cls!r} already has an operator loaded named "
-            f"{op_method.__name__!r} at {old_rep}; "
+            f"{name!r} at {old_rep}; "
             "operators can't be overridden; "
             "manually `bytewax.dataflow.load_op` with a different "
             "`name` arg?"
         )
         raise AttributeError(msg)
 
-    setattr(extend_cls, op_method.__name__, op_method)
+    setattr(extend_cls, name, op_method)
 
 
-def _erase_method_pdoc(extend_cls: Type, op_method) -> None:
+def _erase_method_pdoc(extend_cls: Type, name: str, op_method) -> None:
     # `__module__` is just a string. Lookup the corresponding module.
     extend_cls_mod = sys.modules[extend_cls.__module__]
     # Ensure we have a way of overriding pdoc in the parent module of
     # the monkey patched class.
     if not hasattr(extend_cls_mod, "__pdoc__"):
-        extend_cls_mod.__pdoc__ = {}
+        extend_cls_mod.__pdoc__ = {}  # type: ignore[attr-defined]
     # Ignore documentation of the method added to the class; it'll be
     # documented on the operator builder function.
-    extend_cls_mod.__pdoc__[f"{extend_cls.__name__}.{op_method.__name__}"] = False
+    extend_cls_mod.__pdoc__[f"{extend_cls.__name__}.{name}"] = False
 
 
 def load_op(op: Type[Operator], name: Optional[str] = None) -> None:
     """Load an operator builder method into its extension class.
 
     This needs to be done by hand so you can manually deal with
-    extension method name clashes.
+    operator method name clashes.
 
     Args:
-        op:
+        op: Operator definition. Created using `operator` decorator.
 
-        name:
+        name: Override the loaded method name. Defaults to the name of
+            the operator.
 
     """
     if not issubclass(op, Operator):
@@ -600,8 +721,10 @@ def load_op(op: Type[Operator], name: Optional[str] = None) -> None:
         )
         raise TypeError(msg)
 
-    _monkey_patch(op.extend_cls, op.method)
-    _erase_method_pdoc(op.extend_cls, op.method)
+    op_method = getattr(op, op.__name__)
+    name = name if name is not None else op_method.__name__
+    _monkey_patch(op.extend_cls, name, op_method)
+    _erase_method_pdoc(op.extend_cls, name, op_method)
 
 
 def load_mod_ops(mod: ModuleType) -> None:
@@ -613,16 +736,19 @@ def load_mod_ops(mod: ModuleType) -> None:
     >>> load_mod_ops(my_package)
 
     This is done by default for all built-in Bytewax operators. You do
-    not need to call `load_mod_ops(bytewax.operators)`.
+    not need to call
+
+    >>> import bytewax.operators
+    >>> load_mod_ops(bytewax.operators)
 
     This needs to be done by hand so you can manually deal with
     extension method name clashes.
 
     Operator names should be listed in `__all_ops__` in that module.
-    The `@operator` decorator will add to this list for you.
+    The `operator` decorator will add to this list for you.
 
     Args:
-        mod:
+        mod: Imported module to load all operators in.
 
     """
     if not hasattr(mod, "__all_ops__"):

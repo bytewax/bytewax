@@ -1,16 +1,23 @@
 """Built-in operators.
 
-See `bytewax.dataflow` module docstring for how to define custom
+These are automatically loaded when you `import bytewax`. Operators
+defined elsewhere must be loaded. See `bytewax.dataflow.load_mod_ops`
+and the `bytewax.dataflow` module docstring for how to load custom
 operators.
+
+See the `bytewax.dataflow` module docstring for how to define your own
+custom operators.
 
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import InitVar, dataclass, field
+from collections import OrderedDict
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import (
     Any,
     Callable,
+    Dict,
     Iterable,
     List,
     Optional,
@@ -18,7 +25,14 @@ from typing import (
     Type,
 )
 
-from bytewax.dataflow import Dataflow, KeyedStream, Stream, f_repr, operator
+from bytewax.dataflow import (
+    Dataflow,
+    KeyedStream,
+    MultiStream,
+    Stream,
+    f_repr,
+    operator,
+)
 from bytewax.inputs import Source
 from bytewax.outputs import Sink
 from bytewax.window import ClockConfig, WindowConfig
@@ -36,8 +50,11 @@ class UnaryLogic(ABC):
 
     """
 
+    RETAIN: bool = False
+    DISCARD: bool = True
+
     @abstractmethod
-    def on_item(self, now: datetime, value: Any) -> Iterable[Any]:
+    def on_item(self, now: datetime, value: Any) -> Tuple[Iterable[Any], bool]:
         """Called on each new upstream item.
 
         This will be called multiple times in a row if there are
@@ -56,7 +73,7 @@ class UnaryLogic(ABC):
         ...
 
     @abstractmethod
-    def on_notify(self, sched: datetime) -> Iterable[Any]:
+    def on_notify(self, sched: datetime) -> Tuple[Iterable[Any], bool]:
         """Called when the scheduled notification time has passed.
 
         Args:
@@ -70,7 +87,7 @@ class UnaryLogic(ABC):
         ...
 
     @abstractmethod
-    def on_eof(self) -> Iterable[Any]:
+    def on_eof(self) -> Tuple[Iterable[Any], bool]:
         """The upstream has no more items on this execution.
 
         This will only be called once per execution after `on_item` is
@@ -79,20 +96,6 @@ class UnaryLogic(ABC):
         Returns:
             Any values to emit downstream. They will be wrapped in
             `(key, value)` automatically.
-
-        """
-        ...
-
-    @abstractmethod
-    def is_complete(self) -> bool:
-        """Should this logic should be deleted?
-
-        Usually this requires having an instance variable you mark in
-        `on_*` when this logic is no longer needed.
-
-        This will be called if any of the `on_*` methods were called.
-
-        It will be deleted right after this call.
 
         """
         ...
@@ -122,7 +125,7 @@ class UnaryLogic(ABC):
         This will be called periodically by the runtime.
 
         The value returned here will be passed back to the `builder`
-        function of `unary` when resuming.
+        function of `unary.unary` when resuming.
 
         The state must be `pickle`-able.
 
@@ -137,12 +140,27 @@ def _noop(up: Stream, step_id: str) -> Stream:
     Sometimes necessary to ensure `Dataflow` structure is valid.
 
     """
-    return up._scope._new_stream("down")
+    raise NotImplementedError()
 
 
 @operator()
 def assert_keyed(up: Stream, step_id: str) -> KeyedStream:
-    """Mark that this stream contains `(key, value)` 2-tuples."""
+    """Assert that this stream contains `(key, value)` 2-tuples.
+
+    This allows you to use all the keyed operators on `KeyedStream`.
+
+    If the upstream does not contain 2-tuples, downstream keyed
+    operators will throw exceptions.
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+    Yields:
+        The upstream unmodified.
+
+    """
     return KeyedStream._assert_from(up._noop("shim_noop"))
 
 
@@ -157,31 +175,22 @@ class _BatchShimLogic(UnaryLogic):
     step_id: str
     timeout: timedelta
     batch_size: int
-    state: Optional[_BatchState]
+    state: _BatchState
 
-    def on_item(self, now: datetime, v: Any) -> Iterable[Any]:
-        self.state.timeout_at = now + self.state.timeout
+    def on_item(self, now: datetime, v: Any) -> Tuple[Iterable[Any], bool]:
+        self.state.timeout_at = now + self.timeout
 
         self.state.acc.append(v)
         if len(self.state.acc) >= self.batch_size:
-            acc = self.state.acc
-            self.state = None
-            return [acc]
+            return ([self.state.acc], self.DISCARD)
 
-        return []
+        return ([], self.RETAIN)
 
-    def on_notify(self, sched: datetime) -> Iterable[Any]:
-        acc = self.state.acc
-        self.state = None
-        return [acc]
+    def on_notify(self, sched: datetime) -> Tuple[Iterable[Any], bool]:
+        return ([self.state.acc], self.DISCARD)
 
-    def on_eof(self) -> Iterable[Any]:
-        acc = self.state.acc
-        self.state = None
-        return [acc]
-
-    def is_complete(self) -> bool:
-        return self.state is None
+    def on_eof(self) -> Tuple[Iterable[Any], bool]:
+        return ([self.state.acc], self.DISCARD)
 
     def notify_at(self) -> Optional[datetime]:
         return self.state.timeout_at
@@ -198,6 +207,8 @@ def batch(
 
     Args:
         up: Stream.
+
+        step_id: Unique ID.
 
         timeout: Timeout before emitting the batch, even if max_size
             was not reached.
@@ -232,7 +243,7 @@ class BranchOut:
     falses: Stream
 
     def __iter__(self):
-        return (self.trues, self.falses)
+        return iter((self.trues, self.falses))
 
 
 @operator(_core=True)
@@ -241,7 +252,22 @@ def branch(
     step_id: str,
     predicate: Callable[[Any], bool],
 ) -> BranchOut:
-    return BranchOut(up._scope._new_stream("trues"), up._scope._new_stream("falses"))
+    """Divide items into two streams with a predicate.
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+        predicate: Function to call on each upstream item. Items for
+            which this returns `True` will be put into one branch
+            `Stream`; `False` the other branc `Stream`.h
+
+    Returns:
+        A `Stream` of `True` items, and a `Stream` of `False` items.
+
+    """
+    raise NotImplementedError()
 
 
 # TODO: Return another output stream with the unique `(key, obj)`
@@ -256,6 +282,8 @@ def count_final(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStr
 
     Args:
         up: Stream.
+
+        step_id: The name of this step.
 
         key: Function to convert each item into a string key. The
             counting machinery does not compare the items directly,
@@ -291,6 +319,8 @@ def count_window(
     Args:
         up: Stream.
 
+        step_id: Unique ID.
+
         key: Function to convert each item into a string key. The
             counting machinery does not compare the items directly,
             instead it groups by this string key.
@@ -312,7 +342,7 @@ def flat_map(
     step_id: str,
     mapper: Callable[[Any], Iterable[Any]],
 ) -> Stream:
-    return up._scope._new_stream("down")
+    raise NotImplementedError()
 
 
 @operator()
@@ -389,16 +419,12 @@ class _FoldState:
 @dataclass
 class _FoldShimLogic(UnaryLogic):
     step_id: str
-    builder: Callable[[], Any]
     folder: Callable[[Any, Any], Any]
     is_fold_complete: Callable[[Any], bool]
     eof_is_complete: bool
-    state: Optional[_FoldState]
+    state: _FoldState
 
-    def on_item(self, _now: datetime, v: Any) -> Iterable[Any]:
-        if self.state is None:
-            self.state = _FoldState(self.builder())
-
+    def on_item(self, _now: datetime, v: Any) -> Tuple[Iterable[Any], bool]:
         self.state.acc = self.folder(self.state.acc, v)
 
         is_c = self.is_fold_complete(self.state.acc)
@@ -410,25 +436,18 @@ class _FoldShimLogic(UnaryLogic):
             )
             raise TypeError(msg)
         if is_c:
-            acc = self.state.acc
-            self.state = None
-            return [acc]
+            return ([self.state.acc], self.DISCARD)
 
-        return []
+        return ([], self.RETAIN)
 
-    def on_notify(self, _s: datetime) -> Iterable[Any]:
-        return []
+    def on_notify(self, _s: datetime) -> Tuple[Iterable[Any], bool]:
+        return ([], self.RETAIN)
 
-    def on_eof(self) -> Iterable[Any]:
+    def on_eof(self) -> Tuple[Iterable[Any], bool]:
         if self.eof_is_complete:
-            acc = self.state.acc
-            self.state = None
-            return [acc]
+            return ([self.state.acc], self.DISCARD)
 
-        return []
-
-    def is_complete(self) -> bool:
-        return self.state is None
+        return ([], self.RETAIN)
 
     def notify_at(self) -> Optional[datetime]:
         return None
@@ -447,9 +466,8 @@ def fold(
     eof_is_complete: bool = True,
 ) -> KeyedStream:
     def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
-        return _FoldShimLogic(
-            step_id, builder, folder, is_complete, eof_is_complete, resume_state
-        )
+        state = resume_state if resume_state is not None else _FoldState(builder())
+        return _FoldShimLogic(step_id, folder, is_complete, eof_is_complete, state)
 
     return up.unary("shim_unary", shim_builder)
 
@@ -463,23 +481,23 @@ def fold_window(
     builder: Callable[[], Any],
     folder: Callable[[Any, Any], Any],
 ) -> KeyedStream:
-    return KeyedStream._assert_from(up._scope._new_stream("down"))
+    raise NotImplementedError()
 
 
 def _get_collect_folder(t: Type) -> Callable:
-    if t is list:
+    if issubclass(t, list):
 
         def shim_folder(s, v):
             s.append(v)
             return s
 
-    elif t is set:
+    elif issubclass(t, set):
 
         def shim_folder(s, v):
             s.add(v)
             return s
 
-    elif t is dict:
+    elif issubclass(t, dict):
 
         def shim_folder(s, k_v):
             k, v = k_v
@@ -548,14 +566,14 @@ def input(  # noqa: A001
     Returns:
         Single stream.
     """
-    return flow._scope._new_stream("down")
+    raise NotImplementedError()
 
 
 @operator()
 def inspect(
     up: Stream,
     step_id: str,
-    inspector: Callable[[Any], None] = None,
+    inspector: Callable[[Any], None] = None,  # type: ignore[assignment]
 ) -> Stream:
     if inspector is None:
 
@@ -574,14 +592,14 @@ def inspect_debug(
     step_id: str,
     inspector: Callable[[Any, int, int], None],
 ) -> Stream:
-    return up._scope._new_stream("down")
+    raise NotImplementedError()
 
 
 @operator()
 def inspect_epoch(
     up: Stream,
     step_id: str,
-    inspector: Callable[[Any, int], None] = None,
+    inspector: Callable[[Any, int], None] = None,  # type: ignore[assignment]
 ) -> Stream:
     if inspector is None:
 
@@ -598,7 +616,7 @@ def inspect_epoch(
 def inspect_worker(
     up: Stream,
     step_id: str,
-    inspector: Callable[[Any, int], None] = None,
+    inspector: Callable[[Any, int], None] = None,  # type: ignore[assignment]
 ) -> Stream:
     if inspector is None:
 
@@ -613,58 +631,63 @@ def inspect_worker(
 
 @dataclass
 class _JoinState:
-    slots: List[Any] = field(init=False)
-    is_set: List[bool] = field(init=False)
-    arity: InitVar[int]
+    keys: List[Any]
+    vals: Dict[Any, Any] = field(default_factory=dict)
 
-    def __post_init__(self, arity: int):
-        self.slots = [None] * arity
-        self.is_set = [False] * arity
+    def set_val(self, key: str, value: Any) -> None:
+        self.vals[key] = value
 
-    def _set(self, idx: int, x: Any):
-        self.slots[idx] = x
-        self.is_set[idx] = True
+    def is_set(self, key: str) -> bool:
+        return key in self.vals
 
     def all_set(self) -> bool:
-        return all(self.is_set)
+        return all(key in self.vals for key in self.keys)
 
     def astuple(self) -> Tuple:
-        return tuple(self.slots)
+        return tuple(self.vals[key] for key in self.keys)
 
-
-@operator()
-def _keyed_idx(
-    left: KeyedStream,
-    step_id: str,
-    right: KeyedStream,
-) -> KeyedStream:
-    def build_inject_idx(i):
-        def inject_idx(v):
-            return (i, v)
-
-        return inject_idx
-
-    left = left.map_value("label_left", build_inject_idx(0))
-    right = right.map_value("label_right", build_inject_idx(1))
-    return left.merge("merge", right).assert_keyed("shim_assert")
+    def asdict(self) -> OrderedDict:
+        return OrderedDict((key, self.vals[key]) for key in self.keys)
 
 
 @operator()
 def join_inner(
     left: KeyedStream,
     step_id: str,
-    right: KeyedStream,
-    _is_complete: Callable[[_JoinState], bool] = _JoinState.all_set,
-) -> Stream:
-    def shim_folder(s, i_v):
-        i, v = i_v
-        s._set(i, v)
+    running: bool = False,
+    *rights: KeyedStream,
+) -> KeyedStream:
+    tables = {str(i + 1): right for i, right in enumerate(rights)}
+    tables["0"] = left
+    return left.flow.join_inner_named("shim_join_inner_named", **tables).map_value(
+        "unname"
+    )
+
+
+@operator()
+def join_inner_named(
+    # Extend `Dataflow` so we can get all the "table names" as
+    # kwargs.
+    flow: Dataflow,
+    step_id: str,
+    running: bool = False,
+    **tables: KeyedStream,
+) -> KeyedStream:
+    ups = [
+        stream.map_value(f"inject_key_{key}", lambda v: (key, v))
+        for key, stream in tables.items()
+    ]
+    keys = frozenset(tables.keys())
+
+    def shim_folder(s: _JoinState, k_v):
+        k, v = k_v
+        s.set_val(k, v)
         return s
 
     return (
-        left._keyed_idx("add_idx", right)
-        .fold("shim_fold", lambda: _JoinState(2), shim_folder, _is_complete)
-        .map_value("make_tuple", _JoinState.astuple)
+        flow.merge_all("merge_ups", *ups)
+        .fold("join", lambda: _JoinState(keys), shim_folder, _JoinState.all_set)
+        .map_value("make_dict", _JoinState.asdict)
     )
 
 
@@ -675,7 +698,7 @@ def join_inner_window(
     clock: ClockConfig,
     windower: WindowConfig,
     right: KeyedStream,
-) -> Stream:
+) -> KeyedStream:
     def shim_folder(s, i_v):
         i, v = i_v
         s._set(i, v)
@@ -749,11 +772,14 @@ def max_window(
     return up.reduce_window("shim_reduce_window", clock, windower, max)
 
 
-# TODO: Handle *rights multiple merge. This requires changes in build
-# the `Input` inner dataclass.
 @operator(_core=True)
-def merge(left: Stream, step_id: str, right: Stream) -> Stream:
-    return left._scope._new_stream("down")
+def merge_all(flow: Dataflow, step_id: str, *ups: Stream) -> Stream:
+    raise NotImplementedError()
+
+
+@operator()
+def merge(left: Stream, step_id: str, *rights: Stream) -> Stream:
+    return left.flow.merge_all("shim_merge_all", left, *rights)
 
 
 @operator()
@@ -775,12 +801,12 @@ def min_window(
 
 @operator(_core=True)
 def output(up: Stream, step_id: str, sink: Sink) -> None:
-    return None
+    raise NotImplementedError()
 
 
 @operator(_core=True)
 def redistribute(up: Stream, step_id: str) -> Stream:
-    return up._scope._new_stream("down")
+    raise NotImplementedError()
 
 
 @operator()
@@ -829,13 +855,28 @@ def reduce_window(
     )
 
 
+@operator()
+def split(
+    up: Stream,
+    step_id: str,
+    key: Callable[[Any], str],
+    **getters: Callable[[Any], Any],
+) -> MultiStream:
+    keyed_up = up.key_on("shim_key_on", key)
+    streams = {
+        name: keyed_up.map_value(f"map_value_{name}", getter)
+        for name, getter in getters.items()
+    }
+    return MultiStream(streams)
+
+
 @dataclass
 class _StatefulMapShimLogic(UnaryLogic):
     step_id: str
     mapper: Callable[[Any, Any], Tuple[Any, Iterable[Any]]] = field(repr=False)
     state: Optional[Any]
 
-    def on_item(self, _now: datetime, v: Any) -> Iterable[Any]:
+    def on_item(self, _now: datetime, v: Any) -> Tuple[Iterable[Any], bool]:
         res = self.mapper(self.state, v)
         try:
             self.state, w = res
@@ -847,16 +888,13 @@ class _StatefulMapShimLogic(UnaryLogic):
                 f"got a {type(res)!r} instead"
             )
             raise TypeError(msg) from ex
-        return [w]
+        return ([w], self.state is None)
 
-    def on_notify(self, _s: datetime) -> Iterable[Any]:
-        return []
+    def on_notify(self, _s: datetime) -> Tuple[Iterable[Any], bool]:
+        return ([], self.RETAIN)
 
-    def on_eof(self) -> Iterable[Any]:
-        return []
-
-    def is_complete(self) -> bool:
-        return self.state is None
+    def on_eof(self) -> Tuple[Iterable[Any], bool]:
+        return ([], self.RETAIN)
 
     def notify_at(self) -> Optional[datetime]:
         return None
@@ -885,4 +923,4 @@ def unary(
     step_id: str,
     builder: Callable[[Optional[Any]], UnaryLogic],
 ) -> KeyedStream:
-    return KeyedStream._assert_from(up._scope._new_stream("down"))
+    raise NotImplementedError()
