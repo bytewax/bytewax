@@ -58,10 +58,10 @@ def test_input(tmp_topic1, tmp_topic2):
 
     flow = Dataflow("test_df")
 
-    flow.input("inp", KafkaSource([KAFKA_BROKER], topics, tail=False))
+    stream = flow.input("inp", KafkaSource([KAFKA_BROKER], topics, tail=False))
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     run_main(flow)
 
@@ -104,10 +104,12 @@ def test_input_resume_state(tmp_topic):
 def test_input_raises_on_topic_not_exist():
     flow = Dataflow("test_df")
 
-    flow.input("inp", KafkaSource([KAFKA_BROKER], ["missing-topic"], tail=False))
+    stream = flow.input(
+        "inp", KafkaSource([KAFKA_BROKER], ["missing-topic"], tail=False)
+    )
 
     out = []
-    flow.output("out", TestingSink(out))
+    stream.output("out", TestingSink(out))
 
     with raises(Exception) as exinfo:
         run_main(flow)
@@ -140,9 +142,9 @@ def test_output(tmp_topic):
         (b"key-0-1", b"value-0-1"),
         (b"key-0-2", b"value-0-2"),
     ]
-    flow.input("inp", TestingSource(inp))
-
-    flow.output("out", KafkaSink([KAFKA_BROKER], tmp_topic))
+    flow.input("inp", TestingSource(inp)).output(
+        "out", KafkaSink([KAFKA_BROKER], tmp_topic)
+    )
 
     run_main(flow)
 
