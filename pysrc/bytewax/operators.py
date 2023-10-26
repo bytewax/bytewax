@@ -421,29 +421,17 @@ def filter_map(
 
 
 @dataclass
-class _FoldState:
-    """State wrapper so that `None` is a valid accumulator.
-
-    The only way to signal that a folder is done is `is_complete`
-    returning `True`.
-
-    """
-
-    acc: Any
-
-
-@dataclass
 class _FoldShimLogic(UnaryLogic):
     step_id: str
     folder: Callable[[Any, Any], Any]
     is_fold_complete: Callable[[Any], bool]
     eof_is_complete: bool
-    state: _FoldState
+    state: Any
 
     def on_item(self, _now: datetime, v: Any) -> Tuple[Iterable[Any], bool]:
-        self.state.acc = self.folder(self.state.acc, v)
+        self.state = self.folder(self.state, v)
 
-        is_c = self.is_fold_complete(self.state.acc)
+        is_c = self.is_fold_complete(self.state)
         if not isinstance(is_c, bool):
             msg = (
                 f"return value of `is_complete` {f_repr(self.is_fold_complete)} "
@@ -452,7 +440,7 @@ class _FoldShimLogic(UnaryLogic):
             )
             raise TypeError(msg)
         if is_c:
-            return ([self.state.acc], UnaryLogic.DISCARD)
+            return ([self.state], UnaryLogic.DISCARD)
 
         return ([], UnaryLogic.RETAIN)
 
@@ -461,7 +449,7 @@ class _FoldShimLogic(UnaryLogic):
 
     def on_eof(self) -> Tuple[Iterable[Any], bool]:
         if self.eof_is_complete:
-            return ([self.state.acc], UnaryLogic.DISCARD)
+            return ([self.state], UnaryLogic.DISCARD)
 
         return ([], UnaryLogic.RETAIN)
 
@@ -482,7 +470,7 @@ def fold(
     eof_is_complete: bool = True,
 ) -> KeyedStream:
     def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
-        state = resume_state if resume_state is not None else _FoldState(builder())
+        state = resume_state if resume_state is not None else builder()
         return _FoldShimLogic(step_id, folder, is_complete, eof_is_complete, state)
 
     return up.unary("shim_unary", shim_builder)
@@ -891,7 +879,7 @@ def split(
 @dataclass
 class _StatefulMapShimLogic(UnaryLogic):
     step_id: str
-    mapper: Callable[[Any, Any], Tuple[Any, Iterable[Any]]] = field(repr=False)
+    mapper: Callable[[Any, Any], Tuple[Any, Iterable[Any]]]
     state: Optional[Any]
 
     def on_item(self, _now: datetime, v: Any) -> Tuple[Iterable[Any], bool]:
