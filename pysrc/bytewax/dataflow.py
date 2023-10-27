@@ -5,18 +5,43 @@ running dataflows.
 
 # Custom Operators
 
-You can define new custom operators in terms groups of already
-existing operators. To do this you define an **operator builder
-function** and decorate it with `operator`.
+You can define new custom operators in a fluent API in terms groups of
+already existing operators. To do this you define an **operator
+builder function** and decorate it with `operator`.
 
 >>> @operator()
 ... def add_to(up: Stream, step_id: str, y: int) -> Stream:
 ...     return up.map("shim_map", lambda x: x + y)
 
-The builder function has many restraints on the kind of function that
-can be decorated:
+Each input or output `Stream` turns into a `Port` in the resulting
+data model.
 
--
+In order to generate the fluent API, operator data model, and proper
+nesting of operators, you must follow a few rules when writing your
+builder function:
+
+- The first argument must be annotated with class to load the fluent
+  API on to. The resulting method will look like as if you defined the
+  function in the class body. In general, this is either `Stream`,
+  `KeyedStream`, or `Dataflow`.
+
+- There must be a `step_id: str` argument, even if not used.
+
+- All arguments and return values that are `Streams` or `MultiStreams`
+  must have type annotations. We recommend annotating all the
+  arguments.
+
+- The return value must be either: a `Stream`, a `MultiStream`, or a
+  dataclass. The dataclass can have non-`Stream` fields.
+
+- `Stream`s, `MultiStream`s, and `Dataflow`s _must not appear in
+  nested objects_: they either can be arguments to the builder
+  function directly, the return value directly, or the immediate
+  fields of a dataclass that is the return value of the builder;
+  nowhere else.
+
+- If the builder function returns a dataclass, no field names in it
+  can overlap with argument names.
 
 # Loading Operators
 
@@ -32,10 +57,12 @@ To load the example `add_one` operator above:
 
 Now you can use
 
+>>> from bytewax.run import run_main
 >>> flow = Dataflow("my_flow")
 >>> nums = flow.input("nums", TestingSource([1, 2, 3]))
 >>> bigger_nums = nums.add_to("my_op", 3)
 >>> bigger_nums.output("print", StdOutSink())
+>>> run_main(flow)
 4
 5
 6
@@ -89,6 +116,12 @@ def f_repr(f: Callable) -> str:
 
 @runtime_checkable
 class Port(Protocol):
+    """Generic interface to a port.
+
+    Either `SinglePort` or `MultiPort`.
+
+    """
+
     port_id: str
     stream_ids: Dict[str, str]
 
@@ -108,6 +141,7 @@ class SinglePort:
 
     @property
     def stream_ids(self) -> Dict[str, str]:
+        """Allow this to conform to the `Port` protocol."""
         return {"stream": self.stream_id}
 
 
@@ -144,6 +178,7 @@ class Operator:
     extend_cls: ClassVar[Type]
 
     def get_id(self) -> str:
+        """Get the unique ID."""
         return self.step_id
 
 
@@ -247,12 +282,15 @@ class Dataflow:
         return DataflowId(self.flow_id)
 
     def get_id(self) -> str:
+        """Get the unique ID."""
         return self.flow_id
 
     def inp_ports(self) -> OrderedDict[str, Port]:
+        """A dataflow has no ports for visualization."""
         return OrderedDict()
 
     def out_ports(self) -> OrderedDict[str, Port]:
+        """A dataflow has no ports for visualization."""
         return OrderedDict()
 
     def __getattr__(self, name):
@@ -513,9 +551,11 @@ def _gen_op_cls(
     """
 
     def inp_ports(self) -> OrderedDict[str, Port]:
+        """Get all input ports for visualization."""
         return OrderedDict((name, getattr(self, name)) for name in inp_ports_fld_names)
 
     def out_ports(self) -> OrderedDict[str, Port]:
+        """Get all output ports for visualization."""
         return OrderedDict((name, getattr(self, name)) for name in out_ports_fld_names)
 
     cls_ns = {

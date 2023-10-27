@@ -1,9 +1,22 @@
 """Built-in operators.
 
-These are automatically loaded when you `import bytewax`. Operators
-defined elsewhere must be loaded. See `bytewax.dataflow.load_mod_ops`
-and the `bytewax.dataflow` module docstring for how to load custom
-operators.
+These are automatically loaded when you `import bytewax`.
+
+All operator methods take a `step_id` argument. This must be a unique
+string that represents the semantic purpose of this computational
+step.
+
+Operators loaded onto `KeyedStream` (e.g. `fold.fold`,
+`stateful_map.stateful_map`, etc.) will only work when this input
+stream is keyed, and automatically unwrap value out of the `(key,
+value)` 2-tuples upstream and then automatically re-wrap any emitted
+values back into `(key, value)` 2-tuples. See the operators
+`key_on.key_on` and `assert_keyed.assert_keyed` to create
+`KeyedStream`s.
+
+Operators defined elsewhere must be loaded. See
+`bytewax.dataflow.load_mod_ops` and the `bytewax.dataflow` module
+docstring for how to load custom operators.
 
 See the `bytewax.dataflow` module docstring for how to define your own
 custom operators.
@@ -39,6 +52,10 @@ from bytewax.outputs import Sink
 from bytewax.window import ClockConfig, WindowConfig
 
 
+def _identity(x):
+    return x
+
+
 def _none_builder():
     return None
 
@@ -54,8 +71,8 @@ class UnaryLogic(ABC):
     any items queued, then `on_notify` if the notification time has
     passed, then `on_eof` if the upstream is EOF and no new items will
     be received this execution. If the logic is retained after all the
-    above calls then: `notify_at`. `snapshot` will be periodically be
-    called.
+    above calls then `notify_at` will be called. `snapshot` is
+    periodically called.
 
     """
 
@@ -177,7 +194,7 @@ def assert_keyed(up: Stream, step_id: str) -> KeyedStream:
 
         step_id: Unique ID.
 
-    Yields:
+    Returns:
         The upstream unmodified.
 
     """
@@ -226,7 +243,7 @@ def batch(
     """Batch incoming items up to a size or a timeout.
 
     Args:
-        up: Stream.
+        up: Stream of individual items.
 
         step_id: Unique ID.
 
@@ -235,8 +252,8 @@ def batch(
 
         batch_size: Maximum size of the batch.
 
-    Yields:
-        Batches of items gathered into a `list`.
+    Returns:
+        A stream of batches of upstream items gathered into a `list`.
 
     """
 
@@ -253,9 +270,15 @@ class BranchOut:
 
     You can tuple unpack this for convenience.
 
+    >>> from bytewax.connectors.stdio import StdOutSink
+    >>> from bytewax.run import run_main
     >>> flow = Dataflow("my_flow")
-    >>> nums = flow.input("nums", TestingSource([1, 2, 3]))
+    >>> nums = flow.input("nums", TestingSource([1, 2, 3, 4, 5]))
     >>> evens, odds = nums.split("split_even", lambda x: x % 2 == 0)
+    >>> evens.output("out", StdOutSink())
+    >>> run_main(flow)
+    2
+    4
 
     """
 
@@ -275,7 +298,7 @@ def branch(
     """Divide items into two streams with a predicate.
 
     Args:
-        up: Stream.
+        up: Stream to divide.
 
         step_id: Unique ID.
 
@@ -284,7 +307,8 @@ def branch(
             `Stream`; `False` the other branc `Stream`.h
 
     Returns:
-        A `Stream` of `True` items, and a `Stream` of `False` items.
+        A stream of items for which the predicate returns `True`, and
+        a stream of items for which the predicate returns `False`.
 
     """
     raise NotImplementedError()
@@ -294,14 +318,16 @@ def branch(
 # mappings? In case you need to re-join? Or actually we could do the
 # join here...
 @operator()
-def count_final(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStream:
+def count_final(
+    up: Stream, step_id: str, key: Callable[[Any], str] = _identity
+) -> KeyedStream:
     """Count the number of occurrences of items in the entire stream.
 
     This will only return counts once the upstream is EOF. You'll need
     to use `count_window` on infinite data.
 
     Args:
-        up: Stream.
+        up: Stream of items to count.
 
         step_id: The name of this step.
 
@@ -309,8 +335,8 @@ def count_final(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStr
             counting machinery does not compare the items directly,
             instead it groups by this string key.
 
-    Yields:
-        `(key, count)`
+    Returns:
+        A stream of `(key, count)` once the upstream is EOF.
 
     """
     return (
@@ -326,23 +352,25 @@ def count_window(
     step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
-    key: Callable[[Any], str],
+    key: Callable[[Any], str] = _identity,
 ) -> KeyedStream:
     """Count the number of occurrences of items in a window.
 
-    This will only return counts once the window has closed.
-
     Args:
-        up: Stream.
+        up: Stream of items to count.
 
         step_id: Unique ID.
+
+        clock: Clock.
+
+        windower: Windower.
 
         key: Function to convert each item into a string key. The
             counting machinery does not compare the items directly,
             instead it groups by this string key.
 
-    Yields:
-        `(key, count)` per window.
+    Returns:
+        A stream of `(key, count)` per window at the end of each window.
 
     """
     return (
@@ -358,18 +386,109 @@ def flat_map(
     step_id: str,
     mapper: Callable[[Any], Iterable[Any]],
 ) -> Stream:
+    """Flat map is a one-to-many transformation of items.
+
+    This is like a combination of `map.map` and `flatten.flatten`.
+
+    It is commonly used for:
+
+    - Tokenizing
+
+    - Flattening hierarchical objects
+
+    - Breaking up aggregations for further processing
+
+    >>> from bytewax.testing import TestingSource
+    >>> from bytewax.connectors.stdio import StdOutSink
+    >>> from bytewax.testing import run_main
+    >>> from bytewax.dataflow import Dataflow
+    >>> flow = Dataflow()
+    >>> inp = ["hello world"]
+    >>> flow.input("inp", TestingSource(inp))
+    >>> def split_into_words(sentence):
+    ...     return sentence.split()
+    >>> flow.flat_map("split_words", split_into_words)
+    >>> flow.output("out", StdOutSink())
+    >>> run_main(flow)
+    hello
+    world
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+        mapper: Called once on each upstream item. Returns the items
+            to emit downstream.
+
+    Returns:
+        A stream of each item in the iterable retuned by the mapper.
+
+    """
     raise NotImplementedError()
 
 
 @operator()
 def flatten(up: Stream, step_id: str) -> Stream:
-    return up.flat_map("shim_flat_map", lambda xs: xs)
+    """Move all sub-items up a level.
+
+    Args:
+        up: Stream of iterables.
+
+        step_id: Unique ID.
+
+    Returns:
+        A stream of the items within each iterable in the upstream.
+
+    """
+    return up.flat_map("shim_flat_map", _identity)
 
 
 @operator()
 def filter(  # noqa: A001
     up: Stream, step_id: str, predicate: Callable[[Any], bool]
 ) -> Stream:
+    """Filter selectively keeps only some items.
+
+    It is commonly used for:
+
+    - Selecting relevant events
+
+    - Removing empty events
+
+    - Removing sentinels
+
+    - Removing stop words
+
+    >>> from bytewax.testing import TestingSource
+    >>> from bytewax.connectors.stdio import StdOutSink
+    >>> from bytewax.testing import run_main
+    >>> from bytewax.dataflow import Dataflow
+    >>>
+    >>> flow = Dataflow()
+    >>> flow.input("inp", TestingSource(range(4)))
+    >>> def is_odd(item):
+    ...     return item % 2 != 0
+    >>> flow.filter("filter_odd", is_odd)
+    >>> flow.output("out", StdOutSink())
+    >>> run_main(flow)
+    1
+    3
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+        predicate: Called with each upstream item. Only items for
+            which this returns true `True` will be emitted downstream.
+
+    Returns:
+        A stream with only the upstream items for which the predicate
+        returns `True`.
+
+    """
+
     def shim_mapper(x):
         keep = predicate(x)
         if not isinstance(keep, bool):
@@ -391,6 +510,23 @@ def filter(  # noqa: A001
 def filter_value(
     up: KeyedStream, step_id: str, predicate: Callable[[Any], bool]
 ) -> KeyedStream:
+    """Selectively keep only some items from a keyed stream.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        predicate: Will be called with each upstream value. Only
+            values for which this returns `True` will be emitted
+            downstream.
+
+    Returns:
+        A keyed stream with only the upstream pairs for which the
+        predicate returns `True`.
+
+    """
+
     def shim_predicate(k_v):
         try:
             k, v = k_v
@@ -410,6 +546,34 @@ def filter_value(
 def filter_map(
     up: Stream, step_id: str, mapper: Callable[[Any], Optional[Any]]
 ) -> Stream:
+    """A one-to-maybe-one transformation of items.
+
+    This is like a combination of `map.map` and then `filter.filter`
+    with a predicate removing `None` values.
+
+    >>> flow = Dataflow()
+    >>> def validate(data):
+    ...     if type(data) != dict or "key" not in data:
+    ...         return None
+    ...     else:
+    ...         return data["key"], data
+    ...
+    >>> flow.filter_map("validate", validate)
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+        mapper: Called on each item. Each return value is emitted
+            downstream, unless it is `None`.
+
+    Returns:
+        A stream of items returned from the mapper, unless it is
+        `None`.
+
+    """
+
     def shim_mapper(x):
         y = mapper(x)
         if y is not None:
@@ -469,6 +633,37 @@ def fold(
     is_complete: Callable[[Any], bool],
     eof_is_complete: bool = True,
 ) -> KeyedStream:
+    """Build an empty accumulator, then combine values into it.
+
+    It is like `reduce.reduce` but uses a function to build the
+    initial value.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        builder: Called the first time a key appears and is expected
+            to return the empty accumulator for that key.
+
+        folder: Combines a new value into an existing accumulator and
+            returns the updated accumulator. The accumulator is
+            initially the empty accumulator.
+
+        is_complete: Called with the accumulator after any update.
+            Should return `True` when the accumulator should be
+            discarded and emitted downstream.
+
+        eof_is_complete: Set to `True` if you want the accumulator to
+            be discarded and emitted downstream when upstream is EOF.
+            This means that resuming a dataflow with additional input
+            could result in different output. Defaults to `True`.
+
+    Returns:
+        A keyed stream of the completed accumulators.
+
+    """
+
     def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
         state = resume_state if resume_state is not None else builder()
         return _FoldShimLogic(step_id, folder, is_complete, eof_is_complete, state)
@@ -528,6 +723,31 @@ def collect(
     into: Type = list,
     eof_is_complete: bool = True,
 ) -> KeyedStream:
+    """Collect window lets emits all items for a key in a window
+    downstream in sorted order.
+
+    It is a stateful operator. It requires the upstream items are
+    `(key: str, value)` tuples so we can ensure that all relevant
+    values are routed to the relevant state. It also requires a
+    step ID to recover the correct state.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        is_complete:
+
+        into:
+
+        eof_is_complete:
+
+    Returns:
+        It emits `(key, list)` tuples downstream at the end of each
+    window where `list` is sorted by the time assigned by the
+    clock.
+
+    """
     collector = _get_collector(into)
 
     return up.fold("shim_fold", into, collector, is_complete, eof_is_complete)
@@ -552,7 +772,7 @@ def input(  # noqa: A001
     step_id: str,
     source: Source,
 ) -> Stream:
-    """Emits items downstream from an input source.
+    """Introduce items into a dataflow.
 
     See `bytewax.inputs` for more information on how input works.
     See `bytewax.connectors` for a buffet of our built-in
@@ -562,17 +782,13 @@ def input(  # noqa: A001
 
 
     Args:
-        step_id:
+        step_id: Unique ID.
 
-            Uniquely identifies this step for recovery.
+        source: Source to read items from.
 
-        source:
-
-            `Source` to read items from.
-
-    Yields:
-        Items from the source. See source documentation for what kind
-        of item that is.
+    Returns:
+        A stream of items from the source. See source documentation
+        for what kind of item that is.
 
     """
     raise NotImplementedError()
