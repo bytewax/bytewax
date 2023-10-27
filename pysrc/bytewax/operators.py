@@ -11,7 +11,7 @@ Operators loaded onto `KeyedStream` (e.g. `fold.fold`,
 stream is keyed, and automatically unwrap value out of the `(key,
 value)` 2-tuples upstream and then automatically re-wrap any emitted
 values back into `(key, value)` 2-tuples. See the operators
-`key_on.key_on` and `assert_keyed.assert_keyed` to create
+`key_on.key_on` and `key_assert.key_assert` to create
 `KeyedStream`s.
 
 Operators defined elsewhere must be loaded. See
@@ -24,7 +24,6 @@ custom operators.
 """
 
 from abc import ABC, abstractmethod
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import partial
@@ -180,27 +179,6 @@ def _noop(up: Stream, step_id: str) -> Stream:
     raise NotImplementedError()
 
 
-@operator()
-def assert_keyed(up: Stream, step_id: str) -> KeyedStream:
-    """Assert that this stream contains `(key, value)` 2-tuples.
-
-    This allows you to use all the keyed operators on `KeyedStream`.
-
-    If the upstream does not contain 2-tuples, downstream keyed
-    operators will throw exceptions.
-
-    Args:
-        up: Stream.
-
-        step_id: Unique ID.
-
-    Returns:
-        The upstream unmodified.
-
-    """
-    return KeyedStream._assert_from(up._noop("shim_noop"))
-
-
 @dataclass
 class _BatchState:
     acc: List[Any] = field(default_factory=list)
@@ -261,7 +239,7 @@ def batch(
         state = resume_state if resume_state is not None else _BatchState()
         return _BatchShimLogic(step_id, timeout, batch_size, state)
 
-    return up.unary("shim_unary", shim_builder)
+    return up.unary("unary", shim_builder)
 
 
 @dataclass(frozen=True)
@@ -314,6 +292,89 @@ def branch(
     raise NotImplementedError()
 
 
+def _list_collector(s, v):
+    s.append(v)
+    return s
+
+
+def _set_collector(s, v):
+    s.add(v)
+    return s
+
+
+def _dict_collector(s, k_v):
+    k, v = k_v
+    s[k] = v
+    return s
+
+
+def _get_collector(t: Type) -> Callable:
+    if issubclass(t, list):
+        collector = _list_collector
+    elif issubclass(t, set):
+        collector = _set_collector
+    elif issubclass(t, dict):
+        collector = _dict_collector
+    else:
+        msg = (
+            f"collect doesn't support `{t:!}`; "
+            "only `list`, `set`, and `dict`; use `fold` operator directly"
+        )
+        raise TypeError(msg)
+    return collector
+
+
+@operator()
+def collect(
+    up: KeyedStream,
+    step_id: str,
+    is_complete: Callable[[Any], bool],
+    into: Type = list,
+    eof_is_complete: bool = True,
+) -> KeyedStream:
+    """Collect window lets emits all items for a key in a window
+    downstream in sorted order.
+
+    It is a stateful operator. It requires the upstream items are
+    `(key: str, value)` tuples so we can ensure that all relevant
+    values are routed to the relevant state. It also requires a
+    step ID to recover the correct state.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        is_complete:
+
+        into:
+
+        eof_is_complete:
+
+    Returns:
+        It emits `(key, list)` tuples downstream at the end of each
+    window where `list` is sorted by the time assigned by the
+    clock.
+
+    """
+    collector = _get_collector(into)
+
+    return up.fold("fold", into, collector, is_complete, eof_is_complete)
+
+
+@operator()
+def collect_window(
+    up: KeyedStream,
+    step_id: str,
+    clock: ClockConfig,
+    windower: WindowConfig,
+    into: Type = list,
+) -> KeyedStream:
+    collector = _get_collector(into)
+
+    return up.fold_window("fold_window", clock, windower, into, collector)
+
+
 # TODO: Return another output stream with the unique `(key, obj)`
 # mappings? In case you need to re-join? Or actually we could do the
 # join here...
@@ -340,8 +401,8 @@ def count_final(
 
     """
     return (
-        up.map("key", lambda x: (key(x), 1))
-        .assert_keyed("shim_assert")
+        up.map("init_count", lambda x: (key(x), 1))
+        .key_assert("keyed")
         .reduce("sum", lambda s, x: s + x, _never_complete, eof_is_complete=True)
     )
 
@@ -374,8 +435,8 @@ def count_window(
 
     """
     return (
-        up.map("key", lambda x: (key(x), 1))
-        .assert_keyed("shim_assert")
+        up.map("init_count", lambda x: (key(x), 1))
+        .key_assert("keyed")
         .reduce_window("sum", clock, windower, lambda s, x: s + x)
     )
 
@@ -441,7 +502,7 @@ def flatten(up: Stream, step_id: str) -> Stream:
         A stream of the items within each iterable in the upstream.
 
     """
-    return up.flat_map("shim_flat_map", _identity)
+    return up.flat_map("flat_map", _identity)
 
 
 @operator()
@@ -503,7 +564,7 @@ def filter(  # noqa: A001
 
         return []
 
-    return up.flat_map("shim_flat_map", shim_mapper)
+    return up.flat_map("flat_map", shim_mapper)
 
 
 @operator()
@@ -539,7 +600,7 @@ def filter_value(
             raise TypeError(msg) from ex
         return predicate(v)
 
-    return up.filter("shim_filter", shim_predicate).assert_keyed("shim_assert")
+    return up.filter("filter", shim_predicate).key_assert("keyed")
 
 
 @operator()
@@ -581,7 +642,7 @@ def filter_map(
 
         return []
 
-    return up.flat_map("shim_flat_map", shim_mapper)
+    return up.flat_map("flat_map", shim_mapper)
 
 
 @dataclass
@@ -668,7 +729,7 @@ def fold(
         state = resume_state if resume_state is not None else builder()
         return _FoldShimLogic(step_id, folder, is_complete, eof_is_complete, state)
 
-    return up.unary("shim_unary", shim_builder)
+    return up.unary("unary", shim_builder)
 
 
 @operator(_core=True)
@@ -681,89 +742,6 @@ def fold_window(
     folder: Callable[[Any, Any], Any],
 ) -> KeyedStream:
     raise NotImplementedError()
-
-
-def _list_collector(s, v):
-    s.append(v)
-    return s
-
-
-def _set_collector(s, v):
-    s.add(v)
-    return s
-
-
-def _dict_collector(s, k_v):
-    k, v = k_v
-    s[k] = v
-    return s
-
-
-def _get_collector(t: Type) -> Callable:
-    if issubclass(t, list):
-        collector = _list_collector
-    elif issubclass(t, set):
-        collector = _set_collector
-    elif issubclass(t, dict):
-        collector = _dict_collector
-    else:
-        msg = (
-            f"collect doesn't support `{t:!}`; "
-            "only `list`, `set`, and `dict`; use `fold` operator directly"
-        )
-        raise TypeError(msg)
-    return collector
-
-
-@operator()
-def collect(
-    up: KeyedStream,
-    step_id: str,
-    is_complete: Callable[[Any], bool],
-    into: Type = list,
-    eof_is_complete: bool = True,
-) -> KeyedStream:
-    """Collect window lets emits all items for a key in a window
-    downstream in sorted order.
-
-    It is a stateful operator. It requires the upstream items are
-    `(key: str, value)` tuples so we can ensure that all relevant
-    values are routed to the relevant state. It also requires a
-    step ID to recover the correct state.
-
-    Args:
-        up: Keyed stream.
-
-        step_id: Unique ID.
-
-        is_complete:
-
-        into:
-
-        eof_is_complete:
-
-    Returns:
-        It emits `(key, list)` tuples downstream at the end of each
-    window where `list` is sorted by the time assigned by the
-    clock.
-
-    """
-    collector = _get_collector(into)
-
-    return up.fold("shim_fold", into, collector, is_complete, eof_is_complete)
-
-
-@operator()
-def collect_window(
-    up: KeyedStream,
-    step_id: str,
-    clock: ClockConfig,
-    windower: WindowConfig,
-    into: Type = list,
-) -> KeyedStream:
-    collector = _get_collector(into)
-
-    return up.fold_window("shim_fold_window", clock, windower, into, collector)
 
 
 @operator(_core=True)
@@ -808,7 +786,7 @@ def inspect(
     def shim_inspector(x, _epoch, _worker_idx):
         inspector(x)
 
-    return up.inspect_debug("shim_inspect_debug", shim_inspector)
+    return up.inspect_debug("inspect_debug", shim_inspector)
 
 
 @operator(_core=True)
@@ -834,7 +812,7 @@ def inspect_epoch(
     def shim_inspector(x, epoch, _worker_idx):
         inspector(x, epoch)
 
-    return up.inspect_debug("shim_inspect_debug", shim_inspector)
+    return up.inspect_debug("inspect_debug", shim_inspector)
 
 
 @operator()
@@ -851,7 +829,7 @@ def inspect_worker(
     def shim_inspector(x, _epoch, worker_idx):
         inspector(x, worker_idx)
 
-    return up.inspect_debug("shim_inspect_debug", shim_inspector)
+    return up.inspect_debug("inspect_debug", shim_inspector)
 
 
 @dataclass
@@ -871,29 +849,8 @@ class _JoinState:
     def astuple(self) -> Tuple:
         return tuple(self.vals[key] for key in self.keys)
 
-    def asdict(self) -> OrderedDict:
-        return OrderedDict((key, self.vals[key]) for key in self.keys)
-
-
-def _int_dict_to_tuple(d: Dict[str, Any]) -> Tuple:
-    return tuple(d[str(i)] for i in range(len(d)))
-
-
-@operator()
-def join_inner(
-    left: KeyedStream,
-    step_id: str,
-    running: bool = False,
-    *rights: KeyedStream,
-) -> KeyedStream:
-    tables = {str(i + 1): right for i, right in enumerate(rights)}
-    # Keep things in argument order.
-    tables["0"] = left
-    return (
-        left.flow()
-        .join_inner_named("shim_join_inner_named", running=running, **tables)
-        .map_value("unname", _int_dict_to_tuple)
-    )
+    def asdict(self) -> Dict:
+        return self.vals
 
 
 def _join_inner_folder(s: _JoinState, k_v):
@@ -903,24 +860,57 @@ def _join_inner_folder(s: _JoinState, k_v):
 
 
 @operator()
+def join_inner(
+    left: KeyedStream,
+    step_id: str,
+    running: bool = False,
+    *rights: KeyedStream,
+) -> KeyedStream:
+    ups = [left] + list(rights)
+
+    keys = list(range(len(ups)))
+    keyed_ups = [
+        up.map_value(
+            f"key_{i}", partial(lambda i, v: (i, v), i)
+        )
+        for i, up in enumerate(ups)
+    ]
+
+    return (
+        left.flow().merge_all("merge_ups", *keyed_ups)
+        .key_assert("keyed")
+        .fold(
+            "join",
+            lambda: _JoinState(keys),
+            _join_inner_folder,
+            _JoinState.all_set,
+        )
+        .map_value("astuple", _JoinState.astuple)
+    )
+
+
+@operator()
 def join_inner_named(
     # Extend `Dataflow` so we can get all the "table names" as
     # kwargs.
     flow: Dataflow,
     step_id: str,
     running: bool = False,
-    **tables: KeyedStream,
+    **ups: KeyedStream,
 ) -> KeyedStream:
-    ups = [
-        stream.map_value(f"inject_key_{key}", partial(lambda v, key: (key, v), key))
-        for key, stream in tables.items()
+    keys = list(ups.keys())
+    keyed_ups = [
+        up.map_value(
+            f"key_{key}", partial(lambda key, v: (key, v), key)
+        )
+        for key, up in ups.items()
     ]
-    keys = list(tables.keys())
 
     return (
-        flow.merge_all("merge_ups", *ups)
+        flow.merge_all("merge_ups", *keyed_ups)
+        .key_assert("keyed")
         .fold("join", lambda: _JoinState(keys), _join_inner_folder, _JoinState.all_set)
-        .map_value("make_dict", _JoinState.asdict)
+        .map_value("asdict", _JoinState.asdict)
     )
 
 
@@ -935,7 +925,7 @@ def join_inner_window(
     return (
         left._keyed_idx("add_idx", right)
         .fold_window(
-            "shim_fold_window",
+            "fold_window",
             clock,
             windower,
             lambda: _JoinState(list(range(2))),
@@ -946,12 +936,49 @@ def join_inner_window(
 
 
 @operator()
+def key_assert(up: Stream, step_id: str) -> KeyedStream:
+    """Assert that this stream contains `(key, value)` 2-tuples.
+
+    This allows you to use all the keyed operators that only are
+    methods on `KeyedStream`.
+
+    If the upstream does not contain 2-tuples, downstream keyed
+    operators will throw exceptions.
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+    Returns:
+        The upstream unmodified.
+
+    """
+    return KeyedStream._assert_from(up._noop("noop"))
+
+
+@operator()
 def key_on(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStream:
     def shim_mapper(v):
         k = key(v)
         return (k, v)
 
-    return up.map("shim_map", shim_mapper).assert_keyed("shim_assert")
+    return up.map("map", shim_mapper).key_assert("keyed")
+
+
+@operator()
+def key_split(
+    up: Stream,
+    step_id: str,
+    key: Callable[[Any], str],
+    *values: Callable[[Any], Any],
+) -> MultiStream:
+    keyed_up = up.key_on("key", key)
+    streams = {
+        str(i): keyed_up.map_value(f"value_{str(i)}", value)
+        for i, value in enumerate(values)
+    }
+    return MultiStream(streams)
 
 
 @operator()
@@ -964,7 +991,7 @@ def map(  # noqa: A001
         y = mapper(x)
         return [y]
 
-    return up.flat_map("shim_flat_map", shim_mapper)
+    return up.flat_map("flat_map", shim_mapper)
 
 
 @operator()
@@ -984,21 +1011,21 @@ def map_value(
         w = mapper(v)
         return (k, w)
 
-    return up.map("shim_map", shim_mapper).assert_keyed("shim_assert")
+    return up.map("map", shim_mapper).key_assert("keyed")
 
 
 @operator()
 def max_final(
     up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
 ) -> KeyedStream:
-    return up.reduce("shim_reduce", max, _never_complete, eof_is_complete=True)
+    return up.reduce("reduce", max, _never_complete, eof_is_complete=True)
 
 
 @operator()
 def max_window(
     up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
 ) -> KeyedStream:
-    return up.reduce_window("shim_reduce_window", clock, windower, max)
+    return up.reduce_window("reduce_window", clock, windower, max)
 
 
 @operator(_core=True)
@@ -1008,21 +1035,21 @@ def merge_all(flow: Dataflow, step_id: str, *ups: Stream) -> Stream:
 
 @operator()
 def merge(left: Stream, step_id: str, *rights: Stream) -> Stream:
-    return left.flow().merge_all("shim_merge_all", left, *rights)
+    return left.flow().merge_all("merge_all", left, *rights)
 
 
 @operator()
 def min_final(
     up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
 ) -> KeyedStream:
-    return up.reduce("shim_reduce", min, _never_complete, eof_is_complete=True)
+    return up.reduce("reduce", min, _never_complete, eof_is_complete=True)
 
 
 @operator()
 def min_window(
     up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
 ) -> KeyedStream:
-    return up.reduce_window("shim_reduce_window", clock, windower, min)
+    return up.reduce_window("reduce_window", clock, windower, min)
 
 
 @operator(_core=True)
@@ -1052,7 +1079,7 @@ def reduce(
         return s
 
     return up.fold(
-        "shim_fold", _none_builder, shim_folder, is_complete, eof_is_complete
+        "fold", _none_builder, shim_folder, is_complete, eof_is_complete
     )
 
 
@@ -1073,23 +1100,8 @@ def reduce_window(
         return s
 
     return up.fold_window(
-        "shim_fold_window", clock, windower, _none_builder, shim_folder
+        "fold_window", clock, windower, _none_builder, shim_folder
     )
-
-
-@operator()
-def split(
-    up: Stream,
-    step_id: str,
-    key: Callable[[Any], str],
-    **getters: Callable[[Any], Any],
-) -> MultiStream:
-    keyed_up = up.key_on("shim_key_on", key)
-    streams = {
-        name: keyed_up.map_value(f"map_value_{name}", getter)
-        for name, getter in getters.items()
-    }
-    return MultiStream(streams)
 
 
 @dataclass
@@ -1136,7 +1148,7 @@ def stateful_map(
         state = resume_state if resume_state is not None else builder()
         return _StatefulMapShimLogic(step_id, mapper, state)
 
-    return up.unary("shim_unary", shim_builder)
+    return up.unary("unary", shim_builder)
 
 
 @operator(_core=True)

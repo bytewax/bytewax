@@ -73,7 +73,6 @@ import functools
 import inspect
 import sys
 import typing
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from inspect import Parameter, Signature
 from types import FunctionType, ModuleType, NoneType
@@ -285,24 +284,24 @@ class Dataflow:
         """Get the unique ID."""
         return self.flow_id
 
-    def inp_ports(self) -> OrderedDict[str, Port]:
+    def inp_ports(self) -> Dict[str, Port]:
         """A dataflow has no ports for visualization."""
-        return OrderedDict()
+        return {}
 
-    def out_ports(self) -> OrderedDict[str, Port]:
+    def out_ports(self) -> Dict[str, Port]:
         """A dataflow has no ports for visualization."""
-        return OrderedDict()
+        return {}
 
     def __getattr__(self, name):
+        msg = f"no operator named {name!r}"
+
         for subcls in _rec_subclasses(Stream):
             if hasattr(subcls, name):
                 msg = (
                     f"operator {name!r} can only be used on a {subcls!r}; "
                     "use `Dataflow.input` create an initial stream"
                 )
-                raise AttributeError(msg)
 
-        msg = f"no operator named {name!r}"
         raise AttributeError(msg)
 
 
@@ -350,9 +349,7 @@ class Stream:
 
     @staticmethod
     def _from_args(args: Tuple) -> "MultiStream":
-        return MultiStream(
-            OrderedDict((str(i), stream) for i, stream in enumerate(args))
-        )
+        return MultiStream({str(i): stream for i, stream in enumerate(args)})
 
     @staticmethod
     def _into_args(obj: "MultiStream") -> Tuple:
@@ -373,7 +370,10 @@ class Stream:
     def __getattr__(self, name):
         msg = f"no operator named {name!r}"
 
-        for subcls in _rec_subclasses(self.__class__):
+        if hasattr(Dataflow, name):
+            msg = f"operator {name!r} can only be used on the top-level {Dataflow!r}"
+
+        for subcls in _rec_subclasses(Stream):
             if hasattr(subcls, name):
                 msg = f"operator {name!r} can only be used on a {subcls!r}"
                 try:
@@ -419,6 +419,9 @@ class MultiStream:
             {name: stream.stream_id for name, stream in self.streams.items()},
         )
 
+    def __iter__(self):
+        return iter(self.streams.values())
+
 
 @dataclass(frozen=True)
 class KeyedStream(Stream):
@@ -426,7 +429,7 @@ class KeyedStream(Stream):
 
     Operators loaded onto this all require their upstream to have this
     shape. See `bytewax.operators.key_on.key_on` and
-    `bytewax.operators.assert_keyed.assert_keyed` to create
+    `bytewax.operators.key_assert.key_assert` to create
     `KeyedStream`s.
 
     """
@@ -439,7 +442,7 @@ class KeyedStream(Stream):
     def _help_msg() -> str:
         return (
             "use `key_on` to add a key or "
-            "`assert_keyed` if the stream is already a `(key, value)`"
+            "`key_assert` if the stream is already a `(key, value)`"
         )
 
 
@@ -457,7 +460,7 @@ def _gen_op_cls(
         raise TypeError(msg)
 
     # First add fields for all the input arguments.
-    inp_fields = OrderedDict()
+    inp_fields = {}
     for name, param in sig.parameters.items():
         typ = sig_types.get(name, Any)
 
@@ -473,7 +476,7 @@ def _gen_op_cls(
         inp_fields[name] = as_typ
 
     # Then add fields for the return values.
-    out_fields = OrderedDict()
+    out_fields = {}
     out_type = sig_types.get("return", Parameter.empty)
     if out_type == Parameter.empty:
         msg = (
@@ -550,13 +553,13 @@ def _gen_op_cls(
 
     """
 
-    def inp_ports(self) -> OrderedDict[str, Port]:
+    def inp_ports(self) -> Dict[str, Port]:
         """Get all input ports for visualization."""
-        return OrderedDict((name, getattr(self, name)) for name in inp_ports_fld_names)
+        return {name: getattr(self, name) for name in inp_ports_fld_names}
 
-    def out_ports(self) -> OrderedDict[str, Port]:
+    def out_ports(self) -> Dict[str, Port]:
         """Get all output ports for visualization."""
-        return OrderedDict((name, getattr(self, name)) for name in out_ports_fld_names)
+        return {name: getattr(self, name) for name in out_ports_fld_names}
 
     cls_ns = {
         "__doc__": cls_doc,
@@ -677,7 +680,7 @@ def _gen_op_method(
             out_type = sig_types.get("return", Parameter.empty)
             if inspect.isclass(out_type) and issubclass(out_type, Stream):
                 fq_stream_id = f"{inner_scope.parent_id}.out"
-                out = Stream(fq_stream_id, inner_scope)
+                out = out_type(fq_stream_id, inner_scope)
             elif inspect.isclass(out_type) and issubclass(out_type, NoneType):
                 out = None
             elif dataclasses.is_dataclass(out_type):
@@ -685,7 +688,7 @@ def _gen_op_method(
                 for fld in dataclasses.fields(out_type):
                     if inspect.isclass(fld.type) and issubclass(fld.type, Stream):
                         fq_stream_id = f"{inner_scope.parent_id}.{fld.name}"
-                        vals[fld.name] = Stream(fq_stream_id, inner_scope)
+                        vals[fld.name] = fld.type(fq_stream_id, inner_scope)
                     else:
                         msg = (
                             "unsupported core operator dataclass field return type "
