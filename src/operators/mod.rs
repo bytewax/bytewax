@@ -197,7 +197,7 @@ where
             let item: &PyObject = item.into();
 
             let _ = unwrap_any!(Python::with_gil(|py| inspector
-                .call1(py, (item, epoch.clone(), this_worker.0))
+                .call1(py, (step_id.clone(), item, epoch.clone(), this_worker.0))
                 .reraise_with(|| format!("error calling inspector in step {step_id}"))));
         }))
     }
@@ -403,25 +403,23 @@ impl UnaryLogic {
         let res = self
             .0
             .as_ref(py)
-            .call_method1(intern!(py, "on_notify"), (sched, ))?;
+            .call_method1(intern!(py, "on_notify"), (sched,))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
     fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(&'py PyIterator, IsComplete)> {
-        let res = self
-            .0
-            .as_ref(py)
-            .call_method0("on_eof")?;
+        let res = self.0.as_ref(py).call_method0("on_eof")?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
     fn notify_at(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
-        let res = self.0
-            .as_ref(py)
-            .call_method0(intern!(py, "notify_at"))?;
-        res
-            .extract()
-            .reraise_with(|| format!("did not return a datetime; got a `{}` instead",  unwrap_any!(res.get_type().name())))
+        let res = self.0.as_ref(py).call_method0(intern!(py, "notify_at"))?;
+        res.extract().reraise_with(|| {
+            format!(
+                "did not return a datetime; got a `{}` instead",
+                unwrap_any!(res.get_type().name())
+            )
+        })
     }
 
     fn snapshot(&self, py: Python) -> PyResult<PyObject> {

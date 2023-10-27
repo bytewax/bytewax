@@ -772,64 +772,31 @@ def input(  # noqa: A001
     raise NotImplementedError()
 
 
+def _default_inspector(step_id: str, item: Any) -> None:
+    print(f"{step_id}: {item!r}")
+
+
 @operator()
 def inspect(
-    up: Stream,
-    step_id: str,
-    inspector: Callable[[Any], None] = None,  # type: ignore[assignment]
+    up: Stream, step_id: str, inspector: Callable[[str, Any], None] = _default_inspector
 ) -> Stream:
-    if inspector is None:
-
-        def inspector(x):
-            print(f"{step_id}: {x!r}")
-
-    def shim_inspector(x, _epoch, _worker_idx):
-        inspector(x)
+    def shim_inspector(step_id, item, _epoch, _worker_idx):
+        inspector(step_id, item)
 
     return up.inspect_debug("inspect_debug", shim_inspector)
+
+
+def _default_debug_inspector(step_id: str, item: Any, epoch: int, worker: int) -> None:
+    print(f"{step_id} on W{worker} @{epoch}: {item!r}")
 
 
 @operator(_core=True)
 def inspect_debug(
     up: Stream,
     step_id: str,
-    inspector: Callable[[Any, int, int], None],
+    inspector: Callable[[str, Any, int, int], None] = _default_debug_inspector,
 ) -> Stream:
     raise NotImplementedError()
-
-
-@operator()
-def inspect_epoch(
-    up: Stream,
-    step_id: str,
-    inspector: Callable[[Any, int], None] = None,  # type: ignore[assignment]
-) -> Stream:
-    if inspector is None:
-
-        def inspector(x, epoch):
-            print(f"{step_id} @{epoch}: {x!r}")
-
-    def shim_inspector(x, epoch, _worker_idx):
-        inspector(x, epoch)
-
-    return up.inspect_debug("inspect_debug", shim_inspector)
-
-
-@operator()
-def inspect_worker(
-    up: Stream,
-    step_id: str,
-    inspector: Callable[[Any, int], None] = None,  # type: ignore[assignment]
-) -> Stream:
-    if inspector is None:
-
-        def inspector(x, worker_idx):
-            print(f"{step_id} on W{worker_idx}: {x!r}")
-
-    def shim_inspector(x, _epoch, worker_idx):
-        inspector(x, worker_idx)
-
-    return up.inspect_debug("inspect_debug", shim_inspector)
 
 
 @dataclass
@@ -870,14 +837,13 @@ def join_inner(
 
     keys = list(range(len(ups)))
     keyed_ups = [
-        up.map_value(
-            f"key_{i}", partial(lambda i, v: (i, v), i)
-        )
+        up.map_value(f"key_{i}", partial(lambda i, v: (i, v), i))
         for i, up in enumerate(ups)
     ]
 
     return (
-        left.flow().merge_all("merge_ups", *keyed_ups)
+        left.flow()
+        .merge_all("merge_ups", *keyed_ups)
         .key_assert("keyed")
         .fold(
             "join",
@@ -900,9 +866,7 @@ def join_inner_named(
 ) -> KeyedStream:
     keys = list(ups.keys())
     keyed_ups = [
-        up.map_value(
-            f"key_{key}", partial(lambda key, v: (key, v), key)
-        )
+        up.map_value(f"key_{key}", partial(lambda key, v: (key, v), key))
         for key, up in ups.items()
     ]
 
@@ -925,7 +889,7 @@ def join_inner_window(
     return (
         left._keyed_idx("add_idx", right)
         .fold_window(
-            "fold_window",
+            "join",
             clock,
             windower,
             lambda: _JoinState(list(range(2))),
@@ -1078,9 +1042,7 @@ def reduce(
 
         return s
 
-    return up.fold(
-        "fold", _none_builder, shim_folder, is_complete, eof_is_complete
-    )
+    return up.fold("fold", _none_builder, shim_folder, is_complete, eof_is_complete)
 
 
 @operator()
@@ -1099,9 +1061,7 @@ def reduce_window(
 
         return s
 
-    return up.fold_window(
-        "fold_window", clock, windower, _none_builder, shim_folder
-    )
+    return up.fold_window("fold_window", clock, windower, _none_builder, shim_folder)
 
 
 @dataclass
