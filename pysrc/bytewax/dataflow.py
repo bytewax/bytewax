@@ -753,17 +753,12 @@ def _gen_op_method(
     return method
 
 
-def _register_op(cls: Type[Operator]) -> None:
-    # Add this operator name to the list of all operators in the
-    # defining module.
-    mod = sys.modules[cls.__module__]
-    if not hasattr(mod, "__all_ops__"):
-        mod.__all_ops__ = []  # type: ignore[attr-defined]
-    mod.__all_ops__.append(cls.__name__)
-
-
 def operator(_detect_parens=None, *, _core: bool = False) -> Callable:
-    """Function decorator to define a new operator."""
+    """Function decorator to define a new operator.
+
+    See `bytewax.dataflow` module docstring for how to use this.
+
+    """
     if _detect_parens is not None:
         msg = (
             "operator decorator must be called with `()`; "
@@ -777,7 +772,6 @@ def operator(_detect_parens=None, *, _core: bool = False) -> Callable:
         cls = _gen_op_cls(builder, sig, sig_types, _core)
         op_method = _gen_op_method(sig, sig_types, builder, cls, _core)
         setattr(cls, op_method.__name__, op_method)
-        _register_op(cls)
         # Note that although this is a function definition, a class will
         # be bound to the function name.
         return cls
@@ -822,17 +816,18 @@ def _erase_method_pdoc(extend_cls: Type, name: str, op_method) -> None:
     extend_cls_mod.__pdoc__[f"{extend_cls.__name__}.{name}"] = False
 
 
-def load_op(op: Type[Operator], name: Optional[str] = None) -> None:
-    """Load an operator builder method into its extension class.
+def load_op(op: Type[Operator], as_name: Optional[str] = None) -> None:
+    """Load an operator method into its class.
 
     This needs to be done by hand so you can manually deal with
     operator method name clashes.
 
     Args:
-        op: Operator definition. Created using `operator` decorator.
+        op: Operator definition. Created using the `operator`
+            decorator.
 
-        name: Override the loaded method name. Defaults to the name of
-            the operator.
+        as_name: Override the method name. Defaults to the name of the
+            operator.
 
     """
     if not issubclass(op, Operator):
@@ -848,13 +843,13 @@ def load_op(op: Type[Operator], name: Optional[str] = None) -> None:
         raise TypeError(msg)
 
     op_method = getattr(op, op.__name__)
-    name = name if name is not None else op_method.__name__
+    name = as_name if as_name is not None else op_method.__name__
     _monkey_patch(op.extend_cls, name, op_method)
     _erase_method_pdoc(op.extend_cls, name, op_method)
 
 
 def load_mod_ops(mod: ModuleType) -> None:
-    """Load all operators in a module into their extension classes.
+    """Load all operators in a module into their classes.
 
     Use this to enable operators bundled in your own packages.
 
@@ -868,22 +863,14 @@ def load_mod_ops(mod: ModuleType) -> None:
     >>> load_mod_ops(bytewax.operators)
 
     This needs to be done by hand so you can manually deal with
-    extension method name clashes.
-
-    Operator names should be listed in `__all_ops__` in that module.
-    The `operator` decorator will add to this list for you.
+    operator method name clashes.
 
     Args:
         mod: Imported module to load all operators in.
 
     """
-    if not hasattr(mod, "__all_ops__"):
-        msg = (
-            f"{mod!r} has no operators defined in it; "
-            "decorate builder functions with `@operator()`"
-        )
-        raise ValueError(msg)
-
-    for name in mod.__all_ops__:
-        op = getattr(mod, name)
-        load_op(op, name)
+    for name in getattr(mod, "__all__", dir(mod)):
+        if not name.startswith("_"):
+            obj = getattr(mod, name)
+            if inspect.isclass(obj) and issubclass(obj, Operator):
+                load_op(obj, name)
