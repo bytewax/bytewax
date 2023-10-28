@@ -5,43 +5,49 @@ running dataflows.
 
 # Custom Operators
 
-You can define new custom operators in a fluent API in terms groups of
-already existing operators. To do this you define an **operator
-builder function** and decorate it with `operator`.
+You can define new custom operators in terms of already existing
+operators. To do this you define an **operator builder function** and
+decorate it with `operator`.
 
 >>> @operator()
 ... def add_to(up: Stream, step_id: str, y: int) -> Stream:
 ...     return up.map("shim_map", lambda x: x + y)
 
+Once this operator is **loaded**, a **operator method** will be added
+to the class annotated on the first argument. Generally using `Stream`
+as this type enables a "fluent" API where you can string togehter
+operators.
+
 Each input or output `Stream` turns into a `Port` in the resulting
 data model.
 
-In order to generate the fluent API, operator data model, and proper
-nesting of operators, you must follow a few rules when writing your
-builder function:
+In order to generate the operator method, operator data model, and
+proper nesting of operators, you must follow a few rules when writing
+your builder function:
 
-- The first argument must be annotated with class to load the fluent
-  API on to. The resulting method will look like as if you defined the
-  function in the class body. In general, this is either `Stream`,
+- The first argument must be annotated with class to load the operator
+  method on to. The resulting method will look like as if you defined
+  the function in the class body. In general, this is either `Stream`,
   `KeyedStream`, or `Dataflow`.
 
-- There must be a `step_id: str` argument, even if not used.
+- There must be a `step_id: str` as the second argument, even if not
+  used.
 
-- All arguments and return values that are `Streams` or `MultiStreams`
-  must have type annotations. We recommend annotating all the
-  arguments.
+- All arguments that are `Stream`s or `MultiStream`s must have type
+  annotations. We recommend annotating all the arguments.
 
-- The return value must be either: a `Stream`, a `MultiStream`, or a
-  dataclass. The dataclass can have non-`Stream` fields.
+- The return value must annoated and one of: `None`, a `Stream`, a
+  `MultiStream`, or a dataclass.
+
+- If the return value is a dataclass: No field names of it can overlap
+  with argument names. All fields of it that are `Stream`s or
+  `MultiStream`s must have type annotations. The dataclass can have
+  non-`Stream` fields.
 
 - `Stream`s, `MultiStream`s, and `Dataflow`s _must not appear in
-  nested objects_: they either can be arguments to the builder
-  function directly, the return value directly, or the immediate
-  fields of a dataclass that is the return value of the builder;
-  nowhere else.
-
-- If the builder function returns a dataclass, no field names in it
-  can overlap with argument names.
+  nested objects_: they either can be arguments, the return type
+  directly, or the top-level fields of a dataclass that is the return
+  type; nowhere else.
 
 # Loading Operators
 

@@ -1,10 +1,9 @@
 """Built-in operators.
 
-These are automatically loaded when you `import bytewax`.
+See the `bytewax` module docstring for the basics of building and
+running dataflows.
 
-All operator methods take a `step_id` argument. This must be a unique
-string that represents the semantic purpose of this computational
-step.
+# Stateful Operators
 
 Operators loaded onto `KeyedStream` (e.g. `fold.fold`,
 `stateful_map.stateful_map`, etc.) will only work when this input
@@ -13,6 +12,11 @@ value)` 2-tuples upstream and then automatically re-wrap any emitted
 values back into `(key, value)` 2-tuples. See the operators
 `key_on.key_on` and `key_assert.key_assert` to create
 `KeyedStream`s.
+
+# Non-Built-In Operators
+
+All operators in this module are automatically loaded when you `import
+bytewax`.
 
 Operators defined elsewhere must be loaded. See
 `bytewax.dataflow.load_mod_ops` and the `bytewax.dataflow` module
@@ -758,8 +762,9 @@ def input(  # noqa: A001
 
     At least one input is required on every dataflow.
 
-
     Args:
+        flow: The dataflow.
+
         step_id: Unique ID.
 
         source: Source to read items from.
@@ -773,13 +778,41 @@ def input(  # noqa: A001
 
 
 def _default_inspector(step_id: str, item: Any) -> None:
-    print(f"{step_id}: {item!r}")
+    print(f"{step_id}: {item!r}", flush=True)
 
 
 @operator()
 def inspect(
     up: Stream, step_id: str, inspector: Callable[[str, Any], None] = _default_inspector
 ) -> Stream:
+    """Observe items for debugging.
+
+    >>> from bytewax.testing import TestingSource, TestingSink
+    >>> from bytewax.testing import run_main
+    >>> from bytewax.dataflow import Dataflow
+    >>> flow = Dataflow("my_flow")
+    >>> inp = flow.input("inp", TestingSource(range(3)))
+    >>> inp.inspect("help")
+    >>> out = []
+    >>> inp.output("out", TestingSink(out))  # Notice we don't print out.
+    >>> run_main(flow)
+    my_flow.help: 0
+    my_flow.help: 1
+    my_flow.help: 2
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+        inspector: Called with the step ID and each item in the
+            stream. Defaults to printing out the step_id and item.
+
+    Returns:
+        The upstream unmodified.
+
+    """
+
     def shim_inspector(step_id, item, _epoch, _worker_idx):
         inspector(step_id, item)
 
@@ -796,6 +829,34 @@ def inspect_debug(
     step_id: str,
     inspector: Callable[[str, Any, int, int], None] = _default_debug_inspector,
 ) -> Stream:
+    """Observe items, their worker, and their epoch for debugging.
+
+    >>> from bytewax.testing import TestingSource, TestingSink
+    >>> from bytewax.testing import run_main
+    >>> from bytewax.dataflow import Dataflow
+    >>> flow = Dataflow("my_flow")
+    >>> inp = flow.input("inp", TestingSource(range(3)))
+    >>> inp.inspect_debug("help")
+    >>> out = []
+    >>> inp.output("out", TestingSink(out))  # Notice we don't print out.
+    >>> run_main(flow)
+    my_flow.help W0 @0: 0
+    my_flow.help W0 @0: 1
+    my_flow.help W0 @0: 2
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+        inspector: Called with the step ID, each item in the stream,
+            the epoch of that item, and the worker processing the
+            item. Defaults to printing out the all the arguments.
+
+    Returns:
+        The upstream unmodified.
+
+    """
     raise NotImplementedError()
 
 
