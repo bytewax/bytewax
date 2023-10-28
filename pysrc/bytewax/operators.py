@@ -820,7 +820,7 @@ def inspect(
 
 
 def _default_debug_inspector(step_id: str, item: Any, epoch: int, worker: int) -> None:
-    print(f"{step_id} on W{worker} @{epoch}: {item!r}")
+    print(f"{step_id} W{worker} @{epoch}: {item!r}", flush=True)
 
 
 @operator(_core=True)
