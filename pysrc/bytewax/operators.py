@@ -190,7 +190,7 @@ class _BatchState:
 
 
 @dataclass
-class _BatchShimLogic(UnaryLogic):
+class _BatchLogic(UnaryLogic):
     step_id: str
     timeout: timedelta
     batch_size: int
@@ -241,7 +241,7 @@ def batch(
 
     def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
         state = resume_state if resume_state is not None else _BatchState()
-        return _BatchShimLogic(step_id, timeout, batch_size, state)
+        return _BatchLogic(step_id, timeout, batch_size, state)
 
     return up.unary("unary", shim_builder)
 
@@ -650,7 +650,7 @@ def filter_map(
 
 
 @dataclass
-class _FoldShimLogic(UnaryLogic):
+class _FoldLogic(UnaryLogic):
     step_id: str
     folder: Callable[[Any, Any], Any]
     is_fold_complete: Callable[[Any], bool]
@@ -731,7 +731,7 @@ def fold(
 
     def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
         state = resume_state if resume_state is not None else builder()
-        return _FoldShimLogic(step_id, folder, is_complete, eof_is_complete, state)
+        return _FoldLogic(step_id, folder, is_complete, eof_is_complete, state)
 
     return up.unary("unary", shim_builder)
 
@@ -1126,7 +1126,7 @@ def reduce_window(
 
 
 @dataclass
-class _StatefulMapShimLogic(UnaryLogic):
+class _StatefulMapLogic(UnaryLogic):
     step_id: str
     mapper: Callable[[Any, Any], Tuple[Any, Iterable[Any]]]
     state: Optional[Any]
@@ -1167,7 +1167,7 @@ def stateful_map(
 ) -> KeyedStream:
     def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
         state = resume_state if resume_state is not None else builder()
-        return _StatefulMapShimLogic(step_id, mapper, state)
+        return _StatefulMapLogic(step_id, mapper, state)
 
     return up.unary("unary", shim_builder)
 
