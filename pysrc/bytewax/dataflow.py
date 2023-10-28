@@ -167,9 +167,9 @@ class MultiPort:
 
 @dataclass(frozen=True)
 class Operator:
-    """Abstract base class for an operator type.
+    """Base class for an operator type.
 
-    Subclasses of this should be generated via the `operator` builder
+    Subclasses of this must be generated via the `operator` builder
     function decorator. See the `bytewax.dataflow` module docstring
     for a tutorial.
 
@@ -180,15 +180,27 @@ class Operator:
 
     step_id: str
     substeps: List["Operator"]
+    #: The class that the operator method should be loaded onto.
     extend_cls: ClassVar[Type]
+    _inp_names: ClassVar[List[str]]
+    _out_names: ClassVar[List[str]]
 
     def get_id(self) -> str:
         """Get the unique ID."""
         return self.step_id
 
+    def inp_ports(self) -> Dict[str, Port]:
+        """Get all input ports for visualization."""
+        return {name: getattr(self, name) for name in self._inp_names}
+
+    def out_ports(self) -> Dict[str, Port]:
+        """Get all output ports for visualization."""
+        return {name: getattr(self, name) for name in self._out_names}
+
 
 @dataclass(frozen=True)
 class _CoreOperator(Operator):
+    #: This operator is a core operator.
     core: ClassVar[bool] = True
 
 
@@ -516,16 +528,16 @@ def _gen_op_cls(
             method_types = typing.get_type_hints(typ._to_ref)
             cls_fields[name] = method_types.get("return", Any)
 
-    inp_ports_fld_names = []
-    out_ports_fld_names = []
+    inp_ports = []
+    out_ports = []
     for name, typ in cls_fields.items():
         if inspect.isclass(typ) and (
             issubclass(typ, SinglePort) or issubclass(typ, MultiPort)
         ):
             if name in inp_fields:
-                inp_ports_fld_names.append(name)
+                inp_ports.append(name)
             elif name in out_fields:
-                out_ports_fld_names.append(name)
+                out_ports.append(name)
 
     # `step_id` is defined on the parent class.
     del cls_fields["step_id"]
@@ -559,19 +571,11 @@ def _gen_op_cls(
 
     """
 
-    def inp_ports(self) -> Dict[str, Port]:
-        """Get all input ports for visualization."""
-        return {name: getattr(self, name) for name in inp_ports_fld_names}
-
-    def out_ports(self) -> Dict[str, Port]:
-        """Get all output ports for visualization."""
-        return {name: getattr(self, name) for name in out_ports_fld_names}
-
     cls_ns = {
         "__doc__": cls_doc,
         "extend_cls": extend_cls,
-        "inp_ports": inp_ports,
-        "out_ports": out_ports,
+        "_inp_names": inp_ports,
+        "_out_names": out_ports,
     }
 
     cls = dataclasses.make_dataclass(
@@ -589,13 +593,7 @@ def _gen_op_cls(
     cls_mod = sys.modules[cls.__module__]
     if not hasattr(cls_mod, "__pdoc__"):
         cls_mod.__pdoc__ = {}  # type: ignore[attr-defined]
-    # Don't document the base class stuff.
-    cls_mod.__pdoc__[f"{cls.__name__}.extend_cls"] = False
-    cls_mod.__pdoc__[f"{cls.__name__}.in_ports"] = False
-    cls_mod.__pdoc__[f"{cls.__name__}.out_ports"] = False
-    if core:
-        cls_mod.__pdoc__[f"{cls.__name__}.core"] = False
-    # Don't document the custom operator fields.
+    # Don't document the operator fields.
     for name in cls_fields.keys():
         cls_mod.__pdoc__[f"{cls.__name__}.{name}"] = False
 
