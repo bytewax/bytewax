@@ -19,6 +19,8 @@ ZERO_TD = timedelta(seconds=0)
 # TODO: When we have a "window unary" operator, move tests of the
 # actual windowing semantics to that. For now, since `fold_window` is
 # the base of the window operators, test here.
+
+
 def test_fold_window_tumbling():
     align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
     inp = [

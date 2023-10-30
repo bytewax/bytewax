@@ -941,7 +941,9 @@ def join(
     names = list(named_ups.keys())
 
     def builder(resume_state: Optional[Any]) -> _JoinLogic:
-        state = resume_state if resume_state is not None else _JoinState.for_names(names)
+        state = (
+            resume_state if resume_state is not None else _JoinState.for_names(names)
+        )
         return _JoinLogic(step_id, running, state)
 
     return (
@@ -962,7 +964,9 @@ def join_named(
     names = list(ups.keys())
 
     def builder(resume_state: Optional[Any]) -> _JoinLogic:
-        state = resume_state if resume_state is not None else _JoinState.for_names(names)
+        state = (
+            resume_state if resume_state is not None else _JoinState.for_names(names)
+        )
         return _JoinLogic(step_id, running, state)
 
     return (
@@ -1105,15 +1109,23 @@ def map_value(
 
 
 @operator()
-def max_final(up: KeyedStream, step_id: str) -> KeyedStream:
-    return up.reduce_final("reduce_final", max)
+def max_final(
+    up: KeyedStream,
+    step_id: str,
+    by: Callable[[Any], Any] = _identity,
+) -> KeyedStream:
+    return up.reduce_final("reduce_final", partial(max, key=by))
 
 
 @operator()
 def max_window(
-    up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
+    up: KeyedStream,
+    step_id: str,
+    clock: ClockConfig,
+    windower: WindowConfig,
+    by: Callable[[Any], Any] = _identity,
 ) -> KeyedStream:
-    return up.reduce_window("reduce_window", clock, windower, max)
+    return up.reduce_window("reduce_window", clock, windower, partial(max, key=by))
 
 
 @operator(_core=True)
@@ -1127,15 +1139,23 @@ def merge(left: Stream, step_id: str, *rights: Stream) -> Stream:
 
 
 @operator()
-def min_final(up: KeyedStream, step_id: str) -> KeyedStream:
-    return up.reduce_final("reduce_final", min)
+def min_final(
+    up: KeyedStream,
+    step_id: str,
+    by: Callable[[Any], Any] = _identity,
+) -> KeyedStream:
+    return up.reduce_final("reduce_final", partial(min, key=by))
 
 
 @operator()
 def min_window(
-    up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
+    up: KeyedStream,
+    step_id: str,
+    clock: ClockConfig,
+    windower: WindowConfig,
+    by: Callable[[Any], Any] = _identity,
 ) -> KeyedStream:
-    return up.reduce_window("reduce_window", clock, windower, min)
+    return up.reduce_window("reduce_window", clock, windower, partial(min, key=by))
 
 
 @operator(_core=True)
