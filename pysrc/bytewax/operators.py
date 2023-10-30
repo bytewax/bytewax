@@ -501,6 +501,43 @@ def flat_map(
 
 
 @operator()
+def flat_map_value(
+    up: KeyedStream,
+    step_id: str,
+    mapper: Callable[[Any], Iterable[Any]],
+) -> KeyedStream:
+    """Flat map is a one-to-many transformation of values.
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+        mapper: Called once on each upstream item. Returns the items
+            to emit downstream.
+
+    Returns:
+        A stream of each item in the iterable retuned by the mapper.
+
+    """
+
+    def shim_mapper(k_v):
+        try:
+            k, v = k_v
+        except TypeError as ex:
+            msg = (
+                f"step {step_id!r} requires `(key, value)` 2-tuple "
+                "as upstream for routing; "
+                f"got a {type(k_v)!r} instead"
+            )
+            raise TypeError(msg) from ex
+        ws = mapper(v)
+        return ((k, w) for w in ws)
+
+    return up.flat_map("flat_map", shim_mapper).key_assert("keyed")
+
+
+@operator()
 def flatten(up: Stream, step_id: str) -> Stream:
     """Move all sub-items up a level.
 
@@ -599,19 +636,21 @@ def filter_value(
 
     """
 
-    def shim_predicate(k_v):
-        try:
-            k, v = k_v
-        except TypeError as ex:
+    def shim_mapper(v):
+        keep = predicate(v)
+        if not isinstance(keep, bool):
             msg = (
-                f"step {step_id!r} requires `(key, value)` 2-tuple "
-                "as upstream for routing; "
-                f"got a {type(k_v)!r} instead"
+                f"return value of `predicate` {f_repr(predicate)} "
+                f"in step {step_id!r} must be a `bool`; "
+                f"got a {type(keep)!r} instead"
             )
-            raise TypeError(msg) from ex
-        return predicate(v)
+            raise TypeError(msg)
+        if keep:
+            return [v]
 
-    return up.filter("filter", shim_predicate).key_assert("keyed")
+        return []
+
+    return up.flat_map_value("filter", shim_mapper)
 
 
 @operator()
@@ -1031,20 +1070,11 @@ def map(  # noqa: A001
 def map_value(
     up: KeyedStream, step_id: str, mapper: Callable[[Any], Any]
 ) -> KeyedStream:
-    def shim_mapper(k_v):
-        try:
-            k, v = k_v
-        except TypeError as ex:
-            msg = (
-                f"step {step_id!r} requires `(key, value)` 2-tuple "
-                "as upstream for routing; "
-                f"got a {type(k_v)!r} instead"
-            )
-            raise TypeError(msg) from ex
+    def shim_mapper(v):
         w = mapper(v)
-        return (k, w)
+        return [w]
 
-    return up.map("map", shim_mapper).key_assert("keyed")
+    return up.flat_map_value("flat_map_value", shim_mapper)
 
 
 @operator()
