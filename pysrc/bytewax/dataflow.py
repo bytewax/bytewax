@@ -23,7 +23,7 @@ data model.
 
 In order to generate the operator method, operator data model, and
 proper nesting of operators, you must follow a few rules when writing
-your builder function:
+your builder function.
 
 - The first argument must be annotated with class to load the operator
   method on to. The resulting method will look like as if you defined
@@ -34,15 +34,16 @@ your builder function:
   used.
 
 - All arguments that are `Stream`s or `MultiStream`s must have type
-  annotations. We recommend annotating all the arguments.
+  annotations. We recommend annotating all the arguments. Argument
+  names must not overlap with the fields defined on `Operator`.
 
 - The return value must annoated and one of: `None`, a `Stream`, a
   `MultiStream`, or a dataclass.
 
 - If the return value is a dataclass: No field names of it can overlap
-  with argument names. All fields of it that are `Stream`s or
-  `MultiStream`s must have type annotations. The dataclass can have
-  non-`Stream` fields.
+  with argument names or the fields defined on `Operator`. All fields
+  of it that are `Stream`s or `MultiStream`s must have type
+  annotations. The dataclass can have non-`Stream` fields.
 
 - `Stream`s, `MultiStream`s, and `Dataflow`s _must not appear in
   nested objects_: they either can be arguments, the return type
@@ -564,10 +565,9 @@ def _gen_op_cls(
 
     cls_doc = f"""`{builder.__name__}` operator definition.
 
-    Use the `{builder.__name__}` method extended onto
+    Use the `{builder.__name__}` method loaded onto
     `{extend_cls.__module__}.{extend_cls.__name__}` to create a step
-    with this operator. See the `{builder.__name__}` method below its
-    documentation.
+    with this operator. See the method below for its documentation.
 
     """
 
