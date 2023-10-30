@@ -1,7 +1,18 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
+from bytewax.operators import _BatchLogic, _BatchState
 from bytewax.testing import TestingSink, TestingSource, run_main
+
+
+def test_batch_logic_snapshot():
+    timeout = timedelta(seconds=10)
+    logic = _BatchLogic("test_step", timeout, 3, _BatchState())
+
+    now = datetime(2023, 1, 1, tzinfo=timezone.utc)
+    logic.on_item(now, 1)
+
+    assert logic.snapshot() == _BatchState([1], now + timeout)
 
 
 def test_batch():
