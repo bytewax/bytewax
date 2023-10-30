@@ -36,7 +36,6 @@ from functools import partial
 from typing import (
     Any,
     Callable,
-    ClassVar,
     Dict,
     Iterable,
     List,
@@ -338,44 +337,6 @@ def _get_collector(t: Type) -> Callable:
 
 
 @operator()
-def collect(
-    up: KeyedStream,
-    step_id: str,
-    is_complete: Callable[[Any], bool],
-    into: Type = list,
-    eof_is_complete: bool = True,
-) -> KeyedStream:
-    """Collect window lets emits all items for a key in a window
-    downstream in sorted order.
-
-    It is a stateful operator. It requires the upstream items are
-    `(key: str, value)` tuples so we can ensure that all relevant
-    values are routed to the relevant state. It also requires a
-    step ID to recover the correct state.
-
-    Args:
-        up: Keyed stream.
-
-        step_id: Unique ID.
-
-        is_complete:
-
-        into:
-
-        eof_is_complete:
-
-    Returns:
-        It emits `(key, list)` tuples downstream at the end of each
-    window where `list` is sorted by the time assigned by the
-    clock.
-
-    """
-    collector = _get_collector(into)
-
-    return up.fold("fold", into, collector, is_complete, eof_is_complete)
-
-
-@operator()
 def collect_window(
     up: KeyedStream,
     step_id: str,
@@ -388,13 +349,8 @@ def collect_window(
     return up.fold_window("fold_window", clock, windower, into, collector)
 
 
-# TODO: Return another output stream with the unique `(key, obj)`
-# mappings? In case you need to re-join? Or actually we could do the
-# join here...
 @operator()
-def count_final(
-    up: Stream, step_id: str, key: Callable[[Any], str] = _identity
-) -> KeyedStream:
+def count_final(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStream:
     """Count the number of occurrences of items in the entire stream.
 
     This will only return counts once the upstream is EOF. You'll need
@@ -416,7 +372,7 @@ def count_final(
     return (
         up.map("init_count", lambda x: (key(x), 1))
         .key_assert("keyed")
-        .reduce("sum", lambda s, x: s + x, _never_complete, eof_is_complete=True)
+        .reduce_final("sum", lambda s, x: s + x)
     )
 
 
@@ -426,7 +382,7 @@ def count_window(
     step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
-    key: Callable[[Any], str] = _identity,
+    key: Callable[[Any], str],
 ) -> KeyedStream:
     """Count the number of occurrences of items in a window.
 
@@ -552,7 +508,18 @@ def flatten(up: Stream, step_id: str) -> Stream:
         A stream of the items within each iterable in the upstream.
 
     """
-    return up.flat_map("flat_map", _identity)
+
+    def shim_mapper(x):
+        if not isinstance(x, Iterable):
+            msg = (
+                f"step {step_id!r} requires upstream to be iterables; "
+                f"got a {type(x)!r} instead"
+            )
+            raise TypeError(msg)
+
+        return x
+
+    return up.flat_map("flat_map", shim_mapper)
 
 
 @operator()
@@ -698,38 +665,21 @@ def filter_map(
 
 
 @dataclass
-class _FoldLogic(UnaryLogic):
+class _FoldFinalLogic(UnaryLogic):
     step_id: str
     folder: Callable[[Any, Any], Any]
-    is_fold_complete: Callable[[Any], bool]
-    eof_is_complete: bool
     state: Any
 
     def on_item(self, _now: datetime, v: Any) -> Tuple[Iterable[Any], bool]:
         self.state = self.folder(self.state, v)
-
-        is_c = self.is_fold_complete(self.state)
-        if not isinstance(is_c, bool):
-            msg = (
-                f"return value of `is_complete` {f_repr(self.is_fold_complete)} "
-                f"in step {self.step_id!r} must be a `bool`; "
-                f"got a {type(is_c)!r} instead"
-            )
-            raise TypeError(msg)
-        if is_c:
-            # No need to deepcopy because we are discarding the state.
-            return ([self.state], UnaryLogic.DISCARD)
-
         return ([], UnaryLogic.RETAIN)
 
     def on_notify(self, _s: datetime) -> Tuple[Iterable[Any], bool]:
         return ([], UnaryLogic.RETAIN)
 
     def on_eof(self) -> Tuple[Iterable[Any], bool]:
-        if self.eof_is_complete:
-            return ([self.state], UnaryLogic.DISCARD)
-
-        return ([], UnaryLogic.RETAIN)
+        # No need to deepcopy because we are discarding the state.
+        return ([self.state], UnaryLogic.DISCARD)
 
     def notify_at(self) -> Optional[datetime]:
         return None
@@ -739,13 +689,11 @@ class _FoldLogic(UnaryLogic):
 
 
 @operator()
-def fold(
+def fold_final(
     up: KeyedStream,
     step_id: str,
     builder: Callable[[], Any],
     folder: Callable[[Any, Any], Any],
-    is_complete: Callable[[Any], bool],
-    eof_is_complete: bool = True,
 ) -> KeyedStream:
     """Build an empty accumulator, then combine values into it.
 
@@ -764,15 +712,6 @@ def fold(
             returns the updated accumulator. The accumulator is
             initially the empty accumulator.
 
-        is_complete: Called with the accumulator after any update.
-            Should return `True` when the accumulator should be
-            discarded and emitted downstream.
-
-        eof_is_complete: Set to `True` if you want the accumulator to
-            be discarded and emitted downstream when upstream is EOF.
-            This means that resuming a dataflow with additional input
-            could result in different output. Defaults to `True`.
-
     Returns:
         A keyed stream of the completed accumulators.
 
@@ -780,7 +719,7 @@ def fold(
 
     def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
         state = resume_state if resume_state is not None else builder()
-        return _FoldLogic(step_id, folder, is_complete, eof_is_complete, state)
+        return _FoldFinalLogic(step_id, folder, state)
 
     return up.unary("unary", shim_builder)
 
@@ -862,7 +801,7 @@ def inspect(
 
     """
 
-    def shim_inspector(step_id, item, _epoch, _worker_idx):
+    def shim_inspector(_fq_step_id, item, _epoch, _worker_idx):
         inspector(step_id, item)
 
     return up.inspect_debug("inspect_debug", shim_inspector)
@@ -911,14 +850,11 @@ def inspect_debug(
 
 @dataclass
 class _JoinState:
-    names: InitVar[Iterable[Any]]
-    seen: Dict[Any, List[Any]] = field(init=False, default_factory=dict)
-    #: Sentinel value so we can distinguish not-set from an explicit
-    #: `None`.
-    _EMPTY: ClassVar[Any] = object()
+    seen: Dict[Any, List[Any]]
 
-    def __post_init__(self, names: Iterable[Any]) -> None:
-        self.seen = {n: [] for n in names}
+    @classmethod
+    def for_names(cls, names: List[Any]) -> "_JoinState":
+        return cls({name: [] for name in names})
 
     def set_val(self, name: Any, value: Any) -> None:
         self.seen[name] = [value]
@@ -934,22 +870,16 @@ class _JoinState:
 
     def astuples(self) -> Iterable[Tuple]:
         return itertools.product(
-            *(val if len(val) > 0 else [None] for val in self.seen.values())
+            *(vals if len(vals) > 0 else [None] for vals in self.seen.values())
         )
 
     def asdicts(self) -> Iterable[Dict]:
+        EMPTY = object()
         ts = itertools.product(
-            *(
-                val if len(val) > 0 else [_JoinState._EMPTY]
-                for val in self.seen.values()
-            )
+            *(vals if len(vals) > 0 else [EMPTY] for vals in self.seen.values())
         )
         for t in ts:
-            yield dict(
-                (n, v)
-                for n, v in zip(self.seen.keys(), t)
-                if v is not _JoinState._EMPTY
-            )
+            yield dict((n, v) for n, v in zip(self.seen.keys(), t) if v is not EMPTY)
 
 
 @dataclass
@@ -1008,10 +938,10 @@ def join(
     running: bool = False,
 ) -> KeyedStream:
     named_ups = dict((str(i), s) for i, s in enumerate([left] + list(rights)))
-    keys = list(named_ups.keys())
+    names = list(named_ups.keys())
 
     def builder(resume_state: Optional[Any]) -> _JoinLogic:
-        state = resume_state if resume_state is not None else _JoinState(keys)
+        state = resume_state if resume_state is not None else _JoinState.for_names(names)
         return _JoinLogic(step_id, running, state)
 
     return (
@@ -1029,10 +959,10 @@ def join_named(
     running: bool = False,
     **ups: KeyedStream,
 ) -> KeyedStream:
-    keys = list(ups.keys())
+    names = list(ups.keys())
 
     def builder(resume_state: Optional[Any]) -> _JoinLogic:
-        state = resume_state if resume_state is not None else _JoinState(keys)
+        state = resume_state if resume_state is not None else _JoinState.for_names(names)
         return _JoinLogic(step_id, running, state)
 
     return (
@@ -1058,7 +988,7 @@ def join_window(
     *rights: KeyedStream,
 ) -> KeyedStream:
     named_ups = dict((str(i), s) for i, s in enumerate([left] + list(rights)))
-    keys = list(named_ups.keys())
+    names = list(named_ups.keys())
 
     return (
         left.flow()
@@ -1067,7 +997,7 @@ def join_window(
             "join",
             clock,
             windower,
-            lambda: _JoinState(keys),
+            lambda: _JoinState.for_names(names),
             _join_window_folder,
         )
         .flat_map_value("astuple", _JoinState.astuples)
@@ -1082,7 +1012,7 @@ def join_window_named(
     windower: WindowConfig,
     **ups: KeyedStream,
 ) -> KeyedStream:
-    keys = list(ups.keys())
+    names = list(ups.keys())
 
     return (
         flow._join_name_merge("add_names", **ups)
@@ -1090,7 +1020,7 @@ def join_window_named(
             "join",
             clock,
             windower,
-            lambda: _JoinState(keys),
+            lambda: _JoinState.for_names(names),
             _join_window_folder,
         )
         .flat_map_value("asdict", _JoinState.asdicts)
@@ -1175,10 +1105,8 @@ def map_value(
 
 
 @operator()
-def max_final(
-    up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
-) -> KeyedStream:
-    return up.reduce("reduce", max, _never_complete, eof_is_complete=True)
+def max_final(up: KeyedStream, step_id: str) -> KeyedStream:
+    return up.reduce_final("reduce_final", max)
 
 
 @operator()
@@ -1199,10 +1127,8 @@ def merge(left: Stream, step_id: str, *rights: Stream) -> Stream:
 
 
 @operator()
-def min_final(
-    up: KeyedStream, step_id: str, clock: ClockConfig, windower: WindowConfig
-) -> KeyedStream:
-    return up.reduce("reduce", min, _never_complete, eof_is_complete=True)
+def min_final(up: KeyedStream, step_id: str) -> KeyedStream:
+    return up.reduce_final("reduce_final", min)
 
 
 @operator()
@@ -1223,12 +1149,10 @@ def redistribute(up: Stream, step_id: str) -> Stream:
 
 
 @operator()
-def reduce(
+def reduce_final(
     up: KeyedStream,
     step_id: str,
     reducer: Callable[[Any, Any], Any],
-    is_complete: Callable[[Any], bool],
-    eof_is_complete: bool = True,
 ) -> KeyedStream:
     def shim_folder(s, v):
         if s is None:
@@ -1238,7 +1162,7 @@ def reduce(
 
         return s
 
-    return up.fold("fold", _none_builder, shim_folder, is_complete, eof_is_complete)
+    return up.fold_final("fold_final", _none_builder, shim_folder)
 
 
 @operator()

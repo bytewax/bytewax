@@ -1,15 +1,25 @@
 from bytewax.dataflow import Dataflow
-from bytewax.operators import _JoinState
+from bytewax.operators import _JoinLogic, _JoinState
 from bytewax.testing import TestingSink, TestingSource, run_main
-from bytewax.window import EventClockConfig, TumblingWindow
+
+
+def test_join_logic_snapshot():
+    logic = _JoinLogic("test_step", False, _JoinState.for_names(["a", "b", "c"]))
+
+    logic.on_item(None, ("a", 1))
+    logic.on_item(None, ("b", 2))
+
+    expect = _JoinState({"a": [1], "b": [2], "c": []})
+    assert logic.snapshot() == expect
 
 
 def test_join_logic_astuples():
-    state = _JoinState(["a", "b", "c"])
+    state = _JoinState.for_names(["a", "b", "c"])
     state.add_val("a", 1)
     state.add_val("a", 2)
     state.add_val("c", 3)
     state.add_val("c", 4)
+
     assert list(state.astuples()) == [
         (1, None, 3),
         (1, None, 4),
@@ -19,11 +29,12 @@ def test_join_logic_astuples():
 
 
 def test_join_logic_asdicts():
-    state = _JoinState(["a", "b", "c"])
+    state = _JoinState.for_names(["a", "b", "c"])
     state.add_val("a", 1)
     state.add_val("a", 2)
     state.add_val("c", 3)
     state.add_val("c", 4)
+
     assert list(state.asdicts()) == [
         {"a": 1, "c": 3},
         {"a": 1, "c": 4},
@@ -43,7 +54,6 @@ def test_join():
     left.join("join", right).output("out", TestingSink(out))
 
     run_main(flow)
-
     assert out == [("ALL", (1, 2))]
 
 
@@ -58,7 +68,6 @@ def test_join_running():
     left.join("join", right, running=True).output("out", TestingSink(out))
 
     run_main(flow)
-
     assert out == [("ALL", (1, None)), ("ALL", (1, 2)), ("ALL", (1, 3))]
 
 
@@ -73,7 +82,6 @@ def test_join_named():
     flow.join_named("join", left=left, right=right).output("out", TestingSink(out))
 
     run_main(flow)
-
     assert out == [("ALL", {"left": 1, "right": 2})]
 
 
@@ -90,7 +98,6 @@ def test_join_named_running():
     )
 
     run_main(flow)
-
     assert out == [
         ("ALL", {"left": 1}),
         ("ALL", {"left": 1, "right": 2}),

@@ -48,3 +48,30 @@ def test_input_batch_size():
     assert part.next_batch() == [2, 3]
     assert part.next_batch() == [4]
     part.close()
+
+
+def test_input_eof():
+    inp = TestingSource(
+        [0, 1, TestingSource.EOF, 2, 3, 4, TestingSource.EOF, 5], batch_size=3
+    )
+    part = inp.build_part("iterable", None)
+    assert part.next_batch() == [0, 1]
+    with raises(StopIteration):
+        part.next_batch()
+    resume_state = part.snapshot()
+    assert resume_state == 3
+    part.close()
+
+    part = inp.build_part("iterable", resume_state)
+    assert part.next_batch() == [2, 3, 4]
+    assert part.next_batch() == []
+    with raises(StopIteration):
+        part.next_batch()
+    resume_state = part.snapshot()
+    assert resume_state == 7
+
+    part = inp.build_part("iterable", resume_state)
+    assert part.next_batch() == [5]
+    with raises(StopIteration):
+        part.next_batch()
+    part.close()

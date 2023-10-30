@@ -10,9 +10,8 @@
 //!   [`crate::window::WindowLogic`].
 
 use std::collections::hash_map::DefaultHasher;
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::collections::HashMap;
-use std::collections::HashSet;
 use std::hash::BuildHasherDefault;
 
 use chrono::DateTime;
@@ -77,7 +76,7 @@ where
                 .reraise_with(|| format!("error calling predicate in step {step_id}"))?
                 .extract::<bool>(py)
                 .reraise_with(|| format!(
-                    "return value of `predicate` in step {step_id} must be a bool"
+                    "return value of `predicate` in step {step_id} must be a `bool`"
                 ))))
         });
 
@@ -145,7 +144,7 @@ where
                                             })?
                                             .iter()
                                             .reraise_with(|| {
-                                                format!("mapper in {step_id} did not return an iterator")
+                                                format!("mapper in {step_id} did not return an iterable")
                                             })?;
 
                                         for item in output {
@@ -502,12 +501,12 @@ where
             // each key representing the state at the frontier epoch;
             // we only modify state carefully in epoch order once we
             // know we won't be getting any input on closed epochs.
-            let mut logics: HashMap<StateKey, UnaryLogic> = HashMap::new();
+            let mut logics: BTreeMap<StateKey, UnaryLogic> = BTreeMap::new();
             // Contains the last known return value for
             // `logic.notify_at` for each key (if any). We don't
             // snapshot this because the logic itself should contain
             // any notify times within.
-            let mut sched_cache: HashMap<StateKey, DateTime<Utc>> = HashMap::new();
+            let mut sched_cache: BTreeMap<StateKey, DateTime<Utc>> = BTreeMap::new();
 
             // Here we have "buffers" that store items across
             // activations.
@@ -524,7 +523,7 @@ where
             // only snapshot state of keys that could have resulted in
             // state modifications. This is drained after each epoch
             // is processed.
-            let mut awoken_keys_buffer: HashSet<StateKey> = HashSet::new();
+            let mut awoken_keys_buffer: BTreeSet<StateKey> = BTreeSet::new();
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = op_name).in_scope(|| {
@@ -778,7 +777,7 @@ where
                                     // Finally drain
                                     // `awoken_keys_buffer` since the
                                     // epoch is over.
-                                    for key in awoken_keys_buffer.drain() {
+                                    for key in std::mem::take(&mut awoken_keys_buffer) {
                                         let change = if let Some(logic) = logics.get(&key) {
                                             let state =
                                                 with_timer!(

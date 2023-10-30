@@ -2,14 +2,116 @@ import asyncio
 import queue
 from datetime import datetime, timedelta, timezone
 
+from bytewax.dataflow import Dataflow
 from bytewax.inputs import (
+    DynamicSource,
+    FixedPartitionedSource,
+    StatefulSourcePartition,
+    StatelessSourcePartition,
     _SimplePollingPartition,
     batch,
     batch_async,
     batch_getter,
     batch_getter_ex,
 )
+from bytewax.testing import TestingSink, run_main
 from pytest import raises
+
+
+def test_flow_requires_input():
+    flow = Dataflow("test_df")
+
+    with raises(ValueError):
+        run_main(flow)
+
+
+class TestPartition(StatelessSourcePartition):
+    def __init__(self):
+        self._next_awake = datetime.now(timezone.utc)
+        self._iter = iter(list(range(5)))
+
+    def next_batch(self):
+        now = datetime.now(timezone.utc)
+        # Assert that `next` is only called after
+        # the `next_awake` time has passed.
+        assert now >= self._next_awake
+        # Request to awake in 0.1 seconds from now
+        self._next_awake = now + timedelta(seconds=0.1)
+        # This will raise StopIteration when the iterator is complete
+        return [next(self._iter)]
+
+    def next_awake(self):
+        return self._next_awake
+
+
+class TestSource(DynamicSource):
+    def build(self, worker_index, worker_count):
+        return TestPartition()
+
+
+def test_next_awake_in_dynamic_input():
+    """Test that the `next` method is not called before `next_awake` time."""
+
+    out = []
+
+    flow = Dataflow("test_df")
+    s = flow.input("in", TestSource())
+    s.output("out", TestingSink(out))
+
+    # If next is called before the next_awake time has passed,
+    # the dataflow will crash and the test won't pass.
+    run_main(flow)
+    assert out == [0, 1, 2, 3, 4]
+
+
+class TestPartition(StatefulSourcePartition):
+    def __init__(self, cooldown):
+        self._cooldown = cooldown
+        self._next_awake = datetime.now(timezone.utc)
+        self._iter = iter(list(range(4)))
+
+    def next_batch(self):
+        now = datetime.now(timezone.utc)
+        # Assert that `next` is only called after
+        # the `next_awake` time has passed.
+        assert now >= self._next_awake
+
+        # Request to awake in self._cooldown seconds from now
+        self._next_awake = now + self._cooldown
+        # This will raise StopIteration when the iterator is complete
+        return [next(self._iter)]
+
+    def next_awake(self):
+        return self._next_awake
+
+    def snapshot(self):
+        pass
+
+
+class TestSource(FixedPartitionedSource):
+    def list_parts(self):
+        return ["one", "two", "three"]
+
+    def build_part(self, for_part, resume_state):
+        if for_part == "one":
+            return TestPartition(cooldown=timedelta(seconds=0.1))
+        if for_part == "two":
+            return TestPartition(cooldown=timedelta(seconds=0.2))
+        if for_part == "three":
+            return TestPartition(cooldown=timedelta(seconds=0.3))
+
+
+def test_next_awake_in_partitioned_input():
+    out = []
+
+    flow = Dataflow("test_df")
+    s = flow.input("inp", TestSource())
+    s.output("out", TestingSink(out))
+
+    # If next is called before the next_awake time has passed,
+    # the dataflow will crash and the test won't pass.
+    run_main(flow)
+    assert out == [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3]
 
 
 def test_simple_polling_source_align_to():

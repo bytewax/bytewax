@@ -56,9 +56,23 @@ class _IterSourcePartition(StatefulSourcePartition):
         # Resume to one after the last completed read index.
         ffwd_iter(it, self._start_idx)
         self._batcher = batch(it, batch_size)
+        self._is_eof = False
 
     def next_batch(self):
+        if self._is_eof:
+            raise StopIteration()
+
         batch = next(self._batcher)
+
+        try:
+            stop_at = batch.index(TestingSource.EOF)
+            batch = batch[:stop_at]
+            self._is_eof = True
+            # Skip the EOF on continuation.
+            self._start_idx += 1
+        except ValueError:
+            pass
+
         self._start_idx += len(batch)
         return batch
 
@@ -84,6 +98,11 @@ class TestingSource(FixedPartitionedSource):
     """
 
     __test__ = False
+
+    #: If this sentinel value appears in the iterable, the source will
+    #: return EOF. If you continue the dataflow, it will pick up from
+    #: right after this.
+    EOF = object()
 
     def __init__(self, ib: Iterable[Any], batch_size: int = 1):
         """Init.
