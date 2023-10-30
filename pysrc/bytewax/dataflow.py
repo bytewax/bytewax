@@ -874,7 +874,6 @@ def load_mod_ops(mod: ModuleType) -> None:
 
     """
     for name in getattr(mod, "__all__", dir(mod)):
-        if not name.startswith("_"):
-            obj = getattr(mod, name)
-            if inspect.isclass(obj) and issubclass(obj, Operator):
-                load_op(obj, name)
+        obj = getattr(mod, name)
+        if inspect.isclass(obj) and issubclass(obj, Operator):
+            load_op(obj, name)
