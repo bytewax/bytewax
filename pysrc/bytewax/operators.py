@@ -28,13 +28,15 @@ custom operators.
 """
 
 import copy
+import itertools
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from datetime import datetime, timedelta
 from functools import partial
 from typing import (
     Any,
     Callable,
+    ClassVar,
     Dict,
     Iterable,
     List,
@@ -909,101 +911,189 @@ def inspect_debug(
 
 @dataclass
 class _JoinState:
-    keys: List[Any]
-    vals: Dict[Any, Any] = field(default_factory=dict)
+    names: InitVar[Iterable[Any]]
+    seen: Dict[Any, List[Any]] = field(init=False, default_factory=dict)
+    #: Sentinel value so we can distinguish not-set from an explicit
+    #: `None`.
+    _EMPTY: ClassVar[Any] = object()
 
-    def set_val(self, key: str, value: Any) -> None:
-        self.vals[key] = value
+    def __post_init__(self, names: Iterable[Any]) -> None:
+        self.seen = {n: [] for n in names}
 
-    def is_set(self, key: str) -> bool:
-        return key in self.vals
+    def set_val(self, name: Any, value: Any) -> None:
+        self.seen[name] = [value]
+
+    def add_val(self, name: Any, value: Any) -> None:
+        self.seen[name].append(value)
+
+    def is_set(self, name: Any) -> bool:
+        return len(self.seen[name]) > 0
 
     def all_set(self) -> bool:
-        return all(key in self.vals for key in self.keys)
+        return all(self.is_set(name) for name in self.seen.keys())
 
-    def astuple(self) -> Tuple:
-        return tuple(self.vals[key] for key in self.keys)
+    def astuples(self) -> Iterable[Tuple]:
+        return itertools.product(
+            *(val if len(val) > 0 else [None] for val in self.seen.values())
+        )
 
-    def asdict(self) -> Dict:
-        return self.vals
+    def asdicts(self) -> Iterable[Dict]:
+        ts = itertools.product(
+            *(
+                val if len(val) > 0 else [_JoinState._EMPTY]
+                for val in self.seen.values()
+            )
+        )
+        for t in ts:
+            yield dict(
+                (n, v)
+                for n, v in zip(self.seen.keys(), t)
+                if v is not _JoinState._EMPTY
+            )
 
 
-def _join_inner_folder(s: _JoinState, k_v):
-    k, v = k_v
-    s.set_val(k, v)
-    return s
+@dataclass
+class _JoinLogic(UnaryLogic):
+    step_id: str
+    running: bool
+    state: _JoinState
+
+    def on_item(self, _now: datetime, name_value: Any) -> Tuple[Iterable[Any], bool]:
+        name, value = name_value
+
+        self.state.set_val(name, value)
+
+        if self.running:
+            return ([copy.deepcopy(self.state)], UnaryLogic.RETAIN)
+        else:
+            if self.state.all_set():
+                # No need to deepcopy because we are discarding the state.
+                return ([self.state], UnaryLogic.DISCARD)
+            else:
+                return ([], UnaryLogic.RETAIN)
+
+    def on_notify(self, _s: datetime) -> Tuple[Iterable[Any], bool]:
+        return ([], UnaryLogic.RETAIN)
+
+    def on_eof(self) -> Tuple[Iterable[Any], bool]:
+        return ([], UnaryLogic.RETAIN)
+
+    def notify_at(self) -> Optional[datetime]:
+        return None
+
+    def snapshot(self) -> Any:
+        return copy.deepcopy(self.state)
 
 
 @operator()
-def join_inner(
+def _join_name_merge(
+    flow: Dataflow,
+    step_id: str,
+    **named_ups: Stream,
+) -> KeyedStream:
+    with_names = [
+        # Horrible mess, see
+        # https://docs.astral.sh/ruff/rules/function-uses-loop-variable/
+        up.map_value(f"name_{name}", partial(lambda name, v: (name, v), name))
+        for name, up in named_ups.items()
+    ]
+    return flow.merge_all("merge", *with_names).key_assert("keyed")
+
+
+@operator()
+def join(
     left: KeyedStream,
     step_id: str,
-    running: bool = False,
     *rights: KeyedStream,
+    running: bool = False,
 ) -> KeyedStream:
-    ups = [left] + list(rights)
+    named_ups = dict((str(i), s) for i, s in enumerate([left] + list(rights)))
+    keys = list(named_ups.keys())
 
-    keys = list(range(len(ups)))
-    keyed_ups = [
-        up.map_value(f"key_{i}", partial(lambda i, v: (i, v), i))
-        for i, up in enumerate(ups)
-    ]
+    def builder(resume_state: Optional[Any]) -> _JoinLogic:
+        state = resume_state if resume_state is not None else _JoinState(keys)
+        return _JoinLogic(step_id, running, state)
 
     return (
         left.flow()
-        .merge_all("merge_ups", *keyed_ups)
-        .key_assert("keyed")
-        .fold(
-            "join",
-            lambda: _JoinState(keys),
-            _join_inner_folder,
-            _JoinState.all_set,
-        )
-        .map_value("astuple", _JoinState.astuple)
+        ._join_name_merge("add_names", **named_ups)
+        .unary("join", builder)
+        .flat_map_value("astuple", _JoinState.astuples)
     )
 
 
 @operator()
-def join_inner_named(
-    # Extend `Dataflow` so we can get all the "table names" as
-    # kwargs.
+def join_named(
     flow: Dataflow,
     step_id: str,
     running: bool = False,
     **ups: KeyedStream,
 ) -> KeyedStream:
     keys = list(ups.keys())
-    keyed_ups = [
-        up.map_value(f"key_{key}", partial(lambda key, v: (key, v), key))
-        for key, up in ups.items()
-    ]
+
+    def builder(resume_state: Optional[Any]) -> _JoinLogic:
+        state = resume_state if resume_state is not None else _JoinState(keys)
+        return _JoinLogic(step_id, running, state)
 
     return (
-        flow.merge_all("merge_ups", *keyed_ups)
+        flow._join_name_merge("add_names", **ups)
         .key_assert("keyed")
-        .fold("join", lambda: _JoinState(keys), _join_inner_folder, _JoinState.all_set)
-        .map_value("asdict", _JoinState.asdict)
+        .unary("join", builder)
+        .flat_map_value("asdict", _JoinState.asdicts)
     )
 
 
+def _join_window_folder(state: _JoinState, name_value) -> _JoinState:
+    name, value = name_value
+    state.add_val(name, value)
+    return state
+
+
 @operator()
-def join_inner_window(
+def join_window(
     left: KeyedStream,
     step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
-    right: KeyedStream,
+    *rights: KeyedStream,
 ) -> KeyedStream:
+    named_ups = dict((str(i), s) for i, s in enumerate([left] + list(rights)))
+    keys = list(named_ups.keys())
+
     return (
-        left._keyed_idx("add_idx", right)
+        left.flow()
+        ._join_name_merge("add_names", **named_ups)
         .fold_window(
             "join",
             clock,
             windower,
-            lambda: _JoinState(list(range(2))),
-            _join_inner_folder,
+            lambda: _JoinState(keys),
+            _join_window_folder,
         )
-        .map_value("make_tuple", _JoinState.astuple)
+        .flat_map_value("astuple", _JoinState.astuples)
+    )
+
+
+@operator()
+def join_window_named(
+    flow: Dataflow,
+    step_id: str,
+    clock: ClockConfig,
+    windower: WindowConfig,
+    **ups: KeyedStream,
+) -> KeyedStream:
+    keys = list(ups.keys())
+
+    return (
+        flow._join_name_merge("add_names", **ups)
+        .fold_window(
+            "join",
+            clock,
+            windower,
+            lambda: _JoinState(keys),
+            _join_window_folder,
+        )
+        .flat_map_value("asdict", _JoinState.asdicts)
     )
 
 
