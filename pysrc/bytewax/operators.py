@@ -27,6 +27,7 @@ custom operators.
 
 """
 
+import copy
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -160,7 +161,7 @@ class UnaryLogic(ABC):
 
     @abstractmethod
     def snapshot(self) -> Any:
-        """State to store for recovery.
+        """Return a immutable copy of the state for recovery.
 
         This will be called periodically by the runtime.
 
@@ -168,6 +169,11 @@ class UnaryLogic(ABC):
         function of `unary.unary` when resuming.
 
         The state must be `pickle`-able.
+
+        **The state must be effectively immutable!** If any of the
+        other functions in this class might be able to mutate the
+        state, you must `copy.deepcopy` or something equivalent before
+        returning it here.
 
         """
         ...
@@ -201,6 +207,7 @@ class _BatchLogic(UnaryLogic):
 
         self.state.acc.append(v)
         if len(self.state.acc) >= self.batch_size:
+            # No need to deepcopy because we are discarding the state.
             return ([self.state.acc], UnaryLogic.DISCARD)
 
         return ([], UnaryLogic.RETAIN)
@@ -215,7 +222,7 @@ class _BatchLogic(UnaryLogic):
         return self.state.timeout_at
 
     def snapshot(self) -> Any:
-        return self.state
+        return copy.deepcopy(self.state)
 
 
 @operator()
@@ -669,6 +676,7 @@ class _FoldLogic(UnaryLogic):
             )
             raise TypeError(msg)
         if is_c:
+            # No need to deepcopy because we are discarding the state.
             return ([self.state], UnaryLogic.DISCARD)
 
         return ([], UnaryLogic.RETAIN)
@@ -686,7 +694,7 @@ class _FoldLogic(UnaryLogic):
         return None
 
     def snapshot(self) -> Any:
-        return self.state
+        return copy.deepcopy(self.state)
 
 
 @operator()
@@ -1155,7 +1163,7 @@ class _StatefulMapLogic(UnaryLogic):
         return None
 
     def snapshot(self) -> Any:
-        return self.state
+        return copy.deepcopy(self.state)
 
 
 @operator()
