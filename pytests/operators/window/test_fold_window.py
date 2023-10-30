@@ -2,13 +2,13 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSink, TestingSource, run_main
-from bytewax.window import (
+from bytewax.operators.window import (
     EventClockConfig,
     SessionWindow,
     SlidingWindow,
     TumblingWindow,
 )
+from bytewax.testing import TestingSink, TestingSource, run_main
 
 ZERO_TD = timedelta(seconds=0)
 

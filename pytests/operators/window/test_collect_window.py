@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
+from bytewax.operators.window import EventClockConfig, TumblingWindow
 from bytewax.testing import TestingSink, TestingSource, run_main
-from bytewax.window import EventClockConfig, TumblingWindow
 
 ZERO_TD = timedelta(seconds=0)
 

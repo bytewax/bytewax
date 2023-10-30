@@ -91,6 +91,7 @@ own operators.
 
 import bytewax.dataflow
 import bytewax.operators
+import bytewax.operators.window
 
 __pdoc__ = {
     # This is the PyO3 module that has to be named "bytewax". Hide it
@@ -102,3 +103,4 @@ __pdoc__ = {
 
 # Load all the built-in operators under their default names.
 bytewax.dataflow.load_mod_ops(bytewax.operators)
+bytewax.dataflow.load_mod_ops(bytewax.operators.window)

@@ -3,6 +3,8 @@
 See the `bytewax` module docstring for the basics of building and
 running dataflows.
 
+See `bytewax.operators.window` for windowing operators.
+
 # Stateful Operators
 
 Operators loaded onto `KeyedStream` (e.g. `fold.fold`,
@@ -30,7 +32,7 @@ custom operators.
 import copy
 import itertools
 from abc import ABC, abstractmethod
-from dataclasses import InitVar, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import partial
 from typing import (
@@ -41,7 +43,6 @@ from typing import (
     List,
     Optional,
     Tuple,
-    Type,
 )
 
 from bytewax.dataflow import (
@@ -54,7 +55,6 @@ from bytewax.dataflow import (
 )
 from bytewax.inputs import Source
 from bytewax.outputs import Sink
-from bytewax.window import ClockConfig, WindowConfig
 
 
 def _identity(x):
@@ -304,51 +304,6 @@ def branch(
     raise NotImplementedError()
 
 
-def _list_collector(s, v):
-    s.append(v)
-    return s
-
-
-def _set_collector(s, v):
-    s.add(v)
-    return s
-
-
-def _dict_collector(s, k_v):
-    k, v = k_v
-    s[k] = v
-    return s
-
-
-def _get_collector(t: Type) -> Callable:
-    if issubclass(t, list):
-        collector = _list_collector
-    elif issubclass(t, set):
-        collector = _set_collector
-    elif issubclass(t, dict):
-        collector = _dict_collector
-    else:
-        msg = (
-            f"collect doesn't support `{t:!}`; "
-            "only `list`, `set`, and `dict`; use `fold` operator directly"
-        )
-        raise TypeError(msg)
-    return collector
-
-
-@operator()
-def collect_window(
-    up: KeyedStream,
-    step_id: str,
-    clock: ClockConfig,
-    windower: WindowConfig,
-    into: Type = list,
-) -> KeyedStream:
-    collector = _get_collector(into)
-
-    return up.fold_window("fold_window", clock, windower, into, collector)
-
-
 @operator()
 def count_final(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStream:
     """Count the number of occurrences of items in the entire stream.
@@ -373,40 +328,6 @@ def count_final(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStr
         up.map("init_count", lambda x: (key(x), 1))
         .key_assert("keyed")
         .reduce_final("sum", lambda s, x: s + x)
-    )
-
-
-@operator()
-def count_window(
-    up: Stream,
-    step_id: str,
-    clock: ClockConfig,
-    windower: WindowConfig,
-    key: Callable[[Any], str],
-) -> KeyedStream:
-    """Count the number of occurrences of items in a window.
-
-    Args:
-        up: Stream of items to count.
-
-        step_id: Unique ID.
-
-        clock: Clock.
-
-        windower: Windower.
-
-        key: Function to convert each item into a string key. The
-            counting machinery does not compare the items directly,
-            instead it groups by this string key.
-
-    Returns:
-        A stream of `(key, count)` per window at the end of each window.
-
-    """
-    return (
-        up.map("init_count", lambda x: (key(x), 1))
-        .key_assert("keyed")
-        .reduce_window("sum", clock, windower, lambda s, x: s + x)
     )
 
 
@@ -725,18 +646,6 @@ def fold_final(
 
 
 @operator(_core=True)
-def fold_window(
-    up: KeyedStream,
-    step_id: str,
-    clock: ClockConfig,
-    windower: WindowConfig,
-    builder: Callable[[], Any],
-    folder: Callable[[Any, Any], Any],
-) -> KeyedStream:
-    raise NotImplementedError()
-
-
-@operator(_core=True)
 def input(  # noqa: A001
     flow: Dataflow,
     step_id: str,
@@ -977,60 +886,6 @@ def join_named(
     )
 
 
-def _join_window_folder(state: _JoinState, name_value) -> _JoinState:
-    name, value = name_value
-    state.add_val(name, value)
-    return state
-
-
-@operator()
-def join_window(
-    left: KeyedStream,
-    step_id: str,
-    clock: ClockConfig,
-    windower: WindowConfig,
-    *rights: KeyedStream,
-) -> KeyedStream:
-    named_ups = dict((str(i), s) for i, s in enumerate([left] + list(rights)))
-    names = list(named_ups.keys())
-
-    return (
-        left.flow()
-        ._join_name_merge("add_names", **named_ups)
-        .fold_window(
-            "join",
-            clock,
-            windower,
-            lambda: _JoinState.for_names(names),
-            _join_window_folder,
-        )
-        .flat_map_value("astuple", _JoinState.astuples)
-    )
-
-
-@operator()
-def join_window_named(
-    flow: Dataflow,
-    step_id: str,
-    clock: ClockConfig,
-    windower: WindowConfig,
-    **ups: KeyedStream,
-) -> KeyedStream:
-    names = list(ups.keys())
-
-    return (
-        flow._join_name_merge("add_names", **ups)
-        .fold_window(
-            "join",
-            clock,
-            windower,
-            lambda: _JoinState.for_names(names),
-            _join_window_folder,
-        )
-        .flat_map_value("asdict", _JoinState.asdicts)
-    )
-
-
 @operator()
 def key_assert(up: Stream, step_id: str) -> KeyedStream:
     """Assert that this stream contains `(key, value)` 2-tuples.
@@ -1117,17 +972,6 @@ def max_final(
     return up.reduce_final("reduce_final", partial(max, key=by))
 
 
-@operator()
-def max_window(
-    up: KeyedStream,
-    step_id: str,
-    clock: ClockConfig,
-    windower: WindowConfig,
-    by: Callable[[Any], Any] = _identity,
-) -> KeyedStream:
-    return up.reduce_window("reduce_window", clock, windower, partial(max, key=by))
-
-
 @operator(_core=True)
 def merge_all(flow: Dataflow, step_id: str, *ups: Stream) -> Stream:
     raise NotImplementedError()
@@ -1145,17 +989,6 @@ def min_final(
     by: Callable[[Any], Any] = _identity,
 ) -> KeyedStream:
     return up.reduce_final("reduce_final", partial(min, key=by))
-
-
-@operator()
-def min_window(
-    up: KeyedStream,
-    step_id: str,
-    clock: ClockConfig,
-    windower: WindowConfig,
-    by: Callable[[Any], Any] = _identity,
-) -> KeyedStream:
-    return up.reduce_window("reduce_window", clock, windower, partial(min, key=by))
 
 
 @operator(_core=True)
@@ -1183,25 +1016,6 @@ def reduce_final(
         return s
 
     return up.fold_final("fold_final", _none_builder, shim_folder)
-
-
-@operator()
-def reduce_window(
-    up: KeyedStream,
-    step_id: str,
-    clock: ClockConfig,
-    windower: WindowConfig,
-    reducer: Callable[[Any, Any], Any],
-) -> KeyedStream:
-    def shim_folder(s, v):
-        if s is None:
-            s = v
-        else:
-            s = reducer(s, v)
-
-        return s
-
-    return up.fold_window("fold_window", clock, windower, _none_builder, shim_folder)
 
 
 @dataclass
