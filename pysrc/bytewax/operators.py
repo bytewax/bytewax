@@ -603,7 +603,7 @@ def filter(  # noqa: A001
         if not isinstance(keep, bool):
             msg = (
                 f"return value of `predicate` {f_repr(predicate)} "
-                f"in step {step_id!r} must be a bool; "
+                f"in step {step_id!r} must be a `bool`; "
                 f"got a {type(keep)!r} instead"
             )
             raise TypeError(msg)
@@ -710,7 +710,7 @@ class _FoldLogic(UnaryLogic):
         if not isinstance(is_c, bool):
             msg = (
                 f"return value of `is_complete` {f_repr(self.is_fold_complete)} "
-                f"in step {self.step_id!r} must be a bool; "
+                f"in step {self.step_id!r} must be a `bool`; "
                 f"got a {type(is_c)!r} instead"
             )
             raise TypeError(msg)
@@ -1033,6 +1033,13 @@ def key_assert(up: Stream, step_id: str) -> KeyedStream:
 def key_on(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStream:
     def shim_mapper(v):
         k = key(v)
+        if not isinstance(k, str):
+            msg = (
+                f"return value of `key` {f_repr(key)} "
+                f"in step {step_id!r} must be a `str`; "
+                f"got a {type(k)!r} instead"
+            )
+            raise TypeError(msg)
         return (k, v)
 
     return up.map("map", shim_mapper).key_assert("keyed")
