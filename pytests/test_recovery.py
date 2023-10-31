@@ -36,7 +36,7 @@ def build_keep_max_dataflow(inp, explode_on, out):
             raise RuntimeError(msg)
         return (key, value)
 
-    stream = stream.map("trigger", trigger).assert_keyed("assert")
+    stream = stream.map("trigger", trigger).key_assert("keyed")
 
     def keep_max(previous_max, new_item):
         if previous_max is None:
