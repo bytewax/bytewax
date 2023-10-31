@@ -181,7 +181,8 @@ impl ToPyObject for StepId {
 
 impl std::fmt::Display for StepId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&self.0, f)
+        // Format as a quoted string, but without the `StepId()` part.
+        std::fmt::Debug::fmt(&self.0, f)
     }
 }
 
@@ -204,6 +205,13 @@ pub(crate) struct StateKey(pub(crate) String);
 impl IntoPy<Py<PyAny>> for StateKey {
     fn into_py(self, py: Python<'_>) -> Py<PyAny> {
         self.0.into_py(py)
+    }
+}
+
+impl std::fmt::Display for StateKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Format as a quoted string, but without the `StateKey()` part.
+        std::fmt::Debug::fmt(&self.0, f)
     }
 }
 

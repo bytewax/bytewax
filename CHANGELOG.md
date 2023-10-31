@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file. For help wi
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Adds a `TestingSource.EOF` and `TestingSource.ABORT` sentinel values
+  you can use to test recovery.
+
 - *Breaking change* Adds a `datetime` argument to
   `FixedPartitionSource.build_part`, `DynamicSource.build_part`,
   `StatefulSourcePartition.next_batch`, and

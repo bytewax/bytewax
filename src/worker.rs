@@ -2,6 +2,9 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::atomic;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::Duration;
 
 use opentelemetry::global;
@@ -60,6 +63,7 @@ where
     /// This is a function that should return `true` only when the
     /// dataflow should perform an abrupt shutdown.
     interrupt_callback: F,
+    abort: Arc<AtomicBool>,
 }
 
 impl<'a, A, F> Worker<'a, A, F>
@@ -71,6 +75,7 @@ where
         Self {
             worker,
             interrupt_callback,
+            abort: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -83,7 +88,10 @@ where
     {
         tracing::info!("Timely dataflow start");
         let cooldown = Duration::from_millis(1);
-        while !(self.interrupt_callback)() && !probe.done() {
+        while !(self.abort.load(atomic::Ordering::Relaxed)
+            || (self.interrupt_callback)()
+            || probe.done())
+        {
             tracing::debug_span!("step").in_scope(|| {
                 self.worker.step_or_park(Some(cooldown));
             });
@@ -153,6 +161,7 @@ where
             epoch_interval,
             resume_from,
             recovery,
+            &worker.abort,
         )
         .reraise("error building production dataflow")
     })?;
@@ -207,6 +216,7 @@ fn build_production_dataflow<A>(
     epoch_interval: EpochInterval,
     resume_from: ResumeFrom,
     recovery: Option<(RecoveryBundle, BackupInterval)>,
+    abort: &Arc<AtomicBool>,
 ) -> PyResult<ProbeHandle<u64>>
 where
     A: Allocate,
@@ -315,6 +325,7 @@ where
                                 step_id,
                                 epoch_interval,
                                 &probe,
+                                abort,
                                 resume_epoch,
                                 &loads,
                             )
@@ -325,7 +336,15 @@ where
                         snaps.push(snap);
                     } else if let Ok(input) = input.extract::<DynamicSource>(py) {
                         let output = input
-                            .dynamic_input(py, scope, step_id, epoch_interval, &probe, resume_epoch)
+                            .dynamic_input(
+                                py,
+                                scope,
+                                step_id,
+                                epoch_interval,
+                                &probe,
+                                abort,
+                                resume_epoch,
+                            )
                             .reraise("error building DynamicInput")?;
 
                         inputs.push(output.clone());
