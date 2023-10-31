@@ -247,7 +247,7 @@ def batch(
 
     """
 
-    def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
+    def shim_builder(_now: datetime, resume_state: Optional[Any]) -> _BatchLogic:
         state = resume_state if resume_state is not None else _BatchState()
         return _BatchLogic(step_id, timeout, batch_size, state)
 
@@ -638,7 +638,7 @@ def fold_final(
 
     """
 
-    def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
+    def shim_builder(_now: datetime, resume_state: Optional[Any]) -> _FoldFinalLogic:
         state = resume_state if resume_state is not None else builder()
         return _FoldFinalLogic(step_id, folder, state)
 
@@ -849,7 +849,7 @@ def join(
     named_ups = dict((str(i), s) for i, s in enumerate([left] + list(rights)))
     names = list(named_ups.keys())
 
-    def builder(resume_state: Optional[Any]) -> _JoinLogic:
+    def shim_builder(_now: datetime, resume_state: Optional[Any]) -> _JoinLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
@@ -858,7 +858,7 @@ def join(
     return (
         left.flow()
         ._join_name_merge("add_names", **named_ups)
-        .unary("join", builder)
+        .unary("join", shim_builder)
         .flat_map_value("astuple", _JoinState.astuples)
     )
 
@@ -872,7 +872,7 @@ def join_named(
 ) -> KeyedStream:
     names = list(ups.keys())
 
-    def builder(resume_state: Optional[Any]) -> _JoinLogic:
+    def shim_builder(_now: datetime, resume_state: Optional[Any]) -> _JoinLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
@@ -881,7 +881,7 @@ def join_named(
     return (
         flow._join_name_merge("add_names", **ups)
         .key_assert("keyed")
-        .unary("join", builder)
+        .unary("join", shim_builder)
         .flat_map_value("asdict", _JoinState.asdicts)
     )
 
@@ -1058,7 +1058,7 @@ def stateful_map(
     builder: Callable[[], Any],
     mapper: Callable[[Any, Any], Tuple[Any, Iterable[Any]]],
 ) -> KeyedStream:
-    def shim_builder(resume_state: Optional[Any]) -> UnaryLogic:
+    def shim_builder(_now: datetime, resume_state: Optional[Any]) -> _StatefulMapLogic:
         state = resume_state if resume_state is not None else builder()
         return _StatefulMapLogic(step_id, mapper, state)
 
@@ -1069,6 +1069,6 @@ def stateful_map(
 def unary(
     up: KeyedStream,
     step_id: str,
-    builder: Callable[[Optional[Any]], UnaryLogic],
+    builder: Callable[[datetime, Optional[Any]], UnaryLogic],
 ) -> KeyedStream:
     raise NotImplementedError()

@@ -624,7 +624,7 @@ where
                                             logics.entry(key.clone()).or_insert_with(|| {
                                                 unwrap_any!((|| {
                                                     builder
-                                                        .call1(py, (None::<PyObject>,))?
+                                                        .call1(py, (py_now.clone_ref(py), None::<PyObject>))?
                                                         .extract::<UnaryLogic>(py)
                                                 })(
                                                 ))
@@ -815,7 +815,7 @@ where
                                             match change {
                                                 StateChange::Upsert(state) => {
                                                     let logic = builder
-                                                        .call1(py, (Some(state),))?
+                                                        .call1(py, (py_now.clone_ref(py), Some(state),))?
                                                         .extract::<UnaryLogic>(py)?;
                                                     if let Some(notify_at) = logic.notify_at(py)? {
                                                         sched_cache.insert(key.clone(), notify_at);
