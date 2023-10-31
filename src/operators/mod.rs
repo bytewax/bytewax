@@ -690,6 +690,16 @@ where
                                         if let IsComplete::Discard = is_complete {
                                             logics.remove(&key);
                                             sched_cache.remove(&key);
+                                        } else {
+                                            // Even if we don't
+                                            // discard the logic, the
+                                            // previous scheduled
+                                            // notification only
+                                            // should fire once. The
+                                            // logic can re-schedule
+                                            // it by still returning
+                                            // it in `notify_at`.
+                                            sched_cache.remove(&key);
                                         }
 
                                         awoken_keys_buffer.insert(key);
