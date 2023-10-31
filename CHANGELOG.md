@@ -7,6 +7,11 @@ All notable changes to this project will be documented in this file. For help wi
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- *Breaking change* Adds a `datetime` argument to
+  `FixedPartitionSource.build_part`, `DynamicSource.build_part`,
+  `StatefulSourcePartition.next_batch`, and
+  `StatelessSourcePartition.next_batch`. You can now use this to
+  update your `next_awake` time easily.
 
 - *Breaking change* Window operators now emit WindowMetadata
   objects downstream. These objects can be used to introspect

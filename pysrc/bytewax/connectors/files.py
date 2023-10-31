@@ -1,8 +1,9 @@
 """Connectors for local text files."""
 import os
 from csv import DictReader
+from datetime import datetime
 from pathlib import Path
-from typing import Callable, Union
+from typing import Any, Callable, List, Optional, Union
 from zlib import adler32
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch
@@ -44,7 +45,7 @@ class _FileSourcePartition(StatefulSourcePartition):
         it = map(_strip_n, _readlines(self._f))
         self._batcher = batch(it, batch_size)
 
-    def next_batch(self):
+    def next_batch(self, _sched: datetime) -> List[Any]:
         return next(self._batcher)
 
     def snapshot(self):
@@ -99,7 +100,7 @@ class DirSource(FixedPartitionedSource):
             for path in self._dir_path.glob(self._glob_pat)
         ]
 
-    def build_part(self, for_part, resume_state):
+    def build_part(self, _now: datetime, for_part: str, resume_state: Optional[Any]):
         """See ABC docstring."""
         path = self._dir_path / for_part
         return _FileSourcePartition(path, self._batch_size, resume_state)
@@ -137,7 +138,7 @@ class FileSource(FixedPartitionedSource):
         else:
             return []
 
-    def build_part(self, for_part, resume_state):
+    def build_part(self, _now: datetime, for_part: str, resume_state: Optional[Any]):
         """See ABC docstring."""
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
@@ -155,7 +156,7 @@ class _CSVPartition(StatefulSourcePartition):
             self._f.seek(resume_state)
         self._batcher = batch(reader, batch_size)
 
-    def next_batch(self):
+    def next_batch(self, _sched: datetime) -> List[Any]:
         return next(self._batcher)
 
     def snapshot(self):
@@ -223,7 +224,7 @@ class CSVSource(FileSource):
         super().__init__(path, batch_size)
         self._fmtparams = fmtparams
 
-    def build_part(self, for_part, resume_state):
+    def build_part(self, _now: datetime, for_part: str, resume_state: Optional[Any]):
         """See ABC docstring."""
         assert for_part == str(self._path), "Can't resume reading from different file"
         return _CSVPartition(

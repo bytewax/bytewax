@@ -14,20 +14,20 @@ from pytest import raises
 
 def test_simple_polling_source_align_to():
     part = _SimplePollingPartition(
+        datetime(2023, 1, 1, 5, 15, tzinfo=timezone.utc),
         interval=timedelta(minutes=30),
         align_to=datetime(2023, 1, 1, 4, 0, tzinfo=timezone.utc),
         getter=lambda: True,
-        now_getter=lambda: datetime(2023, 1, 1, 5, 15, tzinfo=timezone.utc),
     )
     assert part.next_awake() == datetime(2023, 1, 1, 5, 30, tzinfo=timezone.utc)
 
 
 def test_simple_polling_source_align_to_start_on_align_awakes_immediately():
     part = _SimplePollingPartition(
+        datetime(2023, 1, 1, 5, 0, tzinfo=timezone.utc),
         interval=timedelta(minutes=30),
         align_to=datetime(2023, 1, 1, 4, 0, tzinfo=timezone.utc),
         getter=lambda: True,
-        now_getter=lambda: datetime(2023, 1, 1, 5, 0, tzinfo=timezone.utc),
     )
     assert part.next_awake() == datetime(2023, 1, 1, 5, 0, tzinfo=timezone.utc)
 

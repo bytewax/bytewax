@@ -14,17 +14,17 @@ def test_next_awake_in_dynamic_input():
     """Test that the `next` method is not called before `next_awake` time."""
 
     class TestPartition(StatelessSourcePartition):
-        def __init__(self):
-            self._next_awake = datetime.now(timezone.utc)
+        def __init__(self, now):
+            self._next_awake = now
             self._iter = iter(list(range(5)))
 
-        def next_batch(self):
-            now = datetime.now(timezone.utc)
+        def next_batch(self, sched):
+            datetime.now(timezone.utc)
             # Assert that `next` is only called after
             # the `next_awake` time has passed.
-            assert now >= self._next_awake
+            assert sched >= self._next_awake
             # Request to awake in 0.1 seconds from now
-            self._next_awake = now + timedelta(seconds=0.1)
+            self._next_awake = sched + timedelta(seconds=0.1)
             # This will raise StopIteration when the iterator is complete
             return [next(self._iter)]
 
@@ -32,8 +32,8 @@ def test_next_awake_in_dynamic_input():
             return self._next_awake
 
     class TestSource(DynamicSource):
-        def build(self, worker_index, worker_count):
-            return TestPartition()
+        def build(self, now, worker_index, worker_count):
+            return TestPartition(now)
 
     out = []
     flow = Dataflow()
@@ -50,19 +50,19 @@ def test_next_awake_in_partitioned_input():
     """Test that the `next` method is not called before `next_awake` time."""
 
     class TestPartition(StatefulSourcePartition):
-        def __init__(self, cooldown):
+        def __init__(self, now, cooldown):
             self._cooldown = cooldown
-            self._next_awake = datetime.now(timezone.utc)
+            self._next_awake = now
             self._iter = iter(list(range(4)))
 
-        def next_batch(self):
+        def next_batch(self, sched):
             now = datetime.now(timezone.utc)
             # Assert that `next` is only called after
             # the `next_awake` time has passed.
             assert now >= self._next_awake
 
             # Request to awake in self._cooldown seconds from now
-            self._next_awake = now + self._cooldown
+            self._next_awake = sched + self._cooldown
             # This will raise StopIteration when the iterator is complete
             return [next(self._iter)]
 
@@ -76,13 +76,13 @@ def test_next_awake_in_partitioned_input():
         def list_parts(self):
             return ["one", "two", "three"]
 
-        def build_part(self, for_part, resume_state):
+        def build_part(self, now, for_part, resume_state):
             if for_part == "one":
-                return TestPartition(cooldown=timedelta(seconds=0.1))
+                return TestPartition(now, cooldown=timedelta(seconds=0.1))
             if for_part == "two":
-                return TestPartition(cooldown=timedelta(seconds=0.2))
+                return TestPartition(now, cooldown=timedelta(seconds=0.2))
             if for_part == "three":
-                return TestPartition(cooldown=timedelta(seconds=0.3))
+                return TestPartition(now, cooldown=timedelta(seconds=0.3))
 
     out = []
     flow = Dataflow()

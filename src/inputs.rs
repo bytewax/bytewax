@@ -161,11 +161,12 @@ impl FixedPartitionedSource {
     fn build_part(
         &self,
         py: Python,
+        now: DateTime<Utc>,
         for_part: &StateKey,
         resume_state: Option<TdPyAny>,
     ) -> PyResult<StatefulPartition> {
         self.0
-            .call_method1(py, "build_part", (for_part.clone(), resume_state))?
+            .call_method1(py, "build_part", (now, for_part.clone(), resume_state))?
             .extract(py)
     }
 
@@ -277,6 +278,7 @@ impl FixedPartitionedSource {
                                 let (part, next_awake) = unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
                                     let part = self.build_part(
                                         py,
+                                        now,
                                         &part_key,
                                         Some(state)
                                     ).reraise("error resuming StatefulSource")?;
@@ -333,7 +335,7 @@ impl FixedPartitionedSource {
                                 if !parts.contains_key(part_key) {
                                     tracing::info!("Init-ing {part_key:?} at epoch {epoch:?}");
                                     let (part, next_awake) = unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
-                                            let part = self.build_part(py, part_key, None).reraise("error init StatefulSource")?;
+                                            let part = self.build_part(py, now, part_key, None).reraise("error init StatefulSource")?;
                                             let next_awake = part.next_awake(py).reraise("error getting next awake")?.unwrap_or(now);
                                             Ok((part, next_awake))
                                         }
@@ -371,7 +373,7 @@ impl FixedPartitionedSource {
                                         unwrap_any!(
                                             Python::with_gil(|py| part_state
                                                              .part
-                                                             .next_batch(py).reraise("error getting next input batch"))
+                                                             .next_batch(py, part_state.next_awake).reraise("error getting next input batch"))
                                         )
                                     )
                                 {
@@ -487,8 +489,8 @@ impl<'source> FromPyObject<'source> for StatefulPartition {
 }
 
 impl StatefulPartition {
-    fn next_batch(&self, py: Python) -> PyResult<Option<Vec<TdPyAny>>> {
-        match self.0.call_method0(py, intern!(py, "next_batch")) {
+    fn next_batch(&self, py: Python, sched: DateTime<Utc>) -> PyResult<Option<Vec<TdPyAny>>> {
+        match self.0.call_method1(py, intern!(py, "next_batch"), (sched,)) {
             Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(None),
             Err(err) => Err(err),
             Ok(items) => Ok(Some(items.extract(py).reraise(
@@ -554,11 +556,12 @@ impl DynamicSource {
     fn build(
         &self,
         py: Python,
+        now: DateTime<Utc>,
         index: WorkerIndex,
         count: WorkerCount,
     ) -> PyResult<StatelessPartition> {
         self.0
-            .call_method1(py, "build", (index.0, count.0))?
+            .call_method1(py, "build", (now, index.0, count.0))?
             .extract(py)
     }
 
@@ -579,10 +582,11 @@ impl DynamicSource {
     where
         S: Scope<Timestamp = u64>,
     {
+        let now = Utc::now();
         let worker_index = scope.w_index();
         let worker_count = scope.w_count();
         let part = self
-            .build(py, worker_index, worker_count)
+            .build(py, now, worker_index, worker_count)
             .reraise("error building DynamicSource")?;
 
         let op_name = format!("{step_id}.dynamic_input");
@@ -639,7 +643,7 @@ impl DynamicSource {
                                 metric_labels,
                                 unwrap_any!(Python::with_gil(|py| part_state
                                     .part
-                                    .next_batch(py)
+                                    .next_batch(py, part_state.next_awake)
                                     .reraise("error getting next input batch")))
                             ) {
                                 if !batch.is_empty() {
@@ -733,8 +737,8 @@ impl<'source> FromPyObject<'source> for StatelessPartition {
 }
 
 impl StatelessPartition {
-    fn next_batch(&self, py: Python) -> PyResult<Option<Vec<TdPyAny>>> {
-        match self.0.call_method0(py, intern!(py, "next_batch")) {
+    fn next_batch(&self, py: Python, sched: DateTime<Utc>) -> PyResult<Option<Vec<TdPyAny>>> {
+        match self.0.call_method1(py, intern!(py, "next_batch"), (sched,)) {
             Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(None),
             Err(err) => Err(err),
             Ok(items) => Ok(Some(items.extract(py).reraise(

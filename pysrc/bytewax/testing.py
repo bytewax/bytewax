@@ -1,7 +1,7 @@
 """Helper tools for testing dataflows."""
 from datetime import datetime, timedelta, timezone
 from itertools import islice
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, List, Optional
 
 from bytewax.inputs import (
     FixedPartitionedSource,
@@ -57,7 +57,7 @@ class _IterSourcePartition(StatefulSourcePartition):
         ffwd_iter(it, self._start_idx)
         self._batcher = batch(it, batch_size)
 
-    def next_batch(self):
+    def next_batch(self, _sched: datetime) -> List[Any]:
         batch = next(self._batcher)
         self._start_idx += len(batch)
         return batch
@@ -89,11 +89,10 @@ class TestingSource(FixedPartitionedSource):
         """Init.
 
         Args:
-            ib:
-                Iterable for input.
-            batch_size:
-                Number of items from the iterable to emit in each
-                batch. Defaults to 1.
+            ib: Iterable for input.
+
+            batch_size: Number of items from the iterable to emit in
+                each batch. Defaults to 1.
 
         """
         self._ib = ib
@@ -103,7 +102,7 @@ class TestingSource(FixedPartitionedSource):
         """The iterable is read on a single worker."""
         return ["iterable"]
 
-    def build_part(self, for_key, resume_state):
+    def build_part(self, now: datetime, for_key: str, resume_state: Optional[Any]):
         """See ABC docstring."""
         assert for_key == "iterable"
         return _IterSourcePartition(self._ib, self._batch_size, resume_state)
@@ -165,9 +164,10 @@ def poll_next_batch(part, timeout=timedelta(seconds=5)):
     batch = []
     start = datetime.now(timezone.utc)
     while len(batch) <= 0:
-        if datetime.now(timezone.utc) - start > timeout:
+        now = datetime.now(timezone.utc)
+        if now - start > timeout:
             raise TimeoutError()
-        batch = part.next_batch()
+        batch = part.next_batch(now)
     return batch
 
 
