@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import queue
 from datetime import datetime, timedelta, timezone
 
@@ -25,93 +26,92 @@ def test_flow_requires_input():
         run_main(flow)
 
 
-class TestPartition(StatelessSourcePartition):
-    def __init__(self):
-        self._next_awake = datetime.now(timezone.utc)
-        self._iter = iter(list(range(5)))
-
-    def next_batch(self):
-        now = datetime.now(timezone.utc)
-        # Assert that `next` is only called after
-        # the `next_awake` time has passed.
-        assert now >= self._next_awake
-        # Request to awake in 0.1 seconds from now
-        self._next_awake = now + timedelta(seconds=0.1)
-        # This will raise StopIteration when the iterator is complete
-        return [next(self._iter)]
-
-    def next_awake(self):
-        return self._next_awake
-
-
-class TestSource(DynamicSource):
-    def build(self, worker_index, worker_count):
-        return TestPartition()
-
-
-def test_next_awake_in_dynamic_input():
-    """Test that the `next` method is not called before `next_awake` time."""
-
+def test_dynamic_source_next_awake():
     out = []
 
+    class TestPartition(StatelessSourcePartition):
+        def __init__(self, now, interval):
+            self._interval = interval
+            self._next_awake = now
+            self._n = 0
+
+        def next_batch(self):
+            now = datetime.now(timezone.utc)
+            self._next_awake = now + self._interval
+            if self._n < 5:
+                self._n += 1
+                return [now]
+            else:
+                raise StopIteration()
+
+        def next_awake(self):
+            return self._next_awake
+
+    class TestSource(DynamicSource):
+        def __init__(self, interval):
+            self._interval = interval
+
+        def build(self, _worker_index, _worker_count):
+            now = datetime.now(timezone.utc)
+            return TestPartition(now, self._interval)
+
+    interval = timedelta(seconds=0.1)
+
     flow = Dataflow("test_df")
-    s = flow.input("in", TestSource())
+    s = flow.input("in", TestSource(interval))
     s.output("out", TestingSink(out))
 
-    # If next is called before the next_awake time has passed,
-    # the dataflow will crash and the test won't pass.
     run_main(flow)
-    assert out == [0, 1, 2, 3, 4]
+    for x, y in itertools.pairwise(out):
+        td = y - x
+        assert td >= interval
 
 
-class TestPartition(StatefulSourcePartition):
-    def __init__(self, cooldown):
-        self._cooldown = cooldown
-        self._next_awake = datetime.now(timezone.utc)
-        self._iter = iter(list(range(4)))
-
-    def next_batch(self):
-        now = datetime.now(timezone.utc)
-        # Assert that `next` is only called after
-        # the `next_awake` time has passed.
-        assert now >= self._next_awake
-
-        # Request to awake in self._cooldown seconds from now
-        self._next_awake = now + self._cooldown
-        # This will raise StopIteration when the iterator is complete
-        return [next(self._iter)]
-
-    def next_awake(self):
-        return self._next_awake
-
-    def snapshot(self):
-        pass
-
-
-class TestSource(FixedPartitionedSource):
-    def list_parts(self):
-        return ["one", "two", "three"]
-
-    def build_part(self, for_part, resume_state):
-        if for_part == "one":
-            return TestPartition(cooldown=timedelta(seconds=0.1))
-        if for_part == "two":
-            return TestPartition(cooldown=timedelta(seconds=0.2))
-        if for_part == "three":
-            return TestPartition(cooldown=timedelta(seconds=0.3))
-
-
-def test_next_awake_in_partitioned_input():
+def test_fixed_partitioned_source_next_awake():
     out = []
 
+    class TestPartition(StatefulSourcePartition):
+        def __init__(self, now, interval):
+            self._interval = interval
+            self._next_awake = now
+            self._n = 0
+
+        def next_batch(self):
+            now = datetime.now(timezone.utc)
+            self._next_awake = now + self._interval
+            if self._n < 5:
+                self._n += 1
+                return [now]
+            else:
+                raise StopIteration()
+
+        def next_awake(self):
+            return self._next_awake
+
+        def snapshot(self):
+            return None
+
+    class TestSource(FixedPartitionedSource):
+        def __init__(self, interval):
+            self._interval = interval
+
+        def list_parts(self):
+            return ["one"]
+
+        def build_part(self, _for_part, _resume_state):
+            now = datetime.now(timezone.utc)
+            return TestPartition(now, self._interval)
+
+    interval = timedelta(seconds=0.1)
+
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestSource())
+    s = flow.input("inp", TestSource(interval))
     s.output("out", TestingSink(out))
 
-    # If next is called before the next_awake time has passed,
-    # the dataflow will crash and the test won't pass.
     run_main(flow)
-    assert out == [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3]
+    for x, y in itertools.pairwise(out):
+        td = y - x
+        assert td >= interval
 
 
 def test_simple_polling_source_align_to():
