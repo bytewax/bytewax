@@ -29,6 +29,7 @@
 //! want. E.g. [`SystemClockConfig`] represents a token in Python for
 //! how to create a [`SystemClock`].
 
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -141,7 +142,9 @@ pub(crate) trait Clock<V> {
 }
 
 /// Unique ID for a window coming from a single [`Windower`] impl.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, FromPyObject)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, FromPyObject,
+)]
 pub(crate) struct WindowKey(i64);
 
 impl ToPyObject for WindowKey {
@@ -347,7 +350,7 @@ where
 {
     clock: Box<dyn Clock<V>>,
     windower: Box<dyn Windower>,
-    current_state: HashMap<WindowKey, L>,
+    current_state: BTreeMap<WindowKey, L>,
     /// This has to be an [`Rc`] because multiple keys all need to use
     /// the same builder and we don't know how many there'll be.
     logic_builder: Rc<LB>,
@@ -378,7 +381,7 @@ where
                     let state = state.as_ref(py);
                     let clock_state = state.get_item("clock")?.into();
                     let windower_state = state.get_item("windower")?.into();
-                    let logic_states: HashMap<WindowKey, TdPyAny> =
+                    let logic_states: BTreeMap<WindowKey, TdPyAny> =
                         state.get_item("logic")?.extract()?;
                     Ok((Some(clock_state), Some(windower_state), Some(logic_states)))
                 }))
@@ -495,7 +498,7 @@ where
             let state = PyDict::new(py);
             state.set_item("clock", self.clock.snapshot())?;
             state.set_item("windower", self.windower.snapshot())?;
-            let logic_states: HashMap<WindowKey, TdPyAny> = self
+            let logic_states: BTreeMap<WindowKey, TdPyAny> = self
                 .current_state
                 .iter()
                 .map(|(key, logic)| (*key, logic.snapshot()))

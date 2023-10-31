@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use chrono::prelude::*;
 use chrono::Duration;
@@ -84,7 +84,7 @@ pub(crate) struct SlidingWindower {
     length: Duration,
     offset: Duration,
     align_to: DateTime<Utc>,
-    close_times: HashMap<WindowKey, (DateTime<Utc>, DateTime<Utc>)>,
+    close_times: BTreeMap<WindowKey, (DateTime<Utc>, DateTime<Utc>)>,
 }
 
 impl SlidingWindower {
@@ -185,7 +185,7 @@ impl Windower for SlidingWindower {
     /// Look at the current watermark, determine which windows are now
     /// closed, return them, and remove them from internal state.
     fn drain_closed(&mut self, watermark: &DateTime<Utc>) -> Vec<(WindowKey, WindowMetadata)> {
-        let mut future_close_times = HashMap::new();
+        let mut future_close_times = BTreeMap::new();
         let mut closed_keys = Vec::new();
 
         for (key, (open_time, close_time)) in self.close_times.iter() {
@@ -230,7 +230,7 @@ fn test_intersect_overlap_offset_divisible_by_length_bulk_positive() {
         length: Duration::seconds(10),
         offset: Duration::seconds(5),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //              9:00:13
@@ -263,7 +263,7 @@ fn test_intersect_overlap_offset_divisible_by_length_bulk_negative() {
         length: Duration::seconds(10),
         offset: Duration::seconds(5),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //             8:59:57
@@ -296,7 +296,7 @@ fn test_intersect_overlap_offset_divisible_by_length_bulk_zero_negative() {
         length: Duration::seconds(10),
         offset: Duration::seconds(5),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //              9:00:03
@@ -329,7 +329,7 @@ fn test_intersect_overlap_offset_divisible_by_length_bulk_zero_positive() {
         length: Duration::seconds(10),
         offset: Duration::seconds(5),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //             9:00:07
@@ -362,7 +362,7 @@ fn test_intersect_overlap_offset_divisible_by_length_edge_positive() {
         length: Duration::seconds(10),
         offset: Duration::seconds(5),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                9:00:15
@@ -396,7 +396,7 @@ fn test_intersect_overlap_offset_divisible_by_length_edge_negative() {
         length: Duration::seconds(10),
         offset: Duration::seconds(5),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //           8:59:55
@@ -429,7 +429,7 @@ fn test_intersect_overlap_offset_divisible_by_length_edge_start_zero() {
         length: Duration::seconds(10),
         offset: Duration::seconds(5),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //           9:00:00
@@ -462,7 +462,7 @@ fn test_intersect_overlap_offset_divisible_by_length_edge_end_zero() {
         length: Duration::seconds(10),
         offset: Duration::seconds(5),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //           9:00:10
@@ -495,7 +495,7 @@ fn test_intersect_overlap_offset_indivisible_by_length_bulk_positive() {
         length: Duration::seconds(10),
         offset: Duration::seconds(3),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //            9:00:11
@@ -534,7 +534,7 @@ fn test_intersect_overlap_offset_indivisible_by_length_bulk_negative() {
         length: Duration::seconds(10),
         offset: Duration::seconds(3),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //            8:59:59
@@ -573,7 +573,7 @@ fn test_intersect_overlap_offset_indivisible_by_length_bulk_zero() {
         length: Duration::seconds(10),
         offset: Duration::seconds(3),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //            9:00:05
@@ -612,7 +612,7 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_start_positive() {
         length: Duration::seconds(10),
         offset: Duration::seconds(7),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //               9:00:14
@@ -644,7 +644,7 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_start_negative() {
         length: Duration::seconds(10),
         offset: Duration::seconds(7),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //        8:59:53
@@ -676,7 +676,7 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_start_zero() {
         length: Duration::seconds(10),
         offset: Duration::seconds(7),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //        9:00:00
@@ -708,7 +708,7 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_end_positive() {
         length: Duration::seconds(10),
         offset: Duration::seconds(7),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                  9:00:17
@@ -733,7 +733,7 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_end_negative() {
         length: Duration::seconds(10),
         offset: Duration::seconds(7),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //           8:59:56
@@ -758,7 +758,7 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_end_zero() {
         length: Duration::seconds(10),
         offset: Duration::seconds(7),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                  9:00:10
@@ -783,7 +783,7 @@ fn test_intersect_tumble_bulk_positive() {
         length: Duration::seconds(10),
         offset: Duration::seconds(10),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                9:00:15
@@ -808,7 +808,7 @@ fn test_intersect_tumble_bulk_negative() {
         length: Duration::seconds(10),
         offset: Duration::seconds(10),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                8:59:55
@@ -833,7 +833,7 @@ fn test_intersect_tumble_bulk_zero() {
         length: Duration::seconds(10),
         offset: Duration::seconds(10),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                9:00:05
@@ -858,7 +858,7 @@ fn test_intersect_tumble_edge_positive() {
         length: Duration::seconds(10),
         offset: Duration::seconds(10),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                     9:00:20
@@ -884,7 +884,7 @@ fn test_intersect_tumble_edge_negative() {
         length: Duration::seconds(10),
         offset: Duration::seconds(10),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                     8:59:50
@@ -910,7 +910,7 @@ fn test_intersect_tumble_edge_zero_start() {
         length: Duration::seconds(10),
         offset: Duration::seconds(10),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //           9:00:00
@@ -935,7 +935,7 @@ fn test_intersect_tumble_edge_zero_end() {
         length: Duration::seconds(10),
         offset: Duration::seconds(10),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                     9:00:10
@@ -961,7 +961,7 @@ fn test_intersect_gap_bulk_positive() {
         length: Duration::seconds(10),
         offset: Duration::seconds(13),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                   9:00:18
@@ -986,7 +986,7 @@ fn test_intersect_gap_bulk_negative() {
         length: Duration::seconds(10),
         offset: Duration::seconds(13),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                   8:59:48
@@ -1011,7 +1011,7 @@ fn test_intersect_gap_bulk_zero() {
         length: Duration::seconds(10),
         offset: Duration::seconds(13),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                   9:00:03
@@ -1036,7 +1036,7 @@ fn test_intersect_gap_gap_positive() {
         length: Duration::seconds(10),
         offset: Duration::seconds(13),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //             9:00:20
@@ -1053,7 +1053,7 @@ fn test_intersect_gap_gap_negative() {
         length: Duration::seconds(10),
         offset: Duration::seconds(13),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //             8:59:59
@@ -1070,7 +1070,7 @@ fn test_intersect_gap_edge_start_positive() {
         length: Duration::seconds(10),
         offset: Duration::seconds(13),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //              9:00:13
@@ -1095,7 +1095,7 @@ fn test_intersect_gap_edge_start_negative() {
         length: Duration::seconds(10),
         offset: Duration::seconds(13),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //              8:59:47
@@ -1120,7 +1120,7 @@ fn test_intersect_gap_edge_start_zero() {
         length: Duration::seconds(10),
         offset: Duration::seconds(13),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //              9:00:00
@@ -1145,7 +1145,7 @@ fn test_intersect_gap_edge_end_positive() {
         length: Duration::seconds(10),
         offset: Duration::seconds(13),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                        9:00:23
@@ -1163,7 +1163,7 @@ fn test_intersect_gap_edge_end_negative() {
         length: Duration::seconds(10),
         offset: Duration::seconds(13),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                        8:59:57
@@ -1181,7 +1181,7 @@ fn test_intersect_gap_edge_end_zero() {
         length: Duration::seconds(10),
         offset: Duration::seconds(13),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                        9:00:10
@@ -1199,7 +1199,7 @@ fn test_insert() {
         length: Duration::seconds(10),
         offset: Duration::seconds(5),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //                  9:00:17
@@ -1224,7 +1224,7 @@ fn test_drain_closed() {
         length: Duration::seconds(10),
         offset: Duration::seconds(5),
         align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: HashMap::new(),
+        close_times: BTreeMap::new(),
     };
 
     //     9:00:04      9:00:17
