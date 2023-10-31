@@ -12,6 +12,14 @@ from bytewax.inputs import (
 from bytewax.testing import TestingSink, run_main
 
 
+def pairwise(ib):
+    # Recipe from
+    # https://docs.python.org/3/library/itertools.html?highlight=pairwise#itertools.pairwise
+    a, b = itertools.tee(ib)
+    next(b, None)
+    return zip(a, b)
+
+
 def test_dynamic_source_next_awake():
     out = []
 
@@ -47,7 +55,7 @@ def test_dynamic_source_next_awake():
     flow.output("out", TestingSink(out))
 
     run_main(flow)
-    for x, y in itertools.pairwise(out):
+    for x, y in pairwise(out):
         td = y - x
         assert td >= interval
 
@@ -93,6 +101,6 @@ def test_fixed_partitioned_source_next_awake():
     flow.output("out", TestingSink(out))
 
     run_main(flow)
-    for x, y in itertools.pairwise(out):
+    for x, y in pairwise(out):
         td = y - x
         assert td >= interval
