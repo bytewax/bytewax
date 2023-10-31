@@ -78,6 +78,7 @@ Now you can use
 import dataclasses
 import functools
 import inspect
+import itertools
 import sys
 import typing
 from dataclasses import dataclass, field
@@ -88,6 +89,7 @@ from typing import (
     Callable,
     ClassVar,
     Dict,
+    Iterable,
     List,
     Optional,
     Protocol,
@@ -215,7 +217,7 @@ class _Scope:
 
 @runtime_checkable
 class _HasScope(Protocol):
-    def _get_scope(self) -> Optional[_Scope]:
+    def _get_scopes(self) -> Iterable[_Scope]:
         ...
 
     def _with_scope(self, scope: _Scope):
@@ -290,8 +292,8 @@ class Dataflow:
             # after init, though.
             object.__setattr__(self, "_scope", scope)
 
-    def _get_scope(self) -> Optional[_Scope]:
-        return self._scope
+    def _get_scopes(self) -> Iterable[_Scope]:
+        return [self._scope]
 
     def _with_scope(self, scope: _Scope) -> "Dataflow":
         return dataclasses.replace(self, _scope=scope)
@@ -357,8 +359,8 @@ class Stream:
         """
         return self._scope.flow
 
-    def _get_scope(self) -> Optional[_Scope]:
-        return self._scope
+    def _get_scopes(self) -> Iterable[_Scope]:
+        return [self._scope]
 
     def _with_scope(self, scope: _Scope) -> "Stream":
         return dataclasses.replace(self, _scope=scope)
@@ -418,13 +420,8 @@ class MultiStream:
 
     streams: Dict[str, Stream]
 
-    def _get_scope(self) -> Optional[_Scope]:
-        scopes = set(stream._scope for stream in self.streams.values())
-        assert len(scopes) <= 1
-        if len(scopes) <= 0:
-            return None
-
-        return next(iter(scopes))
+    def _get_scopes(self) -> Iterable[_Scope]:
+        return (stream._scope for stream in self.streams.values())
 
     def _with_scope(self, scope: _Scope) -> "MultiStream":
         streams = {
@@ -639,12 +636,22 @@ def _gen_op_method(
                     bound.arguments[name] = typ._from_kwargs(val)
 
         outer_scopes = set(
-            val._get_scope()
-            for val in bound.arguments.values()
-            if isinstance(val, _HasScope)
+            itertools.chain.from_iterable(
+                val._get_scopes()
+                for val in bound.arguments.values()
+                if isinstance(val, _HasScope)
+            )
         )
         outer_scopes.discard(None)
-        assert len(outer_scopes) == 1
+        if len(outer_scopes) != 1:
+            msg = (
+                "inconsistent stream scoping; "
+                f"found scopes {outer_scopes!r}; "
+                "possible nested `Stream` in arguments to this operator "
+                "or return value from previous operator; "
+                "see `bytewax.dataflow` module docstring for custom operator rules"
+            )
+            raise ValueError(msg)
         # Get the singular outer_scope.
         outer_scope = next(iter(outer_scopes))
         # Re-scope input arguments that have a scope so internal calls
