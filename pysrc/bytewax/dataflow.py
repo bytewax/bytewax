@@ -188,18 +188,6 @@ class Operator:
     inp_names: ClassVar[List[str]]
     out_names: ClassVar[List[str]]
 
-    def get_id(self) -> str:
-        """Get the unique ID."""
-        return self.step_id
-
-    def inp_ports(self) -> Dict[str, Port]:
-        """Get all input ports for visualization."""
-        return {name: getattr(self, name) for name in self.inp_names}
-
-    def out_ports(self) -> Dict[str, Port]:
-        """Get all output ports for visualization."""
-        return {name: getattr(self, name) for name in self.out_names}
-
 
 @dataclass(frozen=True)
 class _CoreOperator(Operator):
@@ -300,18 +288,6 @@ class Dataflow:
 
     def _to_ref(self, _port_id: str) -> DataflowId:
         return DataflowId(self.flow_id)
-
-    def get_id(self) -> str:
-        """Get the unique ID."""
-        return self.flow_id
-
-    def inp_ports(self) -> Dict[str, Port]:
-        """A dataflow has no ports for visualization."""
-        return {}
-
-    def out_ports(self) -> Dict[str, Port]:
-        """A dataflow has no ports for visualization."""
-        return {}
 
     def __getattr__(self, name):
         msg = f"no operator named {name!r}"
