@@ -434,9 +434,8 @@ impl FixedPartitionedSource {
                                             let batch_len = batch.len();
 
                                             let mut downstream_session = downstream_handle.session(&part_state.downstream_cap);
-                                            for item in batch {
-                                                downstream_session.give(item.into());
-                                            }
+                                            let mut batch = batch.into_iter().map(TdPyAny::from).collect();
+                                            downstream_session.give_vec(&mut batch);
 
                                             counter.add(batch_len as u64, metric_labels);
 
@@ -714,9 +713,8 @@ impl DynamicSource {
                                         let batch_len = batch.len();
 
                                         let mut downstream_session = downstream_handle.session(&part_state.output_cap);
-                                        for item in batch {
-                                            downstream_session.give(item.into());
-                                        }
+                                        let mut batch = batch.into_iter().map(TdPyAny::from).collect();
+                                        downstream_session.give_vec(&mut batch);
 
                                         counter.add(batch_len as u64, &metric_labels);
 
