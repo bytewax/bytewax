@@ -11,7 +11,7 @@ import asyncio
 import queue
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from itertools import islice
 from typing import Any, Callable, Iterable, Iterator, List, Optional
 
@@ -55,12 +55,15 @@ class StatefulSourcePartition(ABC):
     """Input partition that maintains state of its position."""
 
     @abstractmethod
-    def next_batch(self) -> List[Any]:
+    def next_batch(self, sched: datetime) -> List[Any]:
         """Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
         never blocking but returning an empty list if there are no
         items to emit yet.
+
+        Args:
+            sched: The scheduled awake time.
 
         Returns:
             An list of items immediately ready. May be empty if no new
@@ -154,6 +157,7 @@ class FixedPartitionedSource(Source):
     @abstractmethod
     def build_part(
         self,
+        now: datetime,
         for_part: str,
         resume_state: Optional[Any],
     ) -> StatefulSourcePartition:
@@ -167,14 +171,14 @@ class FixedPartitionedSource(Source):
         recovery to work properly.
 
         Args:
-            for_part:
-                Which partition to build. Will always be one of the
-                keys returned by `list_parts` on this worker.
+            now: The current time.
 
-            resume_state:
-                State data containing where in the input stream this
-                partition should be begin reading during this
-                execution.
+            for_part: Which partition to build. Will always be one of
+                the keys returned by `list_parts` on this worker.
+
+            resume_state: State data containing where in the input
+                stream this partition should be begin reading during
+                this execution.
 
         Returns:
             The built partition.
@@ -187,12 +191,15 @@ class StatelessSourcePartition(ABC):
     """Input partition that is stateless."""
 
     @abstractmethod
-    def next_batch(self) -> List[Any]:
+    def next_batch(self, sched: datetime) -> List[Any]:
         """Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
         never blocking but yielding an empty list if there are no new
         items yet.
+
+        Args:
+            sched: The scheduled awake time.
 
         Returns:
             An list of items immediately ready. May be empty if no new
@@ -251,16 +258,19 @@ class DynamicSource(Source):
     """
 
     @abstractmethod
-    def build(self, worker_index, worker_count) -> StatelessSourcePartition:
+    def build(
+        self, now: datetime, worker_index: int, worker_count: int
+    ) -> StatelessSourcePartition:
         """Build an input source for a worker.
 
         Will be called once on each worker.
 
         Args:
-            worker_index:
-                Index of this worker.
-            worker_count:
-                Total number of workers.
+            now: The current time.
+
+            worker_index: Index of this worker.
+
+            worker_count: Total number of workers.
 
         Returns:
             The built partition.
@@ -271,12 +281,15 @@ class DynamicSource(Source):
 
 class _SimplePollingPartition(StatefulSourcePartition):
     def __init__(
-        self, interval, align_to, getter, now_getter=lambda: datetime.now(timezone.utc)
+        self,
+        now: datetime,
+        interval: timedelta,
+        align_to: Optional[datetime],
+        getter: Callable[[], Any],
     ):
         self._interval = interval
         self._getter = getter
 
-        now = now_getter()
         if align_to is not None:
             # Hell yeah timedelta implements remainder.
             since_last_awake = (now - align_to) % interval
@@ -291,7 +304,7 @@ class _SimplePollingPartition(StatefulSourcePartition):
         else:
             self._next_awake = now
 
-    def next_batch(self):
+    def next_batch(self, _sched: datetime):
         self._next_awake += self._interval
         return [self._getter()]
 
@@ -345,9 +358,11 @@ class SimplePollingSource(FixedPartitionedSource):
         """Assumes the source has a single partition."""
         return ["singleton"]
 
-    def build_part(self, _for_part, _resume_state):
+    def build_part(self, now: datetime, _for_part: str, _resume_state: Optional[Any]):
         """See ABC docstring."""
-        return _SimplePollingPartition(self._interval, self._align_to, self.next_item)
+        return _SimplePollingPartition(
+            now, self._interval, self._align_to, self.next_item
+        )
 
     @abstractmethod
     def next_item(self) -> Any:
