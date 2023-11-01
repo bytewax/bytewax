@@ -20,7 +20,6 @@ use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::types::PyIterator;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Branch;
@@ -69,7 +68,7 @@ where
         predicate: TdPyCallable,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, TdPyAny>)> {
         let (falses, trues) = Branch::branch(self, move |_epoch, item| {
-            let item: &PyObject = item.into();
+            let item = <&PyObject>::from(item);
 
             unwrap_any!(Python::with_gil(|py| predicate
                 .call1(py, (item,))
@@ -134,7 +133,7 @@ where
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     for item in items {
-                                        let item: PyObject = item.into();
+                                        let item = PyObject::from(item);
 
                                         let output = mapper
                                             .as_ref(py)
@@ -142,15 +141,16 @@ where
                                             .reraise_with(|| {
                                                 format!("error calling mapper in step {step_id}")
                                             })?
-                                            .iter()
+                                            .extract::<Vec<_>>()
                                             .reraise_with(|| {
-                                                format!("mapper in {step_id} did not return an iterable")
+                                                format!(
+                                                    "mapper in {step_id} did not return a `list`"
+                                                )
                                             })?;
 
-                                        for item in output {
-                                            let item = item?;
-                                            downstream_session.give(item.into());
-                                        }
+                                        let mut output =
+                                            output.into_iter().map(TdPyAny::into).collect();
+                                        downstream_session.give_vec(&mut output);
                                     }
 
                                     Ok(())
@@ -193,7 +193,7 @@ where
         let this_worker = self.scope().w_index();
 
         Ok(self.inspect_time(move |epoch, item| {
-            let item: &PyObject = item.into();
+            let item = <&PyObject>::from(item);
 
             let _ = unwrap_any!(Python::with_gil(|py| inspector
                 .call1(py, (step_id.clone(), item, epoch.clone(), this_worker.0))
@@ -259,7 +259,7 @@ where
 {
     fn extract_key(&self, for_step_id: StepId) -> Stream<S, (StateKey, TdPyAny)> {
         self.map(move |item| {
-            let item: PyObject = item.into();
+            let item = PyObject::from(item);
 
             let (key, value) = unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
                 let item = item.as_ref(py);
@@ -281,7 +281,7 @@ where
                 Ok((key, value))
             }));
 
-            (key, value.into())
+            (key, TdPyAny::from(value))
         })
     }
 }
@@ -299,11 +299,11 @@ where
 {
     fn wrap_key(&self) -> Stream<S, TdPyAny> {
         self.map(move |(key, value)| {
-            let value: PyObject = value.into();
+            let value = PyObject::from(value);
 
             let item = Python::with_gil(|py| IntoPy::<PyObject>::into_py((key, value), py));
 
-            item.into()
+            TdPyAny::from(item)
         })
     }
 }
@@ -363,7 +363,7 @@ impl<'source> FromPyObject<'source> for IsComplete {
 }
 
 impl UnaryLogic {
-    fn extract_ret(res: &PyAny) -> PyResult<(&PyIterator, IsComplete)> {
+    fn extract_ret(res: &PyAny) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let (iter, is_complete) = res.extract::<(&PyAny, &PyAny)>().reraise_with(|| {
             format!(
                 "did not return a 2-tuple of `(emit, is_complete)`; got a `{}` instead",
@@ -371,14 +371,14 @@ impl UnaryLogic {
             )
         })?;
         let is_complete = is_complete.extract::<IsComplete>()?;
-        let iter = iter.iter().reraise_with(|| {
+        let emit = iter.extract::<Vec<_>>().reraise_with(|| {
             format!(
-                "`emit` was not an iterator; got a `{}` instead",
+                "`emit` was not a `list`; got a `{}` instead",
                 unwrap_any!(iter.get_type().name())
             )
         })?;
 
-        Ok((iter, is_complete))
+        Ok((emit, is_complete))
     }
 
     fn on_item<'py>(
@@ -386,7 +386,7 @@ impl UnaryLogic {
         py: Python<'py>,
         py_now: PyObject,
         item: PyObject,
-    ) -> PyResult<(&'py PyIterator, IsComplete)> {
+    ) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let res = self
             .0
             .as_ref(py)
@@ -398,7 +398,7 @@ impl UnaryLogic {
         &'py self,
         py: Python<'py>,
         sched: DateTime<Utc>,
-    ) -> PyResult<(&'py PyIterator, IsComplete)> {
+    ) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let res = self
             .0
             .as_ref(py)
@@ -406,7 +406,7 @@ impl UnaryLogic {
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
-    fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(&'py PyIterator, IsComplete)> {
+    fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let res = self.0.as_ref(py).call_method0("on_eof")?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
@@ -614,7 +614,7 @@ where
                             if let Some(items) = inbuf.remove(&epoch) {
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     for (worker, (key, value)) in items {
-                                        let value: PyObject = value.into();
+                                        let value = PyObject::from(value);
 
                                         assert!(worker == this_worker);
                                         // Ok, let's actually run the logic code!
@@ -641,8 +641,7 @@ where
                                         );
 
                                         for value in output {
-                                            kv_downstream_session
-                                                .give((key.clone(), value?.into()));
+                                            kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                                         }
 
                                         if let IsComplete::Discard = is_complete {
@@ -683,8 +682,7 @@ where
                                         );
 
                                         for value in output {
-                                            kv_downstream_session
-                                                .give((key.clone(), value?.into()));
+                                            kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                                         }
 
                                         if let IsComplete::Discard = is_complete {
@@ -725,8 +723,7 @@ where
                                         );
 
                                         for value in output {
-                                            kv_downstream_session
-                                                .give((key.clone(), value?.into()));
+                                            kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                                         }
 
                                         if let IsComplete::Discard = is_complete {
@@ -789,15 +786,14 @@ where
                                     // epoch is over.
                                     for key in std::mem::take(&mut awoken_keys_buffer) {
                                         let change = if let Some(logic) = logics.get(&key) {
-                                            let state =
-                                                with_timer!(
+                                            let state = with_timer!(
                                                 snapshot_histogram,
                                                 labels,
                                                 logic.snapshot(py).reraise_with(|| {
                                                     format!("error calling `UnaryLogic.snapshot` in {step_id} for key {key}")
-                                            })?
+                                                })?
                                             );
-                                            StateChange::Upsert(state.into())
+                                            StateChange::Upsert(TdPyAny::from(state))
                                         } else {
                                             // It's ok if there's no
                                             // logic, because during
