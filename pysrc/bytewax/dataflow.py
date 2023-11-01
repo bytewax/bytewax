@@ -185,8 +185,8 @@ class Operator:
     substeps: List["Operator"]
     #: The class that the operator method should be loaded onto.
     extend_cls: ClassVar[Type]
-    _inp_names: ClassVar[List[str]]
-    _out_names: ClassVar[List[str]]
+    inp_names: ClassVar[List[str]]
+    out_names: ClassVar[List[str]]
 
     def get_id(self) -> str:
         """Get the unique ID."""
@@ -194,11 +194,11 @@ class Operator:
 
     def inp_ports(self) -> Dict[str, Port]:
         """Get all input ports for visualization."""
-        return {name: getattr(self, name) for name in self._inp_names}
+        return {name: getattr(self, name) for name in self.inp_names}
 
     def out_ports(self) -> Dict[str, Port]:
         """Get all output ports for visualization."""
-        return {name: getattr(self, name) for name in self._out_names}
+        return {name: getattr(self, name) for name in self.out_names}
 
 
 @dataclass(frozen=True)
@@ -526,16 +526,16 @@ def _gen_op_cls(
             method_types = typing.get_type_hints(typ._to_ref)
             cls_fields[name] = method_types.get("return", Any)
 
-    inp_ports = []
-    out_ports = []
+    inp_names = []
+    out_names = []
     for name, typ in cls_fields.items():
         if inspect.isclass(typ) and (
             issubclass(typ, SinglePort) or issubclass(typ, MultiPort)
         ):
             if name in inp_fields:
-                inp_ports.append(name)
+                inp_names.append(name)
             elif name in out_fields:
-                out_ports.append(name)
+                out_names.append(name)
 
     # `step_id` is defined on the parent class.
     del cls_fields["step_id"]
@@ -571,8 +571,8 @@ def _gen_op_cls(
     cls_ns = {
         "__doc__": cls_doc,
         "extend_cls": extend_cls,
-        "_inp_names": inp_ports,
-        "_out_names": out_ports,
+        "inp_names": inp_names,
+        "out_names": out_names,
     }
 
     cls = dataclasses.make_dataclass(

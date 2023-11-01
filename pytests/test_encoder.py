@@ -1,200 +1,405 @@
 import json
-from datetime import datetime, timedelta, timezone
 
-from bytewax._encoder import encode_dataflow
+from bytewax._encoder import to_json
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import FixedPartitionedSource
-from bytewax.window import EventClockConfig, TumblingWindow
+from bytewax.testing import TestingSink, TestingSource
 
 
-# Helper functions for some steps
-def acc_values(acc, event):
-    acc.append((event["value"], event["time"]))
-    return acc
+def test_to_json_linear():
+    flow = Dataflow("test_df")
+    s = flow.input("inp", TestingSource([1, 2, 3]))
+    s = s.map("add_one", lambda x: x + 1)
+    s.output("out", TestingSink([]))
 
-
-# Example class to be encoded
-class OrderBook:
-    def __init__(self):
-        self.data = []
-
-    def update(self, data):
-        self.data.append(data)
-
-
-def test_encoding_custom_object():
-    flow = Dataflow("test")
-    flow.stateful_map("avg", OrderBook, OrderBook.update)
-    assert encode_dataflow(flow) == json.dumps(
-        {
-            "type": "Dataflow",
-            "steps": [
-                {
-                    "type": "StatefulMap",
-                    "builder": "OrderBook",
-                    "mapper": "update",
-                    "step_id": "avg",
-                }
-            ],
-        },
-        sort_keys=True,
-    )
-
-
-def test_encoding_custom_input():
-    flow = Dataflow("test")
-
-    class MyCustomSource(FixedPartitionedSource):
-        def list_parts(self):
-            return ["one"]
-
-        def build_part(self, for_key, resume_state):
-            ...
-
-    flow.input("inp", MyCustomSource())
-
-    assert encode_dataflow(flow) == json.dumps(
-        {
-            "type": "Dataflow",
-            "steps": [
-                {
-                    "source": {
-                        "type": "MyCustomSource",
+    assert json.loads(to_json(flow)) == {
+        "type": "Dataflow",
+        "flow_id": "test_df",
+        "substeps": [
+            {
+                "type": "input",
+                "step_id": "test_df.inp",
+                "inp_ports": {},
+                "out_ports": {"down": ["test_df.inp.out"]},
+                "substeps": [],
+            },
+            {
+                "type": "map",
+                "step_id": "test_df.add_one",
+                "inp_ports": {"up": ["test_df.inp.out"]},
+                "out_ports": {"down": ["test_df.add_one.flat_map.out"]},
+                "substeps": [
+                    {
+                        "type": "flat_map",
+                        "step_id": "test_df.add_one.flat_map",
+                        "inp_ports": {"up": ["test_df.inp.out"]},
+                        "out_ports": {"down": ["test_df.add_one.flat_map.out"]},
+                        "substeps": [],
                     },
-                    "step_id": "inp",
-                    "type": "Input",
+                ],
+            },
+            {
+                "type": "output",
+                "step_id": "test_df.out",
+                "inp_ports": {"up": ["test_df.add_one.flat_map.out"]},
+                "out_ports": {},
+                "substeps": [],
+            },
+        ],
+    }
+
+
+def test_to_json_nonlinear():
+    flow = Dataflow("test_df")
+    nums = flow.input("nums", TestingSource([1, 2, 3]))
+    ones = nums.map("add_one", lambda x: x + 1)
+    twos = nums.map("add_two", lambda x: x + 2)
+    ones.output("out_one", TestingSink([]))
+    twos.output("out_two", TestingSink([]))
+
+    assert json.loads(to_json(flow)) == {
+        "type": "Dataflow",
+        "flow_id": "test_df",
+        "substeps": [
+            {
+                "type": "input",
+                "step_id": "test_df.nums",
+                "inp_ports": {},
+                "out_ports": {"down": ["test_df.nums.out"]},
+                "substeps": [],
+            },
+            {
+                "type": "map",
+                "step_id": "test_df.add_one",
+                "inp_ports": {"up": ["test_df.nums.out"]},
+                "out_ports": {"down": ["test_df.add_one.flat_map.out"]},
+                "substeps": [
+                    {
+                        "type": "flat_map",
+                        "step_id": "test_df.add_one.flat_map",
+                        "inp_ports": {"up": ["test_df.nums.out"]},
+                        "out_ports": {"down": ["test_df.add_one.flat_map.out"]},
+                        "substeps": [],
+                    },
+                ],
+            },
+            {
+                "type": "map",
+                "step_id": "test_df.add_two",
+                "inp_ports": {"up": ["test_df.nums.out"]},
+                "out_ports": {"down": ["test_df.add_two.flat_map.out"]},
+                "substeps": [
+                    {
+                        "type": "flat_map",
+                        "step_id": "test_df.add_two.flat_map",
+                        "inp_ports": {"up": ["test_df.nums.out"]},
+                        "out_ports": {"down": ["test_df.add_two.flat_map.out"]},
+                        "substeps": [],
+                    },
+                ],
+            },
+            {
+                "type": "output",
+                "step_id": "test_df.out_one",
+                "inp_ports": {"up": ["test_df.add_one.flat_map.out"]},
+                "out_ports": {},
+                "substeps": [],
+            },
+            {
+                "type": "output",
+                "step_id": "test_df.out_two",
+                "inp_ports": {"up": ["test_df.add_two.flat_map.out"]},
+                "out_ports": {},
+                "substeps": [],
+            },
+        ],
+    }
+
+
+def test_to_json_multistream_inp():
+    flow = Dataflow("test_df")
+    ones = flow.input("ones", TestingSource([2, 3, 4]))
+    twos = flow.input("twos", TestingSource([3, 4, 5]))
+    s = flow.merge_all("merge", ones, twos)
+    s.output("out", TestingSink([]))
+
+    assert json.loads(to_json(flow)) == {
+        "type": "Dataflow",
+        "flow_id": "test_df",
+        "substeps": [
+            {
+                "type": "input",
+                "step_id": "test_df.ones",
+                "inp_ports": {},
+                "out_ports": {"down": ["test_df.ones.out"]},
+                "substeps": [],
+            },
+            {
+                "type": "input",
+                "step_id": "test_df.twos",
+                "inp_ports": {},
+                "out_ports": {"down": ["test_df.twos.out"]},
+                "substeps": [],
+            },
+            {
+                "type": "merge_all",
+                "step_id": "test_df.merge",
+                "inp_ports": {"ups": ["test_df.ones.out", "test_df.twos.out"]},
+                "out_ports": {"down": ["test_df.merge.out"]},
+                "substeps": [],
+            },
+            {
+                "type": "output",
+                "step_id": "test_df.out",
+                "inp_ports": {"up": ["test_df.merge.out"]},
+                "out_ports": {},
+                "substeps": [],
+            },
+        ],
+    }
+
+
+def test_to_json_multistream_out():
+    flow = Dataflow("test_df")
+    nums = flow.input("nums", TestingSource([1, 2, 3]))
+    ones, twos = nums.key_split(
+        "split", lambda x: "ALL", lambda x: x + 1, lambda x: x + 2
+    )
+    ones.output("out_one", TestingSink([]))
+    twos.output("out_two", TestingSink([]))
+
+    assert json.loads(to_json(flow)) == {
+        "type": "Dataflow",
+        "flow_id": "test_df",
+        "substeps": [
+            {
+                "type": "input",
+                "step_id": "test_df.nums",
+                "inp_ports": {},
+                "out_ports": {"down": ["test_df.nums.out"]},
+                "substeps": [],
+            },
+            {
+                "type": "key_split",
+                "step_id": "test_df.split",
+                "inp_ports": {"up": ["test_df.nums.out"]},
+                "out_ports": {
+                    "down": [
+                        "test_df.split.value_0.flat_map_value.keyed.noop.out",
+                        "test_df.split.value_1.flat_map_value.keyed.noop.out",
+                    ]
                 },
-            ],
-        },
-        sort_keys=True,
-    )
-
-
-def test_encoding_map():
-    flow = Dataflow("test")
-    flow.map("add_one", lambda x: x + 1)
-
-    assert encode_dataflow(flow) == json.dumps(
-        {
-            "type": "Dataflow",
-            "steps": [{"type": "Map", "step_id": "add_one", "mapper": "<lambda>"}],
-        },
-        sort_keys=True,
-    )
-
-
-def test_encoding_filter():
-    flow = Dataflow("test")
-    flow.filter("filter_one", lambda x: x == 1)
-
-    assert encode_dataflow(flow) == json.dumps(
-        {
-            "type": "Dataflow",
-            "steps": [
-                {"type": "Filter", "step_id": "filter_one", "predicate": "<lambda>"}
-            ],
-        },
-        sort_keys=True,
-    )
-
-
-def test_encoding_reduce():
-    flow = Dataflow("test")
-    flow.reduce("sessionizer", lambda x, y: x + y, lambda x, y: x == y)
-
-    assert encode_dataflow(flow) == json.dumps(
-        {
-            "type": "Dataflow",
-            "steps": [
-                {
-                    "type": "Reduce",
-                    "step_id": "sessionizer",
-                    "reducer": "<lambda>",
-                    "is_complete": "<lambda>",
-                }
-            ],
-        },
-        sort_keys=True,
-    )
-
-
-def test_encoding_flat_map():
-    flow = Dataflow("test")
-    flow.flat_map("add_one", lambda x: x + 1)
-
-    assert encode_dataflow(flow) == json.dumps(
-        {
-            "type": "Dataflow",
-            "steps": [{"type": "FlatMap", "step_id": "add_one", "mapper": "<lambda>"}],
-        },
-        sort_keys=True,
-    )
-
-
-def test_encoding_stateful_map():
-    flow = Dataflow("test")
-    flow.stateful_map("order_book", lambda key: OrderBook(), OrderBook.update)
-
-    assert encode_dataflow(flow) == json.dumps(
-        {
-            "type": "Dataflow",
-            "steps": [
-                {
-                    "builder": "<lambda>",
-                    "mapper": "update",
-                    "step_id": "order_book",
-                    "type": "StatefulMap",
-                }
-            ],
-        },
-        sort_keys=True,
-    )
-
-
-def test_encoding_fold_window():
-    flow = Dataflow("test")
-    align_to = datetime(2005, 7, 14, 12, 30, tzinfo=timezone.utc)
-    wc = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
-    cc = EventClockConfig(
-        lambda x: datetime.fromisoformat(x["time"]),
-        wait_for_system_duration=timedelta(seconds=10),
-    )
-    flow.fold_window("running_average", cc, wc, lambda x: list(x), acc_values)
-
-    assert encode_dataflow(flow) == json.dumps(
-        {
-            "type": "Dataflow",
-            "steps": [
-                {
-                    "builder": "<lambda>",
-                    "clock_config": {
-                        "dt_getter": "<lambda>",
-                        "type": "EventClockConfig",
-                        "wait_for_system_duration": "0:00:10",
+                "substeps": [
+                    {
+                        "type": "key_on",
+                        "step_id": "test_df.split.key",
+                        "inp_ports": {"up": ["test_df.nums.out"]},
+                        "out_ports": {"down": ["test_df.split.key.keyed.noop.out"]},
+                        "substeps": [
+                            {
+                                "type": "map",
+                                "step_id": "test_df.split.key.map",
+                                "inp_ports": {"up": ["test_df.nums.out"]},
+                                "out_ports": {
+                                    "down": ["test_df.split.key.map.flat_map.out"]
+                                },
+                                "substeps": [
+                                    {
+                                        "type": "flat_map",
+                                        "step_id": "test_df.split.key.map.flat_map",
+                                        "inp_ports": {"up": ["test_df.nums.out"]},
+                                        "out_ports": {
+                                            "down": [
+                                                "test_df.split.key.map.flat_map.out"
+                                            ]
+                                        },
+                                        "substeps": [],
+                                    }
+                                ],
+                            },
+                            {
+                                "type": "key_assert",
+                                "step_id": "test_df.split.key.keyed",
+                                "inp_ports": {
+                                    "up": ["test_df.split.key.map.flat_map.out"]
+                                },
+                                "out_ports": {
+                                    "down": ["test_df.split.key.keyed.noop.out"]
+                                },
+                                "substeps": [
+                                    {
+                                        "type": "_noop",
+                                        "step_id": "test_df.split.key.keyed.noop",
+                                        "inp_ports": {
+                                            "up": ["test_df.split.key.map.flat_map.out"]
+                                        },
+                                        "out_ports": {
+                                            "down": ["test_df.split.key.keyed.noop.out"]
+                                        },
+                                        "substeps": [],
+                                    }
+                                ],
+                            },
+                        ],
                     },
-                    "folder": "acc_values",
-                    "step_id": "running_average",
-                    "type": "FoldWindow",
-                    "window_config": {
-                        "length": "0:00:05",
-                        "align_to": "2005-07-14T12:30:00+00:00",
-                        "type": "TumblingWindow",
+                    {
+                        "type": "map_value",
+                        "step_id": "test_df.split.value_0",
+                        "inp_ports": {"up": ["test_df.split.key.keyed.noop.out"]},
+                        "out_ports": {
+                            "down": [
+                                "test_df.split.value_0.flat_map_value.keyed.noop.out"
+                            ]
+                        },
+                        "substeps": [
+                            {
+                                "type": "flat_map_value",
+                                "step_id": "test_df.split.value_0.flat_map_value",
+                                "inp_ports": {
+                                    "up": ["test_df.split.key.keyed.noop.out"]
+                                },
+                                "out_ports": {
+                                    "down": [
+                                        "test_df.split.value_0.flat_map_value.keyed.noop.out"
+                                    ]
+                                },
+                                "substeps": [
+                                    {
+                                        "type": "flat_map",
+                                        "step_id": "test_df.split.value_0.flat_map_value.flat_map",
+                                        "inp_ports": {
+                                            "up": ["test_df.split.key.keyed.noop.out"]
+                                        },
+                                        "out_ports": {
+                                            "down": [
+                                                "test_df.split.value_0.flat_map_value.flat_map.out"
+                                            ]
+                                        },
+                                        "substeps": [],
+                                    },
+                                    {
+                                        "type": "key_assert",
+                                        "step_id": "test_df.split.value_0.flat_map_value.keyed",
+                                        "inp_ports": {
+                                            "up": [
+                                                "test_df.split.value_0.flat_map_value.flat_map.out"
+                                            ]
+                                        },
+                                        "out_ports": {
+                                            "down": [
+                                                "test_df.split.value_0.flat_map_value.keyed.noop.out"
+                                            ]
+                                        },
+                                        "substeps": [
+                                            {
+                                                "type": "_noop",
+                                                "step_id": "test_df.split.value_0.flat_map_value.keyed.noop",
+                                                "inp_ports": {
+                                                    "up": [
+                                                        "test_df.split.value_0.flat_map_value.flat_map.out"
+                                                    ]
+                                                },
+                                                "out_ports": {
+                                                    "down": [
+                                                        "test_df.split.value_0.flat_map_value.keyed.noop.out"
+                                                    ]
+                                                },
+                                                "substeps": [],
+                                            }
+                                        ],
+                                    },
+                                ],
+                            }
+                        ],
                     },
-                }
-            ],
-        },
-        sort_keys=True,
-    )
-
-
-def test_encoding_method_descriptor():
-    flow = Dataflow("test")
-    flow.flat_map("split", str.split)
-
-    assert encode_dataflow(flow) == json.dumps(
-        {
-            "type": "Dataflow",
-            "steps": [{"type": "FlatMap", "step_id": "split", "mapper": "split"}],
-        },
-        sort_keys=True,
-    )
+                    {
+                        "type": "map_value",
+                        "step_id": "test_df.split.value_1",
+                        "inp_ports": {"up": ["test_df.split.key.keyed.noop.out"]},
+                        "out_ports": {
+                            "down": [
+                                "test_df.split.value_1.flat_map_value.keyed.noop.out"
+                            ]
+                        },
+                        "substeps": [
+                            {
+                                "type": "flat_map_value",
+                                "step_id": "test_df.split.value_1.flat_map_value",
+                                "inp_ports": {
+                                    "up": ["test_df.split.key.keyed.noop.out"]
+                                },
+                                "out_ports": {
+                                    "down": [
+                                        "test_df.split.value_1.flat_map_value.keyed.noop.out"
+                                    ]
+                                },
+                                "substeps": [
+                                    {
+                                        "type": "flat_map",
+                                        "step_id": "test_df.split.value_1.flat_map_value.flat_map",
+                                        "inp_ports": {
+                                            "up": ["test_df.split.key.keyed.noop.out"]
+                                        },
+                                        "out_ports": {
+                                            "down": [
+                                                "test_df.split.value_1.flat_map_value.flat_map.out"
+                                            ]
+                                        },
+                                        "substeps": [],
+                                    },
+                                    {
+                                        "type": "key_assert",
+                                        "step_id": "test_df.split.value_1.flat_map_value.keyed",
+                                        "inp_ports": {
+                                            "up": [
+                                                "test_df.split.value_1.flat_map_value.flat_map.out"
+                                            ]
+                                        },
+                                        "out_ports": {
+                                            "down": [
+                                                "test_df.split.value_1.flat_map_value.keyed.noop.out"
+                                            ]
+                                        },
+                                        "substeps": [
+                                            {
+                                                "type": "_noop",
+                                                "step_id": "test_df.split.value_1.flat_map_value.keyed.noop",
+                                                "inp_ports": {
+                                                    "up": [
+                                                        "test_df.split.value_1.flat_map_value.flat_map.out"
+                                                    ]
+                                                },
+                                                "out_ports": {
+                                                    "down": [
+                                                        "test_df.split.value_1.flat_map_value.keyed.noop.out"
+                                                    ]
+                                                },
+                                                "substeps": [],
+                                            }
+                                        ],
+                                    },
+                                ],
+                            }
+                        ],
+                    },
+                ],
+            },
+            {
+                "type": "output",
+                "step_id": "test_df.out_one",
+                "inp_ports": {
+                    "up": ["test_df.split.value_0.flat_map_value.keyed.noop.out"]
+                },
+                "out_ports": {},
+                "substeps": [],
+            },
+            {
+                "type": "output",
+                "step_id": "test_df.out_two",
+                "inp_ports": {
+                    "up": ["test_df.split.value_1.flat_map_value.keyed.noop.out"]
+                },
+                "out_ports": {},
+                "substeps": [],
+            },
+        ],
+    }

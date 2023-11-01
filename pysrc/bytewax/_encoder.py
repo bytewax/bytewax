@@ -1,78 +1,81 @@
-"""Dataflow JSON encoding."""
-import datetime
-import inspect
+"""Serialization of the dataflow data model."""
 import json
-import types
-from collections import ChainMap, OrderedDict
-from typing import List, Protocol, runtime_checkable
+from collections import ChainMap
+from functools import singledispatch
+from typing import Any, Dict, List
 
-from bytewax.dataflow import Dataflow, MultiPort, Port, SinglePort
+from bytewax.dataflow import Dataflow, MultiPort, Operator, SinglePort
 
 
-class DataflowEncoder(json.JSONEncoder):
-    """Encoder that can handle a `bytewax.Dataflow`."""
+@singledispatch
+def json_for(obj) -> Any:
+    """Hook to extend the JSON serialization.
 
+    Register new types via `@json_for.register`. See `singledispatch`
+    for more info.
+
+    If this contains nested un-serializeable types, this will be
+    re-called with them later by `json.dumps`; you don't have to
+    recurse yourself.
+
+    Args:
+        obj: Un-handled type to attempt to encode.
+
+    Returns:
+        A new value that is JSON serializable.
+
+    """
+    return obj
+
+
+@json_for.register
+def _(df: Dataflow) -> Dict:
+    return {
+        "type": "Dataflow",
+        "flow_id": df.flow_id,
+        "substeps": df.substeps,
+    }
+
+
+@json_for.register
+def _(step: Operator) -> Dict:
+    inp_ports = {
+        name: list(port.stream_ids.values()) for name, port in step.inp_ports().items()
+    }
+    out_ports = {
+        name: list(port.stream_ids.values()) for name, port in step.out_ports().items()
+    }
+    return {
+        "type": step.__class__.__name__,
+        "step_id": step.step_id,
+        "inp_ports": inp_ports,
+        "out_ports": out_ports,
+        "substeps": step.substeps,
+    }
+
+
+class _Encoder(json.JSONEncoder):
     def default(self, obj):
-        if hasattr(obj, "__json__"):
-            return obj.__json__()
-
-        # Check if the object is a class, and return its name.
-        # If the object is a class the call to __getstate__ below
-        # WILL fail since we are not passing a `self` parameter.
-        if inspect.isclass(obj):
-            return obj.__qualname__
-
-        if isinstance(obj, types.BuiltinFunctionType):
-            return obj.__name__
-        if isinstance(obj, types.MethodDescriptorType):
-            return obj.__name__
-        if isinstance(obj, types.FunctionType):
-            return obj.__name__
-        if isinstance(obj, types.BuiltinMethodType):
-            return obj.__name__
-        if isinstance(obj, (datetime.date, datetime.datetime)):
-            return obj.isoformat()
-        if isinstance(obj, datetime.timedelta):
-            return str(obj)
-        if isinstance(obj, type):  # For callable types like `list` and `dict`
-            return obj.__name__
-
-        # Call the default encoder method for any other instance types.
-        try:
-            return json.JSONEncoder.default(self, obj)
-        except TypeError as err:
-            msg = f"{obj} can not be JSON encoded"
-            raise TypeError(msg) from err
+        return json_for(obj)
 
 
-def encode_dataflow(dataflow: Dataflow):
-    """Encode this dataflow into JSON."""
-    return json.dumps(dataflow, cls=DataflowEncoder, sort_keys=True)
+def to_json(flow: Dataflow) -> str:
+    """Encode this dataflow into JSON.
 
+    Args:
+        flow: Dataflow.
 
-@runtime_checkable
-class _Graphable(Protocol):
-    substeps: List["_Graphable"]
-
-    def get_id(self) -> str:
-        ...
-
-    def inp_ports(self) -> OrderedDict[str, Port]:
-        ...
-
-    def out_ports(self) -> OrderedDict[str, Port]:
-        ...
+    Returns:
+        JSON string.
+    """
+    return json.dumps(flow, cls=_Encoder, indent=2)
 
 
 def _to_plantuml_step(
-    step: _Graphable,
+    step: Operator,
     stream_to_orig_port: ChainMap[str, str],
     recursive: bool = False,
 ) -> List[str]:
-    if not isinstance(step, _Graphable):
-        msg = f"can't PlantUML graph type {type(step)!r}"
-        raise TypeError(msg)
-
     step_id = step.get_id()
     lines = [
         f"component {step_id} [",
@@ -134,11 +137,11 @@ def _to_plantuml_step(
     return lines
 
 
-def to_plantuml(step: _Graphable, recursive: bool = False) -> str:
+def to_plantuml(flow: Dataflow, recursive: bool = False) -> str:
     """Return a PlantUML diagram of part of a `Dataflow`.
 
     Args:
-        step: Either a `Dataflow` or `Operator` instance.
+        flow: Dataflow.
 
         recursive: Wheither to show sub-steps.
 
@@ -149,7 +152,7 @@ def to_plantuml(step: _Graphable, recursive: bool = False) -> str:
         "@startuml",
     ]
     stream_to_orig_port: ChainMap = ChainMap()
-    for substep in step.substeps:
+    for substep in flow.substeps:
         lines += _to_plantuml_step(substep, stream_to_orig_port, recursive)
     lines.append("@enduml")
     return "\n".join(lines)

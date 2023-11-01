@@ -30,16 +30,7 @@ class Sink(ABC):  # noqa: B024
 
     """
 
-    def __json__(self):
-        """JSON representation of this.
-
-        This is used by the Bytewax platform internally and should
-        not be overridden.
-
-        """
-        return {
-            "type": type(self).__name__,
-        }
+    pass
 
 
 class StatefulSinkPartition(ABC):

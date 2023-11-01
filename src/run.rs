@@ -40,18 +40,14 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
     // Since the dataflow can't change at runtime, we encode it as a
     // string of JSON once, when the webserver starts.
     let dataflow_json: String = Python::with_gil(|py| -> PyResult<String> {
-        let encoder_module = PyModule::import(py, "bytewax._encoder")
-            .raise::<PyRuntimeError>("Unable to load Bytewax encoder module")?;
-        // For convenience, we are using a helper function supplied in the
-        // bytewax.encoder module.
-        let encode = encoder_module
-            .getattr("encode_dataflow")
-            .raise::<PyRuntimeError>("Unable to load encode_dataflow function")?;
+        let encoder_mod = PyModule::import(py, "bytewax._encoder")?;
+        let to_json = encoder_mod.getattr("to_json")?;
 
-        let dataflow_json = encode
+        let dataflow_json = to_json
             .call1((df,))
-            .reraise("error encoding dataflow")?
+            .reraise("error calling `bytewax._encoder.to_json`")?
             .to_string();
+
         // Since the dataflow can crash, write the dataflow JSON to a file
         let mut file = File::create(json_path)?;
         file.write_all(dataflow_json.as_bytes())?;
