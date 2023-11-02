@@ -18,7 +18,8 @@ class RenderedPort:
 
 @dataclass(frozen=True)
 class RenderedOperator:
-    op_name: str
+    op_type: str
+    step_name: str
     step_id: str
     inp_ports: List[RenderedPort]
     out_ports: List[RenderedPort]
@@ -92,6 +93,7 @@ def _to_rendered(
 
     return RenderedOperator(
         type(step).__name__,
+        step.step_name,
         step.step_id,
         inp_rports,
         out_rports,
@@ -157,7 +159,8 @@ def _(df: RenderedDataflow) -> Dict:
 def _(step: RenderedOperator) -> Dict:
     return {
         "typ": "RenderedOperator",
-        "op_name": step.op_name,
+        "op_type": step.op_type,
+        "step_name": step.step_name,
         "step_id": step.step_id,
         "inp_ports": step.inp_ports,
         "out_ports": step.out_ports,
@@ -202,7 +205,7 @@ def _to_plantuml_step(
 ) -> List[str]:
     lines = [
         f"component {step.step_id} [",
-        f"    {step.step_id} ({step.op_name})",
+        f"    {step.step_id} ({step.op_type})",
         "]",
         f"component {step.step_id} {{",
     ]

@@ -181,6 +181,7 @@ class Operator:
 
     """
 
+    step_name: str
     step_id: str
     substeps: List["Operator"]
     #: The class that the operator method should be loaded onto.
@@ -647,6 +648,7 @@ def _gen_op_method(
 
         # Save the input arguments.
         cls_vals = dict(bound.arguments.items())
+        cls_vals["step_name"] = step_id
 
         # Now unpack the special *args and **kwargs types for calling.
         for name, param in sig.parameters.items():
