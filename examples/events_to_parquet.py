@@ -36,13 +36,14 @@ class FakeWebEventsSource(FixedPartitionedSource):
 
 
 class ParquetPartition(StatefulSinkPartition):
-    def write(self, value):
-        table = Table.from_pandas(value)
-        parquet.write_to_dataset(
-            table,
-            root_path="parquet_demo_out",
-            partition_cols=["year", "month", "day", "page_url_path"],
-        )
+    def write_batch(self, batch):
+        for (_metadata, value) in batch:
+            table = Table.from_pandas(value)
+            parquet.write_to_dataset(
+                table,
+                root_path="parquet_demo_out",
+                partition_cols=["year", "month", "day", "page_url_path"],
+            )
 
     def snapshot(self):
         return None

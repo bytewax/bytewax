@@ -17,10 +17,11 @@ notes on GitHub when we make a new release.__
 - New operators can be added in Python, made by grouping existing
   operators. See `bytewax.dataflow` module docstring for more info.
 
-- A ton of new operators: `collect`, `count_final`, `count_window`,
-  `flatten`, `inspect_debug`, `join_inner`, `merge`, `split`,
-  `stateful_flat_map`, `unary`, `scheduled_unary`. Documentation for
-  all operators are in `bytewax.operators` now.
+- A ton of new operators: `collect_final`, `count_final`,
+  `count_window`, `flatten`, `inspect_debug`, `join`, `join_named`,
+  `max_final`, `max_window`, `merge`, `min_final`, `min_window`,
+  `key_on`, `key_assert`, `key_split`, `merge`, `merge_all`, `unary`.
+  Documentation for all operators are in `bytewax.operators` now.
 
 - *Breaking change* `step_id` has been renamed to `step_name` and all
   operators must take a `step_name` argument now.
@@ -28,10 +29,26 @@ notes on GitHub when we make a new release.__
 - *Breaking change* `output` operator does not forward downstream its
   items. Add operators on the upstream handle instead.
 
-- `fold` and `reduce` operators now have a `eof_is_complete` optional
-  argument.
+- *Breaking change* `fold` and `reduce` operators have been renamed to
+  `fold_final` and `reduce_final`. They now only emit on EOF and are
+  only for use in batch contexts.
 
 - `collect_window` operator now can collect into `set`s and `dict`s.
+
+- Adds a `TestingSource.EOF` and `TestingSource.ABORT` sentinel values
+  you can use to test recovery.
+
+- *Breaking change* Adds a `datetime` argument to
+  `FixedPartitionSource.build_part`, `DynamicSource.build_part`,
+  `StatefulSourcePartition.next_batch`, and
+  `StatelessSourcePartition.next_batch`. You can now use this to
+  update your `next_awake` time easily.
+
+- *Breaking change* Window operators now emit WindowMetadata
+  objects downstream. These objects can be used to introspect
+  the open_time and close_time of windows.
+  This changes the output type of windowing operators from:
+  `(key, values)` to `(key, (metadata, values))`.
 
 - *Breaking change* IO classes and connectors have been renamed to
   better reflect their semantics and match up with documentation.

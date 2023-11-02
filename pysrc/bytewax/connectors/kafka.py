@@ -5,7 +5,8 @@ Importing this module requires the
 package to be installed.
 
 """
-from typing import Dict, Iterable
+from datetime import datetime
+from typing import Any, Dict, Iterable, List, Optional
 
 from confluent_kafka import (
     OFFSET_BEGINNING,
@@ -60,7 +61,7 @@ class _KafkaSourcePartition(StatefulSourcePartition):
         self._batch_size = batch_size
         self._eof = False
 
-    def next_batch(self):
+    def next_batch(self, _sched: datetime) -> List[Any]:
         if self._eof:
             raise StopIteration()
 
@@ -169,7 +170,7 @@ class KafkaSource(FixedPartitionedSource):
 
         return list(_list_parts(client, self._topics))
 
-    def build_part(self, for_part, resume_state):
+    def build_part(self, _now: datetime, for_part: str, resume_state: Optional[Any]):
         """See ABC docstring."""
         part_idx, topic = for_part.split("-", 1)
         part_idx = int(part_idx)

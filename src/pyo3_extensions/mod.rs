@@ -2,6 +2,7 @@
 //! Timely or other Rust libraries we use.
 use crate::try_unwrap;
 use crate::unwrap_any;
+use crate::window::WindowMetadata;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -223,6 +224,14 @@ impl PartialEq for TdPyAny {
             try_unwrap!(self_.rich_compare(other, CompareOp::Eq)?.is_true())
         })
     }
+}
+
+/// Turn a Rust 2-tuple of `(key, (WindowMetadata, value))` into a Python tuple.
+pub(crate) fn wrap_window_state_pair(key_value: (StateKey, (WindowMetadata, TdPyAny))) -> TdPyAny {
+    Python::with_gil(|py| {
+        let key_value_pytuple: Py<PyAny> = key_value.into_py(py);
+        key_value_pytuple.into()
+    })
 }
 
 /// A Python iterator that only gets the GIL when calling [`next`] and

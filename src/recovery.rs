@@ -182,10 +182,8 @@ impl ToPyObject for StepId {
 /// Displays the step ID in quotes.
 impl std::fmt::Display for StepId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("'")?;
-        std::fmt::Display::fmt(&self.0, f)?;
-        f.write_str("'")?;
-        Ok(())
+        // Format as a quoted string, but without the `StepId()` part.
+        std::fmt::Debug::fmt(&self.0, f)
     }
 }
 
@@ -205,19 +203,16 @@ impl std::fmt::Display for StepId {
 )]
 pub(crate) struct StateKey(pub(crate) String);
 
-/// Displays the state key in quotes.
-impl std::fmt::Display for StateKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("'")?;
-        std::fmt::Display::fmt(&self.0, f)?;
-        f.write_str("'")?;
-        Ok(())
-    }
-}
-
 impl IntoPy<Py<PyAny>> for StateKey {
     fn into_py(self, py: Python<'_>) -> Py<PyAny> {
         self.0.into_py(py)
+    }
+}
+
+impl std::fmt::Display for StateKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Format as a quoted string, but without the `StateKey()` part.
+        std::fmt::Debug::fmt(&self.0, f)
     }
 }
 

@@ -1,4 +1,6 @@
 """Custom pytest config for `pytests/`."""
+from datetime import datetime, timezone
+
 from bytewax.recovery import RecoveryConfig, init_db_dir
 from bytewax.testing import cluster_main, run_main
 from bytewax.tracing import setup_tracing
@@ -68,3 +70,9 @@ def recovery_config(tmp_path):
     """
     init_db_dir(tmp_path, 1)
     yield RecoveryConfig(str(tmp_path))
+
+
+@fixture
+def now():
+    """Get the current `datetime` in UTC."""
+    yield datetime.now(timezone.utc)

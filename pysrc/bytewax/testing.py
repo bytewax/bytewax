@@ -1,12 +1,13 @@
 """Helper tools for testing dataflows."""
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from itertools import islice
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, Optional
 
 from bytewax.inputs import (
+    AbortExecution,
     FixedPartitionedSource,
     StatefulSourcePartition,
-    batch,
 )
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
 from bytewax.recovery import RecoveryConfig
@@ -52,29 +53,41 @@ def ffwd_iter(it: Iterator[Any], n: int) -> None:
 class _IterSourcePartition(StatefulSourcePartition):
     def __init__(self, ib, batch_size, resume_state):
         self._start_idx = 0 if resume_state is None else resume_state
-        it = iter(ib)
+        self._batch_size = batch_size
+        self._it = iter(ib)
         # Resume to one after the last completed read index.
-        ffwd_iter(it, self._start_idx)
-        self._batcher = batch(it, batch_size)
-        self._is_eof = False
+        ffwd_iter(self._it, self._start_idx)
+        self._raise = None
 
-    def next_batch(self):
-        if self._is_eof:
+    def next_batch(self, _sched: datetime):
+        if self._raise is not None:
+            raise self._raise
+
+        batch = []
+        for item in self._it:
+            if isinstance(item, TestingSource.EOF):
+                self._raise = StopIteration()
+                # Skip over this on continuation.
+                self._start_idx += 1
+                # Batch is done early.
+                break
+            elif isinstance(item, TestingSource.ABORT):
+                if not item._triggered:
+                    self._raise = AbortExecution()
+                    # Don't trigger on next execution.
+                    item._triggered = True
+                    # Batch is done early.
+                    break
+            else:
+                batch.append(item)
+                if len(batch) >= self._batch_size:
+                    break
+
+        if len(batch) > 0:
+            self._start_idx += len(batch)
+            return batch
+        else:
             raise StopIteration()
-
-        batch = next(self._batcher)
-
-        try:
-            stop_at = batch.index(TestingSource.EOF)
-            batch = batch[:stop_at]
-            self._is_eof = True
-            # Skip the EOF on continuation.
-            self._start_idx += 1
-        except ValueError:
-            pass
-
-        self._start_idx += len(batch)
-        return batch
 
     def snapshot(self):
         return self._start_idx
@@ -99,20 +112,37 @@ class TestingSource(FixedPartitionedSource):
 
     __test__ = False
 
-    #: If this sentinel value appears in the iterable, the source will
-    #: return EOF. If you continue the dataflow, it will pick up from
-    #: right after this.
-    EOF = object()
+    @dataclass
+    class EOF:
+        """Signal the input to EOF.
+
+        The next execution will continue from the item after this.
+
+        """
+
+        pass
+
+    @dataclass
+    class ABORT:
+        """Abort the execution when the input processes this item.
+
+        The next execution will resume from some item befor this one.
+
+        Each abort will only trigger once. They'll be skipped on
+        resume executions.
+
+        """
+
+        _triggered: bool = False
 
     def __init__(self, ib: Iterable[Any], batch_size: int = 1):
         """Init.
 
         Args:
-            ib:
-                Iterable for input.
-            batch_size:
-                Number of items from the iterable to emit in each
-                batch. Defaults to 1.
+            ib: Iterable for input.
+
+            batch_size: Number of items from the iterable to emit in
+                each batch. Defaults to 1.
 
         """
         self._ib = ib
@@ -122,7 +152,7 @@ class TestingSource(FixedPartitionedSource):
         """The iterable is read on a single worker."""
         return ["iterable"]
 
-    def build_part(self, for_key, resume_state):
+    def build_part(self, now: datetime, for_key: str, resume_state: Optional[Any]):
         """See ABC docstring."""
         assert for_key == "iterable"
         return _IterSourcePartition(self._ib, self._batch_size, resume_state)
@@ -184,9 +214,10 @@ def poll_next_batch(part, timeout=timedelta(seconds=5)):
     batch = []
     start = datetime.now(timezone.utc)
     while len(batch) <= 0:
-        if datetime.now(timezone.utc) - start > timeout:
+        now = datetime.now(timezone.utc)
+        if now - start > timeout:
             raise TimeoutError()
-        batch = part.next_batch()
+        batch = part.next_batch(now)
     return batch
 
 

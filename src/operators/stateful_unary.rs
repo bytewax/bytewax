@@ -12,9 +12,8 @@
 //! store.
 
 use std::collections::hash_map::DefaultHasher;
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::collections::HashMap;
-use std::collections::HashSet;
 use std::hash::BuildHasherDefault;
 use std::task::Poll;
 
@@ -247,11 +246,11 @@ where
             // epoch; we only modify state carefully in epoch order
             // once we know we won't be getting any input on closed
             // epochs.
-            let mut current_logic: HashMap<StateKey, L> = HashMap::new();
+            let mut current_logic: BTreeMap<StateKey, L> = BTreeMap::new();
             // Next awaken timestamp for each key. There is only a
             // single awake time for each key, representing the next
             // awake time.
-            let mut current_next_awake: HashMap<StateKey, DateTime<Utc>> = HashMap::new();
+            let mut current_next_awake: BTreeMap<StateKey, DateTime<Utc>> = BTreeMap::new();
 
             // Here we have "buffers" that store items across
             // activations.
@@ -268,7 +267,7 @@ where
             // only snapshot state of keys that could have resulted in
             // state modifications. This is drained after each epoch
             // is processed.
-            let mut awoken_keys_buffer: HashSet<StateKey> = HashSet::new();
+            let mut awoken_keys_buffer: BTreeSet<StateKey> = BTreeSet::new();
 
             // Here are some temporary working sets that we allocate
             // once, then drain and re-use each activation of this
@@ -408,8 +407,7 @@ where
                                 // Since this is EOF, we will never
                                 // activate this operator again.
                                 tmp_awake_logic_with.extend(
-                                    awoken_keys_buffer
-                                        .drain()
+                                    std::mem::take(&mut awoken_keys_buffer).into_iter()
                                         .map(|state_key| (state_key, Poll::Ready(None))),
                                 );
                             } else {
@@ -487,7 +485,7 @@ where
                                 // Go through all keys awoken in this
                                 // epoch. This might involve keys from the
                                 // previous activation.
-                                for state_key in awoken_keys_buffer.drain() {
+                                for state_key in std::mem::take(&mut awoken_keys_buffer) {
                                     // Now snapshot the logic and next
                                     // awake at value, if any.
                                     let change = if let Some(logic) = current_logic.get(&state_key)
