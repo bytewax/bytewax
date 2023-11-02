@@ -15,7 +15,10 @@ from datetime import datetime, timedelta
 from itertools import islice
 from typing import Any, Callable, Iterable, Iterator, List, Optional
 
+from .bytewax import AbortExecution
+
 __all__ = [
+    "AbortExecution",
     "DynamicSource",
     "FixedPartitionedSource",
     "SimplePollingSource",

@@ -6,12 +6,17 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
+use std::sync::atomic;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use chrono::DateTime;
 use chrono::Duration;
 use chrono::Utc;
 use opentelemetry::global;
 use opentelemetry::KeyValue;
+use pyo3::create_exception;
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyStopIteration;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
@@ -80,6 +85,13 @@ impl Default for EpochInterval {
     }
 }
 
+create_exception!(
+    bytewax.inputs,
+    AbortExecution,
+    PyRuntimeError,
+    "Raise this from `next_batch` to abort for testing purposes."
+);
+
 /// Represents a `bytewax.inputs.Source` from Python.
 #[derive(Clone)]
 pub(crate) struct Source(Py<PyAny>);
@@ -145,6 +157,29 @@ impl<'source> FromPyObject<'source> for FixedPartitionedSource {
     }
 }
 
+fn default_next_awake(
+    res: Option<DateTime<Utc>>,
+    batch_len: usize,
+    now: DateTime<Utc>,
+) -> DateTime<Utc> {
+    if let Some(next_awake) = res {
+        // If the source returned an explicit next awake time, always
+        // oblige.
+        next_awake
+    } else {
+        // If `next_awake` returned `None`, then do the default
+        // behavior:
+        if batch_len > 0 {
+            // Re-awaken immediately if there were items in the batch.
+            now
+        } else {
+            // Wait a cooldown before re-awakening if there were no
+            // items in the batch.
+            now + DEFAULT_COOLDOWN
+        }
+    }
+}
+
 struct PartitionedPartState {
     part: StatefulPartition,
     downstream_cap: Capability<u64>,
@@ -185,6 +220,7 @@ impl FixedPartitionedSource {
         step_id: StepId,
         epoch_interval: EpochInterval,
         probe: &ProbeHandle<u64>,
+        abort: &Arc<AtomicBool>,
         start_at: ResumeEpoch,
         loads: &Stream<S, Snapshot>,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)>
@@ -193,7 +229,9 @@ impl FixedPartitionedSource {
     {
         let this_worker = scope.w_index();
 
-        let local_parts = self.list_parts(py).reraise("error listing partitions")?;
+        let local_parts = self.list_parts(py).reraise_with(|| {
+            format!("error calling `FixedPartitionSource.list_parts` in step {step_id}")
+        })?;
         let step_label = KeyValue::new("step_id", step_id.0.to_string());
         let worker_index_label = KeyValue::new("worker_id", this_worker.0.to_string());
         let part_label_map: HashMap<StateKey, Vec<KeyValue>> = local_parts
@@ -237,6 +275,7 @@ impl FixedPartitionedSource {
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
         let probe = probe.clone();
+        let abort = abort.clone();
 
         op_builder.build(move |mut init_caps| {
             init_caps.downgrade_all(&start_at.0);
@@ -246,7 +285,6 @@ impl FixedPartitionedSource {
 
             let mut parts: BTreeMap<StateKey, PartitionedPartState> = BTreeMap::new();
             let mut primary_parts = BTreeSet::new();
-            let mut eofd = BTreeSet::new();
 
             let mut tmp = Vec::new();
             let mut primaries_inbuf = InBuffer::new();
@@ -271,36 +309,42 @@ impl FixedPartitionedSource {
                         // ensure that we always FFWd the capabilities
                         // to where this execution should start.
                         let emit_epoch = std::cmp::max(*load_epoch, start_at.0);
-                        for (worker, (part_key, change)) in tmp.drain(..) {
-                            assert!(worker == this_worker);
-                            if let StateChange::Upsert(state) = change {
-                                tracing::info!("Resuming {part_key:?} at epoch {emit_epoch} with state {state:?}");
-                                let (part, next_awake) = unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
+
+                        unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                            for (worker, (part_key, change)) in tmp.drain(..) {
+                                assert!(worker == this_worker);
+
+                                if let StateChange::Upsert(state) = change {
+                                    tracing::info!("Resuming {part_key:?} at epoch {emit_epoch} with state {state:?}");
                                     let part = self.build_part(
                                         py,
                                         now,
                                         &part_key,
                                         Some(state)
-                                    ).reraise("error resuming StatefulSource")?;
-                                    let next_awake = part.next_awake(py).reraise("error getting next awake")?.unwrap_or(now);
-                                    Ok((part, next_awake))
-                                }));
+                                    ).reraise_with(|| format!("error calling `FixedPartitionSource.build_part` in step {step_id} for partition {part_key}"))?;
+                                    let next_awake = part.next_awake(py)
+                                        .reraise_with(|| format!("error calling `StatefulSourcePartition.next_awake` in step {step_id} for partition {part_key}"))?
+                                        .unwrap_or(now);
 
-                                let state = PartitionedPartState {
-                                    part,
-                                    downstream_cap: cap.delayed_for_output(&emit_epoch, 0),
-                                    snap_cap: cap.delayed_for_output(&emit_epoch, 1),
-                                    epoch_started: now,
-                                    next_awake,
-                                };
-                                parts.insert(part_key, state);
+                                    let state = PartitionedPartState {
+                                        part,
+                                        downstream_cap: cap.delayed_for_output(&emit_epoch, 0),
+                                        snap_cap: cap.delayed_for_output(&emit_epoch, 1),
+                                        epoch_started: now,
+                                        next_awake,
+                                    };
+                                    parts.insert(part_key, state);
+                                }
                             }
-                        }
+
+                            Ok(())
+                        }));
                     });
 
-                    // Apply this worker's primary assignments in epoch
-                    // order. We don't need a notificator here because we
-                    // don't need any capability management.
+                    // Apply this worker's primary assignments in
+                    // epoch order. We don't need a notificator here
+                    // because we don't need any capability
+                    // management.
                     let primaries_frontier = &input_frontiers[1];
                     let closed_primaries_epochs: Vec<_> = primaries_inbuf
                         .epochs()
@@ -316,8 +360,8 @@ impl FixedPartitionedSource {
                         }
                     }
 
-                    // Init any partitions that didn't have load data once
-                    // the loads input is EOF.
+                    // Init any partitions that didn't have load data
+                    // once the loads input is EOF.
                     let loads_frontier = &input_frontiers[0];
                     if loads_frontier.is_eof() {
                         // We take this out of the Option so we drop the
@@ -325,123 +369,126 @@ impl FixedPartitionedSource {
                         if let Some((init_downstream_cap, init_snap_cap)) = init_caps.take() {
                             assert!(*init_downstream_cap.time() == *init_snap_cap.time());
                             let epoch = init_downstream_cap.time();
-                            // This is a slight abuse of epoch semantics
-                            // since have no way of synchronizing the
-                            // evolution of `primary_parts` with the EOF
-                            // of the load stream. But it's fine since
-                            // we're never going to open up the loads
-                            // stream again.
-                            for part_key in &primary_parts {
-                                if !parts.contains_key(part_key) {
-                                    tracing::info!("Init-ing {part_key:?} at epoch {epoch:?}");
-                                    let (part, next_awake) = unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
-                                            let part = self.build_part(py, now, part_key, None).reraise("error init StatefulSource")?;
-                                            let next_awake = part.next_awake(py).reraise("error getting next awake")?.unwrap_or(now);
-                                            Ok((part, next_awake))
-                                        }
-                                    ));
 
-                                    let part_state = PartitionedPartState {
-                                        part,
-                                        downstream_cap:  init_downstream_cap.clone(),
-                                        snap_cap: init_snap_cap.clone(),
-                                        epoch_started: now,
-                                        next_awake,
-                                    };
-                                    parts.insert(part_key.clone(), part_state);
+                            // This is a slight abuse of epoch
+                            // semantics since have no way of
+                            // synchronizing the evolution of
+                            // `primary_parts` with the EOF of the
+                            // load stream. But it's fine since we're
+                            // never going to open up the loads stream
+                            // again.
+                            unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                for part_key in &primary_parts {
+                                    if !parts.contains_key(part_key) {
+                                        tracing::info!("Init-ing {part_key:?} at epoch {epoch:?}");
+                                        let part = self.build_part(py, now, part_key, None)
+                                            .reraise_with(|| format!("error calling `FixedPartitionSource.build_part` in step {step_id} for partition {part_key}"))?;
+                                        let next_awake = part.next_awake(py)
+                                            .reraise_with(|| format!("error calling `StatefulSourcePartition.next_awake` in step {step_id} for partition {part_key}"))?
+                                            .unwrap_or(now);
+
+                                        let part_state = PartitionedPartState {
+                                            part,
+                                            downstream_cap:  init_downstream_cap.clone(),
+                                            snap_cap: init_snap_cap.clone(),
+                                            epoch_started: now,
+                                            next_awake,
+                                        };
+                                        parts.insert(part_key.clone(), part_state);
+                                    }
                                 }
-                            }
+
+                                Ok(())
+                            }));
                         }
                     }
 
-                    assert!(eofd.is_empty());
-                    let mut handle = downstream_output.activate();
+                    let mut eofd_parts_buffer = Vec::new();
+
+                    let mut downstream_handle = downstream_output.activate();
+                    let mut snaps_handle = snaps_output.activate();
                     for (part_key, part_state) in parts.iter_mut() {
                         tracing::trace_span!("partition", part_key = ?part_key).in_scope(|| {
                             assert!(
                                 *part_state.downstream_cap.time() == *part_state.snap_cap.time()
                             );
-                            let epoch = part_state.downstream_cap.time();
+                            let epoch = *part_state.downstream_cap.time();
+
                             let metric_labels = part_label_map
                                 .get(part_key)
                                 .expect("No metric labels found for part key {part_key}");
 
-                            if !probe.less_than(epoch) && now >= part_state.next_awake {
-                                if let Some(mut batch) =
-                                    with_timer!(
-                                        histogram, metric_labels,
-                                        unwrap_any!(
-                                            Python::with_gil(|py| part_state
-                                                             .part
-                                                             .next_batch(py, part_state.next_awake).reraise("error getting next input batch"))
-                                        )
-                                    )
-                                {
-                                    if !batch.is_empty() {
-                                        counter.add(batch.len() as u64, metric_labels);
-                                        handle
-                                            .session(&part_state.downstream_cap)
-                                            .give_vec(&mut batch);
+                            if !probe.less_than(&epoch) && now >= part_state.next_awake {
+                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    let batch_res = with_timer!(
+                                        histogram,
+                                        metric_labels,
+                                        part_state
+                                            .part
+                                            .next_batch(py, part_state.next_awake)
+                                            .reraise_with(|| format!("error calling `StatefulSourcePartition.next_batch` in step {step_id} for partition {part_key}"))?
+                                    );
+
+                                    match batch_res {
+                                        BatchResult::Batch(batch) => {
+                                            let batch_len = batch.len();
+
+                                            let mut downstream_session = downstream_handle.session(&part_state.downstream_cap);
+                                            let mut batch = batch.into_iter().map(TdPyAny::from).collect();
+                                            downstream_session.give_vec(&mut batch);
+
+                                            counter.add(batch_len as u64, metric_labels);
+
+                                            let next_awake_res = part_state
+                                                .part
+                                                .next_awake(py)
+                                                .reraise_with(|| format!("error calling `StatefulSourcePartition.next_awake` in step {step_id} for partition {part_key}"))?;
+
+                                            part_state.next_awake = default_next_awake(next_awake_res, batch_len, now);
+                                        },
+                                        BatchResult::Eof => {
+                                            eofd_parts_buffer.push(part_key.clone());
+                                            tracing::debug!("EOFd");
+                                        },
+                                        BatchResult::Abort => {
+                                            abort.store(true, atomic::Ordering::Relaxed);
+                                            tracing::debug!("EOFd");
+                                        }
                                     }
 
-                                    part_state.next_awake = if let Some(next_awake) =
-                                        unwrap_any!(Python::with_gil(|py| part_state
-                                                                     .part
-                                                                     .next_awake(py)
-                                                                     .reraise("error getting next awake time")))
+                                    // Don't allow progress unless
+                                    // we've caught up, otherwise you
+                                    // can get cascading advancement
+                                    // and never poll input.
+                                    if now - part_state.epoch_started >= epoch_interval.0
                                     {
-                                        // If the source returned an
-                                        // explicit next awake time,
-                                        // always oblige.
-                                        next_awake
-                                    } else {
-                                        // If `next_awake` returned
-                                        // `None`, then do the default
-                                        // behavior:
-                                        if batch.is_empty() {
-                                            // Wait a cooldown before
-                                            // re-awakening if there
-                                            // were no items.
-                                            now + DEFAULT_COOLDOWN
-                                        } else {
-                                            // Re-awaken immediately
-                                            // if there were.
-                                            now
-                                        }
-                                    };
-                                } else {
-                                    eofd.insert(part_key.clone());
-                                    tracing::debug!("EOFd");
-                                }
+                                        let state = part_state.part
+                                            .snapshot(py)
+                                            .reraise_with(|| format!("error calling `StatefulSourcePartition.snapshot` in step {step_id} for partition {part_key}"))?;
+                                        tracing::trace!("End of epoch {epoch} partition state now {state:?}");
+                                        let snap = Snapshot(
+                                            step_id.clone(),
+                                            part_key.clone(),
+                                            StateChange::Upsert(state),
+                                        );
 
-                                // Don't allow progress unless we've caught up,
-                                // otherwise you can get cascading advancement and
-                                // never poll input.
-                                if now - part_state.epoch_started >= epoch_interval.0
-                                {
-                                    let state = unwrap_any!(Python::with_gil(|py| part_state.part.snapshot(py).reraise("error snapshotting StatefulSource")));
-                                    tracing::trace!("End of epoch {epoch} partition state now {state:?}");
-                                    let snap = Snapshot(
-                                        step_id.clone(),
-                                        part_key.clone(),
-                                        StateChange::Upsert(state),
-                                    );
-                                    snaps_output
-                                        .activate()
-                                        .session(&part_state.snap_cap)
-                                        .give(snap);
+                                        let mut snaps_session = snaps_handle.session(&part_state.snap_cap);
+                                        snaps_session.give(snap);
 
-                                    let next_epoch = *epoch + 1;
-                                    part_state.downstream_cap.downgrade(&next_epoch);
-                                    part_state.snap_cap.downgrade(&next_epoch);
-                                    part_state.epoch_started = now;
-                                    tracing::debug!("Advanced to epoch {next_epoch}");
-                                }
+                                        let next_epoch = epoch + 1;
+                                        part_state.downstream_cap.downgrade(&next_epoch);
+                                        part_state.snap_cap.downgrade(&next_epoch);
+                                        part_state.epoch_started = now;
+                                        tracing::debug!("Advanced to epoch {next_epoch}");
+                                    }
+
+                                    Ok(())
+                                }));
                             }
                         });
                     }
 
-                    while let Some(part) = eofd.pop_first() {
+                    for part in eofd_parts_buffer {
                         parts.remove(&part);
                     }
 
@@ -488,14 +535,24 @@ impl<'source> FromPyObject<'source> for StatefulPartition {
     }
 }
 
+enum BatchResult {
+    Eof,
+    Abort,
+    Batch(Vec<PyObject>),
+}
+
 impl StatefulPartition {
-    fn next_batch(&self, py: Python, sched: DateTime<Utc>) -> PyResult<Option<Vec<TdPyAny>>> {
+    fn next_batch(&self, py: Python, sched: DateTime<Utc>) -> PyResult<BatchResult> {
         match self.0.call_method1(py, intern!(py, "next_batch"), (sched,)) {
-            Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(None),
+            Err(err) if err.is_instance_of::<PyStopIteration>(py) => Ok(BatchResult::Eof),
+            Err(err) if err.is_instance_of::<AbortExecution>(py) => Ok(BatchResult::Abort),
             Err(err) => Err(err),
-            Ok(items) => Ok(Some(items.extract(py).reraise(
-                "`next_batch` method of StatefulSourcePartition did not return a list",
-            )?)),
+            Ok(batch) => {
+                let batch = batch.extract(py).reraise(
+                    "`next_batch` method of StatefulSourcePartition did not return a `list`",
+                )?;
+                Ok(BatchResult::Batch(batch))
+            }
         }
     }
 
@@ -577,6 +634,7 @@ impl DynamicSource {
         step_id: StepId,
         epoch_interval: EpochInterval,
         probe: &ProbeHandle<u64>,
+        abort: &Arc<AtomicBool>,
         start_at: ResumeEpoch,
     ) -> PyResult<Stream<S, TdPyAny>>
     where
@@ -587,23 +645,24 @@ impl DynamicSource {
         let worker_count = scope.w_count();
         let part = self
             .build(py, now, worker_index, worker_count)
-            .reraise("error building DynamicSource")?;
+            .reraise_with(|| format!("error calling `DynamicSource.build` in step {step_id}"))?;
 
         let op_name = format!("{step_id}.dynamic_input");
         let mut op_builder = OperatorBuilder::new(op_name.clone(), scope.clone());
 
-        let (mut output_wrapper, output) = op_builder.new_output();
+        let (mut downstream_wrapper, downstream) = op_builder.new_output();
 
-        let probe = probe.clone();
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
+        let probe = probe.clone();
+        let abort = abort.clone();
 
         let meter = global::meter("bytewax");
         let counter = meter
             .u64_counter("bytewax_dynamic_input_items_total")
             .init();
         let worker_index_label = KeyValue::new("worker_id", worker_index.0.to_string());
-        let step_label = KeyValue::new("step_id", step_id.0);
+        let step_label = KeyValue::new("step_id", step_id.0.clone());
         let metric_labels = vec![step_label, worker_index_label];
         let histogram = meter
             .f64_histogram("bytewax_dynamic_input_next_batch_duration_seconds")
@@ -634,59 +693,56 @@ impl DynamicSource {
 
                     let mut eof = false;
 
+                    let mut downstream_handle = downstream_wrapper.activate();
                     if let Some(part_state) = &mut part_state {
                         let epoch = part_state.output_cap.time();
 
                         if !probe.less_than(epoch) && now >= part_state.next_awake {
-                            if let Some(mut batch) = with_timer!(
-                                histogram,
-                                metric_labels,
-                                unwrap_any!(Python::with_gil(|py| part_state
-                                    .part
-                                    .next_batch(py, part_state.next_awake)
-                                    .reraise("error getting next input batch")))
-                            ) {
-                                if !batch.is_empty() {
-                                    counter.add(batch.len() as u64, &metric_labels);
-                                    output_wrapper
-                                        .activate()
-                                        .session(&part_state.output_cap)
-                                        .give_vec(&mut batch);
+                            unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                let res = with_timer!(
+                                    histogram,
+                                    metric_labels,
+                                    part_state
+                                        .part
+                                        .next_batch(py, part_state.next_awake)
+                                        .reraise_with(|| format!("error calling `StatelessSourcePartition.next_batch` in step {step_id}"))?
+                                );
+
+                                match res {
+                                    BatchResult::Batch(batch) => {
+                                        let batch_len = batch.len();
+
+                                        let mut downstream_session = downstream_handle.session(&part_state.output_cap);
+                                        let mut batch = batch.into_iter().map(TdPyAny::from).collect();
+                                        downstream_session.give_vec(&mut batch);
+
+                                        counter.add(batch_len as u64, &metric_labels);
+
+                                        let next_awake_res = part_state
+                                            .part
+                                            .next_awake(py)
+                                            .reraise_with(|| format!("error calling `StatelessSourcePartition.next_awake` in step {step_id}"))?;
+
+                                        part_state.next_awake =
+                                            default_next_awake(next_awake_res, batch_len, now);
+                                    }
+                                    BatchResult::Eof => {
+                                        eof = true;
+                                        tracing::trace!("EOFd");
+                                    }
+                                    BatchResult::Abort => {
+                                        abort.store(true, atomic::Ordering::Relaxed);
+                                        tracing::error!("Aborted");
+                                    }
                                 }
 
-                                part_state.next_awake = if let Some(next_awake) =
-                                    unwrap_any!(Python::with_gil(|py| part_state
-                                        .part
-                                        .next_awake(py)
-                                        .reraise("error getting next awake time")))
-                                {
-                                    // If the source returned an
-                                    // explicit next awake time,
-                                    // always oblige.
-                                    next_awake
-                                } else {
-                                    // If `next_awake` returned
-                                    // `None`, then do the default
-                                    // behavior:
-                                    if batch.is_empty() {
-                                        // Wait a cooldown before
-                                        // re-awakening if there were
-                                        // no items.
-                                        now + DEFAULT_COOLDOWN
-                                    } else {
-                                        // Re-awaken immediately if
-                                        // there were.
-                                        now
-                                    }
-                                };
-                            } else {
-                                eof = true;
-                                tracing::trace!("EOFd");
-                            }
+                                Ok(())
+                            }));
 
-                            // Don't allow progress unless we've caught up,
-                            // otherwise you can get cascading advancement and
-                            // never poll input.
+                            // Don't allow progress unless we've
+                            // caught up, otherwise you can get
+                            // cascading advancement and never poll
+                            // input.
                             if now - part_state.epoch_started >= epoch_interval.0 {
                                 let next_epoch = epoch + 1;
                                 part_state.epoch_started = now;
@@ -711,7 +767,7 @@ impl DynamicSource {
             }
         });
 
-        Ok(output)
+        Ok(downstream)
     }
 }
 
@@ -737,13 +793,17 @@ impl<'source> FromPyObject<'source> for StatelessPartition {
 }
 
 impl StatelessPartition {
-    fn next_batch(&self, py: Python, sched: DateTime<Utc>) -> PyResult<Option<Vec<TdPyAny>>> {
+    fn next_batch(&self, py: Python, sched: DateTime<Utc>) -> PyResult<BatchResult> {
         match self.0.call_method1(py, intern!(py, "next_batch"), (sched,)) {
-            Err(stop_ex) if stop_ex.is_instance_of::<PyStopIteration>(py) => Ok(None),
+            Err(err) if err.is_instance_of::<PyStopIteration>(py) => Ok(BatchResult::Eof),
+            Err(err) if err.is_instance_of::<AbortExecution>(py) => Ok(BatchResult::Abort),
             Err(err) => Err(err),
-            Ok(items) => Ok(Some(items.extract(py).reraise(
-                "`next_batch` method of StatelessSourcePartition did not return a list",
-            )?)),
+            Ok(batch) => {
+                let batch = batch.extract(py).reraise(
+                    "`next_batch` method of StatelessSourcePartition did not return a `list`",
+                )?;
+                Ok(BatchResult::Batch(batch))
+            }
         }
     }
 
@@ -765,4 +825,9 @@ impl Drop for StatelessPartition {
             .close(py)
             .reraise("error closing StatelessSourcePartition")));
     }
+}
+
+pub(crate) fn register(py: Python, m: &PyModule) -> PyResult<()> {
+    m.add("AbortExecution", py.get_type::<AbortExecution>())?;
+    Ok(())
 }

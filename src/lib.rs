@@ -37,10 +37,11 @@ fn sleep_release_gil(py: Python, secs: u64) {
 #[pyo3(name = "bytewax")]
 fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
     dataflow::register(py, m)?;
-    run::register(py, m)?;
+    inputs::register(py, m)?;
     recovery::register(py, m)?;
-    window::register(py, m)?;
+    run::register(py, m)?;
     tracing::register(py, m)?;
+    window::register(py, m)?;
 
     m.add_function(wrap_pyfunction!(sleep_keep_gil, m)?)?;
     m.add_function(wrap_pyfunction!(sleep_release_gil, m)?)?;
