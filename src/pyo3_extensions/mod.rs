@@ -79,7 +79,7 @@ impl From<Py<PyAny>> for TdPyAny {
 }
 
 impl<'a> Into<&'a PyObject> for &'a TdPyAny {
-    fn into(self: Self) -> &'a PyObject {
+    fn into(self) -> &'a PyObject {
         &self.0
     }
 }
