@@ -668,7 +668,7 @@ def _gen_op_method(
             assert core
             out_type = sig_types.get("return", Parameter.empty)
             if inspect.isclass(out_type) and issubclass(out_type, Stream):
-                fq_stream_id = f"{inner_scope.parent_id}.out"
+                fq_stream_id = f"{inner_scope.parent_id}.down"
                 out = out_type(fq_stream_id, inner_scope)
             elif inspect.isclass(out_type) and issubclass(out_type, NoneType):
                 out = None
