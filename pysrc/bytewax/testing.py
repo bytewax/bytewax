@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from itertools import islice
-from typing import Any, Iterable, Iterator, List, Optional
+from typing import Any, Iterable, Iterator, Optional
 
 from bytewax.inputs import (
     AbortExecution,
