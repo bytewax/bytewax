@@ -1,5 +1,6 @@
 //! Newtypes around PyO3 types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
+use crate::operators::stateful_unary::StateKey;
 use crate::try_unwrap;
 use crate::unwrap_any;
 use crate::window::WindowMetadata;

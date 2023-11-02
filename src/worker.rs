@@ -379,16 +379,17 @@ where
                             &loads,
                         );
 
-                        let down =
-                            timely::dataflow::operators::Map::map(&output, |(key, result)| {
+                        let down = timely::dataflow::operators::Map::map(
+                            &timely::dataflow::operators::Map::map(&output, |(key, result)| {
                                 result
                                     .map(|value| (key.clone(), value))
                                     .map_err(|err| (key.clone(), err))
                             })
                             // For now, filter to just reductions and
                             // ignore late values.
-                            .ok()
-                            .wrap_key();
+                            .ok(),
+                            wrap_window_state_pair,
+                        );
                         snaps.push(snap);
 
                         streams.insert_downstream(py, &step, "down", down)?;

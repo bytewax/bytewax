@@ -65,9 +65,9 @@ def test_dynamic_source_next_awake():
 
     interval = timedelta(seconds=0.1)
 
-    flow = Dataflow()
-    flow.input("in", TestSource(interval))
-    flow.output("out", TestingSink(out))
+    flow = Dataflow("test_df")
+    s = flow.input("in", TestSource(interval))
+    s.output("out", TestingSink(out))
 
     run_main(flow)
     for x, y in pairwise(out):
@@ -111,9 +111,9 @@ def test_fixed_partitioned_source_next_awake():
 
     interval = timedelta(seconds=0.1)
 
-    flow = Dataflow()
-    flow.input("inp", TestSource(interval))
-    flow.output("out", TestingSink(out))
+    flow = Dataflow("test_df")
+    s = flow.input("inp", TestSource(interval))
+    s.output("out", TestingSink(out))
 
     run_main(flow)
     for x, y in pairwise(out):

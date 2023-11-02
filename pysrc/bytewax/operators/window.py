@@ -89,6 +89,7 @@ from ..bytewax import (  # noqa: F401
     SystemClockConfig,
     TumblingWindow,
     WindowConfig,
+    WindowMetadata,
 )
 
 __all__ = [
@@ -99,6 +100,7 @@ __all__ = [
     "SystemClockConfig",
     "TumblingWindow",
     "WindowConfig",
+    "WindowMetadata",
     "collect_window",
     "count_window",
     "fold_window",

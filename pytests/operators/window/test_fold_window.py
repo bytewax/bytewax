@@ -7,6 +7,7 @@ from bytewax.operators.window import (
     SessionWindow,
     SlidingWindow,
     TumblingWindow,
+    WindowMetadata,
 )
 from bytewax.testing import TestingSink, TestingSource, run_main
 
@@ -44,19 +45,53 @@ def test_fold_window_tumbling():
         counts[typ] += 1
         return counts
 
+    def map_dict(metadata_value):
+        metadata, value = metadata_value
+        return (metadata, dict(value))
+
     flow = Dataflow("test_df")
     s = flow.input("inp", TestingSource(inp))
     s = s.key_on("key_on_user", lambda e: e["user"])
     s = s.fold_window("count", clock, windower, lambda: defaultdict(int), count)
-    s = s.map_value("normal_dict", dict)
+    s = s.map_value("normal_dict", map_dict)
     s.output("out", TestingSink(out))
 
     run_main(flow)
     assert out == [
-        ("a", {"login": 1, "post": 2}),
-        ("b", {"login": 1}),
-        ("a", {"post": 1}),
-        ("b", {"post": 2}),
+        (
+            "a",
+            (
+                WindowMetadata(align_to, align_to + timedelta(seconds=10)),
+                {"login": 1, "post": 2},
+            ),
+        ),
+        (
+            "b",
+            (
+                WindowMetadata(
+                    align_to + timedelta(seconds=10), align_to + timedelta(seconds=20)
+                ),
+                {"login": 1},
+            ),
+        ),
+        (
+            "a",
+            (
+                WindowMetadata(
+                    align_to + timedelta(seconds=10), align_to + timedelta(seconds=20)
+                ),
+                {"post": 1},
+            ),
+        ),
+        (
+            "b",
+            (
+                WindowMetadata(
+                    align_to + timedelta(seconds=20), align_to + timedelta(seconds=30)
+                ),
+                {"post": 2},
+            ),
+        ),
     ]
 
 
@@ -93,9 +128,33 @@ def test_fold_window_session():
 
     run_main(flow)
     assert out == [
-        ("a", ["a", "b"]),
-        ("a", ["c", "d", "e", "f"]),
-        ("a", ["g"]),
+        (
+            "a",
+            (
+                WindowMetadata(
+                    align_to + timedelta(seconds=1), align_to + timedelta(seconds=5)
+                ),
+                ["a", "b"],
+            ),
+        ),
+        (
+            "a",
+            (
+                WindowMetadata(
+                    align_to + timedelta(seconds=11), align_to + timedelta(seconds=14)
+                ),
+                ["c", "d", "e", "f"],
+            ),
+        ),
+        (
+            "a",
+            (
+                WindowMetadata(
+                    align_to + timedelta(seconds=20), align_to + timedelta(seconds=20)
+                ),
+                ["g"],
+            ),
+        ),
     ]
 
 
@@ -139,9 +198,47 @@ def test_fold_window_sliding():
 
     run_main(flow)
     assert out == [
-        ("a", ["a", "b"]),
-        ("a", ["a", "b", "c"]),
-        ("a", ["c", "d", "e", "f"]),
-        ("a", ["d", "e", "f", "g"]),
-        ("a", ["g"]),
+        (
+            "a",
+            (
+                WindowMetadata(
+                    align_to - timedelta(seconds=5), align_to + timedelta(seconds=5)
+                ),
+                ["a", "b"],
+            ),
+        ),
+        (
+            "a",
+            (
+                WindowMetadata(align_to, align_to + timedelta(seconds=10)),
+                ["a", "b", "c"],
+            ),
+        ),
+        (
+            "a",
+            (
+                WindowMetadata(
+                    align_to + timedelta(seconds=5), align_to + timedelta(seconds=15)
+                ),
+                ["c", "d", "e", "f"],
+            ),
+        ),
+        (
+            "a",
+            (
+                WindowMetadata(
+                    align_to + timedelta(seconds=10), align_to + timedelta(seconds=20)
+                ),
+                ["d", "e", "f", "g"],
+            ),
+        ),
+        (
+            "a",
+            (
+                WindowMetadata(
+                    align_to + timedelta(seconds=15), align_to + timedelta(seconds=25)
+                ),
+                ["g"],
+            ),
+        ),
     ]
