@@ -3,7 +3,6 @@ use std::task::Poll;
 use chrono::prelude::*;
 use chrono::Duration;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;

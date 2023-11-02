@@ -3,7 +3,6 @@ use std::task::Poll;
 use chrono::DateTime;
 use chrono::Utc;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 use pyo3::PyResult;
 
 use super::*;
