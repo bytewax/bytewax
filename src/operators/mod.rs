@@ -1,13 +1,4 @@
-//! Code implementing Bytewax's operators.
-//!
-//! The two big things in here are:
-//!
-//!   1. Shim functions that totally encapsulate PyO3 and Python
-//!   calling boilerplate to easily pass into Timely operators.
-//!
-//!   2. Implementation of stateful operators using
-//!   [`crate::recovery::StatefulLogic`] and
-//!   [`crate::window::WindowLogic`].
+//! Code implementing Bytewax's core operators.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
@@ -415,7 +406,7 @@ impl UnaryLogic {
         let res = self.0.as_ref(py).call_method0(intern!(py, "notify_at"))?;
         res.extract().reraise_with(|| {
             format!(
-                "did not return a datetime; got a `{}` instead",
+                "did not return a `datetime`; got a `{}` instead",
                 unwrap_any!(res.get_type().name())
             )
         })
