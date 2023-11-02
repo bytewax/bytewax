@@ -43,7 +43,7 @@ def test_to_json_linear():
                         "port_name": "up",
                         "port_id": "test_df.add_one.up",
                         "from_port_ids": ["test_df.inp.down"],
-                        "from_stream_ids": ["test_df.inp.out"],
+                        "from_stream_ids": ["test_df.inp.down"],
                     }
                 ],
                 "out_ports": [
@@ -52,7 +52,7 @@ def test_to_json_linear():
                         "port_name": "down",
                         "port_id": "test_df.add_one.down",
                         "from_port_ids": ["test_df.add_one.flat_map.down"],
-                        "from_stream_ids": ["test_df.add_one.flat_map.out"],
+                        "from_stream_ids": ["test_df.add_one.flat_map.down"],
                     }
                 ],
                 "substeps": [
@@ -67,7 +67,7 @@ def test_to_json_linear():
                                 "port_name": "up",
                                 "port_id": "test_df.add_one.flat_map.up",
                                 "from_port_ids": ["test_df.add_one.up"],
-                                "from_stream_ids": ["test_df.inp.out"],
+                                "from_stream_ids": ["test_df.inp.down"],
                             }
                         ],
                         "out_ports": [
@@ -94,7 +94,7 @@ def test_to_json_linear():
                         "port_name": "up",
                         "port_id": "test_df.out.up",
                         "from_port_ids": ["test_df.add_one.down"],
-                        "from_stream_ids": ["test_df.add_one.flat_map.out"],
+                        "from_stream_ids": ["test_df.add_one.flat_map.down"],
                     }
                 ],
                 "out_ports": [],
@@ -144,7 +144,7 @@ def test_to_json_nonlinear():
                         "port_name": "up",
                         "port_id": "test_df.add_one.up",
                         "from_port_ids": ["test_df.nums.down"],
-                        "from_stream_ids": ["test_df.nums.out"],
+                        "from_stream_ids": ["test_df.nums.down"],
                     }
                 ],
                 "out_ports": [
@@ -153,7 +153,7 @@ def test_to_json_nonlinear():
                         "port_name": "down",
                         "port_id": "test_df.add_one.down",
                         "from_port_ids": ["test_df.add_one.flat_map.down"],
-                        "from_stream_ids": ["test_df.add_one.flat_map.out"],
+                        "from_stream_ids": ["test_df.add_one.flat_map.down"],
                     }
                 ],
                 "substeps": [
@@ -168,7 +168,7 @@ def test_to_json_nonlinear():
                                 "port_name": "up",
                                 "port_id": "test_df.add_one.flat_map.up",
                                 "from_port_ids": ["test_df.add_one.up"],
-                                "from_stream_ids": ["test_df.nums.out"],
+                                "from_stream_ids": ["test_df.nums.down"],
                             }
                         ],
                         "out_ports": [
@@ -195,7 +195,7 @@ def test_to_json_nonlinear():
                         "port_name": "up",
                         "port_id": "test_df.add_two.up",
                         "from_port_ids": ["test_df.nums.down"],
-                        "from_stream_ids": ["test_df.nums.out"],
+                        "from_stream_ids": ["test_df.nums.down"],
                     }
                 ],
                 "out_ports": [
@@ -204,7 +204,7 @@ def test_to_json_nonlinear():
                         "port_name": "down",
                         "port_id": "test_df.add_two.down",
                         "from_port_ids": ["test_df.add_two.flat_map.down"],
-                        "from_stream_ids": ["test_df.add_two.flat_map.out"],
+                        "from_stream_ids": ["test_df.add_two.flat_map.down"],
                     }
                 ],
                 "substeps": [
@@ -219,7 +219,7 @@ def test_to_json_nonlinear():
                                 "port_name": "up",
                                 "port_id": "test_df.add_two.flat_map.up",
                                 "from_port_ids": ["test_df.add_two.up"],
-                                "from_stream_ids": ["test_df.nums.out"],
+                                "from_stream_ids": ["test_df.nums.down"],
                             }
                         ],
                         "out_ports": [
@@ -246,7 +246,7 @@ def test_to_json_nonlinear():
                         "port_name": "up",
                         "port_id": "test_df.out_one.up",
                         "from_port_ids": ["test_df.add_one.down"],
-                        "from_stream_ids": ["test_df.add_one.flat_map.out"],
+                        "from_stream_ids": ["test_df.add_one.flat_map.down"],
                     }
                 ],
                 "out_ports": [],
@@ -263,7 +263,7 @@ def test_to_json_nonlinear():
                         "port_name": "up",
                         "port_id": "test_df.out_two.up",
                         "from_port_ids": ["test_df.add_two.down"],
-                        "from_stream_ids": ["test_df.add_two.flat_map.out"],
+                        "from_stream_ids": ["test_df.add_two.flat_map.down"],
                     }
                 ],
                 "out_ports": [],
@@ -329,7 +329,7 @@ def test_to_json_multistream_inp():
                         "port_name": "ups",
                         "port_id": "test_df.merge.ups",
                         "from_port_ids": ["test_df.ones.down", "test_df.twos.down"],
-                        "from_stream_ids": ["test_df.ones.out", "test_df.twos.out"],
+                        "from_stream_ids": ["test_df.ones.down", "test_df.twos.down"],
                     }
                 ],
                 "out_ports": [
@@ -354,7 +354,7 @@ def test_to_json_multistream_inp():
                         "port_name": "up",
                         "port_id": "test_df.out.up",
                         "from_port_ids": ["test_df.merge.down"],
-                        "from_stream_ids": ["test_df.merge.out"],
+                        "from_stream_ids": ["test_df.merge.down"],
                     }
                 ],
                 "out_ports": [],
@@ -405,7 +405,7 @@ def test_to_json_multistream_out():
                         "port_name": "up",
                         "port_id": "test_df.split.up",
                         "from_port_ids": ["test_df.nums.down"],
-                        "from_stream_ids": ["test_df.nums.out"],
+                        "from_stream_ids": ["test_df.nums.down"],
                     }
                 ],
                 "out_ports": [
@@ -418,8 +418,8 @@ def test_to_json_multistream_out():
                             "test_df.split.value_1.down",
                         ],
                         "from_stream_ids": [
-                            "test_df.split.value_0.flat_map_value.keyed.noop.out",
-                            "test_df.split.value_1.flat_map_value.keyed.noop.out",
+                            "test_df.split.value_0.flat_map_value.keyed.noop.down",
+                            "test_df.split.value_1.flat_map_value.keyed.noop.down",
                         ],
                     }
                 ],
@@ -435,7 +435,7 @@ def test_to_json_multistream_out():
                                 "port_name": "up",
                                 "port_id": "test_df.split.key.up",
                                 "from_port_ids": ["test_df.split.up"],
-                                "from_stream_ids": ["test_df.nums.out"],
+                                "from_stream_ids": ["test_df.nums.down"],
                             }
                         ],
                         "out_ports": [
@@ -444,7 +444,9 @@ def test_to_json_multistream_out():
                                 "port_name": "down",
                                 "port_id": "test_df.split.key.down",
                                 "from_port_ids": ["test_df.split.key.keyed.down"],
-                                "from_stream_ids": ["test_df.split.key.keyed.noop.out"],
+                                "from_stream_ids": [
+                                    "test_df.split.key.keyed.noop.down"
+                                ],
                             }
                         ],
                         "substeps": [
@@ -459,7 +461,7 @@ def test_to_json_multistream_out():
                                         "port_name": "up",
                                         "port_id": "test_df.split.key.map.up",
                                         "from_port_ids": ["test_df.split.key.up"],
-                                        "from_stream_ids": ["test_df.nums.out"],
+                                        "from_stream_ids": ["test_df.nums.down"],
                                     }
                                 ],
                                 "out_ports": [
@@ -471,7 +473,7 @@ def test_to_json_multistream_out():
                                             "test_df.split.key.map.flat_map.down"
                                         ],
                                         "from_stream_ids": [
-                                            "test_df.split.key.map.flat_map.out"
+                                            "test_df.split.key.map.flat_map.down"
                                         ],
                                     }
                                 ],
@@ -489,7 +491,9 @@ def test_to_json_multistream_out():
                                                 "from_port_ids": [
                                                     "test_df.split.key.map.up"
                                                 ],
-                                                "from_stream_ids": ["test_df.nums.out"],
+                                                "from_stream_ids": [
+                                                    "test_df.nums.down"
+                                                ],
                                             }
                                         ],
                                         "out_ports": [
@@ -517,7 +521,7 @@ def test_to_json_multistream_out():
                                         "port_id": "test_df.split.key.keyed.up",
                                         "from_port_ids": ["test_df.split.key.map.down"],
                                         "from_stream_ids": [
-                                            "test_df.split.key.map.flat_map.out"
+                                            "test_df.split.key.map.flat_map.down"
                                         ],
                                     }
                                 ],
@@ -530,7 +534,7 @@ def test_to_json_multistream_out():
                                             "test_df.split.key.keyed.noop.down"
                                         ],
                                         "from_stream_ids": [
-                                            "test_df.split.key.keyed.noop.out"
+                                            "test_df.split.key.keyed.noop.down"
                                         ],
                                     }
                                 ],
@@ -549,7 +553,7 @@ def test_to_json_multistream_out():
                                                     "test_df.split.key.keyed.up"
                                                 ],
                                                 "from_stream_ids": [
-                                                    "test_df.split.key.map.flat_map.out"
+                                                    "test_df.split.key.map.flat_map.down"
                                                 ],
                                             }
                                         ],
@@ -579,7 +583,9 @@ def test_to_json_multistream_out():
                                 "port_name": "up",
                                 "port_id": "test_df.split.value_0.up",
                                 "from_port_ids": ["test_df.split.key.down"],
-                                "from_stream_ids": ["test_df.split.key.keyed.noop.out"],
+                                "from_stream_ids": [
+                                    "test_df.split.key.keyed.noop.down"
+                                ],
                             }
                         ],
                         "out_ports": [
@@ -591,7 +597,7 @@ def test_to_json_multistream_out():
                                     "test_df.split.value_0.flat_map_value.down"
                                 ],
                                 "from_stream_ids": [
-                                    "test_df.split.value_0.flat_map_value.keyed.noop.out"
+                                    "test_df.split.value_0.flat_map_value.keyed.noop.down"
                                 ],
                             }
                         ],
@@ -608,7 +614,7 @@ def test_to_json_multistream_out():
                                         "port_id": "test_df.split.value_0.flat_map_value.up",
                                         "from_port_ids": ["test_df.split.value_0.up"],
                                         "from_stream_ids": [
-                                            "test_df.split.key.keyed.noop.out"
+                                            "test_df.split.key.keyed.noop.down"
                                         ],
                                     }
                                 ],
@@ -621,7 +627,7 @@ def test_to_json_multistream_out():
                                             "test_df.split.value_0.flat_map_value.keyed.down"
                                         ],
                                         "from_stream_ids": [
-                                            "test_df.split.value_0.flat_map_value.keyed.noop.out"
+                                            "test_df.split.value_0.flat_map_value.keyed.noop.down"
                                         ],
                                     }
                                 ],
@@ -640,7 +646,7 @@ def test_to_json_multistream_out():
                                                     "test_df.split.value_0.flat_map_value.up"
                                                 ],
                                                 "from_stream_ids": [
-                                                    "test_df.split.key.keyed.noop.out"
+                                                    "test_df.split.key.keyed.noop.down"
                                                 ],
                                             }
                                         ],
@@ -669,7 +675,7 @@ def test_to_json_multistream_out():
                                                     "test_df.split.value_0.flat_map_value.flat_map.down"
                                                 ],
                                                 "from_stream_ids": [
-                                                    "test_df.split.value_0.flat_map_value.flat_map.out"
+                                                    "test_df.split.value_0.flat_map_value.flat_map.down"
                                                 ],
                                             }
                                         ],
@@ -682,7 +688,7 @@ def test_to_json_multistream_out():
                                                     "test_df.split.value_0.flat_map_value.keyed.noop.down"
                                                 ],
                                                 "from_stream_ids": [
-                                                    "test_df.split.value_0.flat_map_value.keyed.noop.out"
+                                                    "test_df.split.value_0.flat_map_value.keyed.noop.down"
                                                 ],
                                             }
                                         ],
@@ -701,7 +707,7 @@ def test_to_json_multistream_out():
                                                             "test_df.split.value_0.flat_map_value.keyed.up"
                                                         ],
                                                         "from_stream_ids": [
-                                                            "test_df.split.value_0.flat_map_value.flat_map.out"
+                                                            "test_df.split.value_0.flat_map_value.flat_map.down"
                                                         ],
                                                     }
                                                 ],
@@ -733,7 +739,9 @@ def test_to_json_multistream_out():
                                 "port_name": "up",
                                 "port_id": "test_df.split.value_1.up",
                                 "from_port_ids": ["test_df.split.key.down"],
-                                "from_stream_ids": ["test_df.split.key.keyed.noop.out"],
+                                "from_stream_ids": [
+                                    "test_df.split.key.keyed.noop.down"
+                                ],
                             }
                         ],
                         "out_ports": [
@@ -745,7 +753,7 @@ def test_to_json_multistream_out():
                                     "test_df.split.value_1.flat_map_value.down"
                                 ],
                                 "from_stream_ids": [
-                                    "test_df.split.value_1.flat_map_value.keyed.noop.out"
+                                    "test_df.split.value_1.flat_map_value.keyed.noop.down"
                                 ],
                             }
                         ],
@@ -762,7 +770,7 @@ def test_to_json_multistream_out():
                                         "port_id": "test_df.split.value_1.flat_map_value.up",
                                         "from_port_ids": ["test_df.split.value_1.up"],
                                         "from_stream_ids": [
-                                            "test_df.split.key.keyed.noop.out"
+                                            "test_df.split.key.keyed.noop.down"
                                         ],
                                     }
                                 ],
@@ -775,7 +783,7 @@ def test_to_json_multistream_out():
                                             "test_df.split.value_1.flat_map_value.keyed.down"
                                         ],
                                         "from_stream_ids": [
-                                            "test_df.split.value_1.flat_map_value.keyed.noop.out"
+                                            "test_df.split.value_1.flat_map_value.keyed.noop.down"
                                         ],
                                     }
                                 ],
@@ -794,7 +802,7 @@ def test_to_json_multistream_out():
                                                     "test_df.split.value_1.flat_map_value.up"
                                                 ],
                                                 "from_stream_ids": [
-                                                    "test_df.split.key.keyed.noop.out"
+                                                    "test_df.split.key.keyed.noop.down"
                                                 ],
                                             }
                                         ],
@@ -823,7 +831,7 @@ def test_to_json_multistream_out():
                                                     "test_df.split.value_1.flat_map_value.flat_map.down"
                                                 ],
                                                 "from_stream_ids": [
-                                                    "test_df.split.value_1.flat_map_value.flat_map.out"
+                                                    "test_df.split.value_1.flat_map_value.flat_map.down"
                                                 ],
                                             }
                                         ],
@@ -836,7 +844,7 @@ def test_to_json_multistream_out():
                                                     "test_df.split.value_1.flat_map_value.keyed.noop.down"
                                                 ],
                                                 "from_stream_ids": [
-                                                    "test_df.split.value_1.flat_map_value.keyed.noop.out"
+                                                    "test_df.split.value_1.flat_map_value.keyed.noop.down"
                                                 ],
                                             }
                                         ],
@@ -855,7 +863,7 @@ def test_to_json_multistream_out():
                                                             "test_df.split.value_1.flat_map_value.keyed.up"
                                                         ],
                                                         "from_stream_ids": [
-                                                            "test_df.split.value_1.flat_map_value.flat_map.out"
+                                                            "test_df.split.value_1.flat_map_value.flat_map.down"
                                                         ],
                                                     }
                                                 ],
@@ -890,7 +898,7 @@ def test_to_json_multistream_out():
                         "port_id": "test_df.out_one.up",
                         "from_port_ids": ["test_df.split.down"],
                         "from_stream_ids": [
-                            "test_df.split.value_0.flat_map_value.keyed.noop.out"
+                            "test_df.split.value_0.flat_map_value.keyed.noop.down"
                         ],
                     }
                 ],
@@ -909,7 +917,7 @@ def test_to_json_multistream_out():
                         "port_id": "test_df.out_two.up",
                         "from_port_ids": ["test_df.split.down"],
                         "from_stream_ids": [
-                            "test_df.split.value_1.flat_map_value.keyed.noop.out"
+                            "test_df.split.value_1.flat_map_value.keyed.noop.down"
                         ],
                     }
                 ],
