@@ -65,7 +65,13 @@ class _IterSourcePartition(StatefulSourcePartition):
 
         batch = []
         for item in self._it:
-            if isinstance(item, TestingSource.EOF):
+            if item is TestingSource.EOF:
+                msg = "`TestingSource.EOF` must be instantiated; use `()`"
+                raise ValueError(msg)
+            elif item is TestingSource.ABORT:
+                msg = "`TestingSource.ABORT` must be instantiated; use `()`"
+                raise ValueError(msg)
+            elif isinstance(item, TestingSource.EOF):
                 self._raise = StopIteration()
                 # Skip over this on continuation.
                 self._start_idx += 1
@@ -83,7 +89,9 @@ class _IterSourcePartition(StatefulSourcePartition):
                 if len(batch) >= self._batch_size:
                     break
 
-        if len(batch) > 0:
+        # If the last item was a sentinel, then don't say EOF, let the
+        # next batch raise the exception.
+        if len(batch) > 0 or self._raise is not None:
             self._start_idx += len(batch)
             return batch
         else:

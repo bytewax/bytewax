@@ -27,6 +27,8 @@ class BaseTestLogic(UnaryLogic):
         return ([(old_state, self._state)], self.after_item)
 
     def on_notify(self, sched: datetime) -> Tuple[List[Any], bool]:
+        self._notify_at = None
+
         old_state = self._state
         self._state = "NOTIFY"
         return ([(old_state, self._state)], self.after_notify)
@@ -56,7 +58,7 @@ def test_unary_on_item_discard():
     s = s.unary("unary", TestLogic)
     s.output("out", TestingSink(out))
 
-    run_main(flow)
+    run_main(flow, epoch_interval=ZERO_TD)
     assert out == [
         ("ALL", ("NEW", "ITEM")),
         ("ALL", ("NEW", "ITEM")),
@@ -76,7 +78,7 @@ def test_unary_on_item_retain():
     s = s.unary("unary", TestLogic)
     s.output("out", TestingSink(out))
 
-    run_main(flow)
+    run_main(flow, epoch_interval=ZERO_TD)
     assert out == [
         ("ALL", ("NEW", "ITEM")),
         ("ALL", ("ITEM", "ITEM")),
@@ -97,10 +99,12 @@ def test_unary_on_notify_discard():
     s = s.unary("unary", TestLogic)
     s.output("out", TestingSink(out))
 
-    run_main(flow)
+    run_main(flow, epoch_interval=ZERO_TD)
     assert out == [
-        ("ALL", ("NEW", "NOTIFY")),
-        ("ALL", ("NEW", "NOTIFY")),
+        ("ALL", ("NEW", "ITEM")),
+        ("ALL", ("ITEM", "NOTIFY")),
+        ("ALL", ("NEW", "ITEM")),
+        ("ALL", ("ITEM", "NOTIFY")),
     ]
 
 
@@ -118,15 +122,17 @@ def test_unary_on_notify_retain():
     s = s.unary("unary", TestLogic)
     s.output("out", TestingSink(out))
 
-    run_main(flow)
+    run_main(flow, epoch_interval=ZERO_TD)
     assert out == [
-        ("ALL", ("NEW", "NOTIFY")),
-        ("ALL", ("NOTIFY", "NOTIFY")),
+        ("ALL", ("NEW", "ITEM")),
+        ("ALL", ("ITEM", "NOTIFY")),
+        ("ALL", ("NOTIFY", "ITEM")),
+        ("ALL", ("ITEM", "NOTIFY")),
     ]
 
 
 def test_unary_on_eof_discard(recovery_config):
-    inp = [1, TestingSource.EOF, 2, TestingSource.ABORT()]
+    inp = [1, TestingSource.EOF(), 2, TestingSource.ABORT()]
     out = []
 
     class TestLogic(BaseTestLogic):
@@ -139,15 +145,15 @@ def test_unary_on_eof_discard(recovery_config):
     s.output("out", TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
-    assert out == [("ALL", ("NEW", "EOF"))]
+    assert out == [("ALL", ("NEW", "ITEM")), ("ALL", ("ITEM", "EOF"))]
 
     out.clear()
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
-    assert out == [("ALL", ("NEW", "EOF"))]
+    assert out == [("ALL", ("NEW", "ITEM"))]
 
 
 def test_unary_on_eof_retain(recovery_config):
-    inp = [1, TestingSource.EOF, 2, TestingSource.ABORT()]
+    inp = [1, TestingSource.EOF(), 2, TestingSource.ABORT()]
     out = []
 
     class TestLogic(BaseTestLogic):
@@ -160,9 +166,8 @@ def test_unary_on_eof_retain(recovery_config):
     s.output("out", TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
-    assert out == [("ALL", ("NEW", "EOF"))]
+    assert out == [("ALL", ("NEW", "ITEM")), ("ALL", ("ITEM", "EOF"))]
 
     out.clear()
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
-    assert out == [("ALL", ("EOF", "EOF"))]
-    assert out == [("ALL", ("EOF", "EOF"))]
+    assert out == [("ALL", ("EOF", "ITEM"))]
