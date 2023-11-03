@@ -9,6 +9,16 @@ ZERO_TD = timedelta(seconds=0)
 
 
 class BaseTestLogic(UnaryLogic):
+    """Testing logic.
+
+    Every time there is an event, emit the state transition. Then use
+    the class settings to decide wheither to throw away the state.
+
+    Notification will happen after each item immediately and will be
+    cleared when `on_notify` is run.
+
+    """
+
     item_triggers_notify = False
     after_item = UnaryLogic.RETAIN
     after_notify = UnaryLogic.RETAIN
@@ -171,3 +181,102 @@ def test_unary_on_eof_retain(recovery_config):
     out.clear()
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [("ALL", ("EOF", "ITEM"))]
+
+
+class KeepLastLogic(UnaryLogic):
+    def __init__(self, _now: datetime, resume_state: Any):
+        self._state = resume_state
+
+    def on_item(self, _now: datetime, value: Any) -> Tuple[List[Any], bool]:
+        old_state = self._state
+        self._state = value
+        return ([(old_state, self._state)], self._state == "DISCARD")
+
+    def on_notify(self, sched: datetime) -> Tuple[List[Any], bool]:
+        return ([], UnaryLogic.RETAIN)
+
+    def on_eof(self) -> Tuple[List[Any], bool]:
+        return ([], UnaryLogic.RETAIN)
+
+    def notify_at(self) -> Optional[datetime]:
+        return None
+
+    def snapshot(self) -> Any:
+        return self._state
+
+
+def test_unary_keeps_logic_per_key():
+    inp = [("a", "a1"), ("b", "b1"), ("a", "a2"), ("b", "b2")]
+    out = []
+
+    flow = Dataflow("test_df")
+    s = flow.input("inp", TestingSource(inp))
+    s = s.key_assert("keyed")
+    s = s.unary("unary", KeepLastLogic)
+    s.output("out", TestingSink(out))
+
+    run_main(flow, epoch_interval=ZERO_TD)
+    assert out == [
+        ("a", (None, "a1")),
+        ("b", (None, "b1")),
+        ("a", ("a1", "a2")),
+        ("b", ("b1", "b2")),
+    ]
+
+
+def test_unary_snapshots_logic_per_key(recovery_config):
+    inp = [("a", "a1"), ("b", "b1"), TestingSource.ABORT(), ("a", "a2"), ("b", "b2")]
+    out = []
+
+    flow = Dataflow("test_df")
+    s = flow.input("inp", TestingSource(inp))
+    s = s.key_assert("keyed")
+    s = s.unary("unary", KeepLastLogic)
+    s.output("out", TestingSink(out))
+
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    assert out == [
+        ("a", (None, "a1")),
+        ("b", (None, "b1")),
+    ]
+
+    out.clear()
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    assert out == [
+        ("a", ("a1", "a2")),
+        ("b", ("b1", "b2")),
+    ]
+
+
+def test_unary_snapshots_discard_per_key(recovery_config):
+    inp = [
+        ("a", "a1"),
+        ("b", "b1"),
+        ("a", "DISCARD"),
+        ("b", "b2"),
+        TestingSource.ABORT(),
+        ("a", "a3"),
+        ("b", "b3"),
+    ]
+    out = []
+
+    flow = Dataflow("test_df")
+    s = flow.input("inp", TestingSource(inp))
+    s = s.key_assert("keyed")
+    s = s.unary("unary", KeepLastLogic)
+    s.output("out", TestingSink(out))
+
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    assert out == [
+        ("a", (None, "a1")),
+        ("b", (None, "b1")),
+        ("a", ("a1", "DISCARD")),
+        ("b", ("b1", "b2")),
+    ]
+
+    out.clear()
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    assert out == [
+        ("a", (None, "a3")),
+        ("b", ("b2", "b3")),
+    ]
