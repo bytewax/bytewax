@@ -130,6 +130,8 @@ class TestingSource(FixedPartitionedSource):
 
         pass
 
+    # TODO: Find a way to use ABORT in a multi-worker scenario.
+    # Something like a back channel that one has aborted.
     @dataclass
     class ABORT:
         """Abort the execution when the input processes this item.
@@ -138,6 +140,9 @@ class TestingSource(FixedPartitionedSource):
 
         Each abort will only trigger once. They'll be skipped on
         resume executions.
+
+        You cannot use this in multi-worker executions because the
+        other workers don't know when to stop.
 
         """
 
