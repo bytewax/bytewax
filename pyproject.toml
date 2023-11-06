@@ -89,8 +89,9 @@ select = [
     "W",
 ]
 ignore = [
-    "PLR",
     "D105",
+    "E731",
+    "PLR",
 ]
 
 [tool.ruff.pydocstyle]

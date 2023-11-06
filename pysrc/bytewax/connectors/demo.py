@@ -1,39 +1,81 @@
 """Connectors for writing local-first demo dataflows."""
 import random
+import sys
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import datetime, timedelta
+from typing import Any, Callable, List, Optional
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+
+
+@dataclass
+class _RandomMetricState:
+    awake_at: datetime
+    count: int
 
 
 @dataclass
 class _RandomMetricPartition(StatefulSourcePartition):
     metric_name: str
     interval: timedelta
-    awake_at: Optional[datetime]
+    count: int
+    next_random: Callable[[], Any]
+    state: _RandomMetricState
 
-    def next_batch(self):
-        self.awake_at = datetime.now(tz=timezone.utc) + self.interval
+    def next_batch(self, sched: datetime) -> List[Any]:
+        self.state.awake_at = sched + self.interval
+        self.state.count += 1
 
-        value = random.randrange(0, 10)
+        if self.state.count > self.count:
+            raise StopIteration()
+
+        value = self.next_random()
         return [(self.metric_name, value)]
 
-    def next_awake(self):
-        return self.awake_at
+    def next_awake(self) -> Optional[datetime]:
+        return self.state.awake_at
 
-    def snapshot(self):
-        return self.awake_at
+    def snapshot(self) -> _RandomMetricState:
+        return self.state
 
 
 @dataclass
 class RandomMetricSource(FixedPartitionedSource):
+    """Demo source that produces an infinite stream of random values.
+
+    Emits downstream `(metric_name, val)` 2-tuples.
+
+    If you want to emit multiple different metrics, create multiple
+    `bytewax.operators.input.input` steps and
+    `bytewax.operators.merge.merge` them.
+
+    Args:
+        metric_name: To attach to each value.
+
+        interval: Emit a value on this cadence. Defaults to every 0.7
+            seconds.
+
+        count: Number of values to generate. Defaults to infinite.
+
+        next_random: Callable used to generate the next random value.
+            Defaults to a random `int` between 0 and 10.
+
+    """
+
     metric_name: str
     interval: timedelta = timedelta(seconds=0.7)
+    count: int = sys.maxsize
+    next_random: Callable[[], Any] = lambda: random.randrange(0, 10)
 
     def list_parts(self):
+        """A single stream of values."""
         return [self.metric_name]
 
-    def build_part(self, for_part, resume_state):
-        awake_at = resume_state
-        return _RandomMetricPartition(for_part, self.interval, awake_at)
+    def build_part(
+        self, now: datetime, for_part: str, resume_state: Optional[_RandomMetricState]
+    ):
+        """See ABC docstring."""
+        state = resume_state if resume_state is not None else _RandomMetricState(now, 0)
+        return _RandomMetricPartition(
+            for_part, self.interval, self.count, self.next_random, state
+        )
