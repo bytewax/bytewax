@@ -99,6 +99,10 @@ class DirSource(FixedPartitionedSource):
                 the filesystem of that directory. Defaults to using
                 `os.stat_result.st_dev`.
 
+                If you know all workers have access to identical
+                files, you can have this return a constant: `lambda
+                _dir: "SHARED"`.
+
         """
         if not dir_path.exists():
             msg = f"input directory `{dir_path}` does not exist"
@@ -165,6 +169,10 @@ class FileSource(FixedPartitionedSource):
                 return a consistent (across workers and restarts)
                 unique ID for the filesystem of that directory.
                 Defaults to using `os.stat_result.st_dev`.
+
+                If you know all workers have access to identical
+                files, you can have this return a constant: `lambda
+                _dir: "SHARED"`.
 
         """
         if not isinstance(path, Path):
@@ -279,6 +287,10 @@ class CSVSource(FileSource):
                 return a consistent (across workers and restarts)
                 unique ID for the filesystem of that directory.
                 Defaults to using `os.stat_result.st_dev`.
+
+                If you know all workers have access to identical
+                files, you can have this return a constant: `lambda
+                _dir: "SHARED"`.
 
             **fmtparams: Any custom formatting arguments you can pass
                 to
