@@ -100,3 +100,5 @@ convention = "google"
 "examples/*.py" = ["D"]
 "pytests/test_flows/*.py" = ["D"]
 "test_*.py" = ["D"]
+# Because `test_encoder` has huge literals in it.
+"pytests/test_encoder.py" = ["E501"]
