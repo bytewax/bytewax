@@ -104,8 +104,8 @@ def test_file_input_supports_blank_lines():
 
 def test_file_input_resume_state(now):
     file_path = Path("pytests/fixtures/dir_input/partition-1.txt")
-    inp = FileSource(file_path, batch_size=1)
-    part = inp.build_part(now, str(file_path), None)
+    inp = FileSource(file_path, batch_size=1, get_fs_id=lambda _path: "SHARED")
+    part = inp.build_part(now, f"SHARED::{file_path}", None)
     assert part.next_batch(now) == ["one1"]
     assert part.next_batch(now) == ["one2"]
     resume_state = part.snapshot()
@@ -113,8 +113,8 @@ def test_file_input_resume_state(now):
     assert part.next_batch(now) == ["one4"]
     part.close()
 
-    inp = FileSource(file_path, batch_size=1)
-    part = inp.build_part(now, str(file_path), resume_state)
+    inp = FileSource(file_path, batch_size=1, get_fs_id=lambda _path: "SHARED")
+    part = inp.build_part(now, f"SHARED::{file_path}", resume_state)
     assert part.snapshot() == resume_state
     assert part.next_batch(now) == ["one3"]
     assert part.next_batch(now) == ["one4"]

@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file. For help wi
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Adds a `get_fs_id` argument to `{Dir,File}Source` to allow handling
+  non-identical files per worker.
+
 - Adds a `TestingSource.EOF` and `TestingSource.ABORT` sentinel values
   you can use to test recovery.
 
