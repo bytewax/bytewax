@@ -98,11 +98,31 @@ where
         step_id: StepId,
         mapper: TdPyCallable,
     ) -> PyResult<Stream<S, TdPyAny>> {
+        let this_worker = self.scope().w_index();
+
         let mut op_builder = OperatorBuilder::new(step_id.0.clone(), self.scope());
 
         let mut self_handle = op_builder.new_input(self, Pipeline);
 
         let (mut downstream_output, downstream) = op_builder.new_output();
+
+        let meter = opentelemetry::global::meter("bytewax");
+        let item_inp_count = meter
+            .u64_counter("item_inp_count")
+            .with_description("number of items this step has ingested")
+            .init();
+        let item_out_count = meter
+            .u64_counter("item_out_count")
+            .with_description("number of items this step has emitted")
+            .init();
+        let mapper_histogram = meter
+            .f64_histogram("flat_map_duration_seconds")
+            .with_description("`flat_map` `mapper` duration in seconds")
+            .init();
+        let labels = vec![
+            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("worker_index", this_worker.0.to_string()),
+        ];
 
         op_builder.build(move |init_caps| {
             let mut items_inbuf = InBuffer::new();
@@ -120,25 +140,32 @@ where
                             let epoch = cap.time();
 
                             if let Some(items) = items_inbuf.remove(epoch) {
+                                item_inp_count.add(items.len() as u64, &labels);
                                 let mut downstream_session = downstream_handle.session(cap);
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     for item in items {
                                         let item = PyObject::from(item);
 
-                                        let output = mapper
-                                            .as_ref(py)
-                                            .call1((item,))
-                                            .reraise_with(|| {
-                                                format!("error calling mapper in step {step_id}")
-                                            })?
-                                            .extract::<Vec<_>>()
-                                            .reraise_with(|| {
-                                                format!(
-                                                    "mapper in {step_id} did not return a `list`"
-                                                )
-                                            })?;
+                                        let output =
+                                            with_timer!(
+                                                mapper_histogram,
+                                                labels,
+                                                mapper
+                                                    .as_ref(py)
+                                                    .call1((item,))
+                                                    .reraise_with(|| {
+                                                        format!("error calling mapper in step {step_id}")
+                                                    })?
+                                                    .extract::<Vec<_>>()
+                                                    .reraise_with(|| {
+                                                        format!(
+                                                            "mapper in {step_id} did not return a `list`"
+                                                        )
+                                                    })?
+                                            );
 
+                                        item_out_count.add(output.len() as u64, &labels);
                                         let mut output =
                                             output.into_iter().map(TdPyAny::into).collect();
                                         downstream_session.give_vec(&mut output);
@@ -444,21 +471,6 @@ where
         );
         let partd_loads = loads.partition(format!("{step_id}.load_partition"), &workers, loads_pf);
 
-        let meter = opentelemetry::global::meter("bytewax");
-        let logic_histogram = meter
-            .f64_histogram("bytewax_stateful_unary_logic_duration_seconds")
-            .with_description("stateful_unary logic duration in seconds")
-            .init();
-        let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
-            KeyValue::new("worker_id", this_worker.0.to_string()),
-        ];
-
-        let snapshot_histogram = meter
-            .f64_histogram("bytewax_stateful_unary_snapshot_duration_seconds")
-            .with_description("stateful_unary logic snapshot duration in seconds")
-            .init();
-
         let op_name = format!("{step_id}.stateful_unary");
         let mut op_builder = OperatorBuilder::new(op_name.clone(), self.scope());
 
@@ -478,6 +490,40 @@ where
 
         let info = op_builder.operator_info();
         let activator = self.scope().activator_for(&info.address[..]);
+
+        let meter = opentelemetry::global::meter("bytewax");
+        let item_inp_count = meter
+            .u64_counter("item_inp_count")
+            .with_description("number of items this step has ingested")
+            .init();
+        let item_out_count = meter
+            .u64_counter("item_out_count")
+            .with_description("number of items this step has emitted")
+            .init();
+        let on_item_histogram = meter
+            .f64_histogram("unary_on_item_duration_seconds")
+            .with_description("`UnaryLogic.on_item` duration in seconds")
+            .init();
+        let on_notify_histogram = meter
+            .f64_histogram("unary_on_notify_duration_seconds")
+            .with_description("`UnaryLogic.on_notify` duration in seconds")
+            .init();
+        let on_eof_histogram = meter
+            .f64_histogram("unary_on_eof_duration_seconds")
+            .with_description("`UnaryLogic.on_eof` duration in seconds")
+            .init();
+        let notify_at_histogram = meter
+            .f64_histogram("unary_notify_at_duration_seconds")
+            .with_description("`UnaryLogic.notify_at` duration in seconds")
+            .init();
+        let snapshot_histogram = meter
+            .f64_histogram("snapshot_duration_seconds")
+            .with_description("`snapshot` duration in seconds")
+            .init();
+        let labels = vec![
+            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("worker_index", this_worker.0.to_string()),
+        ];
 
         op_builder.build(move |mut init_caps| {
             // We have to retain separate capabilities
@@ -603,6 +649,8 @@ where
                             // First, call `on_item` for all the input
                             // items.
                             if let Some(items) = inbuf.remove(&epoch) {
+                                item_inp_count.add(items.len() as u64, &labels);
+
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     for (worker, (key, value)) in items {
                                         let value = PyObject::from(value);
@@ -622,7 +670,7 @@ where
                                             });
 
                                         let (output, is_complete) = with_timer!(
-                                            logic_histogram,
+                                            on_item_histogram,
                                             labels,
                                             logic
                                                 .on_item(py, py_now.clone_ref(py), value)
@@ -631,6 +679,7 @@ where
                                                 ))?
                                         );
 
+                                        item_out_count.add(output.len() as u64, &labels);
                                         for value in output {
                                             kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                                         }
@@ -665,13 +714,14 @@ where
                                         let logic = logics.get(&key).unwrap();
 
                                         let (output, is_complete) = with_timer!(
-                                            logic_histogram,
+                                            on_notify_histogram,
                                             labels,
                                             logic.on_notify(py, sched).reraise_with(|| format!(
                                                 "error calling `UnaryLogic.on_notify` in {step_id} for key {key}"
                                             ))?
                                         );
 
+                                        item_out_count.add(output.len() as u64, &labels);
                                         for value in output {
                                             kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                                         }
@@ -706,13 +756,14 @@ where
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     for (key, logic) in logics.iter() {
                                         let (output, is_complete) = with_timer!(
-                                            logic_histogram,
+                                            on_eof_histogram,
                                             labels,
                                             logic.on_eof(py).reraise_with(|| format!(
                                                 "error calling `UnaryLogic.on_eof` in {step_id} for key {key}"
                                             ))?
                                         );
 
+                                        item_out_count.add(output.len() as u64, &labels);
                                         for value in output {
                                             kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                                         }
@@ -746,9 +797,13 @@ where
                                         // still in
                                         // `awoken_keys_buffer`.
                                         if let Some(logic) = logics.get(key) {
-                                            let sched = logic.notify_at(py).reraise_with(|| {
-                                                format!("error calling `UnaryLogic.notify_at` in {step_id} for key {key}")
-                                            })?;
+                                            let sched = with_timer!(
+                                                notify_at_histogram,
+                                                labels,
+                                                logic.notify_at(py).reraise_with(|| {
+                                                    format!("error calling `UnaryLogic.notify_at` in {step_id} for key {key}")
+                                                })?
+                                            );
                                             if let Some(sched) = sched {
                                                 sched_cache.insert(key.clone(), sched);
                                             }

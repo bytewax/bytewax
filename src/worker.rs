@@ -8,8 +8,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
-use opentelemetry::global;
-use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -38,7 +36,6 @@ use crate::outputs::*;
 use crate::pyo3_extensions::wrap_window_state_pair;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
-use crate::timely::AsWorkerExt;
 use crate::window::clock::ClockBuilder;
 use crate::window::clock::ClockConfig;
 use crate::window::StatefulWindowUnary;
@@ -275,9 +272,6 @@ fn build_production_dataflow<A>(
 where
     A: Allocate,
 {
-    let this_worker = worker.w_index();
-    let this_worker_label = KeyValue::new("worker_id", this_worker.0.to_string());
-
     // Remember! Never build different numbers of Timely operators on
     // different workers! Timely does not like that and you'll see a
     // mysterious `failed to correctly cast channel` panic. You must
@@ -297,9 +291,6 @@ where
             // Load nothing from a previous execution.
             empty(scope)
         };
-
-        // Top level metrics meter
-        let meter = global::meter("bytewax");
 
         // This contains steps we still need to compile. Starts with
         // the top-level steps in the dataflow.

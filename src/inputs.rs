@@ -5,7 +5,6 @@
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::collections::HashMap;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -13,7 +12,6 @@ use std::sync::Arc;
 use chrono::DateTime;
 use chrono::Duration;
 use chrono::Utc;
-use opentelemetry::global;
 use opentelemetry::KeyValue;
 use pyo3::create_exception;
 use pyo3::exceptions::PyRuntimeError;
@@ -232,32 +230,8 @@ impl FixedPartitionedSource {
         let local_parts = self.list_parts(py).reraise_with(|| {
             format!("error calling `FixedPartitionSource.list_parts` in step {step_id}")
         })?;
-        let step_label = KeyValue::new("step_id", step_id.0.to_string());
-        let worker_index_label = KeyValue::new("worker_id", this_worker.0.to_string());
-        let part_label_map: HashMap<StateKey, Vec<KeyValue>> = local_parts
-            .iter()
-            .map(|state_key| {
-                (
-                    state_key.clone(),
-                    vec![
-                        step_label.clone(),
-                        worker_index_label.clone(),
-                        KeyValue::new("part_id", state_key.0.to_string()),
-                    ],
-                )
-            })
-            .collect();
         let all_parts = local_parts.into_broadcast(scope, S::Timestamp::minimum());
         let primary_updates = all_parts.assign_primaries(format!("{step_id}.assign_primaries"));
-
-        let meter = global::meter("bytewax");
-        let counter = meter
-            .u64_counter("bytewax_partitioned_input_items_total")
-            .init();
-        let histogram = meter
-            .f64_histogram("bytewax_partitioned_input_next_batch_duration_seconds")
-            .with_description("Partitioned input next_batch duration in seconds")
-            .init();
 
         let routed_loads = loads
             .filter_snaps(step_id.clone())
@@ -276,6 +250,24 @@ impl FixedPartitionedSource {
         let activator = scope.activator_for(&info.address[..]);
         let probe = probe.clone();
         let abort = abort.clone();
+
+        let meter = opentelemetry::global::meter("bytewax");
+        let item_out_count = meter
+            .u64_counter("item_out_count")
+            .with_description("number of items this step has emitted")
+            .init();
+        let next_batch_histogram = meter
+            .f64_histogram("inp_part_next_batch_duration_seconds")
+            .with_description("`next_batch` duration in seconds")
+            .init();
+        let snapshot_histogram = meter
+            .f64_histogram("snapshot_duration_seconds")
+            .with_description("`snapshot` duration in seconds")
+            .init();
+        let labels = vec![
+            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("worker_index", this_worker.0.to_string()),
+        ];
 
         op_builder.build(move |mut init_caps| {
             init_caps.downgrade_all(&start_at.0);
@@ -414,15 +406,11 @@ impl FixedPartitionedSource {
                             );
                             let epoch = *part_state.downstream_cap.time();
 
-                            let metric_labels = part_label_map
-                                .get(part_key)
-                                .expect("No metric labels found for part key {part_key}");
-
                             if !probe.less_than(&epoch) && now >= part_state.next_awake {
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     let batch_res = with_timer!(
-                                        histogram,
-                                        metric_labels,
+                                        next_batch_histogram,
+                                        labels,
                                         part_state
                                             .part
                                             .next_batch(py, part_state.next_awake)
@@ -434,10 +422,9 @@ impl FixedPartitionedSource {
                                             let batch_len = batch.len();
 
                                             let mut downstream_session = downstream_handle.session(&part_state.downstream_cap);
+                                            item_out_count.add(batch_len as u64, &labels);
                                             let mut batch = batch.into_iter().map(TdPyAny::from).collect();
                                             downstream_session.give_vec(&mut batch);
-
-                                            counter.add(batch_len as u64, metric_labels);
 
                                             let next_awake_res = part_state
                                                 .part
@@ -462,9 +449,13 @@ impl FixedPartitionedSource {
                                     // and never poll input.
                                     if now - part_state.epoch_started >= epoch_interval.0
                                     {
-                                        let state = part_state.part
-                                            .snapshot(py)
-                                            .reraise_with(|| format!("error calling `StatefulSourcePartition.snapshot` in step {step_id} for partition {part_key}"))?;
+                                        let state = with_timer!(
+                                            snapshot_histogram,
+                                            labels,
+                                            part_state.part
+                                                .snapshot(py)
+                                                .reraise_with(|| format!("error calling `StatefulSourcePartition.snapshot` in step {step_id} for partition {part_key}"))?
+                                        );
                                         tracing::trace!("End of epoch {epoch} partition state now {state:?}");
                                         let snap = Snapshot(
                                             step_id.clone(),
@@ -657,17 +648,19 @@ impl DynamicSource {
         let probe = probe.clone();
         let abort = abort.clone();
 
-        let meter = global::meter("bytewax");
-        let counter = meter
-            .u64_counter("bytewax_dynamic_input_items_total")
+        let meter = opentelemetry::global::meter("bytewax");
+        let item_out_count = meter
+            .u64_counter("item_out_count")
+            .with_description("number of items this step has emitted")
             .init();
-        let worker_index_label = KeyValue::new("worker_id", worker_index.0.to_string());
-        let step_label = KeyValue::new("step_id", step_id.0.clone());
-        let metric_labels = vec![step_label, worker_index_label];
-        let histogram = meter
-            .f64_histogram("bytewax_dynamic_input_next_batch_duration_seconds")
-            .with_description("dynamic_input next_batch duration in seconds")
+        let next_batch_histogram = meter
+            .f64_histogram("inp_part_next_batch_duration_seconds")
+            .with_description("`next_batch` duration in seconds")
             .init();
+        let labels = vec![
+            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("worker_index", worker_index.0.to_string()),
+        ];
 
         op_builder.build(move |mut init_caps| {
             let now = Utc::now();
@@ -700,8 +693,8 @@ impl DynamicSource {
                         if !probe.less_than(epoch) && now >= part_state.next_awake {
                             unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                 let res = with_timer!(
-                                    histogram,
-                                    metric_labels,
+                                    next_batch_histogram,
+                                    labels,
                                     part_state
                                         .part
                                         .next_batch(py, part_state.next_awake)
@@ -713,10 +706,9 @@ impl DynamicSource {
                                         let batch_len = batch.len();
 
                                         let mut downstream_session = downstream_handle.session(&part_state.output_cap);
+                                        item_out_count.add(batch_len as u64, &labels);
                                         let mut batch = batch.into_iter().map(TdPyAny::from).collect();
                                         downstream_session.give_vec(&mut batch);
-
-                                        counter.add(batch_len as u64, &metric_labels);
 
                                         let next_awake_res = part_state
                                             .part
