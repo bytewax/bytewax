@@ -396,7 +396,7 @@ where
                                     step_id,
                                     epoch_interval,
                                     &probe,
-                                    &abort,
+                                    abort,
                                     resume_epoch,
                                     &loads,
                                 )
@@ -416,7 +416,7 @@ where
                                     step_id,
                                     epoch_interval,
                                     &probe,
-                                    &abort,
+                                    abort,
                                     resume_epoch,
                                 )
                                 .reraise("error building DynamicSource")?;

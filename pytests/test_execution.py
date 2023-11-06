@@ -1,11 +1,6 @@
-import os
-import signal
-import subprocess
-import tempfile
-
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource
-from pytest import mark, raises
+from pytest import raises
 
 
 def test_run(entry_point):

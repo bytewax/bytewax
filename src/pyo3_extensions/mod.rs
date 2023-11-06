@@ -61,6 +61,12 @@ impl From<TdPyAny> for PyObject {
     }
 }
 
+impl<'a> From<&'a TdPyAny> for &'a PyObject {
+    fn from(x: &'a TdPyAny) -> Self {
+        &x.0
+    }
+}
+
 impl From<&PyAny> for TdPyAny {
     fn from(x: &PyAny) -> Self {
         Self(x.into())
@@ -76,12 +82,6 @@ impl From<&PyString> for TdPyAny {
 impl From<Py<PyAny>> for TdPyAny {
     fn from(x: Py<PyAny>) -> Self {
         Self(x)
-    }
-}
-
-impl<'a> Into<&'a PyObject> for &'a TdPyAny {
-    fn into(self) -> &'a PyObject {
-        &self.0
     }
 }
 

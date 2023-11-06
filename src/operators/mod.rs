@@ -701,7 +701,7 @@ where
                             let notify_keys: Vec<_> = sched_cache
                                 .iter()
                                 .filter(|(_key, sched)| **sched <= now)
-                                .map(|(key, sched)| (key.clone(), sched.clone()))
+                                .map(|(key, sched)| (key.clone(), *sched))
                                 .collect();
                             if !notify_keys.is_empty() {
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
