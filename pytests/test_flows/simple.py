@@ -5,12 +5,9 @@ from bytewax.testing import TestingSource
 
 def get_flow(path):
     flow = Dataflow("test_df")
-    inp = range(1000)
-    flow.input("inp", TestingSource(inp))
+    s = flow.input("inp", TestingSource(range(1000)))
+    s = s.key_on("key", lambda _x: "ALL")
+    s = s.map_value("str", str)
+    s.output("out", FileSink(path))
 
-    def mapper(item):
-        return "ALL", f"{item}"
-
-    flow.map("all_mapper", mapper)
-    flow.output("out", FileSink(path))
     return flow
