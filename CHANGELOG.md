@@ -35,6 +35,9 @@ notes on GitHub when we make a new release.__
 
 - `collect_window` operator now can collect into `set`s and `dict`s.
 
+- Adds a `get_fs_id` argument to `{Dir,File}Source` to allow handling
+  non-identical files per worker.
+
 - Adds a `TestingSource.EOF` and `TestingSource.ABORT` sentinel values
   you can use to test recovery.
 
