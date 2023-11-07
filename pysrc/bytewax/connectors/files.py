@@ -18,6 +18,10 @@ __all__ = [
 ]
 
 
+def _get_path_dev(path: Path) -> str:
+    return hex(path.stat().st_dev)
+
+
 def _readlines(f):
     """Turn a file into a generator of lines but support `tell`.
 
@@ -58,28 +62,46 @@ class _FileSourcePartition(StatefulSourcePartition):
 class DirSource(FixedPartitionedSource):
     """Read all files in a filesystem directory line-by-line.
 
-    The directory must exist on all workers. All unique file names
-    within the directory across all workers will be read.
+    The directory must exist on at least one worker. Each worker can
+    have unique files at overlapping paths if each worker mounts a
+    distinct filesystem. Tries to read only one instance of each
+    unique file in the whole cluster by deduplicating paths by
+    filesystem ID. See `get_fs_id` to adjust this.
 
-    Individual files are the unit of parallelism; only one worker will
-    read each unique file name. Thus, lines from different files are
+    Unique files are the unit of parallelism; only one worker will
+    read each unique file. Thus, lines from different files are
     interleaved.
 
     Can support exactly-once processing.
 
     """
 
-    def __init__(self, dir_path: Path, glob_pat: str = "*", batch_size: int = 1000):
+    def __init__(
+        self,
+        dir_path: Path,
+        glob_pat: str = "*",
+        batch_size: int = 1000,
+        get_fs_id: Callable[[Path], str] = _get_path_dev,
+    ):
         """Init.
 
         Args:
-            dir_path:
-                Path to directory.
-            glob_pat:
-                Pattern of files to read from the directory. Defaults
-                to `"*"` or all files.
-            batch_size:
-                Number of lines to read per batch. Defaults to 1000.
+            dir_path: Path to directory.
+
+            glob_pat: Pattern of files to read from the directory.
+                Defaults to `"*"` or all files.
+
+            batch_size: Number of lines to read per batch. Defaults to
+                1000.
+
+            get_fs_id: Called with the directory and must return a
+                consistent (across workers and restarts) unique ID for
+                the filesystem of that directory. Defaults to using
+                `os.stat_result.st_dev`.
+
+                If you know all workers have access to identical
+                files, you can have this return a constant: `lambda
+                _dir: "SHARED"`.
 
         """
         if not dir_path.exists():
@@ -92,37 +114,65 @@ class DirSource(FixedPartitionedSource):
         self._dir_path = dir_path
         self._glob_pat = glob_pat
         self._batch_size = batch_size
+        self._fs_id = get_fs_id(dir_path)
+        if "::" in self._fs_id:
+            msg = f"result of `get_fs_id` must not contain `::`; got {self._fs_id!r}"
+            raise ValueError(msg)
 
     def list_parts(self):
         """Each file is a separate partition."""
-        return [
-            str(path.relative_to(self._dir_path))
-            for path in self._dir_path.glob(self._glob_pat)
-        ]
+        if self._dir_path.exists():
+            return [
+                f"{self._fs_id}::{path.relative_to(self._dir_path)}"
+                for path in self._dir_path.glob(self._glob_pat)
+            ]
+        else:
+            return []
 
-    def build_part(self, _now: datetime, for_part: str, resume_state: Optional[Any]):
+    def build_part(self, _now: datetime, part_key: str, resume_state: Optional[Any]):
         """See ABC docstring."""
-        path = self._dir_path / for_part
+        _fs_id, for_path = part_key.split("::", 1)
+        path = self._dir_path / for_path
         return _FileSourcePartition(path, self._batch_size, resume_state)
 
 
 class FileSource(FixedPartitionedSource):
-    """Read a single file line-by-line from the filesystem.
+    """Read a path line-by-line from the filesystem.
 
-    The file must exist on at least one worker.
+    The path must exist on at least one worker. Each worker can have a
+    unique file at the path if each worker mounts a distinct
+    filesystem. Tries to read only one instance of each unique file in
+    the whole cluster by deduplicating paths by filesystem ID. See
+    `get_fs_id` to adjust this.
 
-    There is no parallelism; only one worker will actually read the
-    file.
+    Unique files are the unit of parallelism; only one worker will
+    read each unique file. Thus, lines from different files are
+    interleaved.
+
     """
 
-    def __init__(self, path: Union[Path, str], batch_size: int = 1000):
+    def __init__(
+        self,
+        path: Union[Path, str],
+        batch_size: int = 1000,
+        get_fs_id: Callable[[Path], str] = _get_path_dev,
+    ):
         """Init.
 
         Args:
-            path:
-                Path to file.
-            batch_size:
-                Number of lines to read per batch. Defaults to 1000.
+            path: Path to file.
+
+            batch_size: Number of lines to read per batch. Defaults to
+                1000.
+
+            get_fs_id: Called with the parent directory and must
+                return a consistent (across workers and restarts)
+                unique ID for the filesystem of that directory.
+                Defaults to using `os.stat_result.st_dev`.
+
+                If you know all workers have access to identical
+                files, you can have this return a constant: `lambda
+                _dir: "SHARED"`.
 
         """
         if not isinstance(path, Path):
@@ -130,19 +180,24 @@ class FileSource(FixedPartitionedSource):
 
         self._path = path
         self._batch_size = batch_size
+        self._fs_id = get_fs_id(path.parent)
+        if "::" in self._fs_id:
+            msg = f"result of `get_fs_id` must not contain `::`; got {self._fs_id!r}"
+            raise ValueError(msg)
 
     def list_parts(self):
         """The file is a single partition."""
         if self._path.exists():
-            return [str(self._path)]
+            return [f"{self._fs_id}::{self._path}"]
         else:
             return []
 
-    def build_part(self, _now: datetime, for_part: str, resume_state: Optional[Any]):
+    def build_part(self, _now: datetime, part_key: str, resume_state: Optional[Any]):
         """See ABC docstring."""
+        _fs_id, path = part_key.split("::", 1)
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
-        assert for_part == str(self._path), "Can't resume reading from different file"
+        assert path == str(self._path), "Can't resume reading from different file"
         return _FileSourcePartition(self._path, self._batch_size, resume_state)
 
 
@@ -167,12 +222,17 @@ class _CSVPartition(StatefulSourcePartition):
 
 
 class CSVSource(FileSource):
-    """Read a single CSV file row-by-row as keyed-by-column dicts.
+    """Read a path as a CSV file row-by-row as keyed-by-column dicts.
 
-    The CSV file must exist on at least one worker.
+    The path must exist on at least one worker. Each worker can have a
+    unique file at the path if each worker mounts a distinct
+    filesystem. Tries to read only one instance of each unique file in
+    the whole cluster by deduplicating paths by filesystem ID. See
+    `get_fs_id` to adjust this.
 
-    There is no parallelism; only one worker will actually read the
-    file.
+    Unique files are the unit of parallelism; only one worker will
+    read each unique file. Thus, lines from different files are
+    interleaved.
 
     Sample input:
 
@@ -208,25 +268,42 @@ class CSVSource(FileSource):
 
     """
 
-    def __init__(self, path: Path, batch_size: int = 1000, **fmtparams):
+    def __init__(
+        self,
+        path: Path,
+        batch_size: int = 1000,
+        get_fs_id: Callable[[Path], str] = _get_path_dev,
+        **fmtparams,
+    ):
         """Init.
 
         Args:
-            path:
-                Path to file.
-            batch_size:
-                Number of lines to read per batch. Defaults to 1000.
-            **fmtparams:
-                Any custom formatting arguments you can pass to
+            path: Path to file.
+
+            batch_size: Number of lines to read per batch. Defaults to
+                1000.
+
+            get_fs_id: Called with the parent directory and must
+                return a consistent (across workers and restarts)
+                unique ID for the filesystem of that directory.
+                Defaults to using `os.stat_result.st_dev`.
+
+                If you know all workers have access to identical
+                files, you can have this return a constant: `lambda
+                _dir: "SHARED"`.
+
+            **fmtparams: Any custom formatting arguments you can pass
+                to
                 [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
 
         """
-        super().__init__(path, batch_size)
+        super().__init__(path, batch_size, get_fs_id)
         self._fmtparams = fmtparams
 
-    def build_part(self, _now: datetime, for_part: str, resume_state: Optional[Any]):
+    def build_part(self, _now: datetime, part_key: str, resume_state: Optional[Any]):
         """See ABC docstring."""
-        assert for_part == str(self._path), "Can't resume reading from different file"
+        _fs_id, path = part_key.split("::", 1)
+        assert path == str(self._path), "Can't resume reading from different file"
         return _CSVPartition(
             self._path, self._batch_size, resume_state, self._fmtparams
         )
