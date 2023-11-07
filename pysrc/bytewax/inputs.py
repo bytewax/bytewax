@@ -1,9 +1,22 @@
 """Low-level input interfaces and input helpers.
 
-If you want pre-built connectors for various external systems, see
-`bytewax.connectors`. That is also a rich source of examples.
+See the "Input and Output" section of the `bytewax` module docstring
+for the basics of input.
 
-Subclass the types here to implement input for your own custom source.
+If you want pre-built connectors for various external systems, see
+`bytewax.connectors`.
+
+# Partitioned Source
+
+TODO.
+
+# Dynamic Source
+
+TODO.
+
+# Custom Input Connectors
+
+TODO Subclass the types here to implement input for your own custom source.
 
 """
 

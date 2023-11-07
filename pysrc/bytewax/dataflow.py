@@ -50,7 +50,21 @@ your builder function.
   directly, or the top-level fields of a dataclass that is the return
   type; nowhere else.
 
-# Loading Operators
+## Docstrings
+
+A good docstring for a custom operator has a few things:
+
+- A one line summary of the operator.
+
+- A doctest example using the operator.
+
+- Any arguments that are streams describe the required shape of that
+  upstream.
+
+- The return streams describe the shape of the data that is being sent
+  downstream.
+
+# Loading
 
 Built-in operators in `bytewax.operators` are automatically loaded
 when you `import bytewax` or any submodules, but custom operators that
@@ -58,13 +72,14 @@ you define or are defined in other modules or packages must be
 **loaded** via `load_op` or `load_mod_ops`. This will add the operator
 methods to the relevant `Stream` classes.
 
-To load the example `add_one` operator above:
+To load the example `add_to` operator above:
 
 >>> load_op(add_to)
 
-Now you can use
+Now you can use the `add_to` which was loaded onto `Stream`:
 
->>> from bytewax.run import run_main
+>>> from bytewax.connectors.stdio import StdOutSink
+>>> from bytewax.testing import TestingSource, run_main
 >>> flow = Dataflow("my_flow")
 >>> nums = flow.input("nums", TestingSource([1, 2, 3]))
 >>> bigger_nums = nums.add_to("my_op", 3)
@@ -110,7 +125,7 @@ def f_repr(f: Callable) -> str:
     >>> def my_f(x):
     ...     pass
     >>> f_repr(my_f)
-    <function '__main__.my_f':1>
+    "<function 'bytewax.dataflow.my_f' line 1 at ...>"  # doctest: +ELLIPSIS
 
     """
     if isinstance(f, FunctionType):
@@ -812,14 +827,14 @@ def load_mod_ops(mod: ModuleType) -> None:
 
     Use this to enable operators bundled in your own packages.
 
-    >>> import my_package
-    >>> load_mod_ops(my_package)
+    >>> import my_package  # doctest: +SKIP
+    >>> load_mod_ops(my_package) # doctest: +SKIP
 
     This is done by default for all built-in Bytewax operators. You do
     not need to call
 
-    >>> import bytewax.operators
-    >>> load_mod_ops(bytewax.operators)
+    >>> import bytewax.operators  # doctest: +SKIP
+    >>> load_mod_ops(bytewax.operators)  # doctest: +SKIP
 
     This needs to be done by hand so you can manually deal with
     operator method name clashes.

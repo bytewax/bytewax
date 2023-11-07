@@ -152,6 +152,24 @@ def collect_window(
     windower: WindowConfig,
     into: Type = list,
 ) -> KeyedStream:
+    """Collect all items in a window into a container.
+
+    Args:
+        up: Stream of items to count.
+
+        step_id: Unique ID.
+
+        clock: Clock.
+
+        windower: Windower.
+
+        into: Type to collect into. Defaults to `list`.
+
+    Returns:
+        A keyed stream of the collected containers at the end of each
+        window.
+
+    """
     collector = _get_collector(into)
 
     return up.fold_window("fold_window", clock, windower, into, collector)
@@ -200,6 +218,32 @@ def fold_window(
     builder: Callable[[], Any],
     folder: Callable[[Any, Any], Any],
 ) -> KeyedStream:
+    """Build an empty accumulator, then combine values into it.
+
+    It is like `reduce_window` but uses a function to build the initial
+    value.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        clock: Clock.
+
+        windower: Windower.
+
+        builder: Called the first time a key appears and is expected
+            to return the empty accumulator for that key.
+
+        folder: Combines a new value into an existing accumulator and
+            returns the updated accumulator. The accumulator is
+            initially the empty accumulator.
+
+    Returns:
+        A keyed stream of the accumulators once each window has
+        closed.
+
+    """
     return KeyedStream(f"{up._scope.parent_id}.down", up._scope)
 
 
@@ -217,6 +261,24 @@ def join_window(
     windower: WindowConfig,
     *rights: KeyedStream,
 ) -> KeyedStream:
+    """Gather together the value for a key on multiple streams.
+
+    Args:
+        left: Keyed stream.
+
+        step_id: Unique ID.
+
+        clock: Clock.
+
+        windower: Windower.
+
+        *rights: Other keyed streams.
+
+    Returns:
+        Emits a tuple with the value from each stream in the order of
+        the argument list once each window has closed.
+
+    """
     named_ups = dict((str(i), s) for i, s in enumerate([left] + list(rights)))
     names = list(named_ups.keys())
 
@@ -242,6 +304,25 @@ def join_window_named(
     windower: WindowConfig,
     **ups: KeyedStream,
 ) -> KeyedStream:
+    """Gather together the value for a key on multiple named streams.
+
+    Args:
+        flow: Dataflow.
+
+        step_id: Unique ID.
+
+        clock: Clock.
+
+        windower: Windower.
+
+        **ups: Named keyed streams. The name of each stream will be
+            used in the emitted `dict`s.
+
+    Returns:
+        Emits a `dict` mapping the name to the value from each stream
+        once each window has closed.
+
+    """
     names = list(ups.keys())
 
     return (
@@ -265,6 +346,24 @@ def max_window(
     windower: WindowConfig,
     by: Callable[[Any], Any] = _identity,
 ) -> KeyedStream:
+    """Find the minumum value for each key.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        clock: Clock.
+
+        windower: Windower.
+
+        by: A function called on each value that is used to extract
+            what to compare.
+
+    Returns:
+        A keyed stream of the min values once each window has closed.
+
+    """
     return up.reduce_window("reduce_window", clock, windower, partial(max, key=by))
 
 
@@ -276,6 +375,24 @@ def min_window(
     windower: WindowConfig,
     by: Callable[[Any], Any] = _identity,
 ) -> KeyedStream:
+    """Find the minumum value for each key.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        clock: Clock.
+
+        windower: Windower.
+
+        by: A function called on each value that is used to extract
+            what to compare.
+
+    Returns:
+        A keyed stream of the min values once each window has closed.
+
+    """
     return up.reduce_window("reduce_window", clock, windower, partial(min, key=by))
 
 
@@ -287,6 +404,29 @@ def reduce_window(
     windower: WindowConfig,
     reducer: Callable[[Any, Any], Any],
 ) -> KeyedStream:
+    """Distill all values for a key down into a single value.
+
+    It is like `fold_window` but the first value is the initial
+    accumulator.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        clock: Clock.
+
+        windower: Windower.
+
+        reducer: Combines a new value into an old value and returns
+            the combined value.
+
+    Returns:
+        A keyed stream of the reduced values once each window has
+        closed.
+
+    """
+
     def shim_folder(s, v):
         if s is None:
             s = v

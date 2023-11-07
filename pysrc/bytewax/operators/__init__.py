@@ -5,24 +5,97 @@ running dataflows.
 
 See `bytewax.operators.window` for windowing operators.
 
-# Stateful Operators
+# Reading Operator Documentation
 
-Operators loaded onto `KeyedStream` (e.g. `fold.fold`,
-`stateful_map.stateful_map`, etc.) will only work when this input
-stream is keyed, and automatically unwrap value out of the `(key,
-value)` 2-tuples upstream and then automatically re-wrap any emitted
-values back into `(key, value)` 2-tuples. See the operators
-`key_on.key_on` and `key_assert.key_assert` to create
-`KeyedStream`s.
+Operators are used by calling the builder methods that are loaded onto
+usually the `bytewax.dataflow.Stream` class. Because these methods are
+dynamically loaded, their API docs do not actually live on that class,
+though, they live where the operators are defined. For built-in
+operators, that is this module.
+
+Each operator appears as a `class` definition with the builder method
+defined on that. So for example, the builder method you would use to
+add a `map` step lives at the `"map.map"` method.
+
+This builder method should be read just like any other method defined
+on a class: the first argument is the `self` (and will be before the
+`.` of the method call), and the rest of the arguments are provided in
+the `()` of the call site.
+
+The type annotation on the first argument is the class that the
+builder method is loaded onto. This is usually `Stream`, but might be
+`KeyedStream` or `Dataflow` or another class.
+
+# Quick Logic Functions
+
+Many of the operators take **logic functions** which help you
+customize their behavior in a structured way. The most verbose way
+would be to `def logic(...)` a function that does what you need to do,
+but any callable value can be used as-is, though!
+
+This means you can use the following existing callables to help you
+make code more concise:
+
+- [Built-in
+  functions](https://docs.python.org/3/library/functions.html)
+
+- [Constructors or
+  `__init__`](https://docs.python.org/3/tutorial/classes.html#class-objects)
+
+- [Methods](https://docs.python.org/3/glossary.html#term-method)
+
+You can also use
+[lambdas](https://docs.python.org/3/tutorial/controlflow.html#lambda-expressions)
+to quickly define one-off anonymous functions for simple custom logic.
+
+For example, all of the following dataflows are equivalent.
+
+Using a defined function:
+
+>>> from bytewax.dataflow import Dataflow
+>>> from bytewax.testing import TestingSource, run_main
+>>> from bytewax.connectors.stdio import StdOutSink
+>>> flow = Dataflow("use_def")
+>>> def split_sentence(sentence):
+...     return sentence.split()
+>>> s = flow.input("inp", TestingSource(["hello world"]))
+>>> s = s.flat_map("split", split_sentence)
+>>> s.output("out", StdOutSink())
+>>> run_main(flow)
+hello
+world
+
+Or a lambda:
+
+>>> flow = Dataflow("use_lambda")
+>>> s = flow.input("inp", TestingSource(["hello world"]))
+>>> s = s.flat_map("split", lambda s: s.split())
+>>> s.output("out", StdOutSink())
+>>> run_main(flow)
+hello
+world
+
+Or an unbound method:
+
+>>> flow = Dataflow("use_method")
+>>> s = flow.input("inp", TestingSource(["hello world"]))
+>>> s = s.flat_map("split", str.split)
+>>> s.output("out", StdOutSink())
+>>> run_main(flow)
+hello
+world
 
 # Non-Built-In Operators
 
-All operators in this module are automatically loaded when you `import
-bytewax`.
+All operators in this module are automatically loaded when you
+
+>>> import bytewax
 
 Operators defined elsewhere must be loaded. See
 `bytewax.dataflow.load_mod_ops` and the `bytewax.dataflow` module
 docstring for how to load custom operators.
+
+# Custom Operators
 
 See the `bytewax.dataflow` module docstring for how to define your own
 custom operators.
@@ -78,6 +151,8 @@ class UnaryLogic(ABC):
     be received this execution. If the logic is retained after all the
     above calls then `notify_at` will be called. `snapshot` is
     periodically called.
+
+    To see examples of new o
 
     """
 
@@ -260,16 +335,6 @@ class BranchOut:
 
     You can tuple unpack this for convenience.
 
-    >>> from bytewax.connectors.stdio import StdOutSink
-    >>> from bytewax.run import run_main
-    >>> flow = Dataflow("my_flow")
-    >>> nums = flow.input("nums", TestingSource([1, 2, 3, 4, 5]))
-    >>> evens, odds = nums.split("split_even", lambda x: x % 2 == 0)
-    >>> evens.output("out", StdOutSink())
-    >>> run_main(flow)
-    2
-    4
-
     """
 
     trues: Stream
@@ -286,6 +351,16 @@ def branch(
     predicate: Callable[[Any], bool],
 ) -> BranchOut:
     """Divide items into two streams with a predicate.
+
+    >>> from bytewax.connectors.stdio import StdOutSink
+    >>> from bytewax.testing import run_main, TestingSource
+    >>> flow = Dataflow("my_flow")
+    >>> nums = flow.input("nums", TestingSource([1, 2, 3, 4, 5]))
+    >>> evens, odds = nums.branch("even_odd", lambda x: x % 2 == 0)
+    >>> evens.output("out", StdOutSink())
+    >>> run_main(flow)
+    2
+    4
 
     Args:
         up: Stream to divide.
@@ -339,11 +414,11 @@ def count_final(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStr
 def flat_map(
     up: Stream,
     step_id: str,
-    mapper: Callable[[Any], Iterable[Any]],
+    mapper: Callable[[Any], List[Any]],
 ) -> Stream:
-    """Flat map is a one-to-many transformation of items.
+    """Transform items one-to-many.
 
-    This is like a combination of `map.map` and `flatten.flatten`.
+    This is like a combination of `map` and `flatten`.
 
     It is commonly used for:
 
@@ -353,17 +428,16 @@ def flat_map(
 
     - Breaking up aggregations for further processing
 
-    >>> from bytewax.testing import TestingSource
+    >>> from bytewax.testing import TestingSource, run_main
     >>> from bytewax.connectors.stdio import StdOutSink
-    >>> from bytewax.testing import run_main
     >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow()
+    >>> flow = Dataflow("test_df")
     >>> inp = ["hello world"]
-    >>> flow.input("inp", TestingSource(inp))
+    >>> s = flow.input("inp", TestingSource(inp))
     >>> def split_into_words(sentence):
     ...     return sentence.split()
-    >>> flow.flat_map("split_words", split_into_words)
-    >>> flow.output("out", StdOutSink())
+    >>> s = s.flat_map("split_words", split_into_words)
+    >>> s.output("out", StdOutSink())
     >>> run_main(flow)
     hello
     world
@@ -377,7 +451,7 @@ def flat_map(
             to emit downstream.
 
     Returns:
-        A stream of each item in the iterable retuned by the mapper.
+        A stream of each item returned by the mapper.
 
     """
     return Stream(f"{up._scope.parent_id}.down", up._scope)
@@ -387,20 +461,20 @@ def flat_map(
 def flat_map_value(
     up: KeyedStream,
     step_id: str,
-    mapper: Callable[[Any], Iterable[Any]],
+    mapper: Callable[[Any], List[Any]],
 ) -> KeyedStream:
-    """Flat map is a one-to-many transformation of values.
+    """Transform values one-to-many.
 
     Args:
-        up: Stream.
+        up: Keyed stream.
 
         step_id: Unique ID.
 
-        mapper: Called once on each upstream item. Returns the items
+        mapper: Called once on each upstream value. Returns the values
             to emit downstream.
 
     Returns:
-        A stream of each item in the iterable retuned by the mapper.
+        A keyed stream of each value returned by the mapper.
 
     """
 
@@ -451,7 +525,7 @@ def flatten(up: Stream, step_id: str) -> Stream:
 def filter(  # noqa: A001
     up: Stream, step_id: str, predicate: Callable[[Any], bool]
 ) -> Stream:
-    """Filter selectively keeps only some items.
+    """Keep only some items.
 
     It is commonly used for:
 
@@ -463,17 +537,15 @@ def filter(  # noqa: A001
 
     - Removing stop words
 
-    >>> from bytewax.testing import TestingSource
+    >>> from bytewax.testing import TestingSource, run_main
     >>> from bytewax.connectors.stdio import StdOutSink
-    >>> from bytewax.testing import run_main
     >>> from bytewax.dataflow import Dataflow
-    >>>
-    >>> flow = Dataflow()
-    >>> flow.input("inp", TestingSource(range(4)))
+    >>> flow = Dataflow("test_df")
+    >>> s = flow.input("inp", TestingSource(range(4)))
     >>> def is_odd(item):
     ...     return item % 2 != 0
-    >>> flow.filter("filter_odd", is_odd)
-    >>> flow.output("out", StdOutSink())
+    >>> s = s.filter("filter_odd", is_odd)
+    >>> s.output("out", StdOutSink())
     >>> run_main(flow)
     1
     3
@@ -556,14 +628,19 @@ def filter_map(
     This is like a combination of `map.map` and then `filter.filter`
     with a predicate removing `None` values.
 
-    >>> flow = Dataflow()
+    >>> from bytewax.testing import TestingSource, run_main
+    >>> from bytewax.connectors.stdio import StdOutSink
+    >>> from bytewax.dataflow import Dataflow
+    >>> flow = Dataflow("test_df")
+    >>> s = flow.input("inp", TestingSource([]))
     >>> def validate(data):
     ...     if type(data) != dict or "key" not in data:
     ...         return None
     ...     else:
     ...         return data["key"], data
-    ...
-    >>> flow.filter_map("validate", validate)
+    >>> s = s.filter_map("validate", validate)
+    >>> s.output("out", StdOutSink())
+    >>> run_main(flow)
 
     Args:
         up: Stream.
@@ -622,8 +699,8 @@ def fold_final(
 ) -> KeyedStream:
     """Build an empty accumulator, then combine values into it.
 
-    It is like `reduce.reduce` but uses a function to build the
-    initial value.
+    It is like `reduce_final` but uses a function to build the initial
+    value.
 
     Args:
         up: Keyed stream.
@@ -638,7 +715,8 @@ def fold_final(
             initially the empty accumulator.
 
     Returns:
-        A keyed stream of the completed accumulators.
+        A keyed stream of the accumulators. _Only once the upstream is
+        EOF._
 
     """
 
@@ -685,14 +763,13 @@ def inspect(
 ) -> Stream:
     """Observe items for debugging.
 
-    >>> from bytewax.testing import TestingSource, TestingSink
-    >>> from bytewax.testing import run_main
+    >>> from bytewax.testing import TestingSource, TestingSink, run_main
     >>> from bytewax.dataflow import Dataflow
     >>> flow = Dataflow("my_flow")
-    >>> inp = flow.input("inp", TestingSource(range(3)))
-    >>> inp.inspect("help")
+    >>> s = flow.input("inp", TestingSource(range(3)))
+    >>> s = s.inspect("help")
     >>> out = []
-    >>> inp.output("out", TestingSink(out))  # Notice we don't print out.
+    >>> s.output("out", TestingSink(out))  # Notice we don't print out.
     >>> run_main(flow)
     my_flow.help: 0
     my_flow.help: 1
@@ -704,7 +781,7 @@ def inspect(
         step_id: Unique ID.
 
         inspector: Called with the step ID and each item in the
-            stream. Defaults to printing out the step_id and item.
+            stream. Defaults to printing the step ID and each item.
 
     Returns:
         The upstream unmodified.
@@ -729,18 +806,17 @@ def inspect_debug(
 ) -> Stream:
     """Observe items, their worker, and their epoch for debugging.
 
-    >>> from bytewax.testing import TestingSource, TestingSink
-    >>> from bytewax.testing import run_main
+    >>> from bytewax.testing import TestingSource, TestingSink, run_main
     >>> from bytewax.dataflow import Dataflow
     >>> flow = Dataflow("my_flow")
-    >>> inp = flow.input("inp", TestingSource(range(3)))
-    >>> inp.inspect_debug("help")
+    >>> s = flow.input("inp", TestingSource(range(3)))
+    >>> s = s.inspect_debug("help")
     >>> out = []
-    >>> inp.output("out", TestingSink(out))  # Notice we don't print out.
+    >>> s.output("out", TestingSink(out))  # Notice we don't print out.
     >>> run_main(flow)
-    my_flow.help W0 @0: 0
-    my_flow.help W0 @0: 1
-    my_flow.help W0 @0: 2
+    my_flow.help W0 @1: 0
+    my_flow.help W0 @1: 1
+    my_flow.help W0 @1: 2
 
     Args:
         up: Stream.
@@ -749,7 +825,7 @@ def inspect_debug(
 
         inspector: Called with the step ID, each item in the stream,
             the epoch of that item, and the worker processing the
-            item. Defaults to printing out the all the arguments.
+            item. Defaults to printing out all the arguments.
 
     Returns:
         The upstream unmodified.
@@ -853,6 +929,27 @@ def join(
     *rights: KeyedStream,
     running: bool = False,
 ) -> KeyedStream:
+    """Gather together the value for a key on multiple streams.
+
+    Args:
+        left: Keyed stream.
+
+        step_id: Unique ID.
+
+        *rights: Other keyed streams.
+
+        running: If `True`, emit the current set of values (if any)
+            each time a new value arrives. The set of values will
+            _never be discarded_ so might result in unbounded memory
+            use. If `False`, only emit once there is a value on each
+            stream, then discard the set. Defaults to `False`.
+
+    Returns:
+        Emits a tuple with the value from each stream in the order of
+        the argument list. If `running` is `True`, some values might
+        be `None`.
+
+    """
     named_ups = dict((str(i), s) for i, s in enumerate([left] + list(rights)))
     names = list(named_ups.keys())
 
@@ -877,6 +974,28 @@ def join_named(
     running: bool = False,
     **ups: KeyedStream,
 ) -> KeyedStream:
+    """Gather together the value for a key on multiple named streams.
+
+    Args:
+        flow: Dataflow.
+
+        step_id: Unique ID.
+
+        **ups: Named keyed streams. The name of each stream will be
+            used in the emitted `dict`s.
+
+        running: If `True`, emit the current set of values (if any)
+            each time a new value arrives. The set of values will
+            _never be discarded_ so might result in unbounded memory
+            use. If `False`, only emit once there is a value on each
+            stream, then discard the set. Defaults to `False`.
+
+    Returns:
+        Emits a `dict` mapping the name to the value from each stream.
+        If `running` is `True`, some names might be missing from the
+        `dict`.
+
+    """
     names = list(ups.keys())
 
     def shim_builder(_now: datetime, resume_state: Optional[Any]) -> _JoinLogic:
@@ -908,7 +1027,7 @@ def key_assert(up: Stream, step_id: str) -> KeyedStream:
         step_id: Unique ID.
 
     Returns:
-        The upstream unmodified.
+        The upstream unmodified, but marked as keyed.
 
     """
     down = up._noop("noop")
@@ -917,6 +1036,26 @@ def key_assert(up: Stream, step_id: str) -> KeyedStream:
 
 @operator()
 def key_on(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStream:
+    """Add a key for each item.
+
+    This allows you to use all the keyed operators that only are
+    methods on `KeyedStream`.
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+        key: Called on each item and should return the key for that
+            item.
+
+    Returns:
+        A stream of 2-tuples of `(key, item)` AKA a keyed stream. The
+        keys come from the return value of the `key` function;
+        upstream items will automatically be attached as values.
+
+    """
+
     def shim_mapper(v):
         k = key(v)
         if not isinstance(k, str):
@@ -938,6 +1077,28 @@ def key_split(
     key: Callable[[Any], str],
     *values: Callable[[Any], Any],
 ) -> MultiStream:
+    """Split objects apart into a separate stream for each field.
+
+    This allows you to use all the keyed operators that only are
+    methods on `KeyedStream`.
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+        key: Called on each item and should return the key for that
+            item.
+
+        *values: A "field getter" which
+
+    Returns:
+        A set of streams of 2-tuples of `(key, value)` AKA a keyed
+        streams. The keys come from the return value of the `key`
+        function; the return value of each `values` function will be
+        the value.
+
+    """
     keyed_up = up.key_on("key", key)
     streams = {
         str(i): keyed_up.map_value(f"value_{str(i)}", value)
@@ -952,6 +1113,40 @@ def map(  # noqa: A001
     step_id: str,
     mapper: Callable[[Any], Any],
 ) -> Stream:
+    """Transform items one-by-one.
+
+    It is commonly used for:
+
+    - Serialization and deserialization.
+
+    - Selection of fields.
+
+    >>> from bytewax.connectors.stdio import StdOutSink
+    >>> from bytewax.testing import run_main, TestingSource
+    >>> from bytewax.dataflow import Dataflow
+    >>> flow = Dataflow("test_flow")
+    >>> s = flow.input("inp", TestingSource(range(3)))
+    >>> def add_one(item):
+    ...     return item + 10
+    >>> s = s.map("add_one", add_one)
+    >>> s.output("out", StdOutSink())
+    >>> run_main(flow)
+    10
+    11
+    12
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+        mapper: Called on each item. Each return value is emitted
+            downstream.
+
+    Returns:
+        A stream of items returned from the mapper.
+    """
+
     def shim_mapper(x):
         y = mapper(x)
         return [y]
@@ -963,6 +1158,22 @@ def map(  # noqa: A001
 def map_value(
     up: KeyedStream, step_id: str, mapper: Callable[[Any], Any]
 ) -> KeyedStream:
+    """Transform values one-by-one.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        mapper: Called on each value. Each return value is emitted
+            downstream.
+
+    Returns:
+        A keyed stream of values returned from the mapper. The key is
+        unchanged.
+
+    """
+
     def shim_mapper(v):
         w = mapper(v)
         return [w]
@@ -976,11 +1187,40 @@ def max_final(
     step_id: str,
     by: Callable[[Any], Any] = _identity,
 ) -> KeyedStream:
+    """Find the maximum value for each key.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        by: A function called on each value that is used to extract
+            what to compare.
+
+    Returns:
+        A keyed stream of the max values. _Only once the upstream is
+        EOF._
+
+    """
     return up.reduce_final("reduce_final", partial(max, key=by))
 
 
 @operator(_core=True)
 def merge_all(flow: Dataflow, step_id: str, *ups: Stream) -> Stream:
+    """Combine multiple streams together.
+
+    Args:
+        flow: Dataflow.
+
+        step_id: Unique ID.
+
+        *ups: Streams.
+
+    Returns:
+        A single stream of the same type as all the upstreams with
+        items from all upstreams merged into it unmodified.
+
+    """
     down = Stream(f"{flow._scope.parent_id}.down", flow._scope)
 
     # If all upstreams are of the same special subtype (like
@@ -995,6 +1235,22 @@ def merge_all(flow: Dataflow, step_id: str, *ups: Stream) -> Stream:
 
 @operator()
 def merge(left: Stream, step_id: str, *rights: Stream) -> Stream:
+    """Combine multiple streams together.
+
+    Use `merge_all` if you want a "uniform" interface.
+
+    Args:
+        left: Stream.
+
+        step_id: Unique ID.
+
+        *rights: Streams.
+
+    Returns:
+        A single stream with items from all upstreams merged into it
+        unmodified.
+
+    """
     return left.flow().merge_all("merge_all", left, *rights)
 
 
@@ -1004,16 +1260,99 @@ def min_final(
     step_id: str,
     by: Callable[[Any], Any] = _identity,
 ) -> KeyedStream:
+    """Find the minumum value for each key.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        by: A function called on each value that is used to extract
+            what to compare.
+
+    Returns:
+        A keyed stream of the min values. _Only once the upstream is
+        EOF._
+
+    """
     return up.reduce_final("reduce_final", partial(min, key=by))
 
 
 @operator(_core=True)
 def output(up: Stream, step_id: str, sink: Sink) -> None:
+    """Write items out of a dataflow.
+
+    See `bytewax.outputs` for more information on how output works.
+    See `bytewax.connectors` for a buffet of our built-in connector
+    types.
+
+    Args:
+        up: Stream of items to write. See your specific sink
+            documentation for the required type of those items.
+
+        step_id: Unique ID.
+
+        sink: Write items to.
+
+    """
     return None
 
 
 @operator(_core=True)
 def redistribute(up: Stream, step_id: str) -> Stream:
+    """Redistribute items randomly across all workers.
+
+    Bytewax's execution model has workers executing all steps, but the
+    state in each step is partitioned across workers by some key.
+    Bytewax will only exchange an item between workers before stateful
+    steps in order to ensure correctness, that they interact with the
+    correct state for that key. Stateless operators (like `filter`)
+    are run on all workers and do not result in exchanging items
+    before or after they are run.
+
+    This can result in certain ordering of operators to result in poor
+    parallelization across an entire execution cluster. If the
+    previous step (like a `reduce_window` or `input` with a
+    `PartitionedInput`) concentrated items on a subset of workers in
+    the cluster, but the next step is a CPU-intensive stateless step
+    (like a `map`), it's possible that not all workers will contribute
+    to processing the CPU-intesive step.
+
+    This operation has a overhead, since it will need to serialize,
+    send, and deserialize the items, so while it can significantly
+    speed up the execution in some cases, it can also make it slower.
+
+    A good use of this operator is to parallelize an IO bound step,
+    like a network request, or a heavy, single-cpu workload, on a
+    machine with multiple workers and multiple cpu cores that would
+    remain unused otherwise.
+
+    A bad use of this operator is if the operation you want to
+    parallelize is already really fast as it is, as the overhead can
+    overshadow the advantages of distributing the work. Another case
+    where you could see regressions in performance is if the heavy CPU
+    workload already spawns enough threads to use all the available
+    cores. In this case multiple processes trying to compete for the
+    cpu can end up being slower than doing the work serially. If the
+    workers run on different machines though, it might again be a
+    valuable use of the operator.
+
+    Use this operator with caution, and measure whether you get an
+    improvement out of it.
+
+    Once the work has been spread to another worker, it will stay on
+    those workers unless other operators explicitely move the item
+    again (usually on output).
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+    Returns:
+        Stream unmodified.
+
+    """
     return type(up)(f"{up._scope.parent_id}.down", up._scope)
 
 
@@ -1023,6 +1362,25 @@ def reduce_final(
     step_id: str,
     reducer: Callable[[Any, Any], Any],
 ) -> KeyedStream:
+    """Distill all values for a key down into a single value.
+
+    It is like `fold_final` but the first value is the initial
+    accumulator.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        reducer: Combines a new value into an old value and returns
+            the combined value.
+
+    Returns:
+        A keyed stream of the accumulators. _Only once the upstream is
+        EOF._
+
+    """
+
     def shim_folder(s, v):
         if s is None:
             s = v
@@ -1074,6 +1432,58 @@ def stateful_map(
     builder: Callable[[], Any],
     mapper: Callable[[Any, Any], Tuple[Any, Any]],
 ) -> KeyedStream:
+    """Transform values one-to-one, referencing a persistent state.
+
+    It is commonly used for:
+
+    - Anomaly detection
+
+    - State machines
+
+    >>> from bytewax.testing import TestingSource, run_main
+    >>> from bytewax.connectors.stdio import StdOutSink
+    >>> flow = Dataflow("test_df")
+    >>> inp = [
+    ...     "a",
+    ...     "a",
+    ...     "a",
+    ...     "b",
+    ...     "a",
+    ... ]
+    >>> s = flow.input("inp", TestingSource(inp))
+    >>> s = s.key_on("self_as_key", lambda x: x)
+    >>> def build_count():
+    ...     return 0
+    >>> def check(running_count, _item):
+    ...     running_count += 1
+    ...     return (running_count, running_count)
+    >>> s = s.stateful_map("running_count", build_count, check)
+    >>> s.output("out", StdOutSink())
+    >>> run_main(flow)
+    ('a', 1)
+    ('a', 2)
+    ('a', 3)
+    ('b', 1)
+    ('a', 4)
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        builder: Called whenever a new key is encountered and should
+            return the "empty state" for this key.
+
+        mapper: Called whenever a value is encountered from upstream
+            with the last state, and then the upstream value. Should
+            return a 2-tuple of `(updated_state, emit_value)`. If the
+            updated state is `None`, discard it.
+
+    Returns:
+        A keyed stream.
+
+    """
+
     def shim_builder(_now: datetime, resume_state: Optional[Any]) -> _StatefulMapLogic:
         state = resume_state if resume_state is not None else builder()
         return _StatefulMapLogic(step_id, mapper, state)
@@ -1087,4 +1497,31 @@ def unary(
     step_id: str,
     builder: Callable[[datetime, Optional[Any]], UnaryLogic],
 ) -> KeyedStream:
+    """Advanced generic stateful operator.
+
+    This is the lowest-level operator Bytewax provides and gives you
+    full control over all aspects of the operator processing and
+    lifecycle. Usualy you will want to use a higher-level operator
+    than this.
+
+    Subclass `UnaryLogic` to define its behavior. See documentation
+    there.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        builder: Called whenver a new key is encountered with the
+            current `datetime` and the resume state returned from
+            `UnaryLogic.snapshot` for this key, if any. This should
+            close over any non-state configuration and combine it with
+            the resume state to return the prepared `UnaryLogic` for
+            the new key.
+
+    Returns:
+        Keyed stream of all items returned from `UnaryLogic.on_item`,
+        `UnaryLogic.on_notify`, and `UnaryLogic.on_eof`.
+
+    """
     return KeyedStream(f"{up._scope.parent_id}.down", up._scope)
