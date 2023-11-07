@@ -187,7 +187,7 @@ def _noop(up: Stream, step_id: str) -> Stream:
     Sometimes necessary to ensure `Dataflow` structure is valid.
 
     """
-    raise NotImplementedError()
+    return type(up)(f"{up._scope.parent_id}.down", up._scope)
 
 
 @dataclass
@@ -301,7 +301,11 @@ def branch(
         a stream of items for which the predicate returns `False`.
 
     """
-    raise NotImplementedError()
+    up_type = type(up)
+    return BranchOut(
+        trues=up_type(f"{up._scope.parent_id}.trues", up._scope),
+        falses=up_type(f"{up._scope.parent_id}.falses", up._scope),
+    )
 
 
 @operator()
@@ -376,7 +380,7 @@ def flat_map(
         A stream of each item in the iterable retuned by the mapper.
 
     """
-    raise NotImplementedError()
+    return Stream(f"{up._scope.parent_id}.down", up._scope)
 
 
 @operator()
@@ -653,25 +657,22 @@ def input(  # noqa: A001
 ) -> Stream:
     """Introduce items into a dataflow.
 
-    See `bytewax.inputs` for more information on how input works.
-    See `bytewax.connectors` for a buffet of our built-in
-    connector types.
-
-    At least one input is required on every dataflow.
+    See `bytewax.inputs` for more information on how input works. See
+    `bytewax.connectors` for a buffet of our built-in connector types.
 
     Args:
         flow: The dataflow.
 
         step_id: Unique ID.
 
-        source: Source to read items from.
+        source: Read items from.
 
     Returns:
-        A stream of items from the source. See source documentation
-        for what kind of item that is.
+        A stream of items from the source. See your specific source
+        documentation for what kind of item that is.
 
     """
-    raise NotImplementedError()
+    return Stream(f"{flow._scope.parent_id}.down", flow._scope)
 
 
 def _default_inspector(step_id: str, item: Any) -> None:
@@ -754,7 +755,7 @@ def inspect_debug(
         The upstream unmodified.
 
     """
-    raise NotImplementedError()
+    return type(up)(f"{up._scope.parent_id}.down", up._scope)
 
 
 @dataclass
@@ -842,7 +843,7 @@ def _join_name_merge(
         up.map_value(f"name_{name}", partial(lambda name, v: (name, v), name))
         for name, up in named_ups.items()
     ]
-    return flow.merge_all("merge", *with_names).key_assert("keyed")
+    return flow.merge_all("merge", *with_names)
 
 
 @operator()
@@ -886,7 +887,6 @@ def join_named(
 
     return (
         flow._join_name_merge("add_names", **ups)
-        .key_assert("keyed")
         .unary("join", shim_builder)
         .flat_map_value("asdict", _JoinState.asdicts)
     )
@@ -911,7 +911,8 @@ def key_assert(up: Stream, step_id: str) -> KeyedStream:
         The upstream unmodified.
 
     """
-    return KeyedStream._assert_from(up._noop("noop"))
+    down = up._noop("noop")
+    return KeyedStream(down.stream_id, down._scope)
 
 
 @operator()
@@ -980,7 +981,16 @@ def max_final(
 
 @operator(_core=True)
 def merge_all(flow: Dataflow, step_id: str, *ups: Stream) -> Stream:
-    raise NotImplementedError()
+    down = Stream(f"{flow._scope.parent_id}.down", flow._scope)
+
+    # If all upstreams are of the same special subtype (like
+    # `KeyedStream`), assert the output is that too.h
+    up_types = set(type(up) for up in ups)
+    if len(up_types) == 1:
+        down_type = next(iter(up_types))
+        down = down_type(down.stream_id, down._scope)
+
+    return down
 
 
 @operator()
@@ -999,12 +1009,12 @@ def min_final(
 
 @operator(_core=True)
 def output(up: Stream, step_id: str, sink: Sink) -> None:
-    raise NotImplementedError()
+    return None
 
 
 @operator(_core=True)
 def redistribute(up: Stream, step_id: str) -> Stream:
-    raise NotImplementedError()
+    return type(up)(f"{up._scope.parent_id}.down", up._scope)
 
 
 @operator()
@@ -1077,4 +1087,4 @@ def unary(
     step_id: str,
     builder: Callable[[datetime, Optional[Any]], UnaryLogic],
 ) -> KeyedStream:
-    raise NotImplementedError()
+    return KeyedStream(f"{up._scope.parent_id}.down", up._scope)

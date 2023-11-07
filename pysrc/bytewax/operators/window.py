@@ -200,7 +200,7 @@ def fold_window(
     builder: Callable[[], Any],
     folder: Callable[[Any, Any], Any],
 ) -> KeyedStream:
-    raise NotImplementedError()
+    return KeyedStream(f"{up._scope.parent_id}.down", up._scope)
 
 
 def _join_window_folder(state: _JoinState, name_value) -> _JoinState:

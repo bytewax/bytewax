@@ -427,10 +427,6 @@ class KeyedStream(Stream):
 
     """
 
-    @classmethod
-    def _assert_from(cls, stream: Stream) -> "KeyedStream":
-        return cls(stream.stream_id, stream._scope)
-
     @staticmethod
     def _help_msg() -> str:
         return (
@@ -660,34 +656,8 @@ def _gen_op_method(
                 elif param.kind == Parameter.VAR_KEYWORD:
                     bound.arguments[name] = typ._into_kwargs(val)
 
-        try:
-            # Now call the builder to cause sub-steps to be built.
-            out = builder(*bound.args, **bound.kwargs)
-            assert not core
-        except NotImplementedError as ex:
-            assert core
-            out_type = sig_types.get("return", Parameter.empty)
-            if inspect.isclass(out_type) and issubclass(out_type, Stream):
-                fq_stream_id = f"{inner_scope.parent_id}.down"
-                out = out_type(fq_stream_id, inner_scope)
-            elif inspect.isclass(out_type) and issubclass(out_type, NoneType):
-                out = None
-            elif dataclasses.is_dataclass(out_type):
-                vals = {}
-                for fld in dataclasses.fields(out_type):
-                    if inspect.isclass(fld.type) and issubclass(fld.type, Stream):
-                        fq_stream_id = f"{inner_scope.parent_id}.{fld.name}"
-                        vals[fld.name] = fld.type(fq_stream_id, inner_scope)
-                    else:
-                        msg = (
-                            "unsupported core operator dataclass field return type "
-                            f"{fld.type!r}"
-                        )
-                        raise TypeError(msg) from ex
-                out = out_type(**vals)
-            else:
-                msg = f"unsupported core operator return type {out_type!r}"
-                raise TypeError(msg) from ex
+        # Now call the builder to cause sub-steps to be built.
+        out = builder(*bound.args, **bound.kwargs)
 
         # Now unwrap output values into the cls.
         if isinstance(out, Stream) or isinstance(out, MultiStream):
