@@ -125,14 +125,13 @@ def f_repr(f: Callable) -> str:
     >>> def my_f(x):
     ...     pass
     >>> f_repr(my_f)
-    "<function 'bytewax.dataflow.my_f' line 1 at ...>"  # doctest: +ELLIPSIS
+    "<function 'bytewax.dataflow.my_f' line 1>"
 
     """
     if isinstance(f, FunctionType):
         path = f"{f.__module__}.{f.__qualname__}"
         line = f"{f.__code__.co_firstlineno}"
-        addr = f"{hex(id(f))}"
-        return f"<function {path!r} line {line} at {addr}>"
+        return f"<function {path!r} line {line}>"
     else:
         return repr(f)
 
