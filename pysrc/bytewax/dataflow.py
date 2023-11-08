@@ -505,7 +505,9 @@ def _gen_op_cls(
     else:
         out_fields["down"] = out_type
 
-    cls_fields = inp_fields | out_fields
+    cls_fields = {}
+    cls_fields.update(inp_fields)
+    cls_fields.update(out_fields)
 
     # Now update the types to any that store references instead.
     for name, typ in cls_fields.items():
