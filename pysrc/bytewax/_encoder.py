@@ -32,9 +32,7 @@ class RenderedDataflow:
     substeps: List[RenderedOperator]
 
 
-def _to_rendered(
-    step: Operator, stream_to_orig_port_id: ChainMap[str, str]
-) -> RenderedOperator:
+def _to_rendered(step: Operator, stream_to_orig_port_id: ChainMap) -> RenderedOperator:
     inp_ports = {name: getattr(step, name) for name in step.inp_names}
     inp_rports = [
         RenderedPort(
