@@ -44,44 +44,50 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-class SchemaSerde(ABC):
+class SchemaSerializer(ABC):
     @abstractmethod
-    def ser(self, obj: dict) -> bytes:
+    def serialize(self, obj: dict, *args, **kwargs) -> bytes:
         ...
 
+
+class SchemaDeserializer(ABC):
     @abstractmethod
-    def de(self, data: bytes) -> dict:
+    def de(self, data: bytes, *args, **kwargs) -> dict:
         ...
 
 
 class SchemaRegistry(ABC):
     @abstractmethod
-    def serde(self, *args, **kwargs) -> SchemaSerde:
+    def serializer(self, *args, **kwargs) -> SchemaSerializer:
+        ...
+
+    @abstractmethod
+    def deserializer(self, *args, **kwargs) -> SchemaDeserializer:
         ...
 
 
-class _ConfluentSerde(SchemaSerde):
-    def __init__(self, client, schema_str, topic, raise_on_error):
-        self.deserializer = AvroDeserializer(client, schema_str)
+class _ConfluentAvroSerializer(SchemaSerializer):
+    def __init__(self, client, schema_str):
         self.serializer = AvroSerializer(client, schema_str)
-        self.ctx = SerializationContext(topic, MessageField.VALUE)
-        self._raise_on_error = raise_on_error
 
-    def ser(self, data):
+    def serialize(self, data, ctx):
         try:
-            return self.serializer(data, self.ctx)
+            return self.serializer(data, ctx)
         except SerializationError as e:
-            logger.warn(f"Error serializing data: {data}")
-            if self._raise_on_error:
-                raise e
+            logger.error(f"Error serializing data: {data}")
+            raise e
 
-    def de(self, data):
+
+class _ConfluentAvroDeserializer(SchemaSerializer):
+    def __init__(self, client):
+        self.deserializer = AvroDeserializer(client)
+
+    def de(self, data, ctx):
         try:
-            return self.deserializer(data, self.ctx)
+            return self.deserializer(data, ctx)
         except SerializationError as e:
-            logger.warn(f"Error deserializing data: {data}")
-            if self._raise_on_error:
-                raise e
+            logger.error(f"Error deserializing data: {data}")
+            raise e
 
 
 class ConfluentSchemaRegistry(SchemaRegistry):
@@ -89,35 +95,58 @@ class ConfluentSchemaRegistry(SchemaRegistry):
 
     def __init__(
         self,
-        sr_conf,
+        sr_conf: Dict,
+    ):
+        """Confluent's schema registry configuration for KafkaInput.
+
+        Use either `schema_id` or `subject`+`version` to fetch the schema
+        for the serializer from the registry.
+
+        This client follows confluent_kafka's behavior, so the deserializer
+        automatically fetches the correct schema for each message, even if
+        different from the one specified here.
+
+        Args:
+            sr_conf:
+                Configuration for `confluent_kafka.schema_registry.SchemaRegistryClient`
+            schema_id:
+                A schema_id from the registry.
+                You can either use this, or subject and version,
+            subject:
+                Subject of your schema in the registry
+            version:
+                Version of your subject's schema. If not set defaults to `latest`
+
+        """
+        self._sr_conf = sr_conf
+
+    def serializer(
+        self,
+        topic,
         schema_id: Optional[int] = None,
         subject: Optional[str] = None,
         version: Optional[int] = None,
-        raise_on_error: bool = True,
     ):
         """TODO."""
-        self._raise_on_error = raise_on_error
-        self._client = SchemaRegistryClient(sr_conf)
+        client = SchemaRegistryClient(self._sr_conf)
+        # Schema can bew retrieved by `schema_id`, or by specifying a `subject`
+        # and a `version`, which can also be `latest`.
         if schema_id is not None:
-            self._schema_str = self._client.get_schema(schema_id).schema_str
+            schema = client.get_schema(schema_id)
         else:
             if subject is None:
                 msg = "subject MUST be specified if no schema_id is provided"
                 raise ValueError(msg)
             if version is not None:
-                self._schema_str = self._client.get_version(
-                    subject, version
-                ).schema.schema_str
+                schema = client.get_version(subject, version).schema
             else:
-                self._schema_str = self._client.get_latest_version(
-                    subject
-                ).schema.schema_str
+                schema = client.get_latest_version(subject).schema
+        return _ConfluentAvroSerializer(client, schema.schema_str, topic)
 
-    def serde(self, topic):
+    def deserializer(self, topic: str):
         """TODO."""
-        return _ConfluentSerde(
-            self._client, self._schema_str, topic, self._raise_on_error
-        )
+        client = SchemaRegistryClient(self._sr_conf)
+        return _ConfluentAvroDeserializer(client, topic)
 
 
 class RedpandaSchemaRegistry(SchemaRegistry):
@@ -186,13 +215,14 @@ def _list_parts(client, topics):
             yield f"{i}-{topic}"
 
 
-@dataclass
+@dataclass(frozen=True)
 class KafkaMessage:
-    """TODO."""
+    """Class that holds a message from kafka with metadata."""
 
     key: Any
-    topic: Any
     value: Any
+
+    topic: Any
     headers: Any
     latency: Any
     offset: Any
@@ -209,7 +239,7 @@ class _KafkaSourcePartition(StatefulSourcePartition):
         starting_offset,
         resume_state,
         batch_size,
-        serde,
+        deserializer,
     ):
         self._offset = starting_offset if resume_state is None else resume_state
         # Assign does not activate consumer grouping.
@@ -218,7 +248,7 @@ class _KafkaSourcePartition(StatefulSourcePartition):
         self._topic = topic
         self._batch_size = batch_size
         self._eof = False
-        self._serde = serde
+        self._deserializer = deserializer
 
     def next_batch(self, _sched: datetime) -> List[Any]:
         if self._eof:
@@ -243,24 +273,23 @@ class _KafkaSourcePartition(StatefulSourcePartition):
                         f"{msg.error()}"
                     )
                     raise RuntimeError(err_msg)
-            if self._serde is None:
+            # If no serializer is set, just use the raw value
+            if self._deserializer is None:
                 value = msg.value()
             else:
-                try:
-                    value = self._serde.de(msg.value())
-                except SerializationError as e:
-                    logger.warning(f"Error serializing data: {msg.value()}")
-                    raise e
+                # This can fail.
+                # If deserialization raises an exception, we bubble it up
+                value = self._deserializer.de(msg.value())
 
             k_msg = KafkaMessage(
+                value=value,
+                topic=msg.topic(),
                 headers=msg.headers(),
                 key=msg.key(),
                 latency=msg.latency(),
                 offset=msg.offset(),
                 partition=msg.partition(),
                 timestamp=msg.timestamp(),
-                topic=msg.topic(),
-                value=value,
             )
             batch.append((msg.key(), k_msg))
             last_offset = msg.offset()
@@ -377,7 +406,7 @@ class KafkaSource(FixedPartitionedSource):
         if self._registry is None:
             serializer = None
         else:
-            serializer = self._registry.serde(topic)
+            serializer = self._registry.serializer(topic)
 
         return _KafkaSourcePartition(
             consumer,
@@ -467,7 +496,7 @@ class KafkaSink(DynamicSink):
         config.update(self._add_config)
         producer = Producer(config)
         if self._registry is not None:
-            serializer = self._registry.serde(self._topic)
+            serializer = self._registry.serializer(self._topic)
         else:
             serializer = None
         return _KafkaSinkPartition(producer, self._topic, serializer)
