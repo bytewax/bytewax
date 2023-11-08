@@ -98,7 +98,7 @@ import sys
 import typing
 from dataclasses import dataclass, field
 from inspect import Parameter, Signature
-from types import FunctionType, ModuleType, NoneType
+from types import FunctionType, ModuleType
 from typing import (
     Any,
     Callable,
@@ -491,7 +491,7 @@ def _gen_op_cls(
         issubclass(out_type, Stream) or issubclass(out_type, MultiStream)
     ):
         out_fields["down"] = out_type
-    elif inspect.isclass(out_type) and issubclass(out_type, NoneType):
+    elif inspect.isclass(out_type) and issubclass(out_type, type(None)):
         pass
     elif dataclasses.is_dataclass(out_type):
         for fld in dataclasses.fields(out_type):
@@ -676,7 +676,7 @@ def _gen_op_method(
         # Now unwrap output values into the cls.
         if isinstance(out, Stream) or isinstance(out, MultiStream):
             cls_vals["down"] = out
-        elif isinstance(out, NoneType):
+        elif isinstance(out, type(None)):
             pass
         elif dataclasses.is_dataclass(out):
             for fld in dataclasses.fields(out):
