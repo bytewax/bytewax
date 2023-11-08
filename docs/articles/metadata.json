@@ -18,7 +18,13 @@
       {
         "title": "Execution",
         "filename": "execution"
-      },
+      }
+    ]
+  },
+  {
+    "category": "Customization",
+    "directory": "customization",
+    "articles": [
       {
         "title": "Inputs and Outputs",
         "filename": "ins_and_outs"
@@ -26,14 +32,6 @@
       {
         "title": "Operators",
         "filename": "operators"
-      },
-      {
-        "title": "Recovery",
-        "filename": "recovery"
-      },
-      {
-        "title": "Observability",
-        "filename": "observability"
       },
       {
         "title": "Design patterns",
@@ -68,16 +66,30 @@
     ]
   },
   {
+    "category": "In operation",
+    "directory": "operating",
+    "articles": [
+      {
+        "title": "Recovery",
+        "filename": "recovery"
+      },
+      {
+        "title": "Observability",
+        "filename": "observability"
+      },
+      {
+        "title": "Rescaling",
+        "filename": "rescaling"
+      }
+    ]
+  },
+  {
     "category": "Reference",
     "directory": "reference",
     "articles": [
       {
         "title": "Glossary",
         "filename": "glossary"
-      },
-      {
-        "title": "Rescaling",
-        "filename": "rescaling"
       },
       {
         "title": "Migration Guide",
