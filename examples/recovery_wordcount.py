@@ -29,15 +29,17 @@ def add(running_count, new_count):
     return running_count, running_count
 
 
-flow = Dataflow()
-flow.input("inp", FileSource("examples/sample_data/wordcount.txt"))
-# "Here, we have FULL sentences."
-flow.map("lower", lower)
-# "here, we have lowercase sentences."
-flow.flat_map("tokenize", tokenize)
-# "words"
-flow.map("initial_count", initial_count)
-# ("word", 1)
-flow.stateful_map("running_count", count_builder, add)
-# ("word", running_count)
-flow.output("out", StdOutSink())
+flow = Dataflow("recovery")
+(
+    flow.input("inp", FileSource("examples/sample_data/wordcount.txt"))
+    # "Here, we have FULL sentences."
+    .map("lower", lower)
+    # "here, we have lowercase sentences."
+    .flat_map("tokenize", tokenize)
+    # "words"
+    .map("initial_count", initial_count).key_assert("assert keyed")
+    # ("word", 1)
+    .stateful_map("running_count", count_builder, add)
+    # ("word", running_count)
+    .output("out", StdOutSink())
+)

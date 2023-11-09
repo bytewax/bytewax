@@ -33,9 +33,11 @@ def stringy(x):
     return f"<dance>{x}</dance>"
 
 
-flow = Dataflow()
-flow.input("inp", TestingSource(inp()))
-flow.map("double", double)
-flow.map("minus_one", minus_one)
-flow.map("stringy", stringy)
-flow.output("out", StdOutSink())
+flow = Dataflow("tracing")
+(
+    flow.input("inp", TestingSource(inp()))
+    .map("double", double)
+    .map("minus_one", minus_one)
+    .map("stringy", stringy)
+    .output("out", StdOutSink())
+)

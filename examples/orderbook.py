@@ -35,7 +35,7 @@ class CoinbasePartition(StatefulSourcePartition):
         agen = _ws_agen(product_id)
         self._batcher = batch_async(agen, timedelta(seconds=0.5), 100)
 
-    def next_batch(self):
+    def next_batch(self, _sched):
         return next(self._batcher)
 
     def snapshot(self):
@@ -49,7 +49,7 @@ class CoinbaseSource(FixedPartitionedSource):
     def list_parts(self):
         return self.product_ids
 
-    def build_part(self, for_key, _resume_state):
+    def build_part(self, _sched, for_key, _resume_state):
         return CoinbasePartition(for_key)
 
 
@@ -144,7 +144,7 @@ class OrderBookState:
 flow = Dataflow("orderbook")
 inp = flow.input(
     "input", CoinbaseSource(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"])
-).assert_keyed("assert")
+).key_assert("assert")
 # ('BTC-USD', {
 #     'type': 'l2update',
 #     'product_id': 'BTC-USD',

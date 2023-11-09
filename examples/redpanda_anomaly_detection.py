@@ -16,27 +16,23 @@ from bytewax.dataflow import Dataflow
 from river import anomaly
 
 # Define the dataflow object and kafka input.
-flow = Dataflow()
-flow.input("inp", KafkaSource(["localhost:9092"], ["ec2_metrics"]))
+flow = Dataflow("anomaly detection")
+step = flow.input("inp", KafkaSource(["localhost:19092"], ["ec2_metrics"]))
 
 
-def group_instance_and_normalize(key__data):
+def normalize(key__data):
     """
-    In this function, we will take input data and reformat it
-    so that we have the shape (key, value), which is required
-    for the aggregation step where we will aggregate by the key.
-
-    We will also require the data to be normalized so it falls
+    We require the data to be normalized so it falls
     between 0 and 1. Since this is a percentage already, we
     just need to divide it by 100
     """
     _, data = key__data
     data = json.loads(data)
     data["value"] = float(data["value"]) / 100
-    return data["instance"], data
+    return data
 
 
-flow.map("group_and_normalize", group_instance_and_normalize)
+step = step.map("normalize", normalize).key_on("key", lambda x: x["instance"])
 
 
 class AnomalyDetector(anomaly.HalfSpaceTrees):
@@ -72,8 +68,9 @@ class AnomalyDetector(anomaly.HalfSpaceTrees):
         )
 
 
-flow.stateful_map("detector", lambda: AnomalyDetector(), AnomalyDetector.update)
+step = step.stateful_map("detector", lambda: AnomalyDetector(), AnomalyDetector.update)
 # (("fe7f93", {"index": "1", "value":0.08, "instance":"fe7f93", "score":0.02}))
+step = step.filter("filter", lambda x: bool(x[1][4]))
 
 
 def format_output(event):
@@ -86,6 +83,4 @@ def format_output(event):
     )
 
 
-flow.filter("filter_anomalies", lambda x: bool(x[1][4]))
-flow.map("format", format_output)
-flow.output("out", StdOutSink())
+step.map("format", format_output).output("out", StdOutSink())

@@ -22,7 +22,7 @@ class PeriodicPartition(StatefulSourcePartition):
         self._counter = 0
         self._next_awake = datetime.now(timezone.utc)
 
-    def next_batch(self):
+    def next_batch(self, sched):
         res = self._counter
         self._counter += 1
         self._next_awake += timedelta(seconds=0.25)
@@ -43,7 +43,7 @@ class PeriodicSource(FixedPartitionedSource):
     def list_parts(self):
         return ["singleton"]
 
-    def build_part(self, for_part, resume_state):
+    def build_part(self, now, for_part, resume_state):
         return PeriodicPartition()
 
 
@@ -56,26 +56,26 @@ def calc_avg(key__batch):
     return sum(batch) / len(batch)
 
 
-flow = Dataflow()
+flow = Dataflow("batch")
 # Emit 20 items, with a 0.25 seconds timeout, so ~4 items per second
-flow.input("in", PeriodicSource())
+inp = flow.input("in", PeriodicSource())
 # Add a key for the stateful operator
-flow.map(add_key)
+keyed = inp.map("add_key", add_key).key_assert("key")
 
 # Batch for either 3 elements, or 1 second. This should emit at
 # the size limit since we emit more than 3 items per second.
-flow.batch("batch", max_size=3, timeout=timedelta(seconds=1))
-flow.inspect(lambda x: print(f"Batch:\t\t{x[1]}"))
+batched = keyed.batch("batch", batch_size=3, timeout=timedelta(seconds=1))
+batched.inspect("inspect batched", lambda _, x: print(f"Batch:\t\t{x[1]}"))
 
 # Do some operation on the whole batch
-flow.map(calc_avg)
-flow.inspect(lambda x: print(f"Avg:\t\t{x}"))
+avg = batched.map("calc avg", calc_avg)
+avg.inspect("inspect avg", lambda _, x: print(f"Avg:\t\t{x}"))
 
 # Now batch for either 10 elements or 1 second.
 # This time, the batching should happen at the time limit,
 # since we don't emit items fast enough to fill the size
 # before the timeout triggers.
-flow.map(add_key)
-flow.batch("batch", max_size=10, timeout=timedelta(seconds=1))
-flow.map(lambda x: f"Avg batch:\t{x[1]}")
-flow.output("out", StdOutSink())
+keyed = avg.map("add key", add_key).key_assert("key2")
+batch = keyed.batch("batch 2", batch_size=10, timeout=timedelta(seconds=1))
+representation = batch.map("convert to string", lambda x: f"Avg batch:\t{x[1]}")
+representation.output("out", StdOutSink())

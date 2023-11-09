@@ -2,8 +2,8 @@ from datetime import datetime, timedelta, timezone
 
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
+from bytewax.operators.window import SystemClockConfig, TumblingWindow
 from bytewax.testing import TestingSource
-from bytewax.window import SystemClockConfig, TumblingWindow
 
 clock = SystemClockConfig()
 windower = TumblingWindow(
@@ -16,4 +16,4 @@ inp1 = flow.input("inp1", TestingSource(["a"])).key_on("k1", lambda x: "KEY")
 inp2 = flow.input("inp2", TestingSource(["b"])).key_on("k2", lambda x: "KEY")
 inp3 = flow.input("inp3", TestingSource(["c"])).key_on("k3", lambda x: "KEY")
 
-inp1.join_inner("j1", inp2).join_inner("j2", inp3).output("out", StdOutSink())
+inp1.join("j1", inp2).join("j2", inp3).output("out", StdOutSink())
