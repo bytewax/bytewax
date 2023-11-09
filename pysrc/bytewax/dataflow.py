@@ -313,6 +313,7 @@ class Dataflow:
                     f"operator {name!r} can only be used on a {subcls!r}; "
                     "use `Dataflow.input` create an initial stream"
                 )
+                break
 
         raise AttributeError(msg)
 
@@ -390,6 +391,7 @@ class Stream:
                 msg = f"operator {name!r} can only be used on a {subcls!r}"
                 try:
                     msg += f"; {subcls._help_msg()}"
+                    break
                 except NotImplementedError:
                     pass
 
