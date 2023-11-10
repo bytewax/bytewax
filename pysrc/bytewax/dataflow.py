@@ -470,6 +470,11 @@ def _gen_op_cls(
         typ = sig_types.get(name, Any)
 
         as_typ = typ
+        # If any of the arguments require special casing when they're
+        # *args or **kwargs, find out what the "packed" version of the
+        # argument type is. The most common use of this is `*ups:
+        # Stream` will actually be stored as a single `MultiStream`,
+        # rather than a `Tuple[Stream]`.
         if inspect.isclass(typ) and issubclass(typ, _AsArgs):
             if param.kind == Parameter.VAR_POSITIONAL:
                 method_types = typing.get_type_hints(typ._from_args)
@@ -480,7 +485,9 @@ def _gen_op_cls(
 
         inp_fields[name] = as_typ
 
-    # Then add fields for the return values.
+    # Then add fields for the return values. Since Python doesn't
+    # natively support multiple or named return values, we have to
+    # pick some specific data structures we're going to support.
     out_fields = {}
     out_type = sig_types.get("return", Parameter.empty)
     if out_type == Parameter.empty:
@@ -489,12 +496,19 @@ def _gen_op_cls(
             "this is usually `bytewax.dataflow.Stream`"
         )
         raise TypeError(msg)
+    # A single `Stream` is stored by convention in a field named
+    # "down".
     elif inspect.isclass(out_type) and (
         issubclass(out_type, Stream) or issubclass(out_type, MultiStream)
     ):
         out_fields["down"] = out_type
+    # A `None` return value doesn't store any field.
     elif inspect.isclass(out_type) and issubclass(out_type, type(None)):
         pass
+    # Dataclass is the "named return value" options. We copy all the
+    # first level fields into the operator dataclass. We use
+    # dataclasses because the stdlib gives us tools to introspect them
+    # easily.
     elif dataclasses.is_dataclass(out_type):
         for fld in dataclasses.fields(out_type):
             if fld.name in inp_fields:
@@ -511,12 +525,19 @@ def _gen_op_cls(
     cls_fields.update(inp_fields)
     cls_fields.update(out_fields)
 
-    # Now update the types to any that store references instead.
+    # Now update the types to any that store references instead. This
+    # is because some types (like `Stream`) have `_Scope` which would
+    # result in circular references (because they contain pointers to
+    # the substep list) if stored directly. Their "reference versions"
+    # (for `Stream` it's `SinglePort`) don't include the scope or
+    # anything that is just there to facilitate the fluent API.
     for name, typ in cls_fields.items():
         if inspect.isclass(typ) and issubclass(typ, _ToRef):
             method_types = typing.get_type_hints(typ._to_ref)
             cls_fields[name] = method_types.get("return", Any)
 
+    # Store the names of the upstream and downstream ports to enable
+    # visualization.
     ups_names = []
     dwn_names = []
     for name, typ in cls_fields.items():
@@ -531,6 +552,10 @@ def _gen_op_cls(
     # `step_id` is defined on the parent class.
     del cls_fields["step_id"]
 
+    # Because we're cramming all the input arguments and return value
+    # dataclass field names onto the same operator data model
+    # dataclass, ensure we aren't clobbering any of the base class
+    # names.
     forbidden_fields = frozenset(cls_fields.keys()) & _OPERATOR_BASE_NAMES
     if len(forbidden_fields) > 0:
         fmt_fields = ", ".join(repr(name) for name in forbidden_fields)
@@ -541,7 +566,8 @@ def _gen_op_cls(
         )
         raise TypeError(msg)
 
-    # Add the class to extend as a class variable.
+    # Add the class to extend as a class variable. This will later be
+    # used to monkey-patch.
     extend_cls = sig_types.get(next(iter(sig.parameters.keys())), Parameter.empty)
     if extend_cls is Parameter.empty:
         msg = (
@@ -566,6 +592,8 @@ def _gen_op_cls(
         "dwn_names": dwn_names,
     }
 
+    # Now finally build the dataclass definition. This does not
+    # actually instantiate it, we do that in the wrapper method.
     cls = dataclasses.make_dataclass(
         builder.__name__,
         cls_fields.items(),
