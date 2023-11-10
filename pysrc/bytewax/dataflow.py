@@ -200,8 +200,8 @@ class Operator:
     substeps: List["Operator"]
     #: The class that the operator method should be loaded onto.
     extend_cls: ClassVar[Type]
-    inp_names: ClassVar[List[str]]
-    out_names: ClassVar[List[str]]
+    ups_names: ClassVar[List[str]]
+    dwn_names: ClassVar[List[str]]
 
 
 @dataclass(frozen=True)
@@ -517,16 +517,16 @@ def _gen_op_cls(
             method_types = typing.get_type_hints(typ._to_ref)
             cls_fields[name] = method_types.get("return", Any)
 
-    inp_names = []
-    out_names = []
+    ups_names = []
+    dwn_names = []
     for name, typ in cls_fields.items():
         if inspect.isclass(typ) and (
             issubclass(typ, SinglePort) or issubclass(typ, MultiPort)
         ):
             if name in inp_fields:
-                inp_names.append(name)
+                ups_names.append(name)
             elif name in out_fields:
-                out_names.append(name)
+                dwn_names.append(name)
 
     # `step_id` is defined on the parent class.
     del cls_fields["step_id"]
@@ -562,8 +562,8 @@ def _gen_op_cls(
     cls_ns = {
         "__doc__": cls_doc,
         "extend_cls": extend_cls,
-        "inp_names": inp_names,
-        "out_names": out_names,
+        "ups_names": ups_names,
+        "dwn_names": dwn_names,
     }
 
     cls = dataclasses.make_dataclass(

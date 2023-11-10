@@ -33,7 +33,7 @@ class RenderedDataflow:
 
 
 def _to_rendered(step: Operator, stream_to_orig_port_id: ChainMap) -> RenderedOperator:
-    inp_ports = {name: getattr(step, name) for name in step.inp_names}
+    inp_ports = {name: getattr(step, name) for name in step.ups_names}
     inp_rports = [
         RenderedPort(
             port_name,
@@ -47,7 +47,7 @@ def _to_rendered(step: Operator, stream_to_orig_port_id: ChainMap) -> RenderedOp
         for port_name, port in inp_ports.items()
     ]
 
-    out_ports = {name: getattr(step, name) for name in step.out_names}
+    out_ports = {name: getattr(step, name) for name in step.dwn_names}
     stream_to_orig_port_id.update(
         {
             stream_id: port.port_id
