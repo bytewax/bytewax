@@ -39,10 +39,9 @@ class PeriodicSource(DynamicSource):
         return PeriodicPartition(frequency=self.frequency)
 
 
-stateless_flow = Dataflow("periodic stateless")
-stateless_flow.input("periodic", PeriodicSource(timedelta(seconds=1))).output(
-    "stdout", StdOutSink()
-)
+stateless_flow = Dataflow("periodic_stateless")
+stream = stateless_flow.input("periodic", PeriodicSource(timedelta(seconds=1)))
+stream.output("stdout", StdOutSink())
 
 
 class ResumablePeriodicPartition(StatefulSourcePartition):
@@ -89,7 +88,6 @@ class ResumablePeriodicSource(FixedPartitionedSource):
         return ResumablePeriodicPartition(self.frequency, next_awake, counter)
 
 
-stateful_flow = Dataflow("stateful flow")
-stateful_flow.input("periodic", ResumablePeriodicSource(timedelta(seconds=1))).output(
-    "stdout", StdOutSink()
-)
+stateful_flow = Dataflow("stateful_flow")
+stream = stateful_flow.input("periodic", ResumablePeriodicSource(timedelta(seconds=1)))
+stream.output("stdout", StdOutSink())

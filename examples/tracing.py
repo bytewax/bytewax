@@ -34,10 +34,8 @@ def stringy(x):
 
 
 flow = Dataflow("tracing")
-(
-    flow.input("inp", TestingSource(inp()))
-    .map("double", double)
-    .map("minus_one", minus_one)
-    .map("stringy", stringy)
-    .output("out", StdOutSink())
-)
+stream = flow.input("inp", TestingSource(inp()))
+stream = stream.map("double", double)
+stream = stream.map("minus_one", minus_one)
+stream = stream.map("stringy", stringy)
+stream.output("out", StdOutSink())

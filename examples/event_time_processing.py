@@ -28,7 +28,7 @@ from bytewax.operators.window import EventClockConfig, TumblingWindow
 
 # Define the dataflow object and kafka input.
 flow = Dataflow("event time")
-source = flow.input("inp", KafkaSource(["localhost:19092"], ["sensors"], tail=False))
+stream = flow.input("inp", KafkaSource(["localhost:19092"], ["sensors"], tail=False))
 
 
 # We expect a json string that represents a reading from a sensor.
@@ -37,12 +37,12 @@ def parse_value(key__data):
     return json.loads(data)
 
 
-parsed = source.map("parse_value", parse_value)
+stream = stream.map("parse_value", parse_value)
 
 
 # Group the readings by sensor type, so that we only
 # aggregate readings of the same type.
-keyed = parsed.key_on("extract_type", lambda event: event["type"])
+stream = stream.key_on("extract_type", lambda event: event["type"])
 
 
 # Here is where we use the event time processing, with
@@ -73,7 +73,7 @@ cc = EventClockConfig(get_event_time, wait_for_system_duration=timedelta(seconds
 align_to = datetime(2023, 1, 1, tzinfo=timezone.utc)
 wc = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
 
-avg = keyed.fold_window("running_average", cc, wc, list, acc_values)
+stream = stream.fold_window("running_average", cc, wc, list, acc_values)
 
 
 # Calculate the average of the values for each window, and
@@ -90,4 +90,4 @@ def format_event(event):
     )
 
 
-avg.map("format_event", format_event).output("out", StdOutSink())
+stream.map("format_event", format_event).output("out", StdOutSink())

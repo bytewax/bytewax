@@ -14,15 +14,12 @@ def tokenize(line):
 
 
 flow = Dataflow("wordcount")
-lines = flow.input("inp", FileSource("examples/sample_data/wordcount.txt"))
+stream = flow.input("inp", FileSource("examples/sample_data/wordcount.txt"))
 # Full line WITH uppercase
-lower_lines = lines.map("lower", lower)
+stream = stream.map("lower", lower)
 # full line lowercased
-lower_words = lower_lines.flat_map("tokenize", tokenize)
+stream = stream.flat_map("tokenize", tokenize)
 # "word"
-word_counts = lower_words.count_final(
-    "count",
-    lambda word: word,
-)
+stream = stream.count_final("count", lambda word: word)
 # ("word", count)
-word_counts.output("out", StdOutSink())
+stream.output("out", StdOutSink())

@@ -142,9 +142,8 @@ class OrderBookState:
 
 
 flow = Dataflow("orderbook")
-inp = flow.input(
-    "input", CoinbaseSource(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"])
-).key_assert("assert")
+inp = flow.input("input", CoinbaseSource(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"]))
+inp = inp.key_assert("assert")
 # ('BTC-USD', {
 #     'type': 'l2update',
 #     'product_id': 'BTC-USD',

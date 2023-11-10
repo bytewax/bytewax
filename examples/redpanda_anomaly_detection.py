@@ -17,7 +17,7 @@ from river import anomaly
 
 # Define the dataflow object and kafka input.
 flow = Dataflow("anomaly detection")
-step = flow.input("inp", KafkaSource(["localhost:19092"], ["ec2_metrics"]))
+stream = flow.input("inp", KafkaSource(["localhost:19092"], ["ec2_metrics"]))
 
 
 def normalize(key__data):
@@ -32,7 +32,7 @@ def normalize(key__data):
     return data
 
 
-step = step.map("normalize", normalize).key_on("key", lambda x: x["instance"])
+stream = stream.map("normalize", normalize).key_on("key", lambda x: x["instance"])
 
 
 class AnomalyDetector(anomaly.HalfSpaceTrees):
@@ -68,9 +68,9 @@ class AnomalyDetector(anomaly.HalfSpaceTrees):
         )
 
 
-step = step.stateful_map("detector", lambda: AnomalyDetector(), AnomalyDetector.update)
+stream = stream.stateful_map("anom", lambda: AnomalyDetector(), AnomalyDetector.update)
 # (("fe7f93", {"index": "1", "value":0.08, "instance":"fe7f93", "score":0.02}))
-step = step.filter("filter", lambda x: bool(x[1][4]))
+stream = stream.filter("filter", lambda x: bool(x[1][4]))
 
 
 def format_output(event):
@@ -83,4 +83,4 @@ def format_output(event):
     )
 
 
-step.map("format", format_output).output("out", StdOutSink())
+stream.map("format", format_output).output("out", StdOutSink())
