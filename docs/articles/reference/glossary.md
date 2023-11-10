@@ -1,7 +1,3 @@
-## Alabaster
-
-A mineral and a soft rock used for carving and a source of plater powder
-
 ## Cluster
 
 A coordinated collection of worker processes that are collectively

@@ -32,7 +32,13 @@
       {
         "title": "Operators",
         "filename": "operators"
-      },
+      }
+    ]
+  },
+  {
+    "category": "More",
+    "directory": "customization",
+    "articles": [
       {
         "title": "Design patterns",
         "filename": "design-patterns"
