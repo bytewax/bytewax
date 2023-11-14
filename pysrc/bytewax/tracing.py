@@ -124,7 +124,7 @@ pip install bytewax sseclient-py urllib3
 
 Now you can run it with:
 ```shell
-python dataflow.py
+python -m bytewax.run dataflow
 ```
 
 Open your browser at [http://127.0.0.1:16686](http://127.0.0.1:16686)
