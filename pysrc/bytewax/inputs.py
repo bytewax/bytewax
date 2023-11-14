@@ -14,7 +14,7 @@ from collections.abc import AsyncIterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import islice
-from typing import Any, Callable, Iterable, Iterator, List, Optional
+from typing import Any, Callable, Iterable, Iterator, List, Optional, Type
 
 from .bytewax import AbortExecution
 
@@ -456,7 +456,7 @@ def batch_getter(
 
     """
     while True:
-        batch = []
+        batch: List[Any] = []
         while len(batch) < batch_size:
             try:
                 item = getter()
@@ -471,7 +471,7 @@ def batch_getter(
 
 
 def batch_getter_ex(
-    getter: Callable[[], Any], batch_size: int, yield_ex: Exception = queue.Empty
+    getter: Callable[[], Any], batch_size: int, yield_ex: Type[Exception] = queue.Empty
 ) -> Iterator[List[Any]]:
     """Batch from a getter function that raises on no items yet.
 
@@ -496,7 +496,7 @@ def batch_getter_ex(
 
     """
     while True:
-        batch = []
+        batch: List[Any] = []
         while len(batch) < batch_size:
             try:
                 item = getter()
