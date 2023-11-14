@@ -26,7 +26,9 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
 from datetime import datetime, timedelta
 from itertools import islice
-from typing import Any, Callable, Iterable, Iterator, List, Optional
+from typing import Any, Callable, Iterable, Iterator, List, Optional, Type
+
+from bytewax.dataflow import Stream
 
 from .bytewax import AbortExecution
 
@@ -55,7 +57,12 @@ class Source(ABC):  # noqa: B024
 
     """
 
-    pass
+    #: Assert that the resulting `Stream` from the
+    #: `bytewax.operators.input` operator is actuall a different type.
+    #:
+    #: You can use this to have a source already output a
+    #: `bytewax.dataflow.KeyedStream`.
+    stream_typ: Type[Stream] = Stream
 
 
 class StatefulSourcePartition(ABC):

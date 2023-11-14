@@ -4,7 +4,7 @@ import queue
 from datetime import datetime, timedelta, timezone
 from typing import Any, List
 
-from bytewax.dataflow import Dataflow
+from bytewax.dataflow import Dataflow, KeyedStream
 from bytewax.inputs import (
     DynamicSource,
     FixedPartitionedSource,
@@ -25,6 +25,18 @@ def test_flow_requires_input():
 
     with raises(ValueError):
         run_main(flow)
+
+
+def test_input_uses_stream_type():
+    class TestSource(DynamicSource):
+        stream_typ = KeyedStream
+
+        def build(self, now, _worker_index, _worker_count):
+            ...
+
+    flow = Dataflow("test_df")
+    s = flow.input("inp", TestSource())
+    assert isinstance(s, KeyedStream)
 
 
 def pairwise(ib):

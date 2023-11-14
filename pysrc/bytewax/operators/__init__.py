@@ -749,8 +749,11 @@ def input(  # noqa: A001
         A stream of items from the source. See your specific source
         documentation for what kind of item that is.
 
+        This stream might be keyed. See your specific
+        `Source.stream_typ`.
+
     """
-    return Stream(f"{flow._scope.parent_id}.down", flow._scope)
+    return source.stream_typ(f"{flow._scope.parent_id}.down", flow._scope)
 
 
 def _default_inspector(step_id: str, item: Any) -> None:
