@@ -301,7 +301,7 @@ class _BatchLogic(UnaryLogic):
         return copy.deepcopy(self.state)
 
 
-@operator()
+@operator
 def batch(
     up: KeyedStream, step_id: str, timeout: timedelta, batch_size: int
 ) -> KeyedStream:
@@ -383,7 +383,7 @@ def branch(
     )
 
 
-@operator()
+@operator
 def count_final(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStream:
     """Count the number of occurrences of items in the entire stream.
 
@@ -457,7 +457,7 @@ def flat_map(
     return Stream(f"{up._scope.parent_id}.down", up._scope)
 
 
-@operator()
+@operator
 def flat_map_value(
     up: KeyedStream,
     step_id: str,
@@ -494,7 +494,7 @@ def flat_map_value(
     return up.flat_map("flat_map", shim_mapper).key_assert("keyed")
 
 
-@operator()
+@operator
 def flatten(up: Stream, step_id: str) -> Stream:
     """Move all sub-items up a level.
 
@@ -521,7 +521,7 @@ def flatten(up: Stream, step_id: str) -> Stream:
     return up.flat_map("flat_map", shim_mapper)
 
 
-@operator()
+@operator
 def filter(  # noqa: A001
     up: Stream, step_id: str, predicate: Callable[[Any], bool]
 ) -> Stream:
@@ -581,7 +581,7 @@ def filter(  # noqa: A001
     return up.flat_map("flat_map", shim_mapper)
 
 
-@operator()
+@operator
 def filter_value(
     up: KeyedStream, step_id: str, predicate: Callable[[Any], bool]
 ) -> KeyedStream:
@@ -619,7 +619,7 @@ def filter_value(
     return up.flat_map_value("filter", shim_mapper)
 
 
-@operator()
+@operator
 def filter_map(
     up: Stream, step_id: str, mapper: Callable[[Any], Optional[Any]]
 ) -> Stream:
@@ -690,7 +690,7 @@ class _FoldFinalLogic(UnaryLogic):
         return copy.deepcopy(self.state)
 
 
-@operator()
+@operator
 def fold_final(
     up: KeyedStream,
     step_id: str,
@@ -760,7 +760,7 @@ def _default_inspector(step_id: str, item: Any) -> None:
     print(f"{step_id}: {item!r}", flush=True)
 
 
-@operator()
+@operator
 def inspect(
     up: Stream, step_id: str, inspector: Callable[[str, Any], None] = _default_inspector
 ) -> Stream:
@@ -910,7 +910,7 @@ class _JoinLogic(UnaryLogic):
         return copy.deepcopy(self.state)
 
 
-@operator()
+@operator
 def _join_name_merge(
     flow: Dataflow,
     step_id: str,
@@ -925,7 +925,7 @@ def _join_name_merge(
     return flow.merge_all("merge", *with_names)
 
 
-@operator()
+@operator
 def join(
     left: KeyedStream,
     step_id: str,
@@ -970,7 +970,7 @@ def join(
     )
 
 
-@operator()
+@operator
 def join_named(
     flow: Dataflow,
     step_id: str,
@@ -1014,7 +1014,7 @@ def join_named(
     )
 
 
-@operator()
+@operator
 def key_assert(up: Stream, step_id: str) -> KeyedStream:
     """Assert that this stream contains `(key, value)` 2-tuples.
 
@@ -1037,7 +1037,7 @@ def key_assert(up: Stream, step_id: str) -> KeyedStream:
     return KeyedStream(down.stream_id, down._scope)
 
 
-@operator()
+@operator
 def key_on(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStream:
     """Add a key for each item.
 
@@ -1073,7 +1073,7 @@ def key_on(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStream:
     return up.map("map", shim_mapper).key_assert("keyed")
 
 
-@operator()
+@operator
 def key_split(
     up: Stream,
     step_id: str,
@@ -1110,7 +1110,7 @@ def key_split(
     return MultiStream(streams)
 
 
-@operator()
+@operator
 def map(  # noqa: A001
     up: Stream,
     step_id: str,
@@ -1157,7 +1157,7 @@ def map(  # noqa: A001
     return up.flat_map("flat_map", shim_mapper)
 
 
-@operator()
+@operator
 def map_value(
     up: KeyedStream, step_id: str, mapper: Callable[[Any], Any]
 ) -> KeyedStream:
@@ -1184,7 +1184,7 @@ def map_value(
     return up.flat_map_value("flat_map_value", shim_mapper)
 
 
-@operator()
+@operator
 def max_final(
     up: KeyedStream,
     step_id: str,
@@ -1236,7 +1236,7 @@ def merge_all(flow: Dataflow, step_id: str, *ups: Stream) -> Stream:
     return down
 
 
-@operator()
+@operator
 def merge(left: Stream, step_id: str, *rights: Stream) -> Stream:
     """Combine multiple streams together.
 
@@ -1257,7 +1257,7 @@ def merge(left: Stream, step_id: str, *rights: Stream) -> Stream:
     return left.flow().merge_all("merge_all", left, *rights)
 
 
-@operator()
+@operator
 def min_final(
     up: KeyedStream,
     step_id: str,
@@ -1359,7 +1359,7 @@ def redistribute(up: Stream, step_id: str) -> Stream:
     return type(up)(f"{up._scope.parent_id}.down", up._scope)
 
 
-@operator()
+@operator
 def reduce_final(
     up: KeyedStream,
     step_id: str,
@@ -1428,7 +1428,7 @@ class _StatefulMapLogic(UnaryLogic):
         return copy.deepcopy(self.state)
 
 
-@operator()
+@operator
 def stateful_map(
     up: KeyedStream,
     step_id: str,

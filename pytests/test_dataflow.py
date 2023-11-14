@@ -6,7 +6,7 @@ from bytewax.testing import TestingSource
 from pytest import raises
 
 
-@operator()
+@operator
 def bad_op_with_nested_stream(
     up: Stream, step_id: str, not_allowed: List[Stream]
 ) -> Stream:

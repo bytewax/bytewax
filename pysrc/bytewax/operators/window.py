@@ -144,7 +144,7 @@ def _get_collector(t: Type) -> Callable:
     return collector
 
 
-@operator()
+@operator
 def collect_window(
     up: KeyedStream,
     step_id: str,
@@ -175,7 +175,7 @@ def collect_window(
     return up.fold_window("fold_window", clock, windower, into, collector)
 
 
-@operator()
+@operator
 def count_window(
     up: Stream,
     step_id: str,
@@ -253,7 +253,7 @@ def _join_window_folder(state: _JoinState, name_value) -> _JoinState:
     return state
 
 
-@operator()
+@operator
 def join_window(
     left: KeyedStream,
     step_id: str,
@@ -296,7 +296,7 @@ def join_window(
     )
 
 
-@operator()
+@operator
 def join_window_named(
     flow: Dataflow,
     step_id: str,
@@ -338,7 +338,7 @@ def join_window_named(
     )
 
 
-@operator()
+@operator
 def max_window(
     up: KeyedStream,
     step_id: str,
@@ -367,7 +367,7 @@ def max_window(
     return up.reduce_window("reduce_window", clock, windower, partial(max, key=by))
 
 
-@operator()
+@operator
 def min_window(
     up: KeyedStream,
     step_id: str,
@@ -396,7 +396,7 @@ def min_window(
     return up.reduce_window("reduce_window", clock, windower, partial(min, key=by))
 
 
-@operator()
+@operator
 def reduce_window(
     up: KeyedStream,
     step_id: str,

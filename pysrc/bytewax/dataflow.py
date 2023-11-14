@@ -9,7 +9,7 @@ You can define new custom operators in terms of already existing
 operators. To do this you define an **operator builder function** and
 decorate it with `operator`.
 
->>> @operator()
+>>> @operator
 ... def add_to(up: Stream, step_id: str, y: int) -> Stream:
 ...     return up.map("shim_map", lambda x: x + y)
 
@@ -758,18 +758,12 @@ def _gen_op_method(
     return method
 
 
-def operator(_detect_parens=None, *, _core: bool = False) -> Callable:
+def operator(builder_fn=None, *, _core: bool = False) -> Callable:
     """Function decorator to define a new operator.
 
     See `bytewax.dataflow` module docstring for how to use this.
 
     """
-    if _detect_parens is not None:
-        msg = (
-            "operator decorator must be called with `()`; "
-            "use `@operator()` instead of `@operator`"
-        )
-        raise TypeError(msg)
 
     def inner_deco(builder: FunctionType) -> Type:
         sig = inspect.signature(builder)
@@ -781,7 +775,10 @@ def operator(_detect_parens=None, *, _core: bool = False) -> Callable:
         # be bound to the function name.
         return cls
 
-    return inner_deco
+    if callable(builder_fn):
+        return inner_deco(builder_fn)
+    else:
+        return inner_deco
 
 
 def _monkey_patch(extend_cls: Type, name: str, op_method) -> None:
@@ -842,7 +839,7 @@ def load_op(op: Type[Operator], as_name: Optional[str] = None) -> None:
             rep = repr(op)
         msg = (
             f"{rep!r} isn't an operator; "
-            "decorate a builder function with `@operator()` to create "
+            "decorate a builder function with `@operator` to create "
             "a new operator"
         )
         raise TypeError(msg)
