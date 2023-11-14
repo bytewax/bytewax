@@ -162,7 +162,7 @@ or equivalent in other languages, operators are the same concept. If
 not, no worries, there's an example provided in the documentation for
 each operator in `bytewax.operators`.
 
-The each operator method takes a **step ID** you should set to a
+Each operator method takes a **step name** you should set to a
 unique name that represents the purpose of this computational step.
 This gets attached to errors, logging, and metrics so you can link
 these bits of information for debugging.
