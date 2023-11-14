@@ -2,6 +2,7 @@ import re
 from typing import List
 
 from bytewax.dataflow import Dataflow, Stream, load_op, operator
+from bytewax.testing import TestingSource
 from pytest import raises
 
 
@@ -16,8 +17,8 @@ def test_raises_on_nested_stream():
     load_op(bad_op_with_nested_stream)
 
     flow = Dataflow("test_df")
-    inp1 = flow.input("inp1", None)
-    inp2 = flow.input("inp2", None)
+    inp1 = flow.input("inp1", TestingSource([]))
+    inp2 = flow.input("inp2", TestingSource([]))
 
     expect = "inconsistent stream scoping"
     with raises(ValueError, match=re.escape(expect)):
