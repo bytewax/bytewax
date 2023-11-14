@@ -2,6 +2,7 @@ import itertools
 import operator
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from typing import Dict
 
 from bytewax.connectors.files import FileSource
 from bytewax.dataflow import Dataflow
@@ -36,7 +37,7 @@ def build_pairs(line):
 
 
 product_counter: Counter = Counter()
-most_popular_products: dict[str, int] = {}
+most_popular_products: Dict[str, int] = {}
 
 cc = SystemClockConfig()
 wc = TumblingWindow(
