@@ -316,7 +316,7 @@ class _SimplePollingPartition(StatefulSourcePartition):
                 return []
             return [item]
         except SimplePollingSource.Retry as ex:
-            self._next_awake += ex.after
+            self._next_awake += ex.timeout
             return []
 
     def next_awake(self):
@@ -359,12 +359,12 @@ class SimplePollingSource(FixedPartitionedSource):
         """Raise this to try to get items before the usual interval.
 
         Args:
-            after: How long to wait before calling
+            timeout: How long to wait before calling
                 `SimplePollingSource.next_item` again.
 
         """
 
-        after: timedelta
+        timeout: timedelta
 
     def __init__(self, interval: timedelta, align_to: Optional[datetime] = None):
         """Init.
