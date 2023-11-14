@@ -11,6 +11,7 @@ import asyncio
 import queue
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import islice
 from typing import Any, Callable, Iterable, Iterator, List, Optional
@@ -308,8 +309,15 @@ class _SimplePollingPartition(StatefulSourcePartition):
             self._next_awake = now
 
     def next_batch(self, _sched: datetime):
-        self._next_awake += self._interval
-        return [self._getter()]
+        try:
+            item = self._getter()
+            self._next_awake += self._interval
+            if item is None:
+                return []
+            return [item]
+        except SimplePollingSource.Retry as ex:
+            self._next_awake += ex.after
+            return []
 
     def next_awake(self):
         return self._next_awake
@@ -326,7 +334,10 @@ class SimplePollingSource(FixedPartitionedSource):
     ...         super(interval=timedelta(seconds=10))
     ...
     ...     def next_item(self):
-    ...         return requests.get("https://example.com")
+    ...         res = requests.get("https://example.com")
+    ...         if not res.ok:
+    ...             raise SimplePollingSource.Retry(timedelta(seconds=1))
+    ...         return res.text
 
     There is no parallelism; only one worker will poll this source.
 
@@ -336,12 +347,24 @@ class SimplePollingSource(FixedPartitionedSource):
     This is best for low-throughput polling on the order of seconds to
     hours.
 
-    If you need a high-throughput source, avoid this. Instead create a
-    source using one of the other `Source` subclasses where you can
-    have increased paralellism, batching, and finer control over
-    timing.
+    If you need a high-throughput source, or custom retry or timing,
+    avoid this. Instead create a source using one of the other
+    `Source` subclasses where you can have increased paralellism,
+    batching, and finer control over timing.
 
     """
+
+    @dataclass
+    class Retry(Exception):
+        """Raise this to try to get items before the usual interval.
+
+        Args:
+            after: How long to wait before calling
+                `SimplePollingSource.next_item` again.
+
+        """
+
+        after: timedelta
 
     def __init__(self, interval: timedelta, align_to: Optional[datetime] = None):
         """Init.
@@ -371,8 +394,13 @@ class SimplePollingSource(FixedPartitionedSource):
     def next_item(self) -> Any:
         """Override with custom logic to poll your source.
 
+        Raises:
+            Retry: Raise if you can't fetch items and would like to
+                call this function sooner than the usual interval.
+
         Returns:
-            Next item to emit into the dataflow.
+            Next item to emit into the dataflow. If `None`, no item is
+            emitted.
 
         """
         ...

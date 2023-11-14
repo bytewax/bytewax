@@ -8,6 +8,7 @@ from bytewax.dataflow import Dataflow
 from bytewax.inputs import (
     DynamicSource,
     FixedPartitionedSource,
+    SimplePollingSource,
     StatefulSourcePartition,
     StatelessSourcePartition,
     _SimplePollingPartition,
@@ -112,6 +113,35 @@ def test_fixed_partitioned_source_next_awake():
     for x, y in pairwise(out):
         td = y - x
         assert td >= interval
+
+
+def test_simple_polling_source_interval():
+    now = datetime(2023, 1, 1, 5, 0, tzinfo=timezone.utc)
+
+    part = _SimplePollingPartition(
+        now,
+        interval=timedelta(minutes=30),
+        align_to=now,
+        getter=lambda: True,
+    )
+    assert part.next_batch(now) == [True]
+    assert part.next_awake() == datetime(2023, 1, 1, 5, 30, tzinfo=timezone.utc)
+
+
+def test_simple_polling_source_retry():
+    now = datetime(2023, 1, 1, 5, 0, tzinfo=timezone.utc)
+
+    def getter():
+        raise SimplePollingSource.Retry(timedelta(seconds=5))
+
+    part = _SimplePollingPartition(
+        now,
+        interval=timedelta(minutes=30),
+        align_to=now,
+        getter=getter,
+    )
+    assert part.next_batch(now) == []
+    assert part.next_awake() == datetime(2023, 1, 1, 5, 0, 5, tzinfo=timezone.utc)
 
 
 def test_simple_polling_source_align_to():
