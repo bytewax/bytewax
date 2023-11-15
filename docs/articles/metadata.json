@@ -12,8 +12,28 @@
         "filename": "installation"
       },
       {
-        "title": "A simple example",
+        "title": "Dataflow",
+        "filename": "dataflow-basics"
+      },
+      {
+        "title": "Simple example",
         "filename": "simple-example"
+      },
+      {
+        "title": "Streaming example",
+        "filename": "kafka-example"
+      },
+      {
+        "title": "Batching/windowing example",
+        "filename": "batch-example"
+      },
+      {
+        "title": "Wordcount example",
+        "filename": "wordcount-example"
+      },
+      {
+        "title": "Polling example",
+        "filename": "polling-example"
       },
       {
         "title": "Execution",
@@ -78,8 +98,16 @@
         "filename": "observability"
       },
       {
+        "title": "Debugging tips",
+        "filename": "debugging"
+      },
+      {
         "title": "Rescaling",
         "filename": "rescaling"
+      },
+      {
+        "title": "Troubleshooting",
+        "filename": "troubleshooting"
       }
     ]
   },
@@ -90,6 +118,10 @@
       {
         "title": "Glossary",
         "filename": "glossary"
+      },
+      {
+        "title": "Sample Kafka producer",
+        "filename": "sample-producer"
       },
       {
         "title": "Migration Guide",
