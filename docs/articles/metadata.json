@@ -22,7 +22,7 @@
     ]
   },
   {
-    "category": "Customization",
+    "category": "Going deeper",
     "directory": "customization",
     "articles": [
       {
@@ -32,13 +32,7 @@
       {
         "title": "Operators",
         "filename": "operators"
-      }
-    ]
-  },
-  {
-    "category": "More",
-    "directory": "customization",
-    "articles": [
+      },
       {
         "title": "Design patterns",
         "filename": "design-patterns"
@@ -46,33 +40,33 @@
     ]
   },
   {
-    "category": "Deployment [hehe]",
+    "category": "Deployment",
     "directory": "deployment",
     "articles": [
       {
-        "title": "Running a Dataflow Program in a Container",
+        "title": "Running a Dataflow in a Container",
         "filename": "container"
       },
       {
-        "title": "Bytewax Ecosystem on Kubernetes",
+        "title": "Kubernetes",
         "filename": "k8s-ecosystem"
       },
       {
-        "title": "Using Waxctl to manage your Dataflows in Kubernetes",
+        "title": "Using Waxctl to run your Dataflows in Kubernetes",
         "filename": "waxctl"
       },
       {
-        "title": "Running your Dataflows on an AWS EC2 using Waxctl",
+        "title": "Using Waxctl to run your Dataflows on AWS",
         "filename": "waxctl-aws"
       },
       {
-        "title": "How to use Waxctl to run your Dataflows on GCP VM instances",
+        "title": "Using Waxctl to run your Dataflows on GCP",
         "filename": "waxctl-gcp"
       }
     ]
   },
   {
-    "category": "In operation",
+    "category": "Maintenance",
     "directory": "operating",
     "articles": [
       {
@@ -100,6 +94,28 @@
       {
         "title": "Migration Guide",
         "filename": "migration"
+      },
+      {
+        "title": "Support",
+        "filename": "support"
+      }
+    ]
+  },
+  {
+    "category": "Contributing",
+    "directory": "contributing",
+    "articles": [
+      {
+        "title": "Architecture",
+        "filename": "architecture"
+      },
+      {
+        "title": "Local testing",
+        "filename": "testing"
+      },
+      {
+        "title": "Contributing guide",
+        "filename": "guide"
       }
     ]
   }

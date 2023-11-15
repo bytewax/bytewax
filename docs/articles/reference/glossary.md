@@ -1,3 +1,5 @@
+**make it more consistent and linguistically parallel**
+
 ## Cluster
 
 A coordinated collection of worker processes that are collectively
