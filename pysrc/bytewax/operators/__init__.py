@@ -142,6 +142,292 @@ def _never_complete(_):
     return False
 
 
+@operator(_core=True)
+def _noop(up: Stream, step_id: str) -> Stream:
+    """No-op; is compiled out when making the Timely dataflow.
+
+    Sometimes necessary to ensure `Dataflow` structure is valid.
+
+    """
+    return type(up)(f"{up._scope.parent_id}.down", up._scope)
+
+
+@dataclass(frozen=True)
+class BranchOut:
+    """Streams returned from `branch` operator.
+
+    You can tuple unpack this for convenience.
+
+    """
+
+    trues: Stream
+    falses: Stream
+
+    def __iter__(self):
+        return iter((self.trues, self.falses))
+
+
+@operator(_core=True)
+def branch(
+    up: Stream,
+    step_id: str,
+    predicate: Callable[[Any], bool],
+) -> BranchOut:
+    """Divide items into two streams with a predicate.
+
+    >>> from bytewax.connectors.stdio import StdOutSink
+    >>> from bytewax.testing import run_main, TestingSource
+    >>> flow = Dataflow("my_flow")
+    >>> nums = flow.input("nums", TestingSource([1, 2, 3, 4, 5]))
+    >>> evens, odds = nums.branch("even_odd", lambda x: x % 2 == 0)
+    >>> evens.output("out", StdOutSink())
+    >>> run_main(flow)
+    2
+    4
+
+    Args:
+        up: Stream to divide.
+
+        step_id: Unique ID.
+
+        predicate: Function to call on each upstream item. Items for
+            which this returns `True` will be put into one branch
+            `Stream`; `False` the other branc `Stream`.h
+
+    Returns:
+        A stream of items for which the predicate returns `True`, and
+        a stream of items for which the predicate returns `False`.
+
+    """
+    up_type = type(up)
+    return BranchOut(
+        trues=up_type(f"{up._scope.parent_id}.trues", up._scope),
+        falses=up_type(f"{up._scope.parent_id}.falses", up._scope),
+    )
+
+
+@operator(_core=True)
+def flat_map(
+    up: Stream,
+    step_id: str,
+    mapper: Callable[[Any], List[Any]],
+) -> Stream:
+    """Transform items one-to-many.
+
+    This is like a combination of `map` and `flatten`.
+
+    It is commonly used for:
+
+    - Tokenizing
+
+    - Flattening hierarchical objects
+
+    - Breaking up aggregations for further processing
+
+    >>> from bytewax.testing import TestingSource, run_main
+    >>> from bytewax.connectors.stdio import StdOutSink
+    >>> from bytewax.dataflow import Dataflow
+    >>> flow = Dataflow("test_df")
+    >>> inp = ["hello world"]
+    >>> s = flow.input("inp", TestingSource(inp))
+    >>> def split_into_words(sentence):
+    ...     return sentence.split()
+    >>> s = s.flat_map("split_words", split_into_words)
+    >>> s.output("out", StdOutSink())
+    >>> run_main(flow)
+    hello
+    world
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+        mapper: Called once on each upstream item. Returns the items
+            to emit downstream.
+
+    Returns:
+        A stream of each item returned by the mapper.
+
+    """
+    return Stream(f"{up._scope.parent_id}.down", up._scope)
+
+
+@operator(_core=True)
+def input(  # noqa: A001
+    flow: Dataflow,
+    step_id: str,
+    source: Source,
+) -> Stream:
+    """Introduce items into a dataflow.
+
+    See `bytewax.inputs` for more information on how input works. See
+    `bytewax.connectors` for a buffet of our built-in connector types.
+
+    Args:
+        flow: The dataflow.
+
+        step_id: Unique ID.
+
+        source: Read items from.
+
+    Returns:
+        A stream of items from the source. See your specific source
+        documentation for what kind of item that is.
+
+        This stream might be keyed. See your specific
+        `Source.stream_typ`.
+
+    """
+    return source.stream_typ(f"{flow._scope.parent_id}.down", flow._scope)
+
+
+def _default_debug_inspector(step_id: str, item: Any, epoch: int, worker: int) -> None:
+    print(f"{step_id} W{worker} @{epoch}: {item!r}", flush=True)
+
+
+@operator(_core=True)
+def inspect_debug(
+    up: Stream,
+    step_id: str,
+    inspector: Callable[[str, Any, int, int], None] = _default_debug_inspector,
+) -> Stream:
+    """Observe items, their worker, and their epoch for debugging.
+
+    >>> from bytewax.testing import TestingSource, TestingSink, run_main
+    >>> from bytewax.dataflow import Dataflow
+    >>> flow = Dataflow("my_flow")
+    >>> s = flow.input("inp", TestingSource(range(3)))
+    >>> s = s.inspect_debug("help")
+    >>> out = []
+    >>> s.output("out", TestingSink(out))  # Notice we don't print out.
+    >>> run_main(flow)
+    my_flow.help W0 @1: 0
+    my_flow.help W0 @1: 1
+    my_flow.help W0 @1: 2
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+        inspector: Called with the step ID, each item in the stream,
+            the epoch of that item, and the worker processing the
+            item. Defaults to printing out all the arguments.
+
+    Returns:
+        The upstream unmodified.
+
+    """
+    return type(up)(f"{up._scope.parent_id}.down", up._scope)
+
+
+@operator(_core=True)
+def merge_all(flow: Dataflow, step_id: str, *ups: Stream) -> Stream:
+    """Combine multiple streams together.
+
+    Args:
+        flow: Dataflow.
+
+        step_id: Unique ID.
+
+        *ups: Streams.
+
+    Returns:
+        A single stream of the same type as all the upstreams with
+        items from all upstreams merged into it unmodified.
+
+    """
+    down = Stream(f"{flow._scope.parent_id}.down", flow._scope)
+
+    # If all upstreams are of the same special subtype (like
+    # `KeyedStream`), assert the output is that too.h
+    up_types = set(type(up) for up in ups)
+    if len(up_types) == 1:
+        down_type = next(iter(up_types))
+        down = down_type(down.stream_id, down._scope)
+
+    return down
+
+
+@operator(_core=True)
+def output(up: Stream, step_id: str, sink: Sink) -> None:
+    """Write items out of a dataflow.
+
+    See `bytewax.outputs` for more information on how output works.
+    See `bytewax.connectors` for a buffet of our built-in connector
+    types.
+
+    Args:
+        up: Stream of items to write. See your specific sink
+            documentation for the required type of those items.
+
+        step_id: Unique ID.
+
+        sink: Write items to.
+
+    """
+    return None
+
+
+@operator(_core=True)
+def redistribute(up: Stream, step_id: str) -> Stream:
+    """Redistribute items randomly across all workers.
+
+    Bytewax's execution model has workers executing all steps, but the
+    state in each step is partitioned across workers by some key.
+    Bytewax will only exchange an item between workers before stateful
+    steps in order to ensure correctness, that they interact with the
+    correct state for that key. Stateless operators (like `filter`)
+    are run on all workers and do not result in exchanging items
+    before or after they are run.
+
+    This can result in certain ordering of operators to result in poor
+    parallelization across an entire execution cluster. If the
+    previous step (like a `reduce_window` or `input` with a
+    `PartitionedInput`) concentrated items on a subset of workers in
+    the cluster, but the next step is a CPU-intensive stateless step
+    (like a `map`), it's possible that not all workers will contribute
+    to processing the CPU-intesive step.
+
+    This operation has a overhead, since it will need to serialize,
+    send, and deserialize the items, so while it can significantly
+    speed up the execution in some cases, it can also make it slower.
+
+    A good use of this operator is to parallelize an IO bound step,
+    like a network request, or a heavy, single-cpu workload, on a
+    machine with multiple workers and multiple cpu cores that would
+    remain unused otherwise.
+
+    A bad use of this operator is if the operation you want to
+    parallelize is already really fast as it is, as the overhead can
+    overshadow the advantages of distributing the work. Another case
+    where you could see regressions in performance is if the heavy CPU
+    workload already spawns enough threads to use all the available
+    cores. In this case multiple processes trying to compete for the
+    cpu can end up being slower than doing the work serially. If the
+    workers run on different machines though, it might again be a
+    valuable use of the operator.
+
+    Use this operator with caution, and measure whether you get an
+    improvement out of it.
+
+    Once the work has been spread to another worker, it will stay on
+    those workers unless other operators explicitely move the item
+    again (usually on output).
+
+    Args:
+        up: Stream.
+
+        step_id: Unique ID.
+
+    Returns:
+        Stream unmodified.
+
+    """
+    return type(up)(f"{up._scope.parent_id}.down", up._scope)
+
+
 class UnaryLogic(ABC):
     """Abstract class to define the behavior of a `unary` operator.
 
@@ -256,13 +542,39 @@ class UnaryLogic(ABC):
 
 
 @operator(_core=True)
-def _noop(up: Stream, step_id: str) -> Stream:
-    """No-op; is compiled out when making the Timely dataflow.
+def unary(
+    up: KeyedStream,
+    step_id: str,
+    builder: Callable[[datetime, Optional[Any]], UnaryLogic],
+) -> KeyedStream:
+    """Advanced generic stateful operator.
 
-    Sometimes necessary to ensure `Dataflow` structure is valid.
+    This is the lowest-level operator Bytewax provides and gives you
+    full control over all aspects of the operator processing and
+    lifecycle. Usualy you will want to use a higher-level operator
+    than this.
+
+    Subclass `UnaryLogic` to define its behavior. See documentation
+    there.
+
+    Args:
+        up: Keyed stream.
+
+        step_id: Unique ID.
+
+        builder: Called whenver a new key is encountered with the
+            current `datetime` and the resume state returned from
+            `UnaryLogic.snapshot` for this key, if any. This should
+            close over any non-state configuration and combine it with
+            the resume state to return the prepared `UnaryLogic` for
+            the new key.
+
+    Returns:
+        Keyed stream of all items returned from `UnaryLogic.on_item`,
+        `UnaryLogic.on_notify`, and `UnaryLogic.on_eof`.
 
     """
-    return type(up)(f"{up._scope.parent_id}.down", up._scope)
+    return KeyedStream(f"{up._scope.parent_id}.down", up._scope)
 
 
 @dataclass
@@ -329,60 +641,6 @@ def batch(
     return up.unary("unary", shim_builder)
 
 
-@dataclass(frozen=True)
-class BranchOut:
-    """Streams returned from `branch` operator.
-
-    You can tuple unpack this for convenience.
-
-    """
-
-    trues: Stream
-    falses: Stream
-
-    def __iter__(self):
-        return iter((self.trues, self.falses))
-
-
-@operator(_core=True)
-def branch(
-    up: Stream,
-    step_id: str,
-    predicate: Callable[[Any], bool],
-) -> BranchOut:
-    """Divide items into two streams with a predicate.
-
-    >>> from bytewax.connectors.stdio import StdOutSink
-    >>> from bytewax.testing import run_main, TestingSource
-    >>> flow = Dataflow("my_flow")
-    >>> nums = flow.input("nums", TestingSource([1, 2, 3, 4, 5]))
-    >>> evens, odds = nums.branch("even_odd", lambda x: x % 2 == 0)
-    >>> evens.output("out", StdOutSink())
-    >>> run_main(flow)
-    2
-    4
-
-    Args:
-        up: Stream to divide.
-
-        step_id: Unique ID.
-
-        predicate: Function to call on each upstream item. Items for
-            which this returns `True` will be put into one branch
-            `Stream`; `False` the other branc `Stream`.h
-
-    Returns:
-        A stream of items for which the predicate returns `True`, and
-        a stream of items for which the predicate returns `False`.
-
-    """
-    up_type = type(up)
-    return BranchOut(
-        trues=up_type(f"{up._scope.parent_id}.trues", up._scope),
-        falses=up_type(f"{up._scope.parent_id}.falses", up._scope),
-    )
-
-
 @operator
 def count_final(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStream:
     """Count the number of occurrences of items in the entire stream.
@@ -408,53 +666,6 @@ def count_final(up: Stream, step_id: str, key: Callable[[Any], str]) -> KeyedStr
         .key_assert("keyed")
         .reduce_final("sum", lambda s, x: s + x)
     )
-
-
-@operator(_core=True)
-def flat_map(
-    up: Stream,
-    step_id: str,
-    mapper: Callable[[Any], List[Any]],
-) -> Stream:
-    """Transform items one-to-many.
-
-    This is like a combination of `map` and `flatten`.
-
-    It is commonly used for:
-
-    - Tokenizing
-
-    - Flattening hierarchical objects
-
-    - Breaking up aggregations for further processing
-
-    >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.connectors.stdio import StdOutSink
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("test_df")
-    >>> inp = ["hello world"]
-    >>> s = flow.input("inp", TestingSource(inp))
-    >>> def split_into_words(sentence):
-    ...     return sentence.split()
-    >>> s = s.flat_map("split_words", split_into_words)
-    >>> s.output("out", StdOutSink())
-    >>> run_main(flow)
-    hello
-    world
-
-    Args:
-        up: Stream.
-
-        step_id: Unique ID.
-
-        mapper: Called once on each upstream item. Returns the items
-            to emit downstream.
-
-    Returns:
-        A stream of each item returned by the mapper.
-
-    """
-    return Stream(f"{up._scope.parent_id}.down", up._scope)
 
 
 @operator
@@ -727,35 +938,6 @@ def fold_final(
     return up.unary("unary", shim_builder)
 
 
-@operator(_core=True)
-def input(  # noqa: A001
-    flow: Dataflow,
-    step_id: str,
-    source: Source,
-) -> Stream:
-    """Introduce items into a dataflow.
-
-    See `bytewax.inputs` for more information on how input works. See
-    `bytewax.connectors` for a buffet of our built-in connector types.
-
-    Args:
-        flow: The dataflow.
-
-        step_id: Unique ID.
-
-        source: Read items from.
-
-    Returns:
-        A stream of items from the source. See your specific source
-        documentation for what kind of item that is.
-
-        This stream might be keyed. See your specific
-        `Source.stream_typ`.
-
-    """
-    return source.stream_typ(f"{flow._scope.parent_id}.down", flow._scope)
-
-
 def _default_inspector(step_id: str, item: Any) -> None:
     print(f"{step_id}: {item!r}", flush=True)
 
@@ -795,46 +977,6 @@ def inspect(
         inspector(step_id, item)
 
     return up.inspect_debug("inspect_debug", shim_inspector)
-
-
-def _default_debug_inspector(step_id: str, item: Any, epoch: int, worker: int) -> None:
-    print(f"{step_id} W{worker} @{epoch}: {item!r}", flush=True)
-
-
-@operator(_core=True)
-def inspect_debug(
-    up: Stream,
-    step_id: str,
-    inspector: Callable[[str, Any, int, int], None] = _default_debug_inspector,
-) -> Stream:
-    """Observe items, their worker, and their epoch for debugging.
-
-    >>> from bytewax.testing import TestingSource, TestingSink, run_main
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("my_flow")
-    >>> s = flow.input("inp", TestingSource(range(3)))
-    >>> s = s.inspect_debug("help")
-    >>> out = []
-    >>> s.output("out", TestingSink(out))  # Notice we don't print out.
-    >>> run_main(flow)
-    my_flow.help W0 @1: 0
-    my_flow.help W0 @1: 1
-    my_flow.help W0 @1: 2
-
-    Args:
-        up: Stream.
-
-        step_id: Unique ID.
-
-        inspector: Called with the step ID, each item in the stream,
-            the epoch of that item, and the worker processing the
-            item. Defaults to printing out all the arguments.
-
-    Returns:
-        The upstream unmodified.
-
-    """
-    return type(up)(f"{up._scope.parent_id}.down", up._scope)
 
 
 @dataclass
@@ -1208,34 +1350,6 @@ def max_final(
     return up.reduce_final("reduce_final", partial(max, key=by))
 
 
-@operator(_core=True)
-def merge_all(flow: Dataflow, step_id: str, *ups: Stream) -> Stream:
-    """Combine multiple streams together.
-
-    Args:
-        flow: Dataflow.
-
-        step_id: Unique ID.
-
-        *ups: Streams.
-
-    Returns:
-        A single stream of the same type as all the upstreams with
-        items from all upstreams merged into it unmodified.
-
-    """
-    down = Stream(f"{flow._scope.parent_id}.down", flow._scope)
-
-    # If all upstreams are of the same special subtype (like
-    # `KeyedStream`), assert the output is that too.h
-    up_types = set(type(up) for up in ups)
-    if len(up_types) == 1:
-        down_type = next(iter(up_types))
-        down = down_type(down.stream_id, down._scope)
-
-    return down
-
-
 @operator
 def merge(left: Stream, step_id: str, *rights: Stream) -> Stream:
     """Combine multiple streams together.
@@ -1279,84 +1393,6 @@ def min_final(
 
     """
     return up.reduce_final("reduce_final", partial(min, key=by))
-
-
-@operator(_core=True)
-def output(up: Stream, step_id: str, sink: Sink) -> None:
-    """Write items out of a dataflow.
-
-    See `bytewax.outputs` for more information on how output works.
-    See `bytewax.connectors` for a buffet of our built-in connector
-    types.
-
-    Args:
-        up: Stream of items to write. See your specific sink
-            documentation for the required type of those items.
-
-        step_id: Unique ID.
-
-        sink: Write items to.
-
-    """
-    return None
-
-
-@operator(_core=True)
-def redistribute(up: Stream, step_id: str) -> Stream:
-    """Redistribute items randomly across all workers.
-
-    Bytewax's execution model has workers executing all steps, but the
-    state in each step is partitioned across workers by some key.
-    Bytewax will only exchange an item between workers before stateful
-    steps in order to ensure correctness, that they interact with the
-    correct state for that key. Stateless operators (like `filter`)
-    are run on all workers and do not result in exchanging items
-    before or after they are run.
-
-    This can result in certain ordering of operators to result in poor
-    parallelization across an entire execution cluster. If the
-    previous step (like a `reduce_window` or `input` with a
-    `PartitionedInput`) concentrated items on a subset of workers in
-    the cluster, but the next step is a CPU-intensive stateless step
-    (like a `map`), it's possible that not all workers will contribute
-    to processing the CPU-intesive step.
-
-    This operation has a overhead, since it will need to serialize,
-    send, and deserialize the items, so while it can significantly
-    speed up the execution in some cases, it can also make it slower.
-
-    A good use of this operator is to parallelize an IO bound step,
-    like a network request, or a heavy, single-cpu workload, on a
-    machine with multiple workers and multiple cpu cores that would
-    remain unused otherwise.
-
-    A bad use of this operator is if the operation you want to
-    parallelize is already really fast as it is, as the overhead can
-    overshadow the advantages of distributing the work. Another case
-    where you could see regressions in performance is if the heavy CPU
-    workload already spawns enough threads to use all the available
-    cores. In this case multiple processes trying to compete for the
-    cpu can end up being slower than doing the work serially. If the
-    workers run on different machines though, it might again be a
-    valuable use of the operator.
-
-    Use this operator with caution, and measure whether you get an
-    improvement out of it.
-
-    Once the work has been spread to another worker, it will stay on
-    those workers unless other operators explicitely move the item
-    again (usually on output).
-
-    Args:
-        up: Stream.
-
-        step_id: Unique ID.
-
-    Returns:
-        Stream unmodified.
-
-    """
-    return type(up)(f"{up._scope.parent_id}.down", up._scope)
 
 
 @operator
@@ -1492,39 +1528,3 @@ def stateful_map(
         return _StatefulMapLogic(step_id, mapper, state)
 
     return up.unary("unary", shim_builder)
-
-
-@operator(_core=True)
-def unary(
-    up: KeyedStream,
-    step_id: str,
-    builder: Callable[[datetime, Optional[Any]], UnaryLogic],
-) -> KeyedStream:
-    """Advanced generic stateful operator.
-
-    This is the lowest-level operator Bytewax provides and gives you
-    full control over all aspects of the operator processing and
-    lifecycle. Usualy you will want to use a higher-level operator
-    than this.
-
-    Subclass `UnaryLogic` to define its behavior. See documentation
-    there.
-
-    Args:
-        up: Keyed stream.
-
-        step_id: Unique ID.
-
-        builder: Called whenver a new key is encountered with the
-            current `datetime` and the resume state returned from
-            `UnaryLogic.snapshot` for this key, if any. This should
-            close over any non-state configuration and combine it with
-            the resume state to return the prepared `UnaryLogic` for
-            the new key.
-
-    Returns:
-        Keyed stream of all items returned from `UnaryLogic.on_item`,
-        `UnaryLogic.on_notify`, and `UnaryLogic.on_eof`.
-
-    """
-    return KeyedStream(f"{up._scope.parent_id}.down", up._scope)
