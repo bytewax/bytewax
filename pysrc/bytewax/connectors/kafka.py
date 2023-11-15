@@ -45,12 +45,18 @@ logger = logging.getLogger(__name__)
 
 
 class SchemaSerializer(ABC):
+    should_serialize_key: bool
+    should_serialize_value: bool
+
     @abstractmethod
-    def serialize(self, obj: dict, *args, **kwargs) -> bytes:
+    def ser(self, obj: dict, *args, **kwargs) -> bytes:
         ...
 
 
 class SchemaDeserializer(ABC):
+    should_deserialize_key: bool
+    should_deserialize_value: bool
+
     @abstractmethod
     def de(self, data: bytes, *args, **kwargs) -> dict:
         ...
@@ -66,23 +72,58 @@ class SchemaRegistry(ABC):
         ...
 
 
-class _ConfluentAvroSerializer(SchemaSerializer):
-    def __init__(self, client, schema_str):
-        self.serializer = AvroSerializer(client, schema_str)
+@dataclass(frozen=True)
+class SchemaConf:
+    schema_id: Optional[int]
+    subject: Optional[str]
+    version: Optional[int]
 
-    def serialize(self, data, ctx):
+    def __post_init__(self):
+        """Validate the data."""
+        if self.schema_id is None:
+            if self.subject is None:
+                msg = "subject MUST be specified if no schema_id is provided"
+                raise ValueError(msg)
+        else:
+            if self.subject is not None:
+                logger.warning(
+                    "both schema_id and subject specified, subject will be ignored"
+                )
+
+
+class _ConfluentAvroSerializer(SchemaSerializer):
+    def __init__(self, client, key_schema_str, value_schema_str):
+        self.key_serializer = AvroSerializer(client, key_schema_str)
+        self.value_serializer = AvroSerializer(client, value_schema_str)
+
+    def ser(self, data, topic, is_key):
+        if is_key:
+            if self.key_serializer is None:
+                msg = "Missing key_schema in confluent serializer"
+                raise ValueError(msg)
+            ctx = SerializationContext(topic, MessageField.KEY)
+            serializer = self.key_serializer
+        else:
+            if self.value_serializer is None:
+                msg = "Missing value_schema in confluent serializer"
+                raise ValueError(msg)
+            ctx = SerializationContext(topic, MessageField.VALUE)
+            serializer = self.value_serializer
+
         try:
-            return self.serializer(data, ctx)
+            return serializer(data, ctx)
         except SerializationError as e:
             logger.error(f"Error serializing data: {data}")
             raise e
 
 
-class _ConfluentAvroDeserializer(SchemaSerializer):
+class _ConfluentAvroDeserializer(SchemaDeserializer):
     def __init__(self, client):
         self.deserializer = AvroDeserializer(client)
 
-    def de(self, data, ctx):
+    def de(self, data, topic, is_key):
+        field = MessageField.KEY if is_key else MessageField.VALUE
+        ctx = SerializationContext(topic, field)
         try:
             return self.deserializer(data, ctx)
         except SerializationError as e:
@@ -96,6 +137,8 @@ class ConfluentSchemaRegistry(SchemaRegistry):
     def __init__(
         self,
         sr_conf: Dict,
+        value_conf: Optional[SchemaConf],
+        key_conf: Optional[SchemaConf],
     ):
         """Confluent's schema registry configuration for KafkaInput.
 
@@ -109,44 +152,41 @@ class ConfluentSchemaRegistry(SchemaRegistry):
         Args:
             sr_conf:
                 Configuration for `confluent_kafka.schema_registry.SchemaRegistryClient`
-            schema_id:
-                A schema_id from the registry.
-                You can either use this, or subject and version,
-            subject:
-                Subject of your schema in the registry
-            version:
-                Version of your subject's schema. If not set defaults to `latest`
-
         """
         self._sr_conf = sr_conf
+        self._value_conf = value_conf
+        self._key_conf = key_conf
 
-    def serializer(
-        self,
-        topic,
-        schema_id: Optional[int] = None,
-        subject: Optional[str] = None,
-        version: Optional[int] = None,
-    ):
-        """TODO."""
-        client = SchemaRegistryClient(self._sr_conf)
-        # Schema can bew retrieved by `schema_id`, or by specifying a `subject`
-        # and a `version`, which can also be `latest`.
-        if schema_id is not None:
-            schema = client.get_schema(schema_id)
+    @staticmethod
+    def _get_schema_str(client, schema_conf) -> str:
+        # Schema can bew retrieved by `schema_id`, or by
+        # specifying a `subject` and a `version`, which
+        # defaults to `latest`.
+        if schema_conf.schema_id is not None:
+            schema = client.get_schema(schema_conf.schema_id)
         else:
-            if subject is None:
-                msg = "subject MUST be specified if no schema_id is provided"
-                raise ValueError(msg)
-            if version is not None:
-                schema = client.get_version(subject, version).schema
-            else:
-                schema = client.get_latest_version(subject).schema
-        return _ConfluentAvroSerializer(client, schema.schema_str, topic)
+            # If schema_conf.version is None, `get_version`
+            # defaults to `latest` here
+            schema = client.get_version(schema_conf.subject, schema_conf.version).schema
+        return schema.schema_str
 
-    def deserializer(self, topic: str):
+    def serializer(self):
+        """TODO."""
+        if self.value_conf is None and self.key_conf is None:
+            msg = (
+                "At least one of value_conf and key_conf "
+                "must be provided for serialization"
+            )
+            raise ValueError(msg)
+        client = SchemaRegistryClient(self._sr_conf)
+        value_schema_str = self._get_schema_str(client, self._value_conf)
+        key_schema_str = self._get_schema_str(client, self._key_conf)
+        return _ConfluentAvroSerializer(client, key_schema_str, value_schema_str)
+
+    def deserializer(self):
         """TODO."""
         client = SchemaRegistryClient(self._sr_conf)
-        return _ConfluentAvroDeserializer(client, topic)
+        return _ConfluentAvroDeserializer(client)
 
 
 class RedpandaSchemaRegistry(SchemaRegistry):
@@ -155,47 +195,88 @@ class RedpandaSchemaRegistry(SchemaRegistry):
     def __init__(
         self,
         base_url: str = "http://localhost:18081",
-        schema_id: Optional[int] = None,
-        subject: Optional[str] = None,
-        version: Optional[int] = None,
-        raise_on_error: bool = True,
+        input_value_conf: Optional[SchemaConf] = None,
+        input_key_conf: Optional[SchemaConf] = None,
+        output_value_conf: Optional[SchemaConf] = None,
+        output_key_conf: Optional[SchemaConf] = None,
     ):
         """TODO."""
-        if schema_id is not None:
-            url = f"{base_url}/schemas/{schema_id}/schema"
-        else:
-            if subject is None:
-                msg = "subject MUST be specified if no schema_id is provided"
-                raise ValueError(msg)
-            if version is not None:
-                url = f"{base_url}/subjects/{subject}/versions/{version}/schema"
-            else:
-                url = f"{base_url}/subjects/{subject}/versions/latest/schema"
-        schema_content = requests.get(url).content
-        self._schema = avro.schema.parse(schema_content)
+        self._base_url = base_url
+        self._input_key_schema = self._get_schema_str(input_key_conf)
+        self._input_value_schema = self._get_schema_str(input_value_conf)
+        self._output_key_schema = self._get_schema_str(output_key_conf)
+        self._output_value_schema = self._get_schema_str(output_value_conf)
 
-    def serde(self, *args, **kwargs):
+    def _get_schema_str(self, schema_conf) -> Optional[str]:
+        if schema_conf is None:
+            return None
+        if schema_conf.schema_id is not None:
+            url = f"{self._base_url}/schemas/{schema_conf.schema_id}/schema"
+        elif schema_conf.version is not None:
+            url = (
+                f"{self._base_url}/subjects/"
+                f"{schema_conf.subject}/versions/"
+                f"{schema_conf.version}/schema"
+            )
+        schema_content = requests.get(url)
+        return avro.schema.parse(schema_content)
+
+    def serializer(self, *args, **kwargs):
         """TODO."""
-        return _RedpandaSerde(self._schema)
+        return _AvroSerializer(self._output_key_schema, self._output_value_schema)
+
+    def deserializer(self, *args, **kwargs):
+        """TODO."""
+        return _AvroDeserializer(self._input_key_schema, self._input_value_schema)
 
 
-class _RedpandaSerde(SchemaSerde):
-    def __init__(self, schema):
-        self._schema = schema
-        self._reader = DatumReader(schema)
+class _AvroSerializer(SchemaSerializer):
+    def __init__(self, key_schema, value_schema):
+        self._key_schema = key_schema
+        self._value_schema = value_schema
 
-    def ser(self, data):
-        writer = DatumWriter(self._schema)
+    def serialize(self, data, topic, is_key):
         bytes_writer = io.BytesIO()
         encoder = BinaryEncoder(bytes_writer)
+
+        if is_key:
+            if self._key_schema is None:
+                msg = "Missing key_schema in avro serializer"
+                raise ValueError(msg)
+            writer = DatumWriter(self._key_schema)
+        else:
+            if self._value_schema is None:
+                msg = "Missing value_schema in avro serializer"
+                raise ValueError(msg)
+            writer = DatumWriter(self._value_schema)
+
         writer.write(data, encoder)
         return bytes_writer.getvalue()
 
-    def de(self, msg):
+
+class _AvroDeserializer(SchemaDeserializer):
+    def __init__(self, key_schema, value_schema):
+        self._key_reader = None
+        self._value_reader = None
+        if key_schema is not None:
+            self._key_reader = DatumReader(key_schema)
+        if value_schema is not None:
+            self._value_reader = DatumReader(value_schema)
+
+    def de(self, msg, _topic, is_key):
         message_bytes = io.BytesIO(msg)
         decoder = BinaryDecoder(message_bytes)
-        event_dict = self._reader.read(decoder)
-        return event_dict
+
+        if is_key:
+            if self._key_reader is None:
+                msg = "Missing key_schema in avro deserializer"
+                raise ValueError(msg)
+            return self._key_reader.read(decoder)
+        else:
+            if self._value_schema is None:
+                msg = "Missing value_schema in avro deserializer"
+                raise ValueError(msg)
+            return self._value_reader.read(decoder)
 
 
 def _list_parts(client, topics):
@@ -274,24 +355,25 @@ class _KafkaSourcePartition(StatefulSourcePartition):
                     )
                     raise RuntimeError(err_msg)
             # If no serializer is set, just use the raw value
-            if self._deserializer is None:
-                value = msg.value()
-            else:
+            value = msg.value()
+            key = msg.key()
+            if self._deserializer is not None:
                 # This can fail.
                 # If deserialization raises an exception, we bubble it up
-                value = self._deserializer.de(msg.value())
+                key = self._deserializer.de(msg.key(), msg.topic(), True)
+                value = self._deserializer.de(msg.value(), msg.topic(), False)
 
             k_msg = KafkaMessage(
+                key=key,
                 value=value,
                 topic=msg.topic(),
                 headers=msg.headers(),
-                key=msg.key(),
                 latency=msg.latency(),
                 offset=msg.offset(),
                 partition=msg.partition(),
                 timestamp=msg.timestamp(),
             )
-            batch.append((msg.key(), k_msg))
+            batch.append((key, k_msg))
             last_offset = msg.offset()
 
         # Resume reading from the next message, not this one.
@@ -404,9 +486,9 @@ class KafkaSource(FixedPartitionedSource):
         config.update(self._add_config)
         consumer = Consumer(config)
         if self._registry is None:
-            serializer = None
+            deserializer = None
         else:
-            serializer = self._registry.serializer(topic)
+            deserializer = self._registry.deserializer(topic)
 
         return _KafkaSourcePartition(
             consumer,
@@ -415,7 +497,7 @@ class KafkaSource(FixedPartitionedSource):
             self._starting_offset,
             resume_state,
             self._batch_size,
-            serializer,
+            deserializer,
         )
 
 
@@ -433,9 +515,7 @@ class _KafkaSinkPartition(StatelessSinkPartition):
                 value = msg
 
             if self._serializer is not None:
-                value = self._serializer.ser(value)
-                if value is None:
-                    continue
+                value = self._serializer.serialize(value)
             self._producer.produce(self._topic, value, key)
             self._producer.poll(0)
         self._producer.flush()
@@ -495,8 +575,30 @@ class KafkaSink(DynamicSink):
         }
         config.update(self._add_config)
         producer = Producer(config)
+        serializer = None
         if self._registry is not None:
             serializer = self._registry.serializer(self._topic)
-        else:
-            serializer = None
         return _KafkaSinkPartition(producer, self._topic, serializer)
+
+
+# Why not?
+# @operator()
+# def kafka_input(up: Dataflow, broker, topic, add_config, schema_registry)
+#     ...
+#
+# registry = ConfluentSchemaRegistry(
+#     sr_conf,
+#     value_conf=SchemaConf(subject="out_schema", version=1),
+#     key_conf=SchemaConf(subject="out_key_schema"),
+# )
+# # OR
+# registry = RedpandaSchemaRegistry(
+#     input_value_conf=SchemaConf(schema_id=12)
+#     input_key_conf=SchemaConf(subject="input_schema")
+#     output_value_conf=SchemaConf(schema_id=13)
+#     output_key_conf=SchemaConf(subject="output_schema", version=2)
+# )
+
+# flow = Dataflow("from kafka to kafka")
+# inp = flow.kafkain("in", topics=["test"], registry)
+# inp.kafkaout("out", topic="out_test", registry)
