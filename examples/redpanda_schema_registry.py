@@ -1,8 +1,14 @@
 import logging
+from datetime import timedelta
 from random import random
 from time import sleep
 
-from bytewax.connectors.kafka import KafkaSink, KafkaSource, RedpandaSchemaRegistry
+from bytewax.connectors.kafka import (
+    KafkaSink,
+    KafkaSource,
+    RedpandaSchemaRegistry,
+    SchemaConf,
+)
 from bytewax.dataflow import Dataflow
 
 logging.basicConfig(format=logging.BASIC_FORMAT, level=logging.DEBUG)
@@ -23,9 +29,14 @@ def modify(key_msg):
 
 
 # Instantiate a schema registry object.
-# If a message in the topic is not compatible with the schema,
-# the dataflow will crash
-registry = RedpandaSchemaRegistry(subject="sensor-value")
+registry = RedpandaSchemaRegistry(
+    # Redpanda's schema registry requires to specify both
+    # serialization and deserialization schemas
+    input_value_conf=SchemaConf(subject="sensor-value"),
+    input_key_conf=SchemaConf(subject="sensor-key"),
+    output_value_conf=SchemaConf(subject="aggregated-value"),
+    output_key_conf=SchemaConf(subject="sensor-key"),
+)
 # By default, the client will fetch the latest version.
 # You can also specify the version:
 # >>> registry = RedpandaSchemaRegistry(subject="sensor-value", version=1)
@@ -50,12 +61,24 @@ flow.input(
     "redpanda-input",
     KafkaSource(
         ["localhost:19092"],
-        topics=["test_topic"],
+        topics=["in_topic"],
         schema_registry=registry,
     ),
 )
 
-flow.map("modify", modify)
+flow.inspect(print)
+flow.map("key", lambda x: (x[0]["identifier"], x))
+flow.batch("batch", max_size=100000, timeout=timedelta(seconds=1))
+flow.map(
+    "avg",
+    lambda x: (
+        x[1][0][0],
+        {
+            "identifier": x[0],
+            "avg": int(1000 * sum([i[1].value["value"] for i in x[1]]) / len(x[1])),
+        },
+    ),
+)
 flow.inspect(print)
 
 # Same for the output, if you try to produce a message from a dictionary
@@ -64,10 +87,7 @@ flow.output(
     "redpanda-out",
     KafkaSink(
         ["localhost:19092"],
-        # Write to the same topic to test both serialization and
-        # deserialization. You will need two instances of the
-        # schema registry if the output topic has a different schema.
-        "test_topic",
+        "out_topic",
         schema_registry=registry,
     ),
 )
