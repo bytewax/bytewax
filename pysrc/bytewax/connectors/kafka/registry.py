@@ -166,19 +166,19 @@ class RedpandaSchemaRegistry(SchemaRegistry):
         self._output_value_schema = self._get_schema_str(output_value_conf)
 
     def key_serializer(self, *args, **kwargs):
-        """TODO."""
+        """See ABC docstring."""
         return _AvroSerializer(self._output_key_schema, is_key=True)
 
     def value_serializer(self, *args, **kwargs):
-        """TODO."""
+        """See ABC docstring."""
         return _AvroSerializer(self._output_value_schema, is_key=False)
 
     def key_deserializer(self, *args, **kwargs):
-        """TODO."""
+        """See ABC docstring."""
         return _AvroDeserializer(self._input_key_schema, is_key=True)
 
     def value_deserializer(self, *args, **kwargs):
-        """TODO."""
+        """See ABC docstring."""
         return _AvroDeserializer(self._input_value_schema, is_key=False)
 
     def _get_schema_str(self, schema_conf) -> Optional[str]:

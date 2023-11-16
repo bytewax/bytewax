@@ -1,7 +1,5 @@
 import logging
 from datetime import timedelta
-from random import random
-from time import sleep
 
 from bytewax.connectors.kafka import (
     KafkaSink,
@@ -14,25 +12,13 @@ from bytewax.dataflow import Dataflow
 logging.basicConfig(format=logging.BASIC_FORMAT, level=logging.DEBUG)
 
 
-def modify(key_msg):
-    key, msg = key_msg
-    data = msg.value
-    data["value"] += 1
-
-    # If you make the message incompatible with the schema,
-    # the dataflow will crash at the output
-    # del data["timestamp"]
-
-    # Avoid sending/reading messages as fast as possible
-    sleep(random())
-    return "ALL", msg
-
+flow = Dataflow()
 
 # Instantiate a schema registry object.
 registry = RedpandaSchemaRegistry(
     # Redpanda's schema registry requires to specify both
     # serialization and deserialization schemas
-    # SchemaConf is used to determine the specific schema
+    # SchemaConf is used to determine the specific schema.
     input_value_conf=SchemaConf(subject="sensor-value"),
     input_key_conf=SchemaConf(subject="sensor-key"),
     output_value_conf=SchemaConf(subject="aggregated-value"),
@@ -53,7 +39,6 @@ registry = RedpandaSchemaRegistry(
 # ...    },
 # ... )
 
-flow = Dataflow()
 flow.input(
     "redpanda-input",
     KafkaSource(
@@ -63,20 +48,23 @@ flow.input(
     ),
 )
 
-flow.inspect(print)
+# Print the message as it arrives
+flow.inspect(lambda x: print(f"Read: {x}"))
+# Extract the identifier from the key
 flow.map("key", lambda x: (x[0]["identifier"], x))
+# Batch every second
 flow.batch("batch", max_size=100000, timeout=timedelta(seconds=1))
-flow.map(
-    "avg",
-    lambda x: (
-        x[1][0][0],
-        {
-            "identifier": x[0],
-            "avg": int(1000 * sum([i[1].value["value"] for i in x[1]]) / len(x[1])),
-        },
-    ),
-)
-flow.inspect(print)
+
+
+def calc_avg(key__batch):
+    key, batch = key__batch
+    schema_key = batch[0][0]
+    avg = int(1000 * sum([i[1].value["value"] for i in batch]) / len(batch))
+    return (schema_key, {"identifier": key, "avg": avg})
+
+
+flow.map("avg", calc_avg)
+flow.inspect(lambda x: print(f"Writing: {x}"))
 
 # Same for the output, if you try to produce a message from a dictionary
 # that is not compatible with the schema, the flow will crash
