@@ -32,15 +32,12 @@ def modify(key_msg):
 registry = RedpandaSchemaRegistry(
     # Redpanda's schema registry requires to specify both
     # serialization and deserialization schemas
+    # SchemaConf is used to determine the specific schema
     input_value_conf=SchemaConf(subject="sensor-value"),
     input_key_conf=SchemaConf(subject="sensor-key"),
     output_value_conf=SchemaConf(subject="aggregated-value"),
     output_key_conf=SchemaConf(subject="sensor-key"),
 )
-# By default, the client will fetch the latest version.
-# You can also specify the version:
-# >>> registry = RedpandaSchemaRegistry(subject="sensor-value", version=1)
-#
 # Or, if you have it, the schema_id:
 # >>> registry = RedpandaSchemaRegistry(schema_id=10001)
 #
@@ -91,14 +88,3 @@ flow.output(
         schema_registry=registry,
     ),
 )
-
-
-# Produce an event to start the loop
-# from confluent_kafka import Producer
-# print("Producing the first message")
-# serializer = registry.serde("test_topic")
-# add_config.pop("basic.auth.credentials.source")
-# producer = Producer({"bootstrap.servers": "localhost:19092", **add_config})
-# event = {"timestamp": 212, "identifier": "test", "value": 1}
-# producer.produce("test_topic", serializer.ser(event))
-# producer.flush()

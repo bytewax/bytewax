@@ -22,9 +22,15 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SchemaConf:
-    """TODO."""
+    """Info used to retrieve a schema from a schema registry.
 
-    # TODO
+    Either use `schema_id`, or retrieve a schema by specifying
+    the `subject` and optionally `version`.
+    If no `version` is specified, defaults to `latest`
+    """
+
+    # TODO: Only `avro` supported for now, but we might want
+    #       to add `protobuf` and others too
     # format: str = "avro"
     schema_id: Optional[int] = None
     subject: Optional[str] = None
@@ -44,7 +50,11 @@ class SchemaConf:
 
 
 class SchemaRegistry(ABC):
-    """TODO."""
+    """An interface to define a SchemaRegistry.
+
+    A schema registry must define functions to build
+    a (de)serializer for both key and value of a KafkaMessage.
+    """
 
     @abstractmethod
     def key_serializer(self, *args, **kwargs) -> SchemaSerializer:
@@ -68,7 +78,14 @@ class SchemaRegistry(ABC):
 
 
 class ConfluentSchemaRegistry(SchemaRegistry):
-    """TODO."""
+    """Confluent's schema registry for Kafka's input and output connectors.
+
+    Serializer: Use either `schema_id` or `subject`+`version` to fetch
+    the schema for the serializer from the registry.
+
+    Deserializer: The deserializer automatically fetches the correct
+    schema for each message, following confluent_kafka's behaviour
+    """
 
     def __init__(
         self,
@@ -76,28 +93,22 @@ class ConfluentSchemaRegistry(SchemaRegistry):
         value_conf: Optional[SchemaConf],
         key_conf: Optional[SchemaConf],
     ):
-        """Confluent's schema registry for Kafka's input and output connectors.
-
-        Use either `schema_id` or `subject`+`version` to fetch the schema
-        for the serializer from the registry.
-
-        The deserializer automatically fetches the correct schema for each message,
-        following confluent_kafka's behaviour
+        """Init.
 
         Args:
             sr_conf:
                 Configuration for `confluent_kafka.schema_registry.SchemaRegistryClient`
             value_conf:
-                SchemaConf for the schema used for serialization of values in the output.
+                SchemaConf used for serialization of values in the output.
             key_conf:
-                SchemaConf for the schema used for serialization of keys in the output.
+                SchemaConf used for serialization of keys in the output.
         """
         self._sr_conf = sr_conf
         self._value_conf = value_conf
         self._key_conf = key_conf
 
     def key_serializer(self):
-        """TODO."""
+        """See ABC docstring."""
         if self.key_conf is None:
             return None
         client = SchemaRegistryClient(self._sr_conf)
@@ -105,7 +116,7 @@ class ConfluentSchemaRegistry(SchemaRegistry):
         return _ConfluentAvroSerializer(client, schema_str, is_key=True)
 
     def value_serializer(self):
-        """TODO."""
+        """See ABC docstring."""
         if self.value_conf is None:
             return None
         client = SchemaRegistryClient(self._sr_conf)
@@ -113,12 +124,12 @@ class ConfluentSchemaRegistry(SchemaRegistry):
         return _ConfluentAvroSerializer(client, schema_str, is_key=False)
 
     def key_deserializer(self):
-        """TODO."""
+        """See ABC docstring."""
         client = SchemaRegistryClient(self._sr_conf)
         return _ConfluentAvroDeserializer(client, is_key=True)
 
     def value_deserializer(self):
-        """TODO."""
+        """See ABC docstring."""
         client = SchemaRegistryClient(self._sr_conf)
         return _ConfluentAvroDeserializer(client, is_key=False)
 
