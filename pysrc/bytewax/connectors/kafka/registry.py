@@ -1,5 +1,4 @@
 """TODO."""
-import json
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -7,7 +6,6 @@ from typing import Dict, Optional
 
 import requests
 from confluent_kafka.schema_registry import SchemaRegistryClient
-from fastavro import parse_schema
 
 from .serde import (
     SchemaDeserializer,
