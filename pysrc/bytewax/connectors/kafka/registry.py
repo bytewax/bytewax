@@ -109,7 +109,7 @@ class ConfluentSchemaRegistry(SchemaRegistry):
 
     def key_serializer(self):
         """See ABC docstring."""
-        if self.key_conf is None:
+        if self._key_conf is None:
             return None
         client = SchemaRegistryClient(self._sr_conf)
         schema_str = self._get_schema_str(client, self._key_conf)
@@ -117,7 +117,7 @@ class ConfluentSchemaRegistry(SchemaRegistry):
 
     def value_serializer(self):
         """See ABC docstring."""
-        if self.value_conf is None:
+        if self._value_conf is None:
             return None
         client = SchemaRegistryClient(self._sr_conf)
         schema_str = self._get_schema_str(client, self._value_conf)

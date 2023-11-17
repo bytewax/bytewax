@@ -253,8 +253,8 @@ class KafkaSource(FixedPartitionedSource):
             key_deserializer = None
             value_deserializer = None
         else:
-            key_deserializer = self._registry.key_deserializer(topic)
-            value_deserializer = self._registry.value_deserializer(topic)
+            key_deserializer = self._registry.key_deserializer()
+            value_deserializer = self._registry.value_deserializer()
 
         return _KafkaSourcePartition(
             consumer,
@@ -349,8 +349,8 @@ class KafkaSink(DynamicSink):
         key_serializer = None
         value_serializer = None
         if self._registry is not None:
-            key_serializer = self._registry.key_serializer(self._topic)
-            value_serializer = self._registry.value_serializer(self._topic)
+            key_serializer = self._registry.key_serializer()
+            value_serializer = self._registry.value_serializer()
 
         return _KafkaSinkPartition(
             producer, self._topic, key_serializer, value_serializer
