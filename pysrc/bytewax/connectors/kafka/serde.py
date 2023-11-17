@@ -3,13 +3,13 @@ import io
 import logging
 from abc import ABC, abstractmethod
 
-from avro.io import BinaryDecoder, BinaryEncoder, DatumReader, DatumWriter
 from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
 from confluent_kafka.serialization import (
     MessageField,
     SerializationContext,
     SerializationError,
 )
+from fastavro import schemaless_reader, schemaless_writer
 
 logger = logging.getLogger(__name__)
 
@@ -69,17 +69,14 @@ class _AvroSerializer(SchemaSerializer):
 
     def ser(self, obj, topic):
         bytes_writer = io.BytesIO()
-        encoder = BinaryEncoder(bytes_writer)
-        writer = DatumWriter(self.schema)
-        writer.write(obj, encoder)
+        schemaless_writer(bytes_writer, self.schema, obj)
         return bytes_writer.getvalue()
 
 
 class _AvroDeserializer(SchemaDeserializer):
     def __init__(self, schema, is_key):
-        self.reader = DatumReader(schema)
+        self.schema = schema
 
     def de(self, msg, _topic):
-        message_bytes = io.BytesIO(msg)
-        decoder = BinaryDecoder(message_bytes)
-        return self.reader.read(decoder)
+        payload = io.BytesIO(msg)
+        return schemaless_reader(payload, self.schema)

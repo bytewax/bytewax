@@ -1,9 +1,11 @@
 """TODO."""
+import json
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, Optional
 
+from fastavro import parse_schema
 import avro.schema
 import requests
 from confluent_kafka.schema_registry import SchemaRegistryClient
@@ -193,5 +195,9 @@ class RedpandaSchemaRegistry(SchemaRegistry):
                 f"{schema_conf.subject}/versions/"
                 f"{version}/schema"
             )
-        schema_content = requests.get(url).content
-        return avro.schema.parse(schema_content)
+
+        # TODO: Not sure why I need to json.loads the schema,
+        # the function should accept a str too, but it raises
+        # UnkownType error if I do
+        schema_str = requests.get(url).content
+        return parse_schema(json.loads(schema_str))

@@ -3,10 +3,10 @@ import os
 from datetime import timedelta
 
 from bytewax.connectors.kafka import (
-    ConfluentSchemaRegistry,
+    # ConfluentSchemaRegistry,
     KafkaSink,
     KafkaSource,
-    # RedpandaSchemaRegistry,
+    RedpandaSchemaRegistry,
     SchemaConf,
 )
 from bytewax.dataflow import Dataflow
@@ -14,33 +14,34 @@ from bytewax.dataflow import Dataflow
 logging.basicConfig(format=logging.BASIC_FORMAT, level=logging.DEBUG)
 
 KAFKA_SERVER = os.environ["KAFKA_SERVER"]
+KAFKA_SERVER = "localhost:19092"
 
 
 flow = Dataflow()
 
-# Confluent's schema registry configuration
-CONFLUENT_URL = os.environ["CONFLUENT_URL"]
-CONFLUENT_USERINFO = os.environ["CONFLUENT_USERINFO"]
-CONFLUENT_USERNAME = os.environ["CONFLUENT_USERNAME"]
-CONFLUENT_PASSWORD = os.environ["CONFLUENT_PASSWORD"]
-registry = ConfluentSchemaRegistry(
-    sr_conf={
-        "url": os.environ["CONFLUENT_URL"],
-        "basic.auth.user.info": os.environ["CONFLUENT_USERINFO"],
-    },
-    key_conf=SchemaConf(schema_id=100002),
-    value_conf=SchemaConf(schema_id=100003),
+# Redpanda's schema registry
+registry = RedpandaSchemaRegistry(
+    # Redpanda's schema registry requires to specify both
+    # serialization and deserialization schemas
+    # SchemaConf is used to determine the specific schema.
+    input_value_conf=SchemaConf(subject="sensor-value"),
+    input_key_conf=SchemaConf(subject="sensor-key"),
+    output_value_conf=SchemaConf(subject="aggregated-value"),
+    output_key_conf=SchemaConf(subject="sensor-key"),
 )
 
-# # Alternatively, we support Redpanda's schema registry
-# registry = RedpandaSchemaRegistry(
-#     # Redpanda's schema registry requires to specify both
-#     # serialization and deserialization schemas
-#     # SchemaConf is used to determine the specific schema.
-#     input_value_conf=SchemaConf(subject="sensor-value"),
-#     input_key_conf=SchemaConf(subject="sensor-key"),
-#     output_value_conf=SchemaConf(subject="aggregated-value"),
-#     output_key_conf=SchemaConf(subject="sensor-key"),
+# Confluent's schema registry configuration
+# CONFLUENT_URL = os.environ["CONFLUENT_URL"]
+# CONFLUENT_USERINFO = os.environ["CONFLUENT_USERINFO"]
+# CONFLUENT_USERNAME = os.environ["CONFLUENT_USERNAME"]
+# CONFLUENT_PASSWORD = os.environ["CONFLUENT_PASSWORD"]
+# registry = ConfluentSchemaRegistry(
+#     sr_conf={
+#         "url": os.environ["CONFLUENT_URL"],
+#         "basic.auth.user.info": os.environ["CONFLUENT_USERINFO"],
+#     },
+#     key_conf=SchemaConf(schema_id=100002), # Use the proper ID here
+#     value_conf=SchemaConf(schema_id=100003), # Use the proper ID here
 # )
 
 
@@ -51,12 +52,12 @@ flow.input(
         topics=["in_topic"],
         schema_registry=registry,
         # Working with confluent's cloud
-        add_config={
-            "security.protocol": "SASL_SSL",
-            "sasl.mechanism": "PLAIN",
-            "sasl.username": CONFLUENT_USERNAME,
-            "sasl.password": CONFLUENT_PASSWORD,
-        },
+        # add_config={
+        #     "security.protocol": "SASL_SSL",
+        #     "sasl.mechanism": "PLAIN",
+        #     "sasl.username": CONFLUENT_USERNAME,
+        #     "sasl.password": CONFLUENT_PASSWORD,
+        # },
     ),
 )
 
@@ -88,11 +89,12 @@ flow.output(
         [KAFKA_SERVER],
         "out_topic",
         schema_registry=registry,
-        add_config={
-            "security.protocol": "SASL_SSL",
-            "sasl.mechanism": "PLAIN",
-            "sasl.username": CONFLUENT_USERNAME,
-            "sasl.password": CONFLUENT_PASSWORD,
-        },
+        # Working with confluent's cloud
+        # add_config={
+        #     "security.protocol": "SASL_SSL",
+        #     "sasl.mechanism": "PLAIN",
+        #     "sasl.username": CONFLUENT_USERNAME,
+        #     "sasl.password": CONFLUENT_PASSWORD,
+        # },
     ),
 )
