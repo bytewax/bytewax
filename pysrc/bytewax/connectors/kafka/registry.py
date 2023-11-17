@@ -5,10 +5,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, Optional
 
-from fastavro import parse_schema
-import avro.schema
 import requests
 from confluent_kafka.schema_registry import SchemaRegistryClient
+from fastavro import parse_schema
 
 from .serde import (
     SchemaDeserializer,
