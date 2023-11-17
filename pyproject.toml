@@ -34,6 +34,7 @@ extras = [
 
 [project.optional-dependencies]
 kafka = [
+    "requests>===2.0",
     "fastavro>=1.8",
     "confluent-kafka<=2.0.2",  # Update this to a broader bound once we fix CI.
 ]
