@@ -1,5 +1,6 @@
 """TODO."""
 import io
+import json
 import logging
 from abc import ABC, abstractmethod
 
@@ -9,7 +10,7 @@ from confluent_kafka.serialization import (
     SerializationContext,
     SerializationError,
 )
-from fastavro import schemaless_reader, schemaless_writer
+from fastavro import parse_schema, schemaless_reader, schemaless_writer
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,10 @@ class _ConfluentAvroDeserializer(SchemaDeserializer):
 
 class _AvroSerializer(SchemaSerializer):
     def __init__(self, schema, is_key):
-        self.schema = schema
+        # TODO: Not sure why I need to json.loads the schema,
+        # the function should accept a str too, but it raises
+        # UnkownType error if I do
+        self.schema = parse_schema(json.loads(schema))
 
     def ser(self, obj, topic):
         bytes_writer = io.BytesIO()
@@ -75,7 +79,10 @@ class _AvroSerializer(SchemaSerializer):
 
 class _AvroDeserializer(SchemaDeserializer):
     def __init__(self, schema, is_key):
-        self.schema = schema
+        # TODO: Not sure why I need to json.loads the schema,
+        # the function should accept a str too, but it raises
+        # UnkownType error if I do
+        self.schema = parse_schema(json.loads(schema))
 
     def de(self, msg, _topic):
         payload = io.BytesIO(msg)

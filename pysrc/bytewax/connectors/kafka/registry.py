@@ -194,9 +194,4 @@ class RedpandaSchemaRegistry(SchemaRegistry):
                 f"{schema_conf.subject}/versions/"
                 f"{version}/schema"
             )
-
-        # TODO: Not sure why I need to json.loads the schema,
-        # the function should accept a str too, but it raises
-        # UnkownType error if I do
-        schema_str = requests.get(url).content
-        return parse_schema(json.loads(schema_str))
+        return requests.get(url).content
