@@ -2,6 +2,7 @@ import os
 import shutil
 from datetime import timedelta
 
+import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.recovery import (
     InconsistentPartitionsError,
@@ -21,8 +22,8 @@ def test_continuation(recovery_config):
     out = []
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [0, 1, 2]
@@ -43,10 +44,9 @@ def keep_max(max_val, new_val):
 
 def build_keep_max_dataflow(inp, out):
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_assert("keyed")
-    s = s.stateful_map("max", lambda: 0, keep_max)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.stateful_map("max", s, lambda: 0, keep_max)
+    op.output("out", s, TestingSink(out))
     return flow
 
 

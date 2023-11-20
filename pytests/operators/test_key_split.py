@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource, run_main
 
@@ -19,17 +20,18 @@ def test_key_split():
     out_is_cats = []
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    names, ages, is_cats = s.key_split(
+    s = op.input("inp", flow, TestingSource(inp))
+    names, ages, is_cats = op.key_split(
         "key",
+        s,
         lambda x: str(x.obj_id),
         lambda x: x.name,
         lambda x: x.age,
         lambda x: x.is_cat,
     )
-    names.output("out_a", TestingSink(out_names))
-    ages.output("out_b", TestingSink(out_ages))
-    is_cats.output("out_c", TestingSink(out_is_cats))
+    op.output("out_a", names, TestingSink(out_names))
+    op.output("out_b", ages, TestingSink(out_ages))
+    op.output("out_c", is_cats, TestingSink(out_is_cats))
 
     run_main(flow)
 

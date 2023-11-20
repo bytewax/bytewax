@@ -3,9 +3,11 @@ import random
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Callable, List, Optional
+from typing import Callable, List, Optional, Tuple, TypeVar
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+
+X = TypeVar("X")
 
 
 @dataclass
@@ -15,14 +17,16 @@ class _RandomMetricState:
 
 
 @dataclass
-class _RandomMetricPartition(StatefulSourcePartition):
+class _RandomMetricPartition(
+    StatefulSourcePartition[Tuple[str, float], _RandomMetricState]
+):
     metric_name: str
     interval: timedelta
     count: int
-    next_random: Callable[[], Any]
+    next_random: Callable[[], float]
     state: _RandomMetricState
 
-    def next_batch(self, sched: datetime) -> List[Any]:
+    def next_batch(self, sched: datetime) -> List[Tuple[str, float]]:
         self.state.awake_at = sched + self.interval
         self.state.count += 1
 
@@ -40,7 +44,7 @@ class _RandomMetricPartition(StatefulSourcePartition):
 
 
 @dataclass
-class RandomMetricSource(FixedPartitionedSource):
+class RandomMetricSource(FixedPartitionedSource[Tuple[str, float], _RandomMetricState]):
     """Demo source that produces an infinite stream of random values.
 
     Emits downstream `(metric_name, val)` 2-tuples.
@@ -65,9 +69,9 @@ class RandomMetricSource(FixedPartitionedSource):
     metric_name: str
     interval: timedelta = timedelta(seconds=0.7)
     count: int = sys.maxsize
-    next_random: Callable[[], Any] = lambda: random.randrange(0, 10)
+    next_random: Callable[[], float] = lambda: random.randrange(0, 10)
 
-    def list_parts(self):
+    def list_parts(self) -> List[str]:
         """A single stream of values."""
         return [self.metric_name]
 

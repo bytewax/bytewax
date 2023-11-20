@@ -444,16 +444,16 @@ where
                             .insert_downstream(py, &step, "down", down)
                             .reraise("core operator `inspect_debug` missing port")?;
                     }
-                    "merge_all" => {
+                    "merge" => {
                         let ups = streams
                             .get_upmultistream(py, &step, "ups")
-                            .reraise("core operator `merge_all` missing port")?;
+                            .reraise("core operator `merge` missing port")?;
 
                         let down = scope.merge(py, step_id, ups)?;
 
                         streams
                             .insert_downstream(py, &step, "down", down)
-                            .reraise("core operator `merge_all` missing port")?;
+                            .reraise("core operator `merge` missing port")?;
                     }
                     "output" => {
                         let sink = step.get_arg(py, "sink")?.extract::<Sink>(py)?;

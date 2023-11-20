@@ -1,10 +1,12 @@
 import asyncio
 import itertools
 import queue
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, List
 
-from bytewax.dataflow import Dataflow, KeyedStream
+import bytewax.operators as op
+from bytewax.dataflow import Dataflow
 from bytewax.inputs import (
     DynamicSource,
     FixedPartitionedSource,
@@ -23,20 +25,9 @@ from pytest import raises
 def test_flow_requires_input():
     flow = Dataflow("test_df")
 
-    with raises(ValueError):
+    expect = "at least one input"
+    with raises(ValueError, match=re.escape(expect)):
         run_main(flow)
-
-
-def test_input_uses_stream_type():
-    class TestSource(DynamicSource):
-        stream_typ = KeyedStream
-
-        def build(self, now, _worker_index, _worker_count):
-            ...
-
-    flow = Dataflow("test_df")
-    s = flow.input("inp", TestSource())
-    assert isinstance(s, KeyedStream)
 
 
 def pairwise(ib):
@@ -78,8 +69,8 @@ def test_dynamic_source_next_awake():
     interval = timedelta(seconds=0.1)
 
     flow = Dataflow("test_df")
-    s = flow.input("in", TestSource(interval))
-    s.output("out", TestingSink(out))
+    s = op.input("in", flow, TestSource(interval))
+    op.output("out", s, TestingSink(out))
 
     run_main(flow)
     for x, y in pairwise(out):
@@ -124,8 +115,8 @@ def test_fixed_partitioned_source_next_awake():
     interval = timedelta(seconds=0.1)
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestSource(interval))
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestSource(interval))
+    op.output("out", s, TestingSink(out))
 
     run_main(flow)
     for x, y in pairwise(out):

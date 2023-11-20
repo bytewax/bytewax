@@ -1,5 +1,6 @@
 import json
 
+import bytewax.operators as op
 from bytewax._encoder import to_json
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource
@@ -7,9 +8,9 @@ from bytewax.testing import TestingSink, TestingSource
 
 def test_to_json_linear():
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource([1, 2, 3]))
-    s = s.map("add_one", lambda x: x + 1)
-    s.output("out", TestingSink([]))
+    s = op.input("inp", flow, TestingSource([1, 2, 3]))
+    s = op.map("add_one", s, lambda x: x + 1)
+    op.output("out", s, TestingSink([]))
 
     assert json.loads(to_json(flow)) == {
         "typ": "RenderedDataflow",
@@ -106,11 +107,11 @@ def test_to_json_linear():
 
 def test_to_json_nonlinear():
     flow = Dataflow("test_df")
-    nums = flow.input("nums", TestingSource([1, 2, 3]))
-    ones = nums.map("add_one", lambda x: x + 1)
-    twos = nums.map("add_two", lambda x: x + 2)
-    ones.output("out_one", TestingSink([]))
-    twos.output("out_two", TestingSink([]))
+    nums = op.input("nums", flow, TestingSource([1, 2, 3]))
+    ones = op.map("add_one", nums, lambda x: x + 1)
+    twos = op.map("add_two", nums, lambda x: x + 2)
+    op.output("out_one", ones, TestingSink([]))
+    op.output("out_two", twos, TestingSink([]))
 
     assert json.loads(to_json(flow)) == {
         "typ": "RenderedDataflow",
@@ -275,10 +276,10 @@ def test_to_json_nonlinear():
 
 def test_to_json_multistream_inp():
     flow = Dataflow("test_df")
-    ones = flow.input("ones", TestingSource([2, 3, 4]))
-    twos = flow.input("twos", TestingSource([3, 4, 5]))
-    s = flow.merge_all("merge", ones, twos)
-    s.output("out", TestingSink([]))
+    ones = op.input("ones", flow, TestingSource([2, 3, 4]))
+    twos = op.input("twos", flow, TestingSource([3, 4, 5]))
+    s = op.merge("merge", ones, twos)
+    op.output("out", s, TestingSink([]))
 
     assert json.loads(to_json(flow)) == {
         "typ": "RenderedDataflow",
@@ -320,7 +321,7 @@ def test_to_json_multistream_inp():
             },
             {
                 "typ": "RenderedOperator",
-                "op_type": "merge_all",
+                "op_type": "merge",
                 "step_name": "merge",
                 "step_id": "test_df.merge",
                 "inp_ports": [
@@ -366,12 +367,12 @@ def test_to_json_multistream_inp():
 
 def test_to_json_multistream_out():
     flow = Dataflow("test_df")
-    nums = flow.input("nums", TestingSource([1, 2, 3]))
-    ones, twos = nums.key_split(
-        "split", lambda x: "ALL", lambda x: x + 1, lambda x: x + 2
+    nums = op.input("nums", flow, TestingSource([1, 2, 3]))
+    ones, twos = op.key_split(
+        "split", nums, lambda x: "ALL", lambda x: x + 1, lambda x: x + 2
     )
-    ones.output("out_one", TestingSink([]))
-    twos.output("out_two", TestingSink([]))
+    op.output("out_one", ones, TestingSink([]))
+    op.output("out_two", twos, TestingSink([]))
 
     assert json.loads(to_json(flow)) == {
         "typ": "RenderedDataflow",

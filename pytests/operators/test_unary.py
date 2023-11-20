@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Any, List, Optional, Tuple
 
+import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.operators import UnaryLogic
 from bytewax.testing import TestingSink, TestingSource, run_main
@@ -63,10 +64,10 @@ def test_unary_on_item_discard():
         after_item = UnaryLogic.DISCARD
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_on("key", lambda _x: "ALL")
-    s = s.unary("unary", TestLogic)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.key_on("key", s, lambda _x: "ALL")
+    s = op.unary("unary", s, TestLogic)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD)
     assert out == [
@@ -83,10 +84,10 @@ def test_unary_on_item_retain():
         after_item = UnaryLogic.RETAIN
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_on("key", lambda _x: "ALL")
-    s = s.unary("unary", TestLogic)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.key_on("key", s, lambda _x: "ALL")
+    s = op.unary("unary", s, TestLogic)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD)
     assert out == [
@@ -104,10 +105,10 @@ def test_unary_on_notify_discard():
         after_notify = UnaryLogic.DISCARD
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_on("key", lambda _x: "ALL")
-    s = s.unary("unary", TestLogic)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.key_on("key", s, lambda _x: "ALL")
+    s = op.unary("unary", s, TestLogic)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD)
     assert out == [
@@ -127,10 +128,10 @@ def test_unary_on_notify_retain():
         after_notify = UnaryLogic.RETAIN
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_on("key", lambda _x: "ALL")
-    s = s.unary("unary", TestLogic)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.key_on("key", s, lambda _x: "ALL")
+    s = op.unary("unary", s, TestLogic)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD)
     assert out == [
@@ -149,10 +150,10 @@ def test_unary_on_eof_discard(recovery_config):
         after_eof = UnaryLogic.DISCARD
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_on("key", lambda _x: "ALL")
-    s = s.unary("unary", TestLogic)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.key_on("key", s, lambda _x: "ALL")
+    s = op.unary("unary", s, TestLogic)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [("ALL", ("NEW", "ITEM")), ("ALL", ("ITEM", "EOF"))]
@@ -170,10 +171,10 @@ def test_unary_on_eof_retain(recovery_config):
         after_eof = UnaryLogic.RETAIN
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_on("key", lambda _x: "ALL")
-    s = s.unary("unary", TestLogic)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.key_on("key", s, lambda _x: "ALL")
+    s = op.unary("unary", s, TestLogic)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [("ALL", ("NEW", "ITEM")), ("ALL", ("ITEM", "EOF"))]
@@ -210,10 +211,9 @@ def test_unary_keeps_logic_per_key():
     out = []
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_assert("keyed")
-    s = s.unary("unary", KeepLastLogic)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.unary("unary", s, KeepLastLogic)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD)
     assert out == [
@@ -229,10 +229,9 @@ def test_unary_snapshots_logic_per_key(recovery_config):
     out = []
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_assert("keyed")
-    s = s.unary("unary", KeepLastLogic)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.unary("unary", s, KeepLastLogic)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [
@@ -261,10 +260,9 @@ def test_unary_snapshots_discard_per_key(recovery_config):
     out = []
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_assert("keyed")
-    s = s.unary("unary", KeepLastLogic)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.unary("unary", s, KeepLastLogic)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [

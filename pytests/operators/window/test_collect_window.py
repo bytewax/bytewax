@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+import bytewax.operators as op
+import bytewax.operators.window as win
 from bytewax.dataflow import Dataflow
 from bytewax.operators.window import EventClockConfig, TumblingWindow, WindowMetadata
 from bytewax.testing import TestingSink, TestingSource, run_main
@@ -23,10 +25,10 @@ def test_collect_window():
     windower = TumblingWindow(length=timedelta(seconds=10), align_to=align_to)
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_on("key_on_user", lambda e: e["user"])
-    s = s.collect_window("add", clock, windower)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.key_on("key_on_user", s, lambda e: e["user"])
+    s = win.collect_window("add", s, clock, windower)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow)
     assert out == [

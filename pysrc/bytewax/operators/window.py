@@ -70,16 +70,22 @@ from functools import partial
 from typing import (
     Any,
     Callable,
+    Dict,
+    Iterable,
+    List,
+    Set,
+    Tuple,
     Type,
+    TypeVar,
+    overload,
 )
 
+import bytewax.operators as op
 from bytewax.dataflow import (
-    Dataflow,
-    KeyedStream,
     Stream,
     operator,
 )
-from bytewax.operators import _identity, _JoinState, _none_builder
+from bytewax.operators import KeyedStream, _identity, _JoinState, _untyped_none
 
 from ..bytewax import (  # noqa: F401
     ClockConfig,
@@ -111,18 +117,26 @@ __all__ = [
     "reduce_window",
 ]
 
+C = TypeVar("C", bound=Iterable)
+K = TypeVar("K")
+X = TypeVar("X")  # Item
+Y = TypeVar("Y")  # Output Item
+V = TypeVar("V")  # Value
+W = TypeVar("W")  # Output Value
+S = TypeVar("S")  # State
 
-def _list_collector(s, v):
+
+def _list_collector(s: List[V], v: V) -> List[V]:
     s.append(v)
     return s
 
 
-def _set_collector(s, v):
+def _set_collector(s: Set[V], v: V) -> Set[V]:
     s.add(v)
     return s
 
 
-def _dict_collector(s, k_v):
+def _dict_collector(s: Dict[K, V], k_v: Tuple[K, V]) -> Dict[K, V]:
     k, v = k_v
     s[k] = v
     return s
@@ -130,24 +144,66 @@ def _dict_collector(s, k_v):
 
 def _get_collector(t: Type) -> Callable:
     if issubclass(t, list):
-        collector = _list_collector
+        return _list_collector
     elif issubclass(t, set):
-        collector = _set_collector
+        return _set_collector
     elif issubclass(t, dict):
-        collector = _dict_collector
+        return _dict_collector
     else:
         msg = (
             f"collect doesn't support `{t:!}`; "
             "only `list`, `set`, and `dict`; use `fold` operator directly"
         )
         raise TypeError(msg)
-    return collector
+
+
+@overload
+def collect_window(
+    step_id: str,
+    up: KeyedStream[V],
+    clock: ClockConfig,
+    windower: WindowConfig,
+) -> KeyedStream[List[V]]:
+    ...
+
+
+@overload
+def collect_window(
+    step_id: str,
+    up: KeyedStream[V],
+    clock: ClockConfig,
+    windower: WindowConfig,
+    into: Type[List],
+) -> KeyedStream[List[V]]:
+    ...
+
+
+@overload
+def collect_window(
+    step_id: str,
+    up: KeyedStream[V],
+    clock: ClockConfig,
+    windower: WindowConfig,
+    into: Type[Set],
+) -> KeyedStream[Set[V]]:
+    ...
+
+
+@overload
+def collect_window(
+    step_id: str,
+    up: KeyedStream[Tuple[K, V]],
+    clock: ClockConfig,
+    windower: WindowConfig,
+    into: Type[Dict],
+) -> KeyedStream[Dict[K, V]]:
+    ...
 
 
 @operator
 def collect_window(
-    up: KeyedStream,
     step_id: str,
+    up: KeyedStream,
     clock: ClockConfig,
     windower: WindowConfig,
     into: Type = list,
@@ -155,9 +211,9 @@ def collect_window(
     """Collect all items in a window into a container.
 
     Args:
-        up: Stream of items to count.
-
         step_id: Unique ID.
+
+        up: Stream of items to count.
 
         clock: Clock.
 
@@ -172,23 +228,23 @@ def collect_window(
     """
     collector = _get_collector(into)
 
-    return up.fold_window("fold_window", clock, windower, into, collector)
+    return fold_window("fold_window", up, clock, windower, into, collector)
 
 
 @operator
 def count_window(
-    up: Stream,
     step_id: str,
+    up: Stream[X],
     clock: ClockConfig,
     windower: WindowConfig,
-    key: Callable[[Any], str],
-) -> KeyedStream:
+    key: Callable[[X], str],
+) -> KeyedStream[int]:
     """Count the number of occurrences of items in a window.
 
     Args:
-        up: Stream of items to count.
-
         step_id: Unique ID.
+
+        up: Stream of items to count.
 
         clock: Clock.
 
@@ -202,31 +258,28 @@ def count_window(
         A stream of `(key, count)` per window at the end of each window.
 
     """
-    return (
-        up.map("init_count", lambda x: (key(x), 1))
-        .key_assert("keyed")
-        .reduce_window("sum", clock, windower, lambda s, x: s + x)
-    )
+    init_count: KeyedStream[int] = op.map("init_count", up, lambda x: (key(x), 1))
+    return reduce_window("sum", init_count, clock, windower, lambda s, x: s + x)
 
 
 @operator(_core=True)
 def fold_window(
-    up: KeyedStream,
     step_id: str,
+    up: KeyedStream[V],
     clock: ClockConfig,
     windower: WindowConfig,
-    builder: Callable[[], Any],
-    folder: Callable[[Any, Any], Any],
-) -> KeyedStream:
+    builder: Callable[[], S],
+    folder: Callable[[S, V], S],
+) -> KeyedStream[S]:
     """Build an empty accumulator, then combine values into it.
 
     It is like `reduce_window` but uses a function to build the initial
     value.
 
     Args:
-        up: Keyed stream.
-
         step_id: Unique ID.
+
+        up: Keyed stream.
 
         clock: Clock.
 
@@ -244,10 +297,12 @@ def fold_window(
         closed.
 
     """
-    return KeyedStream(f"{up._scope.parent_id}.down", up._scope)
+    return Stream(f"{up._scope.parent_id}.down", up._scope)
 
 
-def _join_window_folder(state: _JoinState, name_value) -> _JoinState:
+def _join_window_folder(
+    state: _JoinState[V], name_value: Tuple[str, V]
+) -> _JoinState[V]:
     name, value = name_value
     state.add_val(name, value)
     return state
@@ -255,67 +310,63 @@ def _join_window_folder(state: _JoinState, name_value) -> _JoinState:
 
 @operator
 def join_window(
-    left: KeyedStream,
     step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
-    *rights: KeyedStream,
-) -> KeyedStream:
+    *sides: KeyedStream[V],
+) -> KeyedStream[Tuple]:
     """Gather together the value for a key on multiple streams.
 
     Args:
-        left: Keyed stream.
-
         step_id: Unique ID.
 
         clock: Clock.
 
         windower: Windower.
 
-        *rights: Other keyed streams.
+        *sides: Keyed streams.
 
     Returns:
         Emits a tuple with the value from each stream in the order of
         the argument list once each window has closed.
 
     """
-    named_ups = dict((str(i), s) for i, s in enumerate([left] + list(rights)))
-    names = list(named_ups.keys())
+    named_sides = dict((str(i), s) for i, s in enumerate(sides))
+    names = list(named_sides.keys())
 
-    return (
-        left.flow()
-        ._join_name_merge("add_names", **named_ups)
-        .fold_window(
-            "join",
-            clock,
-            windower,
-            lambda: _JoinState.for_names(names),
-            _join_window_folder,
-        )
-        .flat_map_value("astuple", _JoinState.astuples)
+    merged = op._join_name_merge("add_names", **named_sides)
+
+    def builder() -> _JoinState[V]:
+        return _JoinState.for_names(names)
+
+    joined = fold_window(
+        "join",
+        merged,
+        clock,
+        windower,
+        builder,
+        _join_window_folder,
     )
+    return op.flat_map_value("astuple", joined, _JoinState.astuples)
 
 
 @operator
 def join_window_named(
-    flow: Dataflow,
     step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
-    **ups: KeyedStream,
-) -> KeyedStream:
+    **sides: KeyedStream[V],
+) -> KeyedStream[Dict[str, V]]:
     """Gather together the value for a key on multiple named streams.
 
     Args:
-        flow: Dataflow.
-
         step_id: Unique ID.
 
         clock: Clock.
 
         windower: Windower.
 
-        **ups: Named keyed streams. The name of each stream will be
+        **sides: Named keyed streams. The name of each stream will be
             used in the emitted `dict`s.
 
     Returns:
@@ -323,35 +374,56 @@ def join_window_named(
         once each window has closed.
 
     """
-    names = list(ups.keys())
+    names = list(sides.keys())
 
-    return (
-        flow._join_name_merge("add_names", **ups)
-        .fold_window(
-            "join",
-            clock,
-            windower,
-            lambda: _JoinState.for_names(names),
-            _join_window_folder,
-        )
-        .flat_map_value("asdict", _JoinState.asdicts)
+    merged = op._join_name_merge("add_names", **sides)
+
+    def builder() -> _JoinState[V]:
+        return _JoinState.for_names(names)
+
+    joined = fold_window(
+        "join",
+        merged,
+        clock,
+        windower,
+        builder,
+        _join_window_folder,
     )
+    return op.flat_map_value("asdict", joined, _JoinState.asdicts)
+
+
+@overload
+def max_window(
+    step_id: str, up: KeyedStream[V], clock: ClockConfig, windower: WindowConfig
+) -> KeyedStream[V]:
+    ...
+
+
+@overload
+def max_window(
+    step_id: str,
+    up: KeyedStream[V],
+    clock: ClockConfig,
+    windower: WindowConfig,
+    by: Callable[[V], Any],
+) -> KeyedStream[V]:
+    ...
 
 
 @operator
 def max_window(
-    up: KeyedStream,
     step_id: str,
+    up: KeyedStream[V],
     clock: ClockConfig,
     windower: WindowConfig,
-    by: Callable[[Any], Any] = _identity,
+    by=_identity,
 ) -> KeyedStream:
     """Find the minumum value for each key.
 
     Args:
-        up: Keyed stream.
-
         step_id: Unique ID.
+
+        up: Keyed stream.
 
         clock: Clock.
 
@@ -364,23 +436,41 @@ def max_window(
         A keyed stream of the min values once each window has closed.
 
     """
-    return up.reduce_window("reduce_window", clock, windower, partial(max, key=by))
+    return reduce_window("reduce_window", up, clock, windower, partial(max, key=by))
+
+
+@overload
+def min_window(
+    step_id: str, up: KeyedStream[V], clock: ClockConfig, windower: WindowConfig
+) -> KeyedStream[V]:
+    ...
+
+
+@overload
+def min_window(
+    step_id: str,
+    up: KeyedStream[V],
+    clock: ClockConfig,
+    windower: WindowConfig,
+    by: Callable[[V], Any],
+) -> KeyedStream[V]:
+    ...
 
 
 @operator
 def min_window(
-    up: KeyedStream,
     step_id: str,
+    up: KeyedStream[V],
     clock: ClockConfig,
     windower: WindowConfig,
-    by: Callable[[Any], Any] = _identity,
+    by=_identity,
 ) -> KeyedStream:
     """Find the minumum value for each key.
 
     Args:
-        up: Keyed stream.
-
         step_id: Unique ID.
+
+        up: Keyed stream.
 
         clock: Clock.
 
@@ -393,26 +483,26 @@ def min_window(
         A keyed stream of the min values once each window has closed.
 
     """
-    return up.reduce_window("reduce_window", clock, windower, partial(min, key=by))
+    return reduce_window("reduce_window", up, clock, windower, partial(min, key=by))
 
 
 @operator
 def reduce_window(
-    up: KeyedStream,
     step_id: str,
+    up: KeyedStream[V],
     clock: ClockConfig,
     windower: WindowConfig,
-    reducer: Callable[[Any, Any], Any],
-) -> KeyedStream:
+    reducer: Callable[[V, V], V],
+) -> KeyedStream[V]:
     """Distill all values for a key down into a single value.
 
     It is like `fold_window` but the first value is the initial
     accumulator.
 
     Args:
-        up: Keyed stream.
-
         step_id: Unique ID.
+
+        up: Keyed stream.
 
         clock: Clock.
 
@@ -427,7 +517,7 @@ def reduce_window(
 
     """
 
-    def shim_folder(s, v):
+    def shim_folder(s: V, v: V) -> V:
         if s is None:
             s = v
         else:
@@ -435,4 +525,4 @@ def reduce_window(
 
         return s
 
-    return up.fold_window("fold_window", clock, windower, _none_builder, shim_folder)
+    return fold_window("fold_window", up, clock, windower, _untyped_none, shim_folder)

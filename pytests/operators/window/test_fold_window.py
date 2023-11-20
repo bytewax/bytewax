@@ -1,6 +1,8 @@
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
+import bytewax.operators as op
+import bytewax.operators.window as win
 from bytewax.dataflow import Dataflow
 from bytewax.operators.window import (
     EventClockConfig,
@@ -50,11 +52,11 @@ def test_fold_window_tumbling():
         return (metadata, dict(value))
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_on("key_on_user", lambda e: e["user"])
-    s = s.fold_window("count", clock, windower, lambda: defaultdict(int), count)
-    s = s.map_value("normal_dict", map_dict)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.key_on("key_on_user", s, lambda e: e["user"])
+    s = win.fold_window("count", s, clock, windower, lambda: defaultdict(int), count)
+    s = op.map_value("normal_dict", s, map_dict)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow)
     assert out == [
@@ -121,10 +123,10 @@ def test_fold_window_session():
         return acc
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_on("key_on_user", lambda e: e["user"])
-    s = s.fold_window("sum", clock, windower, list, add)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.key_on("key_on_user", s, lambda e: e["user"])
+    s = win.fold_window("sum", s, clock, windower, list, add)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow)
     assert out == [
@@ -191,10 +193,10 @@ def test_fold_window_sliding():
         return acc
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_on("key_on_user", lambda e: e["user"])
-    s = s.fold_window("sum", clock, windower, list, add)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.key_on("key_on_user", s, lambda e: e["user"])
+    s = win.fold_window("sum", s, clock, windower, list, add)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow)
     assert out == [

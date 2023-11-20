@@ -3,7 +3,7 @@ import os
 from csv import DictReader
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 from zlib import adler32
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch
@@ -22,7 +22,7 @@ def _get_path_dev(path: Path) -> str:
     return hex(path.stat().st_dev)
 
 
-def _readlines(f):
+def _readlines(f) -> Iterator[str]:
     """Turn a file into a generator of lines but support `tell`.
 
     Python files don't support `tell` to learn the offset if you use
@@ -37,29 +37,29 @@ def _readlines(f):
         yield line
 
 
-def _strip_n(s):
+def _strip_n(s: str) -> str:
     return s.rstrip("\n")
 
 
-class _FileSourcePartition(StatefulSourcePartition):
-    def __init__(self, path, batch_size, resume_state):
+class _FileSourcePartition(StatefulSourcePartition[str, int]):
+    def __init__(self, path: Path, batch_size: int, resume_state: Optional[int]):
         self._f = open(path, "rt")
         if resume_state is not None:
             self._f.seek(resume_state)
         it = map(_strip_n, _readlines(self._f))
         self._batcher = batch(it, batch_size)
 
-    def next_batch(self, _sched: datetime) -> List[Any]:
+    def next_batch(self, _sched: datetime) -> List[str]:
         return next(self._batcher)
 
-    def snapshot(self):
+    def snapshot(self) -> int:
         return self._f.tell()
 
-    def close(self):
+    def close(self) -> None:
         self._f.close()
 
 
-class DirSource(FixedPartitionedSource):
+class DirSource(FixedPartitionedSource[str, int]):
     """Read all files in a filesystem directory line-by-line.
 
     The directory must exist on at least one worker. Each worker can
@@ -119,7 +119,7 @@ class DirSource(FixedPartitionedSource):
             msg = f"result of `get_fs_id` must not contain `::`; got {self._fs_id!r}"
             raise ValueError(msg)
 
-    def list_parts(self):
+    def list_parts(self) -> List[str]:
         """Each file is a separate partition."""
         if self._dir_path.exists():
             return [
@@ -129,14 +129,16 @@ class DirSource(FixedPartitionedSource):
         else:
             return []
 
-    def build_part(self, _now: datetime, part_key: str, resume_state: Optional[Any]):
+    def build_part(
+        self, _now: datetime, part_key: str, resume_state: Optional[int]
+    ) -> _FileSourcePartition:
         """See ABC docstring."""
         _fs_id, for_path = part_key.split("::", 1)
         path = self._dir_path / for_path
         return _FileSourcePartition(path, self._batch_size, resume_state)
 
 
-class FileSource(FixedPartitionedSource):
+class FileSource(FixedPartitionedSource[str, int]):
     """Read a path line-by-line from the filesystem.
 
     The path must exist on at least one worker. Each worker can have a
@@ -185,14 +187,16 @@ class FileSource(FixedPartitionedSource):
             msg = f"result of `get_fs_id` must not contain `::`; got {self._fs_id!r}"
             raise ValueError(msg)
 
-    def list_parts(self):
+    def list_parts(self) -> List[str]:
         """The file is a single partition."""
         if self._path.exists():
             return [f"{self._fs_id}::{self._path}"]
         else:
             return []
 
-    def build_part(self, _now: datetime, part_key: str, resume_state: Optional[Any]):
+    def build_part(
+        self, _now: datetime, part_key: str, resume_state: Optional[int]
+    ) -> _FileSourcePartition:
         """See ABC docstring."""
         _fs_id, path = part_key.split("::", 1)
         # TODO: Warn and return None. Then we could support
@@ -201,8 +205,14 @@ class FileSource(FixedPartitionedSource):
         return _FileSourcePartition(self._path, self._batch_size, resume_state)
 
 
-class _CSVPartition(StatefulSourcePartition):
-    def __init__(self, path, batch_size, resume_state, fmtparams):
+class _CSVPartition(StatefulSourcePartition[Dict[str, str], int]):
+    def __init__(
+        self,
+        path: Path,
+        batch_size: int,
+        resume_state: Optional[int],
+        fmtparams: Dict[str, Any],
+    ):
         self._f = open(path, "rt", newline="")
         reader = DictReader(_readlines(self._f), **fmtparams)
         # Force reading of the header.
@@ -211,17 +221,17 @@ class _CSVPartition(StatefulSourcePartition):
             self._f.seek(resume_state)
         self._batcher = batch(reader, batch_size)
 
-    def next_batch(self, _sched: datetime) -> List[Any]:
+    def next_batch(self, _sched: datetime) -> List[Dict[str, str]]:
         return next(self._batcher)
 
-    def snapshot(self):
+    def snapshot(self) -> int:
         return self._f.tell()
 
-    def close(self):
+    def close(self) -> None:
         self._f.close()
 
 
-class CSVSource(FileSource):
+class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
     """Read a path as a CSV file row-by-row as keyed-by-column dicts.
 
     The path must exist on at least one worker. Each worker can have a
@@ -297,41 +307,50 @@ class CSVSource(FileSource):
                 [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
 
         """
-        super().__init__(path, batch_size, get_fs_id)
+        self._file_source = FileSource(path, batch_size, get_fs_id)
         self._fmtparams = fmtparams
+
+    def list_parts(self) -> List[str]:
+        """Same logic as `FileSource.list_parts`."""
+        return self._file_source.list_parts()
 
     def build_part(self, _now: datetime, part_key: str, resume_state: Optional[Any]):
         """See ABC docstring."""
         _fs_id, path = part_key.split("::", 1)
-        assert path == str(self._path), "Can't resume reading from different file"
+        assert path == str(
+            self._file_source._path
+        ), "Can't resume reading from different file"
         return _CSVPartition(
-            self._path, self._batch_size, resume_state, self._fmtparams
+            self._file_source._path,
+            self._file_source._batch_size,
+            resume_state,
+            self._fmtparams,
         )
 
 
-class _FileSinkPartition(StatefulSinkPartition):
-    def __init__(self, path, resume_state, end):
+class _FileSinkPartition(StatefulSinkPartition[str, int]):
+    def __init__(self, path: Path, resume_state: Optional[int], end: str):
         resume_offset = 0 if resume_state is None else resume_state
         self._f = open(path, "at")
         self._f.seek(resume_offset)
         self._f.truncate()
         self._end = end
 
-    def write_batch(self, items):
+    def write_batch(self, items: List[str]) -> None:
         for item in items:
             self._f.write(item)
             self._f.write(self._end)
         self._f.flush()
         os.fsync(self._f.fileno())
 
-    def snapshot(self):
+    def snapshot(self) -> int:
         return self._f.tell()
 
-    def close(self):
+    def close(self) -> None:
         self._f.close()
 
 
-class DirSink(FixedPartitionedSink):
+class DirSink(FixedPartitionedSink[str, int]):
     """Write to a set of files in a filesystem directory line-by-line.
 
     Items consumed from the dataflow must look like two-tuples of
@@ -385,21 +404,23 @@ class DirSink(FixedPartitionedSink):
         self._assign_file = assign_file
         self._end = end
 
-    def list_parts(self):
+    def list_parts(self) -> List[str]:
         """Each file is a partition."""
         return [self._file_namer(i, self._file_count) for i in range(self._file_count)]
 
-    def part_fn(self, item_key):
+    def part_fn(self, item_key: str) -> int:
         """Use the specified file assigner."""
         return self._assign_file(item_key)
 
-    def build_part(self, for_part, resume_state):
+    def build_part(
+        self, for_part: str, resume_state: Optional[int]
+    ) -> _FileSinkPartition:
         """See ABC docstring."""
         path = self._dir_path / for_part
         return _FileSinkPartition(path, resume_state, self._end)
 
 
-class FileSink(FixedPartitionedSink):
+class FileSink(FixedPartitionedSink[str, int]):
     """Write to a single file line-by-line on the filesystem.
 
     Items consumed from the dataflow must look like a string. Use a
@@ -428,15 +449,17 @@ class FileSink(FixedPartitionedSink):
         self._path = path
         self._end = end
 
-    def list_parts(self):
+    def list_parts(self) -> List[str]:
         """The file is a single partition."""
         return [str(self._path)]
 
-    def part_fn(self, item_key):
+    def part_fn(self, item_key: str) -> int:
         """Only one partition."""
         return 0
 
-    def build_part(self, for_part, resume_state):
+    def build_part(
+        self, for_part: str, resume_state: Optional[int]
+    ) -> _FileSinkPartition:
         """See ABC docstring."""
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
