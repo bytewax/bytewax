@@ -76,7 +76,7 @@ from typing import (
     runtime_checkable,
 )
 
-X = TypeVar("X")
+X_co = TypeVar("X_co", covariant=True)
 
 
 def f_repr(f: Callable) -> str:
@@ -264,7 +264,7 @@ class Dataflow:
 
 
 @dataclass(frozen=True)
-class Stream(Generic[X]):
+class Stream(Generic[X_co]):
     """Handle to a specific stream of items you can add steps to.
 
     You won't be instantiating this manually. Use the
@@ -295,31 +295,31 @@ class Stream(Generic[X]):
     def _get_scopes(self) -> Iterable[_Scope]:
         return [self._scope]
 
-    def _with_scope(self, scope: _Scope) -> "Stream[X]":
+    def _with_scope(self, scope: _Scope) -> "Stream[X_co]":
         return dataclasses.replace(self, _scope=scope)
 
     def _to_ref(self, ref_id: str) -> SinglePort:
         return SinglePort(ref_id, self.stream_id)
 
     @staticmethod
-    def _from_args(args: Tuple) -> "MultiStream[X]":
+    def _from_args(args: Tuple) -> "MultiStream[X_co]":
         return MultiStream({str(i): stream for i, stream in enumerate(args)})
 
     @staticmethod
-    def _into_args(obj: "MultiStream[X]") -> Tuple:
+    def _into_args(obj: "MultiStream[X_co]") -> Tuple:
         return tuple(obj.streams.values())
 
     @staticmethod
-    def _from_kwargs(kwargs: Dict[str, "Stream[X]"]) -> "MultiStream[X]":
+    def _from_kwargs(kwargs: Dict[str, "Stream[X_co]"]) -> "MultiStream[X_co]":
         return MultiStream(kwargs)
 
     @staticmethod
-    def _into_kwargs(obj: "MultiStream[X]") -> Dict[str, "Stream[X]"]:
+    def _into_kwargs(obj: "MultiStream[X_co]") -> Dict[str, "Stream[X_co]"]:
         return dict(obj.streams)
 
 
 @dataclass(frozen=True)
-class MultiStream(Generic[X]):
+class MultiStream(Generic[X_co]):
     """A bundle of named `Stream`s.
 
     Operator functions take or return this if they want to create an
@@ -331,12 +331,12 @@ class MultiStream(Generic[X]):
 
     """
 
-    streams: Dict[str, Stream[X]]
+    streams: Dict[str, Stream[X_co]]
 
     def _get_scopes(self) -> Iterable[_Scope]:
         return (stream._scope for stream in self.streams.values())
 
-    def _with_scope(self, scope: _Scope) -> "MultiStream[X]":
+    def _with_scope(self, scope: _Scope) -> "MultiStream[X_co]":
         streams = {
             name: stream._with_scope(scope) for name, stream in self.streams.items()
         }
