@@ -1,5 +1,7 @@
+import re
 from pathlib import Path
 
+import bytewax.operators as op
 from bytewax.connectors.files import (
     CSVSource,
     DirSink,
@@ -13,12 +15,11 @@ from pytest import raises
 
 
 def test_dir_input():
-    flow = Dataflow("test_df")
-
-    stream = flow.input("inp", DirSource(Path("pytests/fixtures/dir_input")))
-
     out = []
-    stream.output("out", TestingSink(out))
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, DirSource(Path("pytests/fixtures/dir_input")))
+    op.output("out", s, TestingSink(out))
 
     run_main(flow)
 
@@ -32,38 +33,32 @@ def test_dir_input():
 def test_dir_input_raises_on_non_exist():
     path = Path("pytests/fixtures/bluster")
 
-    with raises(ValueError) as exinfo:
+    expect = f"input directory `{path}` does not exist"
+    with raises(ValueError, match=re.escape(expect)):
         flow = Dataflow("test_df")
-
-        flow.input("inp", DirSource(path))
+        op.input("inp", flow, DirSource(path))
 
         run_main(flow)
-
-    assert str(exinfo.value) == f"input directory `{path}` does not exist"
 
 
 def test_dir_input_raises_on_file():
     path = Path("pytests/fixtures/dir_input/partition-1.txt")
 
-    with raises(ValueError) as exinfo:
+    expect = f"input directory `{path}` is not a directory"
+    with raises(ValueError, match=re.escape(expect)):
         flow = Dataflow("test_df")
-
-        flow.input("inp", DirSource(path))
+        op.input("inp", flow, DirSource(path))
 
         run_main(flow)
-
-    assert str(exinfo.value) == f"input directory `{path}` is not a directory"
 
 
 def test_file_input():
     file_path = Path("pytests/fixtures/dir_input/partition-1.txt")
+    out = []
 
     flow = Dataflow("test_df")
-
-    stream = flow.input("inp", FileSource(file_path))
-
-    out = []
-    stream.output("out", TestingSink(out))
+    s = op.input("inp", flow, FileSource(file_path))
+    op.output("out", s, TestingSink(out))
 
     run_main(flow)
 
@@ -79,13 +74,11 @@ def test_file_input():
 
 def test_file_input_supports_blank_lines():
     file_path = Path("pytests/fixtures/blank-lines.txt")
+    out = []
 
     flow = Dataflow("test_df")
-
-    stream = flow.input("inp", FileSource(file_path))
-
-    out = []
-    stream.output("out", TestingSink(out))
+    s = op.input("inp", flow, FileSource(file_path))
+    op.output("out", s, TestingSink(out))
 
     run_main(flow)
 
@@ -127,13 +120,11 @@ def test_file_input_resume_state(now):
 
 def test_csv_file_input():
     file_path = Path("pytests/fixtures/metrics.csv")
+    out = []
 
     flow = Dataflow("test_df")
-
-    stream = flow.input("inp", CSVSource(file_path))
-
-    out = []
-    stream.output("out", TestingSink(out))
+    s = op.input("inp", flow, CSVSource(file_path))
+    op.output("out", s, TestingSink(out))
 
     run_main(flow)
 
@@ -191,15 +182,15 @@ def test_csv_file_input():
 
 def test_file_output(tmp_path):
     file_path = tmp_path / "out.txt"
-
-    flow = Dataflow("test_df")
-
     inp = [
         ("1", "1"),
         ("2", "2"),
         ("3", "3"),
     ]
-    flow.input("inp", TestingSource(inp)).output("out", FileSink(file_path))
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp))
+    op.output("out", s, FileSink(file_path))
 
     run_main(flow)
 
@@ -213,18 +204,17 @@ def test_file_output(tmp_path):
 
 
 def test_dir_output(tmp_path):
-    flow = Dataflow("test_df")
-
     inp = [
         ("0", "0"),
         ("1", "1"),
         ("2", "2"),
     ]
+
+    flow = Dataflow("test_df")
     # Route each item to the partition index that is int version of
     # the key (which must be a str).
-    flow.input("inp", TestingSource(inp)).output(
-        "out", DirSink(tmp_path, 3, assign_file=int)
-    )
+    s = op.input("inp", flow, TestingSource(inp))
+    op.output("out", s, DirSink(tmp_path, 3, assign_file=int))
 
     run_main(flow)
 

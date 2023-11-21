@@ -534,14 +534,25 @@ enum BatchResult {
 
 impl StatefulPartition {
     fn next_batch(&self, py: Python, sched: DateTime<Utc>) -> PyResult<BatchResult> {
-        match self.0.call_method1(py, intern!(py, "next_batch"), (sched,)) {
+        match self
+            .0
+            .as_ref(py)
+            .call_method1(intern!(py, "next_batch"), (sched,))
+        {
             Err(err) if err.is_instance_of::<PyStopIteration>(py) => Ok(BatchResult::Eof),
             Err(err) if err.is_instance_of::<AbortExecution>(py) => Ok(BatchResult::Abort),
             Err(err) => Err(err),
-            Ok(batch) => {
-                let batch = batch.extract(py).reraise(
-                    "`next_batch` method of StatefulSourcePartition did not return a `list`",
-                )?;
+            Ok(obj) => {
+                let iter = obj.iter().reraise_with(|| {
+                    format!(
+                        "`next_batch` must return an iterable; got a `{}` instead",
+                        unwrap_any!(obj.get_type().name()),
+                    )
+                })?;
+                let batch = iter
+                    .map(|res| res.map(PyObject::from))
+                    .collect::<PyResult<Vec<_>>>()
+                    .reraise("error while iterating through batch")?;
                 Ok(BatchResult::Batch(batch))
             }
         }
@@ -786,14 +797,25 @@ impl<'source> FromPyObject<'source> for StatelessPartition {
 
 impl StatelessPartition {
     fn next_batch(&self, py: Python, sched: DateTime<Utc>) -> PyResult<BatchResult> {
-        match self.0.call_method1(py, intern!(py, "next_batch"), (sched,)) {
+        match self
+            .0
+            .as_ref(py)
+            .call_method1(intern!(py, "next_batch"), (sched,))
+        {
             Err(err) if err.is_instance_of::<PyStopIteration>(py) => Ok(BatchResult::Eof),
             Err(err) if err.is_instance_of::<AbortExecution>(py) => Ok(BatchResult::Abort),
             Err(err) => Err(err),
-            Ok(batch) => {
-                let batch = batch.extract(py).reraise(
-                    "`next_batch` method of StatelessSourcePartition did not return a `list`",
-                )?;
+            Ok(obj) => {
+                let iter = obj.iter().reraise_with(|| {
+                    format!(
+                        "`next_batch` must return an iterable; got a `{}` instead",
+                        unwrap_any!(obj.get_type().name()),
+                    )
+                })?;
+                let batch = iter
+                    .map(|res| res.map(PyObject::from))
+                    .collect::<PyResult<Vec<_>>>()
+                    .reraise("error while iterating through batch")?;
                 Ok(BatchResult::Batch(batch))
             }
         }

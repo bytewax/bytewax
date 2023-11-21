@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+import bytewax.operators as op
+import bytewax.operators.window as win
 from bytewax.dataflow import Dataflow
 from bytewax.operators.window import EventClockConfig, TumblingWindow, WindowMetadata
 from bytewax.testing import TestingSink, TestingSource, run_main
@@ -31,11 +33,11 @@ def test_reduce_window():
         return (key, (metadata, event["val"]))
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.key_on("key_on_user", lambda e: e["user"])
-    s = s.reduce_window("add", clock, windower, add)
-    s = s.map("extract_val", extract_val)
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.key_on("key_on_user", s, lambda e: e["user"])
+    s = win.reduce_window("add", s, clock, windower, add)
+    s = op.map("extract_val", s, extract_val)
+    op.output("out", s, TestingSink(out))
 
     run_main(flow)
     assert out == [

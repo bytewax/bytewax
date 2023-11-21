@@ -26,9 +26,17 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
 from datetime import datetime, timedelta
 from itertools import islice
-from typing import Any, Callable, Iterable, Iterator, List, Optional, Type
-
-from bytewax.dataflow import Stream
+from typing import (
+    Any,
+    Callable,
+    Generic,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Type,
+    TypeVar,
+)
 
 from .bytewax import AbortExecution
 
@@ -46,8 +54,11 @@ __all__ = [
     "batch_getter_ex",
 ]
 
+X = TypeVar("X")
+S = TypeVar("S")
 
-class Source(ABC):  # noqa: B024
+
+class Source(ABC, Generic[X]):  # noqa: B024
     """A location to read input items from.
 
     Base class for all input sources. Do not subclass this.
@@ -57,19 +68,14 @@ class Source(ABC):  # noqa: B024
 
     """
 
-    #: Assert that the resulting `Stream` from the
-    #: `bytewax.operators.input` operator is actuall a different type.
-    #:
-    #: You can use this to have a source already output a
-    #: `bytewax.dataflow.KeyedStream`.
-    stream_typ: Type[Stream] = Stream
+    pass
 
 
-class StatefulSourcePartition(ABC):
+class StatefulSourcePartition(ABC, Generic[X, S]):
     """Input partition that maintains state of its position."""
 
     @abstractmethod
-    def next_batch(self, sched: datetime) -> List[Any]:
+    def next_batch(self, sched: datetime) -> Iterable[X]:
         """Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
@@ -80,8 +86,7 @@ class StatefulSourcePartition(ABC):
             sched: The scheduled awake time.
 
         Returns:
-            An list of items immediately ready. May be empty if no new
-            items.
+            Items immediately ready. May be empty if no new items.
 
         Raises:
             StopIteration: When the source is complete.
@@ -113,7 +118,7 @@ class StatefulSourcePartition(ABC):
         return None
 
     @abstractmethod
-    def snapshot(self) -> Any:
+    def snapshot(self) -> S:
         """Snapshot the position of the next read of this partition.
 
         This will be returned to you via the `resume_state` parameter
@@ -143,7 +148,7 @@ class StatefulSourcePartition(ABC):
         return
 
 
-class FixedPartitionedSource(Source):
+class FixedPartitionedSource(Source[X], Generic[X, S]):
     """An input source with a fixed number of independent partitions.
 
     Will maintain the state of each source and re-build using it
@@ -173,8 +178,8 @@ class FixedPartitionedSource(Source):
         self,
         now: datetime,
         for_part: str,
-        resume_state: Optional[Any],
-    ) -> StatefulSourcePartition:
+        resume_state: Optional[S],
+    ) -> StatefulSourcePartition[X, S]:
         """Build anew or resume an input partition.
 
         Will be called once per execution for each partition key on a
@@ -201,11 +206,11 @@ class FixedPartitionedSource(Source):
         ...
 
 
-class StatelessSourcePartition(ABC):
+class StatelessSourcePartition(ABC, Generic[X]):
     """Input partition that is stateless."""
 
     @abstractmethod
-    def next_batch(self, sched: datetime) -> List[Any]:
+    def next_batch(self, sched: datetime) -> Iterable[X]:
         """Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
@@ -216,8 +221,7 @@ class StatelessSourcePartition(ABC):
             sched: The scheduled awake time.
 
         Returns:
-            An list of items immediately ready. May be empty if no new
-            items.
+            Items immediately ready. May be empty if no new items.
 
         Raises:
             StopIteration: When the source is complete.
@@ -259,7 +263,7 @@ class StatelessSourcePartition(ABC):
         return
 
 
-class DynamicSource(Source):
+class DynamicSource(Source[X]):
     """An input source where all workers can read distinct items.
 
     Does not support storing any resume state. Thus these kind of
@@ -274,7 +278,7 @@ class DynamicSource(Source):
     @abstractmethod
     def build(
         self, now: datetime, worker_index: int, worker_count: int
-    ) -> StatelessSourcePartition:
+    ) -> StatelessSourcePartition[X]:
         """Build an input source for a worker.
 
         Will be called once on each worker.
@@ -293,13 +297,13 @@ class DynamicSource(Source):
         ...
 
 
-class _SimplePollingPartition(StatefulSourcePartition):
+class _SimplePollingPartition(StatefulSourcePartition[X, None]):
     def __init__(
         self,
         now: datetime,
         interval: timedelta,
         align_to: Optional[datetime],
-        getter: Callable[[], Any],
+        getter: Callable[[], X],
     ):
         self._interval = interval
         self._getter = getter
@@ -318,18 +322,18 @@ class _SimplePollingPartition(StatefulSourcePartition):
         else:
             self._next_awake = now
 
-    def next_batch(self, _sched: datetime):
+    def next_batch(self, _sched: datetime) -> List[X]:
         self._next_awake += self._interval
         return [self._getter()]
 
-    def next_awake(self):
+    def next_awake(self) -> Optional[datetime]:
         return self._next_awake
 
-    def snapshot(self):
+    def snapshot(self) -> None:
         return None
 
 
-class SimplePollingSource(FixedPartitionedSource):
+class SimplePollingSource(FixedPartitionedSource[X, None]):
     """Calls a user defined function at a regular interval.
 
     >>> class URLSource(SimplePollingSource):
@@ -368,18 +372,20 @@ class SimplePollingSource(FixedPartitionedSource):
         self._interval = interval
         self._align_to = align_to
 
-    def list_parts(self):
+    def list_parts(self) -> List[str]:
         """Assumes the source has a single partition."""
         return ["singleton"]
 
-    def build_part(self, now: datetime, _for_part: str, _resume_state: Optional[Any]):
+    def build_part(
+        self, now: datetime, _for_part: str, _resume_state: Optional[None]
+    ) -> _SimplePollingPartition[X]:
         """See ABC docstring."""
         return _SimplePollingPartition(
             now, self._interval, self._align_to, self.next_item
         )
 
     @abstractmethod
-    def next_item(self) -> Any:
+    def next_item(self) -> X:
         """Override with custom logic to poll your source.
 
         Returns:
@@ -389,7 +395,7 @@ class SimplePollingSource(FixedPartitionedSource):
         ...
 
 
-def batch(ib: Iterable[Any], batch_size: int) -> Iterator[List[Any]]:
+def batch(ib: Iterable[X], batch_size: int) -> Iterator[List[X]]:
     """Batch an iterable.
 
     Use this to easily generate batches of items for a source's
@@ -415,8 +421,8 @@ def batch(ib: Iterable[Any], batch_size: int) -> Iterator[List[Any]]:
 
 
 def batch_getter(
-    getter: Callable[[], Any], batch_size: int, yield_on: Any = None
-) -> Iterator[List[Any]]:
+    getter: Callable[[], X], batch_size: int, yield_on: X = None
+) -> Iterator[List[X]]:
     """Batch from a getter function that might not return an item.
 
      Use this to easily generate batches of items for a source's
@@ -454,8 +460,8 @@ def batch_getter(
 
 
 def batch_getter_ex(
-    getter: Callable[[], Any], batch_size: int, yield_ex: Exception = queue.Empty
-) -> Iterator[List[Any]]:
+    getter: Callable[[], X], batch_size: int, yield_ex: Type[Exception] = queue.Empty
+) -> Iterator[List[X]]:
     """Batch from a getter function that raises on no items yet.
 
      Use this to easily generate batches of items for a source's

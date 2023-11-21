@@ -6,7 +6,7 @@ package to be installed.
 
 """
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 from confluent_kafka import (
     OFFSET_BEGINNING,
@@ -26,7 +26,7 @@ __all__ = [
 ]
 
 
-def _list_parts(client, topics):
+def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
     for topic in topics:
         # List topics one-by-one so if auto-create is turned on,
         # we respect that.
@@ -43,7 +43,9 @@ def _list_parts(client, topics):
             yield f"{i}-{topic}"
 
 
-class _KafkaSourcePartition(StatefulSourcePartition):
+class _KafkaSourcePartition(
+    StatefulSourcePartition[Tuple[bytes, bytes], Optional[int]]
+):
     def __init__(
         self,
         consumer,
@@ -61,7 +63,7 @@ class _KafkaSourcePartition(StatefulSourcePartition):
         self._batch_size = batch_size
         self._eof = False
 
-    def next_batch(self, _sched: datetime) -> List[Any]:
+    def next_batch(self, _sched: datetime) -> List[Tuple[bytes, bytes]]:
         if self._eof:
             raise StopIteration()
 
@@ -92,14 +94,14 @@ class _KafkaSourcePartition(StatefulSourcePartition):
             self._offset = last_offset + 1
         return batch
 
-    def snapshot(self):
+    def snapshot(self) -> Optional[int]:
         return self._offset
 
-    def close(self):
+    def close(self) -> None:
         self._consumer.close()
 
 
-class KafkaSource(FixedPartitionedSource):
+class KafkaSource(FixedPartitionedSource[Tuple[bytes, bytes], Optional[int]]):
     """Use a set of Kafka topics as an input source.
 
     Kafka messages are emitted into the dataflow as two-tuples of
@@ -116,7 +118,7 @@ class KafkaSource(FixedPartitionedSource):
         topics: Iterable[str],
         tail: bool = True,
         starting_offset: int = OFFSET_BEGINNING,
-        add_config: Dict[str, str] = None,
+        add_config: Optional[Dict[str, str]] = None,
         batch_size: int = 1,
     ):
         """Init.
@@ -160,7 +162,7 @@ class KafkaSource(FixedPartitionedSource):
         self._add_config = {} if add_config is None else add_config
         self._batch_size = batch_size
 
-    def list_parts(self):
+    def list_parts(self) -> List[str]:
         """Each Kafka partition is an input partition."""
         config = {
             "bootstrap.servers": ",".join(self._brokers),
@@ -170,7 +172,9 @@ class KafkaSource(FixedPartitionedSource):
 
         return list(_list_parts(client, self._topics))
 
-    def build_part(self, _now: datetime, for_part: str, resume_state: Optional[Any]):
+    def build_part(
+        self, _now: datetime, for_part: str, resume_state: Optional[int]
+    ) -> _KafkaSourcePartition:
         """See ABC docstring."""
         part_idx, topic = for_part.split("-", 1)
         part_idx = int(part_idx)
@@ -199,22 +203,26 @@ class KafkaSource(FixedPartitionedSource):
         )
 
 
-class _KafkaSinkPartition(StatelessSinkPartition):
+class _KafkaSinkPartition(
+    StatelessSinkPartition[Tuple[Union[str, bytes], Union[str, bytes]]]
+):
     def __init__(self, producer, topic):
         self._producer = producer
         self._topic = topic
 
-    def write_batch(self, batch):
+    def write_batch(
+        self, batch: List[Tuple[Union[str, bytes], Union[str, bytes]]]
+    ) -> None:
         for key, value in batch:
             self._producer.produce(self._topic, value, key)
             self._producer.poll(0)
         self._producer.flush()
 
-    def close(self):
+    def close(self) -> None:
         self._producer.flush()
 
 
-class KafkaSink(DynamicSink):
+class KafkaSink(DynamicSink[Tuple[Union[str, bytes], Union[str, bytes]]]):
     """Use a single Kafka topic as an output sink.
 
     Items consumed from the dataflow must look like two-tuples of
@@ -231,7 +239,7 @@ class KafkaSink(DynamicSink):
         self,
         brokers: Iterable[str],
         topic: str,
-        add_config: Dict[str, str] = None,
+        add_config: Optional[Dict[str, str]] = None,
     ):
         """Init.
 
@@ -251,7 +259,7 @@ class KafkaSink(DynamicSink):
         self._topic = topic
         self._add_config = {} if add_config is None else add_config
 
-    def build(self, worker_index, worker_count):
+    def build(self, _worker_index: int, _worker_count: int) -> _KafkaSinkPartition:
         """See ABC docstring."""
         config = {
             "bootstrap.servers": ",".join(self._brokers),

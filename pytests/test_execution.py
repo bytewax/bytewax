@@ -3,6 +3,7 @@ import signal
 import subprocess
 import tempfile
 
+import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource
 from pytest import mark, raises
@@ -11,10 +12,10 @@ from pytest import mark, raises
 def test_run(entry_point):
     flow = Dataflow("test_df")
     inp = range(3)
-    stream = flow.input("inp", TestingSource(inp))
-    stream = stream.map("add_one", lambda x: x + 1)
+    stream = op.input("inp", flow, TestingSource(inp))
+    stream = op.map("add_one", stream, lambda x: x + 1)
     out = []
-    stream.output("out", TestingSink(out))
+    op.output("out", stream, TestingSink(out))
 
     entry_point(flow)
 
@@ -24,7 +25,7 @@ def test_run(entry_point):
 def test_reraises_exception(entry_point):
     flow = Dataflow("test_df")
     inp = range(3)
-    stream = flow.input("inp", TestingSource(inp))
+    stream = op.input("inp", flow, TestingSource(inp))
 
     def boom(item):
         if item == 0:
@@ -33,9 +34,9 @@ def test_reraises_exception(entry_point):
         else:
             return item
 
-    stream = stream.map("explode", boom)
+    stream = op.map("explode", stream, boom)
     out = []
-    stream.output("out", TestingSink(out))
+    op.output("out", stream, TestingSink(out))
 
     with raises(RuntimeError):
         entry_point(flow)

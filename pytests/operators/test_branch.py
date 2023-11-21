@@ -1,5 +1,6 @@
 import re
 
+import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource, run_main
 from pytest import raises
@@ -14,10 +15,10 @@ def test_branch():
         return x % 2 != 0
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    odds, evens = s.branch("branch", is_odd)
-    odds.output("out_odds", TestingSink(out_odds))
-    evens.output("out_evens", TestingSink(out_evens))
+    s = op.input("inp", flow, TestingSource(inp))
+    odds, evens = op.branch("branch", s, is_odd)
+    op.output("out_odds", odds, TestingSink(out_odds))
+    op.output("out_evens", evens, TestingSink(out_evens))
 
     run_main(flow)
 
@@ -34,10 +35,10 @@ def test_branch_raises_on_non_bool_key():
         return "not a bool"
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    odds, evens = s.branch("branch", not_a_predicate)
-    odds.output("out_odds", TestingSink(out_odds))
-    evens.output("out_evens", TestingSink(out_evens))
+    s = op.input("inp", flow, TestingSource(inp))
+    odds, evens = op.branch("branch", s, not_a_predicate)  # type: ignore
+    op.output("out_odds", odds, TestingSink(out_odds))
+    op.output("out_evens", evens, TestingSink(out_evens))
 
     expect = "must be a `bool`"
     with raises(TypeError, match=re.escape(expect)):

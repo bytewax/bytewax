@@ -1,9 +1,16 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+import bytewax.operators as op
 from bytewax.connectors.demo import RandomMetricSource
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
+
+flow = Dataflow("anomaly_detector")
+metric1 = op.input("inp_v", flow, RandomMetricSource("v_metric"))
+metric2 = op.input("inp_hz", flow, RandomMetricSource("hz_metric"))
+metrics = op.merge("merge", metric1, metric2)
+# ("metric", value)
 
 
 @dataclass
@@ -30,6 +37,18 @@ class DetectorState:
         return False
 
 
+def mapper(state, value):
+    is_anomalous = state.is_anomalous(value, threshold_z=2.0)
+    state.push(value)
+    emit = (value, state.mu, state.sigma, is_anomalous)
+    # Always return the state so it is never discarded.
+    return (state, emit)
+
+
+labeled_metrics = op.stateful_map("detector", metrics, DetectorState, mapper)
+# ("metric", (value, mu, sigma, is_anomalous))
+
+
 def pretty_formatter(key_value):
     metric, (value, mu, sigma, is_anomalous) = key_value
     return (
@@ -41,21 +60,5 @@ def pretty_formatter(key_value):
     )
 
 
-flow = Dataflow("anomaly_detector")
-metric1 = flow.input("inp_v", RandomMetricSource("v_metric"))
-metric2 = flow.input("inp_hz", RandomMetricSource("hz_metric"))
-metrics = metric1.merge("merge", metric2).assert_keyed("key")
-# ("metric", value)
-
-
-def mapper(state, value):
-    is_anomalous = state.is_anomalous(value, threshold_z=2.0)
-    state.push(value)
-    emit = (value, state.mu, state.sigma, is_anomalous)
-    # Always return the state so it is never discarded.
-    return (state, emit)
-
-
-labeled_metrics = metrics.stateful_map("detector", DetectorState, mapper)
-# ("metric", (value, mu, sigma, is_anomalous))
-labeled_metrics.map("format", pretty_formatter).output("output", StdOutSink())
+lines = op.map("format", labeled_metrics, pretty_formatter)
+op.output("output", lines, StdOutSink())

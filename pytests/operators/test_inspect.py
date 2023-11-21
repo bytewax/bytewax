@@ -1,16 +1,15 @@
+import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSink, TestingSource, run_main
+from bytewax.testing import TestingSource, run_main
 
 
 def test_inspect():
     inp = ["a"]
-    out = []
     seen = []
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.inspect("insp", lambda step_id, item: seen.append((step_id, item)))
-    s.output("out", TestingSink(out))
+    s = op.input("inp", flow, TestingSource(inp))
+    op.inspect("insp", s, lambda step_id, item: seen.append((step_id, item)))
 
     run_main(flow)
 
@@ -20,18 +19,17 @@ def test_inspect():
 
 def test_inspect_debug():
     inp = ["a"]
-    out = []
     seen = []
 
     flow = Dataflow("test_df")
-    s = flow.input("inp", TestingSource(inp))
-    s = s.inspect_debug(
+    s = op.input("inp", flow, TestingSource(inp))
+    op.inspect_debug(
         "insp",
+        s,
         lambda step_id, item, epoch, worker: seen.append(
             (step_id, item, epoch, worker)
         ),
     )
-    s.output("out", TestingSink(out))
 
     run_main(flow)
 

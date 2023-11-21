@@ -16,7 +16,6 @@ use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Branch;
 use timely::dataflow::operators::Concatenate;
 use timely::dataflow::operators::Exchange;
-use timely::dataflow::operators::Inspect;
 use timely::dataflow::operators::Map;
 use timely::dataflow::operators::ToStream;
 use timely::dataflow::Scope;
@@ -62,9 +61,10 @@ where
             let item = <&PyObject>::from(item);
 
             unwrap_any!(Python::with_gil(|py| predicate
-                .call1(py, (item,))
+                .as_ref(py)
+                .call1((item,))
                 .reraise_with(|| format!("error calling predicate in step {step_id}"))?
-                .extract::<bool>(py)
+                .extract::<bool>()
                 .reraise_with(|| format!(
                     "return value of `predicate` in step {step_id} must be a `bool`"
                 ))))
@@ -72,6 +72,24 @@ where
 
         Ok((trues, falses))
     }
+}
+
+fn next_batch(py: Python, mapper: &TdPyCallable, item: PyObject) -> PyResult<Vec<PyObject>> {
+    let res = mapper
+        .as_ref(py)
+        .call1((item,))
+        .reraise("error calling mapper")?;
+    let iter = res.iter().reraise_with(|| {
+        format!(
+            "mapper must return an iterable; got a `{}` instead",
+            unwrap_any!(res.get_type().name()),
+        )
+    })?;
+    let batch = iter
+        .map(|res| res.map(PyObject::from))
+        .collect::<PyResult<Vec<_>>>()
+        .reraise("error while iterating through batch")?;
+    Ok(batch)
 }
 
 pub(crate) trait FlatMapOp<S>
@@ -147,28 +165,20 @@ where
                                     for item in items {
                                         let item = PyObject::from(item);
 
-                                        let output =
-                                            with_timer!(
-                                                mapper_histogram,
-                                                labels,
-                                                mapper
-                                                    .as_ref(py)
-                                                    .call1((item,))
-                                                    .reraise_with(|| {
-                                                        format!("error calling mapper in step {step_id}")
-                                                    })?
-                                                    .extract::<Vec<_>>()
-                                                    .reraise_with(|| {
-                                                        format!(
-                                                            "mapper in {step_id} did not return a `list`"
-                                                        )
-                                                    })?
-                                            );
+                                        let batch = with_timer!(
+                                            mapper_histogram,
+                                            labels,
+                                            next_batch(py, &mapper, item).reraise_with(|| {
+                                                format!("error calling `mapper` in step {step_id}")
+                                            })?
+                                        );
 
-                                        item_out_count.add(output.len() as u64, &labels);
-                                        let mut output =
-                                            output.into_iter().map(TdPyAny::into).collect();
-                                        downstream_session.give_vec(&mut output);
+                                        let mut batch = batch
+                                            .into_iter()
+                                            .map(TdPyAny::from)
+                                            .collect::<Vec<_>>();
+                                        item_out_count.add(batch.len() as u64, &labels);
+                                        downstream_session.give_vec(&mut batch);
                                     }
 
                                     Ok(())
@@ -194,29 +204,76 @@ where
         py: Python,
         step_id: StepId,
         inspector: TdPyCallable,
-    ) -> PyResult<Stream<S, TdPyAny>>;
+    ) -> PyResult<ClockStream<S>>;
 }
 
 impl<S> InspectDebugOp<S> for Stream<S, TdPyAny>
 where
     S: Scope,
-    S::Timestamp: IntoPy<PyObject>,
+    S::Timestamp: IntoPy<PyObject> + TotalOrder,
 {
     fn inspect_debug(
         &self,
         _py: Python,
         step_id: StepId,
         inspector: TdPyCallable,
-    ) -> PyResult<Stream<S, TdPyAny>> {
+    ) -> PyResult<ClockStream<S>> {
         let this_worker = self.scope().w_index();
 
-        Ok(self.inspect_time(move |epoch, item| {
-            let item = <&PyObject>::from(item);
+        let mut op_builder = OperatorBuilder::new(step_id.0.clone(), self.scope());
 
-            let _ = unwrap_any!(Python::with_gil(|py| inspector
-                .call1(py, (step_id.clone(), item, epoch.clone(), this_worker.0))
-                .reraise_with(|| format!("error calling inspector in step {step_id}"))));
-        }))
+        let mut self_handle = op_builder.new_input(self, Pipeline);
+
+        let (mut clock_output, clock) = op_builder.new_output();
+
+        op_builder.build(move |init_caps| {
+            let mut items_inbuf = InBuffer::new();
+            let mut ncater = EagerNotificator::new(init_caps, ());
+
+            move |input_frontiers| {
+                tracing::debug_span!("operator", operator = step_id.0.clone()).in_scope(|| {
+                    self_handle.buffer_notify(&mut items_inbuf, &mut ncater);
+
+                    let mut downstream_handle = clock_output.activate();
+                    ncater.for_each(
+                        input_frontiers,
+                        |caps, ()| {
+                            let cap = &caps[0];
+                            let epoch = cap.time();
+
+                            if let Some(items) = items_inbuf.remove(epoch) {
+                                let mut clock_session = downstream_handle.session(cap);
+
+                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    for item in items {
+                                        let item = PyObject::from(item);
+
+                                        inspector
+                                            .as_ref(py)
+                                            .call1((
+                                                step_id.clone(),
+                                                item,
+                                                epoch.clone(),
+                                                this_worker.0,
+                                            ))
+                                            .reraise_with(|| {
+                                                format!("error calling inspector in step {step_id}")
+                                            })?;
+                                    }
+
+                                    Ok(())
+                                }));
+
+                                clock_session.give(());
+                            }
+                        },
+                        |_caps, ()| {},
+                    );
+                });
+            }
+        });
+
+        Ok(clock)
     }
 }
 
