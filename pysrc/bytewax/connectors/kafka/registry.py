@@ -23,9 +23,8 @@ logger = logging.getLogger(__name__)
 class SchemaConf:
     """Info used to retrieve a schema from a schema registry.
 
-    Either use `schema_id`, or retrieve a schema by specifying
-    the `subject` and optionally `version`.
-    If no `version` is specified, defaults to `latest`
+    Either use `schema_id`, or specify the `subject` and optionally `version`.
+    If no `version` is specified, it defaults to the latest schema.
     """
 
     # TODO: Only `avro` supported for now, but we might want
@@ -56,23 +55,23 @@ class SchemaRegistry(ABC):
     """
 
     @abstractmethod
-    def key_serializer(self, *args, **kwargs) -> SchemaSerializer:
-        """TODO."""
+    def key_serializer(self) -> SchemaSerializer:
+        """Return a serializer for keys."""
         ...
 
     @abstractmethod
-    def value_serializer(self, *args, **kwargs) -> SchemaSerializer:
-        """TODO."""
+    def value_serializer(self) -> SchemaSerializer:
+        """Return a serializer for values."""
         ...
 
     @abstractmethod
-    def key_deserializer(self, *args, **kwargs) -> SchemaDeserializer:
-        """TODO."""
+    def key_deserializer(self) -> SchemaDeserializer:
+        """Return a deserializer for keys."""
         ...
 
     @abstractmethod
-    def value_deserializer(self, *args, **kwargs) -> SchemaDeserializer:
-        """TODO."""
+    def value_deserializer(self) -> SchemaDeserializer:
+        """Return a deserializer for values."""
         ...
 
 
@@ -89,46 +88,70 @@ class ConfluentSchemaRegistry(SchemaRegistry):
     def __init__(
         self,
         sr_conf: Dict,
-        value_conf: Optional[SchemaConf],
-        key_conf: Optional[SchemaConf],
+        value_serialization_schema: Optional[SchemaConf] = None,
+        key_serialization_schema: Optional[SchemaConf] = None,
+        enable_key_deserialization: bool = True,
+        enable_value_deserialization: bool = True,
     ):
         """Init.
 
         Args:
             sr_conf:
                 Configuration for `confluent_kafka.schema_registry.SchemaRegistryClient`
-            value_conf:
-                SchemaConf used for serialization of values in the output.
-            key_conf:
-                SchemaConf used for serialization of keys in the output.
+            value_serialization_schema:
+                Optional SchemaConf to serialize values.
+            key_serialization_schema:
+                Optional SchemaConf to serialie keys.
+            enable_key_deserialization:
+                Defaults to True. Set this to False if you want to disable
+                automatic keys deserialization
+            enable_value_deserialization:
+                Defaults to True. Set this to False if you want to disable
+                automatic value deserialization
         """
         self._sr_conf = sr_conf
-        self._value_conf = value_conf
-        self._key_conf = key_conf
+        self._value_ser_schema = value_serialization_schema
+        self._key_ser_schema = key_serialization_schema
+        self._enable_key_deserialization = enable_key_deserialization
+        self._enable_value_deserialization = enable_value_deserialization
 
     def key_serializer(self):
-        """See ABC docstring."""
-        if self._key_conf is None:
+        """Confluent avro serializer for key_serialization_schema."""
+        if self._key_ser_schema is None:
             return None
+
         client = SchemaRegistryClient(self._sr_conf)
-        schema_str = self._get_schema_str(client, self._key_conf)
+        schema_str = self._get_schema_str(client, self._key_ser_schema)
         return _ConfluentAvroSerializer(client, schema_str, is_key=True)
 
     def value_serializer(self):
-        """See ABC docstring."""
-        if self._value_conf is None:
+        """Confluent avro serializer for value_serialization_schema."""
+        if self._value_ser_schema is None:
             return None
+
         client = SchemaRegistryClient(self._sr_conf)
-        schema_str = self._get_schema_str(client, self._value_conf)
+        schema_str = self._get_schema_str(client, self._value_ser_schema)
         return _ConfluentAvroSerializer(client, schema_str, is_key=False)
 
     def key_deserializer(self):
-        """See ABC docstring."""
+        """Confluent avro deserializer for keys.
+
+        This automatically fetches the schema specified in each message.
+        """
+        if not self._enable_key_deserialization:
+            return None
+
         client = SchemaRegistryClient(self._sr_conf)
         return _ConfluentAvroDeserializer(client, is_key=True)
 
     def value_deserializer(self):
-        """See ABC docstring."""
+        """Confluent avro deserializer for values.
+
+        This automatically fetches the schema specified in each message.
+        """
+        if not self._enable_value_deserialization:
+            return None
+
         client = SchemaRegistryClient(self._sr_conf)
         return _ConfluentAvroDeserializer(client, is_key=False)
 
@@ -147,38 +170,47 @@ class ConfluentSchemaRegistry(SchemaRegistry):
 
 
 class RedpandaSchemaRegistry(SchemaRegistry):
-    """TODO."""
+    """Redpanda's schema registry client.
+
+    All schemas are optional, (de)serialization is enabled
+    only if a SchemaConf is passed.
+
+    >>> registry = RedpandaSchemaRegistry(
+    ...     key_serialization_schema=SchemaConf("key-schema"),
+    ...     value_serialization_schema=SchemaConf(schema_id=1),
+    ... )
+    """
 
     def __init__(
         self,
         base_url: str = "http://localhost:18081",
-        input_value_conf: Optional[SchemaConf] = None,
-        input_key_conf: Optional[SchemaConf] = None,
-        output_value_conf: Optional[SchemaConf] = None,
-        output_key_conf: Optional[SchemaConf] = None,
+        key_deserialization_schema: Optional[SchemaConf] = None,
+        value_deserialization_schema: Optional[SchemaConf] = None,
+        key_serialization_schema: Optional[SchemaConf] = None,
+        value_serialization_schema: Optional[SchemaConf] = None,
     ):
-        """TODO."""
+        """Specify only the (de)serialization schemas you want to enable."""
         self._base_url = base_url
-        self._input_key_schema = self._get_schema_str(input_key_conf)
-        self._input_value_schema = self._get_schema_str(input_value_conf)
-        self._output_key_schema = self._get_schema_str(output_key_conf)
-        self._output_value_schema = self._get_schema_str(output_value_conf)
+        self._key_de_schema = self._get_schema_str(key_deserialization_schema)
+        self._value_de_schema = self._get_schema_str(value_deserialization_schema)
+        self._key_ser_schema = self._get_schema_str(key_serialization_schema)
+        self._value_ser_schema = self._get_schema_str(value_serialization_schema)
 
-    def key_serializer(self, *args, **kwargs):
-        """See ABC docstring."""
-        return _AvroSerializer(self._output_key_schema, is_key=True)
+    def key_serializer(self):
+        """Avro serializer for key_serialization_schema."""
+        return _AvroSerializer(self._key_ser_schema)
 
-    def value_serializer(self, *args, **kwargs):
-        """See ABC docstring."""
-        return _AvroSerializer(self._output_value_schema, is_key=False)
+    def value_serializer(self):
+        """Avro serializer for value_serialization_schema."""
+        return _AvroSerializer(self._value_ser_schema)
 
-    def key_deserializer(self, *args, **kwargs):
-        """See ABC docstring."""
-        return _AvroDeserializer(self._input_key_schema, is_key=True)
+    def key_deserializer(self):
+        """Avro deserializer for key_deserialization_schema."""
+        return _AvroDeserializer(self._key_de_schema)
 
-    def value_deserializer(self, *args, **kwargs):
-        """See ABC docstring."""
-        return _AvroDeserializer(self._input_value_schema, is_key=False)
+    def value_deserializer(self):
+        """Avro deserializer for value_deserialization_schema."""
+        return _AvroDeserializer(self._value_de_schema)
 
     def _get_schema_str(self, schema_conf) -> Optional[str]:
         if schema_conf is None:

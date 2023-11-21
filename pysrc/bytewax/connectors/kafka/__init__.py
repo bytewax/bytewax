@@ -28,6 +28,7 @@ from .registry import (
     SchemaConf,
     SchemaRegistry,
 )
+from .serde import SerializationError
 
 __all__ = [
     "KafkaSource",
@@ -59,12 +60,25 @@ def _list_parts(client, topics):
 
 @dataclass(frozen=True)
 class KafkaMessage:
-    """Class that holds a message from kafka with metadata."""
+    """Class that holds a message from kafka with metadata.
+
+    Use `KafkaMessage.key` to get the key and `KafkaMessage.value` to get
+    the value.
+
+    Check `KafkaMessage.key_error` and `KafkaMessage.value_error` to check
+    for deserialization errors.
+    If an exception was returned during deserialization, the corresponding
+    field (`key` or `value`) will return the raw bytes received.
+
+    Other fields: `topic`, `headers`, `latency` `offset`, `partition`, `timestamp`
+    """
 
     key: Any
+    key_error: Optional[SerializationError]
     value: Any
+    value_error: Optional[SerializationError]
 
-    topic: Any
+    topic: str
     headers: Any
     latency: Any
     offset: Any
@@ -83,6 +97,7 @@ class _KafkaSourcePartition(StatefulSourcePartition):
         batch_size,
         key_deserializer,
         value_deserializer,
+        raise_on_deserialization_error,
     ):
         self._offset = starting_offset if resume_state is None else resume_state
         # Assign does not activate consumer grouping.
@@ -93,8 +108,9 @@ class _KafkaSourcePartition(StatefulSourcePartition):
         self._eof = False
         self._key_deserializer = key_deserializer
         self._value_deserializer = value_deserializer
+        self._raise_on_deserialization_error = raise_on_deserialization_error
 
-    def next_batch(self, _sched: datetime) -> List[Any]:
+    def next_batch(self, _sched: datetime) -> List[KafkaMessage]:
         if self._eof:
             raise StopIteration()
 
@@ -117,19 +133,36 @@ class _KafkaSourcePartition(StatefulSourcePartition):
                         f"{msg.error()}"
                     )
                     raise RuntimeError(err_msg)
-            # If no serializer is set, just use the raw value
-            value = msg.value()
-            key = msg.key()
-            if self._key_deserializer is not None:
-                # This can fail.
-                # If deserialization raises an exception, we bubble it up
-                key = self._key_deserializer.de(msg.key(), msg.topic())
-            if self._value_deserializer is not None:
-                value = self._value_deserializer.de(msg.value(), msg.topic())
 
-            k_msg = KafkaMessage(
+            # If configured, use the serializers, otherwise just
+            # set the raw content, both for key and value
+            key = msg.key()
+            key_error = None
+            if self._key_deserializer is not None:
+                try:
+                    key = self._key_deserializer.de(msg.key(), msg.topic())
+                except Exception as e:
+                    if self._raise_on_deserialization_error:
+                        raise e
+                    else:
+                        key_error = e
+
+            value = msg.value()
+            value_error = None
+            if self._value_deserializer is not None:
+                try:
+                    value = self._value_deserializer.de(msg.value(), msg.topic())
+                except Exception as e:
+                    if self._raise_on_deserialization_error:
+                        raise e
+                    else:
+                        value_error = e
+
+            kafka_msg = KafkaMessage(
                 key=key,
+                key_error=key_error,
                 value=value,
+                value_error=value_error,
                 topic=msg.topic(),
                 headers=msg.headers(),
                 latency=msg.latency(),
@@ -137,7 +170,7 @@ class _KafkaSourcePartition(StatefulSourcePartition):
                 partition=msg.partition(),
                 timestamp=msg.timestamp(),
             )
-            batch.append((key, k_msg))
+            batch.append(kafka_msg)
             last_offset = msg.offset()
 
         # Resume reading from the next message, not this one.
@@ -155,12 +188,16 @@ class _KafkaSourcePartition(StatefulSourcePartition):
 class KafkaSource(FixedPartitionedSource):
     """Use a set of Kafka topics as an input source.
 
-    Kafka messages are emitted into the dataflow as two-tuples of
-    `(key_bytes, value_bytes)`.
-
     Partitions are the unit of parallelism.
-
     Can support exactly-once processing.
+
+    Kafka messages are emitted into the dataflow as two-tuples
+    of `(key_bytes, KafkaMessage)`. Use `KafkaMessage.key` and
+    `KafkaMessage.value`. If a registry is used for deserialization,
+    and raise_on_deserialization_error is set to False, always check
+    `KafkaMessage.key_error` and `KafkaMessage.value_error` first. If
+    there was an error, `KafkaMessage.key` and `KafkaMessage.value`
+    will contain the raw bytes received.
     """
 
     def __init__(
@@ -172,6 +209,7 @@ class KafkaSource(FixedPartitionedSource):
         add_config: Optional[Dict[str, str]] = None,
         batch_size: int = 1,
         schema_registry: Optional[SchemaRegistry] = None,
+        raise_on_deserialization_error: bool = True,
     ):
         """Init.
 
@@ -204,6 +242,14 @@ class KafkaSource(FixedPartitionedSource):
                 messages. See:
                 - `bytewax.connectors.kafka.RedpandaSchemaRegistry`
                 - `bytewax.connectors.kafka.ConfluentSchemaRegistry`
+            raise_on_deserialization_error:
+                Defaults to `True`. If a schema registry is setup for deserialization
+                of incoming messages, set this to `False` to add the error
+                info to the message rather than raising an exception, and check
+                `KafkaMessage.key_error` and and `KafkaMessage.value_error` before
+                accessing `KafkaMessage.key` and `KafkaMessage.value`. If there is an
+                error set, `KafkaMessage.key` and `KafkaMessage.value` will contain the
+                raw bytes received.
 
         """
         if isinstance(brokers, str):
@@ -219,6 +265,7 @@ class KafkaSource(FixedPartitionedSource):
         self._add_config = {} if add_config is None else add_config
         self._batch_size = batch_size
         self._registry = schema_registry
+        self._raise_on_deserialization_error = raise_on_deserialization_error
 
     def list_parts(self):
         """Each Kafka partition is an input partition."""
@@ -265,6 +312,7 @@ class KafkaSource(FixedPartitionedSource):
             self._batch_size,
             key_deserializer,
             value_deserializer,
+            self._raise_on_deserialization_error,
         )
 
 

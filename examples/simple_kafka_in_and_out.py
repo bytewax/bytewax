@@ -1,6 +1,6 @@
 import json
 
-from bytewax.connectors.kafka import KafkaSink, KafkaSource
+from bytewax.connectors.kafka import KafkaMessage, KafkaSink, KafkaSource
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 
@@ -8,10 +8,9 @@ flow = Dataflow()
 flow.input("inp", KafkaSource(["localhost:9092"], ["input_topic"]))
 
 
-def deserialize(key_bytes__payload_bytes):
-    key_bytes, payload_bytes = key_bytes__payload_bytes
-    key = json.loads(key_bytes) if key_bytes else None
-    payload = json.loads(payload_bytes) if payload_bytes else None
+def deserialize(msg: KafkaMessage):
+    key = json.loads(msg.key) if msg.key else None
+    payload = json.loads(msg.value) if msg.value else None
     return key, payload
 
 

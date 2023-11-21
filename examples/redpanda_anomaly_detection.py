@@ -20,7 +20,7 @@ flow = Dataflow()
 flow.input("inp", KafkaSource(["localhost:9092"], ["ec2_metrics"]))
 
 
-def group_instance_and_normalize(key__data):
+def group_instance_and_normalize(msg):
     """
     In this function, we will take input data and reformat it
     so that we have the shape (key, value), which is required
@@ -30,8 +30,7 @@ def group_instance_and_normalize(key__data):
     between 0 and 1. Since this is a percentage already, we
     just need to divide it by 100
     """
-    _, data = key__data
-    data = json.loads(data)
+    data = json.loads(msg.value)
     data["value"] = float(data["value"]) / 100
     return data["instance"], data
 
