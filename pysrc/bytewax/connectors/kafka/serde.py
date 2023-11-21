@@ -48,14 +48,13 @@ class SchemaDeserializer(ABC):
 
 
 class _ConfluentAvroSerializer(SchemaSerializer):
-    def __init__(self, client, schema_str, is_key, raise_on_error):
+    def __init__(self, client, schema_str, is_key):
         self.serializer = AvroSerializer(client, schema_str)
         self.ctx = SerializationContext(
             # This value will be updated at each message
             "PLACEHOLDER",
             MessageField.KEY if is_key else MessageField.VALUE,
         )
-        self._raise_on_error = raise_on_error
 
     def ser(self, obj, topic):
         self.ctx.topic = topic
@@ -63,14 +62,13 @@ class _ConfluentAvroSerializer(SchemaSerializer):
 
 
 class _ConfluentAvroDeserializer(SchemaDeserializer):
-    def __init__(self, client, is_key, raise_on_error):
+    def __init__(self, client, is_key):
         self.deserializer = AvroDeserializer(client)
         self.ctx = SerializationContext(
             # This value will be updated at each message
             "PLACEHOLDER",
             MessageField.KEY if is_key else MessageField.VALUE,
         )
-        self._raise_on_error = raise_on_error
 
     def de(self, data, topic):
         self.ctx.topic = topic

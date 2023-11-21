@@ -88,8 +88,8 @@ class ConfluentSchemaRegistry(SchemaRegistry):
     def __init__(
         self,
         sr_conf: Dict,
-        value_serialization_schema: Optional[SchemaConf] = None,
         key_serialization_schema: Optional[SchemaConf] = None,
+        value_serialization_schema: Optional[SchemaConf] = None,
         enable_key_deserialization: bool = True,
         enable_value_deserialization: bool = True,
     ):

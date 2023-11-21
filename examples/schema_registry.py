@@ -85,15 +85,14 @@ registry = RedpandaSchemaRegistry(
 # CONFLUENT_USERINFO = os.environ["CONFLUENT_USERINFO"]
 # CONFLUENT_USERNAME = os.environ["CONFLUENT_USERNAME"]
 # CONFLUENT_PASSWORD = os.environ["CONFLUENT_PASSWORD"]
-# import confluent_kafka
 
 # registry = ConfluentSchemaRegistry(
 #     sr_conf={
 #         "url": os.environ["CONFLUENT_URL"],
 #         "basic.auth.user.info": os.environ["CONFLUENT_USERINFO"],
 #     },
-#     key_conf=SchemaConf(schema_id=100002),  # Use the proper ID here
-#     value_conf=SchemaConf(schema_id=100003),  # Use the proper ID here
+#     key_serialization_schema=SchemaConf(schema_id=100002),  # Use the proper ID here
+#     value_serialization_schema=SchemaConf(schema_id=100003),  # Use the proper ID here
 # )
 
 
