@@ -52,38 +52,38 @@ For example, all of the following dataflows are equivalent.
 
 Using a defined function:
 
+>>> import bytewax.operators as op
 >>> from bytewax.dataflow import Dataflow
 >>> from bytewax.testing import TestingSource, run_main
->>> from bytewax.connectors.stdio import StdOutSink
 >>> flow = Dataflow("use_def")
 >>> def split_sentence(sentence):
 ...     return sentence.split()
->>> s = flow.input("inp", TestingSource(["hello world"]))
->>> s = s.flat_map("split", split_sentence)
->>> s.output("out", StdOutSink())
+>>> s = op.input("inp", flow, TestingSource(["hello world"]))
+>>> s = op.flat_map("split", s, split_sentence)
+>>> op.inspect("out", s)
 >>> run_main(flow)
-hello
-world
+use_def.out: 'hello'
+use_def.out: 'world'
 
 Or a lambda:
 
 >>> flow = Dataflow("use_lambda")
->>> s = flow.input("inp", TestingSource(["hello world"]))
->>> s = s.flat_map("split", lambda s: s.split())
->>> s.output("out", StdOutSink())
+>>> s = op.input("inp", flow, TestingSource(["hello world"]))
+>>> s = op.flat_map("split", s, lambda s: s.split())
+>>> op.inspect("out", s)
 >>> run_main(flow)
-hello
-world
+use_lambda.out: 'hello'
+use_lambda.out: 'world'
 
 Or an unbound method:
 
 >>> flow = Dataflow("use_method")
->>> s = flow.input("inp", TestingSource(["hello world"]))
->>> s = s.flat_map("split", str.split)
->>> s.output("out", StdOutSink())
+>>> s = op.input("inp", flow, TestingSource(["hello world"]))
+>>> s = op.flat_map("split", s, str.split)
+>>> op.inspect("out", s)
 >>> run_main(flow)
-hello
-world
+use_method.out: 'hello'
+use_method.out: 'world'
 
 # Non-Built-In Operators
 
@@ -168,15 +168,19 @@ def branch(
 ) -> BranchOut[X]:
     """Divide items into two streams with a predicate.
 
-    >>> from bytewax.connectors.stdio import StdOutSink
+    >>> import bytewax.operators as op
     >>> from bytewax.testing import run_main, TestingSource
-    >>> flow = Dataflow("my_flow")
-    >>> nums = flow.input("nums", TestingSource([1, 2, 3, 4, 5]))
-    >>> evens, odds = nums.branch("even_odd", lambda x: x % 2 == 0)
-    >>> evens.output("out", StdOutSink())
+    >>> flow = Dataflow("branch_eg")
+    >>> nums = op.input("nums", flow, TestingSource([1, 2, 3, 4, 5]))
+    >>> evens, odds = op.branch("even_odd", nums, lambda x: x % 2 == 0)
+    >>> op.inspect("evens", evens)
+    >>> op.inspect("odds", odds)
     >>> run_main(flow)
-    2
-    4
+    branch_eg.odds: 1
+    branch_eg.evens: 2
+    branch_eg.odds: 3
+    branch_eg.evens: 4
+    branch_eg.odds: 5
 
     Args:
         step_id: Unique ID.
@@ -216,19 +220,19 @@ def flat_map(
 
     - Breaking up aggregations for further processing
 
+    >>> import bytewax.operators as op
     >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.connectors.stdio import StdOutSink
     >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("test_df")
+    >>> flow = Dataflow("flat_map_eg")
     >>> inp = ["hello world"]
-    >>> s = flow.input("inp", TestingSource(inp))
+    >>> s = op.input("inp", flow, TestingSource(inp))
     >>> def split_into_words(sentence):
     ...     return sentence.split()
-    >>> s = s.flat_map("split_words", split_into_words)
-    >>> s.output("out", StdOutSink())
+    >>> s = op.flat_map("split_words", s, split_into_words)
+    >>> op.inspect("out", s)
     >>> run_main(flow)
-    hello
-    world
+    flat_map_eg.out: 'hello'
+    flat_map_eg.out: 'world'
 
     Args:
         step_id: Unique ID.
@@ -286,17 +290,16 @@ def inspect_debug(
 ) -> None:
     """Observe items, their worker, and their epoch for debugging.
 
-    >>> from bytewax.testing import TestingSource, TestingSink, run_main
+    >>> import bytewax.operators as op
+    >>> from bytewax.testing import TestingSource, run_main
     >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("my_flow")
-    >>> s = flow.input("inp", TestingSource(range(3)))
-    >>> s.inspect_debug("help")
-    >>> out = []
-    >>> s.output("out", TestingSink(out))  # Notice we don't print out.
+    >>> flow = Dataflow("inspect_debug_eg")
+    >>> s = op.input("inp", flow, TestingSource(range(3)))
+    >>> op.inspect_debug("help", s)
     >>> run_main(flow)
-    my_flow.help W0 @1: 0
-    my_flow.help W0 @1: 1
-    my_flow.help W0 @1: 2
+    inspect_debug_eg.help W0 @1: 0
+    inspect_debug_eg.help W0 @1: 1
+    inspect_debug_eg.help W0 @1: 2
 
     Args:
         step_id: Unique ID.
@@ -423,8 +426,6 @@ class UnaryLogic(ABC, Generic[V, W, S]):
     be received this execution. If the logic is retained after all the
     above calls then `notify_at` will be called. `snapshot` is
     periodically called.
-
-    To see examples of new o
 
     """
 
@@ -738,18 +739,18 @@ def filter(  # noqa: A001
 
     - Removing stop words
 
+    >>> import bytewax.operators as op
     >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.connectors.stdio import StdOutSink
     >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("test_df")
-    >>> s = flow.input("inp", TestingSource(range(4)))
+    >>> flow = Dataflow("filter_eg")
+    >>> s = op.input("inp", flow, TestingSource(range(4)))
     >>> def is_odd(item):
     ...     return item % 2 != 0
-    >>> s = s.filter("filter_odd", is_odd)
-    >>> s.output("out", StdOutSink())
+    >>> s = op.filter("filter_odd", s, is_odd)
+    >>> op.inspect("out", s)
     >>> run_main(flow)
-    1
-    3
+    filter_eg.out: 1
+    filter_eg.out: 3
 
     Args:
         step_id: Unique ID.
@@ -826,22 +827,26 @@ def filter_map(
 ) -> Stream[Y]:
     """A one-to-maybe-one transformation of items.
 
-    This is like a combination of `map.map` and then `filter.filter`
-    with a predicate removing `None` values.
+    This is like a combination of `map` and then `filter` with a
+    predicate removing `None` values.
 
+    >>> import bytewax.operators as op
     >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.connectors.stdio import StdOutSink
     >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("test_df")
-    >>> s = flow.input("inp", TestingSource([]))
+    >>> flow = Dataflow("filter_map_eg")
+    >>> s = op.input("inp", flow, TestingSource([
+    ...     {"key": "a", "val": 1},
+    ...     {"bad": "obj"},
+    ... ]))
     >>> def validate(data):
     ...     if type(data) != dict or "key" not in data:
     ...         return None
     ...     else:
     ...         return data["key"], data
-    >>> s = s.filter_map("validate", validate)
-    >>> s.output("out", StdOutSink())
+    >>> s = op.filter_map("validate", s, validate)
+    >>> op.inspect("out", s)
     >>> run_main(flow)
+    filter_map_eg.out: ('a', {'key': 'a', 'val': 1})
 
     Args:
         step_id: Unique ID.
@@ -942,13 +947,12 @@ def inspect(
 ) -> None:
     """Observe items for debugging.
 
-    >>> from bytewax.testing import TestingSource, TestingSink, run_main
+    >>> import bytewax.operators as op
+    >>> from bytewax.testing import run_main, TestingSource
     >>> from bytewax.dataflow import Dataflow
     >>> flow = Dataflow("my_flow")
-    >>> s = flow.input("inp", TestingSource(range(3)))
-    >>> s.inspect("help")
-    >>> out = []
-    >>> s.output("out", TestingSink(out))  # Notice we don't print out.
+    >>> s = op.input("inp", flow, TestingSource(range(3)))
+    >>> op.inspect("help", s)
     >>> run_main(flow)
     my_flow.help: 0
     my_flow.help: 1
@@ -1227,19 +1231,19 @@ def map(  # noqa: A001
 
     - Selection of fields.
 
-    >>> from bytewax.connectors.stdio import StdOutSink
+    >>> import bytewax.operators as op
     >>> from bytewax.testing import run_main, TestingSource
     >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("test_flow")
-    >>> s = flow.input("inp", TestingSource(range(3)))
+    >>> flow = Dataflow("map_eg")
+    >>> s = op.input("inp", flow, TestingSource(range(3)))
     >>> def add_one(item):
     ...     return item + 10
-    >>> s = s.map("add_one", add_one)
-    >>> s.output("out", StdOutSink())
+    >>> s = op.map("add_one", s, add_one)
+    >>> op.inspect("out", s)
     >>> run_main(flow)
-    10
-    11
-    12
+    map_eg.out: 10
+    map_eg.out: 11
+    map_eg.out: 12
 
     Args:
         step_id: Unique ID.
@@ -1459,9 +1463,10 @@ def stateful_map(
 
     - State machines
 
+    >>> import bytewax.operators as op
     >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.connectors.stdio import StdOutSink
-    >>> flow = Dataflow("test_df")
+    >>> from bytewax.dataflow import Dataflow
+    >>> flow = Dataflow("stateful_map_eg")
     >>> inp = [
     ...     "a",
     ...     "a",
@@ -1469,21 +1474,21 @@ def stateful_map(
     ...     "b",
     ...     "a",
     ... ]
-    >>> s = flow.input("inp", TestingSource(inp))
-    >>> s = s.key_on("self_as_key", lambda x: x)
+    >>> s = op.input("inp", flow, TestingSource(inp))
+    >>> s = op.key_on("self_as_key", s, lambda x: x)
     >>> def build_count():
     ...     return 0
     >>> def check(running_count, _item):
     ...     running_count += 1
     ...     return (running_count, running_count)
-    >>> s = s.stateful_map("running_count", build_count, check)
-    >>> s.output("out", StdOutSink())
+    >>> s = op.stateful_map("running_count", s, build_count, check)
+    >>> op.inspect("out", s)
     >>> run_main(flow)
-    ('a', 1)
-    ('a', 2)
-    ('a', 3)
-    ('b', 1)
-    ('a', 4)
+    stateful_map_eg.out: ('a', 1)
+    stateful_map_eg.out: ('a', 2)
+    stateful_map_eg.out: ('a', 3)
+    stateful_map_eg.out: ('b', 1)
+    stateful_map_eg.out: ('a', 4)
 
     Args:
         step_id: Unique ID.

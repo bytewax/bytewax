@@ -74,38 +74,41 @@ Then create a `bytewax.dataflow.Dataflow` instance in a variable named
 >>> from bytewax.dataflow import Dataflow
 >>> flow = Dataflow("do_math")
 
+Now let's import all of Bytewax's built-in operators for use.
+
+>>> import bytewax.operators as op
+
 Then we use the `bytewax.operators.input` operator to create an
-initial stream of items. Operators are added via a "fluent" API; you
-call them as methods on their loaded class. We'll start with an input
-source just for testing that emits a list of static Python ints.
+initial stream of items. We'll start with an input source just for
+testing that emits a list of static Python `int`s.
 
 >>> from bytewax.testing import TestingSource
->>> nums = flow.input("nums", TestingSource([1, 2, 3]))
+>>> nums = op.input("nums", flow, TestingSource([1, 2, 3]))
 
 Each operator method will return a new stream with the results which
-you can attach more operators to. Let's use the
-`bytewax.operators.map` operator to double each number; the `map`
-operator runs a function on each item and emits each result
-downstream.
+you can call more operators on. Let's use the `bytewax.operators.map`
+operator to double each number; the `map` operator runs a function on
+each item and emits each result downstream.
 
->>> nums = nums.map("double", lambda x: x * 2)
+>>> nums = op.map("double", nums, lambda x: x * 2)
 
 Finally, let's add an `bytewax.operators.output` step. At least one
 `bytewax.operators.input` step and one `bytewax.operators.output` step
 are required on every dataflow.
 
 >>> from bytewax.connectors.stdio import StdOutSink
->>> nums.output("print", StdOutSink())
+>>> op.output("print", nums, StdOutSink())
 
 Putting this all together, the file would look like:
 
+>>> import bytewax.operators as op
 >>> from bytewax.connectors.stdio import StdOutSink
 >>> from bytewax.dataflow import Dataflow
 >>> from bytewax.testing import TestingSource
 >>> flow = Dataflow("do_math")
->>> nums = flow.input("nums", TestingSource([1, 2, 3]))
->>> nums = nums.map("double", lambda x: x * 2)
->>> nums.output("print", StdOutSink())
+>>> nums = op.input("nums", flow, TestingSource([1, 2, 3]))
+>>> nums = op.map("double", nums, lambda x: x * 2)
+>>> op.output("print", nums, StdOutSink())
 
 To run your dataflow, from your shell execute the `bytewax.run` module
 with the Python import path to the file you just saved your `Dataflow`
@@ -185,11 +188,11 @@ multipled by ten. `bytewax.operators.merge` is an operator that does
 the reverse, and combines together multiple streams.
 
 >>> flow = Dataflow("branching_math")
->>> nums = flow.input("nums", TestingSource([1, 2, 3]))
->>> doubles = nums.map("do_double", lambda x: x * 2)
->>> tens = nums.map("do_tens", lambda x: x * 10)
->>> all = doubles.merge("merge", tens)
->>> all.output("print", StdOutSink())
+>>> nums = op.input("nums", flow, TestingSource([1, 2, 3]))
+>>> doubles = op.map("do_double", nums, lambda x: x * 2)
+>>> tens = op.map("do_tens", nums, lambda x: x * 10)
+>>> all = op.merge("merge", doubles, tens)
+>>> op.output("print", all, StdOutSink())
 >>> bytewax.testing.run_main(flow)
 2
 10
@@ -205,7 +208,7 @@ the reverse, and combines together multiple streams.
 Bytewax provides the `bytewax.operators.inspect` operator to help you
 visualize what is going on inside your dataflow. It prints out the
 repr of all items that pass through it when you run the dataflow. You
-can attach it on the end of any stream you'd like to see.
+can attach it to any stream you'd like to see.
 
 TODO Example?
 
@@ -258,16 +261,16 @@ For example, let's write a small dataflow that calculates a running
 sum of points in a basketball game. First, let's define a
 
 >>> flow = Dataflow("running_sum")
->>> points_a = flow.input("points_a", TestingSource([2, 2, 3, 2, 3, 3]))
->>> points_b = flow.input("points_b", TestingSource([2, 3, 2, 2, 2, 2]))
->>> points_a = points_a.key_on("key_a", lambda _x: "A")
->>> points_b = points_b.key_on("key_b", lambda _x: "B")
->>> points = points_a.merge("merge", points_b)
+>>> points_a = op.input("points_a", flow, TestingSource([2, 2, 3, 2, 3, 3]))
+>>> points_b = op.input("points_b", flow, TestingSource([2, 3, 2, 2, 2, 2]))
+>>> points_a = op.key_on("key_a", points_a, lambda _x: "A")
+>>> points_b = op.key_on("key_b", points_b, lambda _x: "B")
+>>> points = op.merge("merge", points_a, points_b)
 >>> def running_sum(old_sum, just_scored_points):
 ...     new_sum = old_sum + just_scored_points
 ...     return (new_sum, new_sum)
->>> running_sum = points.stateful_map("running_sum", lambda: 0, running_sum)
->>> running_sum.output("out", StdOutSink())
+>>> running_sum = op.stateful_map("running_sum", points, lambda: 0, running_sum)
+>>> op.output("out", running_sum, StdOutSink())
 >>> bytewax.testing.run_main(flow)
 ('A', 2)
 ('B', 2)

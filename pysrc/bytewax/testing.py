@@ -64,7 +64,7 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
         self._it = iter(ib)
         # Resume to one after the last completed read index.
         ffwd_iter(self._it, self._start_idx)
-        self._raise = None
+        self._raise: Optional[Exception] = None
 
     def next_batch(self, _sched: datetime) -> List[X]:
         if self._raise is not None:

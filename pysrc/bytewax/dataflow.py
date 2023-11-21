@@ -11,7 +11,7 @@ decorate it with `operator`.
 
 >>> import bytewax.operators as op
 >>> @operator
-... def add_to(step_id: str, up: Stream, y: int) -> Stream:
+... def add_to(step_id: str, up: Stream[int], y: int) -> Stream[int]:
 ...     return op.map("shim_map", lambda x: x + y)
 
 Each input or output `Stream` turns into a `Port` in the resulting
