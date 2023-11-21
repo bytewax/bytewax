@@ -114,7 +114,6 @@ from typing import (
     List,
     Optional,
     Tuple,
-    TypeAlias,
     TypeVar,
     overload,
 )
@@ -134,7 +133,7 @@ Y = TypeVar("Y")  # Output Item
 V = TypeVar("V")  # Value
 W = TypeVar("W")  # Output Value
 S = TypeVar("S")  # State
-KeyedStream: TypeAlias = Stream[Tuple[str, V]]
+KeyedStream = Stream[Tuple[str, V]]
 
 
 def _identity(x: X) -> X:
