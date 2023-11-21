@@ -1,4 +1,4 @@
-"""TODO."""
+"""Serializers and deserializers for kafka messages."""
 import io
 import json
 import logging
@@ -77,9 +77,6 @@ class _ConfluentAvroDeserializer(SchemaDeserializer):
 
 class _AvroSerializer(SchemaSerializer):
     def __init__(self, schema):
-        # TODO: Not sure why I need to json.loads the schema,
-        # the function should accept a str too, but it raises
-        # UnkownType error if I do
         self.schema = parse_schema(json.loads(schema))
 
     def ser(self, obj, topic):
@@ -90,9 +87,6 @@ class _AvroSerializer(SchemaSerializer):
 
 class _AvroDeserializer(SchemaDeserializer):
     def __init__(self, schema):
-        # TODO: Not sure why I need to json.loads the schema,
-        # the function should accept a str too, but it raises
-        # UnkownType error if I do
         self.schema = parse_schema(json.loads(schema))
 
     def de(self, data, _topic):
