@@ -50,6 +50,7 @@ dev = [
     "bytewax[kafka,test,docs,fmt]",
     "pre-commit==2.19.0",
     "ruff==0.0.291",
+    "vermin==1.5.2",
 ]
 
 [project.urls]

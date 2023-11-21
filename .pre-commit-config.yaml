@@ -15,7 +15,7 @@ repos:
     rev: v0.0.284
     hooks:
       - id: ruff
-        args: [ --fix, --exit-non-zero-on-fix ]
+        args: ["--fix", "--exit-non-zero-on-fix"]
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
@@ -25,3 +25,12 @@ repos:
     rev: v0.1
     hooks:
       - id: fmt
+  - repo: https://github.com/netromdk/vermin
+    rev: v1.5.2
+    hooks:
+      - id: vermin
+        # Keep this Python version in sync with the `requires-python`
+        # field in pyproject.toml. Add a `-` after the Python version
+        # to say for `3.8-` "even if this code would work on 3.7,
+        # that's fine".
+        args: ["--eval-annotations", "--no-parse-comments", "--no-tips", "--violations", "-t=3.8-"]
