@@ -438,11 +438,9 @@ where
                             .get_upstream(py, &step, "up")
                             .reraise("core operator `inspect_debug` missing port")?;
 
-                        let down = up.inspect_debug(py, step_id, inspector)?;
+                        let clock = up.inspect_debug(py, step_id, inspector)?;
 
-                        streams
-                            .insert_downstream(py, &step, "down", down)
-                            .reraise("core operator `inspect_debug` missing port")?;
+                        outputs.push(clock);
                     }
                     "merge" => {
                         let ups = streams
@@ -520,12 +518,12 @@ where
 
         if inputs.is_empty() {
             let msg =
-                "Dataflow needs to contain at least one input step; add with `Dataflow.input`";
+                "Dataflow needs to contain at least one input step; add with `bytewax.operators.input`";
             return Err(tracked_err::<PyValueError>(msg));
         }
         if outputs.is_empty() {
             let msg =
-                "Dataflow needs to contain at least one output step; add with `Stream.output`";
+                "Dataflow needs to contain at least one output or inspect step; add with `bytewax.operators.output` or `bytewax.operators.inspect`";
             return Err(tracked_err::<PyValueError>(msg));
         }
 

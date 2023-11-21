@@ -16,7 +16,6 @@ use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Branch;
 use timely::dataflow::operators::Concatenate;
 use timely::dataflow::operators::Exchange;
-use timely::dataflow::operators::Inspect;
 use timely::dataflow::operators::Map;
 use timely::dataflow::operators::ToStream;
 use timely::dataflow::Scope;
@@ -205,34 +204,76 @@ where
         py: Python,
         step_id: StepId,
         inspector: TdPyCallable,
-    ) -> PyResult<Stream<S, TdPyAny>>;
+    ) -> PyResult<ClockStream<S>>;
 }
 
 impl<S> InspectDebugOp<S> for Stream<S, TdPyAny>
 where
     S: Scope,
-    S::Timestamp: IntoPy<PyObject>,
+    S::Timestamp: IntoPy<PyObject> + TotalOrder,
 {
     fn inspect_debug(
         &self,
         _py: Python,
         step_id: StepId,
         inspector: TdPyCallable,
-    ) -> PyResult<Stream<S, TdPyAny>> {
+    ) -> PyResult<ClockStream<S>> {
         let this_worker = self.scope().w_index();
 
-        Ok(self.inspect_time(move |epoch, item| {
-            let item = <&PyObject>::from(item);
+        let mut op_builder = OperatorBuilder::new(step_id.0.clone(), self.scope());
 
-            unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                inspector
-                    .as_ref(py)
-                    .call1((step_id.clone(), item, epoch.clone(), this_worker.0))
-                    .reraise_with(|| format!("error calling inspector in step {step_id}"))?;
+        let mut self_handle = op_builder.new_input(self, Pipeline);
 
-                Ok(())
-            }));
-        }))
+        let (mut clock_output, clock) = op_builder.new_output();
+
+        op_builder.build(move |init_caps| {
+            let mut items_inbuf = InBuffer::new();
+            let mut ncater = EagerNotificator::new(init_caps, ());
+
+            move |input_frontiers| {
+                tracing::debug_span!("operator", operator = step_id.0.clone()).in_scope(|| {
+                    self_handle.buffer_notify(&mut items_inbuf, &mut ncater);
+
+                    let mut downstream_handle = clock_output.activate();
+                    ncater.for_each(
+                        input_frontiers,
+                        |caps, ()| {
+                            let cap = &caps[0];
+                            let epoch = cap.time();
+
+                            if let Some(items) = items_inbuf.remove(epoch) {
+                                let mut clock_session = downstream_handle.session(cap);
+
+                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    for item in items {
+                                        let item = PyObject::from(item);
+
+                                        inspector
+                                            .as_ref(py)
+                                            .call1((
+                                                step_id.clone(),
+                                                item,
+                                                epoch.clone(),
+                                                this_worker.0,
+                                            ))
+                                            .reraise_with(|| {
+                                                format!("error calling inspector in step {step_id}")
+                                            })?;
+                                    }
+
+                                    Ok(())
+                                }));
+
+                                clock_session.give(());
+                            }
+                        },
+                        |_caps, ()| {},
+                    );
+                });
+            }
+        });
+
+        Ok(clock)
     }
 }
 
