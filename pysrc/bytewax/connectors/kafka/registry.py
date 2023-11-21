@@ -174,11 +174,6 @@ class RedpandaSchemaRegistry(SchemaRegistry):
 
     All schemas are optional, (de)serialization is enabled
     only if a SchemaConf is passed.
-
-    >>> registry = RedpandaSchemaRegistry(
-    ...     key_serialization_schema=SchemaConf("key-schema"),
-    ...     value_serialization_schema=SchemaConf(schema_id=1),
-    ... )
     """
 
     def __init__(
