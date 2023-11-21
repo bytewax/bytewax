@@ -3,7 +3,7 @@ import itertools
 import queue
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, List
+from typing import Iterable, List, Optional
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
@@ -30,6 +30,70 @@ def test_flow_requires_input():
         run_main(flow)
 
 
+def test_dynamic_source_next_batch_iterator():
+    out = []
+
+    class TestPartition(StatelessSourcePartition[int]):
+        def __init__(self):
+            self._n = 0
+
+        def next_batch(self, _sched: datetime) -> Iterable[int]:
+            if self._n < 5:
+                n = self._n
+                self._n += 1
+                return itertools.repeat(n, 2)
+            else:
+                raise StopIteration()
+
+    class TestSource(DynamicSource[int]):
+        def build(
+            self, _now: datetime, _worker_index: int, _worker_count: int
+        ) -> TestPartition:
+            return TestPartition()
+
+    flow = Dataflow("test_df")
+    s = op.input("in", flow, TestSource())
+    op.output("out", s, TestingSink(out))
+
+    run_main(flow)
+    assert out == [0, 0, 1, 1, 2, 2, 3, 3, 4, 4]
+
+
+def test_fixed_partitioned_source_next_batch_iterator():
+    out = []
+
+    class TestPartition(StatefulSourcePartition[int, None]):
+        def __init__(self):
+            self._n = 0
+
+        def next_batch(self, _sched: datetime) -> Iterable[int]:
+            if self._n < 5:
+                n = self._n
+                self._n += 1
+                return itertools.repeat(n, 2)
+            else:
+                raise StopIteration()
+
+        def snapshot(self) -> None:
+            return None
+
+    class TestSource(FixedPartitionedSource[int, None]):
+        def list_parts(self) -> List[str]:
+            return ["one"]
+
+        def build_part(
+            self, _now: datetime, _worker_index: int, _worker_count: int
+        ) -> TestPartition:
+            return TestPartition()
+
+    flow = Dataflow("test_df")
+    s = op.input("in", flow, TestSource())
+    op.output("out", s, TestingSink(out))
+
+    run_main(flow)
+    assert out == [0, 0, 1, 1, 2, 2, 3, 3, 4, 4]
+
+
 def pairwise(ib):
     # Recipe from
     # https://docs.python.org/3/library/itertools.html?highlight=pairwise#itertools.pairwise
@@ -41,13 +105,13 @@ def pairwise(ib):
 def test_dynamic_source_next_awake():
     out = []
 
-    class TestPartition(StatelessSourcePartition):
-        def __init__(self, now, interval):
+    class TestPartition(StatelessSourcePartition[datetime]):
+        def __init__(self, now: datetime, interval: timedelta):
             self._interval = interval
             self._next_awake = now
             self._n = 0
 
-        def next_batch(self, _sched: datetime) -> List[Any]:
+        def next_batch(self, _sched: datetime) -> List[datetime]:
             now = datetime.now(timezone.utc)
             self._next_awake = now + self._interval
             if self._n < 5:
@@ -56,14 +120,16 @@ def test_dynamic_source_next_awake():
             else:
                 raise StopIteration()
 
-        def next_awake(self):
+        def next_awake(self) -> Optional[datetime]:
             return self._next_awake
 
-    class TestSource(DynamicSource):
-        def __init__(self, interval):
+    class TestSource(DynamicSource[datetime]):
+        def __init__(self, interval: timedelta):
             self._interval = interval
 
-        def build(self, now, _worker_index, _worker_count):
+        def build(
+            self, now: datetime, _worker_index: int, _worker_count: int
+        ) -> TestPartition:
             return TestPartition(now, self._interval)
 
     interval = timedelta(seconds=0.1)
@@ -81,13 +147,13 @@ def test_dynamic_source_next_awake():
 def test_fixed_partitioned_source_next_awake():
     out = []
 
-    class TestPartition(StatefulSourcePartition):
-        def __init__(self, now, interval):
+    class TestPartition(StatefulSourcePartition[datetime, None]):
+        def __init__(self, now: datetime, interval: timedelta):
             self._interval = interval
             self._next_awake = now
             self._n = 0
 
-        def next_batch(self, _sched: datetime) -> List[Any]:
+        def next_batch(self, _sched: datetime) -> List[datetime]:
             now = datetime.now(timezone.utc)
             self._next_awake = now + self._interval
             if self._n < 5:
@@ -96,20 +162,22 @@ def test_fixed_partitioned_source_next_awake():
             else:
                 raise StopIteration()
 
-        def next_awake(self):
+        def next_awake(self) -> Optional[datetime]:
             return self._next_awake
 
-        def snapshot(self):
+        def snapshot(self) -> None:
             return None
 
-    class TestSource(FixedPartitionedSource):
-        def __init__(self, interval):
+    class TestSource(FixedPartitionedSource[datetime, None]):
+        def __init__(self, interval: timedelta):
             self._interval = interval
 
-        def list_parts(self):
+        def list_parts(self) -> List[str]:
             return ["one"]
 
-        def build_part(self, now, _for_part, _resume_state):
+        def build_part(
+            self, now: datetime, _for_part: str, _resume_state: Optional[None]
+        ) -> TestPartition:
             return TestPartition(now, self._interval)
 
     interval = timedelta(seconds=0.1)

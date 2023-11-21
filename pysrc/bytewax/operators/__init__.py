@@ -87,13 +87,10 @@ world
 
 # Non-Built-In Operators
 
-All operators in this module are automatically loaded when you
+All operators in this module are automatically loaded when you run
+import any submodule of `bytewax`.
 
->>> import bytewax
-
-Operators defined elsewhere must be loaded. See
-`bytewax.dataflow.load_mod_ops` and the `bytewax.dataflow` module
-docstring for how to load custom operators.
+To use operators defined in other packages, import their functions.
 
 # Custom Operators
 
@@ -205,7 +202,7 @@ def branch(
 def flat_map(
     step_id: str,
     up: Stream[X],
-    mapper: Callable[[X], List[Y]],
+    mapper: Callable[[X], Iterable[Y]],
 ) -> Stream[Y]:
     """Transform items one-to-many.
 
@@ -665,7 +662,7 @@ def count_final(
 def flat_map_value(
     step_id: str,
     up: KeyedStream[V],
-    mapper: Callable[[V], List[W]],
+    mapper: Callable[[V], Iterable[W]],
 ) -> KeyedStream[W]:
     """Transform values one-to-many.
 
@@ -682,7 +679,7 @@ def flat_map_value(
 
     """
 
-    def shim_mapper(k_v: Tuple[str, V]) -> List[Tuple[str, W]]:
+    def shim_mapper(k_v: Tuple[str, V]) -> Iterable[Tuple[str, W]]:
         try:
             k, v = k_v
         except TypeError as ex:
@@ -693,7 +690,7 @@ def flat_map_value(
             )
             raise TypeError(msg) from ex
         ws = mapper(v)
-        return [(k, w) for w in ws]
+        return ((k, w) for w in ws)
 
     return flat_map("flat_map", up, shim_mapper)
 
@@ -715,7 +712,7 @@ def flatten(
 
     """
 
-    def shim_mapper(x: Iterable[X]) -> List[X]:
+    def shim_mapper(x: Iterable[X]) -> Iterable[X]:
         if not isinstance(x, Iterable):
             msg = (
                 f"step {step_id!r} requires upstream to be iterables; "
@@ -723,7 +720,7 @@ def flatten(
             )
             raise TypeError(msg)
 
-        return list(x)
+        return x
 
     return flat_map("flat_map", up, shim_mapper)
 

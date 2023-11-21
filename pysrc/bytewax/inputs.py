@@ -75,7 +75,7 @@ class StatefulSourcePartition(ABC, Generic[X, S]):
     """Input partition that maintains state of its position."""
 
     @abstractmethod
-    def next_batch(self, sched: datetime) -> List[X]:
+    def next_batch(self, sched: datetime) -> Iterable[X]:
         """Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
@@ -86,8 +86,7 @@ class StatefulSourcePartition(ABC, Generic[X, S]):
             sched: The scheduled awake time.
 
         Returns:
-            An list of items immediately ready. May be empty if no new
-            items.
+            Items immediately ready. May be empty if no new items.
 
         Raises:
             StopIteration: When the source is complete.
@@ -211,7 +210,7 @@ class StatelessSourcePartition(ABC, Generic[X]):
     """Input partition that is stateless."""
 
     @abstractmethod
-    def next_batch(self, sched: datetime) -> List[X]:
+    def next_batch(self, sched: datetime) -> Iterable[X]:
         """Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
@@ -222,8 +221,7 @@ class StatelessSourcePartition(ABC, Generic[X]):
             sched: The scheduled awake time.
 
         Returns:
-            An list of items immediately ready. May be empty if no new
-            items.
+            Items immediately ready. May be empty if no new items.
 
         Raises:
             StopIteration: When the source is complete.
