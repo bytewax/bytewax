@@ -1184,8 +1184,8 @@ def key_split(
     step_id: str,
     up: Stream[X],
     key: Callable[[X], str],
-    *values: Callable[[X], Any],
-) -> MultiStream:
+    *values: Callable[[X], V],
+) -> MultiStream[Tuple[str, V]]:
     """Split objects apart into a separate stream for each field.
 
     This allows you to use all the keyed operators that only are
