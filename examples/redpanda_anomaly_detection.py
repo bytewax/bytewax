@@ -10,6 +10,7 @@
 
 import json
 
+from bytewax import operators as op
 from bytewax.connectors.kafka import KafkaSource
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
@@ -17,7 +18,7 @@ from river import anomaly
 
 # Define the dataflow object and kafka input.
 flow = Dataflow("anomaly detection")
-stream = flow.input("inp", KafkaSource(["localhost:19092"], ["ec2_metrics"]))
+stream = op.input("inp", flow, KafkaSource(["localhost:19092"], ["ec2_metrics"]))
 
 
 def normalize(key__data):
@@ -32,7 +33,8 @@ def normalize(key__data):
     return data
 
 
-stream = stream.map("normalize", normalize).key_on("key", lambda x: x["instance"])
+stream = op.map("normalize", stream, normalize)
+stream = op.key_on("key", stream, lambda x: x["instance"])
 
 
 class AnomalyDetector(anomaly.HalfSpaceTrees):
@@ -68,9 +70,11 @@ class AnomalyDetector(anomaly.HalfSpaceTrees):
         )
 
 
-stream = stream.stateful_map("anom", lambda: AnomalyDetector(), AnomalyDetector.update)
+stream = op.stateful_map(
+    "anom", stream, lambda: AnomalyDetector(), AnomalyDetector.update
+)
 # (("fe7f93", {"index": "1", "value":0.08, "instance":"fe7f93", "score":0.02}))
-stream = stream.filter("filter", lambda x: bool(x[1][4]))
+stream = op.filter("filter", stream, lambda x: bool(x[1][4]))
 
 
 def format_output(event):
@@ -83,4 +87,5 @@ def format_output(event):
     )
 
 
-stream.map("format", format_output).output("out", StdOutSink())
+op.map("format", stream, format_output)
+op.output("out", stream, StdOutSink())

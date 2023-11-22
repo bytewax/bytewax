@@ -1,5 +1,6 @@
 import re
 
+from bytewax import operators as op
 from bytewax.connectors.files import FileSource
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
@@ -30,14 +31,14 @@ def add(running_count, new_count):
 
 
 flow = Dataflow("recovery")
-stream = flow.input("inp", FileSource("examples/sample_data/wordcount.txt"))
+stream = op.input("inp", flow, FileSource("examples/sample_data/wordcount.txt"))
 # "Here, we have FULL sentences."
-stream = stream.map("lower", lower)
+stream = op.map("lower", stream, lower)
 # "here, we have lowercase sentences."
-stream = stream.flat_map("tokenize", tokenize)
+stream = op.flat_map("tokenize", stream, tokenize)
 # "words"
-stream = stream.map("initial_count", initial_count).key_assert("assert keyed")
+stream = op.map("initial_count", stream, initial_count)
 # ("word", 1)
-stream = stream.stateful_map("running_count", count_builder, add)
+stream = op.stateful_map("running_count", stream, count_builder, add)
 # ("word", running_count)
-stream.output("out", StdOutSink())
+op.output("out", stream, StdOutSink())

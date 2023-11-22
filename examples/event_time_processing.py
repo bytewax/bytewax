@@ -21,14 +21,18 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+from bytewax import operators as op
 from bytewax.connectors.kafka import KafkaSource
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
+from bytewax.operators import window as wop
 from bytewax.operators.window import EventClockConfig, TumblingWindow
 
 # Define the dataflow object and kafka input.
 flow = Dataflow("event time")
-stream = flow.input("inp", KafkaSource(["localhost:19092"], ["sensors"], tail=False))
+brokers = ["localhost:19092"]
+topics = ["sensors"]
+stream = op.input("inp", flow, KafkaSource(brokers, topics, tail=False))
 
 
 # We expect a json string that represents a reading from a sensor.
@@ -37,12 +41,12 @@ def parse_value(key__data):
     return json.loads(data)
 
 
-stream = stream.map("parse_value", parse_value)
+stream = op.map("parse_value", stream, parse_value)
 
 
 # Group the readings by sensor type, so that we only
 # aggregate readings of the same type.
-stream = stream.key_on("extract_type", lambda event: event["type"])
+stream = op.key_on("extract_type", stream, lambda event: event["type"])
 
 
 # Here is where we use the event time processing, with
@@ -73,7 +77,7 @@ cc = EventClockConfig(get_event_time, wait_for_system_duration=timedelta(seconds
 align_to = datetime(2023, 1, 1, tzinfo=timezone.utc)
 wc = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
 
-stream = stream.fold_window("running_average", cc, wc, list, acc_values)
+stream = wop.fold_window("running_average", stream, cc, wc, list, acc_values)
 
 
 # Calculate the average of the values for each window, and
@@ -90,4 +94,5 @@ def format_event(event):
     )
 
 
-stream.map("format_event", format_event).output("out", StdOutSink())
+stream = op.map("format_event", stream, format_event)
+op.output("out", stream, StdOutSink())

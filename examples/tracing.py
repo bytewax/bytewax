@@ -1,6 +1,7 @@
 import os
 import time
 
+from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSource
@@ -34,8 +35,8 @@ def stringy(x):
 
 
 flow = Dataflow("tracing")
-stream = flow.input("inp", TestingSource(inp()))
-stream = stream.map("double", double)
-stream = stream.map("minus_one", minus_one)
-stream = stream.map("stringy", stringy)
-stream.output("out", StdOutSink())
+stream = op.input("inp", flow, TestingSource(inp()))
+stream = op.map("double", stream, double)
+stream = op.map("minus_one", stream, minus_one)
+stream = op.map("stringy", stream, stringy)
+op.output("out", stream, StdOutSink())

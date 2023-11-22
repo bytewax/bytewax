@@ -12,6 +12,7 @@ with both the size and time limits.
 """
 from datetime import timedelta
 
+import bytewax.operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import SimplePollingSource
@@ -33,22 +34,23 @@ def calc_avg(key__batch):
 
 flow = Dataflow("batch")
 # Emit 20 items, with a 0.25 seconds timeout, so ~4 items per second
-stream = flow.input("in", CounterSource()).key_on("key", lambda _: "ALL")
+stream = op.input("in", flow, CounterSource())
+stream = op.key_on("key", stream, lambda _: "ALL")
 
 # Batch for either 3 elements, or 1 second. This should emit at
 # the size limit since we emit more than 3 items per second.
-stream = stream.batch("batch_3_items", batch_size=3, timeout=timedelta(seconds=1))
-stream.inspect("ins_batch")
+stream = op.batch("batch_3_items", stream, batch_size=3, timeout=timedelta(seconds=1))
+op.inspect("ins_batch", stream)
 
 # Do some operation on the whole batch
-stream = stream.map("calc_avg", calc_avg)
-stream.inspect("ins_avg")
+stream = op.map("calc_avg", stream, calc_avg)
+op.inspect("ins_avg", stream)
 
 # Now batch for either 10 elements or 1 second.
 # This time, the batching should happen at the time limit,
 # since we don't emit items fast enough to fill the size
 # before the timeout triggers.
-stream = stream.key_on("same_key", lambda _: "ALL")
-stream = stream.batch("batch_avgs", batch_size=10, timeout=timedelta(seconds=1))
-stream = stream.map("convert_to_string", lambda x: f"Avg batch:\t{x[1]}")
-stream.output("out", StdOutSink())
+stream = op.key_on("same_key", stream, lambda _: "ALL")
+stream = op.batch("batch_avgs", stream, batch_size=10, timeout=timedelta(seconds=1))
+stream = op.map("convert_to_string", stream, lambda x: f"Avg batch:\t{x[1]}")
+op.output("out", stream, StdOutSink())

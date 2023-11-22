@@ -2,6 +2,7 @@ import logging
 from datetime import timedelta
 
 import requests
+from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import SimplePollingSource
@@ -31,7 +32,7 @@ def download_metadata(hn_id):
 
 
 flow = Dataflow("hn_scraper")
-max_id = flow.input("in", HNSource(timedelta(seconds=1)))
+max_id = op.input("in", flow, HNSource(timedelta(seconds=1)))
 
 
 def mapper(old_max_id, new_max_id):
@@ -41,12 +42,12 @@ def mapper(old_max_id, new_max_id):
     return (new_max_id, range(old_max_id, new_max_id))
 
 
-ids = max_id.key_assert("keyed_on_id").stateful_map("range", lambda: None, mapper)
-ids = ids.flat_map("strip_key_flatten", lambda key_ids: key_ids[1])
-ids = ids.redistribute("redist")
+ids = op.stateful_map("range", max_id, lambda: None, mapper)
+ids = op.flat_map("strip_key_flatten", ids, lambda key_ids: key_ids[1])
+ids = op.redistribute("redist", ids)
 
 # If you run this dataflow with multiple workers, downloads in the
 # next `map` will be parallelized thanks to .redistribute()
-items = ids.filter_map("meta_download", download_metadata)
-stories = items.filter("just_stories", lambda meta: meta["type"] == "story")
-stories.output("out", StdOutSink())
+items = op.filter_map("meta_download", ids, download_metadata)
+stories = op.filter("just_stories", items, lambda meta: meta["type"] == "story")
+op.output("out", stories, StdOutSink())

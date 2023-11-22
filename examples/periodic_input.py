@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
+from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import (
@@ -40,8 +41,8 @@ class PeriodicSource(DynamicSource):
 
 
 stateless_flow = Dataflow("periodic_stateless")
-stream = stateless_flow.input("periodic", PeriodicSource(timedelta(seconds=1)))
-stream.output("stdout", StdOutSink())
+stream = op.input("periodic", stateless_flow, PeriodicSource(timedelta(seconds=1)))
+op.output("stdout", stream, StdOutSink())
 
 
 class ResumablePeriodicPartition(StatefulSourcePartition):
@@ -89,5 +90,7 @@ class ResumablePeriodicSource(FixedPartitionedSource):
 
 
 stateful_flow = Dataflow("stateful_flow")
-stream = stateful_flow.input("periodic", ResumablePeriodicSource(timedelta(seconds=1)))
-stream.output("stdout", StdOutSink())
+stream = op.input(
+    "periodic", stateful_flow, ResumablePeriodicSource(timedelta(seconds=1))
+)
+op.output("stdout", stream, StdOutSink())

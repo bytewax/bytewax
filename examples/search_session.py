@@ -3,8 +3,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import List
 
+from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
+from bytewax.operators import window as wop
 from bytewax.operators.window import EventClockConfig, SessionWindow
 from bytewax.testing import TestingSource
 
@@ -104,21 +106,23 @@ def calc_ctr(search_session):
 
 
 flow = Dataflow("search session")
-stream = flow.input("inp", TestingSource(IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS))
+stream = op.input("inp", flow, TestingSource(IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS))
 # event
-stream = stream.map("initial_session", lambda e: [e])
-stream = stream.key_on("add_key", lambda e: str(e[0].user))
+stream = op.map("initial_session", stream, lambda e: [e])
+stream = op.key_on("add_key", stream, lambda e: str(e[0].user))
 # (user, [event])
 clock = EventClockConfig(lambda x: x[-1].dt, timedelta(seconds=10))
 window = SessionWindow(gap=timedelta(seconds=5))
-stream = stream.reduce_window("sessionizer", clock, window, operator.add)
+stream = wop.reduce_window("sessionizer", stream, clock, window, operator.add)
 # (user, [event, ...])
-stream = stream.map("remove_key", remove_key)
+stream = op.map("remove_key", stream, remove_key)
 # [event, ...]
 # Take a user session and split it up into a search session, one per
 # search.
-stream = stream.flat_map("split_into_searches", lambda x: list(split_into_searches(x)))
-stream = stream.filter("filter_search", has_search)
+stream = op.flat_map(
+    "split_into_searches", stream, lambda x: list(split_into_searches(x))
+)
+stream = op.filter("filter_search", stream, has_search)
 # Calculate search CTR per search.
-stream = stream.map("calc_ctr", calc_ctr)
-stream.output("out", StdOutSink())
+stream = op.map("calc_ctr", stream, calc_ctr)
+op.output("out", stream, StdOutSink())

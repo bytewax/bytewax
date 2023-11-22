@@ -6,6 +6,7 @@ from typing import List
 
 # pip install websockets
 import websockets
+from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch_async
@@ -142,8 +143,9 @@ class OrderBookState:
 
 
 flow = Dataflow("orderbook")
-inp = flow.input("input", CoinbaseSource(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"]))
-inp = inp.key_assert("assert")
+inp = op.input(
+    "input", flow, CoinbaseSource(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"])
+)
 # ('BTC-USD', {
 #     'type': 'l2update',
 #     'product_id': 'BTC-USD',
@@ -157,7 +159,7 @@ def mapper(state, value):
     return (state, state.summarize())
 
 
-stats = inp.stateful_map("order_book", OrderBookState, mapper)
+stats = op.stateful_map("order_book", inp, OrderBookState, mapper)
 # ('BTC-USD', (36905.39, 0.00334873, 36905.4, 1.6e-05, 0.010000000002037268))
 
 # filter on 0.1% spread as a per
@@ -166,4 +168,5 @@ def just_large_spread(prod_summary):
     return summary.spread / summary.ask_price > 0.0001
 
 
-stats.filter("big_spread", just_large_spread).output("out", StdOutSink())
+state = op.filter("big_spread", stats, just_large_spread)
+op.output("out", stats, StdOutSink())
