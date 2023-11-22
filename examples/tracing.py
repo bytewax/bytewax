@@ -1,5 +1,6 @@
 import os
 import time
+from typing import Generator
 
 from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
@@ -16,7 +17,7 @@ tracer = setup_tracing(
 )
 
 
-def inp():
+def inp() -> Generator[int, int, None]:
     for i in range(50):
         time.sleep(0.5)
         yield i

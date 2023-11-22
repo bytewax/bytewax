@@ -28,13 +28,12 @@ def normalize(key__data):
     just need to divide it by 100
     """
     _, data = key__data
-    data = json.loads(data)
-    data["value"] = float(data["value"]) / 100
-    return data
+    json_data = json.loads(data)
+    json_data["value"] = float(data["value"]) / 100
+    return data["instance"], json_data
 
 
-stream = op.map("normalize", stream, normalize)
-stream = op.key_on("key", stream, lambda x: x["instance"])
+normalized_stream = op.map("normalize", stream, normalize)
 
 
 class AnomalyDetector(anomaly.HalfSpaceTrees):
@@ -70,8 +69,8 @@ class AnomalyDetector(anomaly.HalfSpaceTrees):
         )
 
 
-stream = op.stateful_map(
-    "anom", stream, lambda: AnomalyDetector(), AnomalyDetector.update
+anomaly_stream = op.stateful_map(
+    "anom", normalized_stream, lambda: AnomalyDetector(), AnomalyDetector.update
 )
 # (("fe7f93", {"index": "1", "value":0.08, "instance":"fe7f93", "score":0.02}))
 stream = op.filter("filter", stream, lambda x: bool(x[1][4]))
@@ -87,5 +86,5 @@ def format_output(event):
     )
 
 
-op.map("format", stream, format_output)
-op.output("out", stream, StdOutSink())
+formatted_stream = op.map("format", anomaly_stream, format_output)
+op.output("out", formatted_stream, StdOutSink())

@@ -2,7 +2,7 @@ import json
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import List
+from typing import List, Optional
 
 # pip install websockets
 import websockets
@@ -67,8 +67,8 @@ class OrderBookSummary:
 class OrderBookState:
     bids: OrderedDict = field(default_factory=OrderedDict)
     asks: OrderedDict = field(default_factory=OrderedDict)
-    bid_price: float = None
-    ask_price: float = None
+    bid_price: Optional[float] = None
+    ask_price: Optional[float] = None
 
     def update(self, data):
         if len(self.bids) <= 0:
@@ -130,7 +130,7 @@ class OrderBookState:
                         self.bid_price = price
 
     def spread(self) -> float:
-        return self.ask_price - self.bid_price
+        return self.ask_price - self.bid_price  # type: ignore
 
     def summarize(self):
         return OrderBookSummary(

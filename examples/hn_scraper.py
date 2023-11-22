@@ -1,5 +1,6 @@
 import logging
 from datetime import timedelta
+from typing import Optional
 
 import requests
 from bytewax import operators as op
@@ -19,7 +20,7 @@ class HNSource(SimplePollingSource):
         )
 
 
-def download_metadata(hn_id):
+def download_metadata(hn_id) -> Optional[dict]:
     # Given an hacker news id returned from the api, fetch metadata
     # Try 3 times, waiting more and more, or give up
     data = requests.get(

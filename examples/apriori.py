@@ -25,7 +25,7 @@ def pair_key(pair):
 
 
 pairs = op.flat_map("pairs", baskets, lambda basket: itertools.combinations(basket, 2))
-pairs = op.map("normalize", pairs, sorted)
+pairs = op.map("normalize", pairs, sorted)  # type: ignore
 pair_count = op.count_final("count_pairs", pairs, pair_key)
 
 op.output("out_items", item_count, StdOutSink())

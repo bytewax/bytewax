@@ -18,7 +18,7 @@ from bytewax.run import (
     _prepare_import,
 )
 
-from .bytewax import (
+from .bytewax import (  # type: ignore
     cluster_main,
     run_main,
     test_cluster,

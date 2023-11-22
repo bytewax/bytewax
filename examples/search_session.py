@@ -6,47 +6,45 @@ from typing import List
 from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.operators import window as wop
+from bytewax.operators import window as window_op
 from bytewax.operators.window import EventClockConfig, SessionWindow
 from bytewax.testing import TestingSource
 
 
 @dataclass
 class Event:
+    user: int
     dt: datetime
 
 
 @dataclass
 class AppOpen(Event):
-    user: int
+    ...
 
 
 @dataclass
 class Search(Event):
-    user: int
     query: str
 
 
 @dataclass
 class Results(Event):
-    user: int
     items: List[str]
 
 
 @dataclass
 class ClickResult(Event):
-    user: int
     item: str
 
 
 @dataclass
 class AppClose(Event):
-    user: int
+    ...
 
 
 @dataclass
 class Timeout(Event):
-    user: int
+    ...
 
 
 start = datetime(2023, 1, 1, tzinfo=timezone.utc)
@@ -108,21 +106,23 @@ def calc_ctr(search_session):
 flow = Dataflow("search session")
 stream = op.input("inp", flow, TestingSource(IMAGINE_THESE_EVENTS_STREAM_FROM_CLIENTS))
 # event
-stream = op.map("initial_session", stream, lambda e: [e])
-stream = op.key_on("add_key", stream, lambda e: str(e[0].user))
+initial_session_stream = op.map("initial_session", stream, lambda e: [e])
+keyed_stream = op.key_on("add_key", initial_session_stream, lambda e: str(e[0].user))
 # (user, [event])
 clock = EventClockConfig(lambda x: x[-1].dt, timedelta(seconds=10))
 window = SessionWindow(gap=timedelta(seconds=5))
-stream = wop.reduce_window("sessionizer", stream, clock, window, operator.add)
+session_stream = window_op.reduce_window(
+    "sessionizer", keyed_stream, clock, window, operator.add
+)
 # (user, [event, ...])
-stream = op.map("remove_key", stream, remove_key)
+event_stream = op.map("remove_key", session_stream, remove_key)
 # [event, ...]
 # Take a user session and split it up into a search session, one per
 # search.
-stream = op.flat_map(
-    "split_into_searches", stream, lambda x: list(split_into_searches(x))
+event_stream = op.flat_map(
+    "split_into_searches", event_stream, lambda x: list(split_into_searches(x))
 )
-stream = op.filter("filter_search", stream, has_search)
+event_stream = op.filter("filter_search", event_stream, has_search)
 # Calculate search CTR per search.
-stream = op.map("calc_ctr", stream, calc_ctr)
-op.output("out", stream, StdOutSink())
+ctr_stream = op.map("calc_ctr", event_stream, calc_ctr)
+op.output("out", ctr_stream, StdOutSink())

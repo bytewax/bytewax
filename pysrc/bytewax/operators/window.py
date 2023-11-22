@@ -87,7 +87,7 @@ from bytewax.dataflow import (
 )
 from bytewax.operators import KeyedStream, _identity, _JoinState, _untyped_none
 
-from ..bytewax import (  # noqa: F401
+from ..bytewax import (  # type: ignore
     ClockConfig,
     EventClockConfig,
     SessionWindow,

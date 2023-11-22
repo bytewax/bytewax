@@ -32,5 +32,5 @@ vals, headers, nums = op.key_split(
 op.inspect("v", vals)
 op.inspect("h", headers)
 op.inspect("n", nums)
-tog = op.join_named("join", flow, vals=vals, headers=headers, nums=nums)
+tog = op.join_named("join", vals=vals, headers=headers, nums=nums)
 op.output("tog_out", tog, StdOutSink())

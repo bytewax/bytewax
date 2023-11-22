@@ -200,7 +200,7 @@ recovery.
 import argparse
 from pathlib import Path
 
-from .bytewax import (
+from .bytewax import (  # type: ignore
     InconsistentPartitionsError,
     MissingPartitionsError,
     NoPartitionsError,

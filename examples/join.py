@@ -14,11 +14,11 @@ windower = TumblingWindow(
 
 flow = Dataflow("join")
 inp1 = op.input("inp1", flow, TestingSource(["a"]))
-inp1 = op.key_on("k1", inp1, lambda x: "KEY")
+k_inp1 = op.key_on("k1", inp1, lambda x: "KEY")
 inp2 = op.input("inp2", flow, TestingSource(["b"]))
-inp2 = op.key_on("k2", inp2, lambda x: "KEY")
+k_inp2 = op.key_on("k2", inp2, lambda x: "KEY")
 inp3 = op.input("inp3", flow, TestingSource(["c"]))
-inp3 = op.key_on("k3", inp3, lambda x: "KEY")
+k_inp3 = op.key_on("k3", inp3, lambda x: "KEY")
 
-joined = op.join("j1", inp1, inp2, inp3)
+joined = op.join("j1", k_inp1, k_inp2, k_inp3)
 op.output("out", joined, StdOutSink())

@@ -21,6 +21,6 @@ stream = op.map("lower", stream, lower)
 # full line lowercased
 stream = op.flat_map("tokenize", stream, tokenize)
 # "word"
-stream = op.count_final("count", stream, lambda word: word)
+count_stream = op.count_final("count", stream, lambda word: word)
 # ("word", count)
-op.output("out", stream, StdOutSink())
+op.output("out", count_stream, StdOutSink())

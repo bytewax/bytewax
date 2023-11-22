@@ -130,7 +130,7 @@ from pathlib import Path
 
 from bytewax.recovery import RecoveryConfig
 
-from .bytewax import cli_main
+from .bytewax import cli_main  # type: ignore
 
 __all__ = [
     "cli_main",
@@ -274,7 +274,7 @@ def _prepare_import(import_str):
 
     """
     path, _, flow_name = import_str.partition(":")
-    if flow_name == "":
+    if not flow_name:
         flow_name = "flow"
     path = os.path.realpath(path)
 
@@ -418,7 +418,7 @@ def _parse_args():
         if "BYTEWAX_HOSTFILE_PATH" in env:
             with open(env["BYTEWAX_HOSTFILE_PATH"]) as hostfile:
                 args.addresses = ";".join(
-                    [address.strip() for address in hostfile if address.strip() != ""]
+                    [address.strip() for address in hostfile if address.strip()]
                 )
         else:
             arg_parser.error(
