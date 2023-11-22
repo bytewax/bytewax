@@ -30,7 +30,7 @@ def normalize(key__data):
     _, data = key__data
     json_data = json.loads(data)
     json_data["value"] = float(data["value"]) / 100
-    return data["instance"], json_data
+    return json_data["instance"], json_data
 
 
 normalized_stream = op.map("normalize", stream, normalize)

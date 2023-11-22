@@ -39,7 +39,7 @@ from typing import (
     TypeVar,
 )
 
-from .bytewax import AbortExecution  # type: ignore
+from .bytewax import AbortExecution  # type: ignore[import]
 
 __all__ = [
     "AbortExecution",

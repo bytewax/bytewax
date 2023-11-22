@@ -130,7 +130,7 @@ from pathlib import Path
 
 from bytewax.recovery import RecoveryConfig
 
-from .bytewax import cli_main  # type: ignore
+from .bytewax import cli_main  # type: ignore[import]
 
 __all__ = [
     "cli_main",
