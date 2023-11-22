@@ -126,7 +126,7 @@ from bytewax.dataflow import (
     operator,
 )
 from bytewax.inputs import Source
-from bytewax.outputs import Sink
+from bytewax.outputs import DynamicSink, Sink, StatelessSinkPartition
 
 X = TypeVar("X")  # Item
 Y = TypeVar("Y")  # Output Item
@@ -1370,6 +1370,40 @@ def min_final(
 
     """
     return reduce_final("reduce_final", up, partial(min, key=by))
+
+
+@dataclass
+class _RaisePartition(StatelessSinkPartition[Any]):
+    step_id: str
+
+    def write_batch(self, items: List[Any]) -> None:
+        for item in items:
+            msg = f"`raises` step {self.step_id!r} got an item: {item!r}"
+            raise RuntimeError(msg)
+
+
+@dataclass
+class _RaiseSink(DynamicSink[Any]):
+    step_id: str
+
+    def build(self, _worker_index: int, _worker_count: int) -> _RaisePartition:
+        return _RaisePartition(self.step_id)
+
+
+@operator
+def raises(
+    step_id: str,
+    up: Stream[Any],
+) -> None:
+    """Raise an exception and crash the dataflow on any item.
+
+    Args:
+        step_id: Unique ID.
+
+        up: Any item on this stream will throw a `RuntimeError`.
+
+    """
+    return output("output", up, _RaiseSink(step_id))
 
 
 @operator
