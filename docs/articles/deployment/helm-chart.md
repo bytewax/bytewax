@@ -1,3 +1,7 @@
+# Helm chart
+
+(below is old K8S ecosystem)
+
 As we mentioned in our [Execution section](/docs/getting-started/execution#multiple-workers-manual-cluster). Bytewax allows you to run a dataflow program in a coordinated set of processes if you use the `bytewax.cluster_main()` entry point.
 
 That entry point requires the addresses of all the processes and assign them each a unique ID.

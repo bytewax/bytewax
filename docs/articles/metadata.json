@@ -12,16 +12,12 @@
         "filename": "installation"
       },
       {
-        "title": "Dataflow",
-        "filename": "dataflow-basics"
-      },
-      {
         "title": "Simple example",
         "filename": "simple-example"
       },
       {
         "title": "Streaming example",
-        "filename": "kafka-example"
+        "filename": "streaming-example"
       },
       {
         "title": "Batching/windowing example",
@@ -32,30 +28,76 @@
         "filename": "wordcount-example"
       },
       {
-        "title": "Polling example",
-        "filename": "polling-example"
+        "title": "Polling Input example",
+        "filename": "polling-input-example"
       },
       {
-        "title": "Execution",
-        "filename": "execution"
+        "title": "Recovering from a snapshot",
+        "filename": "recovering-snapshot"
+      },
+    ]
+  },
+  {
+    "category": "Concepts",
+    "directory": "concepts",
+    "articles": [
+      {
+        "title": "Streaming and batch execution",
+        "filename": "streaming-and-batch-execution"
+      },
+      {
+        "title": "Workers and parallelization",
+        "filename": "workers-and-parallelization"
+      },
+      {
+        "title": "Dataflow programming",
+        "filename": "dataflow-programming"
+      },
+      {
+        "title": "Windowing",
+        "filename": "windowing"
+      },
+      {
+        "title": "Recovery and State handling",
+        "filename": "recovery"
+      },
+      {
+        "title": "Inputs and Outputs",
+        "filename": "inputs-and-outputs"
+      },
+      {
+        "title": "PubSub, Queues, and Polling",
+        "filename": "pubsub-queues-polling"
+      },
+      {
+        "title": "Design Patterns",
+        "filename": "design-patterns"
+      },
+      {
+        "title": "Rescaling",
+        "filename": "rescaling"
+      },
+      {
+        "title": "Analytics and Operational tier",
+        "filename": "analytics-and-operational"
       }
     ]
   },
   {
-    "category": "Going deeper",
-    "directory": "customization",
+    "category": "Advanced Concepts",
+    "directory": "advanced-concepts",
     "articles": [
       {
-        "title": "Inputs and Outputs",
-        "filename": "ins_and_outs"
+        "title": "Custom Unary Operators",
+        "filename": "custom-unary-operators"
       },
       {
-        "title": "Operators",
-        "filename": "operators"
+        "title": "Custom IO Connectors",
+        "filename": "custom-io-connectors"
       },
       {
-        "title": "Design patterns",
-        "filename": "design-patterns"
+        "title": "Extending Python API",
+        "filename": "extending-python-api"
       }
     ]
   },
@@ -68,10 +110,6 @@
         "filename": "container"
       },
       {
-        "title": "Kubernetes",
-        "filename": "k8s-ecosystem"
-      },
-      {
         "title": "Using Waxctl to run your Dataflows in Kubernetes",
         "filename": "waxctl"
       },
@@ -82,33 +120,19 @@
       {
         "title": "Using Waxctl to run your Dataflows on GCP",
         "filename": "waxctl-gcp"
-      }
-    ]
-  },
-  {
-    "category": "Maintenance",
-    "directory": "operating",
-    "articles": [
+      },
       {
-        "title": "Recovery",
-        "filename": "recovery"
+        "title": "Helm chart",
+        "filename": "helm-chart"
       },
       {
         "title": "Observability",
         "filename": "observability"
       },
       {
-        "title": "Debugging tips",
-        "filename": "debugging"
+        "title": "Metrics",
+        "filename": "metrics"
       },
-      {
-        "title": "Rescaling",
-        "filename": "rescaling"
-      },
-      {
-        "title": "Troubleshooting",
-        "filename": "troubleshooting"
-      }
     ]
   },
   {
@@ -116,16 +140,24 @@
     "directory": "reference",
     "articles": [
       {
+        "title": "API Documentation",
+        "filename": "api-docs"
+      },
+      {
         "title": "Glossary",
         "filename": "glossary"
+      },
+      {
+        "title": "Migration Guide",
+        "filename": "migration"
       },
       {
         "title": "Sample Kafka producer",
         "filename": "sample-producer"
       },
       {
-        "title": "Migration Guide",
-        "filename": "migration"
+        "title": "Testing and Debugging",
+        "filename": "testing"
       },
       {
         "title": "Support",
@@ -138,16 +170,20 @@
     "directory": "contributing",
     "articles": [
       {
-        "title": "Architecture",
+        "title": "Architecture overview",
         "filename": "architecture"
       },
       {
-        "title": "Local testing",
-        "filename": "testing"
+        "title": "Contributing guide",
+        "filename": "contrib-guide"
       },
       {
-        "title": "Contributing guide",
-        "filename": "guide"
+        "title": "Custom input connectors/connector hub",
+        "filename": "connector-hub"
+      },
+      {
+        "title": "Custom operators/operator hub",
+        "filename": "operator-hub"
       }
     ]
   }
