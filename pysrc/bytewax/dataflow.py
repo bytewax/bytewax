@@ -76,6 +76,10 @@ from typing import (
     runtime_checkable,
 )
 
+from typing_extensions import Concatenate, ParamSpec
+
+P = ParamSpec("P")
+R = TypeVar("R")
 X_co = TypeVar("X_co", covariant=True)
 
 
@@ -316,6 +320,52 @@ class Stream(Generic[X_co]):
     @staticmethod
     def _into_kwargs(obj: "MultiStream[X_co]") -> Dict[str, "Stream[X_co]"]:
         return dict(obj.streams)
+
+    def then(
+        self,
+        op_fn: Callable[Concatenate[str, "Stream[X_co]", P], R],
+        step_id: str,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> R:
+        """Convenience method to add an operator in a fluent style.
+
+        The following two dataflow definitions are equivalent:
+
+        >>> def add_one(item):
+        ...     return item + 1
+
+        >>> import bytewax.operators as op
+        >>> from bytewax.testing import run_main, TestingSource
+        >>> from bytewax.dataflow import Dataflow
+
+        >>> flow = Dataflow("map_eg")
+        >>> s = op.input("inp", flow, TestingSource(range(3)))
+        >>> s = op.map("add_one", s, add_one)
+
+        >>> flow = Dataflow("map_eg")
+        >>> s = op.input("inp", flow, TestingSource(range(3))) \
+        ...     .then(op.map, "add_one", add_one)
+
+        Because of the limitations of the fluent style having a
+        required single stream parameter, this won't work for all
+        operators. In general, it's best for operators that are shaped
+        like `bytewax.operators.map`: a single stream as input and a
+        single stream as output.
+
+        Args:
+            step_id: Unique ID.
+
+            op_fn: Operator function. This fluent transformation only
+              works on operators that take a single stream as the
+              second argument.
+
+            *args: Remaining arguments to pass to `op_fn`.
+
+            **kwargs: Remaining arguments to pass to `op_fn`.
+
+        """
+        return op_fn(step_id, self, *args, **kwargs)
 
 
 @dataclass(frozen=True)

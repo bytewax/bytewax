@@ -22,6 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "jsonpickle>=3",
+    "typing_extensions>=4",
 ]
 
 extras = [

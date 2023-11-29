@@ -3,7 +3,7 @@ from typing import List
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow, Stream, operator
-from bytewax.testing import TestingSource
+from bytewax.testing import TestingSink, TestingSource, run_main
 from pytest import raises
 
 
@@ -22,3 +22,21 @@ def test_raises_on_nested_stream():
     expect = "inconsistent stream scoping"
     with raises(ValueError, match=re.escape(expect)):
         bad_op_with_nested_stream("bad", inp1, [inp2])
+
+
+def test_then():
+    inp = [0, 1, 2]
+    out = []
+
+    def add_one(item):
+        return item + 1
+
+    flow = Dataflow("test_df")
+    (
+        op.input("inp", flow, TestingSource(inp))
+        .then(op.map, "add_one", add_one)
+        .then(op.output, "out", TestingSink(out))
+    )
+
+    run_main(flow)
+    assert out == [1, 2, 3]
