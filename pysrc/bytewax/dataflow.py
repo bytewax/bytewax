@@ -344,8 +344,10 @@ class Stream(Generic[X_co]):
         >>> s = op.map("add_one", s, add_one)
 
         >>> flow = Dataflow("map_eg")
-        >>> s = op.input("inp", flow, TestingSource(range(3))) \
+        >>> s = (
+        ...     op.input("inp", flow, TestingSource(range(3)))
         ...     .then(op.map, "add_one", add_one)
+        ... )
 
         Because of the limitations of the fluent style having a
         required single stream parameter, this won't work for all
