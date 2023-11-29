@@ -1,8 +1,9 @@
 import logging
-import time
 from datetime import timedelta
+from typing import Optional
 
 import requests
+from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import SimplePollingSource
@@ -19,27 +20,20 @@ class HNSource(SimplePollingSource):
         )
 
 
-def download_metadata(hn_id):
+def download_metadata(hn_id) -> Optional[dict]:
     # Given an hacker news id returned from the api, fetch metadata
-    req = requests.get(f"https://hacker-news.firebaseio.com/v0/item/{hn_id}.json")
-    if not req.json():
-        logger.warning(f"error getting payload from item {hn_id} trying again")
-        time.sleep(0.5)
-        return download_metadata(hn_id)
-    return req.json()
+    # Try 3 times, waiting more and more, or give up
+    data = requests.get(
+        f"https://hacker-news.firebaseio.com/v0/item/{hn_id}.json"
+    ).json()
 
-
-def recurse_tree(metadata):
-    try:
-        parent_id = metadata["parent"]
-        parent_metadata = download_metadata(parent_id)
-        return recurse_tree(parent_metadata)
-    except KeyError:
-        return (metadata["id"], {**metadata, "key_id": metadata["id"]})
+    if data is None:
+        logger.warning(f"Couldn't fetch item {hn_id}, skipping")
+    return data
 
 
 flow = Dataflow("hn_scraper")
-max_id = flow.input("in", HNSource(timedelta(seconds=15)))
+max_id = op.input("in", flow, HNSource(timedelta(seconds=1)))
 
 
 def mapper(old_max_id, new_max_id):
@@ -49,14 +43,12 @@ def mapper(old_max_id, new_max_id):
     return (new_max_id, range(old_max_id, new_max_id))
 
 
-ids = (
-    max_id.stateful_flat_map("range", mapper)
-    .map("strip_key", lambda key_max: key_max[1])
-    .redistribute("redist")
-)
+ids = op.stateful_map("range", max_id, lambda: None, mapper)
+ids = op.flat_map("strip_key_flatten", ids, lambda key_ids: key_ids[1])
+ids = op.redistribute("redist", ids)
+
 # If you run this dataflow with multiple workers, downloads in the
 # next `map` will be parallelized thanks to .redistribute()
-
-items = ids.map("meta_download", download_metadata)
-stories = items.filter("just_stories", lambda meta: meta["type"] == "story")
-stories.output("out", StdOutSink())
+items = op.filter_map("meta_download", ids, download_metadata)
+stories = op.filter("just_stories", items, lambda meta: meta["type"] == "story")
+op.output("out", stories, StdOutSink())

@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
+from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
+from bytewax.operators.window import SystemClockConfig, TumblingWindow
 from bytewax.testing import TestingSource
-from bytewax.window import SystemClockConfig, TumblingWindow
 
 clock = SystemClockConfig()
 windower = TumblingWindow(
@@ -12,8 +13,12 @@ windower = TumblingWindow(
 
 
 flow = Dataflow("join")
-inp1 = flow.input("inp1", TestingSource(["a"])).key_on("k1", lambda x: "KEY")
-inp2 = flow.input("inp2", TestingSource(["b"])).key_on("k2", lambda x: "KEY")
-inp3 = flow.input("inp3", TestingSource(["c"])).key_on("k3", lambda x: "KEY")
+inp1 = op.input("inp1", flow, TestingSource(["a"]))
+k_inp1 = op.key_on("k1", inp1, lambda x: "KEY")
+inp2 = op.input("inp2", flow, TestingSource(["b"]))
+k_inp2 = op.key_on("k2", inp2, lambda x: "KEY")
+inp3 = op.input("inp3", flow, TestingSource(["c"]))
+k_inp3 = op.key_on("k3", inp3, lambda x: "KEY")
 
-inp1.join_inner("j1", inp2).join_inner("j2", inp3).output("out", StdOutSink())
+joined = op.join("j1", k_inp1, k_inp2, k_inp3)
+op.output("out", joined, StdOutSink())

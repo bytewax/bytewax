@@ -75,6 +75,9 @@ testpaths = [
 [tool.maturin]
 python-source = "pysrc"
 
+[tool.mypy]
+mypy_path = "pysrc"
+
 [tool.ruff]
 select = [
     "A",

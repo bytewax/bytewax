@@ -1,5 +1,6 @@
 import re
 
+import bytewax.operators as op
 from bytewax.connectors.files import FileSource
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
@@ -14,15 +15,12 @@ def tokenize(line):
 
 
 flow = Dataflow("wordcount")
-lines = flow.input("inp", FileSource("examples/sample_data/wordcount.txt"))
+stream = op.input("inp", flow, FileSource("examples/sample_data/wordcount.txt"))
 # Full line WITH uppercase
-lower_lines = lines.map("lower", lower)
+stream = op.map("lower", stream, lower)
 # full line lowercased
-lower_words = lower_lines.flat_map("tokenize", tokenize)
+stream = op.flat_map("tokenize", stream, tokenize)
 # "word"
-word_counts = lower_words.count_final(
-    "count",
-    lambda word: word,
-)
+count_stream = op.count_final("count", stream, lambda word: word)
 # ("word", count)
-word_counts.output("out", StdOutSink())
+op.output("out", count_stream, StdOutSink())

@@ -131,7 +131,7 @@ Open your browser at [http://127.0.0.1:16686](http://127.0.0.1:16686)
 and take a look at traces coming into Jaeger's UI.
 
 """
-from .bytewax import (  # noqa: F401
+from .bytewax import (  # type: ignore[import]
     JaegerConfig,
     OtlpTracingConfig,
     TracingConfig,

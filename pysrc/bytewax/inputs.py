@@ -39,7 +39,7 @@ from typing import (
     TypeVar,
 )
 
-from .bytewax import AbortExecution
+from .bytewax import AbortExecution  # type: ignore[import]
 
 __all__ = [
     "AbortExecution",
@@ -449,7 +449,7 @@ def batch(ib: Iterable[X], batch_size: int) -> Iterator[List[X]]:
 
 
 def batch_getter(
-    getter: Callable[[], X], batch_size: int, yield_on: X = None
+    getter: Callable[[], X], batch_size: int, yield_on: Optional[X] = None
 ) -> Iterator[List[X]]:
     """Batch from a getter function that might not return an item.
 

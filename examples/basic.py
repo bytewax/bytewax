@@ -1,4 +1,5 @@
 import bytewax.operators as op
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSource
 
@@ -28,4 +29,4 @@ odds = op.map("double", odds, double)
 combo = op.merge("merge", evens, odds)
 combo = op.map("minus_one", combo, minus_one)
 combo = op.map("stringy", combo, stringy)
-op.inspect("out", combo)
+op.output("out", combo, StdOutSink())

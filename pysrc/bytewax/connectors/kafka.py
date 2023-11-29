@@ -177,7 +177,7 @@ class KafkaSource(FixedPartitionedSource[Tuple[bytes, bytes], Optional[int]]):
     ) -> _KafkaSourcePartition:
         """See ABC docstring."""
         part_idx, topic = for_part.split("-", 1)
-        part_idx = int(part_idx)
+        part_idx = int(part_idx)  # type: ignore
         # TODO: Warn and then return None. This might be an indication
         # of dataflow continuation with a new topic (to enable
         # re-partitioning), which is fine.

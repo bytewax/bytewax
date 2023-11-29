@@ -673,7 +673,7 @@ def operator(builder=None, *, _core: bool = False) -> Callable:
         sig_types = _norm_type_hints(builder)
         cls = _gen_op_cls(builder, sig, sig_types, _core)
         fn = _gen_op_fn(sig, sig_types, builder, cls, _core)
-        fn._op_cls = cls
+        fn._op_cls = cls  # type: ignore[attr-defined]
         return fn
 
     if builder is not None:

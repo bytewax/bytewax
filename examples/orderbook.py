@@ -2,10 +2,11 @@ import json
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import List
+from typing import List, Optional
 
 # pip install websockets
 import websockets
+from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch_async
@@ -35,7 +36,7 @@ class CoinbasePartition(StatefulSourcePartition):
         agen = _ws_agen(product_id)
         self._batcher = batch_async(agen, timedelta(seconds=0.5), 100)
 
-    def next_batch(self):
+    def next_batch(self, _sched):
         return next(self._batcher)
 
     def snapshot(self):
@@ -49,7 +50,7 @@ class CoinbaseSource(FixedPartitionedSource):
     def list_parts(self):
         return self.product_ids
 
-    def build_part(self, for_key, _resume_state):
+    def build_part(self, _sched, for_key, _resume_state):
         return CoinbasePartition(for_key)
 
 
@@ -66,8 +67,8 @@ class OrderBookSummary:
 class OrderBookState:
     bids: OrderedDict = field(default_factory=OrderedDict)
     asks: OrderedDict = field(default_factory=OrderedDict)
-    bid_price: float = None
-    ask_price: float = None
+    bid_price: Optional[float] = None
+    ask_price: Optional[float] = None
 
     def update(self, data):
         if len(self.bids) <= 0:
@@ -129,7 +130,7 @@ class OrderBookState:
                         self.bid_price = price
 
     def spread(self) -> float:
-        return self.ask_price - self.bid_price
+        return self.ask_price - self.bid_price  # type: ignore
 
     def summarize(self):
         return OrderBookSummary(
@@ -142,9 +143,9 @@ class OrderBookState:
 
 
 flow = Dataflow("orderbook")
-inp = flow.input(
-    "input", CoinbaseSource(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"])
-).assert_keyed("assert")
+inp = op.input(
+    "input", flow, CoinbaseSource(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"])
+)
 # ('BTC-USD', {
 #     'type': 'l2update',
 #     'product_id': 'BTC-USD',
@@ -158,7 +159,7 @@ def mapper(state, value):
     return (state, state.summarize())
 
 
-stats = inp.stateful_map("order_book", OrderBookState, mapper)
+stats = op.stateful_map("order_book", inp, OrderBookState, mapper)
 # ('BTC-USD', (36905.39, 0.00334873, 36905.4, 1.6e-05, 0.010000000002037268))
 
 # filter on 0.1% spread as a per
@@ -167,4 +168,5 @@ def just_large_spread(prod_summary):
     return summary.spread / summary.ask_price > 0.0001
 
 
-stats.filter("big_spread", just_large_spread).output("out", StdOutSink())
+state = op.filter("big_spread", stats, just_large_spread)
+op.output("out", stats, StdOutSink())

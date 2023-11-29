@@ -10,45 +10,21 @@ To show its abilities, we use an input that simulates a periodic source,
 with events coming in at regular intervals, and see how batches work
 with both the size and time limits.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
+import bytewax.operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+from bytewax.inputs import SimplePollingSource
 
 
-class PeriodicPartition(StatefulSourcePartition):
+class CounterSource(SimplePollingSource[int]):
     def __init__(self):
-        self._counter = 0
-        self._next_awake = datetime.now(timezone.utc)
+        super().__init__(interval=timedelta(seconds=0.25))
+        self._it = iter(range(20))
 
-    def next_batch(self):
-        res = self._counter
-        self._counter += 1
-        self._next_awake += timedelta(seconds=0.25)
-
-        if self._counter >= 20:
-            raise StopIteration()
-
-        return [res]
-
-    def next_awake(self):
-        return self._next_awake
-
-    def snapshot(self):
-        return None
-
-
-class PeriodicSource(FixedPartitionedSource):
-    def list_parts(self):
-        return ["singleton"]
-
-    def build_part(self, for_part, resume_state):
-        return PeriodicPartition()
-
-
-def add_key(x):
-    return ("ALL", x)
+    def next_item(self):
+        return next(self._it)
 
 
 def calc_avg(key__batch):
@@ -56,26 +32,31 @@ def calc_avg(key__batch):
     return sum(batch) / len(batch)
 
 
-flow = Dataflow()
+flow = Dataflow("batch")
 # Emit 20 items, with a 0.25 seconds timeout, so ~4 items per second
-flow.input("in", PeriodicSource())
-# Add a key for the stateful operator
-flow.map(add_key)
+stream = op.input("in", flow, CounterSource())
+keyed_stream = op.key_on("key", stream, lambda _: "ALL")
 
 # Batch for either 3 elements, or 1 second. This should emit at
 # the size limit since we emit more than 3 items per second.
-flow.batch("batch", max_size=3, timeout=timedelta(seconds=1))
-flow.inspect(lambda x: print(f"Batch:\t\t{x[1]}"))
+batched_stream = op.batch(
+    "batch_3_items", keyed_stream, batch_size=3, timeout=timedelta(seconds=1)
+)
+op.inspect("ins_batch", stream)
 
 # Do some operation on the whole batch
-flow.map(calc_avg)
-flow.inspect(lambda x: print(f"Avg:\t\t{x}"))
+avg_stream = op.map("calc_avg", batched_stream, calc_avg)
+op.inspect("ins_avg", avg_stream)
 
 # Now batch for either 10 elements or 1 second.
 # This time, the batching should happen at the time limit,
 # since we don't emit items fast enough to fill the size
 # before the timeout triggers.
-flow.map(add_key)
-flow.batch("batch", max_size=10, timeout=timedelta(seconds=1))
-flow.map(lambda x: f"Avg batch:\t{x[1]}")
-flow.output("out", StdOutSink())
+same_key_stream = op.key_on("same_key", avg_stream, lambda _: "ALL")
+batch_avg_stream = op.batch(
+    "batch_avgs", same_key_stream, batch_size=10, timeout=timedelta(seconds=1)
+)
+formatted_stream = op.map(
+    "convert_to_string", batch_avg_stream, lambda x: f"Avg batch:\t{x[1]}"
+)
+op.output("out", formatted_stream, StdOutSink())
