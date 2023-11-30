@@ -453,7 +453,7 @@ def _gen_inp_fields(sig: Signature, sig_types: Dict[str, Type]) -> Dict[str, Typ
     return inp_fields
 
 
-def _gen_out_fields(sig: Signature, sig_types: Dict[str, Type]) -> Dict[str, Type]:
+def _gen_out_fields(_sig: Signature, sig_types: Dict[str, Type]) -> Dict[str, Type]:
     out_fields = {}
     out_typ = sig_types.get("return", object)
     # A single `Stream` is stored by convention in a field named
@@ -572,7 +572,7 @@ def _gen_op_fn(
     sig_types: Dict[str, Type],
     builder: FunctionType,
     cls: Type[Operator],
-    core: bool,
+    _core: bool,
 ) -> Callable:
     # Wraps ensures that docstrings and type annotations are the same.
     @functools.wraps(builder)
