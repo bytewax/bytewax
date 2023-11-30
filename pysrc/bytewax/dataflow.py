@@ -328,20 +328,25 @@ class Stream(Generic[X_co]):
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> R:
-        """Convenience method to add an operator in a fluent style.
+        """Chain a new step onto this stream.
+
+        This allows you to add intermediate steps to a dataflow
+        without needing to nest operator function calls or make
+        intermediate variables.
 
         The following two dataflow definitions are equivalent:
-
-        >>> def add_one(item):
-        ...     return item + 1
 
         >>> import bytewax.operators as op
         >>> from bytewax.testing import run_main, TestingSource
         >>> from bytewax.dataflow import Dataflow
+        >>> def add_one(item):
+        ...     return item + 1
 
         >>> flow = Dataflow("map_eg")
         >>> s = op.input("inp", flow, TestingSource(range(3)))
         >>> s = op.map("add_one", s, add_one)
+
+        and
 
         >>> flow = Dataflow("map_eg")
         >>> s = (
@@ -349,11 +354,14 @@ class Stream(Generic[X_co]):
         ...     .then(op.map, "add_one", add_one)
         ... )
 
-        Because of the limitations of the fluent style having a
-        required single stream parameter, this won't work for all
-        operators. In general, it's best for operators that are shaped
-        like `bytewax.operators.map`: a single stream as input and a
-        single stream as output.
+        This kind of method chaining is called a "fluent style API".
+
+        Because this style requires a single upstream before the `.`,
+        this transformation only works for operators that could be
+        called like `op_fn(step_id, upstream, ...)`, like
+        `bytewax.operators.map`. It will not work for operators like
+        `bytewax.operators.join_named`, since they do not have that
+        shape of function signature.
 
         Args:
             step_id: Unique ID.
