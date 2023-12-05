@@ -119,6 +119,7 @@ from typing import (
 )
 
 from bytewax.dataflow import (
+    ArgsMultiStream,
     Dataflow,
     MultiStream,
     Stream,
@@ -1185,7 +1186,7 @@ def key_split(
     up: Stream[X],
     key: Callable[[X], str],
     *values: Callable[[X], V],
-) -> MultiStream[Tuple[str, V]]:
+) -> ArgsMultiStream[Tuple[str, V]]:
     """Split objects apart into a separate stream for each field.
 
     This allows you to use all the keyed operators that only are
@@ -1210,7 +1211,7 @@ def key_split(
     """
     keyed_up = key_on("key", up, key)
     streams = {
-        str(i): map_value(f"value_{str(i)}", keyed_up, value)
+        i: map_value(f"value_{str(i)}", keyed_up, value)
         for i, value in enumerate(values)
     }
     return MultiStream(streams)
