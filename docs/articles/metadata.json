@@ -24,6 +24,10 @@
         "filename": "batch-example"
       },
       {
+        "title": "Join example",
+        "filename": "join-example"
+      },
+      {
         "title": "Wordcount example",
         "filename": "wordcount-example"
       },
@@ -52,6 +56,10 @@
       {
         "title": "Dataflow programming",
         "filename": "dataflow-programming"
+      },
+      {
+        "title": "Joins",
+        "filename": "joins"
       },
       {
         "title": "Windowing",
