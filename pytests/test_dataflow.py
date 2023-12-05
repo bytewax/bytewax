@@ -48,8 +48,7 @@ def test_multistream_raises_on_use_as_stream():
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
     ms = op.key_split("split", s, lambda _x: "KEY", lambda _x: "a", lambda _x: "b")
-    op.map("map", ms, lambda s: s.upper())  # type: ignore
 
     expect = "`MultiStream` must be unpacked"
     with raises(TypeError, match=re.escape(expect)):
-        run_main(flow)
+        op.map("map", ms, lambda s: s.upper())  # type: ignore
