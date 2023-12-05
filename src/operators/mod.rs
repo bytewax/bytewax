@@ -204,7 +204,7 @@ where
         py: Python,
         step_id: StepId,
         inspector: TdPyCallable,
-    ) -> PyResult<ClockStream<S>>;
+    ) -> PyResult<(Stream<S, TdPyAny>, ClockStream<S>)>;
 }
 
 impl<S> InspectDebugOp<S> for Stream<S, TdPyAny>
@@ -217,13 +217,14 @@ where
         _py: Python,
         step_id: StepId,
         inspector: TdPyCallable,
-    ) -> PyResult<ClockStream<S>> {
+    ) -> PyResult<(Stream<S, TdPyAny>, ClockStream<S>)> {
         let this_worker = self.scope().w_index();
 
         let mut op_builder = OperatorBuilder::new(step_id.0.clone(), self.scope());
 
         let mut self_handle = op_builder.new_input(self, Pipeline);
 
+        let (mut downstream_output, downstream) = op_builder.new_output();
         let (mut clock_output, clock) = op_builder.new_output();
 
         op_builder.build(move |init_caps| {
@@ -234,19 +235,23 @@ where
                 tracing::debug_span!("operator", operator = step_id.0.clone()).in_scope(|| {
                     self_handle.buffer_notify(&mut items_inbuf, &mut ncater);
 
-                    let mut downstream_handle = clock_output.activate();
+                    let mut downstream_handle = downstream_output.activate();
+                    let mut clock_handle = clock_output.activate();
                     ncater.for_each(
                         input_frontiers,
                         |caps, ()| {
-                            let cap = &caps[0];
-                            let epoch = cap.time();
+                            let downstream_cap = &caps[0];
+                            let clock_cap = &caps[1];
+                            let epoch = downstream_cap.time();
 
-                            if let Some(items) = items_inbuf.remove(epoch) {
-                                let mut clock_session = downstream_handle.session(cap);
+                            if let Some(mut items) = items_inbuf.remove(epoch) {
+                                let mut downstream_session =
+                                    downstream_handle.session(downstream_cap);
+                                let mut clock_session = clock_handle.session(clock_cap);
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    for item in items {
-                                        let item = PyObject::from(item);
+                                    for item in items.iter() {
+                                        let item = <&PyObject>::from(item);
 
                                         inspector
                                             .as_ref(py)
@@ -264,6 +269,7 @@ where
                                     Ok(())
                                 }));
 
+                                downstream_session.give_vec(&mut items);
                                 clock_session.give(());
                             }
                         },
@@ -273,7 +279,7 @@ where
             }
         });
 
-        Ok(clock)
+        Ok((downstream, clock))
     }
 }
 

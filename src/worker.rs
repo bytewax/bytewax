@@ -438,9 +438,13 @@ where
                             .get_upstream(py, &step, "up")
                             .reraise("core operator `inspect_debug` missing port")?;
 
-                        let clock = up.inspect_debug(py, step_id, inspector)?;
+                        let (down, clock) = up.inspect_debug(py, step_id, inspector)?;
 
                         outputs.push(clock);
+
+                        streams
+                            .insert_downstream(py, &step, "down", down)
+                            .reraise("core operator `inspect_debug` missing port")?;
                     }
                     "merge" => {
                         let ups = streams

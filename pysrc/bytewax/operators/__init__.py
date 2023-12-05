@@ -287,7 +287,7 @@ def inspect_debug(
     step_id: str,
     up: Stream[X],
     inspector: Callable[[str, X, int, int], None] = _default_debug_inspector,
-) -> None:
+) -> Stream[X]:
     """Observe items, their worker, and their epoch for debugging.
 
     >>> import bytewax.operators as op
@@ -310,8 +310,11 @@ def inspect_debug(
             the epoch of that item, and the worker processing the
             item. Defaults to printing out all the arguments.
 
+    Return:
+        The upstream unmodified.
+
     """
-    return None
+    return Stream(f"{up._scope.parent_id}.down", up._scope)
 
 
 @operator(_core=True)
@@ -944,7 +947,7 @@ def inspect(
     step_id: str,
     up: Stream[X],
     inspector: Callable[[str, X], None] = _default_inspector,
-) -> None:
+) -> Stream[X]:
     """Observe items for debugging.
 
     >>> import bytewax.operators as op
@@ -965,6 +968,9 @@ def inspect(
 
         inspector: Called with the step ID and each item in the
             stream. Defaults to printing the step ID and each item.
+
+    Returns:
+        The upstream unmodified.
 
     """
 
