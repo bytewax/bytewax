@@ -12,32 +12,100 @@
         "filename": "installation"
       },
       {
-        "title": "A simple example",
+        "title": "Simple example",
         "filename": "simple-example"
       },
       {
-        "title": "Execution",
-        "filename": "execution"
+        "title": "Streaming example",
+        "filename": "streaming-example"
       },
       {
-        "title": "Inputs and Outputs",
-        "filename": "ins_and_outs"
+        "title": "Batching/windowing example",
+        "filename": "batch-example"
       },
       {
-        "title": "Operators",
-        "filename": "operators"
+        "title": "Join example",
+        "filename": "join-example"
       },
       {
-        "title": "Recovery",
+        "title": "Wordcount example",
+        "filename": "wordcount-example"
+      },
+      {
+        "title": "Polling Input example",
+        "filename": "polling-input-example"
+      },
+      {
+        "title": "Recovering from a snapshot",
+        "filename": "recovering-snapshot"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "directory": "concepts",
+    "articles": [
+      {
+        "title": "Streaming and batch execution",
+        "filename": "streaming-and-batch-execution"
+      },
+      {
+        "title": "Workers and parallelization",
+        "filename": "workers-and-parallelization"
+      },
+      {
+        "title": "Dataflow programming",
+        "filename": "dataflow-programming"
+      },
+      {
+        "title": "Joins",
+        "filename": "joins"
+      },
+      {
+        "title": "Windowing",
+        "filename": "windowing"
+      },
+      {
+        "title": "Recovery and State handling",
         "filename": "recovery"
       },
       {
-        "title": "Observability",
-        "filename": "observability"
+        "title": "Inputs and Outputs",
+        "filename": "inputs-and-outputs"
       },
       {
-        "title": "Design patterns",
+        "title": "PubSub, Queues, and Polling",
+        "filename": "pubsub-queues-polling"
+      },
+      {
+        "title": "Design Patterns",
         "filename": "design-patterns"
+      },
+      {
+        "title": "Rescaling",
+        "filename": "rescaling"
+      },
+      {
+        "title": "Analytics and Operational tier",
+        "filename": "analytics-and-operational"
+      }
+    ]
+  },
+  {
+    "category": "Advanced Concepts",
+    "directory": "advanced-concepts",
+    "articles": [
+      {
+        "title": "Custom Unary Operators",
+        "filename": "custom-unary-operators"
+      },
+      {
+        "title": "Custom IO Connectors",
+        "filename": "custom-io-connectors"
+      },
+      {
+        "title": "Extending Python API",
+        "filename": "extending-python-api"
       }
     ]
   },
@@ -46,24 +114,32 @@
     "directory": "deployment",
     "articles": [
       {
-        "title": "Running a Dataflow Program in a Container",
+        "title": "Running a Dataflow in a Container",
         "filename": "container"
       },
       {
-        "title": "Bytewax Ecosystem on Kubernetes",
-        "filename": "k8s-ecosystem"
-      },
-      {
-        "title": "Using Waxctl to manage your Dataflows in Kubernetes",
+        "title": "Using Waxctl to run your Dataflows in Kubernetes",
         "filename": "waxctl"
       },
       {
-        "title": "Running your Dataflows on an AWS EC2 using Waxctl",
+        "title": "Using Waxctl to run your Dataflows on AWS",
         "filename": "waxctl-aws"
       },
       {
-        "title": "How to use Waxctl to run your Dataflows on GCP VM instances",
+        "title": "Using Waxctl to run your Dataflows on GCP",
         "filename": "waxctl-gcp"
+      },
+      {
+        "title": "Helm chart",
+        "filename": "helm-chart"
+      },
+      {
+        "title": "Observability",
+        "filename": "observability"
+      },
+      {
+        "title": "Metrics",
+        "filename": "metrics"
       }
     ]
   },
@@ -72,16 +148,50 @@
     "directory": "reference",
     "articles": [
       {
+        "title": "API Documentation",
+        "filename": "api-docs"
+      },
+      {
         "title": "Glossary",
         "filename": "glossary"
       },
       {
-        "title": "Rescaling",
-        "filename": "rescaling"
-      },
-      {
         "title": "Migration Guide",
         "filename": "migration"
+      },
+      {
+        "title": "Sample Kafka producer",
+        "filename": "sample-producer"
+      },
+      {
+        "title": "Testing and Debugging",
+        "filename": "testing"
+      },
+      {
+        "title": "Support",
+        "filename": "support"
+      }
+    ]
+  },
+  {
+    "category": "Contributing",
+    "directory": "contributing",
+    "articles": [
+      {
+        "title": "Architecture overview",
+        "filename": "architecture"
+      },
+      {
+        "title": "Contributing guide",
+        "filename": "contrib-guide"
+      },
+      {
+        "title": "Custom input connectors/connector hub",
+        "filename": "connector-hub"
+      },
+      {
+        "title": "Custom operators/operator hub",
+        "filename": "operator-hub"
       }
     ]
   }
