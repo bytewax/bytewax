@@ -397,7 +397,7 @@ class MultiStream(Generic[X_co]):
     def _scope(self):
         msg = (
             "`MultiStream` must be unpacked to use the `Stream`s inside; "
-            """e.g. `names, = op.key_split("step_id", up, """
+            """e.g. `(names,) = op.key_split("step_id", up, """
             """lambda x: x["id"], lambda x: x["name"])`"""
         )
         raise TypeError(msg)
