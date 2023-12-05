@@ -26,7 +26,7 @@ def map_dict_value(
     >>> def normalize(name):
     ...     return name.upper()
     >>> s = op.map("normalize", s, map_dict_value("name", normalize))
-    >>> op.inspect("out", s)
+    >>> _ = op.inspect("out", s)
     >>> run_main(flow)
     lens_item_map_eg.out: {'name': 'RACHEL WHITE', 'email': 'rachel@white.com'}
     lens_item_map_eg.out: {'name': 'JOHN SMITH', 'email': 'john@smith.com'}

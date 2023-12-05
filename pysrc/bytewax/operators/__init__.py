@@ -60,7 +60,7 @@ Using a defined function:
 ...     return sentence.split()
 >>> s = op.input("inp", flow, TestingSource(["hello world"]))
 >>> s = op.flat_map("split", s, split_sentence)
->>> op.inspect("out", s)
+>>> _ = op.inspect("out", s)
 >>> run_main(flow)
 use_def.out: 'hello'
 use_def.out: 'world'
@@ -70,7 +70,7 @@ Or a lambda:
 >>> flow = Dataflow("use_lambda")
 >>> s = op.input("inp", flow, TestingSource(["hello world"]))
 >>> s = op.flat_map("split", s, lambda s: s.split())
->>> op.inspect("out", s)
+>>> _ = op.inspect("out", s)
 >>> run_main(flow)
 use_lambda.out: 'hello'
 use_lambda.out: 'world'
@@ -80,7 +80,7 @@ Or an unbound method:
 >>> flow = Dataflow("use_method")
 >>> s = op.input("inp", flow, TestingSource(["hello world"]))
 >>> s = op.flat_map("split", s, str.split)
->>> op.inspect("out", s)
+>>> _ = op.inspect("out", s)
 >>> run_main(flow)
 use_method.out: 'hello'
 use_method.out: 'world'
@@ -173,8 +173,8 @@ def branch(
     >>> flow = Dataflow("branch_eg")
     >>> nums = op.input("nums", flow, TestingSource([1, 2, 3, 4, 5]))
     >>> evens, odds = op.branch("even_odd", nums, lambda x: x % 2 == 0)
-    >>> op.inspect("evens", evens)
-    >>> op.inspect("odds", odds)
+    >>> _ = op.inspect("evens", evens)
+    >>> _ = op.inspect("odds", odds)
     >>> run_main(flow)
     branch_eg.odds: 1
     branch_eg.evens: 2
@@ -229,7 +229,7 @@ def flat_map(
     >>> def split_into_words(sentence):
     ...     return sentence.split()
     >>> s = op.flat_map("split_words", s, split_into_words)
-    >>> op.inspect("out", s)
+    >>> _ = op.inspect("out", s)
     >>> run_main(flow)
     flat_map_eg.out: 'hello'
     flat_map_eg.out: 'world'
@@ -295,7 +295,7 @@ def inspect_debug(
     >>> from bytewax.dataflow import Dataflow
     >>> flow = Dataflow("inspect_debug_eg")
     >>> s = op.input("inp", flow, TestingSource(range(3)))
-    >>> op.inspect_debug("help", s)
+    >>> _ = op.inspect_debug("help", s)
     >>> run_main(flow)
     inspect_debug_eg.help W0 @1: 0
     inspect_debug_eg.help W0 @1: 1
@@ -750,7 +750,7 @@ def filter(  # noqa: A001
     >>> def is_odd(item):
     ...     return item % 2 != 0
     >>> s = op.filter("filter_odd", s, is_odd)
-    >>> op.inspect("out", s)
+    >>> _ = op.inspect("out", s)
     >>> run_main(flow)
     filter_eg.out: 1
     filter_eg.out: 3
@@ -847,7 +847,7 @@ def filter_map(
     ...     else:
     ...         return data["key"], data
     >>> s = op.filter_map("validate", s, validate)
-    >>> op.inspect("out", s)
+    >>> _ = op.inspect("out", s)
     >>> run_main(flow)
     filter_map_eg.out: ('a', {'key': 'a', 'val': 1})
 
@@ -955,7 +955,7 @@ def inspect(
     >>> from bytewax.dataflow import Dataflow
     >>> flow = Dataflow("my_flow")
     >>> s = op.input("inp", flow, TestingSource(range(3)))
-    >>> op.inspect("help", s)
+    >>> _ = op.inspect("help", s)
     >>> run_main(flow)
     my_flow.help: 0
     my_flow.help: 1
@@ -1245,7 +1245,7 @@ def map(  # noqa: A001
     >>> def add_one(item):
     ...     return item + 10
     >>> s = op.map("add_one", s, add_one)
-    >>> op.inspect("out", s)
+    >>> _ = op.inspect("out", s)
     >>> run_main(flow)
     map_eg.out: 10
     map_eg.out: 11
@@ -1522,7 +1522,7 @@ def stateful_map(
     ...     running_count += 1
     ...     return (running_count, running_count)
     >>> s = op.stateful_map("running_count", s, build_count, check)
-    >>> op.inspect("out", s)
+    >>> _ = op.inspect("out", s)
     >>> run_main(flow)
     stateful_map_eg.out: ('a', 1)
     stateful_map_eg.out: ('a', 2)
