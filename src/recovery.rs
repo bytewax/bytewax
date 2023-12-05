@@ -179,6 +179,7 @@ impl ToPyObject for StepId {
     }
 }
 
+/// Displays the step ID in quotes.
 impl std::fmt::Display for StepId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Format as a quoted string, but without the `StepId()` part.

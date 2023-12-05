@@ -1,92 +1,32 @@
 import itertools
-import operator
-from collections import Counter
-from datetime import datetime, timedelta, timezone
-from typing import Dict
+from typing import List
 
+import bytewax.operators as op
 from bytewax.connectors.files import FileSource
+from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSink, run_main
-from bytewax.window import SystemClockConfig, TumblingWindow
+
+flow = Dataflow("apriori")
+inp = op.input("inp", flow, FileSource("examples/sample_data/apriori.txt"))
 
 
-def lower(line):
-    return line.lower()
-
-
-def tokenize(line):
+def tokenize(line: str) -> List[str]:
     return [word.strip() for word in line.split(",")]
 
 
-def initial_count(word):
-    return word, 1
+baskets = op.map("tokenize", inp, tokenize)
+items = op.flatten("flatten", baskets)
+item_count = op.count_final("count_items", items, lambda item: item)
 
 
-def is_most_common(item):
-    return any((i in most_popular_products) for i in tokenize(item))
+def pair_key(pair):
+    a, b = pair
+    return f"{a},{b}"
 
 
-def build_pairs(line):
-    tokens = tokenize(line)
+pairs = op.flat_map("pairs", baskets, lambda basket: itertools.combinations(basket, 2))
+pairs = op.map("normalize", pairs, sorted)  # type: ignore
+pair_count = op.count_final("count_pairs", pairs, pair_key)
 
-    for left, right in itertools.combinations(tokens, 2):
-        # popular pairs need to contain a popular product
-        if left in most_popular_products or right in most_popular_products:
-            pair = sorted((left, right))  # order elements for count
-            yield "-".join(pair)
-
-
-product_counter: Counter = Counter()
-most_popular_products: Dict[str, int] = {}
-
-cc = SystemClockConfig()
-wc = TumblingWindow(
-    length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
-)
-
-# first pass - count products
-out = []
-flow = Dataflow()
-flow.input("inp", FileSource("examples/sample_data/apriori.txt"))
-flow.map("lower", lower)
-flow.flat_map("tokenize", tokenize)
-flow.map("initial_count", initial_count)
-flow.reduce_window("reduce", cc, wc, operator.add)
-flow.output("out", TestingSink(out))
-
-# second pass - count pairs
-out2 = []
-flow2 = Dataflow()
-flow2.input("input", FileSource("examples/sample_data/apriori.txt"))
-flow2.map("lower", lower)
-flow2.filter(
-    "is_most_common", is_most_common
-)  # count basket only with popular products
-flow2.flat_map("build_pairs", build_pairs)
-flow2.map("initial_count", initial_count)
-flow2.reduce_window("reduce", cc, wc, operator.add)
-flow2.output("out", TestingSink(out2))
-
-
-run_main(flow)
-for item in out:
-    pair, (metadata, count) = item
-    product_counter[pair] = count
-
-print("most popular products:")
-print(f"{'count':>5} name")
-# select top 3 popular products
-for product, count in product_counter.most_common(3):
-    print(f"{count:>5} {product}")
-    most_popular_products[product] = count
-
-most_popular_pairs: Counter = Counter()
-run_main(flow2)
-for item in out2:
-    pair, (metadata, count) = item
-    most_popular_pairs[pair] = count
-
-print("most popular pairs:")
-print(f"{'count':>5} pair")
-for pair, counter in most_popular_pairs.most_common(10):
-    print(f"{counter:>5} {pair}")
+op.output("out_items", item_count, StdOutSink())
+op.output("out_pairs", pair_count, StdOutSink())

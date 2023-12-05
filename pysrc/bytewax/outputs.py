@@ -1,14 +1,27 @@
 """Low-level output interfaces.
 
+See the "Input and Output" section of the `bytewax` module docstring
+for the basics of input.
+
 If you want pre-built connectors for various external systems, see
 `bytewax.connectors`. That is also a rich source of examples.
 
-Subclass the types here to implement output for your own custom sink.
+# Partitioned Sink
+
+TODO.
+
+# Dynamic Sink
+
+TODO.
+
+# Custom Input Connectors
+
+TODO Subclass the types here to implement input for your own custom source.
 
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional
+from typing import Generic, List, Optional, Tuple, TypeVar
 from zlib import adler32
 
 __all__ = [
@@ -19,8 +32,11 @@ __all__ = [
     "StatelessSinkPartition",
 ]
 
+X = TypeVar("X")
+S = TypeVar("S")
 
-class Sink(ABC):  # noqa: B024
+
+class Sink(ABC, Generic[X]):  # noqa: B024
     """A destination to write output items.
 
     Base class for all output sinks. Do not subclass this.
@@ -30,23 +46,14 @@ class Sink(ABC):  # noqa: B024
 
     """
 
-    def __json__(self):
-        """JSON representation of this.
-
-        This is used by the Bytewax platform internally and should
-        not be overridden.
-
-        """
-        return {
-            "type": type(self).__name__,
-        }
+    pass
 
 
-class StatefulSinkPartition(ABC):
+class StatefulSinkPartition(ABC, Generic[X, S]):
     """Output partition that maintains state of its position."""
 
     @abstractmethod
-    def write_batch(self, values: List[Any]) -> None:
+    def write_batch(self, values: List[X]) -> None:
         """Write a batch of output values.
 
         Called with a list of `value`s for each `(key, value)` at this
@@ -62,7 +69,8 @@ class StatefulSinkPartition(ABC):
         """
         ...
 
-    def snapshot(self) -> Any:
+    @abstractmethod
+    def snapshot(self) -> S:
         """Snapshot the position of the next write of this partition.
 
         This will be returned to you via the `resume_state` parameter
@@ -78,7 +86,7 @@ class StatefulSinkPartition(ABC):
             Resume state.
 
         """
-        return None
+        ...
 
     def close(self) -> None:
         """Cleanup this partition when the dataflow completes.
@@ -91,7 +99,7 @@ class StatefulSinkPartition(ABC):
         return
 
 
-class FixedPartitionedSink(Sink):
+class FixedPartitionedSink(Sink[Tuple[str, X]], Generic[X, S]):
     """An output sink with a fixed number of independent partitions.
 
     Will maintain the state of each partition and re-build using it during
@@ -144,8 +152,8 @@ class FixedPartitionedSink(Sink):
     def build_part(
         self,
         for_part: str,
-        resume_state: Optional[Any],
-    ) -> StatefulSinkPartition:
+        resume_state: Optional[S],
+    ) -> StatefulSinkPartition[X, S]:
         """Build anew or resume an output partition.
 
         Will be called once per execution for each partition key on a
@@ -172,11 +180,11 @@ class FixedPartitionedSink(Sink):
         ...
 
 
-class StatelessSinkPartition(ABC):
+class StatelessSinkPartition(ABC, Generic[X]):
     """Output partition that is stateless."""
 
     @abstractmethod
-    def write_batch(self, items: List[Any]) -> None:
+    def write_batch(self, items: List[X]) -> None:
         """Write a batch of output items.
 
         Called multiple times whenever new items are seen at this
@@ -200,7 +208,7 @@ class StatelessSinkPartition(ABC):
         return
 
 
-class DynamicSink(Sink):
+class DynamicSink(Sink[X]):
     """An output sink where all workers write items concurrently.
 
     Does not support storing any resume state. Thus these kind of
@@ -209,7 +217,7 @@ class DynamicSink(Sink):
     """
 
     @abstractmethod
-    def build(self, worker_index, worker_count) -> StatelessSinkPartition:
+    def build(self, worker_index: int, worker_count: int) -> StatelessSinkPartition[X]:
         """Build an output partition for a worker.
 
         Will be called once on each worker.

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
+from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import (
@@ -19,7 +20,8 @@ class PeriodicPartition(StatelessSourcePartition):
     def next_awake(self):
         return self._next_awake
 
-    def next_batch(self):
+    def next_batch(self, sched):
+        assert sched == self._next_awake
         self._counter += 1
         if self._counter >= 10:
             raise StopIteration()
@@ -34,13 +36,13 @@ class PeriodicSource(DynamicSource):
     def __init__(self, frequency):
         self.frequency = frequency
 
-    def build(self, worker_index, worker_count):
+    def build(self, _now, worker_index, worker_count):
         return PeriodicPartition(frequency=self.frequency)
 
 
-stateless_flow = Dataflow()
-stateless_flow.input("periodic", PeriodicSource(timedelta(seconds=1)))
-stateless_flow.output("stdout", StdOutSink())
+stateless_flow = Dataflow("periodic_stateless")
+stream = op.input("periodic", stateless_flow, PeriodicSource(timedelta(seconds=1)))
+op.output("stdout", stream, StdOutSink())
 
 
 class ResumablePeriodicPartition(StatefulSourcePartition):
@@ -49,7 +51,8 @@ class ResumablePeriodicPartition(StatefulSourcePartition):
         self._next_awake = next_awake
         self._counter = counter
 
-    def next_batch(self):
+    def next_batch(self, sched):
+        assert sched == self._next_awake
         self._counter += 1
         if self._counter >= 10:
             raise StopIteration()
@@ -76,7 +79,7 @@ class ResumablePeriodicSource(FixedPartitionedSource):
     def list_parts(self):
         return ["singleton"]
 
-    def build_part(self, for_part, resume_state):
+    def build_part(self, _now, for_part, resume_state):
         assert for_part == "singleton"
         resume_state = resume_state or {}
         next_awake = datetime.fromisoformat(
@@ -86,6 +89,8 @@ class ResumablePeriodicSource(FixedPartitionedSource):
         return ResumablePeriodicPartition(self.frequency, next_awake, counter)
 
 
-stateful_flow = Dataflow()
-stateful_flow.input("periodic", ResumablePeriodicSource(timedelta(seconds=1)))
-stateful_flow.output("stdout", StdOutSink())
+stateful_flow = Dataflow("stateful_flow")
+stream = op.input(
+    "periodic", stateful_flow, ResumablePeriodicSource(timedelta(seconds=1))
+)
+op.output("stdout", stream, StdOutSink())

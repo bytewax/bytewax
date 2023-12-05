@@ -1,7 +1,9 @@
 import os
+import re
 import uuid
 from concurrent.futures import wait
 
+import bytewax.operators as op
 from bytewax.connectors.kafka import KafkaSink, KafkaSource
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource, poll_next_batch, run_main
@@ -19,7 +21,7 @@ pytestmark = mark.skipif(
     "TEST_KAFKA_BROKER" not in os.environ,
     reason="Set `TEST_KAFKA_BROKER` env var to run",
 )
-KAFKA_BROKER = os.environ.get("TEST_KAFKA_BROKER")
+KAFKA_BROKER = os.environ.get("TEST_KAFKA_BROKER", "localhost")
 
 
 @fixture
@@ -55,13 +57,11 @@ def test_input(tmp_topic1, tmp_topic2):
             producer.produce(topic, value, key)
             inp.append((key, value))
     producer.flush()
-
-    flow = Dataflow()
-
-    flow.input("inp", KafkaSource([KAFKA_BROKER], topics, tail=False))
-
     out = []
-    flow.output("out", TestingSink(out))
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, KafkaSource([KAFKA_BROKER], topics, tail=False))
+    op.output("out", s, TestingSink(out))
 
     run_main(flow)
 
@@ -102,47 +102,41 @@ def test_input_resume_state(tmp_topic, now):
 
 
 def test_input_raises_on_topic_not_exist():
-    flow = Dataflow()
-
-    flow.input("inp", KafkaSource([KAFKA_BROKER], ["missing-topic"], tail=False))
-
     out = []
-    flow.output("out", TestingSink(out))
 
-    with raises(Exception) as exinfo:
+    flow = Dataflow("test_df")
+    s = op.input(
+        "inp", flow, KafkaSource([KAFKA_BROKER], ["missing-topic"], tail=False)
+    )
+    op.output("out", s, TestingSink(out))
+
+    expect = "Broker: Unknown topic or partition"
+    with raises(Exception, match=re.escape(expect)):
         run_main(flow)
-
-    assert (
-        "error listing partitions for Kafka topic `'missing-topic'`: "
-        "Broker: Unknown topic or partition"
-    ) in str(exinfo.value)
 
 
 def test_input_raises_on_str_brokers(tmp_topic):
-    with raises(TypeError) as exinfo:
+    expect = "brokers must be an iterable and not a string"
+    with raises(TypeError, match=re.escape(expect)):
         KafkaSource(KAFKA_BROKER, [tmp_topic], tail=False)
-
-    assert str(exinfo.value) == "brokers must be an iterable and not a string"
 
 
 def test_input_raises_on_str_topics(tmp_topic):
-    with raises(TypeError) as exinfo:
+    expect = "topics must be an iterable and not a string"
+    with raises(TypeError, match=re.escape(expect)):
         KafkaSource([KAFKA_BROKER], tmp_topic, tail=False)
-
-    assert str(exinfo.value) == "topics must be an iterable and not a string"
 
 
 def test_output(tmp_topic):
-    flow = Dataflow()
+    flow = Dataflow("test_df")
 
     inp = [
         (b"key-0-0", b"value-0-0"),
         (b"key-0-1", b"value-0-1"),
         (b"key-0-2", b"value-0-2"),
     ]
-    flow.input("inp", TestingSource(inp))
-
-    flow.output("out", KafkaSink([KAFKA_BROKER], tmp_topic))
+    s = op.input("inp", flow, TestingSource(inp))
+    op.output("out", s, KafkaSink([KAFKA_BROKER], tmp_topic))
 
     run_main(flow)
 

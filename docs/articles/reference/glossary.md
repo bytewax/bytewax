@@ -213,8 +213,15 @@ of transformation, but are distinct steps.
 
 ## Step ID
 
-A string key that uniquely identifies a step for recovery so data is
-routed correctly.
+A hierarchical dotted-path string key that uniquely identifies a step
+for recovery so data is routed correctly. Step names are assembled
+into step IDs by periods.
+
+## Step Name
+
+A scope-unique string key for a step. Since operators have substeps, a
+step name alone is not enough to uniquely specify a step in the entire
+dataflow.
 
 ## Step, Stateful
 

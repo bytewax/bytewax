@@ -1,11 +1,12 @@
 import json
 
+from bytewax import operators as op
 from bytewax.connectors.kafka import KafkaSink, KafkaSource
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 
-flow = Dataflow()
-flow.input("inp", KafkaSource(["localhost:9092"], ["input_topic"]))
+flow = Dataflow("kafka_in_out")
+stream = op.input("inp", flow, KafkaSource(["localhost:9092"], ["input_topic"]))
 
 
 def deserialize(key_bytes__payload_bytes):
@@ -21,12 +22,13 @@ def serialize_with_key(key_payload):
     return new_key_bytes, json.dumps(payload).encode("utf-8")
 
 
-flow.map("deserialize", deserialize)
-flow.output("out", StdOutSink())
+stream = op.map("deserialize", stream, deserialize)
+op.output("out1", stream, StdOutSink())
 
-flow.map("serialize_with_key", serialize_with_key)
-flow.output(
-    "out",
+stream = op.map("serialize_with_key", stream, serialize_with_key)
+op.output(
+    "out2",
+    stream,
     KafkaSink(
         brokers=["localhost:9092"],
         topic="output_topic",

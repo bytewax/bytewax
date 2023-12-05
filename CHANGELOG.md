@@ -1,11 +1,51 @@
 # Bytewax Changelog
 
-All notable changes to this project will be documented in this file. For help with updating to new Bytewax versions, please see the [migration guide](https://bytewax.io/docs/reference/migration).
+All notable changes to this project will be documented in this file.
+For help with updating to new Bytewax versions, please see the
+[migration guide](https://bytewax.io/docs/reference/migration).
 
 ## Latest
 
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
+
+- Non-linear dataflows are now possible. Each operator method returns
+  a handle to the `Stream`s it produces; add further steps via calling
+  operator functions on those returned handles, not the root
+  `Dataflow`. See the migration guide for more info.
+
+- Auto-complete and type hinting on operators, inputs, outputs,
+  streams, and logic functions now works.
+
+- A ton of new operators: `collect_final`, `count_final`,
+  `count_window`, `flatten`, `inspect_debug`, `join`, `join_named`,
+  `max_final`, `max_window`, `merge`, `min_final`, `min_window`,
+  `key_on`, `key_assert`, `key_split`, `merge`, `unary`. Documentation
+  for all operators are in `bytewax.operators` now.
+
+- New operators can be added in Python, made by grouping existing
+  operators. See `bytewax.dataflow` module docstring for more info.
+
+- *Breaking change* Operators are now stand-alone functions; `import
+  bytewax.operators as op` and use e.g. `op.map("step_id", upstream,
+  lambda x: x + 1)`.
+
+- *Breaking change* All operators must take a `step_id` argument now.
+
+- *Breaking change* `fold` and `reduce` operators have been renamed to
+  `fold_final` and `reduce_final`. They now only emit on EOF and are
+  only for use in batch contexts.
+
+- *Breaking change* `output` operator does not forward downstream its
+  items. Add operators on the upstream handle instead.
+
+- `next_batch` on input partitions can now return any `Iterable`, not
+  just a `List`.
+
+- `inspect` operator now has a default inspector that prints out items
+  with the step ID.
+
+- `collect_window` operator now can collect into `set`s and `dict`s.
 
 - Adds a `get_fs_id` argument to `{Dir,File}Source` to allow handling
   non-identical files per worker.
@@ -19,11 +59,10 @@ notes on GitHub when we make a new release.__
   `StatelessSourcePartition.next_batch`. You can now use this to
   update your `next_awake` time easily.
 
-- *Breaking change* Window operators now emit WindowMetadata
-  objects downstream. These objects can be used to introspect
-  the open_time and close_time of windows.
-  This changes the output type of windowing operators from:
-  `(key, values)` to `(key, (metadata, values))`.
+- *Breaking change* Window operators now emit `WindowMetadata` objects
+  downstream. These objects can be used to introspect the open_time
+  and close_time of windows. This changes the output type of windowing
+  operators from: `(key, values)` to `(key, (metadata, values))`.
 
 - *Breaking change* IO classes and connectors have been renamed to
   better reflect their semantics and match up with documentation.

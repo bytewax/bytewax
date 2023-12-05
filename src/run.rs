@@ -32,7 +32,7 @@ use crate::worker::worker_main;
 
 /// Start the tokio runtime for the webserver.
 /// Keep a reference to the runtime for as long as you need it running.
-fn start_server_runtime(df: &Py<Dataflow>) -> PyResult<Runtime> {
+fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
     let mut json_path =
         PathBuf::from(std::env::var("BYTEWAX_DATAFLOW_API_CACHE_PATH").unwrap_or(".".to_string()));
     json_path.push("dataflow.json");
@@ -40,18 +40,14 @@ fn start_server_runtime(df: &Py<Dataflow>) -> PyResult<Runtime> {
     // Since the dataflow can't change at runtime, we encode it as a
     // string of JSON once, when the webserver starts.
     let dataflow_json: String = Python::with_gil(|py| -> PyResult<String> {
-        let encoder_module = PyModule::import(py, "bytewax._encoder")
-            .raise::<PyRuntimeError>("Unable to load Bytewax encoder module")?;
-        // For convenience, we are using a helper function supplied in the
-        // bytewax.encoder module.
-        let encode = encoder_module
-            .getattr("encode_dataflow")
-            .raise::<PyRuntimeError>("Unable to load encode_dataflow function")?;
+        let encoder_mod = PyModule::import(py, "bytewax._encoder")?;
+        let to_json = encoder_mod.getattr("to_json")?;
 
-        let dataflow_json = encode
+        let dataflow_json = to_json
             .call1((df,))
-            .reraise("error encoding dataflow")?
+            .reraise("error calling `bytewax._encoder.to_json`")?
             .to_string();
+
         // Since the dataflow can crash, write the dataflow JSON to a file
         let mut file = File::create(json_path)?;
         file.write_all(dataflow_json.as_bytes())?;
@@ -81,7 +77,7 @@ fn start_server_runtime(df: &Py<Dataflow>) -> PyResult<Runtime> {
 /// >>> from bytewax.dataflow import Dataflow
 /// >>> from bytewax.testing import TestingInput, run_main
 /// >>> from bytewax.connectors.stdio import StdOutput
-/// >>> flow = Dataflow()
+/// >>> flow = Dataflow("my_df")
 /// >>> flow.input("inp", TestingInput(range(3)))
 /// >>> flow.capture(StdOutput())
 /// >>> run_main(flow)
@@ -105,7 +101,7 @@ fn start_server_runtime(df: &Py<Dataflow>) -> PyResult<Runtime> {
 )]
 pub(crate) fn run_main(
     py: Python,
-    flow: Py<Dataflow>,
+    flow: Dataflow,
     epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
@@ -177,7 +173,7 @@ pub(crate) fn run_main(
 /// >>> from bytewax.dataflow import Dataflow
 /// >>> from bytewax.testing import TestingInput
 /// >>> from bytewax.connectors.stdio import StdOutput
-/// >>> flow = Dataflow()
+/// >>> flow = Dataflow("my_df")
 /// >>> flow.input("inp", TestingInput(range(3)))
 /// >>> flow.capture(StdOutput())
 /// >>> addresses = []  # In a real example, you'd find the "host:port" of all other Bytewax workers.
@@ -210,7 +206,7 @@ pub(crate) fn run_main(
 )]
 pub(crate) fn cluster_main(
     py: Python,
-    flow: Py<Dataflow>,
+    flow: Dataflow,
     addresses: Option<Vec<String>>,
     proc_id: usize,
     epoch_interval: Option<EpochInterval>,
@@ -326,7 +322,7 @@ pub(crate) fn cluster_main(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn cli_main(
     py: Python,
-    flow: Py<Dataflow>,
+    flow: Dataflow,
     workers_per_process: Option<usize>,
     process_id: Option<usize>,
     addresses: Option<Vec<String>>,
@@ -337,7 +333,7 @@ pub(crate) fn cli_main(
 
     // Initialize the tokio runtime for the webserver if we needed.
     if std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
-        _server_rt = Some(start_server_runtime(&flow)?);
+        _server_rt = Some(start_server_runtime(flow.clone_ref(py))?);
     };
 
     let workers_per_process = workers_per_process.unwrap_or(1);
@@ -370,7 +366,7 @@ pub(crate) fn cli_main(
 )]
 pub(crate) fn test_cluster(
     py: Python,
-    flow: Py<Dataflow>,
+    flow: Dataflow,
     epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
     processes: usize,

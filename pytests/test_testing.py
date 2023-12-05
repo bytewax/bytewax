@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import AbortExecution
 from bytewax.testing import TestingSink, TestingSource, ffwd_iter, run_main
@@ -77,9 +78,9 @@ def test_testing_source_eof_run(recovery_config):
     inp = [0, 1, 2, TestingSource.EOF(), 3, 4]
     out = []
 
-    flow = Dataflow()
-    flow.input("inp", TestingSource(inp, batch_size=2))
-    flow.output("out", TestingSink(out))
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp, batch_size=2))
+    op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [0, 1, 2]
@@ -110,9 +111,9 @@ def test_testing_source_abort_run(recovery_config):
     inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
     out = []
 
-    flow = Dataflow()
-    flow.input("inp", TestingSource(inp, batch_size=2))
-    flow.output("out", TestingSink(out))
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp, batch_size=2))
+    op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [0, 1, 2]

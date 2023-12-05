@@ -1,14 +1,13 @@
 //! Definition of a Bytewax worker.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
-use opentelemetry::global;
-use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -16,40 +15,32 @@ use timely::communication::Allocate;
 use timely::dataflow::operators::generic::operator::empty;
 use timely::dataflow::operators::Broadcast;
 use timely::dataflow::operators::Concatenate;
-use timely::dataflow::operators::Exchange;
-use timely::dataflow::operators::Filter;
-use timely::dataflow::operators::Inspect;
-use timely::dataflow::operators::Map;
 use timely::dataflow::operators::Probe;
 use timely::dataflow::operators::ResultStream;
 use timely::dataflow::ProbeHandle;
+use timely::dataflow::Scope;
+use timely::dataflow::Stream;
 use timely::progress::Timestamp;
 use timely::worker::Worker as TimelyWorker;
 use tracing::instrument;
 
 use crate::dataflow::Dataflow;
-use crate::dataflow::Step;
+use crate::dataflow::Operator;
+use crate::dataflow::StreamId;
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::inputs::*;
-use crate::operators::batch::BatchLogic;
-use crate::operators::collect_window::CollectWindowLogic;
 use crate::operators::fold_window::FoldWindowLogic;
-use crate::operators::reduce::ReduceLogic;
-use crate::operators::reduce_window::ReduceWindowLogic;
-use crate::operators::stateful_map::StatefulMapLogic;
-use crate::operators::stateful_unary::StatefulUnary;
 use crate::operators::*;
 use crate::outputs::*;
-use crate::pyo3_extensions::extract_state_pair;
-use crate::pyo3_extensions::wrap_state_pair;
 use crate::pyo3_extensions::wrap_window_state_pair;
+use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
-use crate::timely::AsWorkerExt;
 use crate::window::clock::ClockBuilder;
+use crate::window::clock::ClockConfig;
 use crate::window::StatefulWindowUnary;
 use crate::window::WindowBuilder;
-use crate::with_timer;
+use crate::window::WindowConfig;
 
 /// Bytewax worker.
 ///
@@ -117,7 +108,7 @@ where
 pub(crate) fn worker_main<A>(
     worker: &mut TimelyWorker<A>,
     interrupt_callback: impl Fn() -> bool,
-    flow: Py<Dataflow>,
+    flow: Dataflow,
     epoch_interval: EpochInterval,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()>
@@ -208,11 +199,71 @@ where
     })
 }
 
+struct StreamCache<S>(HashMap<StreamId, Stream<S, TdPyAny>>)
+where
+    S: Scope;
+
+impl<S> StreamCache<S>
+where
+    S: Scope,
+{
+    fn new() -> Self {
+        Self(HashMap::new())
+    }
+
+    fn get_upstream(
+        &self,
+        py: Python,
+        step: &Operator,
+        port_name: &str,
+    ) -> PyResult<&Stream<S, TdPyAny>> {
+        let stream_id = step.get_port_stream(py, port_name)?;
+        self.0.get(&stream_id).ok_or_else(|| {
+            let msg = format!("unknown {stream_id:?}");
+            tracked_err::<PyValueError>(&msg)
+        })
+    }
+
+    fn get_upmultistream(
+        &self,
+        py: Python,
+        step: &Operator,
+        port_name: &str,
+    ) -> PyResult<Vec<Stream<S, TdPyAny>>> {
+        let stream_ids = step.get_multiport_streams(py, port_name)?;
+        stream_ids
+            .into_iter()
+            .map(|stream_id| {
+                self.0.get(&stream_id).cloned().ok_or_else(|| {
+                    let msg = format!("unknown {stream_id:?}");
+                    tracked_err::<PyValueError>(&msg)
+                })
+            })
+            .collect()
+    }
+
+    fn insert_downstream(
+        &mut self,
+        py: Python,
+        step: &Operator,
+        port_name: &str,
+        stream: Stream<S, TdPyAny>,
+    ) -> PyResult<()> {
+        let stream_id = step.get_port_stream(py, port_name)?;
+        if self.0.insert(stream_id.clone(), stream).is_some() {
+            let msg = format!("duplicate {stream_id:?}");
+            Err(tracked_err::<PyValueError>(&msg))
+        } else {
+            Ok(())
+        }
+    }
+}
+
 /// Turn a Bytewax dataflow into a Timely dataflow.
 fn build_production_dataflow<A>(
     py: Python,
     worker: &mut TimelyWorker<A>,
-    flow: Py<Dataflow>,
+    flow: Dataflow,
     epoch_interval: EpochInterval,
     resume_from: ResumeFrom,
     recovery: Option<(RecoveryBundle, BackupInterval)>,
@@ -221,16 +272,11 @@ fn build_production_dataflow<A>(
 where
     A: Allocate,
 {
-    let this_worker = worker.w_index();
-    let this_worker_label = KeyValue::new("worker_id", this_worker.0.to_string());
-
     // Remember! Never build different numbers of Timely operators on
     // different workers! Timely does not like that and you'll see a
     // mysterious `failed to correctly cast channel` panic. You must
     // build asymmetry within each operator.
     worker.dataflow(|scope| {
-        let flow = flow.as_ref(py).borrow();
-
         let mut probe = ProbeHandle::new();
 
         let mut inputs = Vec::new();
@@ -246,309 +292,243 @@ where
             empty(scope)
         };
 
-        // Start with an empty stream. We might overwrite it with
-        // input later.
-        let mut stream = empty(scope);
+        // This contains steps we still need to compile. Starts with
+        // the top-level steps in the dataflow.
+        let mut build_stack = flow.substeps(py)?;
+        // Reverse since we want to pop substeps in added order.
+        build_stack.reverse();
+        let mut streams = StreamCache::new();
+        while let Some(step) = build_stack.pop() {
+            let step_id = step.step_id(py)?;
 
-        // Top level metrics meter
-        let meter = global::meter("bytewax");
+            if step.is_core(py)? {
+                let name = step.name(py)?;
+                match name.as_str() {
+                    "_noop" => {
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `_noop` missing port")?;
 
-        for step in &flow.steps {
-            // All these closure lifetimes are static, so tell
-            // Python's GC that there's another pointer to the
-            // mapping function that's going to hang around
-            // for a while when it's moved into the closure.
-            let step = step.clone();
-            match step {
-                Step::Batch {
-                    step_id,
-                    max_size: size,
-                    timeout,
-                } => {
-                    let (output, snap) = stream.map(extract_state_pair).stateful_unary(
-                        step_id,
-                        BatchLogic::builder(
-                            size,
-                            timeout.to_std().expect("positive duration for batch size"),
-                        ),
-                        resume_epoch,
-                        &loads,
-                    );
-                    stream = output.map(wrap_state_pair);
-                    snaps.push(snap);
-                }
-                // The exchange operator wraps the number to a modulo of workers_count,
-                // so we can pass any valid u64 without specifying the range.
-                Step::Redistribute => stream = stream.exchange(move |_| fastrand::u64(..)),
-                Step::CollectWindow {
-                    step_id,
-                    clock_config,
-                    window_config,
-                } => {
-                    let clock_builder = clock_config
-                        .build(py)
-                        .reraise("error building CollectWindow clock")?;
-                    let windower_builder = window_config
-                        .build(py)
-                        .reraise("error building CollectWindow windower")?;
+                        // No-op op.
 
-                    let (output, snap) = stream.map(extract_state_pair).stateful_window_unary(
-                        step_id,
-                        clock_builder,
-                        windower_builder,
-                        CollectWindowLogic::builder(),
-                        resume_epoch,
-                        &loads,
-                    );
+                        streams
+                            .insert_downstream(py, &step, "down", up.clone())
+                            .reraise("core operator `_noop` missing port")?;
+                    }
+                    "branch" => {
+                        let predicate = step.get_arg(py, "predicate")?.extract(py)?;
 
-                    stream = output
-                        .map(|(key, result)| {
-                            result
-                                .map(|value| (key.clone(), value))
-                                .map_err(|err| (key.clone(), err))
-                        })
-                        // For now, filter to just reductions and
-                        // ignore late values.
-                        .ok()
-                        .map(wrap_window_state_pair);
-                    snaps.push(snap);
-                }
-                Step::Input {
-                    step_id,
-                    source: input,
-                } => {
-                    if let Ok(input) = input.extract::<FixedPartitionedSource>(py) {
-                        let (output, snap) = input
-                            .partitioned_input(
-                                py,
-                                scope,
-                                step_id,
-                                epoch_interval,
-                                &probe,
-                                abort,
-                                resume_epoch,
-                                &loads,
-                            )
-                            .reraise("error building PartitionedInput")?;
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `branch` missing port")?;
 
-                        inputs.push(output.clone());
-                        stream = output;
+                        let (trues, falses) = up.branch(py, step_id, predicate)?;
+
+                        streams
+                            .insert_downstream(py, &step, "trues", trues)
+                            .reraise("core operator `branch` missing port")?;
+                        streams
+                            .insert_downstream(py, &step, "falses", falses)
+                            .reraise("core operator `branch` missing port")?;
+                    }
+                    "flat_map" => {
+                        let mapper = step.get_arg(py, "mapper")?.extract(py)?;
+
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `flat_map` missing port")?;
+
+                        let down = up.flat_map(py, step_id, mapper)?;
+
+                        streams
+                            .insert_downstream(py, &step, "down", down)
+                            .reraise("core operator `flat_map` missing port")?;
+                    }
+                    // TODO: Rewrite windowing logic in Python.
+                    "fold_window" => {
+                        let clock = step.get_arg(py, "clock")?.extract::<Py<ClockConfig>>(py)?;
+                        let windower = step
+                            .get_arg(py, "windower")?
+                            .extract::<Py<WindowConfig>>(py)?;
+                        let builder = step.get_arg(py, "builder")?.extract(py)?;
+                        let folder = step.get_arg(py, "folder")?.extract(py)?;
+
+                        let up = streams.get_upstream(py, &step, "up")?;
+
+                        let clock_builder =
+                            clock.build(py).reraise("error building FoldWindow clock")?;
+                        let windower_builder = windower
+                            .build(py)
+                            .reraise("error building FoldWindow windower")?;
+
+                        let (output, snap) = up.extract_key(step_id.clone()).stateful_window_unary(
+                            step_id,
+                            clock_builder,
+                            windower_builder,
+                            FoldWindowLogic::new(builder, folder),
+                            resume_epoch,
+                            &loads,
+                        );
+
+                        let down = timely::dataflow::operators::Map::map(
+                            &timely::dataflow::operators::Map::map(&output, |(key, result)| {
+                                result
+                                    .map(|value| (key.clone(), value))
+                                    .map_err(|err| (key.clone(), err))
+                            })
+                            // For now, filter to just reductions and
+                            // ignore late values.
+                            .ok(),
+                            wrap_window_state_pair,
+                        );
                         snaps.push(snap);
-                    } else if let Ok(input) = input.extract::<DynamicSource>(py) {
-                        let output = input
-                            .dynamic_input(
-                                py,
-                                scope,
-                                step_id,
-                                epoch_interval,
-                                &probe,
-                                abort,
-                                resume_epoch,
-                            )
-                            .reraise("error building DynamicInput")?;
 
-                        inputs.push(output.clone());
-                        stream = output;
-                    } else {
-                        return Err(tracked_err::<PyTypeError>("unknown input type"));
+                        streams.insert_downstream(py, &step, "down", down)?;
+                    }
+                    "input" => {
+                        let source = step.get_arg(py, "source")?.extract::<Source>(py)?;
+
+                        if let Ok(source) = source.extract::<FixedPartitionedSource>(py) {
+                            let (down, snap) = source
+                                .partitioned_input(
+                                    py,
+                                    scope,
+                                    step_id,
+                                    epoch_interval,
+                                    &probe,
+                                    abort,
+                                    resume_epoch,
+                                    &loads,
+                                )
+                                .reraise("error building FixedPartitionedSource")?;
+
+                            inputs.push(down.clone());
+                            snaps.push(snap);
+
+                            streams
+                                .insert_downstream(py, &step, "down", down)
+                                .reraise("core operator `input` missing port")?;
+                        } else if let Ok(source) = source.extract::<DynamicSource>(py) {
+                            let down = source
+                                .dynamic_input(
+                                    py,
+                                    scope,
+                                    step_id,
+                                    epoch_interval,
+                                    &probe,
+                                    abort,
+                                    resume_epoch,
+                                )
+                                .reraise("error building DynamicSource")?;
+
+                            inputs.push(down.clone());
+
+                            streams
+                                .insert_downstream(py, &step, "down", down)
+                                .reraise("core operator `input` missing port")?;
+                        } else {
+                            let msg = "unknown source type";
+                            return Err(tracked_err::<PyTypeError>(msg));
+                        }
+                    }
+                    "inspect_debug" => {
+                        let inspector = step.get_arg(py, "inspector")?.extract(py)?;
+
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `inspect_debug` missing port")?;
+
+                        let (down, clock) = up.inspect_debug(py, step_id, inspector)?;
+
+                        outputs.push(clock);
+
+                        streams
+                            .insert_downstream(py, &step, "down", down)
+                            .reraise("core operator `inspect_debug` missing port")?;
+                    }
+                    "merge" => {
+                        let ups = streams
+                            .get_upmultistream(py, &step, "ups")
+                            .reraise("core operator `merge` missing port")?;
+
+                        let down = scope.merge(py, step_id, ups)?;
+
+                        streams
+                            .insert_downstream(py, &step, "down", down)
+                            .reraise("core operator `merge` missing port")?;
+                    }
+                    "output" => {
+                        let sink = step.get_arg(py, "sink")?.extract::<Sink>(py)?;
+
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `output` missing port")?;
+
+                        if let Ok(sink) = sink.extract::<FixedPartitionedSink>(py) {
+                            let (clock, snap) = up
+                                .partitioned_output(py, step_id, sink, &loads)
+                                .reraise("error building FixedPartitionedSink")?;
+
+                            outputs.push(clock.clone());
+                            snaps.push(snap);
+                        } else if let Ok(sink) = sink.extract::<DynamicSink>(py) {
+                            let clock = up
+                                .dynamic_output(py, step_id, sink)
+                                .reraise("error building DynamicSink")?;
+
+                            outputs.push(clock.clone());
+                        } else {
+                            let msg = "unknown sink type";
+                            return Err(tracked_err::<PyTypeError>(msg));
+                        }
+                    }
+                    "redistribute" => {
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `redistribute` missing port")?;
+
+                        let down = up.redistribute(step_id);
+
+                        streams
+                            .insert_downstream(py, &step, "down", down)
+                            .reraise("core operator `redistribute` missing port")?;
+                    }
+                    "unary" => {
+                        let builder = step.get_arg(py, "builder")?.extract(py)?;
+
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `unary` missing port")?;
+
+                        let (down, snap) = up.unary(py, step_id, builder, resume_epoch, &loads)?;
+
+                        snaps.push(snap);
+
+                        streams
+                            .insert_downstream(py, &step, "down", down)
+                            .reraise("core operator `unary` missing port")?;
+                    }
+                    name => {
+                        let msg = format!("Unknown core operator {name:?}");
+                        return Err(tracked_err::<PyTypeError>(&msg));
                     }
                 }
-                Step::Map { step_id, mapper } => {
-                    let histogram = meter
-                        .f64_histogram("bytewax_map_duration_seconds")
-                        .with_description("map mapper fn duration in seconds")
-                        .init();
-                    let labels = vec![
-                        KeyValue::new("step_id", step_id.0),
-                        this_worker_label.clone(),
-                    ];
-                    stream =
-                        stream.map(move |item| with_timer!(histogram, labels, map(&mapper, item)));
-                }
-                Step::FlatMap { step_id, mapper } => {
-                    let histogram = meter
-                        .f64_histogram("bytewax_flat_map_duration_seconds")
-                        .with_description("flat_map mapper fn duration in seconds")
-                        .init();
-                    let labels = vec![
-                        KeyValue::new("step_id", step_id.0),
-                        this_worker_label.clone(),
-                    ];
-                    stream = stream.flat_map(move |item| {
-                        with_timer!(histogram, labels, flat_map(&mapper, item))
-                    });
-                }
-                Step::Filter { step_id, predicate } => {
-                    let histogram = meter
-                        .f64_histogram("bytewax_filter_duration_seconds")
-                        .with_description("filter predicate duration in seconds")
-                        .init();
-                    let labels = vec![
-                        KeyValue::new("step_id", step_id.0),
-                        this_worker_label.clone(),
-                    ];
-                    stream = stream.filter(move |item| {
-                        with_timer!(histogram, labels, filter(&predicate, item))
-                    });
-                }
-                Step::FilterMap { step_id, mapper } => {
-                    let histogram = meter
-                        .f64_histogram("bytewax_filter_map_duration_seconds")
-                        .with_description("filter_map mapper duration in seconds")
-                        .init();
-                    let labels = vec![
-                        KeyValue::new("step_id", step_id.0),
-                        this_worker_label.clone(),
-                    ];
-                    stream = stream
-                        .map(move |item| with_timer!(histogram, labels, map(&mapper, item)))
-                        .filter(move |item| Python::with_gil(|py| !item.is_none(py)));
-                }
-                Step::FoldWindow {
-                    step_id,
-                    clock_config,
-                    window_config,
-                    builder,
-                    folder,
-                } => {
-                    let clock_builder = clock_config
-                        .build(py)
-                        .reraise("error building FoldWindow clock")?;
-                    let windower_builder = window_config
-                        .build(py)
-                        .reraise("error building FoldWindow windower")?;
-
-                    let (output, snap) = stream.map(extract_state_pair).stateful_window_unary(
-                        step_id,
-                        clock_builder,
-                        windower_builder,
-                        FoldWindowLogic::new(builder, folder),
-                        resume_epoch,
-                        &loads,
-                    );
-
-                    stream = output
-                        .map(|(key, result)| {
-                            result
-                                .map(|value| (key.clone(), value))
-                                .map_err(|err| (key.clone(), err))
-                        })
-                        // For now, filter to just reductions and
-                        // ignore late values.
-                        .ok()
-                        .map(wrap_window_state_pair);
-                    snaps.push(snap);
-                }
-                Step::Inspect { inspector } => {
-                    stream = stream.inspect(move |item| inspect(&inspector, item));
-                }
-                Step::InspectWorker { inspector } => {
-                    stream =
-                        stream.inspect(move |item| inspect_worker(&inspector, &this_worker, item));
-                }
-                Step::InspectEpoch { inspector } => {
-                    stream = stream
-                        .inspect_time(move |epoch, item| inspect_epoch(&inspector, epoch, item));
-                }
-                Step::Reduce {
-                    step_id,
-                    reducer,
-                    is_complete,
-                } => {
-                    let (output, snap) = stream.map(extract_state_pair).stateful_unary(
-                        step_id,
-                        ReduceLogic::builder(reducer, is_complete),
-                        resume_epoch,
-                        &loads,
-                    );
-                    stream = output.map(wrap_state_pair);
-                    snaps.push(snap);
-                }
-                Step::ReduceWindow {
-                    step_id,
-                    clock_config,
-                    window_config,
-                    reducer,
-                } => {
-                    let clock_builder = clock_config
-                        .build(py)
-                        .reraise("error building ReduceWindow clock")?;
-                    let windower_builder = window_config
-                        .build(py)
-                        .reraise("error building ReduceWindow windower")?;
-
-                    let (output, snap) = stream.map(extract_state_pair).stateful_window_unary(
-                        step_id,
-                        clock_builder,
-                        windower_builder,
-                        ReduceWindowLogic::builder(reducer),
-                        resume_epoch,
-                        &loads,
-                    );
-
-                    stream = output
-                        .map(|(key, result)| {
-                            result
-                                .map(|value| (key.clone(), value))
-                                .map_err(|err| (key.clone(), err))
-                        })
-                        // For now, filter to just reductions and
-                        // ignore late values.
-                        .ok()
-                        .map(wrap_window_state_pair);
-                    snaps.push(snap);
-                }
-                Step::StatefulMap {
-                    step_id,
-                    builder,
-                    mapper,
-                } => {
-                    let (output, snap) = stream.map(extract_state_pair).stateful_unary(
-                        step_id,
-                        StatefulMapLogic::builder(builder, mapper),
-                        resume_epoch,
-                        &loads,
-                    );
-                    stream = output.map(wrap_state_pair);
-                    snaps.push(snap);
-                }
-                Step::Output {
-                    step_id,
-                    sink: output,
-                } => {
-                    if let Ok(output) = output.extract(py) {
-                        let (output, snap) = stream
-                            .partitioned_output(py, step_id, output, &loads)
-                            .reraise("error building PartitionedOutput")?;
-                        let clock = output.map(|_| ());
-
-                        outputs.push(clock.clone());
-                        snaps.push(snap);
-                        stream = output;
-                    } else if let Ok(output) = output.extract(py) {
-                        let output = stream
-                            .dynamic_output(py, step_id, output)
-                            .reraise("error building DynamicOutput")?;
-                        let clock = output.map(|_| ());
-
-                        outputs.push(clock.clone());
-                        stream = output;
-                    } else {
-                        return Err(tracked_err::<PyTypeError>("unknown output type"));
-                    }
-                }
+            } else {
+                let mut substeps = step.substeps(py)?;
+                substeps.reverse();
+                build_stack.extend(substeps);
             }
         }
 
         if inputs.is_empty() {
-            return Err(tracked_err::<PyValueError>(
-                "Dataflow needs to contain at least one input",
-            ));
+            let msg =
+                "Dataflow needs to contain at least one input step; add with `bytewax.operators.input`";
+            return Err(tracked_err::<PyValueError>(msg));
         }
         if outputs.is_empty() {
-            return Err(tracked_err::<PyValueError>(
-                "Dataflow needs to contain at least one output",
-            ));
+            let msg =
+                "Dataflow needs to contain at least one output or inspect step; add with `bytewax.operators.output` or `bytewax.operators.inspect`";
+            return Err(tracked_err::<PyValueError>(msg));
         }
 
         // Attach the probe to the relevant final output.

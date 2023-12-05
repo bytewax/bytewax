@@ -21,16 +21,18 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+from bytewax import operators as op
 from bytewax.connectors.kafka import KafkaSource
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.window import EventClockConfig, TumblingWindow
+from bytewax.operators import window as window_op
+from bytewax.operators.window import EventClockConfig, TumblingWindow
 
 # Define the dataflow object and kafka input.
-flow = Dataflow()
-
-
-flow.input("inp", KafkaSource(["localhost:9092"], ["sensors"], tail=False))
+flow = Dataflow("event time")
+brokers = ["localhost:19092"]
+topics = ["sensors"]
+stream = op.input("inp", flow, KafkaSource(brokers, topics, tail=False))
 
 
 # We expect a json string that represents a reading from a sensor.
@@ -39,16 +41,12 @@ def parse_value(key__data):
     return json.loads(data)
 
 
-flow.map("parse_value", parse_value)
+parsed_stream = op.map("parse_value", stream, parse_value)
 
 
-# Divide the readings by sensor type, so that we only
+# Group the readings by sensor type, so that we only
 # aggregate readings of the same type.
-def extract_sensor_type(event):
-    return event["type"], event
-
-
-flow.map("extract_type", extract_sensor_type)
+keyed_stream = op.key_on("extract_type", parsed_stream, lambda event: event["type"])
 
 
 # Here is where we use the event time processing, with
@@ -79,7 +77,9 @@ cc = EventClockConfig(get_event_time, wait_for_system_duration=timedelta(seconds
 align_to = datetime(2023, 1, 1, tzinfo=timezone.utc)
 wc = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
 
-flow.fold_window("running_average", cc, wc, list, acc_values)
+running_avg_stream = window_op.fold_window(
+    "running_average", keyed_stream, cc, wc, list, acc_values
+)
 
 
 # Calculate the average of the values for each window, and
@@ -91,10 +91,10 @@ def format_event(event):
     return (
         f"Average {key}: {sum(values) / len(values):.2f}\t"
         f"Num events: {len(values)}\t"
-        f"From {min(dates).total_seconds():.2f}s\t"
-        f"to {max(dates).total_seconds():.2f}s"
+        f"From {min(dates)}\t"
+        f"to {max(dates)}"
     )
 
 
-flow.map("format_event", format_event)
-flow.output("out", StdOutSink())
+formatted_stream = op.map("format_event", running_avg_stream, format_event)
+op.output("out", formatted_stream, StdOutSink())

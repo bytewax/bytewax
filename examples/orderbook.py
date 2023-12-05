@@ -1,79 +1,98 @@
 import json
+from collections import OrderedDict
+from dataclasses import dataclass, field
+from datetime import timedelta
+from typing import List, Optional
 
+# pip install websockets
+import websockets
+from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch_async
 
-# pip install websocket-client
-from websocket import create_connection
+
+async def _ws_agen(product_id):
+    url = "wss://ws-feed.exchange.coinbase.com"
+    async with websockets.connect(url) as websocket:
+        msg = json.dumps(
+            {
+                "type": "subscribe",
+                "product_ids": [product_id],
+                "channels": ["level2_batch"],
+            }
+        )
+        await websocket.send(msg)
+        # The first msg is just a confirmation that we have subscribed.
+        await websocket.recv()
+
+        while True:
+            msg = await websocket.recv()
+            yield (product_id, json.loads(msg))
 
 
 class CoinbasePartition(StatefulSourcePartition):
     def __init__(self, product_id):
-        self.product_id = product_id
-        self.ws = create_connection("wss://ws-feed.exchange.coinbase.com")
-        self.ws.send(
-            json.dumps(
-                {
-                    "type": "subscribe",
-                    "product_ids": [product_id],
-                    "channels": ["level2_batch"],
-                }
-            )
-        )
-        # The first msg is just a confirmation that we have subscribed.
-        print(self.ws.recv())
+        agen = _ws_agen(product_id)
+        self._batcher = batch_async(agen, timedelta(seconds=0.5), 100)
 
-    def next_batch(self):
-        return [self.ws.recv()]
+    def next_batch(self, _sched):
+        return next(self._batcher)
 
     def snapshot(self):
         return None
 
-    def close(self):
-        self.ws.close()
 
-
-class ConbaseFeedSource(FixedPartitionedSource):
-    def __init__(self, product_ids):
-        self.product_ids = product_ids
+@dataclass
+class CoinbaseSource(FixedPartitionedSource):
+    product_ids: List[str]
 
     def list_parts(self):
-        return set(self.product_ids)
+        return self.product_ids
 
-    def build_part(self, for_key, resume_state):
-        assert resume_state is None
+    def build_part(self, _sched, for_key, _resume_state):
         return CoinbasePartition(for_key)
 
 
-def key_on_product(data):
-    return (data["product_id"], data)
+@dataclass(frozen=True)
+class OrderBookSummary:
+    bid_price: float
+    bid_size: float
+    ask_price: float
+    ask_size: float
+    spread: float
 
 
-class OrderBook:
-    def __init__(self):
-        # if using Python < 3.7 need to use OrderedDict here
-        self.bids = {}
-        self.asks = {}
-        self.bid_price = None
-        self.ask_price = None
+@dataclass
+class OrderBookState:
+    bids: OrderedDict = field(default_factory=OrderedDict)
+    asks: OrderedDict = field(default_factory=OrderedDict)
+    bid_price: Optional[float] = None
+    ask_price: Optional[float] = None
 
     def update(self, data):
-        if self.bids == {}:
-            self.bids = {float(price): float(size) for price, size in data["bids"]}
-            # The bid_price is the highest priced buy limit order.
-            # since the bids are in order, the first item of our newly constructed bids
-            # will have our bid price, so we can track the best bid
+        if len(self.bids) <= 0:
+            self.bids = OrderedDict(
+                (float(price), float(size)) for price, size in data["bids"]
+            )
+        # The bid_price is the highest priced buy limit order.
+        # since the bids are in order, the first item of our newly constructed bids
+        # will have our bid price, so we can track the best bid
+        if self.bid_price is None:
             self.bid_price = next(iter(self.bids))
-        if self.asks == {}:
-            self.asks = {float(price): float(size) for price, size in data["asks"]}
-            # The ask price is the lowest priced sell limit order.
-            # since the asks are in order, the first item of our newly constructed
-            # asks will be our ask price, so we can track the best ask
+        if len(self.asks) <= 0:
+            self.asks = OrderedDict(
+                (float(price), float(size)) for price, size in data["asks"]
+            )
+        # The ask price is the lowest priced sell limit order.
+        # since the asks are in order, the first item of our newly constructed
+        # asks will be our ask price, so we can track the best ask
+        if self.ask_price is None:
             self.ask_price = next(iter(self.asks))
-        else:
-            # We receive a list of lists here, normally it is only one change,
-            # but could be more than one.
+
+        # We receive a list of lists here, normally it is only one change,
+        # but could be more than one.
+        if "changes" in data:
             for update in data["changes"]:
                 price = float(update[1])
                 size = float(update[2])
@@ -109,34 +128,45 @@ class OrderBook:
                     self.bids[price] = size
                     if price > self.bid_price:
                         self.bid_price = price
-        return self, {
-            "bid": self.bid_price,
-            "bid_size": self.bids[self.bid_price],
-            "ask": self.ask_price,
-            "ask_price": self.asks[self.ask_price],
-            "spread": self.ask_price - self.bid_price,
-        }
+
+    def spread(self) -> float:
+        return self.ask_price - self.bid_price  # type: ignore
+
+    def summarize(self):
+        return OrderBookSummary(
+            bid_price=self.bid_price,
+            bid_size=self.bids[self.bid_price],
+            ask_price=self.ask_price,
+            ask_size=self.asks[self.ask_price],
+            spread=self.spread(),
+        )
 
 
-flow = Dataflow()
-flow.input("input", ConbaseFeedSource(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"]))
-flow.map("load_json", json.loads)
-# {
-#     'type': 'l2update',
-#     'product_id': 'BTC-USD',
-#     'changes': [['buy', '36905.39', '0.00334873']],
-#     'time': '2022-05-05T17:25:09.072519Z',
-# }
-flow.map("key_on_product", key_on_product)
+flow = Dataflow("orderbook")
+inp = op.input(
+    "input", flow, CoinbaseSource(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"])
+)
 # ('BTC-USD', {
 #     'type': 'l2update',
 #     'product_id': 'BTC-USD',
 #     'changes': [['buy', '36905.39', '0.00334873']],
 #     'time': '2022-05-05T17:25:09.072519Z',
 # })
-flow.stateful_map("order_book", lambda: OrderBook(), OrderBook.update)
+
+
+def mapper(state, value):
+    state.update(value)
+    return (state, state.summarize())
+
+
+stats = op.stateful_map("order_book", inp, OrderBookState, mapper)
 # ('BTC-USD', (36905.39, 0.00334873, 36905.4, 1.6e-05, 0.010000000002037268))
-flow.filter(
-    lambda x: x[-1]["spread"] / x[-1]["ask"] > 0.0001
-)  # filter on 0.1% spread as a per
-flow.output("out", StdOutSink())
+
+# filter on 0.1% spread as a per
+def just_large_spread(prod_summary):
+    product, summary = prod_summary
+    return summary.spread / summary.ask_price > 0.0001
+
+
+state = op.filter("big_spread", stats, just_large_spread)
+op.output("out", stats, StdOutSink())

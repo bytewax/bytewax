@@ -1,6 +1,8 @@
 import os
 import time
+from typing import Generator
 
+from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSource
@@ -15,7 +17,7 @@ tracer = setup_tracing(
 )
 
 
-def inp():
+def inp() -> Generator[int, int, None]:
     for i in range(50):
         time.sleep(0.5)
         yield i
@@ -33,9 +35,9 @@ def stringy(x):
     return f"<dance>{x}</dance>"
 
 
-flow = Dataflow()
-flow.input("inp", TestingSource(inp()))
-flow.map("double", double)
-flow.map("minus_one", minus_one)
-flow.map("stringy", stringy)
-flow.output("out", StdOutSink())
+flow = Dataflow("tracing")
+stream = op.input("inp", flow, TestingSource(inp()))
+stream = op.map("double", stream, double)
+stream = op.map("minus_one", stream, minus_one)
+stream = op.map("stringy", stream, stringy)
+op.output("out", stream, StdOutSink())

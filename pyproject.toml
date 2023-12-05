@@ -22,6 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "jsonpickle>=3",
+    "typing_extensions>=4",
 ]
 
 extras = [
@@ -75,6 +76,9 @@ testpaths = [
 [tool.maturin]
 python-source = "pysrc"
 
+[tool.mypy]
+mypy_path = "pysrc"
+
 [tool.ruff]
 select = [
     "A",
@@ -90,6 +94,8 @@ select = [
     "W",
 ]
 ignore = [
+    "D105",
+    "E731",
     "PLR",
 ]
 
@@ -100,3 +106,5 @@ convention = "google"
 "examples/*.py" = ["D"]
 "pytests/test_flows/*.py" = ["D"]
 "test_*.py" = ["D"]
+# Because `test_encoder` has huge literals in it.
+"pytests/test_encoder.py" = ["E501"]

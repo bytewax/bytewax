@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from itertools import islice
-from typing import Any, Iterable, Iterator, Optional
+from typing import Any, Iterable, Iterator, List, Optional, TypeVar, Union
 
 from bytewax.inputs import (
     AbortExecution,
@@ -18,7 +18,7 @@ from bytewax.run import (
     _prepare_import,
 )
 
-from .bytewax import (
+from .bytewax import (  # type: ignore[import]
     cluster_main,
     run_main,
     test_cluster,
@@ -32,6 +32,8 @@ __all__ = [
     "poll_next_batch",
     "run_main",
 ]
+
+X = TypeVar("X")
 
 
 def ffwd_iter(it: Iterator[Any], n: int) -> None:
@@ -50,22 +52,33 @@ def ffwd_iter(it: Iterator[Any], n: int) -> None:
     next(islice(it, n, n), None)
 
 
-class _IterSourcePartition(StatefulSourcePartition):
-    def __init__(self, ib, batch_size, resume_state):
+class _IterSourcePartition(StatefulSourcePartition[X, int]):
+    def __init__(
+        self,
+        ib: Iterable[Union[X, "TestingSource.EOF", "TestingSource.ABORT"]],
+        batch_size: int,
+        resume_state: Optional[int],
+    ):
         self._start_idx = 0 if resume_state is None else resume_state
         self._batch_size = batch_size
         self._it = iter(ib)
         # Resume to one after the last completed read index.
         ffwd_iter(self._it, self._start_idx)
-        self._raise = None
+        self._raise: Optional[Exception] = None
 
-    def next_batch(self, _sched: datetime):
+    def next_batch(self, _sched: datetime) -> List[X]:
         if self._raise is not None:
             raise self._raise
 
         batch = []
         for item in self._it:
-            if isinstance(item, TestingSource.EOF):
+            if item is TestingSource.EOF:
+                msg = "`TestingSource.EOF` must be instantiated; use `()`"
+                raise ValueError(msg)
+            elif item is TestingSource.ABORT:
+                msg = "`TestingSource.ABORT` must be instantiated; use `()`"
+                raise ValueError(msg)
+            elif isinstance(item, TestingSource.EOF):
                 self._raise = StopIteration()
                 # Skip over this on continuation.
                 self._start_idx += 1
@@ -83,17 +96,19 @@ class _IterSourcePartition(StatefulSourcePartition):
                 if len(batch) >= self._batch_size:
                     break
 
-        if len(batch) > 0:
+        # If the last item was a sentinel, then don't say EOF, let the
+        # next batch raise the exception.
+        if len(batch) > 0 or self._raise is not None:
             self._start_idx += len(batch)
             return batch
         else:
             raise StopIteration()
 
-    def snapshot(self):
+    def snapshot(self) -> int:
         return self._start_idx
 
 
-class TestingSource(FixedPartitionedSource):
+class TestingSource(FixedPartitionedSource[X, int]):
     """Produce input from a Python iterable.
 
     You only want to use this for unit testing.
@@ -122,6 +137,8 @@ class TestingSource(FixedPartitionedSource):
 
         pass
 
+    # TODO: Find a way to use ABORT in a multi-worker scenario.
+    # Something like a back channel that one has aborted.
     @dataclass
     class ABORT:
         """Abort the execution when the input processes this item.
@@ -131,11 +148,14 @@ class TestingSource(FixedPartitionedSource):
         Each abort will only trigger once. They'll be skipped on
         resume executions.
 
+        You cannot use this in multi-worker executions because the
+        other workers don't know when to stop.
+
         """
 
         _triggered: bool = False
 
-    def __init__(self, ib: Iterable[Any], batch_size: int = 1):
+    def __init__(self, ib: Iterable[Union[X, EOF, ABORT]], batch_size: int = 1):
         """Init.
 
         Args:
@@ -152,21 +172,22 @@ class TestingSource(FixedPartitionedSource):
         """The iterable is read on a single worker."""
         return ["iterable"]
 
-    def build_part(self, now: datetime, for_key: str, resume_state: Optional[Any]):
+    def build_part(
+        self, _now: datetime, _for_key: str, resume_state: Optional[int]
+    ) -> _IterSourcePartition[X]:
         """See ABC docstring."""
-        assert for_key == "iterable"
         return _IterSourcePartition(self._ib, self._batch_size, resume_state)
 
 
-class _ListSinkPartition(StatelessSinkPartition):
-    def __init__(self, ls):
+class _ListSinkPartition(StatelessSinkPartition[X]):
+    def __init__(self, ls: List[X]):
         self._ls = ls
 
-    def write_batch(self, items):
+    def write_batch(self, items: List[X]) -> None:
         self._ls += items
 
 
-class TestingSink(DynamicSink):
+class TestingSink(DynamicSink[X]):
     """Append each output item to a list.
 
     You only want to use this for unit testing.
@@ -178,7 +199,7 @@ class TestingSink(DynamicSink):
 
     __test__ = False
 
-    def __init__(self, ls):
+    def __init__(self, ls: List[X]):
         """Init.
 
         Args:
@@ -186,7 +207,7 @@ class TestingSink(DynamicSink):
         """
         self._ls = ls
 
-    def build(self, worker_index, worker_count):
+    def build(self, _worker_index: int, _worker_count: int) -> _ListSinkPartition[X]:
         """See ABC docstring."""
         return _ListSinkPartition(self._ls)
 

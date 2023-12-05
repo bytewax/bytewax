@@ -3,10 +3,12 @@ from datetime import datetime, timedelta, timezone
 
 # pip install pandas pyarrow fake-web-events
 import pandas
+from bytewax import operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+from bytewax.operators import window as window_op
+from bytewax.operators.window import SystemClockConfig, TumblingWindow
 from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
-from bytewax.window import SystemClockConfig, TumblingWindow
 from fake_web_events import Simulation
 from pandas import DataFrame
 from pyarrow import Table, parquet
@@ -86,13 +88,13 @@ wc = TumblingWindow(
     length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
 )
 
-flow = Dataflow()
-flow.input("input", FakeWebEventsSource())
-flow.map("load_json", json.loads)
+flow = Dataflow("events_to_parquet")
+stream = op.input("input", flow, FakeWebEventsSource())
+stream = op.map("load_json", stream, json.loads)
 # {"page_url_path": "/path", "event_timestamp": "2022-01-02 03:04:05", ...}
-flow.map("add_date_columns", add_date_columns)
+stream = op.map("add_date_columns", stream, add_date_columns)
 # {"page_url_path": "/path", "year": 2022, "month": 1, "day": 5, ... }
-flow.map("group_by_page", group_by_page)
+stream = op.map("group_by_page", stream, group_by_page)
 # ("/path", DataFrame([{
 #     "page_url_path": "/path",
 #     "year": 2022,
@@ -100,6 +102,6 @@ flow.map("group_by_page", group_by_page)
 #     "day": 5,
 #     ...
 # }]))
-flow.reduce_window("reducer", cc, wc, append_event)
+stream = window_op.reduce_window("reducer", stream, cc, wc, append_event)
 # ("/path", DataFrame([{"page_url_path": "/path", ...}, ...]))
-flow.output("out", ParquetSink())
+op.output("out", stream, ParquetSink())
