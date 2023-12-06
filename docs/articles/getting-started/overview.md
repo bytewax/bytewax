@@ -1,32 +1,38 @@
 # Overview
 
-Bytewax is an open source Python framework for building highly
-scalable dataflows in a streaming or batch context.
+Bytewax is a Python framework for building Dataflow programs over bounded or unbounded data.
 
-Bytewax is a Python-native binding to the [Timely
-Dataflow](https://github.com/TimelyDataflow/timely-dataflow) library.
-Timely Dataflow is a distributed dataflow runtime written in
-[Rust](https://www.rust-lang.org/).
+Dataflow programming is fundamentally about describing your program as
+independent components, each of which operate in response to the availability of
+input data, as well as describing the connections between these components.
 
-# Benefits
+Bytewax is written in both Python and Rust. It is distributed as a Python library which makes use of
+[PyO3](https://pyo3.rs/) to offer Python native bindings, and utilizes
+[Timely Dataflow](https://timelydataflow.github.io/timely-dataflow/) as a low-level
+streaming computation framework.
 
-At a high level, Bytewax provides a few major benefits:
+With Bytewax, you can develop Dataflows locally, and deploy the same program on multiple workers
+to process data in parallel.
 
-- You can develop and execute your code locally, and then easily
-  horizontally scale that code to a cluster or Kubernetes without
-  changes.
+Bytewax provides a number of important capabilities for writing Dataflows, including -
 
-- A self-hosted Kubernetes platform product that helps out with
-  operational tasks like logging and metrics. And the
-  [`waxctl`](https://bytewax.io/docs/deployment/waxctl) to help manage
+- Stateful Operators
+- Recovery
+- Windowing
+- Joins
+- And more!
 
-- The Bytewax runtime provides a recovery system which automatically
-  backs up the state in your dataflow and allows you to recover from
-  failure without slowly re-processing all data.
+Bytewax also offers a [Platform](https://bytewax.io/platform) that simplifies
+the management of stateful workloads on Kubernetes, and adds many additional features.
 
-- A built-in library of connectors to easily allow integration with
-  external systems, and the ability to write your own connectors in
-  pure Python.
+## Where to go from here?
 
-- A built-in library of operators to handle common data transformation
-  use cases, and the ability to write your own in pure Python.
+If you would like to learn more about how Dataflow programming works, or would like
+to better understand how Bytewax works, see our [Concepts Section](/concepts).
+
+Access to the Python API documentation can be found [here](/apidocs).
+
+If you would like to make a contribution to Bytewax, please have a look at our
+contribution guide [here](https://github.com/bytewax/bytewax/blob/main/CONTRIBUTING.md).
+
+The source for Bytewax is hosted on [GitHub](https://github.com/bytewax/bytewax).
