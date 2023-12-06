@@ -19,7 +19,8 @@ Importing this module requires the
 package to be installed.
 
 &#34;&#34;&#34;
-from typing import Dict, Iterable
+from datetime import datetime
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 from confluent_kafka import (
     OFFSET_BEGINNING,
@@ -30,31 +31,35 @@ from confluent_kafka import (
 )
 from confluent_kafka.admin import AdminClient
 
-from bytewax.inputs import PartitionedInput, StatefulSource
-from bytewax.outputs import DynamicOutput, StatelessSink
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 __all__ = [
-    &#34;KafkaInput&#34;,
-    &#34;KafkaOutput&#34;,
+    &#34;KafkaSource&#34;,
+    &#34;KafkaSink&#34;,
 ]
 
 
-def _list_parts(client, topics):
+def _list_parts(client: AdminClient, topics: Iterable[str]) -&gt; Iterable[str]:
     for topic in topics:
         # List topics one-by-one so if auto-create is turned on,
         # we respect that.
         cluster_metadata = client.list_topics(topic)
         topic_metadata = cluster_metadata.topics[topic]
         if topic_metadata.error is not None:
-            msg = f&#34;error listing partitions for Kafka topic `{topic!r}`: &#34;
-            f&#34;{topic_metadata.error.str()}&#34;
+            msg = (
+                f&#34;error listing partitions for Kafka topic `{topic!r}`: &#34;
+                f&#34;{topic_metadata.error.str()}&#34;
+            )
             raise RuntimeError(msg)
         part_idxs = topic_metadata.partitions.keys()
         for i in part_idxs:
             yield f&#34;{i}-{topic}&#34;
 
 
-class _KafkaSource(StatefulSource):
+class _KafkaSourcePartition(
+    StatefulSourcePartition[Tuple[bytes, bytes], Optional[int]]
+):
     def __init__(
         self,
         consumer,
@@ -72,7 +77,7 @@ class _KafkaSource(StatefulSource):
         self._batch_size = batch_size
         self._eof = False
 
-    def next_batch(self):
+    def next_batch(self, _sched: datetime) -&gt; List[Tuple[bytes, bytes]]:
         if self._eof:
             raise StopIteration()
 
@@ -90,9 +95,11 @@ class _KafkaSource(StatefulSource):
                     break
                 else:
                     # Discard all the messages in this batch too
-                    msg = f&#34;error consuming from Kafka topic `{self._topic!r}`: &#34;
-                    f&#34;{msg.error()}&#34;
-                    raise RuntimeError(msg)
+                    err_msg = (
+                        f&#34;error consuming from Kafka topic `{self._topic!r}`: &#34;
+                        f&#34;{msg.error()}&#34;
+                    )
+                    raise RuntimeError(err_msg)
             batch.append((msg.key(), msg.value()))
             last_offset = msg.offset()
 
@@ -101,14 +108,14 @@ class _KafkaSource(StatefulSource):
             self._offset = last_offset + 1
         return batch
 
-    def snapshot(self):
+    def snapshot(self) -&gt; Optional[int]:
         return self._offset
 
-    def close(self):
+    def close(self) -&gt; None:
         self._consumer.close()
 
 
-class KafkaInput(PartitionedInput):
+class KafkaSource(FixedPartitionedSource[Tuple[bytes, bytes], Optional[int]]):
     &#34;&#34;&#34;Use a set of Kafka topics as an input source.
 
     Kafka messages are emitted into the dataflow as two-tuples of
@@ -125,7 +132,7 @@ class KafkaInput(PartitionedInput):
         topics: Iterable[str],
         tail: bool = True,
         starting_offset: int = OFFSET_BEGINNING,
-        add_config: Dict[str, str] = None,
+        add_config: Optional[Dict[str, str]] = None,
         batch_size: int = 1,
     ):
         &#34;&#34;&#34;Init.
@@ -169,7 +176,7 @@ class KafkaInput(PartitionedInput):
         self._add_config = {} if add_config is None else add_config
         self._batch_size = batch_size
 
-    def list_parts(self):
+    def list_parts(self) -&gt; List[str]:
         &#34;&#34;&#34;Each Kafka partition is an input partition.&#34;&#34;&#34;
         config = {
             &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
@@ -179,10 +186,12 @@ class KafkaInput(PartitionedInput):
 
         return list(_list_parts(client, self._topics))
 
-    def build_part(self, for_part, resume_state):
+    def build_part(
+        self, _now: datetime, for_part: str, resume_state: Optional[int]
+    ) -&gt; _KafkaSourcePartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         part_idx, topic = for_part.split(&#34;-&#34;, 1)
-        part_idx = int(part_idx)
+        part_idx = int(part_idx)  # type: ignore
         # TODO: Warn and then return None. This might be an indication
         # of dataflow continuation with a new topic (to enable
         # re-partitioning), which is fine.
@@ -198,7 +207,7 @@ class KafkaInput(PartitionedInput):
         }
         config.update(self._add_config)
         consumer = Consumer(config)
-        return _KafkaSource(
+        return _KafkaSourcePartition(
             consumer,
             topic,
             part_idx,
@@ -208,22 +217,26 @@ class KafkaInput(PartitionedInput):
         )
 
 
-class _KafkaSink(StatelessSink):
+class _KafkaSinkPartition(
+    StatelessSinkPartition[Tuple[Union[str, bytes], Union[str, bytes]]]
+):
     def __init__(self, producer, topic):
         self._producer = producer
         self._topic = topic
 
-    def write_batch(self, batch):
+    def write_batch(
+        self, batch: List[Tuple[Union[str, bytes], Union[str, bytes]]]
+    ) -&gt; None:
         for key, value in batch:
             self._producer.produce(self._topic, value, key)
             self._producer.poll(0)
         self._producer.flush()
 
-    def close(self):
+    def close(self) -&gt; None:
         self._producer.flush()
 
 
-class KafkaOutput(DynamicOutput):
+class KafkaSink(DynamicSink[Tuple[Union[str, bytes], Union[str, bytes]]]):
     &#34;&#34;&#34;Use a single Kafka topic as an output sink.
 
     Items consumed from the dataflow must look like two-tuples of
@@ -240,7 +253,7 @@ class KafkaOutput(DynamicOutput):
         self,
         brokers: Iterable[str],
         topic: str,
-        add_config: Dict[str, str] = None,
+        add_config: Optional[Dict[str, str]] = None,
     ):
         &#34;&#34;&#34;Init.
 
@@ -260,14 +273,14 @@ class KafkaOutput(DynamicOutput):
         self._topic = topic
         self._add_config = {} if add_config is None else add_config
 
-    def build(self, worker_index, worker_count):
+    def build(self, _worker_index: int, _worker_count: int) -&gt; _KafkaSinkPartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         config = {
             &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
         }
         config.update(self._add_config)
         producer = Producer(config)
-        return _KafkaSink(producer, self._topic)</code></pre>
+        return _KafkaSinkPartition(producer, self._topic)</code></pre>
 </details>
 </section>
 <section>
@@ -279,9 +292,111 @@ class KafkaOutput(DynamicOutput):
 <section>
 <h2 class="api__article-subtitle" id="header-classes">Classes</h2>
 <dl>
-<dt id="bytewax.connectors.kafka.KafkaInput"><code class="language-python flex name class">
-<span>class <span class="ident">KafkaInput</span></span>
-<span>(</span><span>brokers: Iterable[str], topics: Iterable[str], tail: bool = True, starting_offset: int = -2, add_config: Dict[str, str] = None, batch_size: int = 1)</span>
+<dt id="bytewax.connectors.kafka.KafkaSink"><code class="language-python flex name class">
+<span>class <span class="ident">KafkaSink</span></span>
+<span>(</span><span>brokers: Iterable[str], topic: str, add_config: Optional[Dict[str, str]] = None)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use a single Kafka topic as an output sink.</p>
+<p>Items consumed from the dataflow must look like two-tuples of
+<code>(key_bytes, value_bytes)</code>. Default partition routing is used.</p>
+<p>Workers are the unit of parallelism.</p>
+<p>Can support at-least-once processing. Messages from the resume
+epoch will be duplicated right after resume.</p>
+<p>Init.</p>
+<h2 id="args">Args</h2>
+<p>brokers:
+List of <code>host:port</code> strings of Kafka brokers.
+topic:
+Topic to produce to.
+add_config:
+Any additional configuration properties. See <a href="https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md">the
+<code>rdkafka</code>
+documentation</a>
+for options.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class KafkaSink(DynamicSink[Tuple[Union[str, bytes], Union[str, bytes]]]):
+    &#34;&#34;&#34;Use a single Kafka topic as an output sink.
+
+    Items consumed from the dataflow must look like two-tuples of
+    `(key_bytes, value_bytes)`. Default partition routing is used.
+
+    Workers are the unit of parallelism.
+
+    Can support at-least-once processing. Messages from the resume
+    epoch will be duplicated right after resume.
+
+    &#34;&#34;&#34;
+
+    def __init__(
+        self,
+        brokers: Iterable[str],
+        topic: str,
+        add_config: Optional[Dict[str, str]] = None,
+    ):
+        &#34;&#34;&#34;Init.
+
+        Args:
+            brokers:
+                List of `host:port` strings of Kafka brokers.
+            topic:
+                Topic to produce to.
+            add_config:
+                Any additional configuration properties. See [the
+                `rdkafka`
+                documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+                for options.
+
+        &#34;&#34;&#34;
+        self._brokers = brokers
+        self._topic = topic
+        self._add_config = {} if add_config is None else add_config
+
+    def build(self, _worker_index: int, _worker_count: int) -&gt; _KafkaSinkPartition:
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        config = {
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+        }
+        config.update(self._add_config)
+        producer = Producer(config)
+        return _KafkaSinkPartition(producer, self._topic)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.outputs.DynamicSink" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicSink">DynamicSink</a></li>
+<li><a title="bytewax.outputs.Sink" href="/apidocs/bytewax.outputs#bytewax.outputs.Sink">Sink</a></li>
+<li>abc.ABC</li>
+<li>typing.Generic</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.connectors.kafka.KafkaSink.build"><code class="language-python name flex">
+<span>def <span class="ident">build</span></span>(<span>self, _worker_index: int, _worker_count: int) ‑> bytewax.connectors.kafka._KafkaSinkPartition</span>
+</code></dt>
+<dd>
+<div class="desc"><p>See ABC docstring.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def build(self, _worker_index: int, _worker_count: int) -&gt; _KafkaSinkPartition:
+    &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+    config = {
+        &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+    }
+    config.update(self._add_config)
+    producer = Producer(config)
+    return _KafkaSinkPartition(producer, self._topic)</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSource"><code class="language-python flex name class">
+<span>class <span class="ident">KafkaSource</span></span>
+<span>(</span><span>brokers: Iterable[str], topics: Iterable[str], tail: bool = True, starting_offset: int = -2, add_config: Optional[Dict[str, str]] = None, batch_size: int = 1)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Use a set of Kafka topics as an input source.</p>
@@ -318,7 +433,7 @@ a higher value (eg: 1000)</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class KafkaInput(PartitionedInput):
+<pre class="language-python line-numbers"><code class="language-python">class KafkaSource(FixedPartitionedSource[Tuple[bytes, bytes], Optional[int]]):
     &#34;&#34;&#34;Use a set of Kafka topics as an input source.
 
     Kafka messages are emitted into the dataflow as two-tuples of
@@ -335,7 +450,7 @@ a higher value (eg: 1000)</p></div>
         topics: Iterable[str],
         tail: bool = True,
         starting_offset: int = OFFSET_BEGINNING,
-        add_config: Dict[str, str] = None,
+        add_config: Optional[Dict[str, str]] = None,
         batch_size: int = 1,
     ):
         &#34;&#34;&#34;Init.
@@ -379,7 +494,7 @@ a higher value (eg: 1000)</p></div>
         self._add_config = {} if add_config is None else add_config
         self._batch_size = batch_size
 
-    def list_parts(self):
+    def list_parts(self) -&gt; List[str]:
         &#34;&#34;&#34;Each Kafka partition is an input partition.&#34;&#34;&#34;
         config = {
             &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
@@ -389,10 +504,12 @@ a higher value (eg: 1000)</p></div>
 
         return list(_list_parts(client, self._topics))
 
-    def build_part(self, for_part, resume_state):
+    def build_part(
+        self, _now: datetime, for_part: str, resume_state: Optional[int]
+    ) -&gt; _KafkaSourcePartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         part_idx, topic = for_part.split(&#34;-&#34;, 1)
-        part_idx = int(part_idx)
+        part_idx = int(part_idx)  # type: ignore
         # TODO: Warn and then return None. This might be an indication
         # of dataflow continuation with a new topic (to enable
         # re-partitioning), which is fine.
@@ -408,7 +525,7 @@ a higher value (eg: 1000)</p></div>
         }
         config.update(self._add_config)
         consumer = Consumer(config)
-        return _KafkaSource(
+        return _KafkaSourcePartition(
             consumer,
             topic,
             part_idx,
@@ -419,14 +536,15 @@ a higher value (eg: 1000)</p></div>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></li>
-<li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
+<li><a title="bytewax.inputs.FixedPartitionedSource" href="/apidocs/bytewax.inputs#bytewax.inputs.FixedPartitionedSource">FixedPartitionedSource</a></li>
+<li><a title="bytewax.inputs.Source" href="/apidocs/bytewax.inputs#bytewax.inputs.Source">Source</a></li>
 <li>abc.ABC</li>
+<li>typing.Generic</li>
 </ul>
 <h3>Methods</h3>
 <dl>
-<dt id="bytewax.connectors.kafka.KafkaInput.build_part"><code class="language-python name flex">
-<span>def <span class="ident">build_part</span></span>(<span>self, for_part, resume_state)</span>
+<dt id="bytewax.connectors.kafka.KafkaSource.build_part"><code class="language-python name flex">
+<span>def <span class="ident">build_part</span></span>(<span>self, _now: datetime.datetime, for_part: str, resume_state: Optional[int]) ‑> bytewax.connectors.kafka._KafkaSourcePartition</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -434,10 +552,12 @@ a higher value (eg: 1000)</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def build_part(self, for_part, resume_state):
+<pre class="language-python line-numbers"><code class="language-python">def build_part(
+    self, _now: datetime, for_part: str, resume_state: Optional[int]
+) -&gt; _KafkaSourcePartition:
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
     part_idx, topic = for_part.split(&#34;-&#34;, 1)
-    part_idx = int(part_idx)
+    part_idx = int(part_idx)  # type: ignore
     # TODO: Warn and then return None. This might be an indication
     # of dataflow continuation with a new topic (to enable
     # re-partitioning), which is fine.
@@ -453,7 +573,7 @@ a higher value (eg: 1000)</p></div>
     }
     config.update(self._add_config)
     consumer = Consumer(config)
-    return _KafkaSource(
+    return _KafkaSourcePartition(
         consumer,
         topic,
         part_idx,
@@ -463,8 +583,8 @@ a higher value (eg: 1000)</p></div>
     )</code></pre>
 </details>
 </dd>
-<dt id="bytewax.connectors.kafka.KafkaInput.list_parts"><code class="language-python name flex">
-<span>def <span class="ident">list_parts</span></span>(<span>self)</span>
+<dt id="bytewax.connectors.kafka.KafkaSource.list_parts"><code class="language-python name flex">
+<span>def <span class="ident">list_parts</span></span>(<span>self) ‑> List[str]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Each Kafka partition is an input partition.</p></div>
@@ -472,7 +592,7 @@ a higher value (eg: 1000)</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def list_parts(self):
+<pre class="language-python line-numbers"><code class="language-python">def list_parts(self) -&gt; List[str]:
     &#34;&#34;&#34;Each Kafka partition is an input partition.&#34;&#34;&#34;
     config = {
         &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
@@ -481,107 +601,6 @@ a higher value (eg: 1000)</p></div>
     client = AdminClient(config)
 
     return list(_list_parts(client, self._topics))</code></pre>
-</details>
-</dd>
-</dl>
-</dd>
-<dt id="bytewax.connectors.kafka.KafkaOutput"><code class="language-python flex name class">
-<span>class <span class="ident">KafkaOutput</span></span>
-<span>(</span><span>brokers: Iterable[str], topic: str, add_config: Dict[str, str] = None)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Use a single Kafka topic as an output sink.</p>
-<p>Items consumed from the dataflow must look like two-tuples of
-<code>(key_bytes, value_bytes)</code>. Default partition routing is used.</p>
-<p>Workers are the unit of parallelism.</p>
-<p>Can support at-least-once processing. Messages from the resume
-epoch will be duplicated right after resume.</p>
-<p>Init.</p>
-<h2 id="args">Args</h2>
-<p>brokers:
-List of <code>host:port</code> strings of Kafka brokers.
-topic:
-Topic to produce to.
-add_config:
-Any additional configuration properties. See <a href="https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md">the
-<code>rdkafka</code>
-documentation</a>
-for options.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">class KafkaOutput(DynamicOutput):
-    &#34;&#34;&#34;Use a single Kafka topic as an output sink.
-
-    Items consumed from the dataflow must look like two-tuples of
-    `(key_bytes, value_bytes)`. Default partition routing is used.
-
-    Workers are the unit of parallelism.
-
-    Can support at-least-once processing. Messages from the resume
-    epoch will be duplicated right after resume.
-
-    &#34;&#34;&#34;
-
-    def __init__(
-        self,
-        brokers: Iterable[str],
-        topic: str,
-        add_config: Dict[str, str] = None,
-    ):
-        &#34;&#34;&#34;Init.
-
-        Args:
-            brokers:
-                List of `host:port` strings of Kafka brokers.
-            topic:
-                Topic to produce to.
-            add_config:
-                Any additional configuration properties. See [the
-                `rdkafka`
-                documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
-                for options.
-
-        &#34;&#34;&#34;
-        self._brokers = brokers
-        self._topic = topic
-        self._add_config = {} if add_config is None else add_config
-
-    def build(self, worker_index, worker_count):
-        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-        config = {
-            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
-        }
-        config.update(self._add_config)
-        producer = Producer(config)
-        return _KafkaSink(producer, self._topic)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li><a title="bytewax.outputs.DynamicOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput">DynamicOutput</a></li>
-<li><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></li>
-<li>abc.ABC</li>
-</ul>
-<h3>Methods</h3>
-<dl>
-<dt id="bytewax.connectors.kafka.KafkaOutput.build"><code class="language-python name flex">
-<span>def <span class="ident">build</span></span>(<span>self, worker_index, worker_count)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>See ABC docstring.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">def build(self, worker_index, worker_count):
-    &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-    config = {
-        &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
-    }
-    config.update(self._add_config)
-    producer = Producer(config)
-    return _KafkaSink(producer, self._topic)</code></pre>
 </details>
 </dd>
 </dl>
@@ -608,16 +627,16 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.KafkaInput" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaInput">KafkaInput</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.KafkaSink" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSink">KafkaSink</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaInput.build_part" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaInput.build_part">build_part</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaInput.list_parts" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaInput.list_parts">list_parts</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSink.build" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSink.build">build</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.KafkaOutput" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaOutput">KafkaOutput</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.KafkaSource" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSource">KafkaSource</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaOutput.build" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaOutput.build">build</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSource.build_part" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSource.build_part">build_part</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSource.list_parts" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSource.list_parts">list_parts</a></li>
 </ul>
 </li>
 </ul>

@@ -7,7 +7,6 @@
 <p>Low-level output interfaces.</p>
 <p>If you want pre-built connectors for various external systems, see
 <code><a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a></code>. That is also a rich source of examples.</p>
-<p>Subclass the types here to implement input for your own custom sink.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -17,48 +16,42 @@
 If you want pre-built connectors for various external systems, see
 `bytewax.connectors`. That is also a rich source of examples.
 
-Subclass the types here to implement input for your own custom sink.
-
 &#34;&#34;&#34;
 
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional
+from typing import Generic, List, Optional, Tuple, TypeVar
 from zlib import adler32
 
 __all__ = [
-    &#34;DynamicOutput&#34;,
-    &#34;Output&#34;,
-    &#34;PartitionedOutput&#34;,
-    &#34;StatefulSink&#34;,
-    &#34;StatelessSink&#34;,
+    &#34;DynamicSink&#34;,
+    &#34;FixedPartitionedSink&#34;,
+    &#34;Sink&#34;,
+    &#34;StatefulSinkPartition&#34;,
+    &#34;StatelessSinkPartition&#34;,
 ]
 
+X = TypeVar(&#34;X&#34;)
+S = TypeVar(&#34;S&#34;)
 
-class Output(ABC):  # noqa: B024
-    &#34;&#34;&#34;Base class for all output types. Do not subclass this.
+
+class Sink(ABC, Generic[X]):  # noqa: B024
+    &#34;&#34;&#34;A destination to write output items.
+
+    Base class for all output sinks. Do not subclass this.
 
     If you want to implement a custom connector, instead subclass one
-    of the specific output sub-types below in this module.
+    of the specific sink sub-types below in this module.
 
     &#34;&#34;&#34;
 
-    def __json__(self):
-        &#34;&#34;&#34;JSON representation of this.
-
-        This is used by the Bytewax platform internally and should
-        not be overridden.
-
-        &#34;&#34;&#34;
-        return {
-            &#34;type&#34;: type(self).__name__,
-        }
+    pass
 
 
-class StatefulSink(ABC):
-    &#34;&#34;&#34;Output sink that maintains state of its position.&#34;&#34;&#34;
+class StatefulSinkPartition(ABC, Generic[X, S]):
+    &#34;&#34;&#34;Output partition that maintains state of its position.&#34;&#34;&#34;
 
     @abstractmethod
-    def write_batch(self, values: List[Any]) -&gt; None:
+    def write_batch(self, values: List[X]) -&gt; None:
         &#34;&#34;&#34;Write a batch of output values.
 
         Called with a list of `value`s for each `(key, value)` at this
@@ -74,14 +67,15 @@ class StatefulSink(ABC):
         &#34;&#34;&#34;
         ...
 
-    def snapshot(self) -&gt; Any:
-        &#34;&#34;&#34;Snapshot the position of the next write of this sink.
+    @abstractmethod
+    def snapshot(self) -&gt; S:
+        &#34;&#34;&#34;Snapshot the position of the next write of this partition.
 
         This will be returned to you via the `resume_state` parameter
         of your output builder.
 
         Be careful of &#34;off by one&#34; errors in resume state. This should
-        return a state that, when built into a sink, resumes writing
+        return a state that, when built into a partition, resumes writing
         _after the last written item_, not overwriting the same item.
 
         This is guaranteed to never be called after `close()`.
@@ -90,10 +84,10 @@ class StatefulSink(ABC):
             Resume state.
 
         &#34;&#34;&#34;
-        return None
+        ...
 
     def close(self) -&gt; None:
-        &#34;&#34;&#34;Cleanup this sink when the dataflow completes.
+        &#34;&#34;&#34;Cleanup this partition when the dataflow completes.
 
         This is not guaranteed to be called. It will only be called
         when the dataflow finishes on finite input. It will not be
@@ -103,10 +97,10 @@ class StatefulSink(ABC):
         return
 
 
-class PartitionedOutput(Output):
-    &#34;&#34;&#34;An output with a fixed number of independent partitions.
+class FixedPartitionedSink(Sink[Tuple[str, X]], Generic[X, S]):
+    &#34;&#34;&#34;An output sink with a fixed number of independent partitions.
 
-    Will maintain the state of each sink and re-build using it during
+    Will maintain the state of each partition and re-build using it during
     resume. If the sink supports seeking and overwriting, this output
     can support exactly-once processing.
 
@@ -156,8 +150,8 @@ class PartitionedOutput(Output):
     def build_part(
         self,
         for_part: str,
-        resume_state: Optional[Any],
-    ) -&gt; StatefulSink:
+        resume_state: Optional[S],
+    ) -&gt; StatefulSinkPartition[X, S]:
         &#34;&#34;&#34;Build anew or resume an output partition.
 
         Will be called once per execution for each partition key on a
@@ -184,11 +178,11 @@ class PartitionedOutput(Output):
         ...
 
 
-class StatelessSink(ABC):
-    &#34;&#34;&#34;Output sink that is stateless.&#34;&#34;&#34;
+class StatelessSinkPartition(ABC, Generic[X]):
+    &#34;&#34;&#34;Output partition that is stateless.&#34;&#34;&#34;
 
     @abstractmethod
-    def write_batch(self, items: List[Any]) -&gt; None:
+    def write_batch(self, items: List[X]) -&gt; None:
         &#34;&#34;&#34;Write a batch of output items.
 
         Called multiple times whenever new items are seen at this
@@ -202,7 +196,7 @@ class StatelessSink(ABC):
         ...
 
     def close(self) -&gt; None:
-        &#34;&#34;&#34;Cleanup this sink when the dataflow completes.
+        &#34;&#34;&#34;Cleanup this partition when the dataflow completes.
 
         This is not guaranteed to be called. It will only be called
         when the dataflow finishes on finite input. It will not be
@@ -212,8 +206,8 @@ class StatelessSink(ABC):
         return
 
 
-class DynamicOutput(Output):
-    &#34;&#34;&#34;An output where all workers write items concurrently.
+class DynamicSink(Sink[X]):
+    &#34;&#34;&#34;An output sink where all workers write items concurrently.
 
     Does not support storing any resume state. Thus these kind of
     outputs only naively can support at-least-once processing.
@@ -221,8 +215,8 @@ class DynamicOutput(Output):
     &#34;&#34;&#34;
 
     @abstractmethod
-    def build(self, worker_index, worker_count) -&gt; StatelessSink:
-        &#34;&#34;&#34;Build an output sink for a worker.
+    def build(self, worker_index: int, worker_count: int) -&gt; StatelessSinkPartition[X]:
+        &#34;&#34;&#34;Build an output partition for a worker.
 
         Will be called once on each worker.
 
@@ -233,7 +227,7 @@ class DynamicOutput(Output):
                 Total number of workers.
 
         Returns:
-            Output sink.
+            The built partition.
 
         &#34;&#34;&#34;
         ...</code></pre>
@@ -248,19 +242,19 @@ class DynamicOutput(Output):
 <section>
 <h2 class="api__article-subtitle" id="header-classes">Classes</h2>
 <dl>
-<dt id="bytewax.outputs.DynamicOutput"><code class="language-python flex name class">
-<span>class <span class="ident">DynamicOutput</span></span>
+<dt id="bytewax.outputs.DynamicSink"><code class="language-python flex name class">
+<span>class <span class="ident">DynamicSink</span></span>
 </code></dt>
 <dd>
-<div class="desc"><p>An output where all workers write items concurrently.</p>
+<div class="desc"><p>An output sink where all workers write items concurrently.</p>
 <p>Does not support storing any resume state. Thus these kind of
 outputs only naively can support at-least-once processing.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class DynamicOutput(Output):
-    &#34;&#34;&#34;An output where all workers write items concurrently.
+<pre class="language-python line-numbers"><code class="language-python">class DynamicSink(Sink[X]):
+    &#34;&#34;&#34;An output sink where all workers write items concurrently.
 
     Does not support storing any resume state. Thus these kind of
     outputs only naively can support at-least-once processing.
@@ -268,8 +262,8 @@ outputs only naively can support at-least-once processing.</p></div>
     &#34;&#34;&#34;
 
     @abstractmethod
-    def build(self, worker_index, worker_count) -&gt; StatelessSink:
-        &#34;&#34;&#34;Build an output sink for a worker.
+    def build(self, worker_index: int, worker_count: int) -&gt; StatelessSinkPartition[X]:
+        &#34;&#34;&#34;Build an output partition for a worker.
 
         Will be called once on each worker.
 
@@ -280,29 +274,31 @@ outputs only naively can support at-least-once processing.</p></div>
                 Total number of workers.
 
         Returns:
-            Output sink.
+            The built partition.
 
         &#34;&#34;&#34;
         ...</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></li>
+<li><a title="bytewax.outputs.Sink" href="/apidocs/bytewax.outputs#bytewax.outputs.Sink">Sink</a></li>
 <li>abc.ABC</li>
+<li>typing.Generic</li>
 </ul>
 <h3>Subclasses</h3>
 <ul class="hlist">
-<li><a title="bytewax.connectors.kafka.KafkaOutput" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaOutput">KafkaOutput</a></li>
-<li><a title="bytewax.connectors.stdio.StdOutput" href="/apidocs/bytewax.connectors/stdio#bytewax.connectors.stdio.StdOutput">StdOutput</a></li>
-<li><a title="bytewax.testing.TestingOutput" href="/apidocs/bytewax.testing#bytewax.testing.TestingOutput">TestingOutput</a></li>
+<li><a title="bytewax.connectors.kafka.KafkaSink" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSink">KafkaSink</a></li>
+<li><a title="bytewax.connectors.stdio.StdOutSink" href="/apidocs/bytewax.connectors/stdio#bytewax.connectors.stdio.StdOutSink">StdOutSink</a></li>
+<li>bytewax.operators._RaiseSink</li>
+<li><a title="bytewax.testing.TestingSink" href="/apidocs/bytewax.testing#bytewax.testing.TestingSink">TestingSink</a></li>
 </ul>
 <h3>Methods</h3>
 <dl>
-<dt id="bytewax.outputs.DynamicOutput.build"><code class="language-python name flex">
-<span>def <span class="ident">build</span></span>(<span>self, worker_index, worker_count) ‑> <a title="bytewax.outputs.StatelessSink" href="/apidocs/bytewax.outputs#bytewax.outputs.StatelessSink">StatelessSink</a></span>
+<dt id="bytewax.outputs.DynamicSink.build"><code class="language-python name flex">
+<span>def <span class="ident">build</span></span>(<span>self, worker_index: int, worker_count: int) ‑> <a title="bytewax.outputs.StatelessSinkPartition" href="/apidocs/bytewax.outputs#bytewax.outputs.StatelessSinkPartition">StatelessSinkPartition</a>[~X]</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Build an output sink for a worker.</p>
+<div class="desc"><p>Build an output partition for a worker.</p>
 <p>Will be called once on each worker.</p>
 <h2 id="args">Args</h2>
 <p>worker_index:
@@ -310,14 +306,14 @@ Index of this worker.
 worker_count:
 Total number of workers.</p>
 <h2 id="returns">Returns</h2>
-<p>Output sink.</p></div>
+<p>The built partition.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@abstractmethod
-def build(self, worker_index, worker_count) -&gt; StatelessSink:
-    &#34;&#34;&#34;Build an output sink for a worker.
+def build(self, worker_index: int, worker_count: int) -&gt; StatelessSinkPartition[X]:
+    &#34;&#34;&#34;Build an output partition for a worker.
 
     Will be called once on each worker.
 
@@ -328,7 +324,7 @@ def build(self, worker_index, worker_count) -&gt; StatelessSink:
             Total number of workers.
 
     Returns:
-        Output sink.
+        The built partition.
 
     &#34;&#34;&#34;
     ...</code></pre>
@@ -336,62 +332,22 @@ def build(self, worker_index, worker_count) -&gt; StatelessSink:
 </dd>
 </dl>
 </dd>
-<dt id="bytewax.outputs.Output"><code class="language-python flex name class">
-<span>class <span class="ident">Output</span></span>
+<dt id="bytewax.outputs.FixedPartitionedSink"><code class="language-python flex name class">
+<span>class <span class="ident">FixedPartitionedSink</span></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Base class for all output types. Do not subclass this.</p>
-<p>If you want to implement a custom connector, instead subclass one
-of the specific output sub-types below in this module.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">class Output(ABC):  # noqa: B024
-    &#34;&#34;&#34;Base class for all output types. Do not subclass this.
-
-    If you want to implement a custom connector, instead subclass one
-    of the specific output sub-types below in this module.
-
-    &#34;&#34;&#34;
-
-    def __json__(self):
-        &#34;&#34;&#34;JSON representation of this.
-
-        This is used by the Bytewax platform internally and should
-        not be overridden.
-
-        &#34;&#34;&#34;
-        return {
-            &#34;type&#34;: type(self).__name__,
-        }</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>abc.ABC</li>
-</ul>
-<h3>Subclasses</h3>
-<ul class="hlist">
-<li><a title="bytewax.outputs.DynamicOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput">DynamicOutput</a></li>
-<li><a title="bytewax.outputs.PartitionedOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput">PartitionedOutput</a></li>
-</ul>
-</dd>
-<dt id="bytewax.outputs.PartitionedOutput"><code class="language-python flex name class">
-<span>class <span class="ident">PartitionedOutput</span></span>
-</code></dt>
-<dd>
-<div class="desc"><p>An output with a fixed number of independent partitions.</p>
-<p>Will maintain the state of each sink and re-build using it during
+<div class="desc"><p>An output sink with a fixed number of independent partitions.</p>
+<p>Will maintain the state of each partition and re-build using it during
 resume. If the sink supports seeking and overwriting, this output
 can support exactly-once processing.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class PartitionedOutput(Output):
-    &#34;&#34;&#34;An output with a fixed number of independent partitions.
+<pre class="language-python line-numbers"><code class="language-python">class FixedPartitionedSink(Sink[Tuple[str, X]], Generic[X, S]):
+    &#34;&#34;&#34;An output sink with a fixed number of independent partitions.
 
-    Will maintain the state of each sink and re-build using it during
+    Will maintain the state of each partition and re-build using it during
     resume. If the sink supports seeking and overwriting, this output
     can support exactly-once processing.
 
@@ -441,8 +397,8 @@ can support exactly-once processing.</p></div>
     def build_part(
         self,
         for_part: str,
-        resume_state: Optional[Any],
-    ) -&gt; StatefulSink:
+        resume_state: Optional[S],
+    ) -&gt; StatefulSinkPartition[X, S]:
         &#34;&#34;&#34;Build anew or resume an output partition.
 
         Will be called once per execution for each partition key on a
@@ -470,18 +426,19 @@ can support exactly-once processing.</p></div>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></li>
+<li><a title="bytewax.outputs.Sink" href="/apidocs/bytewax.outputs#bytewax.outputs.Sink">Sink</a></li>
 <li>abc.ABC</li>
+<li>typing.Generic</li>
 </ul>
 <h3>Subclasses</h3>
 <ul class="hlist">
-<li><a title="bytewax.connectors.files.DirOutput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirOutput">DirOutput</a></li>
-<li><a title="bytewax.connectors.files.FileOutput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileOutput">FileOutput</a></li>
+<li><a title="bytewax.connectors.files.DirSink" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirSink">DirSink</a></li>
+<li><a title="bytewax.connectors.files.FileSink" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileSink">FileSink</a></li>
 </ul>
 <h3>Methods</h3>
 <dl>
-<dt id="bytewax.outputs.PartitionedOutput.build_part"><code class="language-python name flex">
-<span>def <span class="ident">build_part</span></span>(<span>self, for_part: str, resume_state: Optional[Any]) ‑> <a title="bytewax.outputs.StatefulSink" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSink">StatefulSink</a></span>
+<dt id="bytewax.outputs.FixedPartitionedSink.build_part"><code class="language-python name flex">
+<span>def <span class="ident">build_part</span></span>(<span>self, for_part: str, resume_state: Optional[~S]) ‑> <a title="bytewax.outputs.StatefulSinkPartition" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSinkPartition">StatefulSinkPartition</a>[~X, ~S]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Build anew or resume an output partition.</p>
@@ -508,8 +465,8 @@ execution.</p>
 def build_part(
     self,
     for_part: str,
-    resume_state: Optional[Any],
-) -&gt; StatefulSink:
+    resume_state: Optional[S],
+) -&gt; StatefulSinkPartition[X, S]:
     &#34;&#34;&#34;Build anew or resume an output partition.
 
     Will be called once per execution for each partition key on a
@@ -536,7 +493,7 @@ def build_part(
     ...</code></pre>
 </details>
 </dd>
-<dt id="bytewax.outputs.PartitionedOutput.list_parts"><code class="language-python name flex">
+<dt id="bytewax.outputs.FixedPartitionedSink.list_parts"><code class="language-python name flex">
 <span>def <span class="ident">list_parts</span></span>(<span>self) ‑> List[str]</span>
 </code></dt>
 <dd>
@@ -561,7 +518,7 @@ def list_parts(self) -&gt; List[str]:
     ...</code></pre>
 </details>
 </dd>
-<dt id="bytewax.outputs.PartitionedOutput.part_fn"><code class="language-python name flex">
+<dt id="bytewax.outputs.FixedPartitionedSink.part_fn"><code class="language-python name flex">
 <span>def <span class="ident">part_fn</span></span>(<span>self, item_key: str) ‑> int</span>
 </code></dt>
 <dd>
@@ -619,20 +576,55 @@ Key for the value that is about to be written.</p>
 </dd>
 </dl>
 </dd>
-<dt id="bytewax.outputs.StatefulSink"><code class="language-python flex name class">
-<span>class <span class="ident">StatefulSink</span></span>
+<dt id="bytewax.outputs.Sink"><code class="language-python flex name class">
+<span>class <span class="ident">Sink</span></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Output sink that maintains state of its position.</p></div>
+<div class="desc"><p>A destination to write output items.</p>
+<p>Base class for all output sinks. Do not subclass this.</p>
+<p>If you want to implement a custom connector, instead subclass one
+of the specific sink sub-types below in this module.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class StatefulSink(ABC):
-    &#34;&#34;&#34;Output sink that maintains state of its position.&#34;&#34;&#34;
+<pre class="language-python line-numbers"><code class="language-python">class Sink(ABC, Generic[X]):  # noqa: B024
+    &#34;&#34;&#34;A destination to write output items.
+
+    Base class for all output sinks. Do not subclass this.
+
+    If you want to implement a custom connector, instead subclass one
+    of the specific sink sub-types below in this module.
+
+    &#34;&#34;&#34;
+
+    pass</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>abc.ABC</li>
+<li>typing.Generic</li>
+</ul>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="bytewax.outputs.DynamicSink" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicSink">DynamicSink</a></li>
+<li><a title="bytewax.outputs.FixedPartitionedSink" href="/apidocs/bytewax.outputs#bytewax.outputs.FixedPartitionedSink">FixedPartitionedSink</a></li>
+</ul>
+</dd>
+<dt id="bytewax.outputs.StatefulSinkPartition"><code class="language-python flex name class">
+<span>class <span class="ident">StatefulSinkPartition</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Output partition that maintains state of its position.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class StatefulSinkPartition(ABC, Generic[X, S]):
+    &#34;&#34;&#34;Output partition that maintains state of its position.&#34;&#34;&#34;
 
     @abstractmethod
-    def write_batch(self, values: List[Any]) -&gt; None:
+    def write_batch(self, values: List[X]) -&gt; None:
         &#34;&#34;&#34;Write a batch of output values.
 
         Called with a list of `value`s for each `(key, value)` at this
@@ -648,14 +640,15 @@ Key for the value that is about to be written.</p>
         &#34;&#34;&#34;
         ...
 
-    def snapshot(self) -&gt; Any:
-        &#34;&#34;&#34;Snapshot the position of the next write of this sink.
+    @abstractmethod
+    def snapshot(self) -&gt; S:
+        &#34;&#34;&#34;Snapshot the position of the next write of this partition.
 
         This will be returned to you via the `resume_state` parameter
         of your output builder.
 
         Be careful of &#34;off by one&#34; errors in resume state. This should
-        return a state that, when built into a sink, resumes writing
+        return a state that, when built into a partition, resumes writing
         _after the last written item_, not overwriting the same item.
 
         This is guaranteed to never be called after `close()`.
@@ -664,10 +657,10 @@ Key for the value that is about to be written.</p>
             Resume state.
 
         &#34;&#34;&#34;
-        return None
+        ...
 
     def close(self) -&gt; None:
-        &#34;&#34;&#34;Cleanup this sink when the dataflow completes.
+        &#34;&#34;&#34;Cleanup this partition when the dataflow completes.
 
         This is not guaranteed to be called. It will only be called
         when the dataflow finishes on finite input. It will not be
@@ -679,18 +672,19 @@ Key for the value that is about to be written.</p>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li>abc.ABC</li>
+<li>typing.Generic</li>
 </ul>
 <h3>Subclasses</h3>
 <ul class="hlist">
-<li>bytewax.connectors.files._FileSink</li>
+<li>bytewax.connectors.files._FileSinkPartition</li>
 </ul>
 <h3>Methods</h3>
 <dl>
-<dt id="bytewax.outputs.StatefulSink.close"><code class="language-python name flex">
+<dt id="bytewax.outputs.StatefulSinkPartition.close"><code class="language-python name flex">
 <span>def <span class="ident">close</span></span>(<span>self) ‑> None</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Cleanup this sink when the dataflow completes.</p>
+<div class="desc"><p>Cleanup this partition when the dataflow completes.</p>
 <p>This is not guaranteed to be called. It will only be called
 when the dataflow finishes on finite input. It will not be
 called during an abrupt or abort shutdown.</p></div>
@@ -699,7 +693,7 @@ called during an abrupt or abort shutdown.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">def close(self) -&gt; None:
-    &#34;&#34;&#34;Cleanup this sink when the dataflow completes.
+    &#34;&#34;&#34;Cleanup this partition when the dataflow completes.
 
     This is not guaranteed to be called. It will only be called
     when the dataflow finishes on finite input. It will not be
@@ -709,15 +703,15 @@ called during an abrupt or abort shutdown.</p></div>
     return</code></pre>
 </details>
 </dd>
-<dt id="bytewax.outputs.StatefulSink.snapshot"><code class="language-python name flex">
-<span>def <span class="ident">snapshot</span></span>(<span>self) ‑> Any</span>
+<dt id="bytewax.outputs.StatefulSinkPartition.snapshot"><code class="language-python name flex">
+<span>def <span class="ident">snapshot</span></span>(<span>self) ‑> ~S</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Snapshot the position of the next write of this sink.</p>
+<div class="desc"><p>Snapshot the position of the next write of this partition.</p>
 <p>This will be returned to you via the <code>resume_state</code> parameter
 of your output builder.</p>
 <p>Be careful of "off by one" errors in resume state. This should
-return a state that, when built into a sink, resumes writing
+return a state that, when built into a partition, resumes writing
 <em>after the last written item</em>, not overwriting the same item.</p>
 <p>This is guaranteed to never be called after <code>close()</code>.</p>
 <h2 id="returns">Returns</h2>
@@ -726,14 +720,15 @@ return a state that, when built into a sink, resumes writing
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def snapshot(self) -&gt; Any:
-    &#34;&#34;&#34;Snapshot the position of the next write of this sink.
+<pre class="language-python line-numbers"><code class="language-python">@abstractmethod
+def snapshot(self) -&gt; S:
+    &#34;&#34;&#34;Snapshot the position of the next write of this partition.
 
     This will be returned to you via the `resume_state` parameter
     of your output builder.
 
     Be careful of &#34;off by one&#34; errors in resume state. This should
-    return a state that, when built into a sink, resumes writing
+    return a state that, when built into a partition, resumes writing
     _after the last written item_, not overwriting the same item.
 
     This is guaranteed to never be called after `close()`.
@@ -742,17 +737,17 @@ return a state that, when built into a sink, resumes writing
         Resume state.
 
     &#34;&#34;&#34;
-    return None</code></pre>
+    ...</code></pre>
 </details>
 </dd>
-<dt id="bytewax.outputs.StatefulSink.write_batch"><code class="language-python name flex">
-<span>def <span class="ident">write_batch</span></span>(<span>self, values: List[Any]) ‑> None</span>
+<dt id="bytewax.outputs.StatefulSinkPartition.write_batch"><code class="language-python name flex">
+<span>def <span class="ident">write_batch</span></span>(<span>self, values: List[~X]) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Write a batch of output values.</p>
 <p>Called with a list of <code>value</code>s for each <code>(key, value)</code> at this
 point in the dataflow.</p>
-<p>See <code><a title="bytewax.outputs.PartitionedOutput.part_fn" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.part_fn">PartitionedOutput.part_fn()</a></code> for how the key is mapped to
+<p>See <code>PartitionedOutput.part_fn</code> for how the key is mapped to
 partition.</p>
 <h2 id="args">Args</h2>
 <p>values:
@@ -762,7 +757,7 @@ Values in the dataflow. Non-deterministically batched.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@abstractmethod
-def write_batch(self, values: List[Any]) -&gt; None:
+def write_batch(self, values: List[X]) -&gt; None:
     &#34;&#34;&#34;Write a batch of output values.
 
     Called with a list of `value`s for each `(key, value)` at this
@@ -781,20 +776,20 @@ def write_batch(self, values: List[Any]) -&gt; None:
 </dd>
 </dl>
 </dd>
-<dt id="bytewax.outputs.StatelessSink"><code class="language-python flex name class">
-<span>class <span class="ident">StatelessSink</span></span>
+<dt id="bytewax.outputs.StatelessSinkPartition"><code class="language-python flex name class">
+<span>class <span class="ident">StatelessSinkPartition</span></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Output sink that is stateless.</p></div>
+<div class="desc"><p>Output partition that is stateless.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class StatelessSink(ABC):
-    &#34;&#34;&#34;Output sink that is stateless.&#34;&#34;&#34;
+<pre class="language-python line-numbers"><code class="language-python">class StatelessSinkPartition(ABC, Generic[X]):
+    &#34;&#34;&#34;Output partition that is stateless.&#34;&#34;&#34;
 
     @abstractmethod
-    def write_batch(self, items: List[Any]) -&gt; None:
+    def write_batch(self, items: List[X]) -&gt; None:
         &#34;&#34;&#34;Write a batch of output items.
 
         Called multiple times whenever new items are seen at this
@@ -808,7 +803,7 @@ def write_batch(self, values: List[Any]) -&gt; None:
         ...
 
     def close(self) -&gt; None:
-        &#34;&#34;&#34;Cleanup this sink when the dataflow completes.
+        &#34;&#34;&#34;Cleanup this partition when the dataflow completes.
 
         This is not guaranteed to be called. It will only be called
         when the dataflow finishes on finite input. It will not be
@@ -820,20 +815,22 @@ def write_batch(self, values: List[Any]) -&gt; None:
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li>abc.ABC</li>
+<li>typing.Generic</li>
 </ul>
 <h3>Subclasses</h3>
 <ul class="hlist">
-<li>bytewax.connectors.kafka._KafkaSink</li>
-<li>bytewax.connectors.stdio._PrintSink</li>
-<li>bytewax.testing._ListSink</li>
+<li>bytewax.connectors.kafka._KafkaSinkPartition</li>
+<li>bytewax.connectors.stdio._PrintSinkPartition</li>
+<li>bytewax.operators._RaisePartition</li>
+<li>bytewax.testing._ListSinkPartition</li>
 </ul>
 <h3>Methods</h3>
 <dl>
-<dt id="bytewax.outputs.StatelessSink.close"><code class="language-python name flex">
+<dt id="bytewax.outputs.StatelessSinkPartition.close"><code class="language-python name flex">
 <span>def <span class="ident">close</span></span>(<span>self) ‑> None</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Cleanup this sink when the dataflow completes.</p>
+<div class="desc"><p>Cleanup this partition when the dataflow completes.</p>
 <p>This is not guaranteed to be called. It will only be called
 when the dataflow finishes on finite input. It will not be
 called during an abrupt or abort shutdown.</p></div>
@@ -842,7 +839,7 @@ called during an abrupt or abort shutdown.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">def close(self) -&gt; None:
-    &#34;&#34;&#34;Cleanup this sink when the dataflow completes.
+    &#34;&#34;&#34;Cleanup this partition when the dataflow completes.
 
     This is not guaranteed to be called. It will only be called
     when the dataflow finishes on finite input. It will not be
@@ -852,8 +849,8 @@ called during an abrupt or abort shutdown.</p></div>
     return</code></pre>
 </details>
 </dd>
-<dt id="bytewax.outputs.StatelessSink.write_batch"><code class="language-python name flex">
-<span>def <span class="ident">write_batch</span></span>(<span>self, items: List[Any]) ‑> None</span>
+<dt id="bytewax.outputs.StatelessSinkPartition.write_batch"><code class="language-python name flex">
+<span>def <span class="ident">write_batch</span></span>(<span>self, items: List[~X]) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Write a batch of output items.</p>
@@ -867,7 +864,7 @@ Items in the dataflow. Non-deterministically batched.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@abstractmethod
-def write_batch(self, items: List[Any]) -&gt; None:
+def write_batch(self, items: List[X]) -&gt; None:
     &#34;&#34;&#34;Write a batch of output items.
 
     Called multiple times whenever new items are seen at this
@@ -905,35 +902,35 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.DynamicOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput">DynamicOutput</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.DynamicSink" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicSink">DynamicSink</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.DynamicOutput.build" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicOutput.build">build</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.DynamicSink.build" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicSink.build">build</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></h4>
-</li>
-<li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.PartitionedOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput">PartitionedOutput</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.FixedPartitionedSink" href="/apidocs/bytewax.outputs#bytewax.outputs.FixedPartitionedSink">FixedPartitionedSink</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.PartitionedOutput.build_part" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.build_part">build_part</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.PartitionedOutput.list_parts" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.list_parts">list_parts</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.PartitionedOutput.part_fn" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput.part_fn">part_fn</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.FixedPartitionedSink.build_part" href="/apidocs/bytewax.outputs#bytewax.outputs.FixedPartitionedSink.build_part">build_part</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.FixedPartitionedSink.list_parts" href="/apidocs/bytewax.outputs#bytewax.outputs.FixedPartitionedSink.list_parts">list_parts</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.FixedPartitionedSink.part_fn" href="/apidocs/bytewax.outputs#bytewax.outputs.FixedPartitionedSink.part_fn">part_fn</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.StatefulSink" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSink">StatefulSink</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.Sink" href="/apidocs/bytewax.outputs#bytewax.outputs.Sink">Sink</a></h4>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.StatefulSinkPartition" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSinkPartition">StatefulSinkPartition</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatefulSink.close" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSink.close">close</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatefulSink.snapshot" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSink.snapshot">snapshot</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatefulSink.write_batch" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSink.write_batch">write_batch</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatefulSinkPartition.close" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSinkPartition.close">close</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatefulSinkPartition.snapshot" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSinkPartition.snapshot">snapshot</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatefulSinkPartition.write_batch" href="/apidocs/bytewax.outputs#bytewax.outputs.StatefulSinkPartition.write_batch">write_batch</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.StatelessSink" href="/apidocs/bytewax.outputs#bytewax.outputs.StatelessSink">StatelessSink</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.outputs.StatelessSinkPartition" href="/apidocs/bytewax.outputs#bytewax.outputs.StatelessSinkPartition">StatelessSinkPartition</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatelessSink.close" href="/apidocs/bytewax.outputs#bytewax.outputs.StatelessSink.close">close</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatelessSink.write_batch" href="/apidocs/bytewax.outputs#bytewax.outputs.StatelessSink.write_batch">write_batch</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatelessSinkPartition.close" href="/apidocs/bytewax.outputs#bytewax.outputs.StatelessSinkPartition.close">close</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.outputs.StatelessSinkPartition.write_batch" href="/apidocs/bytewax.outputs#bytewax.outputs.StatelessSinkPartition.write_batch">write_batch</a></li>
 </ul>
 </li>
 </ul>

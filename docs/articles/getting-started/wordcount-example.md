@@ -14,46 +14,38 @@ And by opposing end them.
 
 And a copy of the code in a file called `wordcount.py`.
 
-```python doctest:SORT_OUTPUT doctest:ELLIPSIS doctest:NORMALIZE_WHITESPACE
+```python
 import operator
 import re
 
 from datetime import timedelta, datetime, timezone
 
 from bytewax.dataflow import Dataflow
+import bytewax.operators as op
 from bytewax.connectors.files import FileSource
 from bytewax.connectors.stdio import StdOutSink
-from bytewax.window import SystemClockConfig, TumblingWindow
+
+
+flow = Dataflow("wordcount_eg")
+inp = op.input("inp", flow, FileSource("wordcount.txt"))
 
 
 def lower(line):
     return line.lower()
 
 
+lowers = op.map("lowercase_words", inp, lower)
+
+
 def tokenize(line):
     return re.findall(r'[^\s!,.?":;0-9]+', line)
 
 
-def initial_count(word):
-    return word, 1
+tokens = op.flat_map("tokenize_input", lowers, tokenize)
 
+counts = op.count_final("count", tokens, lambda word: word)
 
-def add(count1, count2):
-    return count1 + count2
-
-
-clock_config = SystemClockConfig()
-window_config = TumblingWindow(
-    length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
-)
-
-flow = Dataflow()
-flow.input("inp", FileSource("wordcount.txt"))
-flow.map("lowercase_words", lower)
-flow.flat_map("tokenize_input", tokenize)
-flow.map("initial_count", initial_count)
-flow.reduce_window("sum", clock_config, window_config, add)
-flow.output("out", StdOutSink())
+op.output("out", counts, StdOutSink())
 ```
 
 ## Running the example
@@ -118,8 +110,8 @@ that we receive. We will add these steps as chains of **operators** on
 a **dataflow object**, `bytewax.dataflow.Dataflow`.
 
 ```python
-flow = Dataflow()
-flow.input("input", FileSource("wordcount.txt"))
+flow = Dataflow("wordcount_eg")
+inp = op.input("inp", flow, FileSource("wordcount.txt"))
 ```
 
 To emit input into our dataflow, our program needs an **input
@@ -142,7 +134,7 @@ def lower(line):
     return line.lower()
 
 
-flow.map("lowercase_words", lower)
+lowers = op.map("lowercase_words", inp, lower)
 ```
 
 For each item that our generator produces, the map operator will use the [built-in string function `lower()`](https://docs.python.org/3/library/stdtypes.html#str.lower) to emit downstream a copy of the string with all characters converted to lowercase.
@@ -174,7 +166,7 @@ results in:
 To make use of `tokenize` function, we'll use the [flat map operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.flat_map):
 
 ```python
-flow.flat_map("tokenize", tokenize)
+tokens = op.flat_map("tokenize_input", lowers, tokenize)
 ```
 
 The flat map operator defines a step which calls a function on each input item. Each word in the list we return from our function will then be emitted downstream individually.
@@ -183,48 +175,18 @@ The flat map operator defines a step which calls a function on each input item. 
 
 At this point in the dataflow, the items of data are the individual words.
 
-Let's skip ahead to the second operator here, [reduce window](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce_window).
+TODO explain key.
 
 ```python
-def initial_count(word):
-    return word, 1
-
-
-def add(count1, count2):
-    return count1 + count2
-
-
-# Configuration for time based windows.
-clock_config = SystemClockConfig()
-window_config = TumblingWindow(
-    length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
-)
-
-flow.map("initial_count", initial_count)
-flow.reduce_window("sum", clock_config, window_config, add)
+counts = op.count_final("count", tokens, lambda word: word)
 ```
-
-Its super power is that it can repeatedly combine together items into a single, aggregate value via a reducing function. Think about it like reducing a sauce while cooking: you are boiling all of the values down to something more concentrated.
-
-In this case, we pass it the reducing function `add()` which will sum together the counts of words so that the final aggregator value is the total.
-
-How does `reduce_window` know which items to combine? Part of its requirements are that the input items from the previous step in the dataflow are `(key, value)` two-tuples, and it will make sure that all values for a given key are passed to the reducing function. Thus, if we make the word the key, we'll be able to get separate counts!
-
-That explains the previous map step in the dataflow with `initial_count()`.
-
-This map sets up the shape that `reduce_window` needs: two-tuples where the key is the word, and the value is something we can add together. In this case, since we have a copy of a word for each instance, it represents that we should add `1` to the total count, so label that here.
-
-How does reduce_window know **when** to emit combined items? That is what `clock_config` and `window_config` are for.
-[SystemClockConfig](/apidocs/bytewax.window#bytewax.window.SystemClockConfig) is used to synchronize the flow's clock to the system one.
-[TumblingWindow](/apidocs/bytewax.window#bytewax.window.TumblingWindow) instructs the flow to close windows every `length` period, 5 seconds in our case.
-`reduce_window` will emit the accumulated value every 5 seconds, and once the input is completely consumed.
 
 ### Print out the counts
 
 The last part of our dataflow program will use an [output operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.output) to mark the output of our reduction as the dataflow's final output.
 
 ```python
-flow.output("out", StdOutSink())
+op.output("out", counts, StdOutSink())
 ```
 
 This means that whatever items are flowing through this point in the

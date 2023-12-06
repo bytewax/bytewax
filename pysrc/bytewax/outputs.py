@@ -1,22 +1,7 @@
 """Low-level output interfaces.
 
-See the "Input and Output" section of the `bytewax` module docstring
-for the basics of input.
-
 If you want pre-built connectors for various external systems, see
 `bytewax.connectors`. That is also a rich source of examples.
-
-# Partitioned Sink
-
-TODO.
-
-# Dynamic Sink
-
-TODO.
-
-# Custom Input Connectors
-
-TODO Subclass the types here to implement input for your own custom source.
 
 """
 

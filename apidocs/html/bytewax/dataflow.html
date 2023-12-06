@@ -4,25 +4,745 @@
 <h1 class="api__article-title">Module <strong>bytewax.dataflow</strong></h1>
 </header>
 <section class="api__article-intro" id="section-intro">
-<p>How to define dataflows.</p>
-<p>Create a <code><a title="bytewax.dataflow.Dataflow" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow">Dataflow</a></code> instance, then use the methods on it to add
-computational steps.</p>
+<p>Data model for dataflows and custom operators.</p>
+<p>See <code><a title="bytewax.operators" href="/apidocs/bytewax.operators/index">bytewax.operators</a></code> for the built-in operators.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;How to define dataflows.
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Data model for dataflows and custom operators.
 
-Create a `Dataflow` instance, then use the methods on it to add
-computational steps.
+See `bytewax.operators` for the built-in operators.
 
 &#34;&#34;&#34;
+import dataclasses
+import functools
+import inspect
+import itertools
+import typing
+from dataclasses import dataclass, field
+from inspect import Parameter, Signature
+from types import FunctionType
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Dict,
+    Generic,
+    Iterable,
+    List,
+    Protocol,
+    Tuple,
+    Type,
+    TypeVar,
+    overload,
+    runtime_checkable,
+)
 
-from .bytewax import Dataflow  # noqa: F401
+from typing_extensions import Concatenate, ParamSpec
 
-__all__ = [
-    &#34;Dataflow&#34;,
-]</code></pre>
+P = ParamSpec(&#34;P&#34;)
+R = TypeVar(&#34;R&#34;)
+K = TypeVar(&#34;K&#34;)
+X_co = TypeVar(&#34;X_co&#34;, covariant=True)
+
+
+def f_repr(f: Callable) -&gt; str:
+    &#34;&#34;&#34;Nicer `repr` for functions with the defining module and line.
+
+    Use this to help with writing easier to debug exceptions in your
+    operators.
+
+    The built in repr just shows a memory address.
+
+    &gt;&gt;&gt; def my_f(x):
+    ...     pass
+    &gt;&gt;&gt; f_repr(my_f)
+    &#34;&lt;function &#39;bytewax.dataflow.my_f&#39; line 1&gt;&#34;
+
+    &#34;&#34;&#34;
+    if isinstance(f, FunctionType):
+        path = f&#34;{f.__module__}.{f.__qualname__}&#34;
+        line = f&#34;{f.__code__.co_firstlineno}&#34;
+        return f&#34;&lt;function {path!r} line {line}&gt;&#34;
+    else:
+        return repr(f)
+
+
+@runtime_checkable
+class Port(Protocol):
+    &#34;&#34;&#34;Generic interface to a port.
+
+    Either `SinglePort` or `MultiPort`.
+
+    &#34;&#34;&#34;
+
+    port_id: str
+    stream_ids: Dict[str, str]
+
+
+@dataclass(frozen=True)
+class SinglePort:
+    &#34;&#34;&#34;A input or output location on an `Operator`.
+
+    You won&#39;t be instantiating this manually. The `operator` decorator
+    will create these for you whenever an operator function takes or
+    returns a `Stream`.
+
+    &#34;&#34;&#34;
+
+    port_id: str
+    stream_id: str
+
+    @property
+    def stream_ids(self) -&gt; Dict[str, str]:
+        &#34;&#34;&#34;Allow this to conform to the `Port` protocol.&#34;&#34;&#34;
+        return {&#34;stream&#34;: self.stream_id}
+
+
+@dataclass(frozen=True)
+class MultiPort(Generic[K]):
+    &#34;&#34;&#34;A multi-stream input or output location on an `Operator`.
+
+    You won&#39;t be instantiating this manually. The `operator` decorator
+    will create these for you whenever an operator function takes or
+    returns a `*args` of `Stream` or `**kwargs` of `Stream`s or a
+    `MultiStream`.
+
+    &#34;&#34;&#34;
+
+    port_id: str
+    stream_ids: Dict[K, str]
+
+
+@dataclass(frozen=True)
+class Operator:
+    &#34;&#34;&#34;Base class for an operator type.
+
+    Subclasses of this must be generated via the `operator` builder
+    function decorator. See the `bytewax.dataflow` module docstring
+    for a tutorial.
+
+    Subclasses will contain the specific configuration fields each
+    operator needs.
+
+    &#34;&#34;&#34;
+
+    step_name: str
+    step_id: str
+    substeps: List[&#34;Operator&#34;]
+    ups_names: ClassVar[List[str]]
+    dwn_names: ClassVar[List[str]]
+
+
+@dataclass(frozen=True)
+class _CoreOperator(Operator):
+    #: This operator is a core operator.
+    core: ClassVar[bool] = True
+
+
+@dataclass(frozen=True)
+class _Scope:
+    # This will be the ID of the `Dataflow` or `Operator` to modify.
+    parent_id: str
+    substeps: List[Operator] = field(compare=False, repr=False)
+    flow: &#34;Dataflow&#34; = field(compare=False, repr=False)
+
+
+@runtime_checkable
+class _HasScope(Protocol):
+    def _get_scopes(self) -&gt; Iterable[_Scope]:
+        ...
+
+    def _with_scope(self, scope: _Scope):
+        ...
+
+
+@runtime_checkable
+class _ToRef(Protocol):
+    def _to_ref(self, port_id: str):
+        ...
+
+
+@runtime_checkable
+class _AsArgs(Protocol):
+    @staticmethod
+    def _from_args(args: Tuple):
+        ...
+
+    @staticmethod
+    def _into_args(obj) -&gt; Tuple:
+        ...
+
+    @staticmethod
+    def _from_kwargs(kwargs: Dict):
+        ...
+
+    @staticmethod
+    def _into_kwargs(obj) -&gt; Dict:
+        ...
+
+
+def _rec_subclasses(cls):
+    yield cls
+    for subcls in cls.__subclasses__():
+        yield from _rec_subclasses(subcls)
+
+
+@dataclass(frozen=True)
+class DataflowId:
+    &#34;&#34;&#34;Unique ID of a dataflow.&#34;&#34;&#34;
+
+    flow_id: str
+
+
+@dataclass(frozen=True)
+class Dataflow:
+    &#34;&#34;&#34;Dataflow definition.
+
+    Once you instantiate this, Use the `bytewax.operators` (e.g.
+    `bytewax.operators.input`) to create `Stream`s.
+
+    &#34;&#34;&#34;
+
+    flow_id: str
+    substeps: List[Operator] = field(default_factory=list)
+    _scope: _Scope = field(default=None, compare=False)  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if &#34;.&#34; in self.flow_id:
+            msg = &#34;flow ID can&#39;t contain a period `.`&#34;
+            raise ValueError(msg)
+        if self._scope is None:
+            # The default context at the `Dataflow` level is recursive and
+            # means add things to this object.
+            scope = _Scope(self.flow_id, self.substeps, self)
+            # Trixy get around the fact this is frozen. We don&#39;t modify
+            # after init, though.
+            object.__setattr__(self, &#34;_scope&#34;, scope)
+
+    def _get_scopes(self) -&gt; Iterable[_Scope]:
+        return [self._scope]
+
+    def _with_scope(self, scope: _Scope) -&gt; &#34;Dataflow&#34;:
+        return dataclasses.replace(self, _scope=scope)
+
+    def _to_ref(self, _port_id: str) -&gt; DataflowId:
+        return DataflowId(self.flow_id)
+
+
+@dataclass(frozen=True)
+class Stream(Generic[X_co]):
+    &#34;&#34;&#34;Handle to a specific stream of items you can add steps to.
+
+    You won&#39;t be instantiating this manually. Use the
+    `bytewax.operators` (e.g. `bytewax.operators.map`,
+    `bytewax.operators.filter`, `bytewax.operators.key_on`) to create
+    `Stream`s.
+
+    You can reference this stream multiple times to duplicate the data
+    within.
+
+    Operator functions take or return this if they want to create an
+    input or output port.
+
+    &#34;&#34;&#34;
+
+    stream_id: str
+    _scope: _Scope = field(compare=False)
+
+    def flow(self) -&gt; Dataflow:
+        &#34;&#34;&#34;The containing `Dataflow`.
+
+        You might want access to this to add &#34;top level&#34; operators
+        like `bytewax.operators.merge_all.merge_all`.
+
+        &#34;&#34;&#34;
+        return self._scope.flow
+
+    def _get_scopes(self) -&gt; Iterable[_Scope]:
+        return [self._scope]
+
+    def _with_scope(self, scope: _Scope) -&gt; &#34;Stream[X_co]&#34;:
+        return dataclasses.replace(self, _scope=scope)
+
+    def _to_ref(self, ref_id: str) -&gt; SinglePort:
+        return SinglePort(ref_id, self.stream_id)
+
+    @staticmethod
+    def _from_args(args: Tuple) -&gt; &#34;MultiStream[int, X_co]&#34;:
+        return MultiStream({i: stream for i, stream in enumerate(args)})
+
+    @staticmethod
+    def _into_args(obj: &#34;MultiStream[int, X_co]&#34;) -&gt; Tuple:
+        return tuple(obj.streams.values())
+
+    @staticmethod
+    def _from_kwargs(kwargs: Dict[str, &#34;Stream[X_co]&#34;]) -&gt; &#34;MultiStream[str, X_co]&#34;:
+        return MultiStream(kwargs)
+
+    @staticmethod
+    def _into_kwargs(obj: &#34;MultiStream[str, X_co]&#34;) -&gt; Dict[str, &#34;Stream[X_co]&#34;]:
+        return dict(obj.streams)
+
+    def then(
+        self,
+        op_fn: Callable[Concatenate[str, &#34;Stream[X_co]&#34;, P], R],
+        step_id: str,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -&gt; R:
+        &#34;&#34;&#34;Chain a new step onto this stream.
+
+        This allows you to add intermediate steps to a dataflow
+        without needing to nest operator function calls or make
+        intermediate variables.
+
+        The following two dataflow definitions are equivalent:
+
+        &gt;&gt;&gt; import bytewax.operators as op
+        &gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
+        &gt;&gt;&gt; from bytewax.dataflow import Dataflow
+        &gt;&gt;&gt; def add_one(item):
+        ...     return item + 1
+
+        &gt;&gt;&gt; flow = Dataflow(&#34;map_eg&#34;)
+        &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource(range(3)))
+        &gt;&gt;&gt; s = op.map(&#34;add_one&#34;, s, add_one)
+
+        and
+
+        &gt;&gt;&gt; flow = Dataflow(&#34;map_eg&#34;)
+        &gt;&gt;&gt; s = (
+        ...     op.input(&#34;inp&#34;, flow, TestingSource(range(3)))
+        ...     .then(op.map, &#34;add_one&#34;, add_one)
+        ... )
+
+        This kind of method chaining is called a &#34;fluent style API&#34;.
+
+        Because this style requires a single upstream before the `.`,
+        this transformation only works for operators that could be
+        called like `op_fn(step_id, upstream, ...)`, like
+        `bytewax.operators.map`. It will not work for operators like
+        `bytewax.operators.join_named`, since they do not have that
+        shape of function signature.
+
+        Args:
+            step_id: Unique ID.
+
+            op_fn: Operator function. This fluent transformation only
+              works on operators that take a single stream as the
+              second argument.
+
+            *args: Remaining arguments to pass to `op_fn`.
+
+            **kwargs: Remaining arguments to pass to `op_fn`.
+
+        &#34;&#34;&#34;
+        return op_fn(step_id, self, *args, **kwargs)
+
+
+@dataclass(frozen=True)
+class MultiStream(Generic[K, X_co]):
+    &#34;&#34;&#34;A bundle of named `Stream`s.
+
+    Operator functions take or return this if they want to create an
+    input or output port that can recieve multiple named streams
+    dynamically.
+
+    You will need to unpack the `Stream`s within in order to add
+    further steps:
+
+    &gt;&gt;&gt; import bytewax.operators as op
+    &gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
+    &gt;&gt;&gt; from bytewax.dataflow import Dataflow
+    &gt;&gt;&gt; flow = Dataflow(&#34;multistream_eg&#34;)
+    &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource(range(3)))
+    &gt;&gt;&gt; a_s, b_s = op.key_split(
+    ...     &#34;split1&#34;,
+    ...     s,
+    ...     lambda x: &#34;KEY&#34;,
+    ...     lambda x: &#34;a&#34;,
+    ...     lambda x: &#34;b&#34;,
+    ... )
+
+    If you only have a single stream within, you can unpack using the
+    &#34;unpack a single item tuple&#34; syntax:
+
+    &gt;&gt;&gt; (a_s,) = op.key_split(
+    ...     &#34;split2&#34;,
+    ...     s,
+    ...     lambda x: &#34;KEY&#34;,
+    ...     lambda x: &#34;a&#34;,
+    ... )
+
+    This is also created internally whenever a builder function takes
+    or returns a `*args` of `Stream` or `**kwargs` of `Stream`s.
+
+    &#34;&#34;&#34;
+
+    streams: Dict[K, Stream[X_co]]
+
+    @property
+    def _scope(self):
+        msg = (
+            &#34;`MultiStream` must be unpacked to use the `Stream` inside; &#34;
+            &#34;&#34;&#34;e.g. `(names,) = op.key_split(&#34;step_id&#34;, up, &#34;&#34;&#34;
+            &#34;&#34;&#34;lambda x: x[&#34;id&#34;], lambda x: x[&#34;name&#34;])`&#34;&#34;&#34;
+        )
+        raise TypeError(msg)
+
+    def _get_scopes(self) -&gt; Iterable[_Scope]:
+        return (stream._scope for stream in self.streams.values())
+
+    def _with_scope(self, scope: _Scope) -&gt; &#34;MultiStream[K, X_co]&#34;:
+        streams = {
+            name: stream._with_scope(scope) for name, stream in self.streams.items()
+        }
+        return dataclasses.replace(self, streams=streams)
+
+    def _to_ref(self, port_id: str) -&gt; MultiPort[K]:
+        return MultiPort(
+            port_id,
+            {name: stream.stream_id for name, stream in self.streams.items()},
+        )
+
+    def __iter__(self):
+        return iter(self.streams.values())
+
+
+ArgsMultiStream = MultiStream[int, X_co]
+KwargsMultiStream = MultiStream[str, X_co]
+
+
+def _norm_type_hints(obj) -&gt; Dict[str, Type]:
+    sig_types = typing.get_type_hints(obj)
+    for name, typ in sig_types.items():
+        orig = typing.get_origin(typ)
+        if orig is not None:
+            sig_types[name] = orig
+        elif typ is Any:
+            sig_types[name] = object
+
+    return sig_types
+
+
+_OPERATOR_BASE_NAMES = frozenset(typing.get_type_hints(_CoreOperator).keys())
+
+
+def _gen_inp_fields(sig: Signature, sig_types: Dict[str, Type]) -&gt; Dict[str, Type]:
+    inp_fields = {}
+    for name, param in sig.parameters.items():
+        # If the argument is un-annotated, assume the type class for
+        # &#34;Any&#34;.
+        typ = sig_types.get(name, object)
+
+        as_typ = typ
+        # If any of the arguments require special casing when they&#39;re
+        # *args or **kwargs, find out what the &#34;packed&#34; version of the
+        # argument type is. The most common use of this is `*ups:
+        # Stream` will actually be stored as a single `MultiStream`,
+        # rather than a `Tuple[Stream]`.
+        if issubclass(typ, _AsArgs):
+            if param.kind == Parameter.VAR_POSITIONAL:
+                method_typs = _norm_type_hints(typ._from_args)
+                as_typ = method_typs.get(&#34;return&#34;, object)
+            elif param.kind == Parameter.VAR_KEYWORD:
+                method_typs = _norm_type_hints(typ._from_kwargs)
+                as_typ = method_typs.get(&#34;return&#34;, object)
+
+        inp_fields[name] = as_typ
+
+    return inp_fields
+
+
+def _gen_out_fields(_sig: Signature, sig_types: Dict[str, Type]) -&gt; Dict[str, Type]:
+    out_fields = {}
+    out_typ = sig_types.get(&#34;return&#34;, object)
+    # A single `Stream` is stored by convention in a field named
+    # &#34;down&#34;.
+    if issubclass(out_typ, Stream) or issubclass(out_typ, MultiStream):
+        out_fields[&#34;down&#34;] = out_typ
+    # A `None` return value doesn&#39;t store any field.
+    elif issubclass(out_typ, type(None)):  # type: ignore
+        pass
+    # Dataclass is the &#34;named return value&#34; options. We copy all the
+    # first level fields into the operator dataclass. We use
+    # dataclasses because the stdlib gives us tools to introspect them
+    # easily.
+    elif dataclasses.is_dataclass(out_typ):
+        out_field_typs = _norm_type_hints(out_typ)
+        for fld in dataclasses.fields(out_typ):
+            out_fields[fld.name] = out_field_typs.get(fld.name, object)
+    else:
+        out_fields[&#34;down&#34;] = out_typ
+
+    return out_fields
+
+
+def _gen_op_cls(
+    builder: FunctionType,
+    sig: Signature,
+    sig_types: Dict[str, Type],
+    core: bool,
+) -&gt; Type[Operator]:
+    if &#34;step_id&#34; not in sig.parameters:
+        msg = &#34;builder function requires a &#39;step_id&#39; parameter&#34;
+        raise TypeError(msg)
+
+    # First add fields for all the input arguments.
+    inp_fields = _gen_inp_fields(sig, sig_types)
+    # Then add fields for the return values.
+    out_fields = _gen_out_fields(sig, sig_types)
+
+    conflicting_fields = frozenset(inp_fields.keys()) &amp; frozenset(out_fields.keys())
+    if len(conflicting_fields) &gt; 0:
+        fmt_fields = &#34;, &#34;.join(repr(name) for name in conflicting_fields)
+        msg = (
+            f&#34;{fmt_fields} are both a build function parameter &#34;
+            &#34;and a return dataclass field name; rename so there are no &#34;
+            &#34;overlapping field names&#34;
+        )
+        raise TypeError(msg)
+
+    cls_fields = {}
+    cls_fields.update(inp_fields)
+    cls_fields.update(out_fields)
+
+    # Now update the types to any that store references instead. This
+    # is because some types (like `Stream`) have `_Scope` which would
+    # result in circular references (because they contain pointers to
+    # the substep list) if stored directly. Their &#34;reference versions&#34;
+    # (for `Stream` it&#39;s `SinglePort`) don&#39;t include the scope or
+    # anything that is just there to facilitate the fluent API.
+    for name, typ in cls_fields.items():
+        if issubclass(typ, _ToRef):
+            method_typs = _norm_type_hints(typ._to_ref)
+            cls_fields[name] = method_typs.get(&#34;return&#34;, object)
+
+    # Store the names of the upstream and downstream ports to enable
+    # visualization.
+    ups_names = []
+    dwn_names = []
+    for name, typ in cls_fields.items():
+        if issubclass(typ, SinglePort) or issubclass(typ, MultiPort):
+            if name in inp_fields:
+                ups_names.append(name)
+            elif name in out_fields:
+                dwn_names.append(name)
+
+    # `step_id` is defined on the parent class.
+    del cls_fields[&#34;step_id&#34;]
+
+    # Because we&#39;re cramming all the input arguments and return value
+    # dataclass field names onto the same operator data model
+    # dataclass, ensure we aren&#39;t clobbering any of the base class
+    # names.
+    forbidden_fields = frozenset(cls_fields.keys()) &amp; _OPERATOR_BASE_NAMES
+    if len(forbidden_fields) &gt; 0:
+        fmt_fields = &#34;, &#34;.join(repr(name) for name in forbidden_fields)
+        msg = (
+            &#34;builder function can&#39;t have parameters or return dataclass fields &#34;
+            &#34;that shadow any of the field names in `bytewax.dataflow.Operator`; &#34;
+            f&#34;rename the {fmt_fields} parameter or fields&#34;
+        )
+        raise TypeError(msg)
+
+    cls_doc = f&#34;&#34;&#34;`{builder.__name__}` operator data model.&#34;&#34;&#34;
+
+    cls_ns = {
+        &#34;__doc__&#34;: cls_doc,
+        &#34;ups_names&#34;: ups_names,
+        &#34;dwn_names&#34;: dwn_names,
+    }
+
+    # Now finally build the dataclass definition. This does not
+    # actually instantiate it, we do that in the wrapper method.
+    cls = dataclasses.make_dataclass(
+        builder.__name__,
+        cls_fields.items(),
+        bases=(_CoreOperator if core else Operator,),
+        frozen=True,
+        namespace=cls_ns,
+    )
+    cls.__module__ = builder.__module__
+
+    return cls
+
+
+def _gen_op_fn(
+    sig: Signature,
+    sig_types: Dict[str, Type],
+    builder: FunctionType,
+    cls: Type[Operator],
+    _core: bool,
+) -&gt; Callable:
+    # Wraps ensures that docstrings and type annotations are the same.
+    @functools.wraps(builder)
+    def fn(*args, **kwargs):
+        try:
+            bound = sig.bind(*args, **kwargs)
+        except TypeError as ex:
+            msg = (
+                f&#34;operator {cls.__name__!r} method called incorrectly; &#34;
+                &#34;see cause above&#34;
+            )
+            raise TypeError(msg) from ex
+        bound.apply_defaults()
+
+        step_id = bound.arguments[&#34;step_id&#34;]
+        if not isinstance(step_id, str):
+            msg = &#34;&#39;step_id&#39; must be a string&#34;
+            raise TypeError(msg)
+        if &#34;.&#34; in step_id:
+            msg = &#34;&#39;step_id&#39; can&#39;t contain any periods &#39;.&#39;&#34;
+            raise ValueError(msg)
+
+        # Pack *args and **kwargs into any special types.
+        for name, param in sig.parameters.items():
+            val = bound.arguments[name]
+            typ = sig_types.get(name, object)
+            if issubclass(typ, _AsArgs):
+                if param.kind == Parameter.VAR_POSITIONAL:
+                    bound.arguments[name] = typ._from_args(val)
+                elif param.kind == Parameter.VAR_KEYWORD:
+                    bound.arguments[name] = typ._from_kwargs(val)
+
+        outer_scopes = set(
+            itertools.chain.from_iterable(
+                val._get_scopes()
+                for val in bound.arguments.values()
+                if isinstance(val, _HasScope)
+            )
+        )
+        if len(outer_scopes) != 1:
+            msg = (
+                &#34;inconsistent stream scoping; &#34;
+                f&#34;found scopes {outer_scopes!r}; &#34;
+                &#34;possible nested `Stream` in arguments to this operator &#34;
+                &#34;or return value from previous operator; &#34;
+                &#34;see `bytewax.dataflow` module docstring for custom operator rules&#34;
+            )
+            raise ValueError(msg)
+        # Get the singular outer_scope.
+        outer_scope = next(iter(outer_scopes))
+        # Re-scope input arguments that have a scope so internal calls
+        # to operator methods will result in sub-steps.
+        fq_inner_scope_id = f&#34;{outer_scope.parent_id}.{step_id}&#34;
+        inner_scope = _Scope(fq_inner_scope_id, [], outer_scope.flow)
+        inner_scope = dataclasses.replace(
+            inner_scope, flow=inner_scope.flow._with_scope(inner_scope)
+        )
+        for name, val in bound.arguments.items():
+            if isinstance(val, _HasScope):
+                bound.arguments[name] = val._with_scope(inner_scope)
+        # Creating the nested scope is what defines the new inner
+        # fully-qualified step id. We pass this into the builder
+        # function in case you need it for error messages.
+        bound.arguments[&#34;step_id&#34;] = inner_scope.parent_id
+
+        # Save the input arguments.
+        cls_vals = dict(bound.arguments.items())
+        cls_vals[&#34;step_name&#34;] = step_id
+
+        # Now unpack the special *args and **kwargs types for calling.
+        for name, param in sig.parameters.items():
+            val = bound.arguments[name]
+            typ = sig_types.get(name, object)
+            if issubclass(typ, _AsArgs):
+                if param.kind == Parameter.VAR_POSITIONAL:
+                    bound.arguments[name] = typ._into_args(val)
+                elif param.kind == Parameter.VAR_KEYWORD:
+                    bound.arguments[name] = typ._into_kwargs(val)
+
+        # Now call the builder to cause sub-steps to be built.
+        out = builder(*bound.args, **bound.kwargs)
+
+        # Now unwrap output values into the cls.
+        if isinstance(out, Stream) or isinstance(out, MultiStream):
+            cls_vals[&#34;down&#34;] = out
+        elif isinstance(out, type(None)):
+            pass
+        elif dataclasses.is_dataclass(out):
+            for fld in dataclasses.fields(out):
+                cls_vals[fld.name] = getattr(out, fld.name)
+        else:
+            cls_vals[&#34;down&#34;] = out
+
+        # Turn into references.
+        for name, val in cls_vals.items():
+            if isinstance(val, _ToRef):
+                fq_ref_id = f&#34;{inner_scope.parent_id}.{name}&#34;
+                cls_vals[name] = val._to_ref(fq_ref_id)
+
+        # Now actually build the step instance.
+        step = cls(
+            substeps=inner_scope.substeps,
+            **cls_vals,
+        )
+
+        # Check for ID clashes since this will cause streams to be
+        # lost.
+        for existing_step in outer_scope.substeps:
+            if existing_step.step_id == step.step_id:
+                msg = (
+                    f&#34;step {step.step_id!r} already exists; &#34;
+                    &#34;do you have two steps with the same ID?&#34;
+                )
+                raise ValueError(msg)
+
+        # And store it in the outer scope.
+        outer_scope.substeps.append(step)
+
+        # Re-scope outputs that have a scope so calls to operator
+        # methods will not still be added in this operator a substeps.
+        if isinstance(out, _HasScope):
+            out = out._with_scope(outer_scope)
+        elif dataclasses.is_dataclass(out):
+            vals = {}
+            for fld in dataclasses.fields(out):
+                val = getattr(out, fld.name)
+                if isinstance(val, _HasScope):
+                    vals[fld.name] = val._with_scope(outer_scope)
+            out = dataclasses.replace(out, **vals)
+
+        return out
+
+    return fn
+
+
+F = TypeVar(&#34;F&#34;, bound=Callable[..., Any])
+
+
+@overload
+def operator(builder: F) -&gt; F:
+    ...
+
+
+@overload
+def operator(*, _core: bool = False) -&gt; Callable[[F], F]:
+    ...
+
+
+def operator(builder=None, *, _core: bool = False) -&gt; Callable:
+    &#34;&#34;&#34;Function decorator to define a new operator.
+
+    See `bytewax.dataflow` module docstring for how to use this.
+
+    &#34;&#34;&#34;
+
+    def inner_deco(builder: FunctionType) -&gt; Callable:
+        sig = inspect.signature(builder)
+        sig_types = _norm_type_hints(builder)
+        cls = _gen_op_cls(builder, sig, sig_types, _core)
+        fn = _gen_op_fn(sig, sig_types, builder, cls, _core)
+        fn._op_cls = cls  # type: ignore[attr-defined]
+        return fn
+
+    if builder is not None:
+        return inner_deco(builder)
+    else:
+        return inner_deco</code></pre>
 </details>
 </section>
 <section>
@@ -30,618 +750,784 @@ __all__ = [
 <section>
 </section>
 <section>
+<h2 class="api__article-subtitle" id="header-functions">Functions</h2>
+<dl>
+<dt id="bytewax.dataflow.f_repr"><code class="language-python name flex">
+<span>def <span class="ident">f_repr</span></span>(<span>f: Callable) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Nicer <code>repr</code> for functions with the defining module and line.</p>
+<p>Use this to help with writing easier to debug exceptions in your
+operators.</p>
+<p>The built in repr just shows a memory address.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; def my_f(x):
+...     pass
+&gt;&gt;&gt; f_repr(my_f)
+&quot;&lt;function 'bytewax.dataflow.my_f' line 1&gt;&quot;
+</code></pre></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def f_repr(f: Callable) -&gt; str:
+    &#34;&#34;&#34;Nicer `repr` for functions with the defining module and line.
+
+    Use this to help with writing easier to debug exceptions in your
+    operators.
+
+    The built in repr just shows a memory address.
+
+    &gt;&gt;&gt; def my_f(x):
+    ...     pass
+    &gt;&gt;&gt; f_repr(my_f)
+    &#34;&lt;function &#39;bytewax.dataflow.my_f&#39; line 1&gt;&#34;
+
+    &#34;&#34;&#34;
+    if isinstance(f, FunctionType):
+        path = f&#34;{f.__module__}.{f.__qualname__}&#34;
+        line = f&#34;{f.__code__.co_firstlineno}&#34;
+        return f&#34;&lt;function {path!r} line {line}&gt;&#34;
+    else:
+        return repr(f)</code></pre>
+</details>
+</dd>
+<dt id="bytewax.dataflow.operator"><code class="language-python name flex">
+<span>def <span class="ident">operator</span></span>(<span>builder=None) ‑> Callable</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Function decorator to define a new operator.</p>
+<p>See <code><a title="bytewax.dataflow" href="/apidocs/bytewax.dataflow">bytewax.dataflow</a></code> module docstring for how to use this.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def operator(builder=None, *, _core: bool = False) -&gt; Callable:
+    &#34;&#34;&#34;Function decorator to define a new operator.
+
+    See `bytewax.dataflow` module docstring for how to use this.
+
+    &#34;&#34;&#34;
+
+    def inner_deco(builder: FunctionType) -&gt; Callable:
+        sig = inspect.signature(builder)
+        sig_types = _norm_type_hints(builder)
+        cls = _gen_op_cls(builder, sig, sig_types, _core)
+        fn = _gen_op_fn(sig, sig_types, builder, cls, _core)
+        fn._op_cls = cls  # type: ignore[attr-defined]
+        return fn
+
+    if builder is not None:
+        return inner_deco(builder)
+    else:
+        return inner_deco</code></pre>
+</details>
+</dd>
+</dl>
 </section>
 <section>
 <h2 class="api__article-subtitle" id="header-classes">Classes</h2>
 <dl>
 <dt id="bytewax.dataflow.Dataflow"><code class="language-python flex name class">
 <span>class <span class="ident">Dataflow</span></span>
+<span>(</span><span>flow_id: str, substeps: List[<a title="bytewax.dataflow.Operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator">Operator</a>] = &lt;factory&gt;)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>A definition of a Bytewax dataflow graph.</p>
-<p>Use the methods defined on this class to add steps with operators
-of the same name.</p></div>
+<div class="desc"><p>Dataflow definition.</p>
+<p>Once you instantiate this, Use the <code><a title="bytewax.operators" href="/apidocs/bytewax.operators/index">bytewax.operators</a></code> (e.g.
+<code><a title="bytewax.operators.input" href="/apidocs/bytewax.operators/index#bytewax.operators.input">input()</a></code>) to create <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code>s.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@dataclass(frozen=True)
+class Dataflow:
+    &#34;&#34;&#34;Dataflow definition.
+
+    Once you instantiate this, Use the `bytewax.operators` (e.g.
+    `bytewax.operators.input`) to create `Stream`s.
+
+    &#34;&#34;&#34;
+
+    flow_id: str
+    substeps: List[Operator] = field(default_factory=list)
+    _scope: _Scope = field(default=None, compare=False)  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if &#34;.&#34; in self.flow_id:
+            msg = &#34;flow ID can&#39;t contain a period `.`&#34;
+            raise ValueError(msg)
+        if self._scope is None:
+            # The default context at the `Dataflow` level is recursive and
+            # means add things to this object.
+            scope = _Scope(self.flow_id, self.substeps, self)
+            # Trixy get around the fact this is frozen. We don&#39;t modify
+            # after init, though.
+            object.__setattr__(self, &#34;_scope&#34;, scope)
+
+    def _get_scopes(self) -&gt; Iterable[_Scope]:
+        return [self._scope]
+
+    def _with_scope(self, scope: _Scope) -&gt; &#34;Dataflow&#34;:
+        return dataclasses.replace(self, _scope=scope)
+
+    def _to_ref(self, _port_id: str) -&gt; DataflowId:
+        return DataflowId(self.flow_id)</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="bytewax.dataflow.Dataflow.flow_id"><code class="language-python name">var <span class="ident">flow_id</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.dataflow.Dataflow.substeps"><code class="language-python name">var <span class="ident">substeps</span> : List[<a title="bytewax.dataflow.Operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator">Operator</a>]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.dataflow.DataflowId"><code class="language-python flex name class">
+<span>class <span class="ident">DataflowId</span></span>
+<span>(</span><span>flow_id: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Unique ID of a dataflow.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@dataclass(frozen=True)
+class DataflowId:
+    &#34;&#34;&#34;Unique ID of a dataflow.&#34;&#34;&#34;
+
+    flow_id: str</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="bytewax.dataflow.DataflowId.flow_id"><code class="language-python name">var <span class="ident">flow_id</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.dataflow.MultiPort"><code class="language-python flex name class">
+<span>class <span class="ident">MultiPort</span></span>
+<span>(</span><span>port_id: str, stream_ids: Dict[~K, str])</span>
+</code></dt>
+<dd>
+<div class="desc"><p>A multi-stream input or output location on an <code><a title="bytewax.dataflow.Operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator">Operator</a></code>.</p>
+<p>You won't be instantiating this manually. The <code><a title="bytewax.dataflow.operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.operator">operator()</a></code> decorator
+will create these for you whenever an operator function takes or
+returns a <code>*args</code> of <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code> or <code>**kwargs</code> of <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code>s or a
+<code><a title="bytewax.dataflow.MultiStream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.MultiStream">MultiStream</a></code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@dataclass(frozen=True)
+class MultiPort(Generic[K]):
+    &#34;&#34;&#34;A multi-stream input or output location on an `Operator`.
+
+    You won&#39;t be instantiating this manually. The `operator` decorator
+    will create these for you whenever an operator function takes or
+    returns a `*args` of `Stream` or `**kwargs` of `Stream`s or a
+    `MultiStream`.
+
+    &#34;&#34;&#34;
+
+    port_id: str
+    stream_ids: Dict[K, str]</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>typing.Generic</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="bytewax.dataflow.MultiPort.port_id"><code class="language-python name">var <span class="ident">port_id</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.dataflow.MultiPort.stream_ids"><code class="language-python name">var <span class="ident">stream_ids</span> : Dict[~K, str]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.dataflow.MultiStream"><code class="language-python flex name class">
+<span>class <span class="ident">MultiStream</span></span>
+<span>(</span><span>streams: Dict[~K, <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[+X_co]])</span>
+</code></dt>
+<dd>
+<div class="desc"><p>A bundle of named <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code>s.</p>
+<p>Operator functions take or return this if they want to create an
+input or output port that can recieve multiple named streams
+dynamically.</p>
+<p>You will need to unpack the <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code>s within in order to add
+further steps:</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; import bytewax.operators as op
+&gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
+&gt;&gt;&gt; from bytewax.dataflow import Dataflow
+&gt;&gt;&gt; flow = Dataflow(&quot;multistream_eg&quot;)
+&gt;&gt;&gt; s = op.input(&quot;inp&quot;, flow, TestingSource(range(3)))
+&gt;&gt;&gt; a_s, b_s = op.key_split(
+...     &quot;split1&quot;,
+...     s,
+...     lambda x: &quot;KEY&quot;,
+...     lambda x: &quot;a&quot;,
+...     lambda x: &quot;b&quot;,
+... )
+</code></pre>
+<p>If you only have a single stream within, you can unpack using the
+"unpack a single item tuple" syntax:</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; (a_s,) = op.key_split(
+...     &quot;split2&quot;,
+...     s,
+...     lambda x: &quot;KEY&quot;,
+...     lambda x: &quot;a&quot;,
+... )
+</code></pre>
+<p>This is also created internally whenever a builder function takes
+or returns a <code>*args</code> of <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code> or <code>**kwargs</code> of <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code>s.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@dataclass(frozen=True)
+class MultiStream(Generic[K, X_co]):
+    &#34;&#34;&#34;A bundle of named `Stream`s.
+
+    Operator functions take or return this if they want to create an
+    input or output port that can recieve multiple named streams
+    dynamically.
+
+    You will need to unpack the `Stream`s within in order to add
+    further steps:
+
+    &gt;&gt;&gt; import bytewax.operators as op
+    &gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
+    &gt;&gt;&gt; from bytewax.dataflow import Dataflow
+    &gt;&gt;&gt; flow = Dataflow(&#34;multistream_eg&#34;)
+    &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource(range(3)))
+    &gt;&gt;&gt; a_s, b_s = op.key_split(
+    ...     &#34;split1&#34;,
+    ...     s,
+    ...     lambda x: &#34;KEY&#34;,
+    ...     lambda x: &#34;a&#34;,
+    ...     lambda x: &#34;b&#34;,
+    ... )
+
+    If you only have a single stream within, you can unpack using the
+    &#34;unpack a single item tuple&#34; syntax:
+
+    &gt;&gt;&gt; (a_s,) = op.key_split(
+    ...     &#34;split2&#34;,
+    ...     s,
+    ...     lambda x: &#34;KEY&#34;,
+    ...     lambda x: &#34;a&#34;,
+    ... )
+
+    This is also created internally whenever a builder function takes
+    or returns a `*args` of `Stream` or `**kwargs` of `Stream`s.
+
+    &#34;&#34;&#34;
+
+    streams: Dict[K, Stream[X_co]]
+
+    @property
+    def _scope(self):
+        msg = (
+            &#34;`MultiStream` must be unpacked to use the `Stream` inside; &#34;
+            &#34;&#34;&#34;e.g. `(names,) = op.key_split(&#34;step_id&#34;, up, &#34;&#34;&#34;
+            &#34;&#34;&#34;lambda x: x[&#34;id&#34;], lambda x: x[&#34;name&#34;])`&#34;&#34;&#34;
+        )
+        raise TypeError(msg)
+
+    def _get_scopes(self) -&gt; Iterable[_Scope]:
+        return (stream._scope for stream in self.streams.values())
+
+    def _with_scope(self, scope: _Scope) -&gt; &#34;MultiStream[K, X_co]&#34;:
+        streams = {
+            name: stream._with_scope(scope) for name, stream in self.streams.items()
+        }
+        return dataclasses.replace(self, streams=streams)
+
+    def _to_ref(self, port_id: str) -&gt; MultiPort[K]:
+        return MultiPort(
+            port_id,
+            {name: stream.stream_id for name, stream in self.streams.items()},
+        )
+
+    def __iter__(self):
+        return iter(self.streams.values())</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>typing.Generic</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="bytewax.dataflow.MultiStream.streams"><code class="language-python name">var <span class="ident">streams</span> : Dict[~K, <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[+X_co]]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.dataflow.Operator"><code class="language-python flex name class">
+<span>class <span class="ident">Operator</span></span>
+<span>(</span><span>step_name: str, step_id: str, substeps: List[ForwardRef('<a title="bytewax.dataflow.Operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator">Operator</a>')])</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for an operator type.</p>
+<p>Subclasses of this must be generated via the <code><a title="bytewax.dataflow.operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.operator">operator()</a></code> builder
+function decorator. See the <code><a title="bytewax.dataflow" href="/apidocs/bytewax.dataflow">bytewax.dataflow</a></code> module docstring
+for a tutorial.</p>
+<p>Subclasses will contain the specific configuration fields each
+operator needs.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@dataclass(frozen=True)
+class Operator:
+    &#34;&#34;&#34;Base class for an operator type.
+
+    Subclasses of this must be generated via the `operator` builder
+    function decorator. See the `bytewax.dataflow` module docstring
+    for a tutorial.
+
+    Subclasses will contain the specific configuration fields each
+    operator needs.
+
+    &#34;&#34;&#34;
+
+    step_name: str
+    step_id: str
+    substeps: List[&#34;Operator&#34;]
+    ups_names: ClassVar[List[str]]
+    dwn_names: ClassVar[List[str]]</code></pre>
+</details>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li>bytewax.dataflow._CoreOperator</li>
+<li>bytewax.operators._join_name_merge</li>
+<li><a title="bytewax.operators.batch" href="/apidocs/bytewax.operators/index#bytewax.operators.batch">batch()</a></li>
+<li><a title="bytewax.operators.count_final" href="/apidocs/bytewax.operators/index#bytewax.operators.count_final">count_final()</a></li>
+<li><a title="bytewax.operators.filter" href="/apidocs/bytewax.operators/index#bytewax.operators.filter">filter()</a></li>
+<li><a title="bytewax.operators.filter_map" href="/apidocs/bytewax.operators/index#bytewax.operators.filter_map">filter_map()</a></li>
+<li><a title="bytewax.operators.filter_value" href="/apidocs/bytewax.operators/index#bytewax.operators.filter_value">filter_value()</a></li>
+<li><a title="bytewax.operators.flat_map_value" href="/apidocs/bytewax.operators/index#bytewax.operators.flat_map_value">flat_map_value()</a></li>
+<li><a title="bytewax.operators.flatten" href="/apidocs/bytewax.operators/index#bytewax.operators.flatten">flatten()</a></li>
+<li><a title="bytewax.operators.fold_final" href="/apidocs/bytewax.operators/index#bytewax.operators.fold_final">fold_final()</a></li>
+<li><a title="bytewax.operators.inspect" href="/apidocs/bytewax.operators/index#bytewax.operators.inspect">inspect()</a></li>
+<li><a title="bytewax.operators.join" href="/apidocs/bytewax.operators/index#bytewax.operators.join">join()</a></li>
+<li><a title="bytewax.operators.join_named" href="/apidocs/bytewax.operators/index#bytewax.operators.join_named">join_named()</a></li>
+<li><a title="bytewax.operators.key_on" href="/apidocs/bytewax.operators/index#bytewax.operators.key_on">key_on()</a></li>
+<li><a title="bytewax.operators.key_split" href="/apidocs/bytewax.operators/index#bytewax.operators.key_split">key_split()</a></li>
+<li><a title="bytewax.operators.map" href="/apidocs/bytewax.operators/index#bytewax.operators.map">map()</a></li>
+<li><a title="bytewax.operators.map_value" href="/apidocs/bytewax.operators/index#bytewax.operators.map_value">map_value()</a></li>
+<li><a title="bytewax.operators.max_final" href="/apidocs/bytewax.operators/index#bytewax.operators.max_final">max_final()</a></li>
+<li><a title="bytewax.operators.min_final" href="/apidocs/bytewax.operators/index#bytewax.operators.min_final">min_final()</a></li>
+<li><a title="bytewax.operators.raises" href="/apidocs/bytewax.operators/index#bytewax.operators.raises">raises()</a></li>
+<li><a title="bytewax.operators.reduce_final" href="/apidocs/bytewax.operators/index#bytewax.operators.reduce_final">reduce_final()</a></li>
+<li><a title="bytewax.operators.stateful_map" href="/apidocs/bytewax.operators/index#bytewax.operators.stateful_map">stateful_map()</a></li>
+<li><a title="bytewax.operators.window.collect_window" href="/apidocs/bytewax.operators/window#bytewax.operators.window.collect_window">collect_window()</a></li>
+<li><a title="bytewax.operators.window.count_window" href="/apidocs/bytewax.operators/window#bytewax.operators.window.count_window">count_window()</a></li>
+<li><a title="bytewax.operators.window.join_window" href="/apidocs/bytewax.operators/window#bytewax.operators.window.join_window">join_window()</a></li>
+<li><a title="bytewax.operators.window.join_window_named" href="/apidocs/bytewax.operators/window#bytewax.operators.window.join_window_named">join_window_named()</a></li>
+<li><a title="bytewax.operators.window.max_window" href="/apidocs/bytewax.operators/window#bytewax.operators.window.max_window">max_window()</a></li>
+<li><a title="bytewax.operators.window.min_window" href="/apidocs/bytewax.operators/window#bytewax.operators.window.min_window">min_window()</a></li>
+<li><a title="bytewax.operators.window.reduce_window" href="/apidocs/bytewax.operators/window#bytewax.operators.window.reduce_window">reduce_window()</a></li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="bytewax.dataflow.Operator.dwn_names"><code class="language-python name">var <span class="ident">dwn_names</span> : ClassVar[List[str]]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.dataflow.Operator.step_id"><code class="language-python name">var <span class="ident">step_id</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.dataflow.Operator.step_name"><code class="language-python name">var <span class="ident">step_name</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.dataflow.Operator.substeps"><code class="language-python name">var <span class="ident">substeps</span> : List[<a title="bytewax.dataflow.Operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator">Operator</a>]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.dataflow.Operator.ups_names"><code class="language-python name">var <span class="ident">ups_names</span> : ClassVar[List[str]]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.dataflow.Port"><code class="language-python flex name class">
+<span>class <span class="ident">Port</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Generic interface to a port.</p>
+<p>Either <code><a title="bytewax.dataflow.SinglePort" href="/apidocs/bytewax.dataflow#bytewax.dataflow.SinglePort">SinglePort</a></code> or <code><a title="bytewax.dataflow.MultiPort" href="/apidocs/bytewax.dataflow#bytewax.dataflow.MultiPort">MultiPort</a></code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@runtime_checkable
+class Port(Protocol):
+    &#34;&#34;&#34;Generic interface to a port.
+
+    Either `SinglePort` or `MultiPort`.
+
+    &#34;&#34;&#34;
+
+    port_id: str
+    stream_ids: Dict[str, str]</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>typing.Protocol</li>
+<li>typing.Generic</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="bytewax.dataflow.Port.port_id"><code class="language-python name">var <span class="ident">port_id</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.dataflow.Port.stream_ids"><code class="language-python name">var <span class="ident">stream_ids</span> : Dict[str, str]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.dataflow.SinglePort"><code class="language-python flex name class">
+<span>class <span class="ident">SinglePort</span></span>
+<span>(</span><span>port_id: str, stream_id: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>A input or output location on an <code><a title="bytewax.dataflow.Operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator">Operator</a></code>.</p>
+<p>You won't be instantiating this manually. The <code><a title="bytewax.dataflow.operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.operator">operator()</a></code> decorator
+will create these for you whenever an operator function takes or
+returns a <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@dataclass(frozen=True)
+class SinglePort:
+    &#34;&#34;&#34;A input or output location on an `Operator`.
+
+    You won&#39;t be instantiating this manually. The `operator` decorator
+    will create these for you whenever an operator function takes or
+    returns a `Stream`.
+
+    &#34;&#34;&#34;
+
+    port_id: str
+    stream_id: str
+
+    @property
+    def stream_ids(self) -&gt; Dict[str, str]:
+        &#34;&#34;&#34;Allow this to conform to the `Port` protocol.&#34;&#34;&#34;
+        return {&#34;stream&#34;: self.stream_id}</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="bytewax.dataflow.SinglePort.port_id"><code class="language-python name">var <span class="ident">port_id</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.dataflow.SinglePort.stream_id"><code class="language-python name">var <span class="ident">stream_id</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+<h3>Instance variables</h3>
+<dl>
+<dt id="bytewax.dataflow.SinglePort.stream_ids"><code class="language-python name">var <span class="ident">stream_ids</span> : Dict[str, str]</code></dt>
+<dd>
+<div class="desc"><p>Allow this to conform to the <code><a title="bytewax.dataflow.Port" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Port">Port</a></code> protocol.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@property
+def stream_ids(self) -&gt; Dict[str, str]:
+    &#34;&#34;&#34;Allow this to conform to the `Port` protocol.&#34;&#34;&#34;
+    return {&#34;stream&#34;: self.stream_id}</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.dataflow.Stream"><code class="language-python flex name class">
+<span>class <span class="ident">Stream</span></span>
+<span>(</span><span>stream_id: str, _scope: bytewax.dataflow._Scope)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Handle to a specific stream of items you can add steps to.</p>
+<p>You won't be instantiating this manually. Use the
+<code><a title="bytewax.operators" href="/apidocs/bytewax.operators/index">bytewax.operators</a></code> (e.g. <code><a title="bytewax.operators.map" href="/apidocs/bytewax.operators/index#bytewax.operators.map">map()</a></code>,
+<code><a title="bytewax.operators.filter" href="/apidocs/bytewax.operators/index#bytewax.operators.filter">filter()</a></code>, <code><a title="bytewax.operators.key_on" href="/apidocs/bytewax.operators/index#bytewax.operators.key_on">key_on()</a></code>) to create
+<code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code>s.</p>
+<p>You can reference this stream multiple times to duplicate the data
+within.</p>
+<p>Operator functions take or return this if they want to create an
+input or output port.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@dataclass(frozen=True)
+class Stream(Generic[X_co]):
+    &#34;&#34;&#34;Handle to a specific stream of items you can add steps to.
+
+    You won&#39;t be instantiating this manually. Use the
+    `bytewax.operators` (e.g. `bytewax.operators.map`,
+    `bytewax.operators.filter`, `bytewax.operators.key_on`) to create
+    `Stream`s.
+
+    You can reference this stream multiple times to duplicate the data
+    within.
+
+    Operator functions take or return this if they want to create an
+    input or output port.
+
+    &#34;&#34;&#34;
+
+    stream_id: str
+    _scope: _Scope = field(compare=False)
+
+    def flow(self) -&gt; Dataflow:
+        &#34;&#34;&#34;The containing `Dataflow`.
+
+        You might want access to this to add &#34;top level&#34; operators
+        like `bytewax.operators.merge_all.merge_all`.
+
+        &#34;&#34;&#34;
+        return self._scope.flow
+
+    def _get_scopes(self) -&gt; Iterable[_Scope]:
+        return [self._scope]
+
+    def _with_scope(self, scope: _Scope) -&gt; &#34;Stream[X_co]&#34;:
+        return dataclasses.replace(self, _scope=scope)
+
+    def _to_ref(self, ref_id: str) -&gt; SinglePort:
+        return SinglePort(ref_id, self.stream_id)
+
+    @staticmethod
+    def _from_args(args: Tuple) -&gt; &#34;MultiStream[int, X_co]&#34;:
+        return MultiStream({i: stream for i, stream in enumerate(args)})
+
+    @staticmethod
+    def _into_args(obj: &#34;MultiStream[int, X_co]&#34;) -&gt; Tuple:
+        return tuple(obj.streams.values())
+
+    @staticmethod
+    def _from_kwargs(kwargs: Dict[str, &#34;Stream[X_co]&#34;]) -&gt; &#34;MultiStream[str, X_co]&#34;:
+        return MultiStream(kwargs)
+
+    @staticmethod
+    def _into_kwargs(obj: &#34;MultiStream[str, X_co]&#34;) -&gt; Dict[str, &#34;Stream[X_co]&#34;]:
+        return dict(obj.streams)
+
+    def then(
+        self,
+        op_fn: Callable[Concatenate[str, &#34;Stream[X_co]&#34;, P], R],
+        step_id: str,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -&gt; R:
+        &#34;&#34;&#34;Chain a new step onto this stream.
+
+        This allows you to add intermediate steps to a dataflow
+        without needing to nest operator function calls or make
+        intermediate variables.
+
+        The following two dataflow definitions are equivalent:
+
+        &gt;&gt;&gt; import bytewax.operators as op
+        &gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
+        &gt;&gt;&gt; from bytewax.dataflow import Dataflow
+        &gt;&gt;&gt; def add_one(item):
+        ...     return item + 1
+
+        &gt;&gt;&gt; flow = Dataflow(&#34;map_eg&#34;)
+        &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource(range(3)))
+        &gt;&gt;&gt; s = op.map(&#34;add_one&#34;, s, add_one)
+
+        and
+
+        &gt;&gt;&gt; flow = Dataflow(&#34;map_eg&#34;)
+        &gt;&gt;&gt; s = (
+        ...     op.input(&#34;inp&#34;, flow, TestingSource(range(3)))
+        ...     .then(op.map, &#34;add_one&#34;, add_one)
+        ... )
+
+        This kind of method chaining is called a &#34;fluent style API&#34;.
+
+        Because this style requires a single upstream before the `.`,
+        this transformation only works for operators that could be
+        called like `op_fn(step_id, upstream, ...)`, like
+        `bytewax.operators.map`. It will not work for operators like
+        `bytewax.operators.join_named`, since they do not have that
+        shape of function signature.
+
+        Args:
+            step_id: Unique ID.
+
+            op_fn: Operator function. This fluent transformation only
+              works on operators that take a single stream as the
+              second argument.
+
+            *args: Remaining arguments to pass to `op_fn`.
+
+            **kwargs: Remaining arguments to pass to `op_fn`.
+
+        &#34;&#34;&#34;
+        return op_fn(step_id, self, *args, **kwargs)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>typing.Generic</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="bytewax.dataflow.Stream.stream_id"><code class="language-python name">var <span class="ident">stream_id</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
 <h3>Methods</h3>
 <dl>
-<dt id="bytewax.dataflow.Dataflow.batch"><code class="language-python name flex">
-<span>def <span class="ident">batch</span></span>(<span>self, /, step_id, max_size, timeout)</span>
+<dt id="bytewax.dataflow.Stream.flow"><code class="language-python name flex">
+<span>def <span class="ident">flow</span></span>(<span>self) ‑> <a title="bytewax.dataflow.Dataflow" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow">Dataflow</a></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Batch incoming items until either a batch size has been reached or a timeout has passed.
-This is a stateful operator.</p>
-<h2 id="args">Args</h2>
-<p>step_id (str):
-Uniquely identifies this step for recovery.
-max_size (int):
-Maximum size of the batch.
-timeout (datetime.timedelta):
-Timeout before emitting the batch, even if max_size
-was not reached yet.</p></div>
+<div class="desc"><p>The containing <code><a title="bytewax.dataflow.Dataflow" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow">Dataflow</a></code>.</p>
+<p>You might want access to this to add "top level" operators
+like <code>bytewax.operators.merge_all.merge_all</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def flow(self) -&gt; Dataflow:
+    &#34;&#34;&#34;The containing `Dataflow`.
+
+    You might want access to this to add &#34;top level&#34; operators
+    like `bytewax.operators.merge_all.merge_all`.
+
+    &#34;&#34;&#34;
+    return self._scope.flow</code></pre>
+</details>
 </dd>
-<dt id="bytewax.dataflow.Dataflow.collect_window"><code class="language-python name flex">
-<span>def <span class="ident">collect_window</span></span>(<span>self, /, step_id, clock_config, window_config)</span>
+<dt id="bytewax.dataflow.Stream.then"><code class="language-python name flex">
+<span>def <span class="ident">then</span></span>(<span>self, op_fn: Callable[Concatenate[str, ForwardRef('<a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[X_co]'), ~P], ~R], step_id: str, *args: P.args, **kwargs: P.kwargs) ‑> ~R</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Collect window lets emits all items for a key in a window
-downstream in sorted order.</p>
-<p>It is a stateful operator. It requires the upstream items are
-<code>(key: str, value)</code> tuples so we can ensure that all relevant
-values are routed to the relevant state. It also requires a
-step ID to recover the correct state.</p>
-<p>It emits <code>(key, list)</code> tuples downstream at the end of each
-window where <code>list</code> is sorted by the time assigned by the
-clock.</p>
-<p>Currently, data is permanently allocated per-key. If you have
-an ever-growing key space, note this.</p>
-<h2 id="args">Args</h2>
-<p>step_id (str):
-Uniquely identifies this step for recovery.
-clock_config (bytewax.window.ClockConfig):
-Clock config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.
-window_config (bytewax.window.WindowConfig):
-Windower config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</p></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.filter"><code class="language-python name flex">
-<span>def <span class="ident">filter</span></span>(<span>self, /, predicate)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Filter selectively keeps only some items.</p>
-<p>It calls a <strong>predicate</strong> function on each item.</p>
-<p>It emits the item downstream unmodified if the predicate
-returns <code>True</code>.</p>
-<p>It is commonly used for:</p>
-<ul>
-<li>Selecting relevant events</li>
-<li>Removing empty events</li>
-<li>Removing sentinels</li>
-<li>Removing stop words</li>
-</ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import TestingInput
-&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
-&gt;&gt;&gt; from bytewax.testing import run_main
+<div class="desc"><p>Chain a new step onto this stream.</p>
+<p>This allows you to add intermediate steps to a dataflow
+without needing to nest operator function calls or make
+intermediate variables.</p>
+<p>The following two dataflow definitions are equivalent:</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; import bytewax.operators as op
+&gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
 &gt;&gt;&gt; from bytewax.dataflow import Dataflow
-&gt;&gt;&gt;
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(4)))
-&gt;&gt;&gt; def is_odd(item):
-...     return item % 2 != 0
-&gt;&gt;&gt; flow.filter(is_odd)
-&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
-&gt;&gt;&gt; run_main(flow)
-1
-3
-</code></pre>
-<h2 id="args">Args</h2>
-<p>predicate:
-<code>predicate(item: Any) =&gt; should_emit: bool</code></p></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.filter_map"><code class="language-python name flex">
-<span>def <span class="ident">filter_map</span></span>(<span>self, /, mapper)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Filter map acts as a normal map function,
-but if the mapper returns None, the item
-is filtered out.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; def validate(data):
-...     if type(data) != dict or &quot;key&quot; not in data:
-...         return None
-...     else:
-...         return data[&quot;key&quot;], data
-...
-&gt;&gt;&gt; flow.filter_map(validate)
-</code></pre>
-<h2 id="args">Args</h2>
-<p>mapper:
-<code>mapper(item: Any) =&gt; modified_item: Optional[Any]</code></p></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.flat_map"><code class="language-python name flex">
-<span>def <span class="ident">flat_map</span></span>(<span>self, /, mapper)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Flat map is a one-to-many transformation of items.</p>
-<p>It calls a <strong>mapper</strong> function on each item.</p>
-<p>It emits each element in the returned iterator individually
-downstream in the epoch of the input item.</p>
-<p>It is commonly used for:</p>
-<ul>
-<li>Tokenizing</li>
-<li>Flattening hierarchical objects</li>
-<li>Breaking up aggregations for further processing</li>
-</ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import TestingInput
-&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
-&gt;&gt;&gt; from bytewax.testing import run_main
-&gt;&gt;&gt; from bytewax.dataflow import Dataflow
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; inp = [&quot;hello world&quot;]
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(inp))
-&gt;&gt;&gt; def split_into_words(sentence):
-...     return sentence.split()
-&gt;&gt;&gt; flow.flat_map(split_into_words)
-&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
-&gt;&gt;&gt; run_main(flow)
-hello
-world
-</code></pre>
-<h2 id="args">Args</h2>
-<p>mapper:
-<code>mapper(item: Any) =&gt; emit: Iterable[Any]</code></p></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.fold_window"><code class="language-python name flex">
-<span>def <span class="ident">fold_window</span></span>(<span>self, /, step_id, clock_config, window_config, builder, folder)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Fold window lets you combine all items for a key within a
-window into an accumulator, using a function to build its initial value.</p>
-<p>It is like <code><a title="bytewax.dataflow.Dataflow.reduce_window" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce_window">Dataflow.reduce_window()</a></code> but uses a function to
-build the initial value.</p>
-<p>It is a stateful operator. It requires the input stream
-has items that are <code>(key: str, value)</code> tuples so we can ensure
-that all relevant values are routed to the relevant state. It
-also requires a step ID to recover the correct state.</p>
-<p>It calls two functions:</p>
-<ul>
-<li>
-<p>A <strong>builder</strong> function which is called the first time a key appears
-and is expected to return the empty state for that key.</p>
-</li>
-<li>
-<p>A <strong>folder</strong> which combines a new value with an accumulator.
-The accumulator is initially the output of the builder function.
-Values will be passed in window order, but no order
-is defined within a window.</p>
-</li>
-</ul>
-<p>It emits <code>(key, accumulator)</code> tuples downstream when the window closes</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from datetime import datetime, timedelta, timezone
-&gt;&gt;&gt; from bytewax.dataflow import Dataflow
-&gt;&gt;&gt; from bytewax.testing import run_main, TestingInput, TestingOutput
-&gt;&gt;&gt; from bytewax.window import TumblingWindow, EventClockConfig
-&gt;&gt;&gt; align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
-&gt;&gt;&gt;
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt;
-&gt;&gt;&gt; inp = [
-...     (&quot;ALL&quot;, {&quot;time&quot;: align_to, &quot;val&quot;: &quot;a&quot;}),
-...     (&quot;ALL&quot;, {&quot;time&quot;: align_to + timedelta(seconds=4), &quot;val&quot;: &quot;b&quot;}),
-...     (&quot;ALL&quot;, {&quot;time&quot;: align_to + timedelta(seconds=8), &quot;val&quot;: &quot;c&quot;}),
-...     # The 10 second window should close just before processing this item.
-...     (&quot;ALL&quot;, {&quot;time&quot;: align_to + timedelta(seconds=12), &quot;val&quot;: &quot;d&quot;}),
-...     (&quot;ALL&quot;, {&quot;time&quot;: align_to + timedelta(seconds=16), &quot;val&quot;: &quot;e&quot;})
-... ]
-&gt;&gt;&gt;
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(inp))
-&gt;&gt;&gt;
-&gt;&gt;&gt; clock_config = EventClockConfig(
-...     lambda e: e[&quot;time&quot;], wait_for_system_duration=timedelta(seconds=0)
-... )
-&gt;&gt;&gt; window_config = TumblingWindow(length=timedelta(seconds=10), align_to=align_to)
-&gt;&gt;&gt;
-&gt;&gt;&gt; def add(acc, x):
-...     acc.append(x[&quot;val&quot;])
-...     return acc
-&gt;&gt;&gt;
-&gt;&gt;&gt; flow.fold_window(&quot;sum&quot;, clock_config, window_config, list, add)
-&gt;&gt;&gt;
-&gt;&gt;&gt; out = []
-&gt;&gt;&gt; flow.output(&quot;out&quot;, TestingOutput(out))
-&gt;&gt;&gt;
-&gt;&gt;&gt; run_main(flow)
-&gt;&gt;&gt;
-&gt;&gt;&gt; assert sorted(out) == sorted([(&quot;ALL&quot;, [&quot;a&quot;, &quot;b&quot;, &quot;c&quot;]), (&quot;ALL&quot;, [&quot;d&quot;, &quot;e&quot;])])
-</code></pre>
-<h2 id="args">Args</h2>
-<p>step_id (str):
-Uniquely identifies this step for recovery.
-clock_config (bytewax.window.ClockConfig):
-Clock config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.
-window_config (bytewax.window.WindowConfig):
-Windower config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.
-builder:
-<code>builder(key: Any) =&gt; initial_accumulator: Any</code>
-folder:
-<code>folder(accumulator: Any, value: Any) =&gt; updated_accumulator: Any</code></p></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.input"><code class="language-python name flex">
-<span>def <span class="ident">input</span></span>(<span>self, /, step_id, input)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>At least one input is required on every dataflow.</p>
-<p>Emits items downstream from the input source.</p>
-<p>See <code><a title="bytewax.inputs" href="/apidocs/bytewax.inputs">bytewax.inputs</a></code> for more information on how input works.
-See <code><a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a></code> for a buffet of our built-in
-connector types.</p>
-<h2 id="args">Args</h2>
-<p>step_id (str):
-Uniquely identifies this step for recovery.
-input (bytewax.inputs.Input):
-Input definition.</p></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.inspect"><code class="language-python name flex">
-<span>def <span class="ident">inspect</span></span>(<span>self, /, inspector)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Inspect allows you to observe, but not modify, items.</p>
-<p>It calls an <strong>inspector</strong> callback on each item.</p>
-<p>It emits items downstream unmodified.</p>
-<p>It is commonly used for debugging.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import TestingInput, TestingOutput
-&gt;&gt;&gt; from bytewax.testing import run_main
-&gt;&gt;&gt; from bytewax.dataflow import Dataflow
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
-&gt;&gt;&gt; def log(item):
-...     print(&quot;Saw&quot;, item)
-&gt;&gt;&gt; flow.inspect(log)
-&gt;&gt;&gt; out = []
-&gt;&gt;&gt; flow.output(&quot;out&quot;, TestingOutput(out))  # Notice we don't print out.
-&gt;&gt;&gt; run_main(flow)
-Saw 0
-Saw 1
-Saw 2
-</code></pre>
-<h2 id="args">Args</h2>
-<p>inspector:
-<code>inspector(item: Any) =&gt; None</code></p></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.inspect_epoch"><code class="language-python name flex">
-<span>def <span class="ident">inspect_epoch</span></span>(<span>self, /, inspector)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Inspect epoch allows you to observe, but not modify, items and
-their epochs.</p>
-<p>It calls an <strong>inspector</strong> function on each item with its
-epoch.</p>
-<p>It emits items downstream unmodified.</p>
-<p>It is commonly used for debugging.</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from datetime import timedelta
-&gt;&gt;&gt; from bytewax.testing import TestingInput, TestingOutput, run_main
-&gt;&gt;&gt; from bytewax.dataflow import Dataflow
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
-&gt;&gt;&gt; def log(epoch, item):
-...    print(f&quot;Saw {item} @ {epoch}&quot;)
-&gt;&gt;&gt; flow.inspect_epoch(log)
-&gt;&gt;&gt; out = []
-&gt;&gt;&gt; flow.output(&quot;out&quot;, TestingOutput(out))  # Notice we don't print out.
-&gt;&gt;&gt; run_main(flow, epoch_interval=timedelta(seconds=0))
-Saw 0 @ 1
-Saw 1 @ 2
-Saw 2 @ 3
-</code></pre>
-<h2 id="args">Args</h2>
-<p>inspector:
-<code>inspector(epoch: int, item: Any) =&gt; None</code></p></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.inspect_worker"><code class="language-python name flex">
-<span>def <span class="ident">inspect_worker</span></span>(<span>self, /, inspector)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Inspect worker allows you to observe, but not modify, items and
-their worker's index.</p>
-<p>It calls an <strong>inspector</strong> function on each item with its
-worker's index.</p>
-<p>It emits items downstream unmodified.</p>
-<p>It is commonly used for debugging.</p>
-<h2 id="args">Args</h2>
-<p>inspector:
-<code>inspector(item: Any, worker: int) =&gt; None</code></p></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.map"><code class="language-python name flex">
-<span>def <span class="ident">map</span></span>(<span>self, /, mapper)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Map is a one-to-one transformation of items.</p>
-<p>It calls a <strong>mapper</strong> function on each item.</p>
-<p>It emits each updated item downstream.</p>
-<p>It is commonly used for:</p>
-<ul>
-<li>Extracting keys</li>
-<li>Turning JSON into objects</li>
-<li>So many things</li>
-</ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
-&gt;&gt;&gt; from bytewax.testing import run_main, TestingInput
-&gt;&gt;&gt; from bytewax.dataflow import Dataflow
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(range(3)))
 &gt;&gt;&gt; def add_one(item):
-...     return item + 10
-&gt;&gt;&gt; flow.map(add_one)
-&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
-&gt;&gt;&gt; run_main(flow)
-10
-11
-12
+...     return item + 1
 </code></pre>
-<h2 id="args">Args</h2>
-<p>mapper:
-<code>mapper(item: Any) =&gt; updated_item: Any</code></p></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.output"><code class="language-python name flex">
-<span>def <span class="ident">output</span></span>(<span>self, /, step_id, output)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Write data to an output.</p>
-<p>At least one output is required on every dataflow.</p>
-<p>Emits items downstream unmodified.</p>
-<p>See <code><a title="bytewax.outputs" href="/apidocs/bytewax.outputs">bytewax.outputs</a></code> for more information on how output
-works. See <code><a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a></code> for a buffet of our built-in
-connector types.</p>
-<h2 id="args">Args</h2>
-<p>step_id (str):
-Uniquely identifies this step for recovery.
-output (bytewax.outputs.Output):
-Output definition.</p></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.redistribute"><code class="language-python name flex">
-<span>def <span class="ident">redistribute</span></span>(<span>self, /)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Redistribute items randomly across all workers for the next step.</p>
-<p>Bytewax's execution model has workers executing all steps, but
-the state in each step is partitioned across workers by some
-key. Bytewax will only exchange an item between workers before
-stateful steps in order to ensure correctness, that they
-interact with the correct state for that key. Stateless
-operators (like <code>filter</code>) are run on all workers and do not
-result in exchanging items before or after they are run.</p>
-<p>This can result in certain ordering of operators to result in
-poor parallelization across an entire execution cluster. If
-the previous step (like a <code>reduce_window</code> or <code>input</code> with a
-<code>PartitionedInput</code>) concentrated items on a subset of workers
-in the cluster, but the next step is a CPU-intensive stateless
-step (like a <code>map</code>), it's possible that not all workers will
-contribute to processing the CPU-intesive step.</p>
-<p>This operation has a overhead, since it will need
-to serialize, send, and deserialize the items,
-so while it can significantly speed up the
-execution in some cases, it can also make it slower.</p>
-<p>A good use of this operator is to parallelize an IO
-bound step, like a network request, or a heavy,
-single-cpu workload, on a machine with multiple
-workers and multiple cpu cores that would remain
-unused otherwise.</p>
-<p>A bad use of this operator is if the operation you want
-to parallelize is already really fast as it is, as the
-overhead can overshadow the advantages of distributing
-the work.
-Another case where you could see regressions in performance is
-if the heavy CPU workload already spawns enough threads
-to use all the available cores. In this case multiple
-processes trying to compete for the cpu can end up being
-slower than doing the work serially.
-If the workers run on different machines though, it might
-again be a valuable use of the operator.</p>
-<p>Use this operator with caution, and measure whether you
-get an improvement out of it.</p>
-<p>Once the work has been spread to another worker, it will
-stay on those workers unless other operators explicitely
-move the item again (usually on output).</p></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.reduce"><code class="language-python name flex">
-<span>def <span class="ident">reduce</span></span>(<span>self, /, step_id, reducer, is_complete)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Reduce lets you combine items for a key into an accumulator.</p>
-<p>It is a stateful operator. It requires the input stream
-has items that are <code>(key: str, value)</code> tuples so we can ensure
-that all relevant values are routed to the relevant state. It
-also requires a step ID to recover the correct state.</p>
-<p>It calls two functions:</p>
-<ul>
-<li>
-<p>A <strong>reducer</strong> which combines a new value with an
-accumulator. The accumulator is initially the first value seen
-for a key. Values will be passed in an arbitrary order. If
-there is only a single value for a key since the last
-completion, this function will not be called.</p>
-</li>
-<li>
-<p>An <strong>is complete</strong> function which returns <code>True</code> if the most
-recent <code>(key, accumulator)</code> should be emitted downstream and
-the accumulator for that key forgotten. If there was only a
-single value for a key, it is passed in as the accumulator
-here.</p>
-</li>
-</ul>
-<p>It emits <code>(key, accumulator)</code> tuples downstream when the is
-complete function returns <code>True</code> in the epoch of the most
-recent value for that key.</p>
-<p>If the ordering of values is crucial, group beforhand using a
-windowing operator with a timeout like <code>reduce_window</code>, then
-sort, then use this operator.</p>
-<p>It is commonly used for:</p>
-<ul>
-<li>Collection into a list</li>
-<li>Summarizing data</li>
-</ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.dataflow import Dataflow
-&gt;&gt;&gt; from bytewax.testing import TestingInput, run_main
-&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; inp = [
-...     {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;login&quot;},
-...     {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;post&quot;},
-...     {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;login&quot;},
-...     {&quot;user&quot;: &quot;b&quot;, &quot;type&quot;: &quot;logout&quot;},
-...     {&quot;user&quot;: &quot;a&quot;, &quot;type&quot;: &quot;logout&quot;},
-... ]
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(inp))
-&gt;&gt;&gt; def user_as_key(event):
-...     return event[&quot;user&quot;], [event]
-&gt;&gt;&gt; flow.map(user_as_key)
-&gt;&gt;&gt; def extend_session(session, events):
-...     session.extend(events)
-...     return session
-&gt;&gt;&gt; def session_complete(session):
-...     return any(event[&quot;type&quot;] == &quot;logout&quot; for event in session)
-&gt;&gt;&gt; flow.reduce(&quot;sessionizer&quot;, extend_session, session_complete)
-&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
-&gt;&gt;&gt; run_main(flow)
-('b', [{'user': 'b', 'type': 'login'}, {'user': 'b', 'type': 'logout'}])
-('a', [{'user': 'a', 'type': 'login'}, {'user': 'a', 'type': 'post'},
-       {'user': 'a', 'type': 'logout'}])
+<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow(&quot;map_eg&quot;)
+&gt;&gt;&gt; s = op.input(&quot;inp&quot;, flow, TestingSource(range(3)))
+&gt;&gt;&gt; s = op.map(&quot;add_one&quot;, s, add_one)
 </code></pre>
-<h2 id="args">Args</h2>
-<p>step_id (str):
-Uniquely identifies this step for recovery.
-reducer:
-<code>reducer(accumulator: Any, value: Any) =&gt;
-updated_accumulator: Any</code>
-is_complete:
-<code>is_complete(updated_accumulator: Any) =&gt;
-should_emit: bool</code></p></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.reduce_window"><code class="language-python name flex">
-<span>def <span class="ident">reduce_window</span></span>(<span>self, /, step_id, clock_config, window_config, reducer)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Reduce window lets you combine all items for a key within a
-window into an accumulator.</p>
-<p>It is like <code><a title="bytewax.dataflow.Dataflow.reduce" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce">Dataflow.reduce()</a></code> but marks the
-accumulator as complete automatically at the end of each
-window.</p>
-<p>It is a stateful operator. It requires the input stream
-has items that are <code>(key: str, value)</code> tuples so we can ensure
-that all relevant values are routed to the relevant state. It
-also requires a step ID to recover the correct state.</p>
-<p>It calls a <strong>reducer</strong> function which combines two values. The
-accumulator is initially the first value seen for a key. Values
-will be passed in arbitrary order. If there is only a single
-value for a key in this window, this function will not be
-called.</p>
-<p>It emits <code>(key, accumulator)</code> tuples downstream at the end of
-each window.</p>
-<p>If the ordering of values is crucial, group in this operator,
-then sort afterwards.</p>
-<p>Currently, data is permanently allocated per-key. If you have
-an ever-growing key space, note this.</p>
-<p>It is commonly used for:</p>
-<ul>
-<li>Sessionization</li>
-</ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from datetime import datetime, timedelta, timezone
-&gt;&gt;&gt; from bytewax.testing import TestingInput, TestingOutput, run_main
-&gt;&gt;&gt; from bytewax.window import EventClockConfig, TumblingWindow
-&gt;&gt;&gt; align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; inp = [
-...     (&quot;b&quot;, {&quot;time&quot;: align_to, &quot;val&quot;: 1}),
-...     (&quot;a&quot;, {&quot;time&quot;: align_to + timedelta(seconds=4), &quot;val&quot;: 1}),
-...     (&quot;a&quot;, {&quot;time&quot;: align_to + timedelta(seconds=8), &quot;val&quot;: 1}),
-...     (&quot;b&quot;, {&quot;time&quot;: align_to + timedelta(seconds=12), &quot;val&quot;: 1}),
-... ]
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(inp))
-&gt;&gt;&gt; def add(acc, x):
-...     acc[&quot;val&quot;] += x[&quot;val&quot;]
-...     return acc
-&gt;&gt;&gt; clock_config = EventClockConfig(
-...     lambda e: e[&quot;time&quot;], wait_for_system_duration=timedelta(0)
+<p>and</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow(&quot;map_eg&quot;)
+&gt;&gt;&gt; s = (
+...     op.input(&quot;inp&quot;, flow, TestingSource(range(3)))
+...     .then(op.map, &quot;add_one&quot;, add_one)
 ... )
-&gt;&gt;&gt; window_config = TumblingWindow(
-...     length=timedelta(seconds=10), align_to=align_to
-... )
-&gt;&gt;&gt; flow.reduce_window(&quot;count&quot;, clock_config, window_config, add)
-&gt;&gt;&gt; def extract_val(key__event):
-...    key, event = key__event
-...    return (key, event[&quot;val&quot;])
-&gt;&gt;&gt; flow.map(extract_val)
-&gt;&gt;&gt; out = []
-&gt;&gt;&gt; flow.output(&quot;out&quot;, TestingOutput(out))
-&gt;&gt;&gt; run_main(flow)
-&gt;&gt;&gt; assert sorted(out) == sorted([('b', 1), ('a', 2), ('b', 1)])
 </code></pre>
+<p>This kind of method chaining is called a "fluent style API".</p>
+<p>Because this style requires a single upstream before the <code>.</code>,
+this transformation only works for operators that could be
+called like <code>op_fn(step_id, upstream, &hellip;)</code>, like
+<code><a title="bytewax.operators.map" href="/apidocs/bytewax.operators/index#bytewax.operators.map">map()</a></code>. It will not work for operators like
+<code><a title="bytewax.operators.join_named" href="/apidocs/bytewax.operators/index#bytewax.operators.join_named">join_named()</a></code>, since they do not have that
+shape of function signature.</p>
 <h2 id="args">Args</h2>
 <dl>
-<dt>step_id (str):</dt>
-<dt>Uniquely identifies this step for recovery.</dt>
-<dt>clock_config (bytewax.window.ClockConfig):</dt>
-<dt>Clock config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dt>
-<dt>window_config (bytewax.window.WindowConfig):</dt>
-<dt>Windower config to use. See <code><a title="bytewax.window" href="/apidocs/bytewax.window">bytewax.window</a></code>.</dt>
-<dt><strong><code>reducer</code></strong></dt>
-<dd><code>reducer(accumulator: Any, value: Any) =&gt;
-updated_accumulator: Any</code></dd>
+<dt><strong><code>step_id</code></strong></dt>
+<dd>Unique ID.</dd>
+<dt><strong><code>op_fn</code></strong></dt>
+<dd>Operator function. This fluent transformation only
+works on operators that take a single stream as the
+second argument.</dd>
+<dt><strong><code>*args</code></strong></dt>
+<dd>Remaining arguments to pass to <code>op_fn</code>.</dd>
+<dt><strong><code>**kwargs</code></strong></dt>
+<dd>Remaining arguments to pass to <code>op_fn</code>.</dd>
 </dl></div>
-</dd>
-<dt id="bytewax.dataflow.Dataflow.stateful_map"><code class="language-python name flex">
-<span>def <span class="ident">stateful_map</span></span>(<span>self, /, step_id, builder, mapper)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Stateful map is a one-to-one transformation of values, but
-allows you to reference a persistent state for each key when
-doing the transformation.</p>
-<p>It is a stateful operator. It requires the input stream
-has items that are <code>(key: str, value)</code> tuples so we can ensure
-that all relevant values are routed to the relevant state. It
-also requires a step ID to recover the correct state.</p>
-<p>It calls two functions:</p>
-<ul>
-<li>
-<p>A <strong>builder</strong> which returns a new state and will be called
-whenever a new key is encountered with the key as a parameter.</p>
-</li>
-<li>
-<p>A <strong>mapper</strong> which transforms values. Values will be passed
-in an arbitrary order. If the updated state is <code>None</code>, the
-state will be forgotten.</p>
-</li>
-</ul>
-<p>It emits a <code>(key, updated_value)</code> tuple downstream for each
-input item.</p>
-<p>If the ordering of values is crucial, group beforhand using a
-windowing operator with a timeout like <code>reduce_window</code>, then
-sort, then use this operator.</p>
-<p>It is commonly used for:</p>
-<ul>
-<li>Anomaly detection</li>
-<li>State machines</li>
-</ul>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.testing import TestingInput, run_main
-&gt;&gt;&gt; from bytewax.connectors.stdio import StdOutput
-&gt;&gt;&gt; flow = Dataflow()
-&gt;&gt;&gt; inp = [
-...     &quot;a&quot;,
-...     &quot;a&quot;,
-...     &quot;a&quot;,
-...     &quot;a&quot;,
-...     &quot;b&quot;,
-... ]
-&gt;&gt;&gt; flow.input(&quot;inp&quot;, TestingInput(inp))
-&gt;&gt;&gt; def self_as_key(item):
-...     return item, item
-&gt;&gt;&gt; flow.map(self_as_key)
-&gt;&gt;&gt; def build_count():
-...     return 0
-&gt;&gt;&gt; def check(running_count, item):
-...     running_count += 1
-...     if running_count == 1:
-...         return running_count, item
-...     else:
-...         return running_count, None
-&gt;&gt;&gt; flow.stateful_map(&quot;remove_duplicates&quot;, build_count, check)
-&gt;&gt;&gt; def remove_none_and_key(key_item):
-...     key, item = key_item
-...     if item is None:
-...         return []
-...     else:
-...         return [item]
-&gt;&gt;&gt; flow.flat_map(remove_none_and_key)
-&gt;&gt;&gt; flow.output(&quot;out&quot;, StdOutput())
-&gt;&gt;&gt; run_main(flow)
-a
-b
-</code></pre>
-<h2 id="args">Args</h2>
-<p>step_id (str):
-Uniquely identifies this step for recovery.
-builder:
-<code>builder(key: Any) =&gt; new_state: Any</code>
-mapper:
-<code>mapper(state: Any, value: Any) =&gt; (updated_state:
-Any, updated_value: Any)</code></p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def then(
+    self,
+    op_fn: Callable[Concatenate[str, &#34;Stream[X_co]&#34;, P], R],
+    step_id: str,
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -&gt; R:
+    &#34;&#34;&#34;Chain a new step onto this stream.
+
+    This allows you to add intermediate steps to a dataflow
+    without needing to nest operator function calls or make
+    intermediate variables.
+
+    The following two dataflow definitions are equivalent:
+
+    &gt;&gt;&gt; import bytewax.operators as op
+    &gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
+    &gt;&gt;&gt; from bytewax.dataflow import Dataflow
+    &gt;&gt;&gt; def add_one(item):
+    ...     return item + 1
+
+    &gt;&gt;&gt; flow = Dataflow(&#34;map_eg&#34;)
+    &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource(range(3)))
+    &gt;&gt;&gt; s = op.map(&#34;add_one&#34;, s, add_one)
+
+    and
+
+    &gt;&gt;&gt; flow = Dataflow(&#34;map_eg&#34;)
+    &gt;&gt;&gt; s = (
+    ...     op.input(&#34;inp&#34;, flow, TestingSource(range(3)))
+    ...     .then(op.map, &#34;add_one&#34;, add_one)
+    ... )
+
+    This kind of method chaining is called a &#34;fluent style API&#34;.
+
+    Because this style requires a single upstream before the `.`,
+    this transformation only works for operators that could be
+    called like `op_fn(step_id, upstream, ...)`, like
+    `bytewax.operators.map`. It will not work for operators like
+    `bytewax.operators.join_named`, since they do not have that
+    shape of function signature.
+
+    Args:
+        step_id: Unique ID.
+
+        op_fn: Operator function. This fluent transformation only
+          works on operators that take a single stream as the
+          second argument.
+
+        *args: Remaining arguments to pass to `op_fn`.
+
+        **kwargs: Remaining arguments to pass to `op_fn`.
+
+    &#34;&#34;&#34;
+    return op_fn(step_id, self, *args, **kwargs)</code></pre>
+</details>
 </dd>
 </dl>
 </dd>
@@ -664,27 +1550,72 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 </ul>
 </li>
 <li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.f_repr" href="/apidocs/bytewax.dataflow#bytewax.dataflow.f_repr">f_repr</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.operator">operator</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
 <h4 class="api__sidebar-nav-classes-title"><a title="bytewax.dataflow.Dataflow" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow">Dataflow</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.batch" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.batch">batch</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.collect_window" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.collect_window">collect_window</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.filter" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.filter">filter</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.filter_map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.filter_map">filter_map</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.flat_map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.flat_map">flat_map</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.fold_window" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.fold_window">fold_window</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.input" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.input">input</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.inspect">inspect</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect_epoch" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.inspect_epoch">inspect_epoch</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.inspect_worker" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.inspect_worker">inspect_worker</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.map">map</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.output" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.output">output</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.redistribute" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.redistribute">redistribute</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.reduce" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce">reduce</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.reduce_window" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.reduce_window">reduce_window</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.stateful_map" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.stateful_map">stateful_map</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.flow_id" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.flow_id">flow_id</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Dataflow.substeps" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.substeps">substeps</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.dataflow.DataflowId" href="/apidocs/bytewax.dataflow#bytewax.dataflow.DataflowId">DataflowId</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.DataflowId.flow_id" href="/apidocs/bytewax.dataflow#bytewax.dataflow.DataflowId.flow_id">flow_id</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.dataflow.MultiPort" href="/apidocs/bytewax.dataflow#bytewax.dataflow.MultiPort">MultiPort</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.MultiPort.port_id" href="/apidocs/bytewax.dataflow#bytewax.dataflow.MultiPort.port_id">port_id</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.MultiPort.stream_ids" href="/apidocs/bytewax.dataflow#bytewax.dataflow.MultiPort.stream_ids">stream_ids</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.dataflow.MultiStream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.MultiStream">MultiStream</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.MultiStream.streams" href="/apidocs/bytewax.dataflow#bytewax.dataflow.MultiStream.streams">streams</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.dataflow.Operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator">Operator</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Operator.dwn_names" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator.dwn_names">dwn_names</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Operator.step_id" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator.step_id">step_id</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Operator.step_name" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator.step_name">step_name</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Operator.substeps" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator.substeps">substeps</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Operator.ups_names" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator.ups_names">ups_names</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.dataflow.Port" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Port">Port</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Port.port_id" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Port.port_id">port_id</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Port.stream_ids" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Port.stream_ids">stream_ids</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.dataflow.SinglePort" href="/apidocs/bytewax.dataflow#bytewax.dataflow.SinglePort">SinglePort</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.SinglePort.port_id" href="/apidocs/bytewax.dataflow#bytewax.dataflow.SinglePort.port_id">port_id</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.SinglePort.stream_id" href="/apidocs/bytewax.dataflow#bytewax.dataflow.SinglePort.stream_id">stream_id</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.SinglePort.stream_ids" href="/apidocs/bytewax.dataflow#bytewax.dataflow.SinglePort.stream_ids">stream_ids</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Stream.flow" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream.flow">flow</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Stream.stream_id" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream.stream_id">stream_id</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.Stream.then" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream.then">then</a></li>
 </ul>
 </li>
 </ul>

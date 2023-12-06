@@ -1,0 +1,283 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.connectors.demo</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<p>Connectors for writing local-first demo dataflows.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Connectors for writing local-first demo dataflows.&#34;&#34;&#34;
+import random
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Callable, List, Optional, Tuple, TypeVar
+
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+
+X = TypeVar(&#34;X&#34;)
+
+
+@dataclass
+class _RandomMetricState:
+    awake_at: datetime
+    count: int
+
+
+@dataclass
+class _RandomMetricPartition(
+    StatefulSourcePartition[Tuple[str, float], _RandomMetricState]
+):
+    metric_name: str
+    interval: timedelta
+    count: int
+    next_random: Callable[[], float]
+    state: _RandomMetricState
+
+    def next_batch(self, sched: datetime) -&gt; List[Tuple[str, float]]:
+        self.state.awake_at = sched + self.interval
+        self.state.count += 1
+
+        if self.state.count &gt; self.count:
+            raise StopIteration()
+
+        value = self.next_random()
+        return [(self.metric_name, value)]
+
+    def next_awake(self) -&gt; Optional[datetime]:
+        return self.state.awake_at
+
+    def snapshot(self) -&gt; _RandomMetricState:
+        return self.state
+
+
+@dataclass
+class RandomMetricSource(FixedPartitionedSource[Tuple[str, float], _RandomMetricState]):
+    &#34;&#34;&#34;Demo source that produces an infinite stream of random values.
+
+    Emits downstream `(metric_name, val)` 2-tuples.
+
+    If you want to emit multiple different metrics, create multiple
+    `bytewax.operators.input.input` steps and
+    `bytewax.operators.merge.merge` them.
+
+    Args:
+        metric_name: To attach to each value.
+
+        interval: Emit a value on this cadence. Defaults to every 0.7
+            seconds.
+
+        count: Number of values to generate. Defaults to infinite.
+
+        next_random: Callable used to generate the next random value.
+            Defaults to a random `int` between 0 and 10.
+
+    &#34;&#34;&#34;
+
+    metric_name: str
+    interval: timedelta = timedelta(seconds=0.7)
+    count: int = sys.maxsize
+    next_random: Callable[[], float] = lambda: random.randrange(0, 10)
+
+    def list_parts(self) -&gt; List[str]:
+        &#34;&#34;&#34;A single stream of values.&#34;&#34;&#34;
+        return [self.metric_name]
+
+    def build_part(
+        self, now: datetime, for_part: str, resume_state: Optional[_RandomMetricState]
+    ):
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        state = resume_state if resume_state is not None else _RandomMetricState(now, 0)
+        return _RandomMetricPartition(
+            for_part, self.interval, self.count, self.next_random, state
+        )</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
+<dl>
+<dt id="bytewax.connectors.demo.RandomMetricSource"><code class="language-python flex name class">
+<span>class <span class="ident">RandomMetricSource</span></span>
+<span>(</span><span>metric_name: str, interval: datetime.timedelta = datetime.timedelta(microseconds=700000), count: int = 9223372036854775807, next_random: Callable[[], float] = &lt;function RandomMetricSource.&lt;lambda&gt;&gt;)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Demo source that produces an infinite stream of random values.</p>
+<p>Emits downstream <code>(metric_name, val)</code> 2-tuples.</p>
+<p>If you want to emit multiple different metrics, create multiple
+<code>bytewax.operators.input.input</code> steps and
+<code>bytewax.operators.merge.merge</code> them.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>metric_name</code></strong></dt>
+<dd>To attach to each value.</dd>
+<dt><strong><code>interval</code></strong></dt>
+<dd>Emit a value on this cadence. Defaults to every 0.7
+seconds.</dd>
+<dt><strong><code>count</code></strong></dt>
+<dd>Number of values to generate. Defaults to infinite.</dd>
+<dt><strong><code>next_random</code></strong></dt>
+<dd>Callable used to generate the next random value.
+Defaults to a random <code>int</code> between 0 and 10.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@dataclass
+class RandomMetricSource(FixedPartitionedSource[Tuple[str, float], _RandomMetricState]):
+    &#34;&#34;&#34;Demo source that produces an infinite stream of random values.
+
+    Emits downstream `(metric_name, val)` 2-tuples.
+
+    If you want to emit multiple different metrics, create multiple
+    `bytewax.operators.input.input` steps and
+    `bytewax.operators.merge.merge` them.
+
+    Args:
+        metric_name: To attach to each value.
+
+        interval: Emit a value on this cadence. Defaults to every 0.7
+            seconds.
+
+        count: Number of values to generate. Defaults to infinite.
+
+        next_random: Callable used to generate the next random value.
+            Defaults to a random `int` between 0 and 10.
+
+    &#34;&#34;&#34;
+
+    metric_name: str
+    interval: timedelta = timedelta(seconds=0.7)
+    count: int = sys.maxsize
+    next_random: Callable[[], float] = lambda: random.randrange(0, 10)
+
+    def list_parts(self) -&gt; List[str]:
+        &#34;&#34;&#34;A single stream of values.&#34;&#34;&#34;
+        return [self.metric_name]
+
+    def build_part(
+        self, now: datetime, for_part: str, resume_state: Optional[_RandomMetricState]
+    ):
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        state = resume_state if resume_state is not None else _RandomMetricState(now, 0)
+        return _RandomMetricPartition(
+            for_part, self.interval, self.count, self.next_random, state
+        )</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.inputs.FixedPartitionedSource" href="/apidocs/bytewax.inputs#bytewax.inputs.FixedPartitionedSource">FixedPartitionedSource</a></li>
+<li><a title="bytewax.inputs.Source" href="/apidocs/bytewax.inputs#bytewax.inputs.Source">Source</a></li>
+<li>abc.ABC</li>
+<li>typing.Generic</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="bytewax.connectors.demo.RandomMetricSource.count"><code class="language-python name">var <span class="ident">count</span> : int</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.demo.RandomMetricSource.interval"><code class="language-python name">var <span class="ident">interval</span> : datetime.timedelta</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.demo.RandomMetricSource.metric_name"><code class="language-python name">var <span class="ident">metric_name</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.connectors.demo.RandomMetricSource.build_part"><code class="language-python name flex">
+<span>def <span class="ident">build_part</span></span>(<span>self, now: datetime.datetime, for_part: str, resume_state: Optional[bytewax.connectors.demo._RandomMetricState])</span>
+</code></dt>
+<dd>
+<div class="desc"><p>See ABC docstring.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def build_part(
+    self, now: datetime, for_part: str, resume_state: Optional[_RandomMetricState]
+):
+    &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+    state = resume_state if resume_state is not None else _RandomMetricState(now, 0)
+    return _RandomMetricPartition(
+        for_part, self.interval, self.count, self.next_random, state
+    )</code></pre>
+</details>
+</dd>
+<dt id="bytewax.connectors.demo.RandomMetricSource.list_parts"><code class="language-python name flex">
+<span>def <span class="ident">list_parts</span></span>(<span>self) ‑> List[str]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>A single stream of values.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def list_parts(self) -&gt; List[str]:
+    &#34;&#34;&#34;A single stream of values.&#34;&#34;&#34;
+    return [self.metric_name]</code></pre>
+</details>
+</dd>
+<dt id="bytewax.connectors.demo.RandomMetricSource.next_random"><code class="language-python name flex">
+<span>def <span class="ident">next_random</span></span>(<span>) ‑> Callable[[], float]</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">next_random: Callable[[], float] = lambda: random.randrange(0, 10)</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
+<ul class="api__sidebar-nav-classes">
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.demo.RandomMetricSource" href="/apidocs/bytewax.connectors/demo#bytewax.connectors.demo.RandomMetricSource">RandomMetricSource</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.demo.RandomMetricSource.build_part" href="/apidocs/bytewax.connectors/demo#bytewax.connectors.demo.RandomMetricSource.build_part">build_part</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.demo.RandomMetricSource.count" href="/apidocs/bytewax.connectors/demo#bytewax.connectors.demo.RandomMetricSource.count">count</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.demo.RandomMetricSource.interval" href="/apidocs/bytewax.connectors/demo#bytewax.connectors.demo.RandomMetricSource.interval">interval</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.demo.RandomMetricSource.list_parts" href="/apidocs/bytewax.connectors/demo#bytewax.connectors.demo.RandomMetricSource.list_parts">list_parts</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.demo.RandomMetricSource.metric_name" href="/apidocs/bytewax.connectors/demo#bytewax.connectors.demo.RandomMetricSource.metric_name">metric_name</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.demo.RandomMetricSource.next_random" href="/apidocs/bytewax.connectors/demo#bytewax.connectors.demo.RandomMetricSource.next_random">next_random</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
