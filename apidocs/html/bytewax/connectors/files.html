@@ -12,23 +12,28 @@
 <pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Connectors for local text files.&#34;&#34;&#34;
 import os
 from csv import DictReader
+from datetime import datetime
 from pathlib import Path
-from typing import Callable, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 from zlib import adler32
 
-from bytewax.inputs import PartitionedInput, StatefulSource, batch
-from bytewax.outputs import PartitionedOutput, StatefulSink
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch
+from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
 
 __all__ = [
-    &#34;CSVInput&#34;,
-    &#34;DirInput&#34;,
-    &#34;DirOutput&#34;,
-    &#34;FileInput&#34;,
-    &#34;FileOutput&#34;,
+    &#34;CSVSource&#34;,
+    &#34;DirSink&#34;,
+    &#34;DirSource&#34;,
+    &#34;FileSink&#34;,
+    &#34;FileSource&#34;,
 ]
 
 
-def _readlines(f):
+def _get_path_dev(path: Path) -&gt; str:
+    return hex(path.stat().st_dev)
+
+
+def _readlines(f) -&gt; Iterator[str]:
     &#34;&#34;&#34;Turn a file into a generator of lines but support `tell`.
 
     Python files don&#39;t support `tell` to learn the offset if you use
@@ -43,53 +48,71 @@ def _readlines(f):
         yield line
 
 
-def _strip_n(s):
+def _strip_n(s: str) -&gt; str:
     return s.rstrip(&#34;\n&#34;)
 
 
-class _FileSource(StatefulSource):
-    def __init__(self, path, batch_size, resume_state):
+class _FileSourcePartition(StatefulSourcePartition[str, int]):
+    def __init__(self, path: Path, batch_size: int, resume_state: Optional[int]):
         self._f = open(path, &#34;rt&#34;)
         if resume_state is not None:
             self._f.seek(resume_state)
         it = map(_strip_n, _readlines(self._f))
         self._batcher = batch(it, batch_size)
 
-    def next_batch(self):
+    def next_batch(self, _sched: datetime) -&gt; List[str]:
         return next(self._batcher)
 
-    def snapshot(self):
+    def snapshot(self) -&gt; int:
         return self._f.tell()
 
-    def close(self):
+    def close(self) -&gt; None:
         self._f.close()
 
 
-class DirInput(PartitionedInput):
+class DirSource(FixedPartitionedSource[str, int]):
     &#34;&#34;&#34;Read all files in a filesystem directory line-by-line.
 
-    The directory must exist on all workers. All unique file names
-    within the directory across all workers will be read.
+    The directory must exist on at least one worker. Each worker can
+    have unique files at overlapping paths if each worker mounts a
+    distinct filesystem. Tries to read only one instance of each
+    unique file in the whole cluster by deduplicating paths by
+    filesystem ID. See `get_fs_id` to adjust this.
 
-    Individual files are the unit of parallelism; only one worker will
-    read each unique file name. Thus, lines from different files are
+    Unique files are the unit of parallelism; only one worker will
+    read each unique file. Thus, lines from different files are
     interleaved.
 
     Can support exactly-once processing.
 
     &#34;&#34;&#34;
 
-    def __init__(self, dir_path: Path, glob_pat: str = &#34;*&#34;, batch_size: int = 1000):
+    def __init__(
+        self,
+        dir_path: Path,
+        glob_pat: str = &#34;*&#34;,
+        batch_size: int = 1000,
+        get_fs_id: Callable[[Path], str] = _get_path_dev,
+    ):
         &#34;&#34;&#34;Init.
 
         Args:
-            dir_path:
-                Path to directory.
-            glob_pat:
-                Pattern of files to read from the directory. Defaults
-                to `&#34;*&#34;` or all files.
-            batch_size:
-                Number of lines to read per batch. Defaults to 1000.
+            dir_path: Path to directory.
+
+            glob_pat: Pattern of files to read from the directory.
+                Defaults to `&#34;*&#34;` or all files.
+
+            batch_size: Number of lines to read per batch. Defaults to
+                1000.
+
+            get_fs_id: Called with the directory and must return a
+                consistent (across workers and restarts) unique ID for
+                the filesystem of that directory. Defaults to using
+                `os.stat_result.st_dev`.
+
+                If you know all workers have access to identical
+                files, you can have this return a constant: `lambda
+                _dir: &#34;SHARED&#34;`.
 
         &#34;&#34;&#34;
         if not dir_path.exists():
@@ -102,37 +125,67 @@ class DirInput(PartitionedInput):
         self._dir_path = dir_path
         self._glob_pat = glob_pat
         self._batch_size = batch_size
+        self._fs_id = get_fs_id(dir_path)
+        if &#34;::&#34; in self._fs_id:
+            msg = f&#34;result of `get_fs_id` must not contain `::`; got {self._fs_id!r}&#34;
+            raise ValueError(msg)
 
-    def list_parts(self):
+    def list_parts(self) -&gt; List[str]:
         &#34;&#34;&#34;Each file is a separate partition.&#34;&#34;&#34;
-        return [
-            str(path.relative_to(self._dir_path))
-            for path in self._dir_path.glob(self._glob_pat)
-        ]
+        if self._dir_path.exists():
+            return [
+                f&#34;{self._fs_id}::{path.relative_to(self._dir_path)}&#34;
+                for path in self._dir_path.glob(self._glob_pat)
+            ]
+        else:
+            return []
 
-    def build_part(self, for_part, resume_state):
+    def build_part(
+        self, _now: datetime, part_key: str, resume_state: Optional[int]
+    ) -&gt; _FileSourcePartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-        path = self._dir_path / for_part
-        return _FileSource(path, self._batch_size, resume_state)
+        _fs_id, for_path = part_key.split(&#34;::&#34;, 1)
+        path = self._dir_path / for_path
+        return _FileSourcePartition(path, self._batch_size, resume_state)
 
 
-class FileInput(PartitionedInput):
-    &#34;&#34;&#34;Read a single file line-by-line from the filesystem.
+class FileSource(FixedPartitionedSource[str, int]):
+    &#34;&#34;&#34;Read a path line-by-line from the filesystem.
 
-    The file must exist on at least one worker.
+    The path must exist on at least one worker. Each worker can have a
+    unique file at the path if each worker mounts a distinct
+    filesystem. Tries to read only one instance of each unique file in
+    the whole cluster by deduplicating paths by filesystem ID. See
+    `get_fs_id` to adjust this.
 
-    There is no parallelism; only one worker will actually read the
-    file.
+    Unique files are the unit of parallelism; only one worker will
+    read each unique file. Thus, lines from different files are
+    interleaved.
+
     &#34;&#34;&#34;
 
-    def __init__(self, path: Union[Path, str], batch_size: int = 1000):
+    def __init__(
+        self,
+        path: Union[Path, str],
+        batch_size: int = 1000,
+        get_fs_id: Callable[[Path], str] = _get_path_dev,
+    ):
         &#34;&#34;&#34;Init.
 
         Args:
-            path:
-                Path to file.
-            batch_size:
-                Number of lines to read per batch. Defaults to 1000.
+            path: Path to file.
+
+            batch_size: Number of lines to read per batch. Defaults to
+                1000.
+
+            get_fs_id: Called with the parent directory and must
+                return a consistent (across workers and restarts)
+                unique ID for the filesystem of that directory.
+                Defaults to using `os.stat_result.st_dev`.
+
+                If you know all workers have access to identical
+                files, you can have this return a constant: `lambda
+                _dir: &#34;SHARED&#34;`.
 
         &#34;&#34;&#34;
         if not isinstance(path, Path):
@@ -140,24 +193,37 @@ class FileInput(PartitionedInput):
 
         self._path = path
         self._batch_size = batch_size
+        self._fs_id = get_fs_id(path.parent)
+        if &#34;::&#34; in self._fs_id:
+            msg = f&#34;result of `get_fs_id` must not contain `::`; got {self._fs_id!r}&#34;
+            raise ValueError(msg)
 
-    def list_parts(self):
+    def list_parts(self) -&gt; List[str]:
         &#34;&#34;&#34;The file is a single partition.&#34;&#34;&#34;
         if self._path.exists():
-            return [str(self._path)]
+            return [f&#34;{self._fs_id}::{self._path}&#34;]
         else:
             return []
 
-    def build_part(self, for_part, resume_state):
+    def build_part(
+        self, _now: datetime, part_key: str, resume_state: Optional[int]
+    ) -&gt; _FileSourcePartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        _fs_id, path = part_key.split(&#34;::&#34;, 1)
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
-        assert for_part == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
-        return _FileSource(self._path, self._batch_size, resume_state)
+        assert path == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
+        return _FileSourcePartition(self._path, self._batch_size, resume_state)
 
 
-class _CSVSource(StatefulSource):
-    def __init__(self, path, batch_size, resume_state, fmtparams):
+class _CSVPartition(StatefulSourcePartition[Dict[str, str], int]):
+    def __init__(
+        self,
+        path: Path,
+        batch_size: int,
+        resume_state: Optional[int],
+        fmtparams: Dict[str, Any],
+    ):
         self._f = open(path, &#34;rt&#34;, newline=&#34;&#34;)
         reader = DictReader(_readlines(self._f), **fmtparams)
         # Force reading of the header.
@@ -166,23 +232,28 @@ class _CSVSource(StatefulSource):
             self._f.seek(resume_state)
         self._batcher = batch(reader, batch_size)
 
-    def next_batch(self):
+    def next_batch(self, _sched: datetime) -&gt; List[Dict[str, str]]:
         return next(self._batcher)
 
-    def snapshot(self):
+    def snapshot(self) -&gt; int:
         return self._f.tell()
 
-    def close(self):
+    def close(self) -&gt; None:
         self._f.close()
 
 
-class CSVInput(FileInput):
-    &#34;&#34;&#34;Read a single CSV file row-by-row as keyed-by-column dicts.
+class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
+    &#34;&#34;&#34;Read a path as a CSV file row-by-row as keyed-by-column dicts.
 
-    The CSV file must exist on at least one worker.
+    The path must exist on at least one worker. Each worker can have a
+    unique file at the path if each worker mounts a distinct
+    filesystem. Tries to read only one instance of each unique file in
+    the whole cluster by deduplicating paths by filesystem ID. See
+    `get_fs_id` to adjust this.
 
-    There is no parallelism; only one worker will actually read the
-    file.
+    Unique files are the unit of parallelism; only one worker will
+    read each unique file. Thus, lines from different files are
+    interleaved.
 
     Sample input:
 
@@ -218,51 +289,79 @@ class CSVInput(FileInput):
 
     &#34;&#34;&#34;
 
-    def __init__(self, path: Path, batch_size: int = 1000, **fmtparams):
+    def __init__(
+        self,
+        path: Path,
+        batch_size: int = 1000,
+        get_fs_id: Callable[[Path], str] = _get_path_dev,
+        **fmtparams,
+    ):
         &#34;&#34;&#34;Init.
 
         Args:
-            path:
-                Path to file.
-            batch_size:
-                Number of lines to read per batch. Defaults to 1000.
-            **fmtparams:
-                Any custom formatting arguments you can pass to
+            path: Path to file.
+
+            batch_size: Number of lines to read per batch. Defaults to
+                1000.
+
+            get_fs_id: Called with the parent directory and must
+                return a consistent (across workers and restarts)
+                unique ID for the filesystem of that directory.
+                Defaults to using `os.stat_result.st_dev`.
+
+                If you know all workers have access to identical
+                files, you can have this return a constant: `lambda
+                _dir: &#34;SHARED&#34;`.
+
+            **fmtparams: Any custom formatting arguments you can pass
+                to
                 [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
 
         &#34;&#34;&#34;
-        super().__init__(path, batch_size)
+        self._file_source = FileSource(path, batch_size, get_fs_id)
         self._fmtparams = fmtparams
 
-    def build_part(self, for_part, resume_state):
+    def list_parts(self) -&gt; List[str]:
+        &#34;&#34;&#34;Same logic as `FileSource.list_parts`.&#34;&#34;&#34;
+        return self._file_source.list_parts()
+
+    def build_part(self, _now: datetime, part_key: str, resume_state: Optional[Any]):
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-        assert for_part == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
-        return _CSVSource(self._path, self._batch_size, resume_state, self._fmtparams)
+        _fs_id, path = part_key.split(&#34;::&#34;, 1)
+        assert path == str(
+            self._file_source._path
+        ), &#34;Can&#39;t resume reading from different file&#34;
+        return _CSVPartition(
+            self._file_source._path,
+            self._file_source._batch_size,
+            resume_state,
+            self._fmtparams,
+        )
 
 
-class _FileSink(StatefulSink):
-    def __init__(self, path, resume_state, end):
+class _FileSinkPartition(StatefulSinkPartition[str, int]):
+    def __init__(self, path: Path, resume_state: Optional[int], end: str):
         resume_offset = 0 if resume_state is None else resume_state
         self._f = open(path, &#34;at&#34;)
         self._f.seek(resume_offset)
         self._f.truncate()
         self._end = end
 
-    def write_batch(self, items):
+    def write_batch(self, items: List[str]) -&gt; None:
         for item in items:
             self._f.write(item)
             self._f.write(self._end)
         self._f.flush()
         os.fsync(self._f.fileno())
 
-    def snapshot(self):
+    def snapshot(self) -&gt; int:
         return self._f.tell()
 
-    def close(self):
+    def close(self) -&gt; None:
         self._f.close()
 
 
-class DirOutput(PartitionedOutput):
+class DirSink(FixedPartitionedSink[str, int]):
     &#34;&#34;&#34;Write to a set of files in a filesystem directory line-by-line.
 
     Items consumed from the dataflow must look like two-tuples of
@@ -316,21 +415,23 @@ class DirOutput(PartitionedOutput):
         self._assign_file = assign_file
         self._end = end
 
-    def list_parts(self):
+    def list_parts(self) -&gt; List[str]:
         &#34;&#34;&#34;Each file is a partition.&#34;&#34;&#34;
         return [self._file_namer(i, self._file_count) for i in range(self._file_count)]
 
-    def part_fn(self, item_key):
+    def part_fn(self, item_key: str) -&gt; int:
         &#34;&#34;&#34;Use the specified file assigner.&#34;&#34;&#34;
         return self._assign_file(item_key)
 
-    def build_part(self, for_part, resume_state):
+    def build_part(
+        self, for_part: str, resume_state: Optional[int]
+    ) -&gt; _FileSinkPartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         path = self._dir_path / for_part
-        return _FileSink(path, resume_state, self._end)
+        return _FileSinkPartition(path, resume_state, self._end)
 
 
-class FileOutput(PartitionedOutput):
+class FileSink(FixedPartitionedSink[str, int]):
     &#34;&#34;&#34;Write to a single file line-by-line on the filesystem.
 
     Items consumed from the dataflow must look like a string. Use a
@@ -359,20 +460,22 @@ class FileOutput(PartitionedOutput):
         self._path = path
         self._end = end
 
-    def list_parts(self):
+    def list_parts(self) -&gt; List[str]:
         &#34;&#34;&#34;The file is a single partition.&#34;&#34;&#34;
         return [str(self._path)]
 
-    def part_fn(self, item_key):
+    def part_fn(self, item_key: str) -&gt; int:
         &#34;&#34;&#34;Only one partition.&#34;&#34;&#34;
         return 0
 
-    def build_part(self, for_part, resume_state):
+    def build_part(
+        self, for_part: str, resume_state: Optional[int]
+    ) -&gt; _FileSinkPartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert for_part == str(self._path), &#34;Can&#39;t resume writing to different file&#34;
-        return _FileSink(self._path, resume_state, self._end)</code></pre>
+        return _FileSinkPartition(self._path, resume_state, self._end)</code></pre>
 </details>
 </section>
 <section>
@@ -384,15 +487,20 @@ class FileOutput(PartitionedOutput):
 <section>
 <h2 class="api__article-subtitle" id="header-classes">Classes</h2>
 <dl>
-<dt id="bytewax.connectors.files.CSVInput"><code class="language-python flex name class">
-<span>class <span class="ident">CSVInput</span></span>
-<span>(</span><span>path: pathlib.Path, batch_size: int = 1000, **fmtparams)</span>
+<dt id="bytewax.connectors.files.CSVSource"><code class="language-python flex name class">
+<span>class <span class="ident">CSVSource</span></span>
+<span>(</span><span>path: pathlib.Path, batch_size: int = 1000, get_fs_id: Callable[[pathlib.Path], str] = &lt;function _get_path_dev&gt;, **fmtparams)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Read a single CSV file row-by-row as keyed-by-column dicts.</p>
-<p>The CSV file must exist on at least one worker.</p>
-<p>There is no parallelism; only one worker will actually read the
-file.</p>
+<div class="desc"><p>Read a path as a CSV file row-by-row as keyed-by-column dicts.</p>
+<p>The path must exist on at least one worker. Each worker can have a
+unique file at the path if each worker mounts a distinct
+filesystem. Tries to read only one instance of each unique file in
+the whole cluster by deduplicating paths by filesystem ID. See
+<code>get_fs_id</code> to adjust this.</p>
+<p>Unique files are the unit of parallelism; only one worker will
+read each unique file. Thus, lines from different files are
+interleaved.</p>
 <p>Sample input:</p>
 <pre><code>index,timestamp,value,instance
 0,2022-02-24 11:42:08,0.132,24ae8d
@@ -421,24 +529,43 @@ file.</p>
 </code></pre>
 <p>Init.</p>
 <h2 id="args">Args</h2>
-<p>path:
-Path to file.
-batch_size:
-Number of lines to read per batch. Defaults to 1000.
-**fmtparams:
-Any custom formatting arguments you can pass to
-<a href="https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader"><code>csv.reader</code></a>.</p></div>
+<dl>
+<dt><strong><code>path</code></strong></dt>
+<dd>Path to file.</dd>
+<dt><strong><code>batch_size</code></strong></dt>
+<dd>Number of lines to read per batch. Defaults to
+1000.</dd>
+<dt><strong><code>get_fs_id</code></strong></dt>
+<dd>
+<p>Called with the parent directory and must
+return a consistent (across workers and restarts)
+unique ID for the filesystem of that directory.
+Defaults to using <code>os.stat_result.st_dev</code>.</p>
+<p>If you know all workers have access to identical
+files, you can have this return a constant: <code>lambda
+_dir: "SHARED"</code>.</p>
+</dd>
+<dt><strong><code>**fmtparams</code></strong></dt>
+<dd>Any custom formatting arguments you can pass
+to
+<a href="https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader"><code>csv.reader</code></a>.</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class CSVInput(FileInput):
-    &#34;&#34;&#34;Read a single CSV file row-by-row as keyed-by-column dicts.
+<pre class="language-python line-numbers"><code class="language-python">class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
+    &#34;&#34;&#34;Read a path as a CSV file row-by-row as keyed-by-column dicts.
 
-    The CSV file must exist on at least one worker.
+    The path must exist on at least one worker. Each worker can have a
+    unique file at the path if each worker mounts a distinct
+    filesystem. Tries to read only one instance of each unique file in
+    the whole cluster by deduplicating paths by filesystem ID. See
+    `get_fs_id` to adjust this.
 
-    There is no parallelism; only one worker will actually read the
-    file.
+    Unique files are the unit of parallelism; only one worker will
+    read each unique file. Thus, lines from different files are
+    interleaved.
 
     Sample input:
 
@@ -474,129 +601,66 @@ Any custom formatting arguments you can pass to
 
     &#34;&#34;&#34;
 
-    def __init__(self, path: Path, batch_size: int = 1000, **fmtparams):
+    def __init__(
+        self,
+        path: Path,
+        batch_size: int = 1000,
+        get_fs_id: Callable[[Path], str] = _get_path_dev,
+        **fmtparams,
+    ):
         &#34;&#34;&#34;Init.
 
         Args:
-            path:
-                Path to file.
-            batch_size:
-                Number of lines to read per batch. Defaults to 1000.
-            **fmtparams:
-                Any custom formatting arguments you can pass to
+            path: Path to file.
+
+            batch_size: Number of lines to read per batch. Defaults to
+                1000.
+
+            get_fs_id: Called with the parent directory and must
+                return a consistent (across workers and restarts)
+                unique ID for the filesystem of that directory.
+                Defaults to using `os.stat_result.st_dev`.
+
+                If you know all workers have access to identical
+                files, you can have this return a constant: `lambda
+                _dir: &#34;SHARED&#34;`.
+
+            **fmtparams: Any custom formatting arguments you can pass
+                to
                 [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
 
         &#34;&#34;&#34;
-        super().__init__(path, batch_size)
+        self._file_source = FileSource(path, batch_size, get_fs_id)
         self._fmtparams = fmtparams
 
-    def build_part(self, for_part, resume_state):
+    def list_parts(self) -&gt; List[str]:
+        &#34;&#34;&#34;Same logic as `FileSource.list_parts`.&#34;&#34;&#34;
+        return self._file_source.list_parts()
+
+    def build_part(self, _now: datetime, part_key: str, resume_state: Optional[Any]):
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-        assert for_part == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
-        return _CSVSource(self._path, self._batch_size, resume_state, self._fmtparams)</code></pre>
+        _fs_id, path = part_key.split(&#34;::&#34;, 1)
+        assert path == str(
+            self._file_source._path
+        ), &#34;Can&#39;t resume reading from different file&#34;
+        return _CSVPartition(
+            self._file_source._path,
+            self._file_source._batch_size,
+            resume_state,
+            self._fmtparams,
+        )</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.connectors.files.FileInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileInput">FileInput</a></li>
-<li><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></li>
-<li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
+<li><a title="bytewax.inputs.FixedPartitionedSource" href="/apidocs/bytewax.inputs#bytewax.inputs.FixedPartitionedSource">FixedPartitionedSource</a></li>
+<li><a title="bytewax.inputs.Source" href="/apidocs/bytewax.inputs#bytewax.inputs.Source">Source</a></li>
 <li>abc.ABC</li>
-</ul>
-<h3>Inherited members</h3>
-<ul class="hlist">
-<li><code class="language-python"><b><a title="bytewax.connectors.files.FileInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileInput">FileInput</a></b></code>:
-<ul class="hlist">
-<li><code class="language-python"><a title="bytewax.connectors.files.FileInput.build_part" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileInput.build_part">build_part</a></code></li>
-<li><code class="language-python"><a title="bytewax.connectors.files.FileInput.list_parts" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileInput.list_parts">list_parts</a></code></li>
-</ul>
-</li>
-</ul>
-</dd>
-<dt id="bytewax.connectors.files.DirInput"><code class="language-python flex name class">
-<span>class <span class="ident">DirInput</span></span>
-<span>(</span><span>dir_path: pathlib.Path, glob_pat: str = '*', batch_size: int = 1000)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Read all files in a filesystem directory line-by-line.</p>
-<p>The directory must exist on all workers. All unique file names
-within the directory across all workers will be read.</p>
-<p>Individual files are the unit of parallelism; only one worker will
-read each unique file name. Thus, lines from different files are
-interleaved.</p>
-<p>Can support exactly-once processing.</p>
-<p>Init.</p>
-<h2 id="args">Args</h2>
-<p>dir_path:
-Path to directory.
-glob_pat:
-Pattern of files to read from the directory. Defaults
-to <code>"*"</code> or all files.
-batch_size:
-Number of lines to read per batch. Defaults to 1000.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">class DirInput(PartitionedInput):
-    &#34;&#34;&#34;Read all files in a filesystem directory line-by-line.
-
-    The directory must exist on all workers. All unique file names
-    within the directory across all workers will be read.
-
-    Individual files are the unit of parallelism; only one worker will
-    read each unique file name. Thus, lines from different files are
-    interleaved.
-
-    Can support exactly-once processing.
-
-    &#34;&#34;&#34;
-
-    def __init__(self, dir_path: Path, glob_pat: str = &#34;*&#34;, batch_size: int = 1000):
-        &#34;&#34;&#34;Init.
-
-        Args:
-            dir_path:
-                Path to directory.
-            glob_pat:
-                Pattern of files to read from the directory. Defaults
-                to `&#34;*&#34;` or all files.
-            batch_size:
-                Number of lines to read per batch. Defaults to 1000.
-
-        &#34;&#34;&#34;
-        if not dir_path.exists():
-            msg = f&#34;input directory `{dir_path}` does not exist&#34;
-            raise ValueError(msg)
-        if not dir_path.is_dir():
-            msg = f&#34;input directory `{dir_path}` is not a directory&#34;
-            raise ValueError(msg)
-
-        self._dir_path = dir_path
-        self._glob_pat = glob_pat
-        self._batch_size = batch_size
-
-    def list_parts(self):
-        &#34;&#34;&#34;Each file is a separate partition.&#34;&#34;&#34;
-        return [
-            str(path.relative_to(self._dir_path))
-            for path in self._dir_path.glob(self._glob_pat)
-        ]
-
-    def build_part(self, for_part, resume_state):
-        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-        path = self._dir_path / for_part
-        return _FileSource(path, self._batch_size, resume_state)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></li>
-<li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
-<li>abc.ABC</li>
+<li>typing.Generic</li>
 </ul>
 <h3>Methods</h3>
 <dl>
-<dt id="bytewax.connectors.files.DirInput.build_part"><code class="language-python name flex">
-<span>def <span class="ident">build_part</span></span>(<span>self, for_part, resume_state)</span>
+<dt id="bytewax.connectors.files.CSVSource.build_part"><code class="language-python name flex">
+<span>def <span class="ident">build_part</span></span>(<span>self, _now: datetime.datetime, part_key: str, resume_state: Optional[Any])</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -604,34 +668,39 @@ Number of lines to read per batch. Defaults to 1000.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def build_part(self, for_part, resume_state):
+<pre class="language-python line-numbers"><code class="language-python">def build_part(self, _now: datetime, part_key: str, resume_state: Optional[Any]):
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-    path = self._dir_path / for_part
-    return _FileSource(path, self._batch_size, resume_state)</code></pre>
+    _fs_id, path = part_key.split(&#34;::&#34;, 1)
+    assert path == str(
+        self._file_source._path
+    ), &#34;Can&#39;t resume reading from different file&#34;
+    return _CSVPartition(
+        self._file_source._path,
+        self._file_source._batch_size,
+        resume_state,
+        self._fmtparams,
+    )</code></pre>
 </details>
 </dd>
-<dt id="bytewax.connectors.files.DirInput.list_parts"><code class="language-python name flex">
-<span>def <span class="ident">list_parts</span></span>(<span>self)</span>
+<dt id="bytewax.connectors.files.CSVSource.list_parts"><code class="language-python name flex">
+<span>def <span class="ident">list_parts</span></span>(<span>self) ‑> List[str]</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Each file is a separate partition.</p></div>
+<div class="desc"><p>Same logic as <code><a title="bytewax.connectors.files.FileSource.list_parts" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileSource.list_parts">FileSource.list_parts()</a></code>.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def list_parts(self):
-    &#34;&#34;&#34;Each file is a separate partition.&#34;&#34;&#34;
-    return [
-        str(path.relative_to(self._dir_path))
-        for path in self._dir_path.glob(self._glob_pat)
-    ]</code></pre>
+<pre class="language-python line-numbers"><code class="language-python">def list_parts(self) -&gt; List[str]:
+    &#34;&#34;&#34;Same logic as `FileSource.list_parts`.&#34;&#34;&#34;
+    return self._file_source.list_parts()</code></pre>
 </details>
 </dd>
 </dl>
 </dd>
-<dt id="bytewax.connectors.files.DirOutput"><code class="language-python flex name class">
-<span>class <span class="ident">DirOutput</span></span>
-<span>(</span><span>dir_path: pathlib.Path, file_count: int, file_namer: Callable[[int, int], str] = &lt;function DirOutput.&lt;lambda&gt;&gt;, assign_file: Callable[[str], int] = &lt;function DirOutput.&lt;lambda&gt;&gt;, end: str = '\n')</span>
+<dt id="bytewax.connectors.files.DirSink"><code class="language-python flex name class">
+<span>class <span class="ident">DirSink</span></span>
+<span>(</span><span>dir_path: pathlib.Path, file_count: int, file_namer: Callable[[int, int], str] = &lt;function DirSink.&lt;lambda&gt;&gt;, assign_file: Callable[[str], int] = &lt;function DirSink.&lt;lambda&gt;&gt;, end: str = '\n')</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Write to a set of files in a filesystem directory line-by-line.</p>
@@ -668,7 +737,7 @@ String to write after each item. Defaults to newline.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class DirOutput(PartitionedOutput):
+<pre class="language-python line-numbers"><code class="language-python">class DirSink(FixedPartitionedSink[str, int]):
     &#34;&#34;&#34;Write to a set of files in a filesystem directory line-by-line.
 
     Items consumed from the dataflow must look like two-tuples of
@@ -722,29 +791,32 @@ String to write after each item. Defaults to newline.</p></div>
         self._assign_file = assign_file
         self._end = end
 
-    def list_parts(self):
+    def list_parts(self) -&gt; List[str]:
         &#34;&#34;&#34;Each file is a partition.&#34;&#34;&#34;
         return [self._file_namer(i, self._file_count) for i in range(self._file_count)]
 
-    def part_fn(self, item_key):
+    def part_fn(self, item_key: str) -&gt; int:
         &#34;&#34;&#34;Use the specified file assigner.&#34;&#34;&#34;
         return self._assign_file(item_key)
 
-    def build_part(self, for_part, resume_state):
+    def build_part(
+        self, for_part: str, resume_state: Optional[int]
+    ) -&gt; _FileSinkPartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         path = self._dir_path / for_part
-        return _FileSink(path, resume_state, self._end)</code></pre>
+        return _FileSinkPartition(path, resume_state, self._end)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.PartitionedOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput">PartitionedOutput</a></li>
-<li><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></li>
+<li><a title="bytewax.outputs.FixedPartitionedSink" href="/apidocs/bytewax.outputs#bytewax.outputs.FixedPartitionedSink">FixedPartitionedSink</a></li>
+<li><a title="bytewax.outputs.Sink" href="/apidocs/bytewax.outputs#bytewax.outputs.Sink">Sink</a></li>
 <li>abc.ABC</li>
+<li>typing.Generic</li>
 </ul>
 <h3>Methods</h3>
 <dl>
-<dt id="bytewax.connectors.files.DirOutput.build_part"><code class="language-python name flex">
-<span>def <span class="ident">build_part</span></span>(<span>self, for_part, resume_state)</span>
+<dt id="bytewax.connectors.files.DirSink.build_part"><code class="language-python name flex">
+<span>def <span class="ident">build_part</span></span>(<span>self, for_part: str, resume_state: Optional[int]) ‑> bytewax.connectors.files._FileSinkPartition</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -752,14 +824,16 @@ String to write after each item. Defaults to newline.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def build_part(self, for_part, resume_state):
+<pre class="language-python line-numbers"><code class="language-python">def build_part(
+    self, for_part: str, resume_state: Optional[int]
+) -&gt; _FileSinkPartition:
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
     path = self._dir_path / for_part
-    return _FileSink(path, resume_state, self._end)</code></pre>
+    return _FileSinkPartition(path, resume_state, self._end)</code></pre>
 </details>
 </dd>
-<dt id="bytewax.connectors.files.DirOutput.list_parts"><code class="language-python name flex">
-<span>def <span class="ident">list_parts</span></span>(<span>self)</span>
+<dt id="bytewax.connectors.files.DirSink.list_parts"><code class="language-python name flex">
+<span>def <span class="ident">list_parts</span></span>(<span>self) ‑> List[str]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Each file is a partition.</p></div>
@@ -767,13 +841,13 @@ String to write after each item. Defaults to newline.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def list_parts(self):
+<pre class="language-python line-numbers"><code class="language-python">def list_parts(self) -&gt; List[str]:
     &#34;&#34;&#34;Each file is a partition.&#34;&#34;&#34;
     return [self._file_namer(i, self._file_count) for i in range(self._file_count)]</code></pre>
 </details>
 </dd>
-<dt id="bytewax.connectors.files.DirOutput.part_fn"><code class="language-python name flex">
-<span>def <span class="ident">part_fn</span></span>(<span>self, item_key)</span>
+<dt id="bytewax.connectors.files.DirSink.part_fn"><code class="language-python name flex">
+<span>def <span class="ident">part_fn</span></span>(<span>self, item_key: str) ‑> int</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Use the specified file assigner.</p></div>
@@ -781,85 +855,143 @@ String to write after each item. Defaults to newline.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def part_fn(self, item_key):
+<pre class="language-python line-numbers"><code class="language-python">def part_fn(self, item_key: str) -&gt; int:
     &#34;&#34;&#34;Use the specified file assigner.&#34;&#34;&#34;
     return self._assign_file(item_key)</code></pre>
 </details>
 </dd>
 </dl>
 </dd>
-<dt id="bytewax.connectors.files.FileInput"><code class="language-python flex name class">
-<span>class <span class="ident">FileInput</span></span>
-<span>(</span><span>path: Union[pathlib.Path, str], batch_size: int = 1000)</span>
+<dt id="bytewax.connectors.files.DirSource"><code class="language-python flex name class">
+<span>class <span class="ident">DirSource</span></span>
+<span>(</span><span>dir_path: pathlib.Path, glob_pat: str = '*', batch_size: int = 1000, get_fs_id: Callable[[pathlib.Path], str] = &lt;function _get_path_dev&gt;)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Read a single file line-by-line from the filesystem.</p>
-<p>The file must exist on at least one worker.</p>
-<p>There is no parallelism; only one worker will actually read the
-file.</p>
+<div class="desc"><p>Read all files in a filesystem directory line-by-line.</p>
+<p>The directory must exist on at least one worker. Each worker can
+have unique files at overlapping paths if each worker mounts a
+distinct filesystem. Tries to read only one instance of each
+unique file in the whole cluster by deduplicating paths by
+filesystem ID. See <code>get_fs_id</code> to adjust this.</p>
+<p>Unique files are the unit of parallelism; only one worker will
+read each unique file. Thus, lines from different files are
+interleaved.</p>
+<p>Can support exactly-once processing.</p>
 <p>Init.</p>
 <h2 id="args">Args</h2>
-<p>path:
-Path to file.
-batch_size:
-Number of lines to read per batch. Defaults to 1000.</p></div>
+<dl>
+<dt><strong><code>dir_path</code></strong></dt>
+<dd>Path to directory.</dd>
+<dt><strong><code>glob_pat</code></strong></dt>
+<dd>Pattern of files to read from the directory.
+Defaults to <code>"*"</code> or all files.</dd>
+<dt><strong><code>batch_size</code></strong></dt>
+<dd>Number of lines to read per batch. Defaults to
+1000.</dd>
+<dt><strong><code>get_fs_id</code></strong></dt>
+<dd>
+<p>Called with the directory and must return a
+consistent (across workers and restarts) unique ID for
+the filesystem of that directory. Defaults to using
+<code>os.stat_result.st_dev</code>.</p>
+<p>If you know all workers have access to identical
+files, you can have this return a constant: <code>lambda
+_dir: "SHARED"</code>.</p>
+</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class FileInput(PartitionedInput):
-    &#34;&#34;&#34;Read a single file line-by-line from the filesystem.
+<pre class="language-python line-numbers"><code class="language-python">class DirSource(FixedPartitionedSource[str, int]):
+    &#34;&#34;&#34;Read all files in a filesystem directory line-by-line.
 
-    The file must exist on at least one worker.
+    The directory must exist on at least one worker. Each worker can
+    have unique files at overlapping paths if each worker mounts a
+    distinct filesystem. Tries to read only one instance of each
+    unique file in the whole cluster by deduplicating paths by
+    filesystem ID. See `get_fs_id` to adjust this.
 
-    There is no parallelism; only one worker will actually read the
-    file.
+    Unique files are the unit of parallelism; only one worker will
+    read each unique file. Thus, lines from different files are
+    interleaved.
+
+    Can support exactly-once processing.
+
     &#34;&#34;&#34;
 
-    def __init__(self, path: Union[Path, str], batch_size: int = 1000):
+    def __init__(
+        self,
+        dir_path: Path,
+        glob_pat: str = &#34;*&#34;,
+        batch_size: int = 1000,
+        get_fs_id: Callable[[Path], str] = _get_path_dev,
+    ):
         &#34;&#34;&#34;Init.
 
         Args:
-            path:
-                Path to file.
-            batch_size:
-                Number of lines to read per batch. Defaults to 1000.
+            dir_path: Path to directory.
+
+            glob_pat: Pattern of files to read from the directory.
+                Defaults to `&#34;*&#34;` or all files.
+
+            batch_size: Number of lines to read per batch. Defaults to
+                1000.
+
+            get_fs_id: Called with the directory and must return a
+                consistent (across workers and restarts) unique ID for
+                the filesystem of that directory. Defaults to using
+                `os.stat_result.st_dev`.
+
+                If you know all workers have access to identical
+                files, you can have this return a constant: `lambda
+                _dir: &#34;SHARED&#34;`.
 
         &#34;&#34;&#34;
-        if not isinstance(path, Path):
-            path = Path(path)
+        if not dir_path.exists():
+            msg = f&#34;input directory `{dir_path}` does not exist&#34;
+            raise ValueError(msg)
+        if not dir_path.is_dir():
+            msg = f&#34;input directory `{dir_path}` is not a directory&#34;
+            raise ValueError(msg)
 
-        self._path = path
+        self._dir_path = dir_path
+        self._glob_pat = glob_pat
         self._batch_size = batch_size
+        self._fs_id = get_fs_id(dir_path)
+        if &#34;::&#34; in self._fs_id:
+            msg = f&#34;result of `get_fs_id` must not contain `::`; got {self._fs_id!r}&#34;
+            raise ValueError(msg)
 
-    def list_parts(self):
-        &#34;&#34;&#34;The file is a single partition.&#34;&#34;&#34;
-        if self._path.exists():
-            return [str(self._path)]
+    def list_parts(self) -&gt; List[str]:
+        &#34;&#34;&#34;Each file is a separate partition.&#34;&#34;&#34;
+        if self._dir_path.exists():
+            return [
+                f&#34;{self._fs_id}::{path.relative_to(self._dir_path)}&#34;
+                for path in self._dir_path.glob(self._glob_pat)
+            ]
         else:
             return []
 
-    def build_part(self, for_part, resume_state):
+    def build_part(
+        self, _now: datetime, part_key: str, resume_state: Optional[int]
+    ) -&gt; _FileSourcePartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-        # TODO: Warn and return None. Then we could support
-        # continuation from a different file.
-        assert for_part == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
-        return _FileSource(self._path, self._batch_size, resume_state)</code></pre>
+        _fs_id, for_path = part_key.split(&#34;::&#34;, 1)
+        path = self._dir_path / for_path
+        return _FileSourcePartition(path, self._batch_size, resume_state)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.inputs.PartitionedInput" href="/apidocs/bytewax.inputs#bytewax.inputs.PartitionedInput">PartitionedInput</a></li>
-<li><a title="bytewax.inputs.Input" href="/apidocs/bytewax.inputs#bytewax.inputs.Input">Input</a></li>
+<li><a title="bytewax.inputs.FixedPartitionedSource" href="/apidocs/bytewax.inputs#bytewax.inputs.FixedPartitionedSource">FixedPartitionedSource</a></li>
+<li><a title="bytewax.inputs.Source" href="/apidocs/bytewax.inputs#bytewax.inputs.Source">Source</a></li>
 <li>abc.ABC</li>
-</ul>
-<h3>Subclasses</h3>
-<ul class="hlist">
-<li><a title="bytewax.connectors.files.CSVInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.CSVInput">CSVInput</a></li>
+<li>typing.Generic</li>
 </ul>
 <h3>Methods</h3>
 <dl>
-<dt id="bytewax.connectors.files.FileInput.build_part"><code class="language-python name flex">
-<span>def <span class="ident">build_part</span></span>(<span>self, for_part, resume_state)</span>
+<dt id="bytewax.connectors.files.DirSource.build_part"><code class="language-python name flex">
+<span>def <span class="ident">build_part</span></span>(<span>self, _now: datetime.datetime, part_key: str, resume_state: Optional[int]) ‑> bytewax.connectors.files._FileSourcePartition</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -867,35 +999,39 @@ Number of lines to read per batch. Defaults to 1000.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def build_part(self, for_part, resume_state):
+<pre class="language-python line-numbers"><code class="language-python">def build_part(
+    self, _now: datetime, part_key: str, resume_state: Optional[int]
+) -&gt; _FileSourcePartition:
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-    # TODO: Warn and return None. Then we could support
-    # continuation from a different file.
-    assert for_part == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
-    return _FileSource(self._path, self._batch_size, resume_state)</code></pre>
+    _fs_id, for_path = part_key.split(&#34;::&#34;, 1)
+    path = self._dir_path / for_path
+    return _FileSourcePartition(path, self._batch_size, resume_state)</code></pre>
 </details>
 </dd>
-<dt id="bytewax.connectors.files.FileInput.list_parts"><code class="language-python name flex">
-<span>def <span class="ident">list_parts</span></span>(<span>self)</span>
+<dt id="bytewax.connectors.files.DirSource.list_parts"><code class="language-python name flex">
+<span>def <span class="ident">list_parts</span></span>(<span>self) ‑> List[str]</span>
 </code></dt>
 <dd>
-<div class="desc"><p>The file is a single partition.</p></div>
+<div class="desc"><p>Each file is a separate partition.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def list_parts(self):
-    &#34;&#34;&#34;The file is a single partition.&#34;&#34;&#34;
-    if self._path.exists():
-        return [str(self._path)]
+<pre class="language-python line-numbers"><code class="language-python">def list_parts(self) -&gt; List[str]:
+    &#34;&#34;&#34;Each file is a separate partition.&#34;&#34;&#34;
+    if self._dir_path.exists():
+        return [
+            f&#34;{self._fs_id}::{path.relative_to(self._dir_path)}&#34;
+            for path in self._dir_path.glob(self._glob_pat)
+        ]
     else:
         return []</code></pre>
 </details>
 </dd>
 </dl>
 </dd>
-<dt id="bytewax.connectors.files.FileOutput"><code class="language-python flex name class">
-<span>class <span class="ident">FileOutput</span></span>
+<dt id="bytewax.connectors.files.FileSink"><code class="language-python flex name class">
+<span>class <span class="ident">FileSink</span></span>
 <span>(</span><span>path: pathlib.Path, end: str = '\n')</span>
 </code></dt>
 <dd>
@@ -919,7 +1055,7 @@ String to write after each item. Defaults to newline.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">class FileOutput(PartitionedOutput):
+<pre class="language-python line-numbers"><code class="language-python">class FileSink(FixedPartitionedSink[str, int]):
     &#34;&#34;&#34;Write to a single file line-by-line on the filesystem.
 
     Items consumed from the dataflow must look like a string. Use a
@@ -948,31 +1084,34 @@ String to write after each item. Defaults to newline.</p></div>
         self._path = path
         self._end = end
 
-    def list_parts(self):
+    def list_parts(self) -&gt; List[str]:
         &#34;&#34;&#34;The file is a single partition.&#34;&#34;&#34;
         return [str(self._path)]
 
-    def part_fn(self, item_key):
+    def part_fn(self, item_key: str) -&gt; int:
         &#34;&#34;&#34;Only one partition.&#34;&#34;&#34;
         return 0
 
-    def build_part(self, for_part, resume_state):
+    def build_part(
+        self, for_part: str, resume_state: Optional[int]
+    ) -&gt; _FileSinkPartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert for_part == str(self._path), &#34;Can&#39;t resume writing to different file&#34;
-        return _FileSink(self._path, resume_state, self._end)</code></pre>
+        return _FileSinkPartition(self._path, resume_state, self._end)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="bytewax.outputs.PartitionedOutput" href="/apidocs/bytewax.outputs#bytewax.outputs.PartitionedOutput">PartitionedOutput</a></li>
-<li><a title="bytewax.outputs.Output" href="/apidocs/bytewax.outputs#bytewax.outputs.Output">Output</a></li>
+<li><a title="bytewax.outputs.FixedPartitionedSink" href="/apidocs/bytewax.outputs#bytewax.outputs.FixedPartitionedSink">FixedPartitionedSink</a></li>
+<li><a title="bytewax.outputs.Sink" href="/apidocs/bytewax.outputs#bytewax.outputs.Sink">Sink</a></li>
 <li>abc.ABC</li>
+<li>typing.Generic</li>
 </ul>
 <h3>Methods</h3>
 <dl>
-<dt id="bytewax.connectors.files.FileOutput.build_part"><code class="language-python name flex">
-<span>def <span class="ident">build_part</span></span>(<span>self, for_part, resume_state)</span>
+<dt id="bytewax.connectors.files.FileSink.build_part"><code class="language-python name flex">
+<span>def <span class="ident">build_part</span></span>(<span>self, for_part: str, resume_state: Optional[int]) ‑> bytewax.connectors.files._FileSinkPartition</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -980,16 +1119,18 @@ String to write after each item. Defaults to newline.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def build_part(self, for_part, resume_state):
+<pre class="language-python line-numbers"><code class="language-python">def build_part(
+    self, for_part: str, resume_state: Optional[int]
+) -&gt; _FileSinkPartition:
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
     # TODO: Warn and return None. Then we could support
     # continuation from a different file.
     assert for_part == str(self._path), &#34;Can&#39;t resume writing to different file&#34;
-    return _FileSink(self._path, resume_state, self._end)</code></pre>
+    return _FileSinkPartition(self._path, resume_state, self._end)</code></pre>
 </details>
 </dd>
-<dt id="bytewax.connectors.files.FileOutput.list_parts"><code class="language-python name flex">
-<span>def <span class="ident">list_parts</span></span>(<span>self)</span>
+<dt id="bytewax.connectors.files.FileSink.list_parts"><code class="language-python name flex">
+<span>def <span class="ident">list_parts</span></span>(<span>self) ‑> List[str]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>The file is a single partition.</p></div>
@@ -997,13 +1138,13 @@ String to write after each item. Defaults to newline.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def list_parts(self):
+<pre class="language-python line-numbers"><code class="language-python">def list_parts(self) -&gt; List[str]:
     &#34;&#34;&#34;The file is a single partition.&#34;&#34;&#34;
     return [str(self._path)]</code></pre>
 </details>
 </dd>
-<dt id="bytewax.connectors.files.FileOutput.part_fn"><code class="language-python name flex">
-<span>def <span class="ident">part_fn</span></span>(<span>self, item_key)</span>
+<dt id="bytewax.connectors.files.FileSink.part_fn"><code class="language-python name flex">
+<span>def <span class="ident">part_fn</span></span>(<span>self, item_key: str) ‑> int</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Only one partition.</p></div>
@@ -1011,9 +1152,160 @@ String to write after each item. Defaults to newline.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def part_fn(self, item_key):
+<pre class="language-python line-numbers"><code class="language-python">def part_fn(self, item_key: str) -&gt; int:
     &#34;&#34;&#34;Only one partition.&#34;&#34;&#34;
     return 0</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.connectors.files.FileSource"><code class="language-python flex name class">
+<span>class <span class="ident">FileSource</span></span>
+<span>(</span><span>path: Union[pathlib.Path, str], batch_size: int = 1000, get_fs_id: Callable[[pathlib.Path], str] = &lt;function _get_path_dev&gt;)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Read a path line-by-line from the filesystem.</p>
+<p>The path must exist on at least one worker. Each worker can have a
+unique file at the path if each worker mounts a distinct
+filesystem. Tries to read only one instance of each unique file in
+the whole cluster by deduplicating paths by filesystem ID. See
+<code>get_fs_id</code> to adjust this.</p>
+<p>Unique files are the unit of parallelism; only one worker will
+read each unique file. Thus, lines from different files are
+interleaved.</p>
+<p>Init.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>path</code></strong></dt>
+<dd>Path to file.</dd>
+<dt><strong><code>batch_size</code></strong></dt>
+<dd>Number of lines to read per batch. Defaults to
+1000.</dd>
+<dt><strong><code>get_fs_id</code></strong></dt>
+<dd>
+<p>Called with the parent directory and must
+return a consistent (across workers and restarts)
+unique ID for the filesystem of that directory.
+Defaults to using <code>os.stat_result.st_dev</code>.</p>
+<p>If you know all workers have access to identical
+files, you can have this return a constant: <code>lambda
+_dir: "SHARED"</code>.</p>
+</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class FileSource(FixedPartitionedSource[str, int]):
+    &#34;&#34;&#34;Read a path line-by-line from the filesystem.
+
+    The path must exist on at least one worker. Each worker can have a
+    unique file at the path if each worker mounts a distinct
+    filesystem. Tries to read only one instance of each unique file in
+    the whole cluster by deduplicating paths by filesystem ID. See
+    `get_fs_id` to adjust this.
+
+    Unique files are the unit of parallelism; only one worker will
+    read each unique file. Thus, lines from different files are
+    interleaved.
+
+    &#34;&#34;&#34;
+
+    def __init__(
+        self,
+        path: Union[Path, str],
+        batch_size: int = 1000,
+        get_fs_id: Callable[[Path], str] = _get_path_dev,
+    ):
+        &#34;&#34;&#34;Init.
+
+        Args:
+            path: Path to file.
+
+            batch_size: Number of lines to read per batch. Defaults to
+                1000.
+
+            get_fs_id: Called with the parent directory and must
+                return a consistent (across workers and restarts)
+                unique ID for the filesystem of that directory.
+                Defaults to using `os.stat_result.st_dev`.
+
+                If you know all workers have access to identical
+                files, you can have this return a constant: `lambda
+                _dir: &#34;SHARED&#34;`.
+
+        &#34;&#34;&#34;
+        if not isinstance(path, Path):
+            path = Path(path)
+
+        self._path = path
+        self._batch_size = batch_size
+        self._fs_id = get_fs_id(path.parent)
+        if &#34;::&#34; in self._fs_id:
+            msg = f&#34;result of `get_fs_id` must not contain `::`; got {self._fs_id!r}&#34;
+            raise ValueError(msg)
+
+    def list_parts(self) -&gt; List[str]:
+        &#34;&#34;&#34;The file is a single partition.&#34;&#34;&#34;
+        if self._path.exists():
+            return [f&#34;{self._fs_id}::{self._path}&#34;]
+        else:
+            return []
+
+    def build_part(
+        self, _now: datetime, part_key: str, resume_state: Optional[int]
+    ) -&gt; _FileSourcePartition:
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        _fs_id, path = part_key.split(&#34;::&#34;, 1)
+        # TODO: Warn and return None. Then we could support
+        # continuation from a different file.
+        assert path == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
+        return _FileSourcePartition(self._path, self._batch_size, resume_state)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.inputs.FixedPartitionedSource" href="/apidocs/bytewax.inputs#bytewax.inputs.FixedPartitionedSource">FixedPartitionedSource</a></li>
+<li><a title="bytewax.inputs.Source" href="/apidocs/bytewax.inputs#bytewax.inputs.Source">Source</a></li>
+<li>abc.ABC</li>
+<li>typing.Generic</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.connectors.files.FileSource.build_part"><code class="language-python name flex">
+<span>def <span class="ident">build_part</span></span>(<span>self, _now: datetime.datetime, part_key: str, resume_state: Optional[int]) ‑> bytewax.connectors.files._FileSourcePartition</span>
+</code></dt>
+<dd>
+<div class="desc"><p>See ABC docstring.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def build_part(
+    self, _now: datetime, part_key: str, resume_state: Optional[int]
+) -&gt; _FileSourcePartition:
+    &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+    _fs_id, path = part_key.split(&#34;::&#34;, 1)
+    # TODO: Warn and return None. Then we could support
+    # continuation from a different file.
+    assert path == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
+    return _FileSourcePartition(self._path, self._batch_size, resume_state)</code></pre>
+</details>
+</dd>
+<dt id="bytewax.connectors.files.FileSource.list_parts"><code class="language-python name flex">
+<span>def <span class="ident">list_parts</span></span>(<span>self) ‑> List[str]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>The file is a single partition.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def list_parts(self) -&gt; List[str]:
+    &#34;&#34;&#34;The file is a single partition.&#34;&#34;&#34;
+    if self._path.exists():
+        return [f&#34;{self._fs_id}::{self._path}&#34;]
+    else:
+        return []</code></pre>
 </details>
 </dd>
 </dl>
@@ -1040,36 +1332,40 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
 <ul class="api__sidebar-nav-classes">
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.CSVInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.CSVInput">CSVInput</a></h4>
-</li>
-<li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.DirInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirInput">DirInput</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.CSVSource" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.CSVSource">CSVSource</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.DirInput.build_part" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirInput.build_part">build_part</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.DirInput.list_parts" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirInput.list_parts">list_parts</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.CSVSource.build_part" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.CSVSource.build_part">build_part</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.CSVSource.list_parts" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.CSVSource.list_parts">list_parts</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.DirOutput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirOutput">DirOutput</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.DirSink" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirSink">DirSink</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.DirOutput.build_part" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirOutput.build_part">build_part</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.DirOutput.list_parts" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirOutput.list_parts">list_parts</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.DirOutput.part_fn" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirOutput.part_fn">part_fn</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.DirSink.build_part" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirSink.build_part">build_part</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.DirSink.list_parts" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirSink.list_parts">list_parts</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.DirSink.part_fn" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirSink.part_fn">part_fn</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.FileInput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileInput">FileInput</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.DirSource" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirSource">DirSource</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.FileInput.build_part" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileInput.build_part">build_part</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.FileInput.list_parts" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileInput.list_parts">list_parts</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.DirSource.build_part" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirSource.build_part">build_part</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.DirSource.list_parts" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirSource.list_parts">list_parts</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.FileOutput" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileOutput">FileOutput</a></h4>
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.FileSink" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileSink">FileSink</a></h4>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.FileOutput.build_part" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileOutput.build_part">build_part</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.FileOutput.list_parts" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileOutput.list_parts">list_parts</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.FileOutput.part_fn" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileOutput.part_fn">part_fn</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.FileSink.build_part" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileSink.build_part">build_part</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.FileSink.list_parts" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileSink.list_parts">list_parts</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.FileSink.part_fn" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileSink.part_fn">part_fn</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.files.FileSource" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileSource">FileSource</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.FileSource.build_part" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileSource.build_part">build_part</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.files.FileSource.list_parts" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileSource.list_parts">list_parts</a></li>
 </ul>
 </li>
 </ul>
