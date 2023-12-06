@@ -27,18 +27,32 @@ be applied.
 For example, let's write a small dataflow that calculates a running
 sum of points in a basketball game. First, let's define a
 
->>> flow = Dataflow("running_sum")
->>> points_a = op.input("points_a", flow, TestingSource([2, 2, 3, 2, 3, 3]))
->>> points_b = op.input("points_b", flow, TestingSource([2, 3, 2, 2, 2, 2]))
->>> points_a = op.key_on("key_a", points_a, lambda _x: "A")
->>> points_b = op.key_on("key_b", points_b, lambda _x: "B")
->>> points = op.merge("merge", points_a, points_b)
->>> def running_sum(old_sum, just_scored_points):
-...     new_sum = old_sum + just_scored_points
-...     return (new_sum, new_sum)
->>> running_sum = op.stateful_map("running_sum", points, lambda: 0, running_sum)
->>> op.output("out", running_sum, StdOutSink())
->>> bytewax.testing.run_main(flow)
+```python
+from bytewax.dataflow import Dataflow
+import bytewax.operators as op
+from bytewax.testing import TestingSource
+import bytewax.testing
+from bytewax.connectors.stdio import StdOutSink
+
+flow = Dataflow("running_sum")
+points_a = op.input("points_a", flow, TestingSource([2, 2, 3, 2, 3, 3]))
+points_b = op.input("points_b", flow, TestingSource([2, 3, 2, 2, 2, 2]))
+points_a = op.key_on("key_a", points_a, lambda _x: "A")
+points_b = op.key_on("key_b", points_b, lambda _x: "B")
+points = op.merge("merge", points_a, points_b)
+
+
+def running_sum(old_sum, just_scored_points):
+    new_sum = old_sum + just_scored_points
+    return (new_sum, new_sum)
+
+
+running_sum = op.stateful_map("running_sum", points, lambda: 0, running_sum)
+op.output("out", running_sum, StdOutSink())
+bytewax.testing.run_main(flow)
+```
+
+```{testoutput}
 ('A', 2)
 ('B', 2)
 ('A', 4)
@@ -51,3 +65,4 @@ sum of points in a basketball game. First, let's define a
 ('B', 11)
 ('A', 15)
 ('B', 13)
+```

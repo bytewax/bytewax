@@ -8,10 +8,15 @@ You can define new custom operators in terms of already existing
 operators. To do this you define an **operator function** and
 decorate it with `operator`.
 
->>> import bytewax.operators as op
->>> @operator
-... def add_to(step_id: str, up: Stream[int], y: int) -> Stream[int]:
-...     return op.map("shim_map", lambda x: x + y)
+```python
+from bytewax.dataflow import Stream, operator
+import bytewax.operators as op
+
+
+@operator
+def add_to(step_id: str, up: Stream[int], y: int) -> Stream[int]:
+    return op.map("shim_map", lambda x: x + y)
+```
 
 Each input or output `Stream` turns into a `Port` in the resulting
 data model.

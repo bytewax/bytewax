@@ -65,19 +65,29 @@ copy of the data in the stream in a different way. Notice below the
 multipled by ten. `bytewax.operators.merge` is an operator that does
 the reverse, and combines together multiple streams.
 
->>> flow = Dataflow("branching_math")
->>> nums = op.input("nums", flow, TestingSource([1, 2, 3]))
->>> doubles = op.map("do_double", nums, lambda x: x * 2)
->>> tens = op.map("do_tens", nums, lambda x: x * 10)
->>> all = op.merge("merge", doubles, tens)
->>> op.output("print", all, StdOutSink())
->>> bytewax.testing.run_main(flow)
+```python
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource, run_main
+import bytewax.operators as op
+from bytewax.connectors.stdio import StdOutSink
+
+flow = Dataflow("branching_math")
+nums = op.input("nums", flow, TestingSource([1, 2, 3]))
+doubles = op.map("do_double", nums, lambda x: x * 2)
+tens = op.map("do_tens", nums, lambda x: x * 10)
+all = op.merge("merge", doubles, tens)
+op.output("print", all, StdOutSink())
+run_main(flow)
+```
+
+```{testoutput}
 2
 10
 4
 20
 6
 30
+```
 
 ## Quick Logic Functions
 
@@ -105,35 +115,55 @@ For example, all of the following dataflows are equivalent.
 
 Using a defined function:
 
->>> import bytewax.operators as op
->>> from bytewax.dataflow import Dataflow
->>> from bytewax.testing import TestingSource, run_main
->>> flow = Dataflow("use_def")
->>> def split_sentence(sentence):
-...     return sentence.split()
->>> s = op.input("inp", flow, TestingSource(["hello world"]))
->>> s = op.flat_map("split", s, split_sentence)
->>> _ = op.inspect("out", s)
->>> run_main(flow)
+```python
+import bytewax.operators as op
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource, run_main
+
+flow = Dataflow("use_def")
+
+
+def split_sentence(sentence):
+    return sentence.split()
+
+
+s = op.input("inp", flow, TestingSource(["hello world"]))
+s = op.flat_map("split", s, split_sentence)
+_ = op.inspect("out", s)
+run_main(flow)
+```
+
+```{testoutput}
 use_def.out: 'hello'
 use_def.out: 'world'
+```
 
 Or a lambda:
 
->>> flow = Dataflow("use_lambda")
->>> s = op.input("inp", flow, TestingSource(["hello world"]))
->>> s = op.flat_map("split", s, lambda s: s.split())
->>> _ = op.inspect("out", s)
->>> run_main(flow)
+```python
+flow = Dataflow("use_lambda")
+s = op.input("inp", flow, TestingSource(["hello world"]))
+s = op.flat_map("split", s, lambda s: s.split())
+_ = op.inspect("out", s)
+run_main(flow)
+```
+
+```{testoutput}
 use_lambda.out: 'hello'
 use_lambda.out: 'world'
+```
 
 Or an unbound method:
 
->>> flow = Dataflow("use_method")
->>> s = op.input("inp", flow, TestingSource(["hello world"]))
->>> s = op.flat_map("split", s, str.split)
->>> _ = op.inspect("out", s)
->>> run_main(flow)
+```python
+flow = Dataflow("use_method")
+s = op.input("inp", flow, TestingSource(["hello world"]))
+s = op.flat_map("split", s, str.split)
+_ = op.inspect("out", s)
+run_main(flow)
+```
+
+```{testoutput}
 use_method.out: 'hello'
 use_method.out: 'world'
+```
