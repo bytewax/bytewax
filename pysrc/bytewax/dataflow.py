@@ -372,15 +372,6 @@ class MultiStream(Generic[K, X_co]):
 
     streams: Dict[K, Stream[X_co]]
 
-    @property
-    def _scope(self):
-        msg = (
-            "`MultiStream` must be unpacked to use the `Stream` inside; "
-            """e.g. `(names,) = op.key_split("step_id", up, """
-            """lambda x: x["id"], lambda x: x["name"])`"""
-        )
-        raise TypeError(msg)
-
     def _get_scopes(self) -> Iterable[_Scope]:
         return (stream._scope for stream in self.streams.values())
 
@@ -395,6 +386,15 @@ class MultiStream(Generic[K, X_co]):
             port_id,
             {name: stream.stream_id for name, stream in self.streams.items()},
         )
+
+    def __getattr__(self, name: str) -> Any:
+        if name == "_scope":
+            msg = (
+                "`MultiStream` must be unpacked to use the `Stream` inside; "
+                """e.g. `(names,) = op.key_split("step_id", up, """
+                """lambda x: x["id"], lambda x: x["name"])`"""
+            )
+            raise TypeError(msg)
 
     def __iter__(self):
         return iter(self.streams.values())
