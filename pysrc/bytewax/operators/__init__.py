@@ -20,6 +20,7 @@ from typing import (
     Generic,
     Iterable,
     List,
+    NamedTuple,
     Optional,
     Tuple,
     TypeVar,
@@ -53,8 +54,7 @@ def _untyped_none() -> Any:
     return None
 
 
-@dataclass(frozen=True)
-class BranchOut(Generic[X]):
+class BranchOut(NamedTuple, Generic[X]):
     """Streams returned from `branch` operator.
 
     You can tuple unpack this for convenience.
@@ -63,9 +63,6 @@ class BranchOut(Generic[X]):
 
     trues: Stream[X]
     falses: Stream[X]
-
-    def __iter__(self):
-        return iter((self.trues, self.falses))
 
 
 @operator(_core=True)

@@ -19,6 +19,7 @@ from typing import (
     Generic,
     Iterable,
     List,
+    NamedTuple,
     Protocol,
     Tuple,
     Type,
@@ -27,7 +28,7 @@ from typing import (
     runtime_checkable,
 )
 
-from typing_extensions import Concatenate, ParamSpec
+from typing_extensions import Concatenate, ParamSpec, TypeGuard
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -444,6 +445,14 @@ def _gen_inp_fields(sig: Signature, sig_types: Dict[str, Type]) -> Dict[str, Typ
     return inp_fields
 
 
+def _is_namedtuple_instance(obj: Any) -> TypeGuard[NamedTuple]:
+    return hasattr(obj.__class__, "_fields") and hasattr(obj.__class__, "_replace")
+
+
+def _is_namedtuple_subclass(cls: Type) -> TypeGuard[Type[NamedTuple]]:
+    return hasattr(cls, "_fields") and hasattr(cls, "_replace")
+
+
 def _gen_out_fields(_sig: Signature, sig_types: Dict[str, Type]) -> Dict[str, Type]:
     out_fields = {}
     out_typ = sig_types.get("return", object)
@@ -454,14 +463,14 @@ def _gen_out_fields(_sig: Signature, sig_types: Dict[str, Type]) -> Dict[str, Ty
     # A `None` return value doesn't store any field.
     elif issubclass(out_typ, type(None)):  # type: ignore
         pass
-    # Dataclass is the "named return value" options. We copy all the
+    # NamedTuple is the "named return value" options. We copy all the
     # first level fields into the operator dataclass. We use
-    # dataclasses because the stdlib gives us tools to introspect them
-    # easily.
-    elif dataclasses.is_dataclass(out_typ):
+    # NamedTuples because we can introspect them easily and they
+    # enable unpacking.
+    elif _is_namedtuple_subclass(out_typ):
         out_field_typs = _norm_type_hints(out_typ)
-        for fld in dataclasses.fields(out_typ):
-            out_fields[fld.name] = out_field_typs.get(fld.name, object)
+        for fld_name in out_typ._fields:
+            out_fields[fld_name] = out_field_typs.get(fld_name, object)
     else:
         out_fields["down"] = out_typ
 
@@ -651,9 +660,9 @@ def _gen_op_fn(
             cls_vals["down"] = out
         elif isinstance(out, type(None)):
             pass
-        elif dataclasses.is_dataclass(out):
-            for fld in dataclasses.fields(out):
-                cls_vals[fld.name] = getattr(out, fld.name)
+        elif _is_namedtuple_instance(out):
+            for fld_name in out._fields:
+                cls_vals[fld_name] = getattr(out, fld_name)
         else:
             cls_vals["down"] = out
 
@@ -686,13 +695,13 @@ def _gen_op_fn(
         # methods will not still be added in this operator a substeps.
         if isinstance(out, _HasScope):
             out = out._with_scope(outer_scope)
-        elif dataclasses.is_dataclass(out):
+        elif _is_namedtuple_instance(out):
             vals = {}
-            for fld in dataclasses.fields(out):
-                val = getattr(out, fld.name)
+            for fld_name in out._fields:
+                val = getattr(out, fld_name)
                 if isinstance(val, _HasScope):
-                    vals[fld.name] = val._with_scope(outer_scope)
-            out = dataclasses.replace(out, **vals)
+                    vals[fld_name] = val._with_scope(outer_scope)
+            out = out._replace(**vals)
 
         return out
 
