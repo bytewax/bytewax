@@ -26,20 +26,20 @@ operators, you must follow a few rules when writing your function:
 
 - There must be a `step_id: str` argument, even if not used.
 
-- All arguments, the return value, and return dataclass fields that
+- All arguments, the return value, and return `NamedTuple` fields that
   are `Stream`s or `MultiStream`s must have type annotations. We
   recommend annotating all the arguments, the return value, and all
-  fields in a return dataclass.
+  fields in the return `NamedTuple`.
 
-- You must use a `dataclass` to return multiple values.
+- You must use a `NamedTuple` to return multiple values.
 
-- Argument and return dataclass field names must not overlap with the
-  names defined on the `Operator` base class.
+- Argument and return `NamedTuple` field names must not overlap with
+  the names defined on the `Operator` base class.
 
 - `Stream`s, `MultiStream`s, and `Dataflow`s _must not appear in
   nested objects_: they either can be arguments, the return type
-  directly, or the top-level fields of a dataclass that is the return
-  type; nowhere else.
+  directly, or the top-level fields of the return `NamedTuple` type;
+  nowhere else.
 
 ## Docstrings
 
