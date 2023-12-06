@@ -28,7 +28,7 @@ from typing import (
     runtime_checkable,
 )
 
-from typing_extensions import Concatenate, ParamSpec, TypeGuard
+from typing_extensions import Concatenate, ParamSpec, Self, TypeGuard
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -119,7 +119,7 @@ class Operator:
 
     step_name: str
     step_id: str
-    substeps: List["Operator"]
+    substeps: List[Self]
     ups_names: ClassVar[List[str]]
     dwn_names: ClassVar[List[str]]
 
@@ -198,7 +198,7 @@ class Dataflow:
     substeps: List[Operator] = field(default_factory=list)
     _scope: _Scope = field(default=None, compare=False)  # type: ignore[assignment]
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if "." in self.flow_id:
             msg = "flow ID can't contain a period `.`"
             raise ValueError(msg)
@@ -213,7 +213,7 @@ class Dataflow:
     def _get_scopes(self) -> Iterable[_Scope]:
         return [self._scope]
 
-    def _with_scope(self, scope: _Scope) -> "Dataflow":
+    def _with_scope(self, scope: _Scope) -> Self:
         return dataclasses.replace(self, _scope=scope)
 
     def _to_ref(self, _port_id: str) -> DataflowId:
@@ -252,7 +252,7 @@ class Stream(Generic[X_co]):
     def _get_scopes(self) -> Iterable[_Scope]:
         return [self._scope]
 
-    def _with_scope(self, scope: _Scope) -> "Stream[X_co]":
+    def _with_scope(self, scope: _Scope) -> Self:
         return dataclasses.replace(self, _scope=scope)
 
     def _to_ref(self, ref_id: str) -> SinglePort:
@@ -276,7 +276,7 @@ class Stream(Generic[X_co]):
 
     def then(
         self,
-        op_fn: Callable[Concatenate[str, "Stream[X_co]", P], R],
+        op_fn: Callable[Concatenate[str, Self, P], R],
         step_id: str,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -384,7 +384,7 @@ class MultiStream(Generic[K, X_co]):
     def _get_scopes(self) -> Iterable[_Scope]:
         return (stream._scope for stream in self.streams.values())
 
-    def _with_scope(self, scope: _Scope) -> "MultiStream[K, X_co]":
+    def _with_scope(self, scope: _Scope) -> Self:
         streams = {
             name: stream._with_scope(scope) for name, stream in self.streams.items()
         }
