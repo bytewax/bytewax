@@ -74,7 +74,12 @@ where
     }
 }
 
-fn next_batch(py: Python, mapper: &TdPyCallable, item: PyObject) -> PyResult<Vec<PyObject>> {
+fn next_batch<'py>(
+    py: Python,
+    out_buffer: &mut Vec<TdPyAny>,
+    mapper: &'py PyAny,
+    in_item: PyObject,
+) -> PyResult<()> {
     let res = mapper
         .as_ref(py)
         .call1((item,))
@@ -85,11 +90,12 @@ fn next_batch(py: Python, mapper: &TdPyCallable, item: PyObject) -> PyResult<Vec
             unwrap_any!(res.get_type().name()),
         )
     })?;
-    let batch = iter
-        .map(|res| res.map(PyObject::from))
-        .collect::<PyResult<Vec<_>>>()
-        .reraise("error while iterating through batch")?;
-    Ok(batch)
+    for res in iter {
+        let out_item = res.reraise("error while iterating through batch")?;
+        out_buffer.push(out_item.into());
+    }
+
+    Ok(())
 }
 
 pub(crate) trait FlatMapOp<S>
@@ -145,6 +151,10 @@ where
         op_builder.build(move |init_caps| {
             let mut items_inbuf = InBuffer::new();
             let mut ncater = EagerNotificator::new(init_caps, ());
+            // Timely forcibly flushes buffers when using
+            // `Session::give_vec` so we need to build up a buffer of
+            // items to reduce the overhead of that.
+            let mut out_buffer = Vec::new();
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = step_id.0.clone()).in_scope(|| {
@@ -165,21 +175,22 @@ where
                                     for item in items {
                                         let item = PyObject::from(item);
 
-                                        let batch = with_timer!(
+                                        let before_size = out_buffer.len();
+                                        with_timer!(
                                             mapper_histogram,
                                             labels,
-                                            next_batch(py, &mapper, item).reraise_with(|| {
-                                                format!("error calling `mapper` in step {step_id}")
-                                            })?
+                                            next_batch(py, &mut out_buffer, &mapper, item)
+                                                .reraise_with(|| {
+                                                    format!(
+                                                        "error calling `mapper` in step {step_id}"
+                                                    )
+                                                })?
                                         );
-
-                                        let mut batch = batch
-                                            .into_iter()
-                                            .map(TdPyAny::from)
-                                            .collect::<Vec<_>>();
-                                        item_out_count.add(batch.len() as u64, &labels);
-                                        downstream_session.give_vec(&mut batch);
+                                        let batch_size = out_buffer.len() - before_size;
+                                        item_out_count.add(batch_size as u64, &labels);
                                     }
+
+                                    downstream_session.give_vec(&mut out_buffer);
 
                                     Ok(())
                                 }));
