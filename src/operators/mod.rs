@@ -74,16 +74,8 @@ where
     }
 }
 
-fn next_batch<'py>(
-    py: Python,
-    out_buffer: &mut Vec<TdPyAny>,
-    mapper: &'py PyAny,
-    in_item: PyObject,
-) -> PyResult<()> {
-    let res = mapper
-        .as_ref(py)
-        .call1((item,))
-        .reraise("error calling mapper")?;
+fn next_batch(out_buffer: &mut Vec<TdPyAny>, mapper: &PyAny, in_item: PyObject) -> PyResult<()> {
+    let res = mapper.call1((in_item,)).reraise("error calling mapper")?;
     let iter = res.iter().reraise_with(|| {
         format!(
             "mapper must return an iterable; got a `{}` instead",
@@ -172,6 +164,8 @@ where
                                 let mut downstream_session = downstream_handle.session(cap);
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    let mapper = mapper.as_ref(py);
+
                                     for item in items {
                                         let pool = unsafe { py.new_pool() };
                                         let _py = pool.python();
@@ -182,7 +176,7 @@ where
                                         with_timer!(
                                             mapper_histogram,
                                             labels,
-                                            next_batch(py, &mut out_buffer, &mapper, item)
+                                            next_batch(&mut out_buffer, mapper, item)
                                                 .reraise_with(|| {
                                                     format!(
                                                         "error calling `mapper` in step {step_id}"
@@ -264,11 +258,12 @@ where
                                 let mut clock_session = clock_handle.session(clock_cap);
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    let inspector = inspector.as_ref(py);
+
                                     for item in items.iter() {
                                         let item = <&PyObject>::from(item);
 
                                         inspector
-                                            .as_ref(py)
                                             .call1((
                                                 step_id.clone(),
                                                 item,
@@ -729,6 +724,8 @@ where
                                 item_inp_count.add(items.len() as u64, &labels);
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    let builder = builder.as_ref(py);
+
                                     for (worker, (key, value)) in items {
                                         let pool = unsafe { py.new_pool() };
                                         let py = pool.python();
@@ -743,8 +740,8 @@ where
                                             logics.entry(key.clone()).or_insert_with(|| {
                                                 unwrap_any!((|| {
                                                     builder
-                                                        .call1(py, (py_now.clone_ref(py), None::<PyObject>))?
-                                                        .extract::<UnaryLogic>(py)
+                                                        .call1((py_now.clone_ref(py), None::<PyObject>))?
+                                                        .extract::<UnaryLogic>()
                                                 })(
                                                 ))
                                             });
@@ -951,6 +948,8 @@ where
 
                                 if let Some(loads) = loads_inbuf.remove(&epoch) {
                                     unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                        let builder = builder.as_ref(py);
+
                                         for (worker, (key, change)) in loads {
                                             let pool = unsafe { py.new_pool() };
                                             let py = pool.python();
@@ -962,8 +961,8 @@ where
                                             match change {
                                                 StateChange::Upsert(state) => {
                                                     let logic = builder
-                                                        .call1(py, (py_now.clone_ref(py), Some(state),))?
-                                                        .extract::<UnaryLogic>(py)?;
+                                                        .call1((py_now.clone_ref(py), Some(state),))?
+                                                        .extract::<UnaryLogic>()?;
                                                     if let Some(notify_at) = logic.notify_at(py)? {
                                                         sched_cache.insert(key.clone(), notify_at);
                                                     }
