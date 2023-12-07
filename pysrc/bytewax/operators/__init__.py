@@ -64,9 +64,6 @@ class BranchOut(Generic[X]):
     trues: Stream[X]
     falses: Stream[X]
 
-    def __iter__(self):
-        return iter((self.trues, self.falses))
-
 
 @operator(_core=True)
 def branch(

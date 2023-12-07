@@ -16,7 +16,9 @@ def test_branch():
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
-    odds, evens = op.branch("branch", s, is_odd)
+    branch_out = op.branch("branch", s, is_odd)
+    odds = branch_out.trues
+    evens = branch_out.falses
     op.output("out_odds", odds, TestingSink(out_odds))
     op.output("out_evens", evens, TestingSink(out_evens))
 
@@ -36,7 +38,9 @@ def test_branch_raises_on_non_bool_key():
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
-    odds, evens = op.branch("branch", s, not_a_predicate)  # type: ignore
+    branch_out = op.branch("branch", s, not_a_predicate)  # type: ignore
+    odds = branch_out.trues
+    evens = branch_out.falses
     op.output("out_odds", odds, TestingSink(out_odds))
     op.output("out_evens", evens, TestingSink(out_evens))
 
