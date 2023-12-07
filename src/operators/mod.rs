@@ -376,6 +376,109 @@ where
     }
 }
 
+pub(crate) trait MapOp<S>
+where
+    S: Scope,
+    S::Timestamp: TotalOrder,
+{
+    fn map(
+        &self,
+        py: Python,
+        step_id: StepId,
+        mapper: TdPyCallable,
+    ) -> PyResult<Stream<S, TdPyAny>>;
+}
+
+impl<S> MapOp<S> for Stream<S, TdPyAny>
+where
+    S: Scope,
+    S::Timestamp: TotalOrder,
+{
+    fn map(
+        &self,
+        _py: Python,
+        step_id: StepId,
+        mapper: TdPyCallable,
+    ) -> PyResult<Stream<S, TdPyAny>> {
+        let this_worker = self.scope().w_index();
+
+        let mut op_builder = OperatorBuilder::new(step_id.0.clone(), self.scope());
+
+        let mut self_handle = op_builder.new_input(self, Pipeline);
+
+        let (mut downstream_output, downstream) = op_builder.new_output();
+
+        let meter = opentelemetry::global::meter("bytewax");
+        let item_inp_count = meter
+            .u64_counter("item_inp_count")
+            .with_description("number of items this step has ingested")
+            .init();
+        let item_out_count = meter
+            .u64_counter("item_out_count")
+            .with_description("number of items this step has emitted")
+            .init();
+        let mapper_histogram = meter
+            .f64_histogram("map_duration_seconds")
+            .with_description("`map` `mapper` duration in seconds")
+            .init();
+        let labels = vec![
+            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("worker_index", this_worker.0.to_string()),
+        ];
+
+        op_builder.build(move |init_caps| {
+            let mut items_inbuf = InBuffer::new();
+            let mut ncater = EagerNotificator::new(init_caps, ());
+
+            move |input_frontiers| {
+                tracing::debug_span!("operator", operator = step_id.0.clone()).in_scope(|| {
+                    self_handle.buffer_notify(&mut items_inbuf, &mut ncater);
+
+                    let mut downstream_handle = downstream_output.activate();
+                    ncater.for_each(
+                        input_frontiers,
+                        |caps, ()| {
+                            let cap = &caps[0];
+                            let epoch = cap.time();
+
+                            if let Some(items) = items_inbuf.remove(epoch) {
+                                item_inp_count.add(items.len() as u64, &labels);
+                                let mut downstream_session = downstream_handle.session(cap);
+
+                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    let mapper = mapper.as_ref(py);
+
+                                    for in_item in items {
+                                        let pool = unsafe { py.new_pool() };
+                                        let _py = pool.python();
+
+                                        let in_item = PyObject::from(in_item);
+
+                                        let out_item = with_timer!(
+                                            mapper_histogram,
+                                            labels,
+                                            mapper.call1((in_item,)).reraise_with(|| {
+                                                format!("error calling `mapper` in step {step_id}")
+                                            })?
+                                        );
+                                        item_out_count.add(1, &labels);
+                                        downstream_session.give(TdPyAny::from(out_item));
+                                    }
+
+                                    Ok(())
+                                }));
+                            }
+                        },
+                        |_caps, ()| {},
+                    );
+                });
+            }
+        });
+
+        Ok(downstream)
+    }
+}
+
 pub(crate) trait WrapKeyOp<S>
 where
     S: Scope,
