@@ -162,7 +162,7 @@ def collect_window(
     """
     collector = _get_collector(into)
 
-    return fold_window("fold_window", up, clock, windower, into, collector)
+    return fold_window("fold_window", up, clock, windower, lambda: into(), collector)
 
 
 @operator
