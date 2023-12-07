@@ -334,36 +334,6 @@ class Stream(Generic[X_co]):
 class MultiStream(Generic[K, X_co]):
     """A bundle of named `Stream`s.
 
-    Operator functions take or return this if they want to create an
-    input or output port that can recieve multiple named streams
-    dynamically.
-
-    You will need to unpack the `Stream`s within in order to add
-    further steps:
-
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import run_main, TestingSource
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("multistream_eg")
-    >>> s = op.input("inp", flow, TestingSource(range(3)))
-    >>> a_s, b_s = op.key_split(
-    ...     "split1",
-    ...     s,
-    ...     lambda x: "KEY",
-    ...     lambda x: "a",
-    ...     lambda x: "b",
-    ... )
-
-    If you only have a single stream within, you can unpack using the
-    "unpack a single item tuple" syntax:
-
-    >>> (a_s,) = op.key_split(
-    ...     "split2",
-    ...     s,
-    ...     lambda x: "KEY",
-    ...     lambda x: "a",
-    ... )
-
     This is also created internally whenever a builder function takes
     or returns a `*args` of `Stream` or `**kwargs` of `Stream`s.
 
@@ -373,11 +343,7 @@ class MultiStream(Generic[K, X_co]):
 
     @property
     def _scope(self):
-        msg = (
-            "`MultiStream` must be unpacked to use the `Stream` inside; "
-            """e.g. `(names,) = op.key_split("step_id", up, """
-            """lambda x: x["id"], lambda x: x["name"])`"""
-        )
+        msg = "`MultiStream` must be unpacked to use the `Stream` inside"
         raise TypeError(msg)
 
     def _get_scopes(self) -> Iterable[_Scope]:

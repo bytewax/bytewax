@@ -27,9 +27,7 @@ from typing import (
 )
 
 from bytewax.dataflow import (
-    ArgsMultiStream,
     Dataflow,
-    MultiStream,
     Stream,
     f_repr,
     operator,
@@ -1092,43 +1090,6 @@ def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -> KeyedStream[
         return (k, x)
 
     return map("map", up, shim_mapper)
-
-
-@operator
-def key_split(
-    step_id: str,
-    up: Stream[X],
-    key: Callable[[X], str],
-    *values: Callable[[X], V],
-) -> ArgsMultiStream[Tuple[str, V]]:
-    """Split objects apart into a separate stream for each field.
-
-    This allows you to use all the keyed operators that only are
-    methods on `KeyedStream`.
-
-    Args:
-        step_id: Unique ID.
-
-        up: Stream.
-
-        key: Called on each item and should return the key for that
-            item.
-
-        *values: A "field getter" which
-
-    Returns:
-        A set of streams of 2-tuples of `(key, value)` AKA a keyed
-        streams. The keys come from the return value of the `key`
-        function; the return value of each `values` function will be
-        the value.
-
-    """
-    keyed_up = key_on("key", up, key)
-    streams = {
-        i: map_value(f"value_{str(i)}", keyed_up, value)
-        for i, value in enumerate(values)
-    }
-    return MultiStream(streams)
 
 
 @operator

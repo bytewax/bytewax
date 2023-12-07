@@ -40,15 +40,3 @@ def test_then():
 
     run_main(flow)
     assert out == [1, 2, 3]
-
-
-def test_multistream_raises_on_use_as_stream():
-    inp = [0, 1, 2]
-
-    flow = Dataflow("test_df")
-    s = op.input("inp", flow, TestingSource(inp))
-    ms = op.key_split("split", s, lambda _x: "KEY", lambda _x: "a", lambda _x: "b")
-
-    expect = "`MultiStream` must be unpacked"
-    with raises(TypeError, match=re.escape(expect)):
-        op.map("map", ms, lambda s: s.upper())  # type: ignore
