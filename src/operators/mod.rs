@@ -145,7 +145,10 @@ where
             let mut ncater = EagerNotificator::new(init_caps, ());
             // Timely forcibly flushes buffers when using
             // `Session::give_vec` so we need to build up a buffer of
-            // items to reduce the overhead of that.
+            // items to reduce the overhead of that. It's fine that
+            // this is effectively 'static because Timely swaps this
+            // out under the covers so it doesn't end up growing
+            // without bound.
             let mut out_buffer = Vec::new();
 
             move |input_frontiers| {
