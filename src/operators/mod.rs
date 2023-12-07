@@ -74,7 +74,7 @@ where
     }
 }
 
-fn next_batch(out_buffer: &mut Vec<TdPyAny>, mapper: &PyAny, in_item: PyObject) -> PyResult<()> {
+fn next_batch(outbuf: &mut Vec<TdPyAny>, mapper: &PyAny, in_item: PyObject) -> PyResult<()> {
     let res = mapper.call1((in_item,)).reraise("error calling mapper")?;
     let iter = res.iter().reraise_with(|| {
         format!(
@@ -84,7 +84,7 @@ fn next_batch(out_buffer: &mut Vec<TdPyAny>, mapper: &PyAny, in_item: PyObject) 
     })?;
     for res in iter {
         let out_item = res.reraise("error while iterating through batch")?;
-        out_buffer.push(out_item.into());
+        outbuf.push(out_item.into());
     }
 
     Ok(())
@@ -141,7 +141,7 @@ where
         ];
 
         op_builder.build(move |init_caps| {
-            let mut items_inbuf = InBuffer::new();
+            let mut inbuf = InBuffer::new();
             let mut ncater = EagerNotificator::new(init_caps, ());
             // Timely forcibly flushes buffers when using
             // `Session::give_vec` so we need to build up a buffer of
@@ -149,11 +149,11 @@ where
             // this is effectively 'static because Timely swaps this
             // out under the covers so it doesn't end up growing
             // without bound.
-            let mut out_buffer = Vec::new();
+            let mut outbuf = Vec::new();
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = step_id.0.clone()).in_scope(|| {
-                    self_handle.buffer_notify(&mut items_inbuf, &mut ncater);
+                    self_handle.buffer_notify(&mut inbuf, &mut ncater);
 
                     let mut downstream_handle = downstream_output.activate();
                     ncater.for_each(
@@ -162,7 +162,7 @@ where
                             let cap = &caps[0];
                             let epoch = cap.time();
 
-                            if let Some(items) = items_inbuf.remove(epoch) {
+                            if let Some(items) = inbuf.remove(epoch) {
                                 item_inp_count.add(items.len() as u64, &labels);
                                 let mut downstream_session = downstream_handle.session(cap);
 
@@ -175,22 +175,21 @@ where
 
                                         let item = PyObject::from(item);
 
-                                        let before_size = out_buffer.len();
                                         with_timer!(
                                             mapper_histogram,
                                             labels,
-                                            next_batch(&mut out_buffer, mapper, item)
-                                                .reraise_with(|| {
+                                            next_batch(&mut outbuf, mapper, item).reraise_with(
+                                                || {
                                                     format!(
                                                         "error calling `mapper` in step {step_id}"
                                                     )
-                                                })?
+                                                }
+                                            )?
                                         );
-                                        let batch_size = out_buffer.len() - before_size;
-                                        item_out_count.add(batch_size as u64, &labels);
                                     }
 
-                                    downstream_session.give_vec(&mut out_buffer);
+                                    item_out_count.add(outbuf.len() as u64, &labels);
+                                    downstream_session.give_vec(&mut outbuf);
 
                                     Ok(())
                                 }));
@@ -430,12 +429,19 @@ where
         ];
 
         op_builder.build(move |init_caps| {
-            let mut items_inbuf = InBuffer::new();
+            let mut inbuf = InBuffer::new();
             let mut ncater = EagerNotificator::new(init_caps, ());
+            // Timely forcibly flushes buffers when using
+            // `Session::give_vec` so we need to build up a buffer of
+            // items to reduce the overhead of that. It's fine that
+            // this is effectively 'static because Timely swaps this
+            // out under the covers so it doesn't end up growing
+            // without bound.
+            let mut outbuf = Vec::new();
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = step_id.0.clone()).in_scope(|| {
-                    self_handle.buffer_notify(&mut items_inbuf, &mut ncater);
+                    self_handle.buffer_notify(&mut inbuf, &mut ncater);
 
                     let mut downstream_handle = downstream_output.activate();
                     ncater.for_each(
@@ -444,7 +450,7 @@ where
                             let cap = &caps[0];
                             let epoch = cap.time();
 
-                            if let Some(items) = items_inbuf.remove(epoch) {
+                            if let Some(items) = inbuf.remove(epoch) {
                                 item_inp_count.add(items.len() as u64, &labels);
                                 let mut downstream_session = downstream_handle.session(cap);
 
@@ -464,9 +470,11 @@ where
                                                 format!("error calling `mapper` in step {step_id}")
                                             })?
                                         );
-                                        item_out_count.add(1, &labels);
-                                        downstream_session.give(TdPyAny::from(out_item));
+                                        outbuf.push(TdPyAny::from(out_item));
                                     }
+
+                                    item_out_count.add(outbuf.len() as u64, &labels);
+                                    downstream_session.give_vec(&mut outbuf);
 
                                     Ok(())
                                 }));
