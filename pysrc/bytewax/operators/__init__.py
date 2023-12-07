@@ -26,6 +26,8 @@ from typing import (
     overload,
 )
 
+from typing_extensions import Self
+
 from bytewax.dataflow import (
     Dataflow,
     Stream,
@@ -889,17 +891,17 @@ def inspect(
 
 
 @dataclass
-class _JoinState(Generic[V]):
-    seen: Dict[str, List[V]]
+class _JoinState:
+    seen: Dict[str, List[Any]]
 
     @classmethod
-    def for_names(cls, names: List[str]) -> "_JoinState[V]":
+    def for_names(cls, names: List[str]) -> Self:
         return cls({name: [] for name in names})
 
-    def set_val(self, name: str, value: V) -> None:
+    def set_val(self, name: str, value: Any) -> None:
         self.seen[name] = [value]
 
-    def add_val(self, name: str, value: V) -> None:
+    def add_val(self, name: str, value: Any) -> None:
         self.seen[name].append(value)
 
     def is_set(self, name: str) -> bool:
@@ -914,7 +916,7 @@ class _JoinState(Generic[V]):
             itertools.product(*(vals if len(vals) > 0 else [empty] for vals in values))
         )
 
-    def asdicts(self) -> List[Dict[str, V]]:
+    def asdicts(self) -> List[Dict[str, Any]]:
         EMPTY = object()
         ts = self.astuples(empty=EMPTY)
         dicts = []
@@ -926,14 +928,14 @@ class _JoinState(Generic[V]):
 
 
 @dataclass
-class _JoinLogic(UnaryLogic[Tuple[str, V], _JoinState[V], _JoinState[V]]):
+class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
     step_id: str
     running: bool
-    state: _JoinState[V]
+    state: _JoinState
 
     def on_item(
-        self, _now: datetime, name_value: Tuple[str, V]
-    ) -> Tuple[List[_JoinState[V]], bool]:
+        self, _now: datetime, name_value: Tuple[str, Any]
+    ) -> Tuple[List[_JoinState], bool]:
         name, value = name_value
 
         self.state.set_val(name, value)
@@ -947,24 +949,24 @@ class _JoinLogic(UnaryLogic[Tuple[str, V], _JoinState[V], _JoinState[V]]):
             else:
                 return ([], UnaryLogic.RETAIN)
 
-    def on_notify(self, _s: datetime) -> Tuple[List[_JoinState[V]], bool]:
+    def on_notify(self, _s: datetime) -> Tuple[List[_JoinState], bool]:
         return ([], UnaryLogic.RETAIN)
 
-    def on_eof(self) -> Tuple[List[_JoinState[V]], bool]:
+    def on_eof(self) -> Tuple[List[_JoinState], bool]:
         return ([], UnaryLogic.RETAIN)
 
     def notify_at(self) -> Optional[datetime]:
         return None
 
-    def snapshot(self) -> _JoinState[V]:
+    def snapshot(self) -> _JoinState:
         return copy.deepcopy(self.state)
 
 
 @operator
 def _join_name_merge(
     step_id: str,
-    **named_ups: KeyedStream[V],
-) -> KeyedStream[Tuple[str, V]]:
+    **named_ups: KeyedStream[Any],
+) -> KeyedStream[Tuple[str, Any]]:
     with_names = [
         # Horrible mess, see
         # https://docs.astral.sh/ruff/rules/function-uses-loop-variable/
@@ -977,7 +979,7 @@ def _join_name_merge(
 @operator
 def join(
     step_id: str,
-    *sides: KeyedStream[V],
+    *sides: KeyedStream[Any],
     running: bool = False,
 ) -> KeyedStream[Tuple]:
     """Gather together the value for a key on multiple streams.
@@ -1002,9 +1004,7 @@ def join(
     named_sides = dict((str(i), s) for i, s in enumerate(sides))
     names = list(named_sides.keys())
 
-    def shim_builder(
-        _now: datetime, resume_state: Optional[_JoinState[V]]
-    ) -> _JoinLogic[V]:
+    def shim_builder(_now: datetime, resume_state: Optional[_JoinState]) -> _JoinLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
@@ -1019,8 +1019,8 @@ def join(
 def join_named(
     step_id: str,
     running: bool = False,
-    **sides: KeyedStream[V],
-) -> KeyedStream[Dict[str, V]]:
+    **sides: KeyedStream[Any],
+) -> KeyedStream[Dict[str, Any]]:
     """Gather together the value for a key on multiple named streams.
 
     Args:
@@ -1043,9 +1043,7 @@ def join_named(
     """
     names = list(sides.keys())
 
-    def shim_builder(
-        _now: datetime, resume_state: Optional[_JoinState[V]]
-    ) -> _JoinLogic[V]:
+    def shim_builder(_now: datetime, resume_state: Optional[_JoinState]) -> _JoinLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
