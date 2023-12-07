@@ -118,7 +118,7 @@ class Operator:
 
     step_name: str
     step_id: str
-    substeps: List["Operator"]
+    substeps: List[Self]
     ups_names: ClassVar[List[str]]
     dwn_names: ClassVar[List[str]]
 
@@ -142,7 +142,7 @@ class _HasScope(Protocol):
     def _get_scopes(self) -> Iterable[_Scope]:
         ...
 
-    def _with_scope(self, scope: _Scope):
+    def _with_scope(self, scope: _Scope) -> Self:
         ...
 
 
@@ -212,7 +212,7 @@ class Dataflow:
     def _get_scopes(self) -> Iterable[_Scope]:
         return [self._scope]
 
-    def _with_scope(self, scope: _Scope) -> "Dataflow":
+    def _with_scope(self, scope: _Scope) -> Self:
         return dataclasses.replace(self, _scope=scope)
 
     def _to_ref(self, _port_id: str) -> DataflowId:
@@ -251,7 +251,7 @@ class Stream(Generic[X_co]):
     def _get_scopes(self) -> Iterable[_Scope]:
         return [self._scope]
 
-    def _with_scope(self, scope: _Scope) -> "Stream[X_co]":
+    def _with_scope(self, scope: _Scope) -> Self:
         return dataclasses.replace(self, _scope=scope)
 
     def _to_ref(self, ref_id: str) -> SinglePort:
@@ -266,16 +266,16 @@ class Stream(Generic[X_co]):
         return tuple(obj.streams.values())
 
     @staticmethod
-    def _from_kwargs(kwargs: Dict[str, "Stream[X_co]"]) -> "_MultiStream[str]":
+    def _from_kwargs(kwargs: Dict[str, "Stream[Any]"]) -> "_MultiStream[str]":
         return _MultiStream(kwargs)
 
     @staticmethod
-    def _into_kwargs(obj: "_MultiStream[str]") -> Dict[str, "Stream[X_co]"]:
+    def _into_kwargs(obj: "_MultiStream[str]") -> Dict[str, "Stream[Any]"]:
         return dict(obj.streams)
 
     def then(
         self,
-        op_fn: Callable[Concatenate[str, "Stream[X_co]", P], R],
+        op_fn: Callable[Concatenate[str, Self, P], R],
         step_id: str,
         *args: P.args,
         **kwargs: P.kwargs,
