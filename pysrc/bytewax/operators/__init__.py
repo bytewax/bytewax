@@ -77,7 +77,9 @@ def branch(
     >>> from bytewax.testing import run_main, TestingSource
     >>> flow = Dataflow("branch_eg")
     >>> nums = op.input("nums", flow, TestingSource([1, 2, 3, 4, 5]))
-    >>> evens, odds = op.branch("even_odd", nums, lambda x: x % 2 == 0)
+    >>> b_out = op.branch("even_odd", nums, lambda x: x % 2 == 0)
+    >>> evens = b_out.trues
+    >>> odds = b_out.falses
     >>> _ = op.inspect("evens", evens)
     >>> _ = op.inspect("odds", odds)
     >>> run_main(flow)
