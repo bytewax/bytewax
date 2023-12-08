@@ -13,34 +13,55 @@ Install `perf` on Ubuntu with:
 sudo apt install linux-tools-common
 ```
 
-You will also need the debug symbols for the Python interpreter for
-call stack reconstruction. Install the same version as Python you
-have; this will install the latest, but there are specific versioned
-ones, e.g. `python3.9-dbg`.
-
-```bash
-sudo apt install python3-dbg
-```
-
 We'll also be using Hotspot to visualize the flame graphs.
 
 ```bash
 sudo apt install hotspot
 ```
 
+Python must be compiled with the appropriate options to be able to
+reconstruct call stacks. This is easiest done via
+[`pyenv`](https://github.com/pyenv/pyenv).
+
+```bash
+curl https://pyenv.run | bash
+```
+
 ## 1. Compile Correctly
+
+### Python
+
+First let's compile Python with the appropriate flags.
+
+```bash
+PYTHON_CONFIGURE_OPTS="--enable-optimizations --with-lto" PYTHON_CFLAGS="-gdwarf -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer" pyenv install 3.12.0
+```
+
+* `--enable-optimizations` and `--with-lto` give us a "release" build.
+  This makes the compile quite long; you can leave this out but it
+  will change the timings of the resulting dataflow slightly.
+
+* `-gdwarf` adds in debugging symbols.
+
+* `-fno-omit-frame-pointer` and `-mno-omit-leaf-frame-pointer` helps
+  call stack recreation.
+
+I encourage using Python 3.12+ because it includes features to see
+Python functions in the call stack.
+
+### Bytewax
 
 The performance characteristics of the library changes drastically
 when compiled in **release** mode, so before doing any profiling /
 benchmarking, we need to ensure we compile in that mode.
 
-We still need to retain relevant debugging info in the object file,
-though. `-g` enables that and `-C force-frame-pointers=yes` helps with
-the ability to reconstruct call stacks.
-
 ```bash
-maturin develop --release -- -g -C force-frame-pointers=yes
+RUSTFLAGS="-C debuginfo=1 -C force-frame-pointers" maturin develop --release
 ```
+
+* `-C debuginfo=1` adds enough debug info to name functions.
+
+* `-C force-frame-pointers` helps call stack recreation.
 
 ## 2. Profile Execution
 
@@ -48,12 +69,12 @@ We can now use [`perf`](https://www.brendangregg.com/perf.html) to
 profile an execution of a dataflow:
 
 ```bash
-perf record -F 999 --sample-cpu --call-graph dwarf --aio -- python example_dataflow.py
+perf record -F max --sample-cpu --call-graph=dwarf --aio -- python -X perf -m bytewax example_dataflow
 ```
 
 This will write `./perf.data` for later analysis.
 
-* `-F 999` says to sample the call stack at almost 1000 Hz.
+* `-F max` says to sample the call stack very fast.
 
 * `--sample-cpu` says to record which CPU was running each thread
   during sampling.
@@ -66,10 +87,13 @@ This will write `./perf.data` for later analysis.
 * You can also use a `-p $PID` flag to profile an already running
   process.
 
-As far as I can tell, it does not improve call stack reconstruction to
-run the debug build of the interpreter when profiling (`python3d` vs
-`python3`), we just need the debug symbols package installed. The
-debug interpreter is slower, though.
+* `-X perf` enables the [support for `perf`
+  trampolines](https://docs.python.org/3/howto/perf_profiling.html) so
+  you can see (some of the) Python call stack in the flamegraphs. This
+  only works with Python 3.12+, so leave it out if you're profiling
+  and older version. It appears that Python function calls performed
+  directly from PyO3 are sometimes missing, so don't expect perfect
+  vision, but this still helps.
 
 ## 3. Generate Flame Graphs
 
@@ -96,32 +120,3 @@ It'll help to select the actual Timely worker threads for
 analysis. It'll be the one that has the most solid orange bar in the
 timeline at the bottom of the window since almost all the work is
 occurring in it. Right click it and choose "Filter In On Thread".
-
-## Further Work
-
-Looks like one day we can use [Python's upcoming `perf`
-support](https://docs.python.org/3.12/howto/perf_profiling.html) to be
-able to see the Python call stack as well.
-
-One thing that does improve the fidelity of the call stack
-reconstruction more (giving you 10% fewer "mystery stacks") is to use
-a Python interpreter you compile with `-fno-omit-frame-pointer`.
-
-```bash
-mkdir $HOME/dbgpython
-git clone https://github.com/python/cpython.git
-cd cpython
-git checkout v3.10.7
-CFLAGS='-fno-omit-frame-pointer' ./configure --enable-optimizations --with-lto --prefix $HOME/dbgpython
-make
-make test
-make install
-```
-
-Then you can use this interpreter for a virtualenv:
-
-```bash
-$HOME/dbgpython/bin/python3.10 -m venv .venv
-```
-
-Then you can install Maturin and build Bytewax as above.
