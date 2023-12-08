@@ -27,7 +27,7 @@ from typing import (
     runtime_checkable,
 )
 
-from typing_extensions import Concatenate, ParamSpec
+from typing_extensions import Concatenate, ParamSpec, Self
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -118,7 +118,7 @@ class Operator:
 
     step_name: str
     step_id: str
-    substeps: List["Operator"]
+    substeps: List[Self]
     ups_names: ClassVar[List[str]]
     dwn_names: ClassVar[List[str]]
 
@@ -142,7 +142,7 @@ class _HasScope(Protocol):
     def _get_scopes(self) -> Iterable[_Scope]:
         ...
 
-    def _with_scope(self, scope: _Scope):
+    def _with_scope(self, scope: _Scope) -> Self:
         ...
 
 
@@ -212,7 +212,7 @@ class Dataflow:
     def _get_scopes(self) -> Iterable[_Scope]:
         return [self._scope]
 
-    def _with_scope(self, scope: _Scope) -> "Dataflow":
+    def _with_scope(self, scope: _Scope) -> Self:
         return dataclasses.replace(self, _scope=scope)
 
     def _to_ref(self, _port_id: str) -> DataflowId:
@@ -251,31 +251,31 @@ class Stream(Generic[X_co]):
     def _get_scopes(self) -> Iterable[_Scope]:
         return [self._scope]
 
-    def _with_scope(self, scope: _Scope) -> "Stream[X_co]":
+    def _with_scope(self, scope: _Scope) -> Self:
         return dataclasses.replace(self, _scope=scope)
 
     def _to_ref(self, ref_id: str) -> SinglePort:
         return SinglePort(ref_id, self.stream_id)
 
     @staticmethod
-    def _from_args(args: Tuple) -> "MultiStream[int, X_co]":
-        return MultiStream({i: stream for i, stream in enumerate(args)})
+    def _from_args(args: Tuple) -> "_MultiStream[int]":
+        return _MultiStream({i: stream for i, stream in enumerate(args)})
 
     @staticmethod
-    def _into_args(obj: "MultiStream[int, X_co]") -> Tuple:
+    def _into_args(obj: "_MultiStream[int]") -> Tuple:
         return tuple(obj.streams.values())
 
     @staticmethod
-    def _from_kwargs(kwargs: Dict[str, "Stream[X_co]"]) -> "MultiStream[str, X_co]":
-        return MultiStream(kwargs)
+    def _from_kwargs(kwargs: Dict[str, "Stream[Any]"]) -> "_MultiStream[str]":
+        return _MultiStream(kwargs)
 
     @staticmethod
-    def _into_kwargs(obj: "MultiStream[str, X_co]") -> Dict[str, "Stream[X_co]"]:
+    def _into_kwargs(obj: "_MultiStream[str]") -> Dict[str, "Stream[Any]"]:
         return dict(obj.streams)
 
     def then(
         self,
-        op_fn: Callable[Concatenate[str, "Stream[X_co]", P], R],
+        op_fn: Callable[Concatenate[str, Self, P], R],
         step_id: str,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -331,59 +331,20 @@ class Stream(Generic[X_co]):
 
 
 @dataclass(frozen=True)
-class MultiStream(Generic[K, X_co]):
+class _MultiStream(Generic[K]):
     """A bundle of named `Stream`s.
-
-    Operator functions take or return this if they want to create an
-    input or output port that can recieve multiple named streams
-    dynamically.
-
-    You will need to unpack the `Stream`s within in order to add
-    further steps:
-
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import run_main, TestingSource
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("multistream_eg")
-    >>> s = op.input("inp", flow, TestingSource(range(3)))
-    >>> a_s, b_s = op.key_split(
-    ...     "split1",
-    ...     s,
-    ...     lambda x: "KEY",
-    ...     lambda x: "a",
-    ...     lambda x: "b",
-    ... )
-
-    If you only have a single stream within, you can unpack using the
-    "unpack a single item tuple" syntax:
-
-    >>> (a_s,) = op.key_split(
-    ...     "split2",
-    ...     s,
-    ...     lambda x: "KEY",
-    ...     lambda x: "a",
-    ... )
 
     This is also created internally whenever a builder function takes
     or returns a `*args` of `Stream` or `**kwargs` of `Stream`s.
 
     """
 
-    streams: Dict[K, Stream[X_co]]
-
-    @property
-    def _scope(self):
-        msg = (
-            "`MultiStream` must be unpacked to use the `Stream` inside; "
-            """e.g. `(names,) = op.key_split("step_id", up, """
-            """lambda x: x["id"], lambda x: x["name"])`"""
-        )
-        raise TypeError(msg)
+    streams: Dict[K, Stream[Any]]
 
     def _get_scopes(self) -> Iterable[_Scope]:
         return (stream._scope for stream in self.streams.values())
 
-    def _with_scope(self, scope: _Scope) -> "MultiStream[K, X_co]":
+    def _with_scope(self, scope: _Scope) -> Self:
         streams = {
             name: stream._with_scope(scope) for name, stream in self.streams.items()
         }
@@ -394,13 +355,6 @@ class MultiStream(Generic[K, X_co]):
             port_id,
             {name: stream.stream_id for name, stream in self.streams.items()},
         )
-
-    def __iter__(self):
-        return iter(self.streams.values())
-
-
-ArgsMultiStream = MultiStream[int, X_co]
-KwargsMultiStream = MultiStream[str, X_co]
 
 
 def _norm_type_hints(obj) -> Dict[str, Type]:
@@ -449,7 +403,7 @@ def _gen_out_fields(_sig: Signature, sig_types: Dict[str, Type]) -> Dict[str, Ty
     out_typ = sig_types.get("return", object)
     # A single `Stream` is stored by convention in a field named
     # "down".
-    if issubclass(out_typ, Stream) or issubclass(out_typ, MultiStream):
+    if issubclass(out_typ, Stream) or issubclass(out_typ, _MultiStream):
         out_fields["down"] = out_typ
     # A `None` return value doesn't store any field.
     elif issubclass(out_typ, type(None)):  # type: ignore
@@ -647,7 +601,7 @@ def _gen_op_fn(
         out = builder(*bound.args, **bound.kwargs)
 
         # Now unwrap output values into the cls.
-        if isinstance(out, Stream) or isinstance(out, MultiStream):
+        if isinstance(out, Stream) or isinstance(out, _MultiStream):
             cls_vals["down"] = out
         elif isinstance(out, type(None)):
             pass

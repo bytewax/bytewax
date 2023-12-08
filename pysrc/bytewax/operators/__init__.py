@@ -26,10 +26,10 @@ from typing import (
     overload,
 )
 
+from typing_extensions import Self
+
 from bytewax.dataflow import (
-    ArgsMultiStream,
     Dataflow,
-    MultiStream,
     Stream,
     f_repr,
     operator,
@@ -64,9 +64,6 @@ class BranchOut(Generic[X]):
     trues: Stream[X]
     falses: Stream[X]
 
-    def __iter__(self):
-        return iter((self.trues, self.falses))
-
 
 @operator(_core=True)
 def branch(
@@ -80,7 +77,9 @@ def branch(
     >>> from bytewax.testing import run_main, TestingSource
     >>> flow = Dataflow("branch_eg")
     >>> nums = op.input("nums", flow, TestingSource([1, 2, 3, 4, 5]))
-    >>> evens, odds = op.branch("even_odd", nums, lambda x: x % 2 == 0)
+    >>> b_out = op.branch("even_odd", nums, lambda x: x % 2 == 0)
+    >>> evens = b_out.trues
+    >>> odds = b_out.falses
     >>> _ = op.inspect("evens", evens)
     >>> _ = op.inspect("odds", odds)
     >>> run_main(flow)
@@ -891,17 +890,17 @@ def inspect(
 
 
 @dataclass
-class _JoinState(Generic[V]):
-    seen: Dict[str, List[V]]
+class _JoinState:
+    seen: Dict[str, List[Any]]
 
     @classmethod
-    def for_names(cls, names: List[str]) -> "_JoinState[V]":
+    def for_names(cls, names: List[str]) -> Self:
         return cls({name: [] for name in names})
 
-    def set_val(self, name: str, value: V) -> None:
+    def set_val(self, name: str, value: Any) -> None:
         self.seen[name] = [value]
 
-    def add_val(self, name: str, value: V) -> None:
+    def add_val(self, name: str, value: Any) -> None:
         self.seen[name].append(value)
 
     def is_set(self, name: str) -> bool:
@@ -916,7 +915,7 @@ class _JoinState(Generic[V]):
             itertools.product(*(vals if len(vals) > 0 else [empty] for vals in values))
         )
 
-    def asdicts(self) -> List[Dict[str, V]]:
+    def asdicts(self) -> List[Dict[str, Any]]:
         EMPTY = object()
         ts = self.astuples(empty=EMPTY)
         dicts = []
@@ -928,14 +927,14 @@ class _JoinState(Generic[V]):
 
 
 @dataclass
-class _JoinLogic(UnaryLogic[Tuple[str, V], _JoinState[V], _JoinState[V]]):
+class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
     step_id: str
     running: bool
-    state: _JoinState[V]
+    state: _JoinState
 
     def on_item(
-        self, _now: datetime, name_value: Tuple[str, V]
-    ) -> Tuple[List[_JoinState[V]], bool]:
+        self, _now: datetime, name_value: Tuple[str, Any]
+    ) -> Tuple[List[_JoinState], bool]:
         name, value = name_value
 
         self.state.set_val(name, value)
@@ -949,24 +948,24 @@ class _JoinLogic(UnaryLogic[Tuple[str, V], _JoinState[V], _JoinState[V]]):
             else:
                 return ([], UnaryLogic.RETAIN)
 
-    def on_notify(self, _s: datetime) -> Tuple[List[_JoinState[V]], bool]:
+    def on_notify(self, _s: datetime) -> Tuple[List[_JoinState], bool]:
         return ([], UnaryLogic.RETAIN)
 
-    def on_eof(self) -> Tuple[List[_JoinState[V]], bool]:
+    def on_eof(self) -> Tuple[List[_JoinState], bool]:
         return ([], UnaryLogic.RETAIN)
 
     def notify_at(self) -> Optional[datetime]:
         return None
 
-    def snapshot(self) -> _JoinState[V]:
+    def snapshot(self) -> _JoinState:
         return copy.deepcopy(self.state)
 
 
 @operator
 def _join_name_merge(
     step_id: str,
-    **named_ups: KeyedStream[V],
-) -> KeyedStream[Tuple[str, V]]:
+    **named_ups: KeyedStream[Any],
+) -> KeyedStream[Tuple[str, Any]]:
     with_names = [
         # Horrible mess, see
         # https://docs.astral.sh/ruff/rules/function-uses-loop-variable/
@@ -979,7 +978,7 @@ def _join_name_merge(
 @operator
 def join(
     step_id: str,
-    *sides: KeyedStream[V],
+    *sides: KeyedStream[Any],
     running: bool = False,
 ) -> KeyedStream[Tuple]:
     """Gather together the value for a key on multiple streams.
@@ -1004,9 +1003,7 @@ def join(
     named_sides = dict((str(i), s) for i, s in enumerate(sides))
     names = list(named_sides.keys())
 
-    def shim_builder(
-        _now: datetime, resume_state: Optional[_JoinState[V]]
-    ) -> _JoinLogic[V]:
+    def shim_builder(_now: datetime, resume_state: Optional[_JoinState]) -> _JoinLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
@@ -1021,8 +1018,8 @@ def join(
 def join_named(
     step_id: str,
     running: bool = False,
-    **sides: KeyedStream[V],
-) -> KeyedStream[Dict[str, V]]:
+    **sides: KeyedStream[Any],
+) -> KeyedStream[Dict[str, Any]]:
     """Gather together the value for a key on multiple named streams.
 
     Args:
@@ -1045,9 +1042,7 @@ def join_named(
     """
     names = list(sides.keys())
 
-    def shim_builder(
-        _now: datetime, resume_state: Optional[_JoinState[V]]
-    ) -> _JoinLogic[V]:
+    def shim_builder(_now: datetime, resume_state: Optional[_JoinState]) -> _JoinLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
@@ -1092,43 +1087,6 @@ def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -> KeyedStream[
         return (k, x)
 
     return map("map", up, shim_mapper)
-
-
-@operator
-def key_split(
-    step_id: str,
-    up: Stream[X],
-    key: Callable[[X], str],
-    *values: Callable[[X], V],
-) -> ArgsMultiStream[Tuple[str, V]]:
-    """Split objects apart into a separate stream for each field.
-
-    This allows you to use all the keyed operators that only are
-    methods on `KeyedStream`.
-
-    Args:
-        step_id: Unique ID.
-
-        up: Stream.
-
-        key: Called on each item and should return the key for that
-            item.
-
-        *values: A "field getter" which
-
-    Returns:
-        A set of streams of 2-tuples of `(key, value)` AKA a keyed
-        streams. The keys come from the return value of the `key`
-        function; the return value of each `values` function will be
-        the value.
-
-    """
-    keyed_up = key_on("key", up, key)
-    streams = {
-        i: map_value(f"value_{str(i)}", keyed_up, value)
-        for i, value in enumerate(values)
-    }
-    return MultiStream(streams)
 
 
 @operator

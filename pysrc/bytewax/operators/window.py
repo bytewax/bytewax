@@ -162,7 +162,7 @@ def collect_window(
     """
     collector = _get_collector(into)
 
-    return fold_window("fold_window", up, clock, windower, into, collector)
+    return fold_window("fold_window", up, clock, windower, lambda: into(), collector)
 
 
 @operator
@@ -234,9 +234,7 @@ def fold_window(
     return Stream(f"{up._scope.parent_id}.down", up._scope)
 
 
-def _join_window_folder(
-    state: _JoinState[V], name_value: Tuple[str, V]
-) -> _JoinState[V]:
+def _join_window_folder(state: _JoinState, name_value: Tuple[str, Any]) -> _JoinState:
     name, value = name_value
     state.add_val(name, value)
     return state
@@ -247,7 +245,7 @@ def join_window(
     step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
-    *sides: KeyedStream[V],
+    *sides: KeyedStream[Any],
 ) -> KeyedStream[Tuple]:
     """Gather together the value for a key on multiple streams.
 
@@ -270,7 +268,7 @@ def join_window(
 
     merged = op._join_name_merge("add_names", **named_sides)
 
-    def builder() -> _JoinState[V]:
+    def builder() -> _JoinState:
         return _JoinState.for_names(names)
 
     joined = fold_window(
@@ -289,8 +287,8 @@ def join_window_named(
     step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
-    **sides: KeyedStream[V],
-) -> KeyedStream[Dict[str, V]]:
+    **sides: KeyedStream[Any],
+) -> KeyedStream[Dict[str, Any]]:
     """Gather together the value for a key on multiple named streams.
 
     Args:
@@ -312,7 +310,7 @@ def join_window_named(
 
     merged = op._join_name_merge("add_names", **sides)
 
-    def builder() -> _JoinState[V]:
+    def builder() -> _JoinState:
         return _JoinState.for_names(names)
 
     joined = fold_window(
