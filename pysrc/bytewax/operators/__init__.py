@@ -487,10 +487,10 @@ class _BatchLogic(UnaryLogic[V, List[V], _BatchState[V]]):
     batch_size: int
     state: _BatchState[V]
 
-    def on_item(self, now: datetime, v: V) -> Tuple[List[List[V]], bool]:
+    def on_item(self, now: datetime, value: V) -> Tuple[List[List[V]], bool]:
         self.state.timeout_at = now + self.timeout
 
-        self.state.acc.append(v)
+        self.state.acc.append(value)
         if len(self.state.acc) >= self.batch_size:
             # No need to deepcopy because we are discarding the state.
             return ([self.state.acc], UnaryLogic.DISCARD)
@@ -788,11 +788,11 @@ class _FoldFinalLogic(UnaryLogic[V, S, S]):
     folder: Callable[[S, V], S]
     state: S
 
-    def on_item(self, _now: datetime, v: V) -> Tuple[List[S], bool]:
-        self.state = self.folder(self.state, v)
+    def on_item(self, now: datetime, value: V) -> Tuple[List[S], bool]:
+        self.state = self.folder(self.state, value)
         return ([], UnaryLogic.RETAIN)
 
-    def on_notify(self, _s: datetime) -> Tuple[List[S], bool]:
+    def on_notify(self, sched: datetime) -> Tuple[List[S], bool]:
         return ([], UnaryLogic.RETAIN)
 
     def on_eof(self) -> Tuple[List[S], bool]:
@@ -933,9 +933,9 @@ class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
     state: _JoinState
 
     def on_item(
-        self, _now: datetime, name_value: Tuple[str, Any]
+        self, now: datetime, value: Tuple[str, Any]
     ) -> Tuple[List[_JoinState], bool]:
-        name, value = name_value
+        name, value = value
 
         self.state.set_val(name, value)
 
@@ -948,7 +948,7 @@ class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
             else:
                 return ([], UnaryLogic.RETAIN)
 
-    def on_notify(self, _s: datetime) -> Tuple[List[_JoinState], bool]:
+    def on_notify(self, sched: datetime) -> Tuple[List[_JoinState], bool]:
         return ([], UnaryLogic.RETAIN)
 
     def on_eof(self) -> Tuple[List[_JoinState], bool]:
@@ -1259,7 +1259,7 @@ class _RaisePartition(StatelessSinkPartition[Any]):
 class _RaiseSink(DynamicSink[Any]):
     step_id: str
 
-    def build(self, _worker_index: int, _worker_count: int) -> _RaisePartition:
+    def build(self, worker_index: int, worker_count: int) -> _RaisePartition:
         return _RaisePartition(self.step_id)
 
 
@@ -1321,8 +1321,8 @@ class _StatefulMapLogic(UnaryLogic[V, W, S]):
     mapper: Callable[[S, V], Tuple[Optional[S], W]]
     state: S
 
-    def on_item(self, _now: datetime, v: V) -> Tuple[List[W], bool]:
-        res = self.mapper(self.state, v)
+    def on_item(self, now: datetime, value: V) -> Tuple[List[W], bool]:
+        res = self.mapper(self.state, value)
         try:
             s, w = res
         except TypeError as ex:
@@ -1341,7 +1341,7 @@ class _StatefulMapLogic(UnaryLogic[V, W, S]):
             self.state = s
             return ([w], UnaryLogic.RETAIN)
 
-    def on_notify(self, _s: datetime) -> Tuple[List[W], bool]:
+    def on_notify(self, sched: datetime) -> Tuple[List[W], bool]:
         return ([], UnaryLogic.RETAIN)
 
     def on_eof(self) -> Tuple[List[W], bool]:

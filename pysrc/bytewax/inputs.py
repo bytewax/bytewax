@@ -8,12 +8,10 @@ If you want pre-built connectors for various external systems, see
 import asyncio
 import queue
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import islice
 from typing import (
-    Any,
     Callable,
     Generic,
     Iterable,
@@ -23,6 +21,8 @@ from typing import (
     Type,
     TypeVar,
 )
+
+from typing_extensions import AsyncIterable
 
 from .bytewax import AbortExecution  # type: ignore[import]
 
@@ -308,7 +308,7 @@ class _SimplePollingPartition(StatefulSourcePartition[X, None]):
         else:
             self._next_awake = now
 
-    def next_batch(self, _sched: datetime) -> List[X]:
+    def next_batch(self, sched: datetime) -> List[X]:
         try:
             item = self._getter()
             self._next_awake += self._interval
@@ -385,7 +385,7 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
         return ["singleton"]
 
     def build_part(
-        self, now: datetime, _for_part: str, _resume_state: Optional[None]
+        self, now: datetime, for_part: str, resume_state: Optional[None]
     ) -> _SimplePollingPartition[X]:
         """See ABC docstring."""
         return _SimplePollingPartition(
@@ -458,7 +458,7 @@ def batch_getter(
 
     """
     while True:
-        batch: List[Any] = []
+        batch = []
         while len(batch) < batch_size:
             try:
                 item = getter()
@@ -498,7 +498,7 @@ def batch_getter_ex(
 
     """
     while True:
-        batch: List[Any] = []
+        batch = []
         while len(batch) < batch_size:
             try:
                 item = getter()
@@ -512,11 +512,11 @@ def batch_getter_ex(
 
 
 def batch_async(
-    aib: AsyncIterable,
+    aib: AsyncIterable[X],
     timeout: timedelta,
     batch_size: int,
     loop=None,
-) -> Iterator[List[Any]]:
+) -> Iterator[List[X]]:
     """Batch an async iterable synchronously up to a timeout.
 
     This allows using an async iterator as an input source. The
@@ -556,7 +556,11 @@ def batch_async(
         # Only try to gather this many items.
         for _ in range(batch_size):
             if task is None:
-                task = loop.create_task(ait.__anext__())
+
+                async def coro():
+                    return await ait.__anext__()
+
+                task = loop.create_task(coro())
 
             try:
                 # Prevent the `wait_for` cancellation from

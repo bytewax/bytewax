@@ -63,7 +63,7 @@ class _KafkaSourcePartition(
         self._batch_size = batch_size
         self._eof = False
 
-    def next_batch(self, _sched: datetime) -> List[Tuple[bytes, bytes]]:
+    def next_batch(self, sched: datetime) -> List[Tuple[bytes, bytes]]:
         if self._eof:
             raise StopIteration()
 
@@ -173,7 +173,7 @@ class KafkaSource(FixedPartitionedSource[Tuple[bytes, bytes], Optional[int]]):
         return list(_list_parts(client, self._topics))
 
     def build_part(
-        self, _now: datetime, for_part: str, resume_state: Optional[int]
+        self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -> _KafkaSourcePartition:
         """See ABC docstring."""
         part_idx, topic = for_part.split("-", 1)
@@ -211,9 +211,9 @@ class _KafkaSinkPartition(
         self._topic = topic
 
     def write_batch(
-        self, batch: List[Tuple[Union[str, bytes], Union[str, bytes]]]
+        self, items: List[Tuple[Union[str, bytes], Union[str, bytes]]]
     ) -> None:
-        for key, value in batch:
+        for key, value in items:
             self._producer.produce(self._topic, value, key)
             self._producer.poll(0)
         self._producer.flush()
@@ -259,7 +259,7 @@ class KafkaSink(DynamicSink[Tuple[Union[str, bytes], Union[str, bytes]]]):
         self._topic = topic
         self._add_config = {} if add_config is None else add_config
 
-    def build(self, _worker_index: int, _worker_count: int) -> _KafkaSinkPartition:
+    def build(self, worker_index: int, worker_count: int) -> _KafkaSinkPartition:
         """See ABC docstring."""
         config = {
             "bootstrap.servers": ",".join(self._brokers),

@@ -178,11 +178,11 @@ def _(port: RenderedPort) -> Dict:
 
 
 class _Encoder(json.JSONEncoder):
-    def default(self, obj):
+    def default(self, o):
         try:
-            return json_for(obj)
+            return json_for(o)
         except TypeError:
-            return super().default(obj)
+            return super().default(o)
 
 
 def to_json(flow: Dataflow) -> str:
