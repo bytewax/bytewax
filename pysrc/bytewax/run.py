@@ -230,9 +230,9 @@ def _create_arg_parser():
         "-s",
         "--snapshot-interval",
         type=_parse_timedelta,
-        default=timedelta(seconds=10),
+        default=timedelta(minutes=30),
         help="""System time duration in seconds to snapshot state for recovery;
-        defaults to 10 sec""",
+        defaults to 30 minutes""",
         action=_EnvDefault,
         envvar="BYTEWAX_SNAPSHOT_INTERVAL",
     )
@@ -240,10 +240,10 @@ def _create_arg_parser():
         "-b",
         "--backup-interval",
         type=_parse_timedelta,
-        default=timedelta(days=1),
+        default=timedelta(hours=1),
         help="""System time duration in seconds to keep extra state snapshots around;
         set this to the interval at which you are backing up recovery partitions;
-        defaults to 1 day""",
+        defaults to 1 hour""",
         action=_EnvDefault,
         envvar="BYTEWAX_RECOVERY_BACKUP_INTERVAL",
     )
