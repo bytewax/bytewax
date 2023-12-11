@@ -1151,11 +1151,12 @@ def map_value(
 
     """
 
-    def shim_mapper(v: V) -> List[W]:
+    def shim_mapper(k_v: Tuple[str, V]) -> Tuple[str, W]:
+        k, v = k_v
         w = mapper(v)
-        return [w]
+        return (k, w)
 
-    return flat_map_value("flat_map_value", up, shim_mapper)
+    return map("map", up, shim_mapper)
 
 
 @overload
