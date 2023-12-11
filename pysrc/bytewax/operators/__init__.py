@@ -393,7 +393,7 @@ class UnaryLogic(ABC, Generic[V, W, S]):
     DISCARD: bool = True
 
     @abstractmethod
-    def on_item(self, now: datetime, value: V) -> Tuple[List[W], bool]:
+    def on_item(self, now: datetime, value: V) -> Tuple[Iterable[W], bool]:
         """Called on each new upstream item.
 
         This will be called multiple times in a row if there are
@@ -413,7 +413,7 @@ class UnaryLogic(ABC, Generic[V, W, S]):
         ...
 
     @abstractmethod
-    def on_notify(self, sched: datetime) -> Tuple[List[W], bool]:
+    def on_notify(self, sched: datetime) -> Tuple[Iterable[W], bool]:
         """Called when the scheduled notification time has passed.
 
         Args:
@@ -428,7 +428,7 @@ class UnaryLogic(ABC, Generic[V, W, S]):
         ...
 
     @abstractmethod
-    def on_eof(self) -> Tuple[List[W], bool]:
+    def on_eof(self) -> Tuple[Iterable[W], bool]:
         """The upstream has no more items on this execution.
 
         This will only be called once per execution after `on_item` is
