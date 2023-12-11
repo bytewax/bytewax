@@ -69,7 +69,7 @@ We can now use [`perf`](https://www.brendangregg.com/perf.html) to
 profile an execution of a dataflow:
 
 ```bash
-perf record -F max --sample-cpu --call-graph=dwarf --aio -- python -X perf -m bytewax example_dataflow
+perf record -F max --sample-cpu --call-graph=dwarf --aio -- python -X perf -m bytewax.run example_dataflow
 ```
 
 This will write `./perf.data` for later analysis.
