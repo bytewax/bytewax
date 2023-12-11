@@ -170,16 +170,6 @@ where
                                     let mapper = mapper.as_ref(py);
 
                                     for item in items {
-                                        // SAFETY: See
-                                        // https://docs.rs/pyo3/latest/pyo3/marker/struct.Python.html#method.new_pool
-                                        // This is safe because we
-                                        // never reference the old
-                                        // `py` token and we are only
-                                        // having `PyObject` via
-                                        // `TdPyAny` leave this block.
-                                        let pool = unsafe { py.new_pool() };
-                                        let _py = pool.python();
-
                                         let item = PyObject::from(item);
 
                                         with_timer!(
@@ -465,16 +455,6 @@ where
                                     let mapper = mapper.as_ref(py);
 
                                     for in_item in items {
-                                        // SAFETY: See
-                                        // https://docs.rs/pyo3/latest/pyo3/marker/struct.Python.html#method.new_pool
-                                        // This is safe because we
-                                        // never reference the old
-                                        // `py` token and we are only
-                                        // having `PyObject` via
-                                        // `TdPyAny` leave this block.
-                                        let pool = unsafe { py.new_pool() };
-                                        let _py = pool.python();
-
                                         let in_item = PyObject::from(in_item);
 
                                         let out_item = with_timer!(
@@ -855,16 +835,6 @@ where
                                     let builder = builder.as_ref(py);
 
                                     for (worker, (key, value)) in items {
-                                        // SAFETY: See
-                                        // https://docs.rs/pyo3/latest/pyo3/marker/struct.Python.html#method.new_pool
-                                        // This is safe because we
-                                        // never reference the old
-                                        // `py` token and we are only
-                                        // having `PyObject` via
-                                        // `TdPyAny` leave this block.
-                                        let pool = unsafe { py.new_pool() };
-                                        let py = pool.python();
-
                                         let value = PyObject::from(value);
 
                                         assert!(worker == this_worker);
@@ -918,16 +888,6 @@ where
                             if !notify_keys.is_empty() {
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     for (key, sched) in notify_keys {
-                                        // SAFETY: See
-                                        // https://docs.rs/pyo3/latest/pyo3/marker/struct.Python.html#method.new_pool
-                                        // This is safe because we
-                                        // never reference the old
-                                        // `py` token and we are only
-                                        // having `PyObject` via
-                                        // `TdPyAny` leave this block.
-                                        let pool = unsafe { py.new_pool() };
-                                        let py = pool.python();
-
                                         // We should always have a
                                         // logic for anything in
                                         // `sched_cache`. If not, we
@@ -977,16 +937,6 @@ where
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     for (key, logic) in logics.iter() {
-                                        // SAFETY: See
-                                        // https://docs.rs/pyo3/latest/pyo3/marker/struct.Python.html#method.new_pool
-                                        // This is safe because we
-                                        // never reference the old
-                                        // `py` token and we are only
-                                        // having `PyObject` via
-                                        // `TdPyAny` leave this block.
-                                        let pool = unsafe { py.new_pool() };
-                                        let py = pool.python();
-
                                         let (output, is_complete) = with_timer!(
                                             on_eof_histogram,
                                             labels,
@@ -1022,16 +972,6 @@ where
                             if !awoken_keys_buffer.is_empty() {
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     for key in awoken_keys_buffer.iter() {
-                                        // SAFETY: See
-                                        // https://docs.rs/pyo3/latest/pyo3/marker/struct.Python.html#method.new_pool
-                                        // This is safe because we
-                                        // never reference the old
-                                        // `py` token and we are only
-                                        // having `PyObject` via
-                                        // `TdPyAny` leave this block.
-                                        let pool = unsafe { py.new_pool() };
-                                        let py = pool.python();
-
                                         // It's possible the logic was
                                         // discarded on a previous
                                         // activation but the epoch
@@ -1073,16 +1013,6 @@ where
                                     // `awoken_keys_buffer` since the
                                     // epoch is over.
                                     for key in std::mem::take(&mut awoken_keys_buffer) {
-                                        // SAFETY: See
-                                        // https://docs.rs/pyo3/latest/pyo3/marker/struct.Python.html#method.new_pool
-                                        // This is safe because we
-                                        // never reference the old
-                                        // `py` token and we are only
-                                        // having `PyObject` via
-                                        // `TdPyAny` leave this block.
-                                        let pool = unsafe { py.new_pool() };
-                                        let py = pool.python();
-
                                         let change = if let Some(logic) = logics.get(&key) {
                                             let state = with_timer!(
                                                 snapshot_histogram,
@@ -1114,17 +1044,6 @@ where
                                         let builder = builder.as_ref(py);
 
                                         for (worker, (key, change)) in loads {
-                                            // SAFETY: See
-                                            // https://docs.rs/pyo3/latest/pyo3/marker/struct.Python.html#method.new_pool
-                                            // This is safe because we
-                                            // never reference the old
-                                            // `py` token and we are
-                                            // only having `PyObject`
-                                            // via `TdPyAny` leave
-                                            // this block.
-                                            let pool = unsafe { py.new_pool() };
-                                            let py = pool.python();
-
                                             tracing::trace!(
                                                 "Got load for {key:?} during epoch {epoch:?}"
                                             );
