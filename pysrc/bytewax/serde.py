@@ -1,7 +1,7 @@
 """Serialization for recovery and transport."""
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, cast
 
 import jsonpickle
 
@@ -47,13 +47,14 @@ class JsonPickleSerde(Serde):
     """
 
     @staticmethod
-    def ser(obj):
+    def ser(obj: Any) -> str:
         """See ABC docstring."""
         # Enable `keys`, otherwise all __dict__ keys are coereced to
-        # strings, which might not be true in general.
-        return jsonpickle.encode(obj, keys=True)
+        # strings, which might not be true in general. `jsonpickle`
+        # isn't at typed library, so we have to cast here.
+        return cast(str, jsonpickle.encode(obj, keys=True))
 
     @staticmethod
-    def de(s):
+    def de(s: str) -> Any:
         """See ABC docstring."""
         return jsonpickle.decode(s, keys=True)

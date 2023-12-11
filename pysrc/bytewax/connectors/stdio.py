@@ -31,6 +31,6 @@ class StdOutSink(DynamicSink[Any]):
 
     """
 
-    def build(self, _worker_index: int, _worker_count: int) -> _PrintSinkPartition:
+    def build(self, worker_index: int, worker_count: int) -> _PrintSinkPartition:
         """See ABC docstring."""
         return _PrintSinkPartition()

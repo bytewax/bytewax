@@ -49,7 +49,7 @@ class _FileSourcePartition(StatefulSourcePartition[str, int]):
         it = map(_strip_n, _readlines(self._f))
         self._batcher = batch(it, batch_size)
 
-    def next_batch(self, _sched: datetime) -> List[str]:
+    def next_batch(self, sched: datetime) -> List[str]:
         return next(self._batcher)
 
     def snapshot(self) -> int:
@@ -130,10 +130,10 @@ class DirSource(FixedPartitionedSource[str, int]):
             return []
 
     def build_part(
-        self, _now: datetime, part_key: str, resume_state: Optional[int]
+        self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -> _FileSourcePartition:
         """See ABC docstring."""
-        _fs_id, for_path = part_key.split("::", 1)
+        _fs_id, for_path = for_part.split("::", 1)
         path = self._dir_path / for_path
         return _FileSourcePartition(path, self._batch_size, resume_state)
 
@@ -195,10 +195,10 @@ class FileSource(FixedPartitionedSource[str, int]):
             return []
 
     def build_part(
-        self, _now: datetime, part_key: str, resume_state: Optional[int]
+        self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -> _FileSourcePartition:
         """See ABC docstring."""
-        _fs_id, path = part_key.split("::", 1)
+        _fs_id, path = for_part.split("::", 1)
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert path == str(self._path), "Can't resume reading from different file"
@@ -221,7 +221,7 @@ class _CSVPartition(StatefulSourcePartition[Dict[str, str], int]):
             self._f.seek(resume_state)
         self._batcher = batch(reader, batch_size)
 
-    def next_batch(self, _sched: datetime) -> List[Dict[str, str]]:
+    def next_batch(self, sched: datetime) -> List[Dict[str, str]]:
         return next(self._batcher)
 
     def snapshot(self) -> int:
@@ -314,9 +314,9 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
         """Same logic as `FileSource.list_parts`."""
         return self._file_source.list_parts()
 
-    def build_part(self, _now: datetime, part_key: str, resume_state: Optional[Any]):
+    def build_part(self, now: datetime, for_part: str, resume_state: Optional[Any]):
         """See ABC docstring."""
-        _fs_id, path = part_key.split("::", 1)
+        _fs_id, path = for_part.split("::", 1)
         assert path == str(
             self._file_source._path
         ), "Can't resume reading from different file"
@@ -336,9 +336,9 @@ class _FileSinkPartition(StatefulSinkPartition[str, int]):
         self._f.truncate()
         self._end = end
 
-    def write_batch(self, items: List[str]) -> None:
-        for item in items:
-            self._f.write(item)
+    def write_batch(self, values: List[str]) -> None:
+        for value in values:
+            self._f.write(value)
             self._f.write(self._end)
         self._f.flush()
         os.fsync(self._f.fileno())

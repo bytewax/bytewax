@@ -20,7 +20,6 @@ from typing import (
     Iterable,
     List,
     Protocol,
-    Tuple,
     Type,
     TypeVar,
     overload,
@@ -152,25 +151,6 @@ class _ToRef(Protocol):
         ...
 
 
-@runtime_checkable
-class _AsArgs(Protocol):
-    @staticmethod
-    def _from_args(args: Tuple):
-        ...
-
-    @staticmethod
-    def _into_args(obj) -> Tuple:
-        ...
-
-    @staticmethod
-    def _from_kwargs(kwargs: Dict):
-        ...
-
-    @staticmethod
-    def _into_kwargs(obj) -> Dict:
-        ...
-
-
 def _rec_subclasses(cls):
     yield cls
     for subcls in cls.__subclasses__():
@@ -256,22 +236,6 @@ class Stream(Generic[X_co]):
 
     def _to_ref(self, ref_id: str) -> SinglePort:
         return SinglePort(ref_id, self.stream_id)
-
-    @staticmethod
-    def _from_args(args: Tuple) -> "_MultiStream[int]":
-        return _MultiStream({i: stream for i, stream in enumerate(args)})
-
-    @staticmethod
-    def _into_args(obj: "_MultiStream[int]") -> Tuple:
-        return tuple(obj.streams.values())
-
-    @staticmethod
-    def _from_kwargs(kwargs: Dict[str, "Stream[Any]"]) -> "_MultiStream[str]":
-        return _MultiStream(kwargs)
-
-    @staticmethod
-    def _into_kwargs(obj: "_MultiStream[str]") -> Dict[str, "Stream[Any]"]:
-        return dict(obj.streams)
 
     def then(
         self,
@@ -385,13 +349,11 @@ def _gen_inp_fields(sig: Signature, sig_types: Dict[str, Type]) -> Dict[str, Typ
         # argument type is. The most common use of this is `*ups:
         # Stream` will actually be stored as a single `MultiStream`,
         # rather than a `Tuple[Stream]`.
-        if issubclass(typ, _AsArgs):
+        if issubclass(typ, Stream):
             if param.kind == Parameter.VAR_POSITIONAL:
-                method_typs = _norm_type_hints(typ._from_args)
-                as_typ = method_typs.get("return", object)
+                as_typ = _MultiStream
             elif param.kind == Parameter.VAR_KEYWORD:
-                method_typs = _norm_type_hints(typ._from_kwargs)
-                as_typ = method_typs.get("return", object)
+                as_typ = _MultiStream
 
         inp_fields[name] = as_typ
 
@@ -525,32 +487,52 @@ def _gen_op_fn(
         try:
             bound = sig.bind(*args, **kwargs)
         except TypeError as ex:
-            msg = (
-                f"operator {cls.__name__!r} method called incorrectly; "
-                "see cause above"
-            )
+            msg = f"operator {cls.__name__!r} called incorrectly; see cause above"
             raise TypeError(msg) from ex
         bound.apply_defaults()
 
+        for name in cls.ups_names:
+            param = sig.parameters[name]
+            if param.kind == Parameter.VAR_POSITIONAL:
+                vals = bound.arguments[name]
+                desc = f"{name!r} *args all"
+            elif param.kind == Parameter.VAR_KEYWORD:
+                vals = bound.arguments[name].values()
+                desc = f"{name!r} **kwargs all"
+            else:
+                vals = [bound.arguments[name]]
+                desc = f"{name!r} argument"
+
+            for val in vals:
+                if not isinstance(val, Stream):
+                    msg = (
+                        f"{desc} must be a `Stream`; "
+                        f"got a {type(val)!r} instead; "
+                        "did you forget to unpack the result of an operator "
+                        "that returns multiple streams?"
+                    )
+                    raise TypeError(msg)
+
         step_id = bound.arguments["step_id"]
         if not isinstance(step_id, str):
-            msg = "'step_id' must be a string"
+            msg = "'step_id' must be a `str`"
             raise TypeError(msg)
         if "." in step_id:
             msg = "'step_id' can't contain any periods '.'"
             raise ValueError(msg)
 
-        # Pack *args and **kwargs into any special types.
+        # Pack `Stream`s of *args and **kwargs into the special type
+        # we can re-scope.
         for name, param in sig.parameters.items():
             val = bound.arguments[name]
             typ = sig_types.get(name, object)
-            if issubclass(typ, _AsArgs):
+            if issubclass(typ, Stream):
                 if param.kind == Parameter.VAR_POSITIONAL:
-                    bound.arguments[name] = typ._from_args(val)
+                    bound.arguments[name] = _MultiStream(dict(enumerate(val)))
                 elif param.kind == Parameter.VAR_KEYWORD:
-                    bound.arguments[name] = typ._from_kwargs(val)
+                    bound.arguments[name] = _MultiStream(val)
 
-        outer_scopes = set(
+        outer_scopes = frozenset(
             itertools.chain.from_iterable(
                 val._get_scopes()
                 for val in bound.arguments.values()
@@ -560,12 +542,15 @@ def _gen_op_fn(
         if len(outer_scopes) != 1:
             msg = (
                 "inconsistent stream scoping; "
-                f"found scopes {outer_scopes!r}; "
-                "possible nested `Stream` in arguments to this operator "
+                f"found multiple scopes {outer_scopes!r}; "
+                "expected one; "
+                "possible invalid operator definition; "
+                "might be nested `Stream` in arguments to this operator "
                 "or return value from previous operator; "
-                "see `bytewax.dataflow` module docstring for custom operator rules"
+                "see `bytewax.dataflow.operator` docstring for custom "
+                "operator rules"
             )
-            raise ValueError(msg)
+            raise AssertionError(msg)
         # Get the singular outer_scope.
         outer_scope = next(iter(outer_scopes))
         # Re-scope input arguments that have a scope so internal calls
@@ -591,11 +576,11 @@ def _gen_op_fn(
         for name, param in sig.parameters.items():
             val = bound.arguments[name]
             typ = sig_types.get(name, object)
-            if issubclass(typ, _AsArgs):
+            if issubclass(typ, Stream):
                 if param.kind == Parameter.VAR_POSITIONAL:
-                    bound.arguments[name] = typ._into_args(val)
+                    bound.arguments[name] = tuple(val.streams.values())
                 elif param.kind == Parameter.VAR_KEYWORD:
-                    bound.arguments[name] = typ._into_kwargs(val)
+                    bound.arguments[name] = dict(val.streams)
 
         # Now call the builder to cause sub-steps to be built.
         out = builder(*bound.args, **bound.kwargs)
@@ -625,13 +610,15 @@ def _gen_op_fn(
 
         # Check for ID clashes since this will cause streams to be
         # lost.
-        for existing_step in outer_scope.substeps:
-            if existing_step.step_id == step.step_id:
-                msg = (
-                    f"step {step.step_id!r} already exists; "
-                    "do you have two steps with the same ID?"
-                )
-                raise ValueError(msg)
+        existing_step_ids = frozenset(
+            existing_step.step_id for existing_step in outer_scope.substeps
+        )
+        if step.step_id in existing_step_ids:
+            msg = (
+                f"step {step.step_id!r} already exists; "
+                "do you have two steps with the same ID?"
+            )
+            raise ValueError(msg)
 
         # And store it in the outer scope.
         outer_scope.substeps.append(step)

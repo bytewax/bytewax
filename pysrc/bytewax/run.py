@@ -15,7 +15,6 @@ import ast
 import inspect
 import os
 import sys
-import traceback
 from datetime import timedelta
 from pathlib import Path
 
@@ -41,15 +40,11 @@ def _locate_dataflow(module_name, dataflow_name):
 
     try:
         __import__(module_name)
-    except ImportError:
+    except ImportError as ex:
         # Reraise the ImportError if it occurred within the imported module.
         # Determine this by checking whether the trace has a depth > 1.
-        if sys.exc_info()[2].tb_next:
-            msg = (
-                f"While importing {module_name!r}, an ImportError was raised:\n\n"
-                f"{traceback.format_exc()}"
-            )
-            raise ImportError(msg) from None
+        if ex.__traceback__ is not None:
+            raise
         else:
             msg = f"Could not import {module_name!r}."
             raise ImportError(msg) from None
@@ -79,7 +74,7 @@ def _locate_dataflow(module_name, dataflow_name):
         # Parse the positional and keyword arguments as literals.
         try:
             args = [ast.literal_eval(arg) for arg in expr.args]
-            kwargs = {kw.arg: ast.literal_eval(kw.value) for kw in expr.keywords}
+            kwargs = {str(kw.arg): ast.literal_eval(kw.value) for kw in expr.keywords}
         except ValueError:
             # literal_eval gives cryptic error messages, show a generic
             # message with the full expression instead.

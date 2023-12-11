@@ -66,7 +66,7 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
         ffwd_iter(self._it, self._start_idx)
         self._raise: Optional[Exception] = None
 
-    def next_batch(self, _sched: datetime) -> List[X]:
+    def next_batch(self, sched: datetime) -> List[X]:
         if self._raise is not None:
             raise self._raise
 
@@ -173,7 +173,7 @@ class TestingSource(FixedPartitionedSource[X, int]):
         return ["iterable"]
 
     def build_part(
-        self, _now: datetime, _for_key: str, resume_state: Optional[int]
+        self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -> _IterSourcePartition[X]:
         """See ABC docstring."""
         return _IterSourcePartition(self._ib, self._batch_size, resume_state)
@@ -207,7 +207,7 @@ class TestingSink(DynamicSink[X]):
         """
         self._ls = ls
 
-    def build(self, _worker_index: int, _worker_count: int) -> _ListSinkPartition[X]:
+    def build(self, worker_index: int, worker_count: int) -> _ListSinkPartition[X]:
         """See ABC docstring."""
         return _ListSinkPartition(self._ls)
 
