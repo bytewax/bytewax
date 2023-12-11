@@ -5,9 +5,9 @@ for installing bytewax in [Installing bytewax](/docs/articles/getting-started/in
 
 ## Imports
 
-Every good Python program starts with a few imports, so let's create those now.
+Our dataflow starts with a few imports, so let's create those now.
 
-``` python
+```python
 import bytewax.operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
@@ -16,47 +16,32 @@ from bytewax.testing import TestingSource
 
 ## Dataflow
 
-A Bytewax Dataflow can be understood as a program that takes items from one or more
-**Sources**, performs computation on them using **Operators**, and writes it's output to
-one or more **Sinks** as output.
+To begin, create a `bytewax.dataflow.Dataflow` instance in a variable named
+`flow`. This defines the empty dataflow we'll add steps to.
 
-To begin, we'll create our dataflow, and name it:
-
-``` python
+```python
 flow = Dataflow("a_simple_example")
 ```
 
-Storing the dataflow in a variable named `flow` will make it easier to run when we
-get to that step.
-
 ## Input
 
-Every Dataflow requires some input. For this basic example, we'll be using the `TestingSource`.
-TestingSources are useful for testing, and for local development, but should not be used
-in Production.
+Every Dataflow requires input. For this example, we'll use the `bytewax.operators.input`
+operator to create an initial stream of items. We'll start with an input source for testing
+that emits a list of static Python `int`s.
 
-To give our Dataflow input, we use the input **Operator** from our imports above.
 
-``` python
+```python
 inp = op.input("input", flow, TestingSource(range(10)))
 ```
 
-The `input` operator takes a few parameters: a name, the `Dataflow` we constructed above, and
-a `Source`. In our case, we're using the `TestingSource`, which takes a Python iterable to
-use for input.
-
-The `input` operator returns a `Stream` as it's return value, that we can use in subsequent
-steps.
-
 ## Operators
 
-Now that we have our input, let's perform some computation with it. To do that, we'll use
-one of the most common **Operators**: `map`.
+Each operator method will return a new stream with the results which you can
+call more operators on. Let's use the `bytewax.operators.map` operator to double
+each number; the `map` operator runs a function on each item and emits each
+result downstream.
 
-A `map` operation is a one-to-one transformation of input. It takes as arguments, a name,
-the input to transform, and a function to do the transformation.
-
-``` python
+```python
 def times_two(inp: int) -> int:
     return inp * 2
 
@@ -67,23 +52,24 @@ double = op.map("double", inp, times_two)
 The `map` operator returns a `Stream` of transformed values. If you are using mypy, you
 can see that the return type is a new `Stream` of transformed integers.
 
-A Bytewax Dataflow can have zero or more transformation steps, but for this example we'll
-just have one and move on to output.
-
 ## Output
 
-In this example, we'll be using `StdOutSink` as our output, which will write to STDOUT.
+Finally, let's add an `bytewax.operators.output` step. At least one
+`bytewax.operators.input` step and one `bytewax.operators.output` step
+are required on every dataflow.
 
-``` python
+```python
 op.output("out", double, StdOutSink())
 ```
 
-## The full program
+## Running a Bytewax dataflow
 
-Great, we have everything we need for our completed program, which for this example
-should be saved in a file called `basic.py`:
+When writing Bytewax Dataflows for production use, you should run your dataflow using the
+`bytewax.run` module. Let's see an example that does just that.
 
-``` python
+To begin, save the following code in a file called `basic.py`.
+
+```python
 import bytewax.operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
@@ -102,11 +88,10 @@ double = op.map("double", inp, times_two)
 
 op.output("out", double, StdOutSink())
 ```
+To run the dataflow, use the following command:
 
-Now that we have all of the component parts, we can run our dataflow:
-
-``` bash
-python -m bytewax.run basic
+```bash
+> python -m bytewax.run basic
 0
 2
 4
@@ -120,6 +105,13 @@ python -m bytewax.run basic
 ```
 
 The first argument passed to the bytewax.run module is a dataflow getter string.
-The dataflow getter string uses the format <dataflow-module>:<dataflow-getter>.
-By default, the `dataflow-getter` part of the string uses the variable `flow`,
-and as a result, we don't need to supply it.
+
+The dataflow getter string uses the format `<dataflow-module>:<dataflow-getter>`.
+By default, the `dataflow-getter` part of the string defaults to using
+the variable `flow`. Because we saved our `Dataflow` definition in a variable
+named `flow` we don't need to supply it when running our dataflow from the
+command line.
+
+Note that just executing the Python file will _not run it!_ You must
+use the `bytewax.run` script and it's options so it can setup the
+runtime correctly.
