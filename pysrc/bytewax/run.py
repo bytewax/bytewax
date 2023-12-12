@@ -230,9 +230,9 @@ def _create_arg_parser():
         "-s",
         "--snapshot-interval",
         type=_parse_timedelta,
-        default=timedelta(minutes=30),
         help="""System time duration in seconds to snapshot state for recovery;
-        defaults to 30 minutes""",
+        on resume, dataflow might need to rewind and replay all the data processed
+        in one of these intervals""",
         action=_EnvDefault,
         envvar="BYTEWAX_SNAPSHOT_INTERVAL",
     )
@@ -240,10 +240,8 @@ def _create_arg_parser():
         "-b",
         "--backup-interval",
         type=_parse_timedelta,
-        default=timedelta(hours=1),
         help="""System time duration in seconds to keep extra state snapshots around;
-        set this to the interval at which you are backing up recovery partitions;
-        defaults to 1 hour""",
+        set this to the interval at which you are backing up recovery partitions""",
         action=_EnvDefault,
         envvar="BYTEWAX_RECOVERY_BACKUP_INTERVAL",
     )
@@ -321,14 +319,20 @@ def _parse_args():
 
 if __name__ == "__main__":
     kwargs = vars(_parse_args())
-    kwargs["epoch_interval"] = kwargs.pop("snapshot_interval")
+    snapshot_interval = kwargs.pop("snapshot_interval")
 
     recovery_directory, backup_interval = kwargs.pop("recovery_directory"), kwargs.pop(
         "backup_interval"
     )
     kwargs["recovery_config"] = None
     if recovery_directory is not None:
+        kwargs["epoch_interval"] = snapshot_interval
         kwargs["recovery_config"] = RecoveryConfig(recovery_directory, backup_interval)
+    else:
+        # Default epoch interval if there is no recovery setup. Since
+        # there's no recovery, this needs not be coordinated with
+        # anything else.
+        kwargs["epoch_interval"] = snapshot_interval or timedelta(seconds=10)
 
     # Prepare addresses
     addresses = kwargs.pop("addresses")
