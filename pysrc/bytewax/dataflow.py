@@ -151,12 +151,6 @@ class _ToRef(Protocol):
         ...
 
 
-def _rec_subclasses(cls):
-    yield cls
-    for subcls in cls.__subclasses__():
-        yield from _rec_subclasses(subcls)
-
-
 @dataclass(frozen=True)
 class DataflowId:
     """Unique ID of a dataflow."""
