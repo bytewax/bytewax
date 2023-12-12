@@ -52,37 +52,11 @@ def test_to_json_linear():
                         "typ": "RenderedPort",
                         "port_name": "down",
                         "port_id": "test_df.add_one.down",
-                        "from_port_ids": ["test_df.add_one.flat_map.down"],
-                        "from_stream_ids": ["test_df.add_one.flat_map.down"],
+                        "from_port_ids": [],
+                        "from_stream_ids": [],
                     }
                 ],
-                "substeps": [
-                    {
-                        "typ": "RenderedOperator",
-                        "op_type": "flat_map",
-                        "step_name": "flat_map",
-                        "step_id": "test_df.add_one.flat_map",
-                        "inp_ports": [
-                            {
-                                "typ": "RenderedPort",
-                                "port_name": "up",
-                                "port_id": "test_df.add_one.flat_map.up",
-                                "from_port_ids": ["test_df.add_one.up"],
-                                "from_stream_ids": ["test_df.inp.down"],
-                            }
-                        ],
-                        "out_ports": [
-                            {
-                                "typ": "RenderedPort",
-                                "port_name": "down",
-                                "port_id": "test_df.add_one.flat_map.down",
-                                "from_port_ids": [],
-                                "from_stream_ids": [],
-                            }
-                        ],
-                        "substeps": [],
-                    }
-                ],
+                "substeps": [],
             },
             {
                 "typ": "RenderedOperator",
@@ -95,7 +69,7 @@ def test_to_json_linear():
                         "port_name": "up",
                         "port_id": "test_df.out.up",
                         "from_port_ids": ["test_df.add_one.down"],
-                        "from_stream_ids": ["test_df.add_one.flat_map.down"],
+                        "from_stream_ids": ["test_df.add_one.down"],
                     }
                 ],
                 "out_ports": [],
@@ -153,37 +127,11 @@ def test_to_json_nonlinear():
                         "typ": "RenderedPort",
                         "port_name": "down",
                         "port_id": "test_df.add_one.down",
-                        "from_port_ids": ["test_df.add_one.flat_map.down"],
-                        "from_stream_ids": ["test_df.add_one.flat_map.down"],
+                        "from_port_ids": [],
+                        "from_stream_ids": [],
                     }
                 ],
-                "substeps": [
-                    {
-                        "typ": "RenderedOperator",
-                        "op_type": "flat_map",
-                        "step_name": "flat_map",
-                        "step_id": "test_df.add_one.flat_map",
-                        "inp_ports": [
-                            {
-                                "typ": "RenderedPort",
-                                "port_name": "up",
-                                "port_id": "test_df.add_one.flat_map.up",
-                                "from_port_ids": ["test_df.add_one.up"],
-                                "from_stream_ids": ["test_df.nums.down"],
-                            }
-                        ],
-                        "out_ports": [
-                            {
-                                "typ": "RenderedPort",
-                                "port_name": "down",
-                                "port_id": "test_df.add_one.flat_map.down",
-                                "from_port_ids": [],
-                                "from_stream_ids": [],
-                            }
-                        ],
-                        "substeps": [],
-                    }
-                ],
+                "substeps": [],
             },
             {
                 "typ": "RenderedOperator",
@@ -204,37 +152,11 @@ def test_to_json_nonlinear():
                         "typ": "RenderedPort",
                         "port_name": "down",
                         "port_id": "test_df.add_two.down",
-                        "from_port_ids": ["test_df.add_two.flat_map.down"],
-                        "from_stream_ids": ["test_df.add_two.flat_map.down"],
+                        "from_port_ids": [],
+                        "from_stream_ids": [],
                     }
                 ],
-                "substeps": [
-                    {
-                        "typ": "RenderedOperator",
-                        "op_type": "flat_map",
-                        "step_name": "flat_map",
-                        "step_id": "test_df.add_two.flat_map",
-                        "inp_ports": [
-                            {
-                                "typ": "RenderedPort",
-                                "port_name": "up",
-                                "port_id": "test_df.add_two.flat_map.up",
-                                "from_port_ids": ["test_df.add_two.up"],
-                                "from_stream_ids": ["test_df.nums.down"],
-                            }
-                        ],
-                        "out_ports": [
-                            {
-                                "typ": "RenderedPort",
-                                "port_name": "down",
-                                "port_id": "test_df.add_two.flat_map.down",
-                                "from_port_ids": [],
-                                "from_stream_ids": [],
-                            }
-                        ],
-                        "substeps": [],
-                    }
-                ],
+                "substeps": [],
             },
             {
                 "typ": "RenderedOperator",
@@ -247,7 +169,7 @@ def test_to_json_nonlinear():
                         "port_name": "up",
                         "port_id": "test_df.out_one.up",
                         "from_port_ids": ["test_df.add_one.down"],
-                        "from_stream_ids": ["test_df.add_one.flat_map.down"],
+                        "from_stream_ids": ["test_df.add_one.down"],
                     }
                 ],
                 "out_ports": [],
@@ -264,7 +186,7 @@ def test_to_json_nonlinear():
                         "port_name": "up",
                         "port_id": "test_df.out_two.up",
                         "from_port_ids": ["test_df.add_two.down"],
-                        "from_stream_ids": ["test_df.add_two.flat_map.down"],
+                        "from_stream_ids": ["test_df.add_two.down"],
                     }
                 ],
                 "out_ports": [],

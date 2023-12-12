@@ -225,6 +225,48 @@ def inspect_debug(
 
 
 @operator(_core=True)
+def map(  # noqa: A001
+    step_id: str,
+    up: Stream[X],
+    mapper: Callable[[X], Y],
+) -> Stream[Y]:
+    """Transform items one-by-one.
+
+    It is commonly used for:
+
+    - Serialization and deserialization.
+
+    - Selection of fields.
+
+    >>> import bytewax.operators as op
+    >>> from bytewax.testing import run_main, TestingSource
+    >>> from bytewax.dataflow import Dataflow
+    >>> flow = Dataflow("map_eg")
+    >>> s = op.input("inp", flow, TestingSource(range(3)))
+    >>> def add_one(item):
+    ...     return item + 10
+    >>> s = op.map("add_one", s, add_one)
+    >>> _ = op.inspect("out", s)
+    >>> run_main(flow)
+    map_eg.out: 10
+    map_eg.out: 11
+    map_eg.out: 12
+
+    Args:
+        step_id: Unique ID.
+
+        up: Stream.
+
+        mapper: Called on each item. Each return value is emitted
+            downstream.
+
+    Returns:
+        A stream of items returned from the mapper.
+    """
+    return Stream(f"{up._scope.parent_id}.down", up._scope)
+
+
+@operator(_core=True)
 def merge(step_id: str, *ups: Stream[X]) -> Stream[X]:
     """Combine multiple streams together.
 
@@ -1090,53 +1132,6 @@ def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -> KeyedStream[
 
 
 @operator
-def map(  # noqa: A001
-    step_id: str,
-    up: Stream[X],
-    mapper: Callable[[X], Y],
-) -> Stream[Y]:
-    """Transform items one-by-one.
-
-    It is commonly used for:
-
-    - Serialization and deserialization.
-
-    - Selection of fields.
-
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import run_main, TestingSource
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("map_eg")
-    >>> s = op.input("inp", flow, TestingSource(range(3)))
-    >>> def add_one(item):
-    ...     return item + 10
-    >>> s = op.map("add_one", s, add_one)
-    >>> _ = op.inspect("out", s)
-    >>> run_main(flow)
-    map_eg.out: 10
-    map_eg.out: 11
-    map_eg.out: 12
-
-    Args:
-        step_id: Unique ID.
-
-        up: Stream.
-
-        mapper: Called on each item. Each return value is emitted
-            downstream.
-
-    Returns:
-        A stream of items returned from the mapper.
-    """
-
-    def shim_mapper(x: X) -> List[Y]:
-        y = mapper(x)
-        return [y]
-
-    return flat_map("flat_map", up, shim_mapper)
-
-
-@operator
 def map_value(
     step_id: str, up: KeyedStream[V], mapper: Callable[[V], W]
 ) -> KeyedStream[W]:
@@ -1156,11 +1151,12 @@ def map_value(
 
     """
 
-    def shim_mapper(v: V) -> List[W]:
+    def shim_mapper(k_v: Tuple[str, V]) -> Tuple[str, W]:
+        k, v = k_v
         w = mapper(v)
-        return [w]
+        return (k, w)
 
-    return flat_map_value("flat_map_value", up, shim_mapper)
+    return map("map", up, shim_mapper)
 
 
 @overload

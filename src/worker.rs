@@ -446,6 +446,19 @@ where
                             .insert_downstream(py, &step, "down", down)
                             .reraise("core operator `inspect_debug` missing port")?;
                     }
+                    "map" => {
+                        let mapper = step.get_arg(py, "mapper")?.extract(py)?;
+
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `map` missing port")?;
+
+                        let down = up.map(py, step_id, mapper)?;
+
+                        streams
+                            .insert_downstream(py, &step, "down", down)
+                            .reraise("core operator `map` missing port")?;
+                    }
                     "merge" => {
                         let ups = streams
                             .get_upmultistream(py, &step, "ups")

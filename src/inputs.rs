@@ -159,21 +159,21 @@ fn default_next_awake(
     res: Option<DateTime<Utc>>,
     batch_len: usize,
     now: DateTime<Utc>,
-) -> DateTime<Utc> {
+) -> Option<DateTime<Utc>> {
     if let Some(next_awake) = res {
         // If the source returned an explicit next awake time, always
         // oblige.
-        next_awake
+        Some(next_awake)
     } else {
         // If `next_awake` returned `None`, then do the default
         // behavior:
         if batch_len > 0 {
             // Re-awaken immediately if there were items in the batch.
-            now
+            None
         } else {
             // Wait a cooldown before re-awakening if there were no
             // items in the batch.
-            now + DEFAULT_COOLDOWN
+            Some(now + DEFAULT_COOLDOWN)
         }
     }
 }
@@ -183,7 +183,16 @@ struct PartitionedPartState {
     downstream_cap: Capability<u64>,
     snap_cap: Capability<u64>,
     epoch_started: DateTime<Utc>,
-    next_awake: DateTime<Utc>,
+    next_awake: Option<DateTime<Utc>>,
+}
+
+impl PartitionedPartState {
+    fn awake_due(&self, now: DateTime<Utc>) -> bool {
+        match self.next_awake {
+            None => true,
+            Some(next_awake) => now >= next_awake,
+        }
+    }
 }
 
 impl FixedPartitionedSource {
@@ -315,8 +324,7 @@ impl FixedPartitionedSource {
                                         Some(state)
                                     ).reraise_with(|| format!("error calling `FixedPartitionSource.build_part` in step {step_id} for partition {part_key}"))?;
                                     let next_awake = part.next_awake(py)
-                                        .reraise_with(|| format!("error calling `StatefulSourcePartition.next_awake` in step {step_id} for partition {part_key}"))?
-                                        .unwrap_or(now);
+                                        .reraise_with(|| format!("error calling `StatefulSourcePartition.next_awake` in step {step_id} for partition {part_key}"))?;
 
                                     let state = PartitionedPartState {
                                         part,
@@ -376,8 +384,7 @@ impl FixedPartitionedSource {
                                         let part = self.build_part(py, now, part_key, None)
                                             .reraise_with(|| format!("error calling `FixedPartitionSource.build_part` in step {step_id} for partition {part_key}"))?;
                                         let next_awake = part.next_awake(py)
-                                            .reraise_with(|| format!("error calling `StatefulSourcePartition.next_awake` in step {step_id} for partition {part_key}"))?
-                                            .unwrap_or(now);
+                                            .reraise_with(|| format!("error calling `StatefulSourcePartition.next_awake` in step {step_id} for partition {part_key}"))?;
 
                                         let part_state = PartitionedPartState {
                                             part,
@@ -406,7 +413,7 @@ impl FixedPartitionedSource {
                             );
                             let epoch = *part_state.downstream_cap.time();
 
-                            if !probe.less_than(&epoch) && now >= part_state.next_awake {
+                            if !probe.less_than(&epoch) && part_state.awake_due(now) {
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     let batch_res = with_timer!(
                                         next_batch_histogram,
@@ -489,7 +496,7 @@ impl FixedPartitionedSource {
                         // awoken when there's new loading input and
                         // we don't spin during loading.
                     } else if !parts.is_empty() {
-                        if let Some(min_next_awake) = parts.values().map(|part_state| part_state.next_awake).min() {
+                        if let Some(min_next_awake) = parts.values().map(|part_state| part_state.next_awake.unwrap_or(now)).min() {
                             let awake_after = min_next_awake - now;
                             // If we are already late for the next
                             // activation, awake immediately.
@@ -533,7 +540,7 @@ enum BatchResult {
 }
 
 impl StatefulPartition {
-    fn next_batch(&self, py: Python, sched: DateTime<Utc>) -> PyResult<BatchResult> {
+    fn next_batch(&self, py: Python, sched: Option<DateTime<Utc>>) -> PyResult<BatchResult> {
         match self
             .0
             .as_ref(py)
@@ -608,7 +615,16 @@ struct DynamicPartState {
     part: StatelessPartition,
     output_cap: Capability<u64>,
     epoch_started: DateTime<Utc>,
-    next_awake: DateTime<Utc>,
+    next_awake: Option<DateTime<Utc>>,
+}
+
+impl DynamicPartState {
+    fn awake_due(&self, now: DateTime<Utc>) -> bool {
+        match self.next_awake {
+            None => true,
+            Some(next_awake) => now >= next_awake,
+        }
+    }
 }
 
 impl DynamicSource {
@@ -682,8 +698,7 @@ impl DynamicSource {
 
             let next_awake = unwrap_any!(Python::with_gil(|py| part
                 .next_awake(py)
-                .reraise("error getting next awake time")))
-            .unwrap_or(now);
+                .reraise("error getting next awake time")));
             let mut part_state = Some(DynamicPartState {
                 part,
                 output_cap,
@@ -701,7 +716,7 @@ impl DynamicSource {
                     if let Some(part_state) = &mut part_state {
                         let epoch = part_state.output_cap.time();
 
-                        if !probe.less_than(epoch) && now >= part_state.next_awake {
+                        if !probe.less_than(epoch) && part_state.awake_due(now) {
                             unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                 let res = with_timer!(
                                     next_batch_histogram,
@@ -760,11 +775,15 @@ impl DynamicSource {
                     }
 
                     if let Some(part_state) = &part_state {
-                        let awake_after = part_state.next_awake - now;
-                        // If we are already late for the next
-                        // activation, awake immediately.
-                        let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
-                        activator.activate_after(awake_after);
+                        if let Some(next_awake) = part_state.next_awake {
+                            let awake_after = next_awake - now;
+                            // If we are already late for the next
+                            // activation, awake immediately.
+                            let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
+                            activator.activate_after(awake_after);
+                        } else {
+                            activator.activate();
+                        }
                     }
                 });
             }
@@ -796,7 +815,7 @@ impl<'source> FromPyObject<'source> for StatelessPartition {
 }
 
 impl StatelessPartition {
-    fn next_batch(&self, py: Python, sched: DateTime<Utc>) -> PyResult<BatchResult> {
+    fn next_batch(&self, py: Python, sched: Option<DateTime<Utc>>) -> PyResult<BatchResult> {
         match self
             .0
             .as_ref(py)
