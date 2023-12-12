@@ -2,7 +2,46 @@ This guide can help you upgrade code through breaking changes from one
 Bytewax version to the next. For a detailed list of all changes, see
 the [CHANGELOG](https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md).
 
-## From v0.17 to Latest
+## From v0.17 to v0.18
+
+With the addition of non-linear dataflows, the API for constructing
+dataflows has changed. Operators are now stand-alone functions
+that can take and return streams.
+
+Before:
+
+```python doctest:SKIP
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+from bytewax.connectors.stdio import StdOutput
+
+flow = Dataflow()
+flow.input("inp", TestingInput(range(10)))
+flow.map(lambda x: x + 1)
+flow.output("out", StdOutput())
+```
+
+After:
+
+```python
+import bytewax.operators as op
+
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+from bytewax.connectors.stdio import StdOutSink
+
+flow = Dataflow("basic")
+# `op.input` takes the place of `flow.input` and takes a `Dataflow`
+# object as the first parameter.
+# `op.input` returns a `Stream[int]` in this example:
+stream = op.input("inp", flow, TestingSource(range(10)))
+# `op.map` takes a `Stream` as it's second argument, and
+# returns a new `Stream[int]` as it's return value.
+add_one_stream = op.map("add_one", stream, lambda x: x + 1)
+# `op.output` takes a stream as it's second argument, but
+# does not return a new `Stream`.
+op.output("out", add_one_stream, StdOutSink())
+```
 
 ### Renamed IO Classes
 
@@ -40,6 +79,31 @@ this new naming scheme.
 | `KafkaOutput` | `KafkaSink` |
 | `TestingInput` | `TestingSource` |
 | `TestingOutput` | `TestingSink` |
+
+
+### Window Metadata
+
+Window operators now emit `WindowMetadata` objects downstream. These objects can
+be used to introspect the open_time and close_time of windows. This changes the
+output type of windowing operators from a stream of: `(key, values)` to
+a stream of `(key, (metadata, values))`.
+
+### Recovery flags
+
+The default values for `snapshot-interval` and `backup-interval` have been removed
+when running a dataflow with recovery enabled.
+
+Previously, the defaults values were to create a snapshot every 10 seconds and
+kept old snapshots for a day. This means your recovery DB would max out at a size
+theoretically thousands of times bigger than your in-memory state.
+
+When selecting values for these parameters, you should choose values that reflect
+the operational semantics of your dataflow deployment. If you create recovery
+snapshots less often, your dataflow will need to re-process more data when restarting.
+
+When choosing a backup strategy for recovery partitions, and a value for how long
+long to keep old recovery snapshots around, consider that in order to recover a dataflow,
+Bytewax will use the most recent snapshot that all recovery partitions contain data for.
 
 ## From v0.16 to v0.17
 
