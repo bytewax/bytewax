@@ -1,5 +1,3 @@
-# Batching and Windowing
-
 In this section, we'll be talking about the Batching and Windowing operators
 that Bytewax provides.
 
