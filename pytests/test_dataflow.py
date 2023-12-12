@@ -1,5 +1,6 @@
 import re
-from typing import List
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow, Stream, operator
@@ -7,21 +8,81 @@ from bytewax.testing import TestingSink, TestingSource, run_main
 from pytest import raises
 
 
-@operator
-def bad_op_with_nested_stream(
-    step_id: str, up: Stream, not_allowed: List[Stream]
-) -> Stream:
-    return op.merge("merge", up, *not_allowed)
+def test_operator_with_non_generic_streams():
+    @operator
+    def test_op(
+        step_id: str,
+        up: Stream,
+    ) -> Stream:
+        return up
+
+    flow = Dataflow("test_df")
+    inp = op.input("inp", flow, TestingSource([]))
+    test_op("test_op", inp)
+
+
+def test_operator_with_optional_argument():
+    @operator
+    def test_op(
+        step_id: str,
+        up: Stream[str],
+        config: Optional[Dict[str, str]] = None,
+    ) -> Stream[str]:
+        return up
+
+    flow = Dataflow("test_df")
+    inp = op.input("inp", flow, TestingSource([]))
+    test_op("test_op", inp)
+
+
+def test_operator_with_named_downstreams():
+    @dataclass
+    class TestOut:
+        a: Stream[int]
+        b: Stream[int]
+
+    @operator
+    def test_op(
+        step_id: str,
+        up: Stream[int],
+    ) -> TestOut:
+        return TestOut(up, up)
+
+    flow = Dataflow("test_df")
+    inp = op.input("inp", flow, TestingSource([]))
+    test_op("test_op", inp)
+
+
+def test_operator_with_non_generic_downstreams():
+    @dataclass
+    class TestOut:
+        a: Stream
+        b: Stream
+
+    @operator
+    def test_op(
+        step_id: str,
+        up: Stream,
+    ) -> TestOut:
+        return TestOut(up, up)
+
+    flow = Dataflow("test_df")
+    inp = op.input("inp", flow, TestingSource([]))
+    test_op("test_op", inp)
 
 
 def test_raises_on_nested_stream():
+    @operator
+    def test_op(step_id: str, up: Stream, not_allowed: List[Stream]) -> Stream:
+        return op.merge("merge", up, *not_allowed)
+
     flow = Dataflow("test_df")
     inp1 = op.input("inp1", flow, TestingSource([]))
     inp2 = op.input("inp2", flow, TestingSource([]))
 
     expect = "inconsistent stream scoping"
     with raises(AssertionError, match=re.escape(expect)):
-        bad_op_with_nested_stream("bad", inp1, [inp2])
+        test_op("test_op", inp1, [inp2])
 
 
 def test_then():

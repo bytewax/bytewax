@@ -19,6 +19,7 @@ from typing import (
     Generic,
     Iterable,
     List,
+    Optional,
     Protocol,
     Type,
     TypeVar,
@@ -315,65 +316,88 @@ class _MultiStream(Generic[K]):
         )
 
 
-def _norm_type_hints(obj) -> Dict[str, Type]:
-    sig_types = typing.get_type_hints(obj)
-    for name, typ in sig_types.items():
-        orig = typing.get_origin(typ)
-        if orig is not None:
-            sig_types[name] = orig
-        elif typ is Any:
-            sig_types[name] = object
-
-    return sig_types
-
-
 _OPERATOR_BASE_NAMES = frozenset(typing.get_type_hints(_CoreOperator).keys())
 
 
-def _gen_inp_fields(sig: Signature, sig_types: Dict[str, Type]) -> Dict[str, Type]:
-    inp_fields = {}
+def _anno_to_typ(anno: Any) -> Optional[Type]:
+    if anno is Any:
+        return object
+
+    if inspect.isclass(anno):
+        return anno
+
+    orig = typing.get_origin(anno)
+    if orig is not None and inspect.isclass(orig):
+        return orig
+
+    return None
+
+
+def _gen_inp_fields(sig: Signature, sig_annos: Dict[str, Any]) -> Dict[str, Any]:
+    inp_fields: Dict[str, Any] = {}
     for name, param in sig.parameters.items():
         # If the argument is un-annotated, assume the type class for
         # "Any".
-        typ = sig_types.get(name, object)
+        anno = sig_annos.get(name, Any)
+        # Assume we pass through the annotation unmodified.
+        inp_fields[name] = anno
 
-        as_typ = typ
-        # If any of the arguments require special casing when they're
-        # *args or **kwargs, find out what the "packed" version of the
-        # argument type is. The most common use of this is `*ups:
-        # Stream` will actually be stored as a single `MultiStream`,
-        # rather than a `Tuple[Stream]`.
-        if issubclass(typ, Stream):
-            if param.kind == Parameter.VAR_POSITIONAL:
-                as_typ = _MultiStream
-            elif param.kind == Parameter.VAR_KEYWORD:
-                as_typ = _MultiStream
+        typ = _anno_to_typ(anno)
+        if typ is not None:
+            # If any of the arguments require special casing when
+            # they're *args or **kwargs, find out what the "packed"
+            # version of the argument type is. The most common use of
+            # this is `*ups: Stream` will actually be stored as a
+            # single `_MultiStream`, rather than a `Tuple[Stream]`.
+            if issubclass(typ, Stream):
+                # If the stream is typed, get that inner type to apply to
+                # the `_MultiStream`.
+                try:
+                    stream_typ_arg = typing.get_args(anno)[0]
+                except IndexError:
+                    # If not, it's effectively typed `Any`.
+                    stream_typ_arg = Any
 
-        inp_fields[name] = as_typ
+                if param.kind == Parameter.VAR_POSITIONAL:
+                    inp_fields[name] = _MultiStream[stream_typ_arg]
+                elif param.kind == Parameter.VAR_KEYWORD:
+                    inp_fields[name] = _MultiStream[stream_typ_arg]
 
     return inp_fields
 
 
-def _gen_out_fields(_sig: Signature, sig_types: Dict[str, Type]) -> Dict[str, Type]:
-    out_fields = {}
-    out_typ = sig_types.get("return", object)
-    # A single `Stream` is stored by convention in a field named
-    # "down".
-    if issubclass(out_typ, Stream) or issubclass(out_typ, _MultiStream):
-        out_fields["down"] = out_typ
-    # A `None` return value doesn't store any field.
-    elif issubclass(out_typ, type(None)):  # type: ignore
-        pass
-    # Dataclass is the "named return value" options. We copy all the
-    # first level fields into the operator dataclass. We use
-    # dataclasses because the stdlib gives us tools to introspect them
-    # easily.
-    elif dataclasses.is_dataclass(out_typ):
-        out_field_typs = _norm_type_hints(out_typ)
-        for fld in dataclasses.fields(out_typ):
-            out_fields[fld.name] = out_field_typs.get(fld.name, object)
+def _gen_out_fields(_sig: Signature, sig_annos: Dict[str, Any]) -> Dict[str, Any]:
+    out_fields: Dict[str, Any] = {}
+    anno = sig_annos.get("return", Any)
+    typ = _anno_to_typ(anno)
+    if typ is not None:
+        # A single `Stream` is stored by convention in a field named
+        # "down". This must be first even though it is the same
+        # behavior as the else branch because `Stream` is defined
+        # using dataclasses and we don't want to split the stream into
+        # it's private fields.
+        if issubclass(typ, Stream) or issubclass(typ, _MultiStream):
+            out_fields["down"] = anno
+        # A `None` return value doesn't store any field.
+        elif issubclass(typ, type(None)):
+            pass
+        # Dataclass is the "named return value" options. We copy all the
+        # first level fields into the operator dataclass. We use
+        # dataclasses because the stdlib gives us tools to introspect them
+        # easily.
+        elif dataclasses.is_dataclass(typ):
+            out_field_annos = typing.get_type_hints(typ)
+            for fld in dataclasses.fields(typ):
+                out_fields[fld.name] = out_field_annos.get(fld.name, Any)
+        else:
+            # If this isn't a 0 return value function (via `None`) or
+            # an N return value function (via a dataclass), there's a
+            # single field called `down`. Copy the annotation.
+            out_fields["down"] = anno
     else:
-        out_fields["down"] = out_typ
+        # If the return type is not checkable, assume it's a single
+        # value and copy the annotation.
+        out_fields["down"] = anno
 
     return out_fields
 
@@ -381,7 +405,7 @@ def _gen_out_fields(_sig: Signature, sig_types: Dict[str, Type]) -> Dict[str, Ty
 def _gen_op_cls(
     builder: FunctionType,
     sig: Signature,
-    sig_types: Dict[str, Type],
+    sig_annos: Dict[str, Any],
     core: bool,
 ) -> Type[Operator]:
     if "step_id" not in sig.parameters:
@@ -389,9 +413,9 @@ def _gen_op_cls(
         raise TypeError(msg)
 
     # First add fields for all the input arguments.
-    inp_fields = _gen_inp_fields(sig, sig_types)
+    inp_fields = _gen_inp_fields(sig, sig_annos)
     # Then add fields for the return values.
-    out_fields = _gen_out_fields(sig, sig_types)
+    out_fields = _gen_out_fields(sig, sig_annos)
 
     conflicting_fields = frozenset(inp_fields.keys()) & frozenset(out_fields.keys())
     if len(conflicting_fields) > 0:
@@ -403,7 +427,7 @@ def _gen_op_cls(
         )
         raise TypeError(msg)
 
-    cls_fields = {}
+    cls_fields: Dict[str, Any] = {}
     cls_fields.update(inp_fields)
     cls_fields.update(out_fields)
 
@@ -413,17 +437,21 @@ def _gen_op_cls(
     # the substep list) if stored directly. Their "reference versions"
     # (for `Stream` it's `SinglePort`) don't include the scope or
     # anything that is just there to facilitate the fluent API.
-    for name, typ in cls_fields.items():
-        if issubclass(typ, _ToRef):
-            method_typs = _norm_type_hints(typ._to_ref)
-            cls_fields[name] = method_typs.get("return", object)
+    for name, anno in cls_fields.items():
+        typ = _anno_to_typ(anno)
+        if typ is not None and issubclass(typ, _ToRef):
+            method_typs = typing.get_type_hints(typ._to_ref)
+            cls_fields[name] = method_typs.get("return", Any)
 
     # Store the names of the upstream and downstream ports to enable
     # visualization.
     ups_names = []
     dwn_names = []
-    for name, typ in cls_fields.items():
-        if issubclass(typ, SinglePort) or issubclass(typ, MultiPort):
+    for name, anno in cls_fields.items():
+        typ = _anno_to_typ(anno)
+        if typ is not None and (
+            issubclass(typ, SinglePort) or issubclass(typ, MultiPort)
+        ):
             if name in inp_fields:
                 ups_names.append(name)
             elif name in out_fields:
@@ -470,7 +498,7 @@ def _gen_op_cls(
 
 def _gen_op_fn(
     sig: Signature,
-    sig_types: Dict[str, Type],
+    sig_annos: Dict[str, Any],
     builder: FunctionType,
     cls: Type[Operator],
     _core: bool,
@@ -519,8 +547,9 @@ def _gen_op_fn(
         # we can re-scope.
         for name, param in sig.parameters.items():
             val = bound.arguments[name]
-            typ = sig_types.get(name, object)
-            if issubclass(typ, Stream):
+            anno = sig_annos.get(name, Any)
+            typ = _anno_to_typ(anno)
+            if typ is not None and issubclass(typ, Stream):
                 if param.kind == Parameter.VAR_POSITIONAL:
                     bound.arguments[name] = _MultiStream(dict(enumerate(val)))
                 elif param.kind == Parameter.VAR_KEYWORD:
@@ -569,8 +598,9 @@ def _gen_op_fn(
         # Now unpack the special *args and **kwargs types for calling.
         for name, param in sig.parameters.items():
             val = bound.arguments[name]
-            typ = sig_types.get(name, object)
-            if issubclass(typ, Stream):
+            anno = sig_annos.get(name, Any)
+            typ = _anno_to_typ(anno)
+            if typ is not None and issubclass(typ, Stream):
                 if param.kind == Parameter.VAR_POSITIONAL:
                     bound.arguments[name] = tuple(val.streams.values())
                 elif param.kind == Parameter.VAR_KEYWORD:
@@ -656,9 +686,9 @@ def operator(builder=None, *, _core: bool = False) -> Callable:
 
     def inner_deco(builder: FunctionType) -> Callable:
         sig = inspect.signature(builder)
-        sig_types = _norm_type_hints(builder)
-        cls = _gen_op_cls(builder, sig, sig_types, _core)
-        fn = _gen_op_fn(sig, sig_types, builder, cls, _core)
+        sig_annos = typing.get_type_hints(builder)
+        cls = _gen_op_cls(builder, sig, sig_annos, _core)
+        fn = _gen_op_fn(sig, sig_annos, builder, cls, _core)
         fn._op_cls = cls  # type: ignore[attr-defined]
         return fn
 
