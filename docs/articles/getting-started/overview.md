@@ -22,8 +22,12 @@ Bytewax provides a number of important capabilities for writing Dataflows, inclu
 - Joins
 - And more!
 
+Bytewax dataflows can be deployed on Kubernetes, as well as AWS and GCP instances through our command-line
+utility, [waxctl](deployment/waxctl.md).
+
 Bytewax also offers a [Platform](https://bytewax.io/platform) that simplifies
-the management of stateful workloads on Kubernetes, and adds many additional features.
+the management of stateful workloads on Kubernetes, and adds additional features
+like single-sign on and disaster recovery.
 
 ## Where to go from here?
 

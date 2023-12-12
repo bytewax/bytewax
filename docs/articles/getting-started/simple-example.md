@@ -31,7 +31,7 @@ that emits a list of static Python `int`s.
 
 
 ```python
-inp = op.input("input", flow, TestingSource(range(10)))
+stream = op.input("input", flow, TestingSource(range(10)))
 ```
 
 ## Operators
@@ -46,7 +46,7 @@ def times_two(inp: int) -> int:
     return inp * 2
 
 
-double = op.map("double", inp, times_two)
+double = op.map("double", stream, times_two)
 ```
 
 The `map` operator returns a `Stream` of transformed values. If you are using mypy, you
@@ -77,14 +77,14 @@ from bytewax.testing import TestingSource
 
 flow = Dataflow("a_simple_example")
 
-inp = op.input("input", flow, TestingSource(range(10)))
+stream = op.input("input", flow, TestingSource(range(10)))
 
 
 def times_two(inp: int) -> int:
     return inp * 2
 
 
-double = op.map("double", inp, times_two)
+double = op.map("double", stream, times_two)
 
 op.output("out", double, StdOutSink())
 ```

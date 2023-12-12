@@ -39,8 +39,8 @@ from bytewax.testing import TestingSource
 
 flow = Dataflow("integers")
 # The return type of `op.input` is "bytewax.dataflow.Stream[builtins.str]"
-inp = op.input("inp", flow, TestingSource(["one"]))
+stream = op.input("inp", flow, TestingSource(["one"]))
 
 # mypy will error here: "Unsupported operand types for + ("str" and "int")"
-inp = op.map("string", inp, lambda x: x + 1)
+stream = op.map("string", stream, lambda x: x + 1)
 ```

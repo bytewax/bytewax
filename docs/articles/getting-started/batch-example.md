@@ -36,10 +36,12 @@ from bytewax.connectors.stdio import StdOutSink
 from bytewax.testing import TestingSource
 
 flow = Dataflow("batching")
-s = op.input("input", flow, TestingSource(list(range(10))))
-# The following line creates a keyed stream where all values have the key "ALL"
-keyed_stream = op.key_on("key", s, lambda _x: "ALL")
-batched_stream = op.batch("batch", keyed_stream, timedelta(seconds=10), 3)
+stream = op.input("input", flow, TestingSource(list(range(10))))
+# Here we want to batch all the items together, so we use the same fixed key for all the items
+keyed_stream = op.key_on("key", stream, lambda _x: "ALL")
+batched_stream = op.batch(
+    "batch", keyed_stream, timeout=timedelta(seconds=10), batch_size=3
+)
 op.output("out", batched_stream, StdOutSink())
 ```
 
@@ -85,8 +87,8 @@ inp = [
     {"time": align_to + timedelta(seconds=13), "user": "a", "val": 1},
     {"time": align_to + timedelta(seconds=14), "user": "b", "val": 1},
 ]
-s = op.input("input", flow, TestingSource(inp))
-keyed_stream = op.key_on("key_on_user", s, lambda e: e["user"])
+stream = op.input("input", flow, TestingSource(inp))
+keyed_stream = op.key_on("key_on_user", stream, lambda e: e["user"])
 ```
 
 ## Window assignment, and late arriving data
