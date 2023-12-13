@@ -89,6 +89,21 @@ this new naming scheme.
 | `TestingOutput` | `TestingSink` |
 
 
+## `SimplePollingSource` moved
+
+`SimplePollingSource` has been moved from `bytewax.connectors.periodic` to `bytewax.inputs`. You'll need to change your imports if you are using that class.
+
+Before:
+
+```python
+from bytewax.connectors.periodic import SimplePollingSource
+```
+
+After:
+
+```python
+from bytewax.inputs import SimplePollingSource
+```
 ### Window Metadata
 
 Window operators now emit `WindowMetadata` objects downstream. These objects can
