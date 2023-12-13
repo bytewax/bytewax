@@ -35,7 +35,7 @@ from bytewax.testing import TestingSource
 
 flow = Dataflow("batching")
 stream = op.input("input", flow, TestingSource(list(range(10))))
-# Here we want to batch all the items together, so we use the same fixed key for all the items
+# We want to batch all the items together, so we assign the same fixed key to each of them
 keyed_stream = op.key_on("key", stream, lambda _x: "ALL")
 batched_stream = op.batch(
     "batch", keyed_stream, timeout=timedelta(seconds=10), batch_size=3
