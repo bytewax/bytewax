@@ -4,6 +4,8 @@ the [CHANGELOG](https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md).
 
 ## From v0.17 to v0.18
 
+### Non-Linear Dataflows
+
 With the addition of non-linear dataflows, the API for constructing
 dataflows has changed. Operators are now stand-alone functions
 that can take and return streams.
