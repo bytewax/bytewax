@@ -8,6 +8,10 @@ With the addition of non-linear dataflows, the API for constructing
 dataflows has changed. Operators are now stand-alone functions
 that can take and return streams.
 
+ All operators, not just stateful ones, now require a `step_id`; it should be a `"snake_case"` description of the semantic purpose of that dataflow step.
+ 
+ Also instantiating the dataflow itself now takes a "dataflow ID" so you can disambiguate different dataflows in the metrics.
+ 
 Before:
 
 ```python doctest:SKIP
