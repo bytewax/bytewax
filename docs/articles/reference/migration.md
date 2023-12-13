@@ -88,6 +88,9 @@ this new naming scheme.
 | `TestingInput` | `TestingSource` |
 | `TestingOutput` | `TestingSink` |
 
+## Current Time Convenience
+
+In addition to the name changes, we have also added a `datetime` argument to `next_batch` and `build{_part,}` with the current time to allow you to easily setup a next awake time. You can ignore this parameter if you are not scheduling awake times.
 
 ## `SimplePollingSource` moved
 
