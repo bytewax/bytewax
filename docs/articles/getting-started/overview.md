@@ -1,5 +1,3 @@
-## Overview
-
 Bytewax is a Python framework for building Dataflow programs over bounded or unbounded data.
 
 Dataflow programming is fundamentally about describing your program as

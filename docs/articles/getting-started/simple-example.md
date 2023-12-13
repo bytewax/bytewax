@@ -1,5 +1,3 @@
-## A Simple Example
-
 Let's write our first Bytewax Dataflow. Be sure that you've followed the instructions
 for installing bytewax in [Installing bytewax](/docs/articles/getting-started/installation.md).
 
