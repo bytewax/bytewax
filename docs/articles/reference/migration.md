@@ -11,9 +11,9 @@ dataflows has changed. Operators are now stand-alone functions
 that can take and return streams.
 
  All operators, not just stateful ones, now require a `step_id`; it should be a `"snake_case"` description of the semantic purpose of that dataflow step.
- 
+
  Also instantiating the dataflow itself now takes a "dataflow ID" so you can disambiguate different dataflows in the metrics.
- 
+
 Before:
 
 ```python doctest:SKIP
@@ -90,7 +90,67 @@ this new naming scheme.
 
 ## Current Time Convenience
 
-In addition to the name changes, we have also added a `datetime` argument to `next_batch` and `build{_part,}` with the current time to allow you to easily setup a next awake time. You can ignore this parameter if you are not scheduling awake times.
+In addition to the name changes, we have also added a `datetime` argument to
+`build{_part,}` with the current time to allow you to easily
+setup a next awake time. You can ignore this parameter if you are not scheduling
+awake times.
+
+We have also added a `datetime` argument to `next_batch`, which contains the
+scheduled awake time for that source. Since awake times are scheduled, but not
+guaranteed to fire at the precise time specified, you can use this parameter
+to account for any difference.
+
+Before:
+
+```python doctest:SKIP
+from bytewax.inputs import StatelessSource
+
+
+class PeriodicSource(StatelessSource):
+    def __init__(self, frequency):
+        self.frequency = frequency
+        self._next_awake = datetime.now(timezone.utc)
+        self._counter = 0
+
+    def next_awake(self):
+        return self._next_awake
+
+    def next_batch(self):
+        self._counter += 1
+        if self._counter >= 10:
+            raise StopIteration()
+        # Calculate the delay between when this was supposed
+        # to  be called, and when it is actually called
+        delay = datetime.now(timezone.utc) - self._next_awake
+        self._next_awake += self.frequency
+        return [f"delay (ms): {delay.total_seconds() * 1000:.3f}"]
+```
+
+After:
+
+```python
+from bytewax.inputs import StatelessSourcePartition
+
+
+class PeriodicPartition(StatelessSourcePartition):
+    def __init__(self, frequency):
+        self.frequency = frequency
+        self._next_awake = datetime.now(timezone.utc)
+        self._counter = 0
+
+    def next_awake(self):
+        return self._next_awake
+
+    def next_batch(self, sched):
+        self._counter += 1
+        if self._counter >= 10:
+            raise StopIteration()
+        # Calculate the delay between when this was supposed
+        # to be called, and when it is actually called
+        delay = datetime.now(timezone.utc) - sched
+        self._next_awake += self.frequency
+        return [f"delay (ms): {delay.total_seconds() * 1000:.3f}"]
+```
 
 ## `SimplePollingSource` moved
 
@@ -98,7 +158,7 @@ In addition to the name changes, we have also added a `datetime` argument to `ne
 
 Before:
 
-```python
+```python doctest:SKIP
 from bytewax.connectors.periodic import SimplePollingSource
 ```
 
@@ -107,6 +167,7 @@ After:
 ```python
 from bytewax.inputs import SimplePollingSource
 ```
+
 ### Window Metadata
 
 Window operators now emit `WindowMetadata` objects downstream. These objects can
