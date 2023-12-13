@@ -26,7 +26,7 @@ from typing import (
     overload,
 )
 
-from typing_extensions import Self
+from typing_extensions import Self, TypeAlias
 
 from bytewax.dataflow import (
     Dataflow,
@@ -42,7 +42,7 @@ Y = TypeVar("Y")  # Output Item
 V = TypeVar("V")  # Value
 W = TypeVar("W")  # Output Value
 S = TypeVar("S")  # State
-KeyedStream = Stream[Tuple[str, V]]
+KeyedStream: TypeAlias = Stream[Tuple[str, V]]
 
 
 def _identity(x: X) -> X:
