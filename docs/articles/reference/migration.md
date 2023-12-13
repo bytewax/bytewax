@@ -102,7 +102,7 @@ The default values for `snapshot-interval` and `backup-interval` have been remov
 when running a dataflow with recovery enabled.
 
 Previously, the defaults values were to create a snapshot every 10 seconds and
-kept old snapshots for a day. This means your recovery DB would max out at a size
+keep a day's worth of old snapshots. This means your recovery DB would max out at a size on disk
 theoretically thousands of times bigger than your in-memory state.
 
 When selecting values for these parameters, you should choose values that reflect
