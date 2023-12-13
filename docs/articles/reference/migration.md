@@ -47,7 +47,9 @@ add_one_stream = op.map("add_one", stream, lambda x: x + 1)
 op.output("out", add_one_stream, StdOutSink())
 ```
 
-### Renamed IO Classes
+### Refactored IO Classes
+
+## Renaming
 
 We have renamed the IO classes to better match their semantics and the
 way they are talked about in the documentation. Their functionality
