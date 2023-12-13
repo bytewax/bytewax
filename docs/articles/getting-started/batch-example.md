@@ -10,19 +10,21 @@ collect data based on a key and therefore expect input `Streams` to be keyed.
 
 ## Batching
 
-**Batching** operators operate over a stream of data and collect a number of
-items until a fixed size, or a given timeout is reached.
+The [batch operator](/apidocs/bytewax.operators/index#bytewax.operators.batch) operates over a stream
+of data and collects a number of items until a fixed size, or a given timeout is reached.
 
 Let's construct a simple dataflow to demonstrate. In the following Dataflow,
-we're using the `TestingSource` **Source** to generate data from a list,
-but in a production Dataflow, your input could come from RedPanda, or another
-other streaming input source.
+we're using the [TestingSource](/apidocs/bytewax.testing#bytewax.testing.TestingSource)
+to generate sample data from a list. In a production Dataflow, your input could come from
+[RedPanda](https://redpanda.com/), or any other input source.
 
-The `TestingSource` emits one integer at a time into the dataflow. In our
-batch operator, we'll configure it to wait for either three values, or
-for 10 seconds to expire before emitting the batch downstream. Since
-we won't be waiting for data with our `TestingSource`, we should
-always see batches of 3 items.
+The `TestingSource` emits one integer at a time into the dataflow. In our batch
+operator, we'll configure it to wait for either 3 values, or for 10 seconds
+to expire before emitting the batch downstream. Since we won't be waiting for
+data with our TestingSource, we should see batches of 3 items until we run out
+of input from our `TestingSource`.
+
+Copy the following code into a file named `batch_example.py`:
 
 ```python
 from datetime import timedelta
@@ -43,9 +45,10 @@ batched_stream = op.batch(
 op.output("out", batched_stream, StdOutSink())
 ```
 
-Great, now we can run our batch example. You should see the following output:
+Now we have our dataflow, we can run our batch example. You should see the following output:
 
-```
+```shell
+> python -m bytewax.run batch_example
 ('ALL', [0, 1, 2])
 ('ALL', [3, 4, 5])
 ('ALL', [6, 7, 8])
@@ -54,12 +57,12 @@ Great, now we can run our batch example. You should see the following output:
 
 ## Windowing
 
-Windowing operators perform computation over a time based window of data
-where time can be defined as the system time that the data is processed, known
-as **Processing Time**, or time as a property of the data itself referred to
-as **Event Time**. For this example, we're going to use **Event Time**. Time
-will be used in our window operators to decide which windows a given item belongs
-to, and to determine when an item is late.
+[Windowing operators](apidocs/bytewax.operators/window) perform computation over
+a time-based window of data where time can be defined as the system time that
+the data is processed, known as **Processing Time**, or time as a property of
+the data itself referred to as **Event Time**. For this example, we're going to
+use **Event Time**. Time will be used in our window operators to decide which
+windows a given item belongs to, and to determine when an item is late.
 
 Let's start by and importing the relevant classes, creating a Dataflow, and
 configuring some test input.
@@ -94,21 +97,23 @@ keyed_stream = op.key_on("key_on_user", stream, lambda e: e["user"])
 In addition to a sense of time, windowing operators also require a configuration
 that determines how items are assigned to windows. Items can be assigned to
 one or more windows, depending on the desired behavior. In this example, we'll
-be using the `TumblingWindow` assigner, which will assign each item to a single,
-fixed duration window for each key in the stream.
+be using the [TumblingWindow](/apidocs/bytewax.operators/window#bytewax.operators.window.TumblingWindow)
+assigner, which will assign each item to a single, fixed duration window for each key in the stream.
 
 In the following snippet, we configure the `EventClockConfig` to determine
 the time of items flowing through the dataflow with a `lambda` that reads
 the "time" key of each item we created in the dictionary above.
 
-We also configure our `EventClockConfig` with a `wait_for_system_duration`,
-which is the amount of system time we're willing to wait for any late arriving
-items before closing the window and emitting it downstream. After a window
-is closed, late arriving items for that window will be discarded.
+We also configure our [EventClockConfig](/apidocs/bytewax.operators/window#bytewax.operators.window.EventClockConfig)
+with a value for the `wait_for_system_duration` parameter.
 
-In order for windows to be generated consistently, we supply the `align_to`
+The `wait_for_system_duration` the amount of system time we're willing to wait for any late arriving
+items before closing the window and emitting it downstream. After a window is
+closed, late arriving items for that window will be discarded.
+
+In order for windows to be generated consistently, we finally supply the `align_to`
 parameter, which says that all windows that we collect will be aligned to
-this `datetime`. We'll use the value that we created above.
+the given `datetime`. We'll use the value that we created above for our event data.
 
 ```python
 ZERO_TD = timedelta(seconds=0)
@@ -120,8 +125,8 @@ windower = TumblingWindow(length=timedelta(seconds=10), align_to=align_to)
 
 Now that we have our window assignment, and our clock configuration, we need
 to define the processing step that we would like to perform on each window.
-We'll use the `reduce_window` operator to keep a windowed count of the values
-for our user in each window.
+We'll use the [reduce_window](/apidocs/bytewax.operators/window#bytewax.operators.window.reduce_window)
+operator to keep a count of the values for our user in each window.
 
 ```python
 def add(acc, x):
@@ -139,8 +144,8 @@ windowed_stream = win.reduce_window("add", keyed_stream, clock, windower, add)
 ## Window Metadata
 
 The output of window operators in Bytewax is a tuple in the format: `(key, (metadata, window))`
-Where `metadata` is a `WindowMetadata` object with information about the `open_time` and `close_time`
-of the window.
+Where `metadata` is a [WindowMetadata](/apidocs/bytewax.operators/window#bytewax.operators.window.WindowMetadata)
+object with information about the `open_time` and `close_time` of the window.
 
 We'll write our window output to STDOUT using our output operator:
 
