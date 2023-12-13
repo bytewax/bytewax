@@ -105,13 +105,7 @@ Previously, the defaults values were to create a snapshot every 10 seconds and
 keep a day's worth of old snapshots. This means your recovery DB would max out at a size on disk
 theoretically thousands of times bigger than your in-memory state.
 
-When selecting values for these parameters, you should choose values that reflect
-the operational semantics of your dataflow deployment. If you create recovery
-snapshots less often, your dataflow will need to re-process more data when restarting.
-
-When choosing a backup strategy for recovery partitions, and a value for how long
-long to keep old recovery snapshots around, consider that in order to recover a dataflow,
-Bytewax will use the most recent snapshot that all recovery partitions contain data for.
+See [our documentation on the recovery system]() for how to appropriately pick these values for your deployment.
 
 ## From v0.16 to v0.17
 
