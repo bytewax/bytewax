@@ -119,7 +119,9 @@ class RedpandaSchemaRegistry:
                 f"{schema_ref.subject}/versions/"
                 f"{version}/schema"
             )
-        return requests.get(url).content
+        resp = requests.get(url)
+        resp.raise_for_status()
+        return resp.content
 
     def serializer(
         self, schema_ref: Union[int, SchemaRef]

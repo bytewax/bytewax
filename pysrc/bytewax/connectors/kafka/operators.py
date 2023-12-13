@@ -1,6 +1,6 @@
 """Operators for the kafka source and sink."""
 from dataclasses import dataclass
-from typing import Dict, Generic, List, Tuple, Union, cast
+from typing import Dict, Generic, List, Optional, Tuple, Union, cast
 
 from confluent_kafka import OFFSET_BEGINNING
 from confluent_kafka.error import KafkaError
@@ -71,9 +71,7 @@ def input(  # noqa A001
     topics: List[str],
     tail: bool = True,
     starting_offset: int = OFFSET_BEGINNING,
-    # TODO: Use Optional
-    # add_config: Optional[Dict[str, str]] = None,
-    add_config: Dict[str, str] = _default_add_config,
+    add_config: Optional[Dict[str, str]] = None,
     batch_size: int = 1000,
 ) -> KafkaStreams[MaybeStrBytes, MaybeStrBytes, MaybeStrBytes, MaybeStrBytes]:
     """Use a set of Kafka topics as an input source.
@@ -131,9 +129,7 @@ def output(
     *,
     brokers: List[str],
     topic: str,
-    # TODO: Use Optional
-    # add_config: Optional[Dict[str, str]] = None,
-    add_config: Dict[str, str] = _default_add_config,
+    add_config: Optional[Dict[str, str]] = None,
 ) -> None:
     """Use a single Kafka topic as an output sink.
 
