@@ -44,6 +44,8 @@ W = TypeVar("W")  # Output Value
 S = TypeVar("S")  # State
 KeyedStream: TypeAlias = Stream[Tuple[str, V]]
 
+EMPTY = tuple()
+
 
 def _identity(x: X) -> X:
     return x
@@ -393,7 +395,7 @@ class UnaryLogic(ABC, Generic[V, W, S]):
     DISCARD: bool = True
 
     @abstractmethod
-    def on_item(self, now: datetime, value: V) -> Tuple[List[W], bool]:
+    def on_item(self, now: datetime, value: V) -> Tuple[Iterable[W], bool]:
         """Called on each new upstream item.
 
         This will be called multiple times in a row if there are
@@ -413,7 +415,7 @@ class UnaryLogic(ABC, Generic[V, W, S]):
         ...
 
     @abstractmethod
-    def on_notify(self, sched: datetime) -> Tuple[List[W], bool]:
+    def on_notify(self, sched: datetime) -> Tuple[Iterable[W], bool]:
         """Called when the scheduled notification time has passed.
 
         Args:
@@ -428,7 +430,7 @@ class UnaryLogic(ABC, Generic[V, W, S]):
         ...
 
     @abstractmethod
-    def on_eof(self) -> Tuple[List[W], bool]:
+    def on_eof(self) -> Tuple[Iterable[W], bool]:
         """The upstream has no more items on this execution.
 
         This will only be called once per execution after `on_item` is
@@ -529,21 +531,21 @@ class _BatchLogic(UnaryLogic[V, List[V], _BatchState[V]]):
     batch_size: int
     state: _BatchState[V]
 
-    def on_item(self, now: datetime, value: V) -> Tuple[List[List[V]], bool]:
+    def on_item(self, now: datetime, value: V) -> Tuple[Iterable[List[V]], bool]:
         self.state.timeout_at = now + self.timeout
 
         self.state.acc.append(value)
         if len(self.state.acc) >= self.batch_size:
             # No need to deepcopy because we are discarding the state.
-            return ([self.state.acc], UnaryLogic.DISCARD)
+            return ((self.state.acc,), UnaryLogic.DISCARD)
 
-        return ([], UnaryLogic.RETAIN)
+        return (EMPTY, UnaryLogic.RETAIN)
 
-    def on_notify(self, sched: datetime) -> Tuple[List[List[V]], bool]:
-        return ([self.state.acc], UnaryLogic.DISCARD)
+    def on_notify(self, sched: datetime) -> Tuple[Iterable[List[V]], bool]:
+        return ((self.state.acc,), UnaryLogic.DISCARD)
 
-    def on_eof(self) -> Tuple[List[List[V]], bool]:
-        return ([self.state.acc], UnaryLogic.DISCARD)
+    def on_eof(self) -> Tuple[Iterable[List[V]], bool]:
+        return ((self.state.acc,), UnaryLogic.DISCARD)
 
     def notify_at(self) -> Optional[datetime]:
         return self.state.timeout_at
@@ -718,7 +720,7 @@ def filter(  # noqa: A001
 
     """
 
-    def shim_mapper(x: X) -> List[X]:
+    def shim_mapper(x: X) -> Iterable[X]:
         keep = predicate(x)
         if not isinstance(keep, bool):
             msg = (
@@ -728,9 +730,9 @@ def filter(  # noqa: A001
             )
             raise TypeError(msg)
         if keep:
-            return [x]
+            return (x,)
 
-        return []
+        return EMPTY
 
     return flat_map("flat_map", up, shim_mapper)
 
@@ -756,7 +758,7 @@ def filter_value(
 
     """
 
-    def shim_mapper(v: V) -> List[V]:
+    def shim_mapper(v: V) -> Iterable[V]:
         keep = predicate(v)
         if not isinstance(keep, bool):
             msg = (
@@ -766,9 +768,9 @@ def filter_value(
             )
             raise TypeError(msg)
         if keep:
-            return [v]
+            return (v,)
 
-        return []
+        return EMPTY
 
     return flat_map_value("filter", up, shim_mapper)
 
@@ -814,12 +816,12 @@ def filter_map(
 
     """
 
-    def shim_mapper(x: X) -> List[Y]:
+    def shim_mapper(x: X) -> Iterable[Y]:
         y = mapper(x)
         if y is not None:
-            return [y]
+            return (y,)
 
-        return []
+        return EMPTY
 
     return flat_map("flat_map", up, shim_mapper)
 
@@ -830,16 +832,16 @@ class _FoldFinalLogic(UnaryLogic[V, S, S]):
     folder: Callable[[S, V], S]
     state: S
 
-    def on_item(self, now: datetime, value: V) -> Tuple[List[S], bool]:
+    def on_item(self, now: datetime, value: V) -> Tuple[Iterable[S], bool]:
         self.state = self.folder(self.state, value)
-        return ([], UnaryLogic.RETAIN)
+        return (EMPTY, UnaryLogic.RETAIN)
 
-    def on_notify(self, sched: datetime) -> Tuple[List[S], bool]:
-        return ([], UnaryLogic.RETAIN)
+    def on_notify(self, sched: datetime) -> Tuple[Iterable[S], bool]:
+        return (EMPTY, UnaryLogic.RETAIN)
 
-    def on_eof(self) -> Tuple[List[S], bool]:
+    def on_eof(self) -> Tuple[Iterable[S], bool]:
         # No need to deepcopy because we are discarding the state.
-        return ([self.state], UnaryLogic.DISCARD)
+        return ((self.state,), UnaryLogic.DISCARD)
 
     def notify_at(self) -> Optional[datetime]:
         return None
@@ -959,13 +961,10 @@ class _JoinState:
 
     def asdicts(self) -> List[Dict[str, Any]]:
         EMPTY = object()
-        ts = self.astuples(empty=EMPTY)
-        dicts = []
-        for t in ts:
-            dicts.append(
-                dict((n, v) for n, v in zip(self.seen.keys(), t) if v is not EMPTY)
-            )
-        return dicts
+        return [
+            dict((n, v) for n, v in zip(self.seen.keys(), t) if v is not EMPTY)
+            for t in self.astuples(empty=EMPTY)
+        ]
 
 
 @dataclass
@@ -976,25 +975,25 @@ class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
 
     def on_item(
         self, now: datetime, value: Tuple[str, Any]
-    ) -> Tuple[List[_JoinState], bool]:
+    ) -> Tuple[Iterable[_JoinState], bool]:
         name, value = value
 
         self.state.set_val(name, value)
 
         if self.running:
-            return ([copy.deepcopy(self.state)], UnaryLogic.RETAIN)
+            return ((copy.deepcopy(self.state),), UnaryLogic.RETAIN)
         else:
             if self.state.all_set():
                 # No need to deepcopy because we are discarding the state.
-                return ([self.state], UnaryLogic.DISCARD)
+                return ((self.state,), UnaryLogic.DISCARD)
             else:
-                return ([], UnaryLogic.RETAIN)
+                return (EMPTY, UnaryLogic.RETAIN)
 
-    def on_notify(self, sched: datetime) -> Tuple[List[_JoinState], bool]:
-        return ([], UnaryLogic.RETAIN)
+    def on_notify(self, sched: datetime) -> Tuple[Iterable[_JoinState], bool]:
+        return (EMPTY, UnaryLogic.RETAIN)
 
-    def on_eof(self) -> Tuple[List[_JoinState], bool]:
-        return ([], UnaryLogic.RETAIN)
+    def on_eof(self) -> Tuple[Iterable[_JoinState], bool]:
+        return (EMPTY, UnaryLogic.RETAIN)
 
     def notify_at(self) -> Optional[datetime]:
         return None
@@ -1317,7 +1316,7 @@ class _StatefulMapLogic(UnaryLogic[V, W, S]):
     mapper: Callable[[S, V], Tuple[Optional[S], W]]
     state: S
 
-    def on_item(self, now: datetime, value: V) -> Tuple[List[W], bool]:
+    def on_item(self, now: datetime, value: V) -> Tuple[Iterable[W], bool]:
         res = self.mapper(self.state, value)
         try:
             s, w = res
@@ -1332,16 +1331,16 @@ class _StatefulMapLogic(UnaryLogic[V, W, S]):
         if s is None:
             # No need to update state as we're thowing everything
             # away.
-            return ([w], UnaryLogic.DISCARD)
+            return ((w,), UnaryLogic.DISCARD)
         else:
             self.state = s
-            return ([w], UnaryLogic.RETAIN)
+            return ((w,), UnaryLogic.RETAIN)
 
-    def on_notify(self, sched: datetime) -> Tuple[List[W], bool]:
-        return ([], UnaryLogic.RETAIN)
+    def on_notify(self, sched: datetime) -> Tuple[Iterable[W], bool]:
+        return (EMPTY, UnaryLogic.RETAIN)
 
-    def on_eof(self) -> Tuple[List[W], bool]:
-        return ([], UnaryLogic.RETAIN)
+    def on_eof(self) -> Tuple[Iterable[W], bool]:
+        return (EMPTY, UnaryLogic.RETAIN)
 
     def notify_at(self) -> Optional[datetime]:
         return None
