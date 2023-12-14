@@ -120,6 +120,11 @@ def flat_map_batch(
 ) -> Stream[Y]:
     """Transform an entire batch of items 1-to-many.
 
+    This is the lowest-level stateless operator Bytewax provides and
+    gives you full control over the behavior. Usualy you will want to
+    use a higher-level operator than this. In general, reach for
+    `flat_map`.
+
     The batch size received here depends on the exact behavior of the
     upstream input sources and operators. It should be used as a
     performance optimization when processing multiple items at once
@@ -317,11 +322,11 @@ def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
     return Stream(f"{up._scope.parent_id}.down", up._scope)
 
 
-class UnaryLogic(ABC, Generic[V, W, S]):
-    """Abstract class to define the behavior of a `unary` operator.
+class UnaryBatchLogic(ABC, Generic[V, W, S]):
+    """Define the behavior of a `unary_batch` operator.
 
-    The operator will call these methods in order: `on_item` once for
-    any items queued, then `on_notify` if the notification time has
+    The operator will call these methods in order: `on_batch` with all
+    values queued, then `on_notify` if the notification time has
     passed, then `on_eof` if the upstream is EOF and no new items will
     be received this execution. If the logic is retained after all the
     above calls then `notify_at` will be called. `snapshot` is
@@ -341,11 +346,166 @@ class UnaryLogic(ABC, Generic[V, W, S]):
     DISCARD: bool = True
 
     @abstractmethod
+    def on_batch(self, now: datetime, values: List[V]) -> Tuple[Iterable[W], bool]:
+        """Called on each batch of upstream values.
+
+        Be careful and remember that if while processing this batch
+        you encounter a value that would discard the state, you are
+        responsible for re-building the new state.
+
+        Args:
+            now: The current `datetime`.
+
+            values: The most recent batch of values from the upstream
+                `(key, value)` that the runtime receieved.
+
+        Returns:
+            A 2-tuple of: any values to emit downstream and wheither
+            to discard this logic. Values will be wrapped in `(key,
+            value)` automatically.
+
+        """
+        ...
+
+    @abstractmethod
+    def on_notify(self, sched: datetime) -> Tuple[Iterable[W], bool]:
+        """Called when the scheduled notification time has passed.
+
+        Args:
+            sched: The scheduled notification time.
+
+        Returns:
+            A 2-tuple of: any values to emit downstream and wheither
+            to discard this logic. Values will be wrapped in `(key,
+            value)` automatically.
+
+        """
+        ...
+
+    @abstractmethod
+    def on_eof(self) -> Tuple[Iterable[W], bool]:
+        """The upstream has no more items on this execution.
+
+        This will only be called once per execution after `on_item` is
+        done being called.
+
+        Returns:
+            A 2-tuple of: any values to emit downstream and wheither
+            to discard this logic. Values will be wrapped in `(key,
+            value)` automatically.
+
+        """
+        ...
+
+    @abstractmethod
+    def notify_at(self) -> Optional[datetime]:
+        """Return the next notification time.
+
+        This will be called once right after the logic is built, and
+        if any of the `on_*` methods were called if the logic was
+        retained by `is_complete`.
+
+        This must always return the next notification time. The
+        operator only stores a single next time, so if
+
+        Returns:
+            Scheduled time. If `None`, no `on_notify` callback will
+            occur.
+
+        """
+        ...
+
+    @abstractmethod
+    def snapshot(self) -> S:
+        """Return a immutable copy of the state for recovery.
+
+        This will be called periodically by the runtime.
+
+        The value returned here will be passed back to the `builder`
+        function of `unary.unary` when resuming.
+
+        The state must be `pickle`-able.
+
+        **The state must be effectively immutable!** If any of the
+        other functions in this class might be able to mutate the
+        state, you must `copy.deepcopy` or something equivalent before
+        returning it here.
+
+        """
+        ...
+
+
+@operator(_core=True)
+def unary_batch(
+    step_id: str,
+    up: KeyedStream[V],
+    builder: Callable[[datetime, Optional[S]], UnaryBatchLogic[V, W, S]],
+) -> KeyedStream[W]:
+    """Advanced generic stateful operator.
+
+    This is the lowest-level stateful operator Bytewax provides and
+    gives you full control over all aspects of the operator processing
+    and lifecycle. Usualy you will want to use a higher-level operator
+    than this. In general, reach for `stateful_map` if you don't need
+    timeouts, or one of the `bytewax.operators.window` operators if
+    you need them.
+
+    Subclass `UnaryBatchLogic` to define its behavior. See
+    documentation there.
+
+    See `unary` if your processing is better done per-value and you
+    don't want to handle the complexity of batches.
+
+    Args:
+        step_id: Unique ID.
+
+        up: Keyed stream.
+
+        builder: Called whenver a new key is encountered with the
+            current `datetime` and the resume state returned from
+            `UnaryBatchLogic.snapshot` for this key, if any. This should
+            close over any non-state configuration and combine it with
+            the resume state to return the prepared `UnaryBatchLogic` for
+            the new key.
+
+    Returns:
+        Keyed stream of all values returned from
+        `UnaryBatchLogic.on_batch`, `UnaryBatchLogic.on_notify`, and
+        `UnaryBatchLogic.on_eof`.
+
+    """
+    return Stream(f"{up._scope.parent_id}.down", up._scope)
+
+
+class UnaryLogic(ABC, Generic[V, W, S]):
+    """Abstract class to define the behavior of a `unary` operator.
+
+    The operator will call these methods in order: `on_item` once for
+    any values queued, then `on_notify` if the notification time has
+    passed, then `on_eof` if the upstream is EOF and no new items will
+    be received this execution. If the logic is retained after all the
+    above calls then `notify_at` will be called. `snapshot` is
+    periodically called.
+
+    """
+
+    #: This logic should be retained after this call to `on_*`.
+    #
+    #: If you always return this, this state will never be deleted and
+    #: if your key-space grows without bound, your memory usage will
+    #: also grow without bound.
+    RETAIN: bool = UnaryBatchLogic.RETAIN
+
+    #: This logic should be discarded immediately after this call to
+    #: `on_*`.
+    DISCARD: bool = UnaryBatchLogic.DISCARD
+
+    @abstractmethod
     def on_item(self, now: datetime, value: V) -> Tuple[Iterable[W], bool]:
-        """Called on each new upstream item.
+        """Called on each new upstream value.
 
         This will be called multiple times in a row if there are
-        multiple items from upstream.
+        multiple values from upstream.
 
         Args:
             now: The current `datetime`.
@@ -426,42 +586,6 @@ class UnaryLogic(ABC, Generic[V, W, S]):
 
         """
         ...
-
-
-@operator(_core=True)
-def unary(
-    step_id: str,
-    up: KeyedStream[V],
-    builder: Callable[[datetime, Optional[S]], UnaryLogic[V, W, S]],
-) -> KeyedStream[W]:
-    """Advanced generic stateful operator.
-
-    This is the lowest-level operator Bytewax provides and gives you
-    full control over all aspects of the operator processing and
-    lifecycle. Usualy you will want to use a higher-level operator
-    than this.
-
-    Subclass `UnaryLogic` to define its behavior. See documentation
-    there.
-
-    Args:
-        step_id: Unique ID.
-
-        up: Keyed stream.
-
-        builder: Called whenver a new key is encountered with the
-            current `datetime` and the resume state returned from
-            `UnaryLogic.snapshot` for this key, if any. This should
-            close over any non-state configuration and combine it with
-            the resume state to return the prepared `UnaryLogic` for
-            the new key.
-
-    Returns:
-        Keyed stream of all items returned from `UnaryLogic.on_item`,
-        `UnaryLogic.on_notify`, and `UnaryLogic.on_eof`.
-
-    """
-    return Stream(f"{up._scope.parent_id}.down", up._scope)
 
 
 @dataclass
@@ -1462,3 +1586,89 @@ def stateful_map(
         return _StatefulMapLogic(step_id, mapper, state)
 
     return unary("unary", up, shim_builder)
+
+
+@dataclass
+class _UnaryShimLogic(UnaryBatchLogic[V, W, S]):
+    builder: Callable[[datetime, Optional[S]], UnaryLogic[V, W, S]]
+    logic: Optional[UnaryLogic[V, W, S]]
+
+    def on_batch(self, now: datetime, values: List[V]) -> Tuple[Iterable[W], bool]:
+        out = []
+
+        for value in values:
+            if self.logic is None:
+                self.logic = self.builder(now, None)
+            value_out, is_complete = self.logic.on_item(now, value)
+            out.extend(value_out)
+            if is_complete:
+                self.logic = None
+
+        return (out, self.logic is None)
+
+    def on_notify(self, sched: datetime) -> Tuple[Iterable[W], bool]:
+        # These asserts will fail only if `unary_batch`'s Timely
+        # operator code is not obeying the `is_complete` return value
+        # from `on_batch` and keeping the state around even if we told
+        # it to discard it.
+        assert self.logic is not None
+        return self.logic.on_notify(sched)
+
+    def on_eof(self) -> Tuple[Iterable[W], bool]:
+        assert self.logic is not None
+        return self.logic.on_eof()
+
+    def notify_at(self) -> Optional[datetime]:
+        assert self.logic is not None
+        return self.logic.notify_at()
+
+    def snapshot(self) -> S:
+        assert self.logic is not None
+        return self.logic.snapshot()
+
+
+@operator
+def unary(
+    step_id: str,
+    up: KeyedStream[V],
+    builder: Callable[[datetime, Optional[S]], UnaryLogic[V, W, S]],
+) -> KeyedStream[W]:
+    """Advanced generic stateful operator.
+
+    This is a low-level operator and gives you deep control over all
+    aspects of the operator processing and lifecycle. Usualy you will
+    want to use a higher-level operator than this. In general, reach
+    for `stateful_map` if you don't need timeouts, or one of the
+    `bytewax.operators.window` operators if you need them.
+
+    Subclass `UnaryLogic` to define its behavior. See documentation
+    there.
+
+    See `unary_batch` if you'd like to take on the responsibility of
+    processing batches for performance reasons.
+
+    Args:
+        step_id: Unique ID.
+
+        up: Keyed stream.
+
+        builder: Called whenver a new key is encountered with the
+            current `datetime` and the resume state returned from
+            `UnaryLogic.snapshot` for this key, if any. This should
+            close over any non-state configuration and combine it with
+            the resume state to return the prepared `UnaryLogic` for
+            the new key.
+
+    Returns:
+        Keyed stream of all items returned from `UnaryLogic.on_item`,
+        `UnaryLogic.on_notify`, and `UnaryLogic.on_eof`.
+
+    """
+
+    def shim_builder(
+        now: datetime, resume_state: Optional[S]
+    ) -> _UnaryShimLogic[V, W, S]:
+        logic = builder(now, resume_state)
+        return _UnaryShimLogic(builder, logic)
+
+    return unary_batch("unary_batch", up, shim_builder)

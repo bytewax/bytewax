@@ -493,20 +493,20 @@ where
                             .insert_downstream(py, &step, "down", down)
                             .reraise("core operator `redistribute` missing port")?;
                     }
-                    "unary" => {
+                    "unary_batch" => {
                         let builder = step.get_arg(py, "builder")?.extract(py)?;
 
                         let up = streams
                             .get_upstream(py, &step, "up")
-                            .reraise("core operator `unary` missing port")?;
+                            .reraise("core operator `unary_batch` missing port")?;
 
-                        let (down, snap) = up.unary(py, step_id, builder, resume_epoch, &loads)?;
+                        let (down, snap) = up.unary_batch(py, step_id, builder, resume_epoch, &loads)?;
 
                         snaps.push(snap);
 
                         streams
                             .insert_downstream(py, &step, "down", down)
-                            .reraise("core operator `unary` missing port")?;
+                            .reraise("core operator `unary_batch` missing port")?;
                     }
                     name => {
                         let msg = format!("Unknown core operator {name:?}");

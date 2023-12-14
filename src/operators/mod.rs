@@ -393,11 +393,11 @@ where
     }
 }
 
-pub(crate) trait UnaryOp<S>
+pub(crate) trait UnaryBatchOp<S>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn unary(
+    fn unary_batch(
         &self,
         py: Python,
         step_id: StepId,
@@ -407,19 +407,19 @@ where
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)>;
 }
 
-struct UnaryLogic(PyObject);
+struct UnaryBatchLogic(PyObject);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for UnaryLogic {
+impl<'source> FromPyObject<'source> for UnaryBatchLogic {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
             .import("bytewax.operators")?
-            .getattr("UnaryLogic")?
+            .getattr("UnaryBatchLogic")?
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(PyTypeError::new_err(
-                "logic must subclass `bytewax.operators.UnaryLogic`",
+                "logic must subclass `bytewax.operators.UnaryBatchLogic`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -447,7 +447,7 @@ impl<'source> FromPyObject<'source> for IsComplete {
     }
 }
 
-impl UnaryLogic {
+impl UnaryBatchLogic {
     fn extract_ret(res: &PyAny) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let (iter, is_complete) = res.extract::<(&PyAny, &PyAny)>().reraise_with(|| {
             format!(
@@ -466,16 +466,16 @@ impl UnaryLogic {
         Ok((emit, is_complete))
     }
 
-    fn on_item<'py>(
+    fn on_batch<'py>(
         &'py self,
         py: Python<'py>,
         py_now: PyObject,
-        item: PyObject,
+        values: Vec<PyObject>,
     ) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let res = self
             .0
             .as_ref(py)
-            .call_method1(intern!(py, "on_item"), (py_now, item))?;
+            .call_method1(intern!(py, "on_batch"), (py_now, values))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
@@ -511,11 +511,11 @@ impl UnaryLogic {
     }
 }
 
-impl<S> UnaryOp<S> for Stream<S, TdPyAny>
+impl<S> UnaryBatchOp<S> for Stream<S, TdPyAny>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn unary(
+    fn unary_batch(
         &self,
         _py: Python,
         step_id: StepId,
@@ -538,7 +538,7 @@ where
         );
         let partd_loads = loads.partition(format!("{step_id}.load_partition"), &workers, loads_pf);
 
-        let op_name = format!("{step_id}.stateful_unary");
+        let op_name = format!("{step_id}.unary_batch");
         let mut op_builder = OperatorBuilder::new(op_name.clone(), self.scope());
 
         let (mut kv_downstream_output, kv_downstream) = op_builder.new_output();
@@ -568,20 +568,20 @@ where
             .with_description("number of items this step has emitted")
             .init();
         let on_item_histogram = meter
-            .f64_histogram("unary_on_item_duration_seconds")
-            .with_description("`UnaryLogic.on_item` duration in seconds")
+            .f64_histogram("unary_batch_on_batch_duration_seconds")
+            .with_description("`UnaryBatchLogic.on_batch` duration in seconds")
             .init();
         let on_notify_histogram = meter
-            .f64_histogram("unary_on_notify_duration_seconds")
-            .with_description("`UnaryLogic.on_notify` duration in seconds")
+            .f64_histogram("unary_batch_on_notify_duration_seconds")
+            .with_description("`UnaryBatchLogic.on_notify` duration in seconds")
             .init();
         let on_eof_histogram = meter
-            .f64_histogram("unary_on_eof_duration_seconds")
-            .with_description("`UnaryLogic.on_eof` duration in seconds")
+            .f64_histogram("unary_batch_on_eof_duration_seconds")
+            .with_description("`UnaryBatchLogic.on_eof` duration in seconds")
             .init();
         let notify_at_histogram = meter
-            .f64_histogram("unary_notify_at_duration_seconds")
-            .with_description("`UnaryLogic.notify_at` duration in seconds")
+            .f64_histogram("unary_batch_notify_at_duration_seconds")
+            .with_description("`UnaryBatchLogic.notify_at` duration in seconds")
             .init();
         let snapshot_histogram = meter
             .f64_histogram("snapshot_duration_seconds")
@@ -605,7 +605,7 @@ where
             // each key representing the state at the frontier epoch;
             // we only modify state carefully in epoch order once we
             // know we won't be getting any input on closed epochs.
-            let mut logics: BTreeMap<StateKey, UnaryLogic> = BTreeMap::new();
+            let mut logics: BTreeMap<StateKey, UnaryBatchLogic> = BTreeMap::new();
             // Contains the last known return value for
             // `logic.notify_at` for each key (if any). We don't
             // snapshot this because the logic itself should contain
@@ -620,7 +620,7 @@ where
             // have new data; pull out of here in epoch order to
             // process. This spans activations and will have epochs
             // removed from it as the input frontier progresses.
-            let mut inbuf = InBuffer::new();
+            let mut items_inbuf: BTreeMap<u64, BTreeMap<StateKey, Vec<TdPyAny>>> = BTreeMap::new();
             let mut loads_inbuf = InBuffer::new();
             // Persistent across activations buffer of what keys were
             // awoken during the most recent epoch. This is used to
@@ -628,6 +628,9 @@ where
             // state modifications. This is drained after each epoch
             // is processed.
             let mut awoken_keys_buffer: BTreeSet<StateKey> = BTreeSet::new();
+
+            // Finally some temporary buffers for Timely input.
+            let mut tmp = Vec::new();
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = op_name).in_scope(|| {
@@ -645,7 +648,18 @@ where
                         // the state cache in epoch order.
                         input_handle.for_each(|cap, incoming| {
                             let epoch = cap.time();
-                            inbuf.extend(*epoch, incoming);
+                            assert!(tmp.is_empty());
+                            incoming.swap(&mut tmp);
+
+                            let epoch_inbuf = items_inbuf.entry(*epoch)
+                                .or_default();
+                            for (worker, (key, value)) in tmp.drain(..) {
+                                assert!(worker == this_worker);
+
+                                epoch_inbuf.entry(key)
+                                    .or_default()
+                                    .push(value);
+                            }
                         });
                         loads_handle.for_each(|cap, incoming| {
                             let epoch = cap.time();
@@ -677,7 +691,7 @@ where
 
                         // Try to process all the epochs we have input
                         // for.
-                        process_epochs.extend(inbuf.epochs());
+                        process_epochs.extend(items_inbuf.keys());
                         process_epochs.extend(loads_inbuf.epochs());
 
                         // Filter out epochs that are not closed; the
@@ -715,16 +729,16 @@ where
 
                             // First, call `on_item` for all the input
                             // items.
-                            if let Some(items) = inbuf.remove(&epoch) {
+                            if let Some(items) = items_inbuf.remove(&epoch) {
                                 item_inp_count.add(items.len() as u64, &labels);
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     let builder = builder.as_ref(py);
 
-                                    for (worker, (key, value)) in items {
-                                        let value = PyObject::from(value);
+                                    for (key, values) in items {
+                                    let values: Vec<_> =
+                                        values.into_iter().map(PyObject::from).collect();
 
-                                        assert!(worker == this_worker);
                                         // Ok, let's actually run the logic code!
                                         // Pull out or build the logic for the
                                         // current key.
@@ -733,7 +747,7 @@ where
                                                 unwrap_any!((|| {
                                                     builder
                                                         .call1((py_now.clone_ref(py), None::<PyObject>))?
-                                                        .extract::<UnaryLogic>()
+                                                        .extract::<UnaryBatchLogic>()
                                                 })(
                                                 ))
                                             });
@@ -742,9 +756,9 @@ where
                                             on_item_histogram,
                                             labels,
                                             logic
-                                                .on_item(py, py_now.clone_ref(py), value)
+                                                .on_batch(py, py_now.clone_ref(py), values)
                                                 .reraise_with(|| format!(
-                                                    "error calling `UnaryLogic.on_item` in step {step_id} for key {key}"
+                                                    "error calling `UnaryBatchLogic.on_batch` in step {step_id} for key {key}"
                                                 ))?
                                         );
 
@@ -786,7 +800,7 @@ where
                                             on_notify_histogram,
                                             labels,
                                             logic.on_notify(py, sched).reraise_with(|| format!(
-                                                "error calling `UnaryLogic.on_notify` in {step_id} for key {key}"
+                                                "error calling `UnaryBatchLogic.on_notify` in {step_id} for key {key}"
                                             ))?
                                         );
 
@@ -828,7 +842,7 @@ where
                                             on_eof_histogram,
                                             labels,
                                             logic.on_eof(py).reraise_with(|| format!(
-                                                "error calling `UnaryLogic.on_eof` in {step_id} for key {key}"
+                                                "error calling `UnaryBatchLogic.on_eof` in {step_id} for key {key}"
                                             ))?
                                         );
 
@@ -870,7 +884,7 @@ where
                                                 notify_at_histogram,
                                                 labels,
                                                 logic.notify_at(py).reraise_with(|| {
-                                                    format!("error calling `UnaryLogic.notify_at` in {step_id} for key {key}")
+                                                    format!("error calling `UnaryBatchLogic.notify_at` in {step_id} for key {key}")
                                                 })?
                                             );
                                             if let Some(sched) = sched {
@@ -905,7 +919,7 @@ where
                                                 snapshot_histogram,
                                                 labels,
                                                 logic.snapshot(py).reraise_with(|| {
-                                                    format!("error calling `UnaryLogic.snapshot` in {step_id} for key {key}")
+                                                    format!("error calling `UnaryBatchLogic.snapshot` in {step_id} for key {key}")
                                                 })?
                                             );
                                             StateChange::Upsert(TdPyAny::from(state))
@@ -939,7 +953,7 @@ where
                                                 StateChange::Upsert(state) => {
                                                     let logic = builder
                                                         .call1((py_now.clone_ref(py), Some(state),))?
-                                                        .extract::<UnaryLogic>()?;
+                                                        .extract::<UnaryBatchLogic>()?;
                                                     if let Some(notify_at) = logic.notify_at(py)? {
                                                         sched_cache.insert(key.clone(), notify_at);
                                                     }
