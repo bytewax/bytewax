@@ -38,7 +38,7 @@ merged_stream = op.merge("merge", inp1, inp2)
 Now that we have our merged stream, we can write it to standard out:
 
 ```python
-op.output("out", merged_stream, StdOutSink())
+op.inspect("debug", merged_stream)
 ```
 
 ```shell
