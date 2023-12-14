@@ -27,7 +27,7 @@ and our [Migration Guide](/docs/articles/reference/migration.md) before updating
 ## Support for mypy
 
 Bytewax includes support for [mypy](https://mypy.readthedocs.io/en/stable/).
-Using mypy type hints can help you catch errors when developing your Dataflows.
+Using mypy type hints can help you catch errors when developing your dataflows.
 
 ```python
 import bytewax.operators as op

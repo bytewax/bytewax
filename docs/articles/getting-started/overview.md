@@ -1,4 +1,4 @@
-Bytewax is a Python framework for building Dataflow programs over bounded or unbounded data.
+Bytewax is a Python framework for building dataflow programs over bounded or unbounded data.
 
 Dataflow programming is fundamentally about describing your program as
 independent components, each of which operate in response to the availability of
@@ -9,10 +9,10 @@ Bytewax is written in both Python and Rust. It is distributed as a Python librar
 [Timely Dataflow](https://timelydataflow.github.io/timely-dataflow/) as a low-level
 streaming computation framework.
 
-With Bytewax, you can develop Dataflows locally, and deploy the same program on multiple workers
+With Bytewax, you can develop dataflows locally, and deploy the same program on multiple workers
 to process data in parallel.
 
-Bytewax provides a number of important capabilities for writing Dataflows, including -
+Bytewax provides a number of important capabilities for writing dataflows, including -
 
 - Stateful Operators
 - Recovery
@@ -29,7 +29,7 @@ like single-sign on and disaster recovery.
 
 ## Where to go from here?
 
-If you would like to learn more about how Dataflow programming works, or would like
+If you would like to learn more about how dataflow programming works, or would like
 to better understand how Bytewax works, see our [Concepts Section](/concepts).
 
 Access to the Python API documentation can be found [here](/apidocs).

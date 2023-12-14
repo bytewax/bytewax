@@ -1,4 +1,4 @@
-Let's write our first Bytewax Dataflow. Be sure that you've followed the instructions
+Let's write our first Bytewax dataflow. Be sure that you've followed the instructions
 for installing bytewax in [Installing bytewax](/docs/articles/getting-started/installation.md).
 
 ## Imports
@@ -23,13 +23,15 @@ flow = Dataflow("a_simple_example")
 
 ## Input
 
-Every Dataflow requires input. For this example, we'll use the [input operator](/apidocs/bytewax.operators/index#bytewax.operators.input)
+Every dataflow requires input. For this example, we'll use the [input operator](/apidocs/bytewax.operators/index#bytewax.operators.input)
 together with a [TestingSource](/apidocs/bytewax.testing#bytewax.testing.TestingSource) to produce a stream of Python `int`s.
 
 
 ```python
 stream = op.input("input", flow, TestingSource(range(10)))
 ```
+The `input` operator returns a [Stream](/apidocs/bytewax.dataflow#bytewax.dataflow.Stream) of values. If you are using an editor with a language server setup with type hints,
+you can see that the return type is a `Stream[int]` containing integers.
 
 ## Operators
 
@@ -45,9 +47,6 @@ def times_two(inp: int) -> int:
 double = op.map("double", stream, times_two)
 ```
 
-The `map` operator returns a stream of transformed values. If you are using [mypy](https://mypy.readthedocs.io/en/stable/), you
-can see that the return type is a new `Stream[int]` of the transformed integers.
-
 ## Output
 
 Finally, let's add an [output](/apidocs/bytewax.operators/index#bytewax.operators.output) step. At least one
@@ -60,7 +59,7 @@ op.output("out", double, StdOutSink())
 
 ## Running a Bytewax dataflow
 
-When writing Bytewax Dataflows for production use, you should run your dataflow using the
+When writing Bytewax dataflows for production use, you should run your dataflow using the
 [bytewax.run](/apidocs/bytewax.run) module. Let's see an example that does just that.
 
 To begin, save the following code in a file called `basic.py`.

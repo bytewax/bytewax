@@ -1,21 +1,17 @@
-In this section, we'll be talking about the Batching and Windowing operators
+In this section, we'll be talking about the Batch and Windowing operators
 that Bytewax provides.
 
 In this context, **Batching** refers to an operation over an unbounded stream
 of data, rather than an execution mode where the amount of data is finite.
-
-It is important to remember that all **Batching** and **Windowing** operators
-collect data based on a key and therefore expect input `Streams` to be keyed.
-
 
 ## Batching
 
 The [batch operator](/apidocs/bytewax.operators/index#bytewax.operators.batch) operates over a stream
 of data and collects a number of items until a fixed size, or a given timeout is reached.
 
-Let's construct a simple dataflow to demonstrate. In the following Dataflow,
+Let's construct a simple dataflow to demonstrate. In the following dataflow,
 we're using the [TestingSource](/apidocs/bytewax.testing#bytewax.testing.TestingSource)
-to generate sample data from a list. In a production Dataflow, your input could come from
+to generate sample data from a list. In a production dataflow, your input could come from
 [RedPanda](https://redpanda.com/), or any other input source.
 
 The `TestingSource` emits one integer at a time into the dataflow. In our batch
@@ -24,13 +20,16 @@ to expire before emitting the batch downstream. Since we won't be waiting for
 data with our TestingSource, we should see batches of 3 items until we run out
 of input from our `TestingSource`.
 
+It is important to remember that all **Batch** and **Windowing** operators
+collect data based on a key. We'll use the [key_on](/apidocs/bytewax.operators/index#bytewax.operators.key_on)
+operator to give all of our items the same fixed key so they are processed together.
+
 Copy the following code into a file named `batch_example.py`:
 
 ```python
 from datetime import timedelta
 
 import bytewax.operators as op
-import bytewax.operators.window as win
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.testing import TestingSource
@@ -45,7 +44,7 @@ batched_stream = op.batch(
 op.output("out", batched_stream, StdOutSink())
 ```
 
-Now we have our dataflow, we can run our batch example. You should see the following output:
+Now we have our dataflow, we can run our batch example:
 
 ```shell
 > python -m bytewax.run batch_example
@@ -64,13 +63,15 @@ the data itself referred to as **Event Time**. For this example, we're going to
 use **Event Time**. Time will be used in our window operators to decide which
 windows a given item belongs to, and to determine when an item is late.
 
-Let's start by and importing the relevant classes, creating a Dataflow, and
+Let's start by and importing the relevant classes, creating a dataflow, and
 configuring some test input.
 
 ```python
 from datetime import datetime, timedelta, timezone
 
 import bytewax.operators as op
+import bytewax.operators.window as win
+
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.operators.window import EventClockConfig, TumblingWindow, WindowMetadata
@@ -125,20 +126,11 @@ windower = TumblingWindow(length=timedelta(seconds=10), align_to=align_to)
 
 Now that we have our window assignment, and our clock configuration, we need
 to define the processing step that we would like to perform on each window.
-We'll use the [reduce_window](/apidocs/bytewax.operators/window#bytewax.operators.window.reduce_window)
-operator to keep a count of the values for our user in each window.
+We'll use the [collect_window](/apidocs/bytewax.operators/window#bytewax.operators.window.collect_window)
+operator to collect all of the events for a given user in each window.
 
 ```python
-def add(acc, x):
-    # `acc` here is the accumulated value, which is the first item
-    # encountered for a key for this window.
-    acc["val"] += x["val"]
-    # We'll update the first value we encountered with the value
-    # from our new item `x`
-    return acc
-
-
-windowed_stream = win.reduce_window("add", keyed_stream, clock, windower, add)
+windowed_stream = win.collect_window("add", keyed_stream, clock, windower)
 ```
 
 ## Window Metadata
@@ -157,17 +149,18 @@ op.output("out", windowed_stream, StdOutSink())
 
 Running our dataflow, we should see the following output:
 
-```
-('a', (WindowMetadata(open_time: 2022-01-01 00:00:00 UTC, close_time: 2022-01-01 00:00:10 UTC), {'time': datetime.datetime(2022, 1, 1, 0, 0, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 3}))
-('b', (WindowMetadata(open_time: 2022-01-01 00:00:00 UTC, close_time: 2022-01-01 00:00:10 UTC), {'time': datetime.datetime(2022, 1, 1, 0, 0, 5, tzinfo=datetime.timezone.utc), 'user': 'b', 'val': 1}))
-('a', (WindowMetadata(open_time: 2022-01-01 00:00:10 UTC, close_time: 2022-01-01 00:00:20 UTC), {'time': datetime.datetime(2022, 1, 1, 0, 0, 12, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 2}))
-('b', (WindowMetadata(open_time: 2022-01-01 00:00:10 UTC, close_time: 2022-01-01 00:00:20 UTC), {'time': datetime.datetime(2022, 1, 1, 0, 0, 14, tzinfo=datetime.timezone.utc), 'user': 'b', 'val': 1}))
+```shell
+> python -m bytewax.run window_example
+('a', (WindowMetadata(open_time: 2022-01-01 00:00:00 UTC, close_time: 2022-01-01 00:00:10 UTC), [{'time': datetime.datetime(2022, 1, 1, 0, 0, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 1}, {'time': datetime.datetime(2022, 1, 1, 0, 0, 4, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 1}, {'time': datetime.datetime(2022, 1, 1, 0, 0, 8, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 1}]))
+('b', (WindowMetadata(open_time: 2022-01-01 00:00:00 UTC, close_time: 2022-01-01 00:00:10 UTC), [{'time': datetime.datetime(2022, 1, 1, 0, 0, 5, tzinfo=datetime.timezone.utc), 'user': 'b', 'val': 1}]))
+('a', (WindowMetadata(open_time: 2022-01-01 00:00:10 UTC, close_time: 2022-01-01 00:00:20 UTC), [{'time': datetime.datetime(2022, 1, 1, 0, 0, 12, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 1}, {'time': datetime.datetime(2022, 1, 1, 0, 0, 13, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 1}]))
+('b', (WindowMetadata(open_time: 2022-01-01 00:00:10 UTC, close_time: 2022-01-01 00:00:20 UTC), [{'time': datetime.datetime(2022, 1, 1, 0, 0, 14, tzinfo=datetime.timezone.utc), 'user': 'b', 'val': 1}]))
 ```
 
-Bytewax has created a window for each key (in our case, the user value) and kept
-a running count of the `val` field by updating the first item with subsequent
-values. Along with the key for each value, we receive a `WindowMetadata` object
-with details about each window that Bytewax created.
+Bytewax has created a window for each key (in our case, the user value) and
+collected all of the items that were encountered in that window.
+Along with the key for each value, we receive a `WindowMetadata` object
+with information about the open time and close time of each window that Bytewax created.
 
 ## Wrapping up
 
