@@ -1,7 +1,7 @@
 """KafkaSource."""
 
 from datetime import datetime
-from typing import Dict, Iterable, List, Optional, TypeAlias, Union
+from typing import Dict, Iterable, List, Optional, Union
 
 from confluent_kafka import OFFSET_BEGINNING, Consumer, TopicPartition
 from confluent_kafka import KafkaError as ConfluentKafkaError
@@ -14,9 +14,9 @@ from .error import KafkaError
 from .message import KafkaSourceMessage
 
 # Some type aliases
-_KafkaMessage: TypeAlias = KafkaSourceMessage[MaybeStrBytes, MaybeStrBytes]
-_KafkaError: TypeAlias = KafkaError[MaybeStrBytes, MaybeStrBytes]
-_KafkaItem: TypeAlias = Union[_KafkaMessage, _KafkaError]
+_KafkaMessage = KafkaSourceMessage[MaybeStrBytes, MaybeStrBytes]
+_KafkaError = KafkaError[MaybeStrBytes, MaybeStrBytes]
+_KafkaItem = Union[_KafkaMessage, _KafkaError]
 
 
 def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:

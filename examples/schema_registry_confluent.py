@@ -44,11 +44,11 @@ The schems used for this example are the following:
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import bytewax.operators as op
 import bytewax.operators.window as wop
-from bytewax.connectors.kafka import KafkaSourceMessage, KafkaSinkMessage
+from bytewax.connectors.kafka import KafkaSinkMessage, KafkaSourceMessage
 from bytewax.connectors.kafka import operators as kop
 from bytewax.connectors.kafka.registry import ConfluentSchemaRegistry
 from bytewax.dataflow import Dataflow
