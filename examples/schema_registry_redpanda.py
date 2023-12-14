@@ -44,11 +44,11 @@ The schems used for this example are the following:
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import bytewax.operators as op
 import bytewax.operators.window as wop
-from bytewax.connectors.kafka import KafkaMessage
+from bytewax.connectors.kafka import KafkaSinkMessage, KafkaSourceMessage
 from bytewax.connectors.kafka import operators as kop
 from bytewax.connectors.kafka.registry import RedpandaSchemaRegistry, SchemaRef
 from bytewax.dataflow import Dataflow
@@ -80,7 +80,7 @@ msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer
 op.inspect("inspect-deser", msgs.errs).then(op.raises, "deser-error")
 
 
-def extract_identifier(msg: KafkaMessage[Dict, Dict]) -> str:
+def extract_identifier(msg: KafkaSourceMessage[Dict, Dict]) -> str:
     # Use the "identifier" field of the key as bytewax's key
     return msg.key["identifier"]
 
@@ -88,7 +88,7 @@ def extract_identifier(msg: KafkaMessage[Dict, Dict]) -> str:
 keyed = op.key_on("key_on_identifier", msgs.oks, extract_identifier)
 
 # Let's window the input
-def accumulate(acc: List[str], msg: KafkaMessage[Dict, Dict]) -> List[str]:
+def accumulate(acc: List[str], msg: KafkaSourceMessage[Dict, Dict]) -> List[str]:
     acc.append(msg.value["value"])
     return acc
 
@@ -98,13 +98,13 @@ wc = TumblingWindow(timedelta(seconds=1), datetime(2023, 1, 1, tzinfo=timezone.u
 windows = wop.fold_window("calc_avg", keyed, cc, wc, list, accumulate)
 
 # And do some calculations on each window
-def calc_avg(key__wm__batch) -> Tuple[Dict, Dict]:
+def calc_avg(key__wm__batch) -> KafkaSinkMessage[Dict, Dict]:
     key, (wm, batch) = key__wm__batch
     # Use the correct schemas here, or the serialization
     # step will fail later
-    return (
-        {"identifier": key, "name": "topic_key"},
-        {
+    return KafkaSinkMessage(
+        key={"identifier": key, "name": "topic_key"},
+        value={
             "identifier": key,
             "avg": sum(batch) / len(batch),
             "window_open": wm.open_time.isoformat(),

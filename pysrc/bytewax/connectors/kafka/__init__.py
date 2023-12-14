@@ -34,14 +34,15 @@ Or the custom operators:
 
 """
 from . import operators, registry, serde
-from .message import KafkaMessage
+from .message import KafkaSinkMessage, KafkaSourceMessage
 from .sink import KafkaSink
 from .source import KafkaSource
 
 __all__ = [
     "KafkaSource",
     "KafkaSink",
-    "KafkaMessage",
+    "KafkaSinkMessage",
+    "KafkaSourceMessage",
     "operators",
     "registry",
     "serde",

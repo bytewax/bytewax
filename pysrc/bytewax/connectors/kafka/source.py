@@ -1,19 +1,22 @@
 """KafkaSource."""
 
 from datetime import datetime
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, TypeAlias, Union
 
-from confluent_kafka import (
-    OFFSET_BEGINNING,
-    Consumer,
-    KafkaError,
-    TopicPartition,
-)
+from confluent_kafka import OFFSET_BEGINNING, Consumer, TopicPartition
+from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.admin import AdminClient
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 
-from .message import KafkaMessage
+from ._types import MaybeStrBytes
+from .error import KafkaError
+from .message import KafkaSourceMessage
+
+# Some type aliases
+_KafkaMessage: TypeAlias = KafkaSourceMessage[MaybeStrBytes, MaybeStrBytes]
+_KafkaError: TypeAlias = KafkaError[MaybeStrBytes, MaybeStrBytes]
+_KafkaItem: TypeAlias = Union[_KafkaMessage, _KafkaError]
 
 
 def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
@@ -35,7 +38,7 @@ def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
             yield f"{i}-{topic}"
 
 
-class _KafkaSourcePartition(StatefulSourcePartition[KafkaMessage, Optional[int]]):
+class _KafkaSourcePartition(StatefulSourcePartition[_KafkaItem, Optional[int]]):
     def __init__(
         self,
         consumer,
@@ -55,17 +58,18 @@ class _KafkaSourcePartition(StatefulSourcePartition[KafkaMessage, Optional[int]]
         self._eof = False
         self._raise_on_errors = raise_on_errors
 
-    def next_batch(self, sched: datetime) -> List[KafkaMessage]:
+    def next_batch(self, sched: Optional[datetime]) -> List[_KafkaItem]:
         if self._eof:
             raise StopIteration()
 
         msgs = self._consumer.consume(self._batch_size, 0.001)
 
-        batch = []
+        batch: List[_KafkaItem] = []
         last_offset = None
         for msg in msgs:
+            error = None
             if msg.error() is not None:
-                if msg.error().code() == KafkaError._PARTITION_EOF:
+                if msg.error().code() == ConfluentKafkaError._PARTITION_EOF:
                     # Set self._eof to True and only raise StopIteration
                     # at the next cycle, so that we can emit messages in
                     # this batch
@@ -78,11 +82,12 @@ class _KafkaSourcePartition(StatefulSourcePartition[KafkaMessage, Optional[int]]
                         f"{msg.error()}"
                     )
                     raise RuntimeError(err_msg)
+                else:
+                    error = msg.error()
 
-            kafka_msg = KafkaMessage(
+            kafka_msg = KafkaSourceMessage(
                 key=msg.key(),
                 value=msg.value(),
-                error=msg.error(),
                 topic=msg.topic(),
                 headers=msg.headers(),
                 latency=msg.latency(),
@@ -90,7 +95,10 @@ class _KafkaSourcePartition(StatefulSourcePartition[KafkaMessage, Optional[int]]
                 partition=msg.partition(),
                 timestamp=msg.timestamp(),
             )
-            batch.append(kafka_msg)
+            if error is None:
+                batch.append(kafka_msg)
+            else:
+                batch.append(KafkaError(error, kafka_msg))
             last_offset = msg.offset()
 
         # Resume reading from the next message, not this one.
@@ -105,7 +113,7 @@ class _KafkaSourcePartition(StatefulSourcePartition[KafkaMessage, Optional[int]]
         self._consumer.close()
 
 
-class KafkaSource(FixedPartitionedSource[KafkaMessage, Optional[int]]):
+class KafkaSource(FixedPartitionedSource[_KafkaItem, Optional[int]]):
     """Use a set of Kafka topics as an input source.
 
     Partitions are the unit of parallelism.

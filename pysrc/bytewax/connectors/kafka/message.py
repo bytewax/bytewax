@@ -1,21 +1,17 @@
 """KafkaMessage definition."""
 
-from dataclasses import dataclass, replace
-from typing import Generic, List, Optional, Tuple
-
-from confluent_kafka import KafkaError
+from dataclasses import dataclass, field
+from typing import Generic, List, Optional, Tuple, cast
 
 from ._types import K2, V2, K, V
 
 
-@dataclass(frozen=True)
-class KafkaMessage(Generic[K, V]):
+@dataclass
+class KafkaSourceMessage(Generic[K, V]):
     """Class that holds a message from kafka with metadata.
 
-    Use `KafkaMessage.key` to get the key and `KafkaMessage.value` to get
+    Use `KafkaSourceMessage.key` to get the key and `KafkaMessage.value` to get
     the value.
-
-    Check `KafkaMessage.error` before using the message.
 
     Other fields: `topic`, `headers`, `latency` `offset`, `partition`, `timestamp`
     """
@@ -23,42 +19,79 @@ class KafkaMessage(Generic[K, V]):
     key: K
     value: V
 
-    error: Optional[KafkaError]
-    topic: Optional[str]
-    headers: List[Tuple[str, bytes]]
-    latency: Optional[float]
-    offset: Optional[int]
-    partition: Optional[int]
-    timestamp: Tuple[int, int]
+    topic: Optional[str] = field(default=None)
+    headers: List[Tuple[str, bytes]] = field(default_factory=list)
+    latency: Optional[float] = field(default=None)
+    offset: Optional[int] = field(default=None)
+    partition: Optional[int] = field(default=None)
+    timestamp: Optional[Tuple[int, int]] = field(default=None)
 
-    def with_error(self, error: KafkaError) -> "KafkaMessage[K, V]":
-        """Returns a new instance of the message with the specified error."""
-        return replace(self, error=error)
+    def to_sink(self) -> "KafkaSinkMessage[K, V]":
+        """Safely convert KafkaSourceMessage to KafkaSinkMessage.
 
-    def with_key(self, key: K2) -> "KafkaMessage[K2, V]":
-        """Returns a new instance of the message with the specified key."""
-        return KafkaMessage(
-            key=key,
-            value=self.value,
-            error=self.error,
-            topic=self.topic,
-            headers=self.headers,
-            latency=self.latency,
-            offset=self.offset,
-            partition=self.partition,
-            timestamp=self.timestamp,
-        )
+        Only `key`, `value` and `timestamp` are used.
+        """
+        return KafkaSinkMessage(key=self.key, value=self.value, headers=self.headers)
 
-    def with_value(self, value: V2) -> "KafkaMessage[K, V2]":
-        """Returns a new instance of the message with the specified value."""
-        return KafkaMessage(
-            key=self.key,
-            value=value,
-            error=self.error,
-            topic=self.topic,
-            headers=self.headers,
-            latency=self.latency,
-            offset=self.offset,
-            partition=self.partition,
-            timestamp=self.timestamp,
-        )
+    def _with_key(self, key: K2) -> "KafkaSourceMessage[K2, V]":
+        """Modifies the key in place and returns the instance."""
+        # Can't use `dataclasses.replace` directly since it requires
+        # the fields you change to be the same type.
+        # But we can modify the message in place and return it
+        this = cast(KafkaSourceMessage[K2, V], self)
+        this.key = key
+        return this
+
+    def _with_value(self, value: V2) -> "KafkaSourceMessage[K, V2]":
+        """Modifies the value in place and returns the instance."""
+        this = cast(KafkaSourceMessage[K, V2], self)
+        this.value = value
+        return this
+
+    def _with_key_and_value(self, key: K2, value: V2) -> "KafkaSourceMessage[K2, V2]":
+        """Modifies both key and value in place and returns the instance."""
+        this = cast(KafkaSourceMessage[K2, V2], self)
+        this.key = key
+        this.value = value
+        return this
+
+
+@dataclass
+class KafkaSinkMessage(Generic[K, V]):
+    """Class that holds a message from kafka with metadata.
+
+    Use `KafkaMessage.key` to get the key and `KafkaMessage.value` to get
+    the value.
+
+    Other fields: `topic`, `headers`, `partition`, `timestamp`
+    """
+
+    key: K
+    value: V
+
+    topic: Optional[str] = field(default=None)
+    headers: List[Tuple[str, bytes]] = field(default_factory=list)
+    partition: Optional[int] = field(default=None)
+    timestamp: Optional[Tuple[int, int]] = field(default=None)
+
+    def _with_key(self, key: K2) -> "KafkaSinkMessage[K2, V]":
+        """Modifies the key in place and returns the instance."""
+        # Can't use `dataclasses.replace` directly since it requires
+        # the fields you change to be the same type.
+        # But we can modify the message in place and return it
+        this = cast(KafkaSinkMessage[K2, V], self)
+        this.key = key
+        return this
+
+    def _with_value(self, value: V2) -> "KafkaSinkMessage[K, V2]":
+        """Modifies the value in place and returns the instance."""
+        this = cast(KafkaSinkMessage[K, V2], self)
+        this.value = value
+        return this
+
+    def _with_key_and_value(self, key: K2, value: V2) -> "KafkaSinkMessage[K2, V2]":
+        """Modifies both key and value in place and returns the instance."""
+        this = cast(KafkaSinkMessage[K2, V2], self)
+        this.key = key
+        this.value = value
+        return this

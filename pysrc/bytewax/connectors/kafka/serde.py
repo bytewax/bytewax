@@ -3,7 +3,7 @@ import io
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, Generic, TypeVar
+from typing import Dict, Generic, TypeVar, cast
 
 from confluent_kafka.schema_registry import record_subject_name_strategy
 from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
@@ -87,4 +87,6 @@ class _AvroDeserializer(SchemaDeserializer[MaybeStrBytes, Dict]):
         if isinstance(data, str):
             data = data.encode()
         payload = io.BytesIO(data)
-        return schemaless_reader(payload, self.schema)
+        # Since we are passing a schema to the reader,
+        # the result should always be a dict
+        return cast(Dict, schemaless_reader(payload, self.schema, None))
