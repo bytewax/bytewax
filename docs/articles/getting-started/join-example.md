@@ -49,8 +49,7 @@ op.output("out", merged_stream, StdOutSink())
 {'user_id': "234", 'email': 'hive@bytewax.com'}
 ```
 
-Note that even when the first input source of data is out of input, we still
-see the output from the second source.
+The dataflow will stop once all input sources are completely exhausted. Even though the input sources have different numbers of items, we see all of them.
 
 ## Joining streams
 
