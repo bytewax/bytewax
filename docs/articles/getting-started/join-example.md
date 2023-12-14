@@ -24,7 +24,7 @@ src_2 = [
     {"user_id": "123", "email": "bee@bytewax.com"},
     {"user_id": "456", "email": "hive@bytewax.com"},
 ]
-inp2 = op.input("inp2",flow,TestingSource(src_2))
+inp2 = op.input("inp2", flow, TestingSource(src_2))
 ```
 
 In order for our dataflow to process input from either of these sources, we'll need
@@ -65,24 +65,21 @@ from bytewax.testing import TestingSource
 
 flow = Dataflow("join")
 
-inp1 = op.input("inp1", flow, TestingSource([{"user_id": "123", "name": "Bumble"}]))
+src_1 = [
+    {"user_id": "123", "name": "Bumble"},
+]
+inp1 = op.input("inp1", flow, TestingSource(src_1))
 keyed_inp_1 = op.key_on("key_stream_1", inp1, lambda x: x["user_id"])
-inp2 = op.input(
-    "inp2",
-    flow,
-    TestingSource(
-        [
-            {"user_id": "123", "email": "bee@bytewax.com"},
-            {"user_id": "456", "email": "hive@bytewax.com"},
-        ]
-    ),
-)
+src_2 = [
+    {"user_id": "123", "email": "bee@bytewax.com"},
+    {"user_id": "456", "email": "hive@bytewax.com"},
+]
+inp2 = op.input("inp2", flow, TestingSource(src_2))
 keyed_inp_2 = op.key_on("key_stream_2", inp2, lambda x: x["user_id"])
 ```
 
 Now that we have our two keyed streams of data, we can join them together with
 the `op.join` operator and output the results to STDOUT.
-
 
 ```python
 merged_stream = op.join("join", keyed_inp_1, keyed_inp_2)
