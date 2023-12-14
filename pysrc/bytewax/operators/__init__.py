@@ -595,7 +595,7 @@ class _BatchState(Generic[V]):
 
 
 @dataclass
-class _BatchLogic(UnaryLogic[V, List[V], _BatchState[V]]):
+class _BatchShimLogic(UnaryLogic[V, List[V], _BatchState[V]]):
     step_id: str
     timeout: timedelta
     batch_size: int
@@ -650,9 +650,9 @@ def batch(
 
     def shim_builder(
         _now: datetime, resume_state: Optional[_BatchState[V]]
-    ) -> _BatchLogic[V]:
+    ) -> _BatchShimLogic[V]:
         state = resume_state if resume_state is not None else _BatchState()
-        return _BatchLogic(step_id, timeout, batch_size, state)
+        return _BatchShimLogic(step_id, timeout, batch_size, state)
 
     return unary("unary", up, shim_builder)
 
@@ -951,7 +951,7 @@ def filter_map(
 
 
 @dataclass
-class _FoldFinalLogic(UnaryLogic[V, S, S]):
+class _FoldFinalShimLogic(UnaryLogic[V, S, S]):
     step_id: str
     folder: Callable[[S, V], S]
     state: S
@@ -1006,9 +1006,9 @@ def fold_final(
 
     def shim_builder(
         _now: datetime, resume_state: Optional[S]
-    ) -> _FoldFinalLogic[V, S]:
+    ) -> _FoldFinalShimLogic[V, S]:
         state = resume_state if resume_state is not None else builder()
-        return _FoldFinalLogic(step_id, folder, state)
+        return _FoldFinalShimLogic(step_id, folder, state)
 
     return unary("unary", up, shim_builder)
 
@@ -1092,7 +1092,7 @@ class _JoinState:
 
 
 @dataclass
-class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
+class _JoinShimLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
     step_id: str
     running: bool
     state: _JoinState
@@ -1168,11 +1168,13 @@ def join(
     named_sides = dict((str(i), s) for i, s in enumerate(sides))
     names = list(named_sides.keys())
 
-    def shim_builder(_now: datetime, resume_state: Optional[_JoinState]) -> _JoinLogic:
+    def shim_builder(
+        _now: datetime, resume_state: Optional[_JoinState]
+    ) -> _JoinShimLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
-        return _JoinLogic(step_id, running, state)
+        return _JoinShimLogic(step_id, running, state)
 
     merged = _join_name_merge("add_names", **named_sides)
     joined = unary("join", merged, shim_builder)
@@ -1207,11 +1209,13 @@ def join_named(
     """
     names = list(sides.keys())
 
-    def shim_builder(_now: datetime, resume_state: Optional[_JoinState]) -> _JoinLogic:
+    def shim_builder(
+        _now: datetime, resume_state: Optional[_JoinState]
+    ) -> _JoinShimLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
-        return _JoinLogic(step_id, running, state)
+        return _JoinShimLogic(step_id, running, state)
 
     merged = _join_name_merge("add_names", **sides)
     joined = unary("join", merged, shim_builder)
@@ -1481,7 +1485,7 @@ def reduce_final(
 
 
 @dataclass
-class _StatefulMapLogic(UnaryLogic[V, W, S]):
+class _StatefulMapShimLogic(UnaryLogic[V, W, S]):
     step_id: str
     mapper: Callable[[S, V], Tuple[Optional[S], W]]
     state: S
@@ -1581,9 +1585,9 @@ def stateful_map(
 
     def shim_builder(
         _now: datetime, resume_state: Optional[S]
-    ) -> _StatefulMapLogic[V, W, S]:
+    ) -> _StatefulMapShimLogic[V, W, S]:
         state = resume_state if resume_state is not None else builder()
-        return _StatefulMapLogic(step_id, mapper, state)
+        return _StatefulMapShimLogic(step_id, mapper, state)
 
     return unary("unary", up, shim_builder)
 
