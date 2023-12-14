@@ -102,5 +102,4 @@ join.debug: ('123', ({'user_id': '123', 'name': 'Bumble'}, {'user_id': '123', 'e
 Notice that we don't see any output for `user_id` 456. Since we didn't receive any input
 for that key from `inp2`, we won't see any output for that user until we do.
 
-For more details about the behavior of the join operator, see the [Joins](/docs/
-articles/concepts/joins.md) section of the documentation.
+For more details about the behavior of the join operator, see the [Joins](/docs/articles/concepts/joins.md) section of the documentation.
