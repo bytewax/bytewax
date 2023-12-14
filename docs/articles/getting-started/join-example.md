@@ -4,7 +4,8 @@ joining streams of data.
 ## Multiple input sources
 
 Bytewax dataflows can receive input from multiple sources. In the following
-example, we create two `TestingSources` and add them to our `Dataflow` as input.
+example, we create two [TestingSource](/apidocs/bytewax.testing#bytewax.testing.TestingSource) sources
+and add them to our [Dataflow](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow) as input.
 
 ```python
 from bytewax import operators as op
@@ -79,22 +80,27 @@ keyed_inp_2 = op.key_on("key_stream_2", inp2, lambda x: x["user_id"])
 ```
 
 Now that we have our two keyed streams of data, we can join them together with
-the `op.join` operator and output the results to STDOUT.
+the [join](/apidocs/bytewax.operators/index#bytewax.operators.join) operator.
+
+When creating a dataflow, you can use the [inspect](/apidocs/bytewax.operators/index#bytewax.operators.inspect)
+operator to view the data in a stream. The `inspect` operator can be used multiple times
+and counts as an output (recall that every dataflow requires an output).
 
 ```python
 merged_stream = op.join("join", keyed_inp_1, keyed_inp_2)
-op.output("out", merged_stream, StdOutSink())
+op.inspect("debug", merged_stream)
 ```
 
-Running this example, we should see the following output:
-
+Running this example, we should see the following output for our stream, which
+includes the `step_id` for our `inspect` operator.
 
 ```shell
 > python -m bytewax.run join_example
-('123', ({'user_id': '123', 'name': 'Bumble'}, {'user_id': '123', 'email': 'bee@bytewax.com'}))
+join.debug: ('123', ({'user_id': '123', 'name': 'Bumble'}, {'user_id': '123', 'email': 'bee@bytewax.com'})
 ```
 
 Notice that we don't see any output for `user_id` 456. Since we didn't receive any input
 for that key from `inp2`, we won't see any output for that user until we do.
 
-For more details, see the [Joins](/docs/articles/concepts/joins.md) section of the documentation.
+For more details about the behavior of the join operator, see the [Joins](/docs/
+articles/concepts/joins.md) section of the documentation.
