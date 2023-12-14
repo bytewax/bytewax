@@ -1,85 +1,112 @@
-# Getting Started
+Let's write our first Bytewax dataflow. Be sure that you've followed the instructions
+for installing bytewax in [Installing bytewax](/docs/articles/getting-started/installation.md).
 
-## Baby Steps
+## Imports
 
-First, create a file called `baby_steps.py`. We'll add our Python
-Bytewax code to that.
+Our dataflow starts with a few imports, so let's create those now.
 
-Then create a `bytewax.dataflow.Dataflow` instance in a variable named
+```python
+import bytewax.operators as op
+from bytewax.connectors.stdio import StdOutSink
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+```
+
+## Dataflow
+
+To begin, create a [Dataflow](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow) instance in a variable named
 `flow`. This defines the empty dataflow we'll add steps to.
 
->>> from bytewax.dataflow import Dataflow
->>> flow = Dataflow("do_math")
-
-Now let's import all of Bytewax's built-in operators for use.
-
->>> import bytewax.operators as op
-
-Then we use the `bytewax.operators.input` operator to create an
-initial stream of items. We'll start with an input source just for
-testing that emits a list of static Python `int`s.
-
->>> from bytewax.testing import TestingSource
->>> nums = op.input("nums", flow, TestingSource([1, 2, 3]))
-
-Each operator method will return a new stream with the results which
-you can call more operators on. Let's use the `bytewax.operators.map`
-operator to double each number; the `map` operator runs a function on
-each item and emits each result downstream.
-
->>> nums = op.map("double", nums, lambda x: x * 2)
-
-Finally, let's add an `bytewax.operators.output` step. At least one
-`bytewax.operators.input` step and one `bytewax.operators.output` step
-are required on every dataflow.
-
->>> from bytewax.connectors.stdio import StdOutSink
->>> op.output("print", nums, StdOutSink())
-
-Putting this all together, the file would look like:
-
->>> import bytewax.operators as op
->>> from bytewax.connectors.stdio import StdOutSink
->>> from bytewax.dataflow import Dataflow
->>> from bytewax.testing import TestingSource
->>> flow = Dataflow("do_math")
->>> nums = op.input("nums", flow, TestingSource([1, 2, 3]))
->>> nums = op.map("double", nums, lambda x: x * 2)
->>> op.output("print", nums, StdOutSink())
-
-To run your dataflow, from your shell execute the `bytewax.run` module
-with the Python import path to the file you just saved your `Dataflow`
-in. For the above example, since it's saved in `baby_steps.py` in the
-current directory:
-
+```python
+flow = Dataflow("a_simple_example")
 ```
-$ python -m bytewax.run baby_steps
+
+## Input
+
+Every dataflow requires input. For this example, we'll use the [input operator](/apidocs/bytewax.operators/index#bytewax.operators.input)
+together with a [TestingSource](/apidocs/bytewax.testing#bytewax.testing.TestingSource) to produce a stream of Python `int`s.
+
+
+```python
+stream = op.input("input", flow, TestingSource(range(10)))
+```
+The `input` operator returns a [Stream](/apidocs/bytewax.dataflow#bytewax.dataflow.Stream) of values. If you are using an editor with a language server setup with type hints,
+you can see that the return type is a `Stream[int]` containing integers.
+
+## Operators
+
+Each operator method will return a new [Stream](/apidocs/bytewax.dataflow#bytewax.dataflow.Stream) with the results of the
+step which you can call more operators on. Let's use the [map](/apidocs/bytewax.operators/index#bytewax.operators.map) operator to
+double each number from our input stream.
+
+```python
+def times_two(inp: int) -> int:
+    return inp * 2
+
+
+double = op.map("double", stream, times_two)
+```
+
+## Output
+
+Finally, let's add an [output](/apidocs/bytewax.operators/index#bytewax.operators.output) step. At least one
+`bytewax.operators.input` step and one `bytewax.operators.output` step
+are required on every dataflow. We'll have our output directed to STDOUT using the [StdOutSink](/apidocs/bytewax.connectors/stdio#bytewax.connectors.stdio.StdOutSink).
+
+```python
+op.output("out", double, StdOutSink())
+```
+
+## Running a Bytewax dataflow
+
+When writing Bytewax dataflows for production use, you should run your dataflow using the
+[bytewax.run](/apidocs/bytewax.run) module. Let's see an example that does just that.
+
+To begin, save the following code in a file called `basic.py`.
+
+```python
+import bytewax.operators as op
+from bytewax.connectors.stdio import StdOutSink
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+flow = Dataflow("a_simple_example")
+
+stream = op.input("input", flow, TestingSource(range(10)))
+
+
+def times_two(inp: int) -> int:
+    return inp * 2
+
+
+double = op.map("double", stream, times_two)
+
+op.output("out", double, StdOutSink())
+```
+To run the dataflow, use the following command:
+
+```bash
+> python -m bytewax.run basic
+0
 2
 4
 6
+8
+10
+12
+14
+16
+18
 ```
+
+The first argument passed to the `bytewax.run` module is a dataflow getter string.
+
+The dataflow getter string uses the format `<dataflow-module>:<dataflow-getter>`.
+By default, the `dataflow-getter` part of the string defaults to using
+the variable `flow`. Because we saved our `Dataflow` definition in a variable
+named `flow` we don't need to supply it when running our dataflow from the
+command line.
 
 Note that just executing the Python file will _not run it!_ You must
 use the `bytewax.run` script and it's options so it can setup the
 runtime correctly.
-
-```
-$ python baby_steps.py
-# Nothing here...
-```
-
-In our documentation, we'll use our unit testing method to show the
-output of the dataflow right below it's definition for convenience.
-
->>> import bytewax.testing
->>> bytewax.testing.run_main(flow)
-2
-4
-6
-
-Realize that just defining the dataflow does not actually run it, and
-_you should not use this unit testing method in general for your own
-code._
-
-See the `bytewax.run` module docstring for more info on ways to
-execute your dataflows.

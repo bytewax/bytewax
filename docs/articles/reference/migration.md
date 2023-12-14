@@ -2,9 +2,56 @@ This guide can help you upgrade code through breaking changes from one
 Bytewax version to the next. For a detailed list of all changes, see
 the [CHANGELOG](https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md).
 
-## From v0.17 to Latest
+## From v0.17 to v0.18
 
-### Renamed IO Classes
+### Non-Linear Dataflows
+
+With the addition of non-linear dataflows, the API for constructing
+dataflows has changed. Operators are now stand-alone functions
+that can take and return streams.
+
+ All operators, not just stateful ones, now require a `step_id`; it should be a `"snake_case"` description of the semantic purpose of that dataflow step.
+
+ Also instantiating the dataflow itself now takes a "dataflow ID" so you can disambiguate different dataflows in the metrics.
+
+Before:
+
+```python doctest:SKIP
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+from bytewax.connectors.stdio import StdOutput
+
+flow = Dataflow()
+flow.input("inp", TestingInput(range(10)))
+flow.map(lambda x: x + 1)
+flow.output("out", StdOutput())
+```
+
+After:
+
+```python
+import bytewax.operators as op
+
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+from bytewax.connectors.stdio import StdOutSink
+
+flow = Dataflow("basic")
+# `op.input` takes the place of `flow.input` and takes a `Dataflow`
+# object as the first parameter.
+# `op.input` returns a `Stream[int]` in this example:
+stream = op.input("inp", flow, TestingSource(range(10)))
+# `op.map` takes a `Stream` as it's second argument, and
+# returns a new `Stream[int]` as it's return value.
+add_one_stream = op.map("add_one", stream, lambda x: x + 1)
+# `op.output` takes a stream as it's second argument, but
+# does not return a new `Stream`.
+op.output("out", add_one_stream, StdOutSink())
+```
+
+### Refactored IO Classes
+
+## Renaming
 
 We have renamed the IO classes to better match their semantics and the
 way they are talked about in the documentation. Their functionality
@@ -40,6 +87,104 @@ this new naming scheme.
 | `KafkaOutput` | `KafkaSink` |
 | `TestingInput` | `TestingSource` |
 | `TestingOutput` | `TestingSink` |
+
+## Current Time Convenience
+
+In addition to the name changes, we have also added a `datetime` argument to
+`build{_part,}` with the current time to allow you to easily
+setup a next awake time. You can ignore this parameter if you are not scheduling
+awake times.
+
+We have also added a `datetime` argument to `next_batch`, which contains the
+scheduled awake time for that source. Since awake times are scheduled, but not
+guaranteed to fire at the precise time specified, you can use this parameter
+to account for any difference.
+
+Before:
+
+```python doctest:SKIP
+from bytewax.inputs import StatelessSource
+
+
+class PeriodicSource(StatelessSource):
+    def __init__(self, frequency):
+        self.frequency = frequency
+        self._next_awake = datetime.now(timezone.utc)
+        self._counter = 0
+
+    def next_awake(self):
+        return self._next_awake
+
+    def next_batch(self):
+        self._counter += 1
+        if self._counter >= 10:
+            raise StopIteration()
+        # Calculate the delay between when this was supposed
+        # to  be called, and when it is actually called
+        delay = datetime.now(timezone.utc) - self._next_awake
+        self._next_awake += self.frequency
+        return [f"delay (ms): {delay.total_seconds() * 1000:.3f}"]
+```
+
+After:
+
+```python
+from bytewax.inputs import StatelessSourcePartition
+
+
+class PeriodicPartition(StatelessSourcePartition):
+    def __init__(self, frequency):
+        self.frequency = frequency
+        self._next_awake = datetime.now(timezone.utc)
+        self._counter = 0
+
+    def next_awake(self):
+        return self._next_awake
+
+    def next_batch(self, sched):
+        self._counter += 1
+        if self._counter >= 10:
+            raise StopIteration()
+        # Calculate the delay between when this was supposed
+        # to be called, and when it is actually called
+        delay = datetime.now(timezone.utc) - sched
+        self._next_awake += self.frequency
+        return [f"delay (ms): {delay.total_seconds() * 1000:.3f}"]
+```
+
+## `SimplePollingSource` moved
+
+`SimplePollingSource` has been moved from `bytewax.connectors.periodic` to `bytewax.inputs`. You'll need to change your imports if you are using that class.
+
+Before:
+
+```python doctest:SKIP
+from bytewax.connectors.periodic import SimplePollingSource
+```
+
+After:
+
+```python
+from bytewax.inputs import SimplePollingSource
+```
+
+### Window Metadata
+
+Window operators now emit `WindowMetadata` objects downstream. These objects can
+be used to introspect the open_time and close_time of windows. This changes the
+output type of windowing operators from a stream of: `(key, values)` to
+a stream of `(key, (metadata, values))`.
+
+### Recovery flags
+
+The default values for `snapshot-interval` and `backup-interval` have been removed
+when running a dataflow with recovery enabled.
+
+Previously, the defaults values were to create a snapshot every 10 seconds and
+keep a day's worth of old snapshots. This means your recovery DB would max out at a size on disk
+theoretically thousands of times bigger than your in-memory state.
+
+See [our documentation on the recovery system]() for how to appropriately pick these values for your deployment.
 
 ## From v0.16 to v0.17
 
