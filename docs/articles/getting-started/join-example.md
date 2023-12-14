@@ -15,17 +15,16 @@ from bytewax.testing import TestingSource
 
 flow = Dataflow("join")
 
-inp1 = op.input("inp1", flow, TestingSource([{"user_id": "123", "name": "Bumble"}]))
-inp2 = op.input(
-    "inp2",
-    flow,
-    TestingSource(
-        [
-            {"user_id": "123", "email": "bee@bytewax.com"},
-            {"user_id": "456", "email": "hive@bytewax.com"},
-        ]
-    ),
-)
+src_1 = [
+    {"user_id": "123", "name": "Bumble"},
+]
+inp1 = op.input("inp1", flow, TestingSource(src_1))
+
+src_2 = [
+    {"user_id": "123", "email": "bee@bytewax.com"},
+    {"user_id": "456", "email": "hive@bytewax.com"},
+]
+inp2 = op.input("inp2",flow,TestingSource(src_2))
 ```
 
 In order for our dataflow to process input from either of these sources, we'll need
