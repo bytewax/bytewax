@@ -74,8 +74,8 @@ where
     }
 }
 
-fn next_batch(outbuf: &mut Vec<TdPyAny>, mapper: &PyAny, in_item: PyObject) -> PyResult<()> {
-    let res = mapper.call1((in_item,)).reraise("error calling mapper")?;
+fn next_batch(outbuf: &mut Vec<TdPyAny>, mapper: &PyAny, in_batch: Vec<PyObject>) -> PyResult<()> {
+    let res = mapper.call1((in_batch,)).reraise("error calling mapper")?;
     let iter = res.iter().reraise_with(|| {
         format!(
             "mapper must return an iterable; got a `{}` instead",
@@ -90,12 +90,12 @@ fn next_batch(outbuf: &mut Vec<TdPyAny>, mapper: &PyAny, in_item: PyObject) -> P
     Ok(())
 }
 
-pub(crate) trait FlatMapOp<S>
+pub(crate) trait FlatMapBatchOp<S>
 where
     S: Scope,
     S::Timestamp: TotalOrder,
 {
-    fn flat_map(
+    fn flat_map_batch(
         &self,
         py: Python,
         step_id: StepId,
@@ -103,12 +103,12 @@ where
     ) -> PyResult<Stream<S, TdPyAny>>;
 }
 
-impl<S> FlatMapOp<S> for Stream<S, TdPyAny>
+impl<S> FlatMapBatchOp<S> for Stream<S, TdPyAny>
 where
     S: Scope,
     S::Timestamp: TotalOrder,
 {
-    fn flat_map(
+    fn flat_map_batch(
         &self,
         _py: Python,
         step_id: StepId,
@@ -132,8 +132,8 @@ where
             .with_description("number of items this step has emitted")
             .init();
         let mapper_histogram = meter
-            .f64_histogram("flat_map_duration_seconds")
-            .with_description("`flat_map` `mapper` duration in seconds")
+            .f64_histogram("flat_map_batch_duration_seconds")
+            .with_description("`flat_map_batch` `mapper` duration in seconds")
             .init();
         let labels = vec![
             KeyValue::new("step_id", step_id.0.to_string()),
@@ -162,28 +162,24 @@ where
                             let cap = &caps[0];
                             let epoch = cap.time();
 
-                            if let Some(items) = inbuf.remove(epoch) {
-                                item_inp_count.add(items.len() as u64, &labels);
+                            if let Some(batch) = inbuf.remove(epoch) {
+                                item_inp_count.add(batch.len() as u64, &labels);
                                 let mut downstream_session = downstream_handle.session(cap);
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    let batch: Vec<_> =
+                                        batch.into_iter().map(PyObject::from).collect();
                                     let mapper = mapper.as_ref(py);
 
-                                    for item in items {
-                                        let item = PyObject::from(item);
-
-                                        with_timer!(
-                                            mapper_histogram,
-                                            labels,
-                                            next_batch(&mut outbuf, mapper, item).reraise_with(
-                                                || {
-                                                    format!(
-                                                        "error calling `mapper` in step {step_id}"
-                                                    )
-                                                }
-                                            )?
-                                        );
-                                    }
+                                    with_timer!(
+                                        mapper_histogram,
+                                        labels,
+                                        next_batch(&mut outbuf, mapper, batch).reraise_with(
+                                            || {
+                                                format!("error calling `mapper` in step {step_id}")
+                                            }
+                                        )?
+                                    );
 
                                     item_out_count.add(outbuf.len() as u64, &labels);
                                     downstream_session.give_vec(&mut outbuf);

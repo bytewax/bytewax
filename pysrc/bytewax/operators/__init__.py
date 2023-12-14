@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import partial
+from itertools import chain
 from typing import (
     Any,
     Callable,
@@ -112,44 +113,31 @@ def branch(
 
 
 @operator(_core=True)
-def flat_map(
+def flat_map_batch(
     step_id: str,
     up: Stream[X],
-    mapper: Callable[[X], Iterable[Y]],
+    mapper: Callable[[List[X]], Iterable[Y]],
 ) -> Stream[Y]:
-    """Transform items one-to-many.
+    """Transform an entire batch of items 1-to-many.
 
-    This is like a combination of `map` and `flatten`.
+    The batch size received here depends on the exact behavior of the
+    upstream input sources and operators. It should be used as a
+    performance optimization when processing multiple items at once
+    has much reduced overhead.
 
-    It is commonly used for:
+    See also the `batch_size` parameter on various input sources.
 
-    - Tokenizing
-
-    - Flattening hierarchical objects
-
-    - Breaking up aggregations for further processing
-
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("flat_map_eg")
-    >>> inp = ["hello world"]
-    >>> s = op.input("inp", flow, TestingSource(inp))
-    >>> def split_into_words(sentence):
-    ...     return sentence.split()
-    >>> s = op.flat_map("split_words", s, split_into_words)
-    >>> _ = op.inspect("out", s)
-    >>> run_main(flow)
-    flat_map_eg.out: 'hello'
-    flat_map_eg.out: 'world'
+    See also the `batch` operator, which collects multiple items next
+    to each other in a stream into a single list of them flowing
+    through the stream.
 
     Args:
         step_id: Unique ID.
 
         up: Stream.
 
-        mapper: Called once on each upstream item. Returns the items
-            to emit downstream.
+        mapper: Called once with each batch of items the runtime
+            receives. Returns the items to emit downstream.
 
     Returns:
         A stream of each item returned by the mapper.
@@ -560,6 +548,9 @@ def batch(
 ) -> KeyedStream[List[V]]:
     """Batch incoming items up to a size or a timeout.
 
+    See also the `flat_map_batch` operator to process mutiple items
+    simultaneously.
+
     Args:
         step_id: Unique ID.
 
@@ -608,6 +599,57 @@ def count_final(
     """
     down: KeyedStream[int] = map("init_count", up, lambda x: (key(x), 1))
     return reduce_final("sum", down, lambda s, x: s + x)
+
+
+@operator
+def flat_map(
+    step_id: str,
+    up: Stream[X],
+    mapper: Callable[[X], Iterable[Y]],
+) -> Stream[Y]:
+    """Transform items one-to-many.
+
+    This is like a combination of `map` and `flatten`.
+
+    It is commonly used for:
+
+    - Tokenizing
+
+    - Flattening hierarchical objects
+
+    - Breaking up aggregations for further processing
+
+    >>> import bytewax.operators as op
+    >>> from bytewax.testing import TestingSource, run_main
+    >>> from bytewax.dataflow import Dataflow
+    >>> flow = Dataflow("flat_map_eg")
+    >>> inp = ["hello world"]
+    >>> s = op.input("inp", flow, TestingSource(inp))
+    >>> def split_into_words(sentence):
+    ...     return sentence.split()
+    >>> s = op.flat_map("split_words", s, split_into_words)
+    >>> _ = op.inspect("out", s)
+    >>> run_main(flow)
+    flat_map_eg.out: 'hello'
+    flat_map_eg.out: 'world'
+
+    Args:
+        step_id: Unique ID.
+
+        up: Stream.
+
+        mapper: Called once on each upstream item. Returns the items
+            to emit downstream.
+
+    Returns:
+        A stream of each item returned by the mapper.
+
+    """
+
+    def shim_mapper(xs: List[X]) -> Iterable[Y]:
+        return chain.from_iterable(mapper(x) for x in xs)
+
+    return flat_map_batch("flat_map_batch", up, shim_mapper)
 
 
 @operator
