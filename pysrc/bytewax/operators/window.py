@@ -236,6 +236,14 @@ def fold_window(
 
 def _join_window_folder(state: _JoinState, name_value: Tuple[str, Any]) -> _JoinState:
     name, value = name_value
+    state.set_val(name, value)
+    return state
+
+
+def _join_window_product_folder(
+    state: _JoinState, name_value: Tuple[str, Any]
+) -> _JoinState:
+    name, value = name_value
     state.add_val(name, value)
     return state
 
@@ -262,6 +270,7 @@ def join_window(
     clock: ClockConfig,
     windower: WindowConfig,
     *sides: KeyedStream[Any],
+    product: bool = False,
 ) -> KeyedStream[Tuple[WindowMetadata, Tuple]]:
     """Gather together the value for a key on multiple streams.
 
@@ -274,8 +283,13 @@ def join_window(
 
         *sides: Keyed streams.
 
+        product: When `True`, emit all combinations of all values seen
+            on all sides. E.g. if side 1 saw `"A"` and `"B"`, and side
+            2 saw `"C"`: emit `("A", "C")`, `("B", "C")` downstream.
+            Defaults to `False`.
+
     Returns:
-        Emits a tuple with the value from each stream in the order of
+        Emits tuples with the value from each stream in the order of
         the argument list once each window has closed.
 
     """
@@ -301,13 +315,18 @@ def join_window(
             wait_for_system_duration=clock.wait_for_system_duration,
         )
 
+    if not product:
+        folder = _join_window_folder
+    else:
+        folder = _join_window_product_folder
+
     joined = fold_window(
-        "join",
+        "fold_window",
         merged,
         clock,
         windower,
         builder,
-        _join_window_folder,
+        folder,
     )
     return op.flat_map_value("astuple", joined, _join_astuples_flat_mapper)
 
@@ -317,6 +336,7 @@ def join_window_named(
     step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
+    product: bool = False,
     **sides: KeyedStream[Any],
 ) -> KeyedStream[Tuple[WindowMetadata, Dict[str, Any]]]:
     """Gather together the value for a key on multiple named streams.
@@ -327,6 +347,12 @@ def join_window_named(
         clock: Clock.
 
         windower: Windower.
+
+        product: When `True`, emit all combinations of all values seen
+            on all sides. E.g. if side `right` saw `"A"` and `"B"`,
+            and side `left` saw `"C"`: emit `{"right": "A", "left":
+            "C"}`, `{"right": "B", "left": "C"}` downstream. Defaults
+            to `False`.
 
         **sides: Named keyed streams. The name of each stream will be
             used in the emitted `dict`s.
@@ -357,13 +383,18 @@ def join_window_named(
             wait_for_system_duration=clock.wait_for_system_duration,
         )
 
+    if not product:
+        folder = _join_window_folder
+    else:
+        folder = _join_window_product_folder
+
     joined = fold_window(
-        "join",
+        "fold_window",
         merged,
         clock,
         windower,
         builder,
-        _join_window_folder,
+        folder,
     )
     return op.flat_map_value("asdict", joined, _join_asdicts_flat_mapper)
 
