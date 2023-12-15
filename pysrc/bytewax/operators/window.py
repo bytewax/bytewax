@@ -97,7 +97,7 @@ def collect_window(
     up: KeyedStream[V],
     clock: ClockConfig,
     windower: WindowConfig,
-) -> KeyedStream[List[V]]:
+) -> KeyedStream[Tuple[WindowMetadata, List[V]]]:
     ...
 
 
@@ -108,7 +108,7 @@ def collect_window(
     clock: ClockConfig,
     windower: WindowConfig,
     into: Type[List],
-) -> KeyedStream[List[V]]:
+) -> KeyedStream[Tuple[WindowMetadata, List[V]]]:
     ...
 
 
@@ -119,7 +119,7 @@ def collect_window(
     clock: ClockConfig,
     windower: WindowConfig,
     into: Type[Set],
-) -> KeyedStream[Set[V]]:
+) -> KeyedStream[Tuple[WindowMetadata, Set[V]]]:
     ...
 
 
@@ -130,7 +130,7 @@ def collect_window(
     clock: ClockConfig,
     windower: WindowConfig,
     into: Type[Dict],
-) -> KeyedStream[Dict[K, V]]:
+) -> KeyedStream[Tuple[WindowMetadata, Dict[K, V]]]:
     ...
 
 
@@ -140,8 +140,8 @@ def collect_window(
     up: KeyedStream,
     clock: ClockConfig,
     windower: WindowConfig,
-    into: Type = list,
-) -> KeyedStream:
+    into: Type[C] = list,
+) -> KeyedStream[Tuple[WindowMetadata, C]]:
     """Collect all items in a window into a container.
 
     Args:
@@ -172,7 +172,7 @@ def count_window(
     clock: ClockConfig,
     windower: WindowConfig,
     key: Callable[[X], str],
-) -> KeyedStream[int]:
+) -> KeyedStream[Tuple[WindowMetadata, int]]:
     """Count the number of occurrences of items in a window.
 
     Args:
@@ -204,7 +204,7 @@ def fold_window(
     windower: WindowConfig,
     builder: Callable[[], S],
     folder: Callable[[S, V], S],
-) -> KeyedStream[S]:
+) -> KeyedStream[Tuple[WindowMetadata, S]]:
     """Build an empty accumulator, then combine values into it.
 
     It is like `reduce_window` but uses a function to build the initial
@@ -240,13 +240,29 @@ def _join_window_folder(state: _JoinState, name_value: Tuple[str, Any]) -> _Join
     return state
 
 
+def _join_astuples_flat_mapper(
+    meta_state: Tuple[WindowMetadata, _JoinState]
+) -> Iterable[Tuple[WindowMetadata, Tuple]]:
+    meta, state = meta_state
+    for t in state.astuples():
+        yield (meta, t)
+
+
+def _join_asdicts_flat_mapper(
+    meta_state: Tuple[WindowMetadata, _JoinState]
+) -> Iterable[Tuple[WindowMetadata, Dict]]:
+    meta, state = meta_state
+    for d in state.asdicts():
+        yield (meta, d)
+
+
 @operator
 def join_window(
     step_id: str,
     clock: ClockConfig,
     windower: WindowConfig,
     *sides: KeyedStream[Any],
-) -> KeyedStream[Tuple]:
+) -> KeyedStream[Tuple[WindowMetadata, Tuple]]:
     """Gather together the value for a key on multiple streams.
 
     Args:
@@ -271,6 +287,20 @@ def join_window(
     def builder() -> _JoinState:
         return _JoinState.for_names(names)
 
+    # TODO: Egregious hack. Remove when we refactor to have timestamps
+    # in stream.
+    if isinstance(clock, EventClockConfig):
+        value_dt_getter = clock.dt_getter
+
+        def shim_dt_getter(i_v):
+            _, v = i_v
+            return value_dt_getter(v)
+
+        clock = EventClockConfig(
+            dt_getter=shim_dt_getter,
+            wait_for_system_duration=clock.wait_for_system_duration,
+        )
+
     joined = fold_window(
         "join",
         merged,
@@ -279,7 +309,7 @@ def join_window(
         builder,
         _join_window_folder,
     )
-    return op.flat_map_value("astuple", joined, _JoinState.astuples)
+    return op.flat_map_value("astuple", joined, _join_astuples_flat_mapper)
 
 
 @operator
@@ -288,7 +318,7 @@ def join_window_named(
     clock: ClockConfig,
     windower: WindowConfig,
     **sides: KeyedStream[Any],
-) -> KeyedStream[Dict[str, Any]]:
+) -> KeyedStream[Tuple[WindowMetadata, Dict[str, Any]]]:
     """Gather together the value for a key on multiple named streams.
 
     Args:
@@ -313,6 +343,20 @@ def join_window_named(
     def builder() -> _JoinState:
         return _JoinState.for_names(names)
 
+    # TODO: Egregious hack. Remove when we refactor to have timestamps
+    # in stream.
+    if isinstance(clock, EventClockConfig):
+        value_dt_getter = clock.dt_getter
+
+        def shim_dt_getter(i_v):
+            _, v = i_v
+            return value_dt_getter(v)
+
+        clock = EventClockConfig(
+            dt_getter=shim_dt_getter,
+            wait_for_system_duration=clock.wait_for_system_duration,
+        )
+
     joined = fold_window(
         "join",
         merged,
@@ -321,13 +365,13 @@ def join_window_named(
         builder,
         _join_window_folder,
     )
-    return op.flat_map_value("asdict", joined, _JoinState.asdicts)
+    return op.flat_map_value("asdict", joined, _join_asdicts_flat_mapper)
 
 
 @overload
 def max_window(
     step_id: str, up: KeyedStream[V], clock: ClockConfig, windower: WindowConfig
-) -> KeyedStream[V]:
+) -> KeyedStream[Tuple[WindowMetadata, V]]:
     ...
 
 
@@ -338,7 +382,7 @@ def max_window(
     clock: ClockConfig,
     windower: WindowConfig,
     by: Callable[[V], Any],
-) -> KeyedStream[V]:
+) -> KeyedStream[Tuple[WindowMetadata, V]]:
     ...
 
 
@@ -349,7 +393,7 @@ def max_window(
     clock: ClockConfig,
     windower: WindowConfig,
     by=_identity,
-) -> KeyedStream:
+) -> KeyedStream[Tuple[WindowMetadata, V]]:
     """Find the minumum value for each key.
 
     Args:
@@ -374,7 +418,7 @@ def max_window(
 @overload
 def min_window(
     step_id: str, up: KeyedStream[V], clock: ClockConfig, windower: WindowConfig
-) -> KeyedStream[V]:
+) -> KeyedStream[Tuple[WindowMetadata, V]]:
     ...
 
 
@@ -385,7 +429,7 @@ def min_window(
     clock: ClockConfig,
     windower: WindowConfig,
     by: Callable[[V], Any],
-) -> KeyedStream[V]:
+) -> KeyedStream[Tuple[WindowMetadata, V]]:
     ...
 
 
@@ -396,7 +440,7 @@ def min_window(
     clock: ClockConfig,
     windower: WindowConfig,
     by=_identity,
-) -> KeyedStream:
+) -> KeyedStream[Tuple[WindowMetadata, V]]:
     """Find the minumum value for each key.
 
     Args:
@@ -425,7 +469,7 @@ def reduce_window(
     clock: ClockConfig,
     windower: WindowConfig,
     reducer: Callable[[V, V], V],
-) -> KeyedStream[V]:
+) -> KeyedStream[Tuple[WindowMetadata, V]]:
     """Distill all values for a key down into a single value.
 
     It is like `fold_window` but the first value is the initial
