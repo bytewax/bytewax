@@ -5,7 +5,7 @@ single stream, matching them by a **join key**.
 
 This is a very similar concept to the joins available in SQL, but
 there are some new edge cases and behaviors you have to be aware of
-because streaming data is possible infinite.
+when handling unbounded streams of data.
 
 For example, you might have a stream of user names:
 
