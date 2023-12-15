@@ -171,11 +171,14 @@ names input to add a name that won't have an email. Then run the
 dataflow again.
 
 ```python
-names_l = [
-    {"user_id": 123, "name": "Bee"},
-    {"user_id": 456, "name": "Hive"},
-    {"user_id": 789, "name": "Pooh Bear"},
-]
+names_l.clear()
+names_l.extend(
+    [
+        {"user_id": 123, "name": "Bee"},
+        {"user_id": 456, "name": "Hive"},
+        {"user_id": 789, "name": "Pooh Bear"},
+    ]
+)
 
 bytewax.testing.run_main(flow)
 ```
@@ -196,16 +199,22 @@ side for a key, you will also not see any output. For example, let's
 update our input to have an email update for the Bee.
 
 ```python
-names_l = [
-    {"user_id": 123, "name": "Bee"},
-    {"user_id": 456, "name": "Hive"},
-]
+names_l.clear()
+names_l.extend(
+    [
+        {"user_id": 123, "name": "Bee"},
+        {"user_id": 456, "name": "Hive"},
+    ]
+)
 
-emails_l = [
-    {"user_id": 123, "email": "bee@bytewax.io"},
-    {"user_id": 456, "email": "hive@bytewax.io"},
-    {"user_id": 123, "email": "queen@bytewax.io"},
-]
+emails_l.clear()
+emails_l.extend(
+    [
+        {"user_id": 123, "email": "bee@bytewax.io"},
+        {"user_id": 456, "email": "hive@bytewax.io"},
+        {"user_id": 123, "email": "queen@bytewax.io"},
+    ]
+)
 
 bytewax.testing.run_main(flow)
 ```
@@ -431,16 +440,21 @@ to implement this.
 
 For the details of all the types of windows you can define and
 explanation of the parameters, see our [windowing
-documentation](windowing.md). I'm going to use a simple 1 minute
+documentation](windowing.md). I'm going to use a simple 1 hour
 tumbling window; the previous window closes and the next window starts
-at the top of each minute. We'll be using event time.
+at the top of each hour. We'll be using event time.
 
 ```python
 from datetime import timedelta, datetime, timezone
 from bytewax.operators.window import EventClockConfig, TumblingWindow
 
-clock = EventClockConfig(dt_getter=lambda x: x["at"], wait_for_system_duration=timedelta(0))
-windower = TumblingWindow(length=timedelta(minutes=1), align_to=datetime(2023, 1, 1, 0, 0, 0, tzinfo=timezone.utc))
+clock = EventClockConfig(
+    dt_getter=lambda x: x["at"], wait_for_system_duration=timedelta(0)
+)
+windower = TumblingWindow(
+    length=timedelta(hours=1),
+    align_to=datetime(2023, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+)
 ```
 
 Let's assume we have input sources that are similar in shape to
@@ -450,25 +464,40 @@ before, but now have timestamps.
 flow = Dataflow("join_eg")
 
 names_l = [
-    {"user_id": 123, "at": datetime(2023, 12, 14, 0, 0, 0, tzinfo=timezone.utc), "name": "Bee"},
-    {"user_id": 456, "at": datetime(2023, 12, 14, 0, 0, 0, tzinfo=timezone.utc), "name": "Hive"},
+    {
+        "user_id": 123,
+        "at": datetime(2023, 12, 14, 0, 0, tzinfo=timezone.utc),
+        "name": "Bee",
+    },
+    {
+        "user_id": 456,
+        "at": datetime(2023, 12, 14, 0, 0, tzinfo=timezone.utc),
+        "name": "Hive",
+    },
 ]
 names = op.input("names", flow, TestingSource(names_l))
 
 emails_l = [
-    {"user_id": 123, "at": datetime(2023, 12, 14, 0, 0, 15, tzinfo=timezone.utc), "email": "bee@bytewax.io"},
-    {"user_id": 456, "at": datetime(2023, 12, 14, 0, 1, 15, tzinfo=timezone.utc), "email": "hive@bytewax.io"},
+    {
+        "user_id": 123,
+        "at": datetime(2023, 12, 14, 0, 15, tzinfo=timezone.utc),
+        "email": "bee@bytewax.io",
+    },
+    {
+        "user_id": 456,
+        "at": datetime(2023, 12, 14, 1, 15, tzinfo=timezone.utc),
+        "email": "hive@bytewax.io",
+    },
 ]
 emails = op.input("emails", flow, TestingSource(emails_l))
 ```
 
-Since our objects are no longer just strings, let's keep the values as
-a `dict` of the fields, and only move the `"user_id"` out into the
-state key position.
+Since our objects are no longer just strings, let's keep the values
+untouched so we have access to the timestamps.
 
 ```python
-keyed_names = op.map("key_names", names, lambda x: (str(x.pop("user_id")), x))
-keyed_emails = op.map("key_emails", emails, lambda x: (str(x.pop("user_id")), x))
+keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x))
+keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x))
 ```
 
 Let's inspect this just to double check we understand the shape.
@@ -484,19 +513,43 @@ The values are entire `dict`s and we'll still access the `"at"` key to
 use the event timestamp.
 
 ```{testoutput}
-join_eg.check_names: ('123', {'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'})
-join_eg.check_emails: ('123', {'at': datetime.datetime(2023, 12, 14, 0, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})
-join_eg.check_names: ('456', {'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Hive'})
-join_eg.check_emails: ('456', {'at': datetime.datetime(2023, 12, 14, 0, 1, 15, tzinfo=datetime.timezone.utc), 'email': 'hive@bytewax.io'})
+join_eg.check_names: ('123', {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'})
+join_eg.check_emails: ('123', {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})
+join_eg.check_names: ('456', {'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Hive'})
+join_eg.check_emails: ('456', {'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 1, 15, tzinfo=datetime.timezone.utc), 'email': 'hive@bytewax.io'})
 ```
 
 Let's visualize what these windows and events look like on a timeline.
+Window start times are inclusive, so something right on a window
+border is in the next window.
 
 ```mermaid
+gantt
+    dateFormat  YYYY-MM-DDTHH:mm
+    axisFormat %Y-%m-%d %H:%M
 
+    section Windows
+    Zero: w0, 2023-12-13T23:00, 1h
+    One: w1, after w0, 1h
+    Two: w2, after w1, 1h
+
+    section Names
+    ('123', {'name'= 'Bee'}): milestone, 2023-12-14T00:00, 0d
+    ('456', {'name'= 'Hive'}): milestone, 2023-12-14T00:00, 0d
+
+    section Emails
+    ('123', {'email'= 'bee@bytewax.io'}): milestone, 2023-12-14T00:15, 0d
+    ('456', {'email'= 'hive@bytewax.io'}): milestone, 2023-12-14T01:15, 0d
 ```
 
-Now let's set up the windowed join and inspect the results. To review, the entire dataflow is as follows.
+So it looks like for key `"123"`, we should see the name and email be
+joined because they occur in the same window. But for key `"456"` we
+should see one downstream item of just the name (because no email came
+for `"456"` in that window), and another downstream item of just the
+email (because no name came in that window).
+
+Now let's set up the windowed join and inspect the results to see if
+it matches that. To review, the entire dataflow is as follows.
 
 ```python
 import bytewax.operators.window as op_w
@@ -504,19 +557,35 @@ import bytewax.operators.window as op_w
 flow = Dataflow("join_eg")
 
 names_l = [
-    {"user_id": 123, "at": datetime(2023, 12, 14, 0, 0, 0, tzinfo=timezone.utc), "name": "Bee"},
-    {"user_id": 456, "at": datetime(2023, 12, 14, 0, 0, 0, tzinfo=timezone.utc), "name": "Hive"},
+    {
+        "user_id": 123,
+        "at": datetime(2023, 12, 14, 0, 0, tzinfo=timezone.utc),
+        "name": "Bee",
+    },
+    {
+        "user_id": 456,
+        "at": datetime(2023, 12, 14, 0, 0, tzinfo=timezone.utc),
+        "name": "Hive",
+    },
 ]
 names = op.input("names", flow, TestingSource(names_l))
 
 emails_l = [
-    {"user_id": 123, "at": datetime(2023, 12, 14, 0, 0, 15, tzinfo=timezone.utc), "email": "bee@bytewax.io"},
-    {"user_id": 456, "at": datetime(2023, 12, 14, 0, 1, 15, tzinfo=timezone.utc), "email": "hive@bytewax.io"},
+    {
+        "user_id": 123,
+        "at": datetime(2023, 12, 14, 0, 15, tzinfo=timezone.utc),
+        "email": "bee@bytewax.io",
+    },
+    {
+        "user_id": 456,
+        "at": datetime(2023, 12, 14, 1, 15, tzinfo=timezone.utc),
+        "email": "hive@bytewax.io",
+    },
 ]
 emails = op.input("emails", flow, TestingSource(emails_l))
 
-keyed_names = op.map("key_names", names, lambda x: (str(x.pop("user_id")), x))
-keyed_emails = op.map("key_emails", emails, lambda x: (str(x.pop("user_id")), x))
+keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x))
+keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x))
 
 joined = op_w.join_window("join", clock, windower, keyed_names, keyed_emails)
 
@@ -525,13 +594,94 @@ op.inspect("check_join", joined)
 bytewax.testing.run_main(flow)
 ```
 
+Looks like that's what we see! Notice the `None` in the output for key
+`"456"`. All window operators also emit the metadata about the window
+for analysis, but you can ignore that.
+
 ```{testoutput}
-join_eg.check_join: ('456', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, close_time: 2023-12-14 00:01:00 UTC), ({'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Hive'}, None)))
-join_eg.check_join: ('123', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, close_time: 2023-12-14 00:01:00 UTC), ({'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'at': datetime.datetime(2023, 12, 14, 0, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})))
-join_eg.check_join: ('456', (WindowMetadata(open_time: 2023-12-14 00:01:00 UTC, close_time: 2023-12-14 00:02:00 UTC), (None, {'at': datetime.datetime(2023, 12, 14, 0, 1, 15, tzinfo=datetime.timezone.utc), 'email': 'hive@bytewax.io'})))
+join_eg.check_join: ('456', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, close_time: 2023-12-14 01:00:00 UTC), ({'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Hive'}, None)))
+join_eg.check_join: ('123', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, close_time: 2023-12-14 01:00:00 UTC), ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})))
+join_eg.check_join: ('456', (WindowMetadata(open_time: 2023-12-14 01:00:00 UTC, close_time: 2023-12-14 02:00:00 UTC), (None, {'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 1, 15, tzinfo=datetime.timezone.utc), 'email': 'hive@bytewax.io'})))
 ```
 
 Bytewax currently does not support running windowed joins.
+
+### Product Joins
+
+Window operators, because they have a defined close time, also support
+another join type. The **product join** emits all of the combinations
+of _all_ of the input values seen on a side.
+
+For example, if we don't change the join parameters, but update the
+input in the above dataflow to include multiple values in a window for
+a key.
+
+```python
+names_l.clear()
+names_l.extend(
+    [
+        {
+            "user_id": 123,
+            "at": datetime(2023, 12, 14, 0, 0, tzinfo=timezone.utc),
+            "name": "Bee",
+        },
+    ]
+)
+
+emails_l.clear()
+emails_l.extend(
+    [
+        {
+            "user_id": 123,
+            "at": datetime(2023, 12, 14, 0, 15, tzinfo=timezone.utc),
+            "email": "bee@bytewax.io",
+        },
+        {
+            "user_id": 123,
+            "at": datetime(2023, 12, 14, 0, 30, tzinfo=timezone.utc),
+            "email": "queen@bytewax.io",
+        },
+    ]
+)
+
+bytewax.testing.run_main(flow)
+```
+
+Notice how now we only have the latest email for the bee:
+
+```{testoutput}
+join_eg.check_join: ('123', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, close_time: 2023-12-14 01:00:00 UTC), ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 30, tzinfo=datetime.timezone.utc), 'email': 'queen@bytewax.io'})))
+```
+
+Now if we re-define the dataflow and use `product=True`, we can see
+all of the values for the Bee's email in that window.
+
+```python
+import bytewax.operators.window as op_w
+
+flow = Dataflow("join_eg")
+
+names = op.input("names", flow, TestingSource(names_l))
+emails = op.input("emails", flow, TestingSource(emails_l))
+
+keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x))
+keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x))
+
+joined = op_w.join_window(
+    "join", clock, windower, keyed_names, keyed_emails, product=True
+)
+
+op.inspect("check_join", joined)
+
+bytewax.testing.run_main(flow)
+```
+
+Notice there are now two output values for that key.
+
+```{testoutput}
+join_eg.check_join: ('123', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, close_time: 2023-12-14 01:00:00 UTC), ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})))
+join_eg.check_join: ('123', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, close_time: 2023-12-14 01:00:00 UTC), ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 30, tzinfo=datetime.timezone.utc), 'email': 'queen@bytewax.io'})))
+```
 
 ## Named Joins
 
@@ -544,7 +694,7 @@ has
 [`join_window_named`](/apidocs/bytewax.operators/window/index#bytewax.operators.window.join_window).
 The named versions have identical parameters and join semantics, but
 in stead of emitting `tuple`s down stream, they emit `dict`s in which
-the keys are the names of the keyword args you use to specify the
+the keys are the names of the keyword arguments you use to specify the
 upstream sides. This helps out a lot when you many-sided joins and it
 can be difficult to keep track of which values are in which index of
 the resulting tuple.
