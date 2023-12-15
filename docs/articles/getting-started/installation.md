@@ -21,7 +21,7 @@ specifying the version of Bytewax that you wish to install:
 pip install bytewax==0.18
 ```
 
-When upgrading between versions of Bytewax, be sure to review the [Changelog](/CHANGELOG.md),
+When upgrading between versions of Bytewax, be sure to review the [Changelog](https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md)
 and our [Migration Guide](/docs/articles/reference/migration.md) before updating.
 
 ## Support for mypy

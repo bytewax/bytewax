@@ -38,7 +38,12 @@
       {
         "title": "Recovering from a snapshot",
         "filename": "recovering-snapshot"
+      },
+      {
+        "title": "Execution",
+        "filename": "execution"
       }
+
     ]
   },
   {
