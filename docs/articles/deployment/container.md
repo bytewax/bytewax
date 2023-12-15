@@ -51,7 +51,6 @@ op.output(inp, "out", StdOutSink())
 ```
 
 Now you can run it with:
-
 ```bash
 docker run --rm --name=my-dataflow \
     -v ./dataflows:/bytewax/dataflows \
@@ -70,13 +69,77 @@ And after the image is pulled, you'll see the output of the dataflow:
 Process ended.
 ```
 
+## Including Custom Dependencies in an Image
+
+Bytewax's image includes a small number of modules: `bytewax` itself, `jsonpickle`, `pip`, `setuptools` and `wheel`
+
+So if you try to run a script like the [wikistream](https://github.com/bytewax/bytewax/blob/main/examples/wikistream.py) example which requires additional modules:
+
+```bash
+# Fetch the dataflow first
+wget https://raw.githubusercontent.com/bytewax/bytewax/v0.18.0/examples/wikistream.py -o dataflows/wikistream.py
+# Then run it
+docker run --rm --name=my-dataflow \
+    -v ./dataflows:/bytewax/dataflows \
+    -e BYTEWAX_PYTHON_FILE_PATH=dataflows.wikistream \
+    bytewax/bytewax
+```
+
+You will get a `ModuleNotFoundError`:
+```
+Traceback (most recent call last):
+  ...
+  File "/bytewax/dataflows/wikistream.py", line 9, in <module>
+    from aiohttp_sse_client.client import EventSource
+ModuleNotFoundError: No module named 'aiohttp_sse_client'
+Process ended.
+```
+
+You need to create your own container image and install the missing dependencies.
+Create a file named `Dockerfile.custom` with the content below:
+
+```
+FROM bytewax/bytewax
+
+RUN /venv/bin/pip install aiohttp-sse-client
+```
+
+Build the image:
+
+```bash
+docker build -f Dockerfile.custom -t bytewax-wikistream .
+```
+
+Now you can run the example using the new image:
+
+```bash
+docker run --rm --name=my-dataflow \
+    -v ./dataflows:/bytewax/dataflows \
+    -e BYTEWAX_PYTHON_FILE_PATH=dataflows.wikistream \
+    bytewax-wikistream
+```
+
+And get the expected output:
+
+```
+commons.wikimedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 8)
+en.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 6)
+hr.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 1)
+it.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 1)
+ja.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 1)
+sr.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 1)
+...
+```
+
+In summary, to create your own docker image, you will need to use the Bytewax images available in Docker Hub as your base image and then install the needed modules in the virtual environment that the image already has.
+
 ## How The Bytewax Image works
 
 Bytewax images are structured in this way:
 - A specifc version of Python and Bytewax is installed and managed in a virtual environment.
 - Run an `entrypoint.sh` bash script which:
     - Sets the current directory in `BYTEWAX_WORKDIR` (default `/bytewax`).
-    - Executes the `BYTEWAX_PYTHON_FILE_PATH` python script (there isn't a default value, you must set that environment variable always).
+    - Executes the `BYTEWAX_PYTHON_FILE_PATH` python script (there isn't a default value, you must set that environment variable).
     - If the `BYTEWAX_KEEP_CONTAINER_ALIVE` environment variable is set to `true` executes an infinite loop to keep the container process running.
 
 **Entrypoint.sh script**
@@ -149,70 +212,6 @@ BYTEWAX_PYTHON_FILE_PATH=examples.pagerank:flow
 3
 4
 ```
-
-## Including Custom Dependencies in an Image
-
-Bytewax's image includes a small number of modules: `bytewax` itself, `jsonpickle`, `pip`, `setuptools` and `wheel`
-
-So if you try to run a script like the [wikistream](https://github.com/bytewax/bytewax/blob/main/examples/wikistream.py) example which requires additional modules:
-
-```bash
-# Fetch the dataflow first
-wget https://raw.githubusercontent.com/bytewax/bytewax/v0.18.0/examples/wikistream.py -o dataflows/wikistream.py
-# Then run it
-docker run --rm --name=my-dataflow \
-    -v ./dataflows:/bytewax/dataflows \
-    -e BYTEWAX_PYTHON_FILE_PATH=dataflows.wikistream \
-    bytewax/bytewax
-```
-
-You will get a `ModuleNotFoundError`:
-```
-Traceback (most recent call last):
-  ...
-  File "/bytewax/dataflows/wikistream.py", line 9, in <module>
-    from aiohttp_sse_client.client import EventSource
-ModuleNotFoundError: No module named 'aiohttp_sse_client'
-Process ended.
-```
-
-You need to create your own container image and install the missing dependencies.
-Create a file named `Dockerfile.custom` with the content below:
-
-```
-FROM bytewax/bytewax
-
-RUN /venv/bin/pip install aiohttp-sse-client
-```
-
-Build the image:
-
-```bash
-docker build -f Dockerfile.custom -t bytewax-wikistream .
-```
-
-Now you can run the example using the new image:
-
-```bash
-docker run --rm --name=my-dataflow \
-    -v ./dataflows:/bytewax/dataflows \
-    -e BYTEWAX_PYTHON_FILE_PATH=dataflows.wikistream \
-    bytewax-wikistream
-```
-
-And get the expected output:
-
-```
-commons.wikimedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 8)
-en.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 6)
-hr.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 1)
-it.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 1)
-ja.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 1)
-sr.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 1)
-...
-```
-
-In summary, to create your own docker image, you will need to use the Bytewax images available in Docker Hub as your base image and then install the needed modules in the virtual environment that the image already has.
 
 ## Bytewax Container Images and Security
 
