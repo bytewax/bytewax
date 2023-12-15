@@ -2,24 +2,22 @@ It is very simple to run a Bytewax dataflow program in a container. In this sect
 
 ## Bytewax Images in Docker Hub
 
-Bytewax has several public container images available. Every library release is available in Docker Hub with these python versions: 3.7, 3.8, 3.9, 3.10 and 3.11.
+Bytewax has several public container images available. Releases are available in Docker Hub with these python versions: 3.8, 3.9, 3.10 and 3.11.
 
 We implement the following naming convention:
 
 >**bytewax/bytewax:`BYTEWAX_VERSION`-python`PYTHON_VERSION`**
 
-Following this convention, Bytewax `0.16.0` would have the images:
+Following this convention, Bytewax `0.18.0` would have the images:
 ```
-bytewax/bytewax:0.16.0-python3.7
-bytewax/bytewax:0.16.0-python3.8
-bytewax/bytewax:0.16.0-python3.9
-bytewax/bytewax:0.16.0-python3.10
-bytewax/bytewax:0.16.0-python3.11
+bytewax/bytewax:0.18.0-python3.8
+bytewax/bytewax:0.18.0-python3.9
+bytewax/bytewax:0.18.0-python3.10
+bytewax/bytewax:0.18.0-python3.11
 ```
 
 And for the latest version of Bytewax:
 ```
-bytewax/bytewax:latest-python3.7
 bytewax/bytewax:latest-python3.8
 bytewax/bytewax:latest-python3.9
 bytewax/bytewax:latest-python3.10
@@ -32,52 +30,52 @@ The standard `latest` tag is equivalent to `latest-python3.9`.
 
 To run a dataflow program in a container you will need to set two things:
 - A volume mapped to a directory which includes your python script file.
-- A correspondent value for `BYTEWAX_PYTHON_FILE` environment variable.
+- A correspondent value for `BYTEWAX_PYTHON_FILE_PATH` environment variable.
 
-For example:
+To try this, first create an empty directory:
+
+```bash
+mkdir dataflows
+```
+
+Then create a file `dataflows/my_flow.py` with the following simple dataflow:
+```python
+from bytewax import operators as op
+from bytewax.connectors.stdio import StdOutSink
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+flow = Dataflow("test")
+inp = op.input("in", flow, TestingSource(list(range(5))))
+op.output(inp, "out", StdOutSink())
+```
+
+Now you can run it with:
 
 ```bash
 docker run --rm --name=my-dataflow \
-    -v /var/bytewax/examples:/bytewax/examples \
-    -e BYTEWAX_PYTHON_FILE=examples.pagerank:flow \
+    -v ./dataflows:/bytewax/dataflows \
+    -e BYTEWAX_PYTHON_FILE_PATH=dataflows.my_flow \
     bytewax/bytewax
 ```
-The output should be something like this:
+
+And after the image is pulled, you'll see the output of the dataflow:
 ```
-Unable to find image 'bytewax/bytewax:latest' locally
-latest: Pulling from bytewax/bytewax
-c229119241af: Already exists
-5a3ae98ea812: Already exists
-fb6cb411715f: Pull complete
-f83c4a78fcb9: Pull complete
-4835b7464fe4: Pull complete
-dad0b2a57b01: Pull complete
-9666deee65de: Pull complete
-d15d6c35474d: Pull complete
-Digest: sha256:c6c213c3753b8a4ffa988f8a8d9e36669357c6970d2d2e74c7d559c98ef63589
-Status: Downloaded newer image for bytewax/bytewax:latest
-('5', 1.8783333333333332)
-('4', 0.5325)
-('2', 1.028333333333333)
-('1', 2.0625)
-('6', 0.3625)
-('7', 0.32)
-('3', 0.8158333333333333)
+# ...docker output first
+0
+1
+2
+3
+4
 Process ended.
 ```
-
-### A comment about `docker run` and volumes
-
-It's necessary to use an absolute local path to map your local directory with the running container directory. So you can't use paths like `./my-directory` or `~/another-directory` in the left side of the `-v` flag value.
-
-In our example we used `-v /var/bytewax/examples:/bytewax/examples`, so our local path was `/var/bytewax/examples`.
 
 ## How The Bytewax Image works
 
 Bytewax images are structured in this way:
 - A specifc version of Python and Bytewax is installed and managed in a virtual environment.
 - Run an `entrypoint.sh` bash script which:
-    - Sets the current directory in `BYTEWAX_WORKDIR` (default `\bytewax`).
+    - Sets the current directory in `BYTEWAX_WORKDIR` (default `/bytewax`).
     - Executes the `BYTEWAX_PYTHON_FILE_PATH` python script (there isn't a default value, you must set that environment variable always).
     - If the `BYTEWAX_KEEP_CONTAINER_ALIVE` environment variable is set to `true` executes an infinite loop to keep the container process running.
 
@@ -106,32 +104,30 @@ We are going to use the `BYTEWAX_KEEP_CONTAINER_ALIVE` environment variable to k
 
 ```bash
 docker run --rm --name=my-dataflow \
-    -v /var/bytewax/examples:/bytewax/examples \
-    -e BYTEWAX_PYTHON_FILE_PATH=examples.pagerank:flow \
+    -v ./dataflows:/bytewax/dataflows \
+    -e BYTEWAX_PYTHON_FILE_PATH=dataflows.my_flow \
     -e BYTEWAX_KEEP_CONTAINER_ALIVE=true \
     bytewax/bytewax
 ```
 
 The output:
 ```
-('1', 2.0625)
-('5', 1.8783333333333332)
-('2', 1.028333333333333)
-('3', 0.8158333333333332)
-('4', 0.5325)
-('7', 0.32)
-('6', 0.3625)
+0
+1
+2
+3
+4
 Process ended.
 Keeping container alive...
 ```
 
-Then, in another terminal, you could run:
+Then, in another terminal, you can run:
 
 ```bash
 docker exec -it my-dataflow /bin/sh
 ```
 
-And then you could explore which files are in the mounted volume, see env var values or even run your dataflow again.
+And you can explore the mounted volume, env var values or even run your dataflow again.
 
 ```
 # ls -la
@@ -139,88 +135,81 @@ total 16
 drwxr-xr-x 1 root root 4096 Apr 12 14:25 .
 drwxr-xr-x 1 root root 4096 Apr 12 14:25 ..
 -rwxr-xr-x 1 root root  221 Apr  7 11:39 entrypoint.sh
-drwxrwxr-x 5 1000 1000 4096 Apr 12 14:16 examples
+drwxrwxr-x 5 1000 1000 4096 Apr 12 14:16 dataflows
 
 # env | grep BYTEWAX
 BYTEWAX_WORKDIR=/bytewax
 BYTEWAX_KEEP_CONTAINER_ALIVE=true
 BYTEWAX_PYTHON_FILE_PATH=examples.pagerank:flow
 
-# /venv/bin/python -m bytewax.run examples.pagerank:flow
-('5', 1.8783333333333332)
-('6', 0.3625)
-('7', 0.32)
-('4', 0.5325)
-('3', 0.8158333333333332)
-('1', 2.0625)
-('2', 1.028333333333333)
+# /venv/bin/python -m bytewax.run dataflows.my_flow
+0
+1
+2
+3
+4
 ```
 
 ## Including Custom Dependencies in an Image
 
-Bytewax image includes a small number of modules installed:
-```
-Package      Version
------------- ---------
-bytewax      0.16.0
-pip          22.0.4
-setuptools   62.0.0
-wheel        0.37.1
-```
+Bytewax's image includes a small number of modules: `bytewax` itself, `jsonpickle`, `pip`, `setuptools` and `wheel`
 
-So if you try to run a script like the [translator](https://github.com/bytewax/bytewax/tree/main/examples/translator.py) example which requires additional modules:
+So if you try to run a script like the [wikistream](https://github.com/bytewax/bytewax/blob/main/examples/wikistream.py) example which requires additional modules:
 
 ```bash
+# Fetch the dataflow first
+wget https://raw.githubusercontent.com/bytewax/bytewax/v0.18.0/examples/wikistream.py -o dataflows/wikistream.py
+# Then run it
 docker run --rm --name=my-dataflow \
-    -v /var/bytewax/examples:/bytewax/examples \
-    -e BYTEWAX_PYTHON_FILE_PATH=examples.translator:flow \
+    -v ./dataflows:/bytewax/dataflows \
+    -e BYTEWAX_PYTHON_FILE_PATH=dataflows.wikistream \
     bytewax/bytewax
 ```
+
 You will get a `ModuleNotFoundError`:
 ```
 Traceback (most recent call last):
-  File "/bytewax/examples/translator.py", line 3, in <module>
-    from transformers import pipeline
-ModuleNotFoundError: No module named 'transformers'
+  ...
+  File "/bytewax/dataflows/wikistream.py", line 9, in <module>
+    from aiohttp_sse_client.client import EventSource
+ModuleNotFoundError: No module named 'aiohttp_sse_client'
 Process ended.
 ```
 
-So, in that case you will need to create your own container image.
-To demonstrate this, we are going to create a file `Dockerfile.custom` with the content below:
+You need to create your own container image and install the missing dependencies.
+Create a file named `Dockerfile.custom` with the content below:
 
 ```
 FROM bytewax/bytewax
 
-RUN /venv/bin/pip install transformers torch torchvision torchaudio
+RUN /venv/bin/pip install aiohttp-sse-client
 ```
-And create an image running this command:
+
+Build the image:
 
 ```bash
-docker build -f Dockerfile.custom -t bytewax-translator .
+docker build -f Dockerfile.custom -t bytewax-wikistream .
 ```
 
-Now we can run the example using the new image:
+Now you can run the example using the new image:
 
 ```bash
 docker run --rm --name=my-dataflow \
-    -v /var/bytewax/examples:/bytewax/examples \
-    -e BYTEWAX_PYTHON_FILE_PATH=examples.translator:flow \
-    bytewax-translator
+    -v ./dataflows:/bytewax/dataflows \
+    -e BYTEWAX_PYTHON_FILE_PATH=dataflows.wikistream \
+    bytewax-wikistream
 ```
 
-And we get this result:
+And get the expected output:
 
 ```
-No model was supplied, defaulted to t5-base (https://huggingface.co/t5-base)
-Downloading: 100%|██████████| 1.17k/1.17k [00:00<00:00, 934kB/s]
-Downloading: 100%|██████████| 850M/850M [00:11<00:00, 78.8MB/s]
-Downloading: 100%|██████████| 773k/773k [00:00<00:00, 2.17MB/s]
-Downloading: 100%|██████████| 1.32M/1.32M [00:00<00:00, 3.13MB/s]
-Blue jean baby, L.A. lady, seamstress for the band -> Blue Jean Baby, L.A. Lady, Näherin für die Band
-Pretty eyed, pirate smile, you'll marry a music man -> Hübsches Auge, Piratenlächeln, heiraten Sie einen Musikmann
-Ballerina, you must have seen her dancing in the sand -> Ballerina, Sie müssen sie im Sand tanzen gesehen haben
-And now she's in me, always with me, tiny dancer in my hand -> Und nun ist sie in mir, immer mit mir, winzige Tänzerin in meiner Hand
-Process ended.
+commons.wikimedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 8)
+en.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 6)
+hr.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 1)
+it.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 1)
+ja.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 1)
+sr.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 1)
+...
 ```
 
 In summary, to create your own docker image, you will need to use the Bytewax images available in Docker Hub as your base image and then install the needed modules in the virtual environment that the image already has.
