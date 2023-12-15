@@ -95,7 +95,7 @@ msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer
 op.inspect("inspect-deser", msgs.errs).then(op.raises, "deser-error")
 
 
-def extract_identifier(msg: KafkaSourceMessage[Dict, Dict]) -> str:
+def extract_identifier(msg: KafkaSourceMessage) -> str:
     # Use the "identifier" field of the key as bytewax's key
     return msg.key["identifier"]
 
@@ -104,7 +104,7 @@ keyed = op.key_on("key_on_identifier", msgs.oks, extract_identifier)
 
 
 # Let's window the input
-def accumulate(acc: List[str], msg: KafkaSourceMessage[Dict, Dict]) -> List[str]:
+def accumulate(acc: List[str], msg: KafkaSourceMessage) -> List[str]:
     acc.append(msg.value["value"])
     return acc
 

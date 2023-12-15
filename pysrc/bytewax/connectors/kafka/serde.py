@@ -3,13 +3,23 @@ import io
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, Generic, TypeVar, cast
+from typing import Dict, Generic, TypeVar
 
 from confluent_kafka.schema_registry import record_subject_name_strategy
 from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
 from fastavro import parse_schema, schemaless_reader, schemaless_writer
+from fastavro.types import AvroMessage
 
 from ._types import MaybeStrBytes
+
+__all__ = [
+    "SerdeIn",
+    "SerdeOut",
+    "SchemaSerializer",
+    "SchemaDeserializer",
+    # Reexport AvroMessage too
+    "AvroMessage",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +59,7 @@ class _ConfluentAvroSerializer(SchemaSerializer[Dict, bytes]):
         return self.serializer(obj, ctx=None)
 
 
-class _ConfluentAvroDeserializer(SchemaDeserializer[MaybeStrBytes, Dict]):
+class _ConfluentAvroDeserializer(SchemaDeserializer[MaybeStrBytes, AvroMessage]):
     def __init__(self, client):
         self.deserializer = AvroDeserializer(client)
 
@@ -76,17 +86,15 @@ class _AvroSerializer(SchemaSerializer[Dict, bytes]):
         return bytes_writer.getvalue()
 
 
-class _AvroDeserializer(SchemaDeserializer[MaybeStrBytes, Dict]):
+class _AvroDeserializer(SchemaDeserializer[MaybeStrBytes, AvroMessage]):
     def __init__(self, schema):
         self.schema = parse_schema(json.loads(schema))
 
-    def de(self, data: MaybeStrBytes) -> Dict:
+    def de(self, data: MaybeStrBytes) -> AvroMessage:
         if data is None:
             msg = "Can't deserialize None data"
             raise ValueError(msg)
         if isinstance(data, str):
             data = data.encode()
         payload = io.BytesIO(data)
-        # Since we are passing a schema to the reader,
-        # the result should always be a dict
-        return cast(Dict, schemaless_reader(payload, self.schema, None))
+        return schemaless_reader(payload, self.schema, None)

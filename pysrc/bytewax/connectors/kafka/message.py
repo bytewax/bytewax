@@ -10,7 +10,7 @@ from ._types import K2, V2, K, V
 class KafkaSourceMessage(Generic[K, V]):
     """Class that holds a message from kafka with metadata.
 
-    Use `KafkaSourceMessage.key` to get the key and `KafkaMessage.value` to get
+    Use `msg.key` to get the key and `msg.value` to get
     the value.
 
     Other fields: `topic`, `headers`, `latency` `offset`, `partition`, `timestamp`

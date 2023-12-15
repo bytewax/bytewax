@@ -12,6 +12,7 @@ from typing import Dict, Optional, Union
 
 import requests
 from confluent_kafka.schema_registry import SchemaRegistryClient
+from fastavro.types import AvroMessage
 
 from ._types import MaybeStrBytes
 from .serde import (
@@ -84,7 +85,7 @@ class ConfluentSchemaRegistry:
         schema = self._get_schema(schema_ref)
         return _ConfluentAvroSerializer(self.client, schema)
 
-    def deserializer(self) -> SchemaDeserializer[MaybeStrBytes, Dict]:
+    def deserializer(self) -> SchemaDeserializer[MaybeStrBytes, AvroMessage]:
         """Confluent avro deserializer.
 
         `schema_ref` is not needed since Confluent cloud adds the schema_id
@@ -135,7 +136,7 @@ class RedpandaSchemaRegistry:
 
     def deserializer(
         self, schema_ref: Union[int, SchemaRef]
-    ) -> SchemaDeserializer[MaybeStrBytes, Dict]:
+    ) -> SchemaDeserializer[MaybeStrBytes, AvroMessage]:
         """Fastavro deserializer.
 
         Specify either the `schema_id` or a `SchemaRef` instance.
