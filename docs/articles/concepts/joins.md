@@ -63,7 +63,8 @@ operators to provide this functionality.
 
 All the operators above are stateful operators and so require all of
 the upstreams to contain 2-tuples with the first element being a
-string. All items that have the same key will be joined together.
+string. The first element of the tuple is the **key**. All items that have
+the same key will be joined together.
 
 Make this key unique enough so you don't bring together too much.
 
