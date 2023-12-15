@@ -425,7 +425,7 @@ sending the values downstream.
 ## Windowed Joins
 
 The streaming join assumes that a key could come anywhere in the
-entire lifetime of a stream. This means it could possible wait forever
+entire lifetime of a stream. This means it could possibly wait forever
 for a value to come on a side that will never come. Another option is
 to use a **windowed join** that always flushes out the values for a
 key whenever the time-based window closes. You can use this if you
