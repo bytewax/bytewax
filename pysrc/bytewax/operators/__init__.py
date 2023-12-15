@@ -26,7 +26,7 @@ from typing import (
     overload,
 )
 
-from typing_extensions import Self, TypeAlias
+from typing_extensions import Self, TypeAlias, TypeGuard
 
 from bytewax.dataflow import (
     Dataflow,
@@ -56,15 +56,29 @@ def _untyped_none() -> Any:
 
 
 @dataclass(frozen=True)
-class BranchOut(Generic[X]):
-    """Streams returned from `branch` operator.
-
-    You can tuple unpack this for convenience.
-
-    """
+class BranchOut(Generic[X, Y]):
+    """Streams returned from `branch` operator."""
 
     trues: Stream[X]
-    falses: Stream[X]
+    falses: Stream[Y]
+
+
+@overload
+def branch(
+    step_id: str,
+    up: Stream[X],
+    predicate: Callable[[X], TypeGuard[Y]],
+) -> BranchOut[Y, X]:
+    ...
+
+
+@overload
+def branch(
+    step_id: str,
+    up: Stream[X],
+    predicate: Callable[[X], bool],
+) -> BranchOut[X, X]:
+    ...
 
 
 @operator(_core=True)
@@ -72,7 +86,7 @@ def branch(
     step_id: str,
     up: Stream[X],
     predicate: Callable[[X], bool],
-) -> BranchOut[X]:
+) -> BranchOut:
     """Divide items into two streams with a predicate.
 
     >>> import bytewax.operators as op
@@ -98,7 +112,9 @@ def branch(
 
         predicate: Function to call on each upstream item. Items for
             which this returns `True` will be put into one branch
-            `Stream`; `False` the other branc `Stream`.h
+            `Stream`; `False` the other branch `Stream`. If this
+            function is a `typing.TypeGuard`, the downstreams will be
+            properly typed.
 
     Returns:
         A stream of items for which the predicate returns `True`, and
