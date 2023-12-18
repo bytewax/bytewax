@@ -1,4 +1,4 @@
-In this getting started guide, we'll explore how to use Bytewax to create a simple dataflow that utilizes polling. Polling, in the context of data processing, refers to the regular and repeated querying of a data source to check for updates or new data. This is particularly useful when dealing with APIs or databases that update frequently but don't have a change stream that can be consumed from.
+In this getting started guide, we'll explore how to use Bytewax to create a simple dataflow that utilizes polling. Polling, in the context of data processing, refers to the regular and repeated querying of a data source to check for updates or new data. This is particularly useful when dealing with APIs or databases that update frequently but don't have a change stream that can be consumed.
 
 In our example, we will build a dataflow to fetch and process data from the Hacker News API. We will poll the publicly available hacker news API for the most recent items available and then process them as a stream.
 
