@@ -30,7 +30,6 @@ extras = [
     "docs",
     "kafka",
     "test",
-    "fmt"
 ]
 
 [project.optional-dependencies]
@@ -44,11 +43,8 @@ test = [
 docs = [
     "pdoc3==0.10.0",
 ]
-fmt = [
-    "black==22.3.0",
-]
 dev = [
-    "bytewax[kafka,test,docs,fmt]",
+    "bytewax[kafka,test,docs]",
     "pre-commit==2.19.0",
     "ruff==0.0.291",
     "vermin==1.5.2",
@@ -89,7 +85,6 @@ select = [
     "EM",
     "F",
     "I",
-    "ISC",
     "PL",
     "W",
 ]
@@ -101,6 +96,9 @@ ignore = [
 
 [tool.ruff.pydocstyle]
 convention = "google"
+
+[tool.ruff.format]
+docstring-code-format = true
 
 [tool.ruff.per-file-ignores]
 "examples/*.py" = ["D"]
