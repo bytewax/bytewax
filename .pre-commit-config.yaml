@@ -17,11 +17,14 @@ repos:
     rev: v1.0
     hooks:
       - id: clippy
+        name: "cargo clippy"
       - id: fmt
+        name: "cargo fmt"
   - repo: https://github.com/bytewax/pre-commit-cbfmt
     rev: v0.1
     hooks:
       - id: fmt
+        name: cbfmt
   - repo: https://github.com/netromdk/vermin
     rev: v1.5.2
     hooks:
