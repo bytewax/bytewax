@@ -704,9 +704,11 @@ has
 The named versions have identical parameters and join semantics, but
 in stead of emitting `tuple`s down stream, they emit `dict`s in which
 the keys are the names of the keyword arguments you use to specify the
-upstream sides. This helps out a lot when you many-sided joins and it
-can be difficult to keep track of which values are in which index of
-the resulting tuple.
+upstream sides. This can help you keep track of the values of the
+joined data more easily in your code. Depending on the kinds of
+transformations you are doing downstream, it might make more sense to
+use named joins so that it makes it easiest to write that downstream
+code.
 
 For example, given our original streaming join. If you remember the
 output was 2-tuples because there were two sides to the join.
@@ -779,7 +781,3 @@ Notice how the output is now `dict`s and how the kwargs `name` and
 join_eg.check_join: ('123', {'name': 'Bee', 'email': 'bee@bytewax.io'})
 join_eg.check_join: ('456', {'name': 'Hive', 'email': 'hive@bytewax.io'})
 ```
-
-Depending on the kinds of transformations you are doing downstream,
-use either tuple or named joins to prepare your data so that it makes
-it easiest to write your processing code.
