@@ -427,8 +427,7 @@ never throw away the state for a key, this state keeps growing in
 memory _forever_ if you keep adding keys. This might be the behavior
 you want, but realize that it does not come for free. A complete join
 is better if you know you'll only get one value for each side for each
-key, since it knows it can discard the state after sending the values
-downstream.
+key, since it discards the state after sending the values downstream.
 
 ## Windowed Joins
 
