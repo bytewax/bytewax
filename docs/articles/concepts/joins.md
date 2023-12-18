@@ -172,6 +172,8 @@ join_eg.check_join: ('123', ('Bee', 'bee@bytewax.io'))
 join_eg.check_join: ('456', ('Hive', 'hive@bytewax.io'))
 ```
 
+### Missing Values
+
 What happens if we don't have a value for a key? Let's update our
 names input to add a name that won't have an email. Then run the
 dataflow again.
@@ -422,12 +424,14 @@ means when we see the updated Bee email, we'll see some output!
 ```
 
 So the running join is cool in that you can track updates to changes
-in values over time. _But this comes with a downside!_ Because we
-never throw away the state for a key, this state keeps growing in
-memory _forever_ if you keep adding keys. This might be the behavior
-you want, but realize that it does not come for free. A complete join
-is better if you know you'll only get one value for each side for each
-key, since it discards the state after sending the values downstream.
+in values over time. There is also no concept of waiting for missing
+values: all missing values are replaced with `None`. _But this comes
+with a downside!_ Because we never throw away the state for a key,
+this state keeps growing in memory _forever_ if you keep adding keys.
+This might be the behavior you want, but realize that it does not come
+for free. A complete join is better if you know you'll only get one
+value for each side for each key, since it discards the state after
+sending the values downstream.
 
 ## Windowed Joins
 
