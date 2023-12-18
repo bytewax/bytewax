@@ -108,25 +108,26 @@ join_eg.check_names: ('456', 'Hive')
 join_eg.check_emails: ('456', 'hive@bytewax.io')
 ```
 
-### Streaming Joins
+### Complete Joins
 
 When doing a join in a SQL database, you look at the keys contained in
 two tables and bring the other columns together. In a streaming
 context, we have the concept of "key", we have the concept of "column"
 (in the values for each key), but we don't have the exact concept of
-"table". Each stream is sort of like a table, but for a SQL table
-there's an obvious end to the table; when you run the join it takes
-the state of the table when you run the command.
+"table". Each stream we call a **side** and is sort of like a table,
+but for a SQL table there's an obvious end to the table; when you run
+the join it takes the state of the table when you run the command.
 
 In a streaming system, there is no guaranteed end to the stream, so
 our joins have to have slightly different semantics. The default
 behavior of the
 [`join`](/apidocs/bytewax.operators/index#bytewax.operators.join)
-operator takes any number of upstream **sides** and waits until we
-have seen a value for a key on all sides of the join, and only then do
-we emit the gathered values downstream as a `tuple` of the values in
-the same order as the sides stream arguments. This is similar to an
-_inner join_ in SQL.
+operator takes any number of upstream sides and waits until we have
+seen a value for a key on all sides of the join, and only then do we
+emit the gathered values downstream as a `tuple` of the values in the
+same order as the sides stream arguments. When we wait for a value
+from all sides, Bytewax calls this a **complete** join. This is
+similar to an _inner join_ in SQL.
 
 Let's see that in action. To recap our example:
 
@@ -298,13 +299,15 @@ to complete is the trick to remember.
 
 ### Running Joins
 
-The streaming join semantics are useful in some cases, but on infinite
-data you could imagine other join semantics. A **running join** emits
-downstream the values for all sides of the join whenever any value
-comes in, _and keeps the state around_. This is similar to a _full
-outer join_ in SQL. The way to enable a running join with the
-[`join`](/apidocs/bytewax.operators/index#bytewax.operators.join)
-operator is to set `running=True`.
+Complete join semantics are useful in some cases, but on infinite data
+you could imagine other join semantics. What Bytewax calls a **running
+join** emits downstream the values for all sides of the join whenever
+any value comes in, _and keeps the state around_. This is similar to a
+_full outer join_ in SQL. Set `running=True` to enable a running join
+with the
+[`join`](/apidocs/bytewax.operators/index#bytewax.operators.join). By
+default joins are complete, as described in the previous section, and
+not running.
 
 Let's review what the dataflow would look like then:
 
@@ -418,10 +421,10 @@ So the running join is cool in that you can track updates to changes
 in values over time. _But this comes with a downside!_ Because we
 never throw away the state for a key, this state keeps growing in
 memory _forever_ if you keep adding keys. This might be the behavior
-you want, but realize that it does not come for free. A non-running
-streaming join is better if you know you'll only get one value for
-each side for each key, since it knows it can discard the state after
-sending the values downstream.
+you want, but realize that it does not come for free. A complete join
+is better if you know you'll only get one value for each side for each
+key, since it knows it can discard the state after sending the values
+downstream.
 
 ## Windowed Joins
 
@@ -605,7 +608,8 @@ join_eg.check_join: ('123', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, 
 join_eg.check_join: ('456', (WindowMetadata(open_time: 2023-12-14 01:00:00 UTC, close_time: 2023-12-14 02:00:00 UTC), (None, {'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 1, 15, tzinfo=datetime.timezone.utc), 'email': 'hive@bytewax.io'})))
 ```
 
-Bytewax currently does not support running windowed joins.
+Bytewax currently only supports complete windowed joins and does not
+support running windowed joins.
 
 ### Product Joins
 
