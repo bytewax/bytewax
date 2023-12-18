@@ -780,4 +780,6 @@ join_eg.check_join: ('123', {'name': 'Bee', 'email': 'bee@bytewax.io'})
 join_eg.check_join: ('456', {'name': 'Hive', 'email': 'hive@bytewax.io'})
 ```
 
-Hopefully using named joins will help you keep your code less fragile.
+Depending on the kinds of transformations you are doing downstream,
+use either tuple or named joins to prepare your data so that it makes
+it easiest to write your processing code.
