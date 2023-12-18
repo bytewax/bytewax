@@ -448,7 +448,7 @@ to implement this.
 
 For the details of all the types of windows you can define and
 explanation of the parameters, see our [windowing
-documentation](windowing.md). I'm going to use a simple 1 hour
+documentation](windowing.md). We're going to use a simple 1 hour
 tumbling window; the previous window closes and the next window starts
 at the top of each hour. We'll be using event time.
 
