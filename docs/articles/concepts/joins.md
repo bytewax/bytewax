@@ -612,6 +612,11 @@ join_eg.check_join: ('123', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, 
 join_eg.check_join: ('456', (WindowMetadata(open_time: 2023-12-14 01:00:00 UTC, close_time: 2023-12-14 02:00:00 UTC), (None, {'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 1, 15, tzinfo=datetime.timezone.utc), 'email': 'hive@bytewax.io'})))
 ```
 
+You will have to decide in a downstream step how to handle these
+`None` values. You might filter out joined items that contain any
+`None` values so you can focus only on the running list of complete
+updates, or fill in default values, etc.
+
 Bytewax currently only supports complete windowed joins and does not
 support running windowed joins.
 
