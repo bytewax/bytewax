@@ -61,18 +61,12 @@ operators to provide this functionality.
 
 ### Join Keys
 
-All the operators above are stateful operators and so require all of
-the upstreams to contain 2-tuples with the first element being a
-string. The first element of the tuple is the **key**. All items that have
-the same key will be joined together.
-
-Make this key unique enough so you don't bring together too much.
-
-This key must be a string, so if you have a different data type,
-you'll need to convert that type to a string. The
-[`key_on`](/apidocs/bytewax.operators/index#bytewax.operators.key_on)
-and [`map`](/apidocs/bytewax.operators/index#bytewax.operators.map)
-operators can help you with this.
+All the join operators above are stateful operators and so require all
+of the upstreams to contain 2-tuples with the first element being a
+string called a **key**. A string is required so that the Bytewax
+runtime has a standard type it can use to route data correctly. For
+more information about state keys, see our [dataflow programming
+concept documentation](dataflow-programming.md#state-keys).
 
 If we wanted to join the data in the above streams, let's key it by
 the `user_id` since that is what we want to bring the data together by.
