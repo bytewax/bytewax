@@ -39,7 +39,7 @@ class FakeWebEventsSource(FixedPartitionedSource):
 
 class ParquetPartition(StatefulSinkPartition):
     def write_batch(self, batch):
-        for (_metadata, value) in batch:
+        for _metadata, value in batch:
             table = Table.from_pandas(value)
             parquet.write_to_dataset(
                 table,
