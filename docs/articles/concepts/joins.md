@@ -10,23 +10,23 @@ when handling unbounded streams of data.
 For example, you might have a stream of user names:
 
 ```
-{"user_id": 12345, "name": "Bee"}
-{"user_id": 12345, "name": "Hive"}
+{"user_id": 123, "name": "Bee"}
+{"user_id": 456, "name": "Hive"}
 ```
 
 And another stream of email addresses.
 
 ```
-{"user_id": 12345, "email": "bee@bytewax.io"}
-{"user_id": 12345, "email": "hive@bytewax.io"}
+{"user_id": 123, "email": "bee@bytewax.io"}
+{"user_id": 456, "email": "hive@bytewax.io"}
 ```
 
 And you'd like to be able to have access to both simultaneously,
 joined onto the same object:
 
 ```
-{"user_id": 12345, "name": "Bee", "email": "bee@bytewax.io"}
-{"user_id": 12345, "name": "Hive", "email": "hive@bytewax.io"}
+{"user_id": 123, "name": "Bee", "email": "bee@bytewax.io"}
+{"user_id": 456, "name": "Hive", "email": "hive@bytewax.io"}
 ```
 
 Let's setup a sample dataflow that gets that data into some streams:
@@ -39,14 +39,14 @@ from bytewax.testing import TestingSource
 flow = Dataflow("join_eg")
 
 names_l = [
-    {"user_id": 12345, "name": "Bee"},
-    {"user_id": 12345, "name": "Hive"},
+    {"user_id": 123, "name": "Bee"},
+    {"user_id": 456, "name": "Hive"},
 ]
 names = op.input("names", flow, TestingSource(names_l))
 
 emails_l = [
-    {"user_id": 12345, "email": "bee@bytewax.io"},
-    {"user_id": 12345, "email": "hive@bytewax.io"},
+    {"user_id": 123, "email": "bee@bytewax.io"},
+    {"user_id": 456, "email": "hive@bytewax.io"},
 ]
 emails = op.input("emails", flow, TestingSource(emails_l))
 ```
@@ -102,10 +102,10 @@ bytewax.testing.run_main(flow)
 Looks like we see our 2-tuples!
 
 ```{testoutput}
-join_eg.check_names: ('12345', 'Bee')
-join_eg.check_emails: ('12345', 'bee@bytewax.io')
-join_eg.check_names: ('12345', 'Hive')
-join_eg.check_emails: ('12345', 'hive@bytewax.io')
+join_eg.check_names: ('123', 'Bee')
+join_eg.check_emails: ('123', 'bee@bytewax.io')
+join_eg.check_names: ('456', 'Hive')
+join_eg.check_emails: ('456', 'hive@bytewax.io')
 ```
 
 ### Streaming Joins
