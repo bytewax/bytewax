@@ -26,6 +26,7 @@ dependencies = [
 ]
 
 extras = [
+    "cbfmt",
     "dev",
     "docs",
     "kafka",
@@ -33,21 +34,24 @@ extras = [
 ]
 
 [project.optional-dependencies]
+cbfmt = [
+    "ruff==0.1.8",
+]
+docs = [
+    "pdoc3==0.10.0",
+]
+dev = [
+    "bytewax[cbfmt,docs,kafka,test]",
+    "pre-commit==2.19.0",
+    "ruff==0.1.8",
+    "vermin==1.5.2",
+]
 kafka = [
     "confluent-kafka<=2.0.2",  # Update this to a broader bound once we fix CI.
 ]
 test = [
     "myst-docutils==0.17.0",
     "pytest==7.1.0",
-]
-docs = [
-    "pdoc3==0.10.0",
-]
-dev = [
-    "bytewax[kafka,test,docs]",
-    "pre-commit==2.19.0",
-    "ruff==0.0.291",
-    "vermin==1.5.2",
 ]
 
 [project.urls]
