@@ -108,6 +108,10 @@ join_eg.check_names: ('456', 'Hive')
 join_eg.check_emails: ('456', 'hive@bytewax.io')
 ```
 
+We took the input items, removed field names, and converted them to
+`(key, value)` 2-tuples with a distinct string key to put them the
+necessary format to do the join.
+
 ### Complete Joins
 
 When doing a join in a SQL database, you look at the keys contained in
