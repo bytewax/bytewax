@@ -1052,11 +1052,12 @@ def join(
 
         *sides: Keyed streams.
 
-        running: If `True`, emit the current set of values (if any)
-            each time a new value arrives. The set of values will
-            _never be discarded_ so might result in unbounded memory
-            use. If `False`, only emit once there is a value on each
-            stream, then discard the set. Defaults to `False`.
+        running: If `True`, perform a "running join" and, emit the
+            current set of values (if any) each time a new value
+            arrives. The set of values will _never be discarded_ so
+            might result in unbounded memory use. If `False`, perform
+            a "complete join" and, only emit once there is a value on
+            each stream, then discard the set. Defaults to `False`.
 
     Returns:
         Emits a tuple with the value from each stream in the order of
@@ -1092,11 +1093,12 @@ def join_named(
         **sides: Named keyed streams. The name of each stream will be
             used in the emitted `dict`s.
 
-        running: If `True`, emit the current set of values (if any)
-            each time a new value arrives. The set of values will
-            _never be discarded_ so might result in unbounded memory
-            use. If `False`, only emit once there is a value on each
-            stream, then discard the set. Defaults to `False`.
+        running: If `True`, perform a "running join" and, emit the
+            current set of values (if any) each time a new value
+            arrives. The set of values will _never be discarded_ so
+            might result in unbounded memory use. If `False`, perform
+            a "complete join" and, only emit once there is a value on
+            each stream, then discard the set. Defaults to `False`.
 
     Returns:
         Emits a `dict` mapping the name to the value from each stream.

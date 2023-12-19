@@ -89,6 +89,16 @@ run_main(flow)
 30
 ```
 
+## State Keys
+
+Make this key unique enough so you don't bring together too much.
+
+This key must be a string, so if you have a different data type,
+you'll need to convert that type to a string. The
+[`key_on`](/apidocs/bytewax.operators/index#bytewax.operators.key_on)
+and [`map`](/apidocs/bytewax.operators/index#bytewax.operators.map)
+operators can help you with this.
+
 ## Quick Logic Functions
 
 Many of the operators take **logic functions** which help you
