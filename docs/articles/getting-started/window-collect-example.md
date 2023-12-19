@@ -1,30 +1,32 @@
-In this section, we'll be talking about the Batch and Windowing operators
-that Bytewax provides.
+In this section, we'll be talking about the collect and window
+operators that Bytewax provides.
 
-In this context, **Batching** refers to an operation over an unbounded stream
-of data, rather than an execution mode where the amount of data is finite.
+## Collecting
 
-## Batching
-
-The [batch operator](/apidocs/bytewax.operators/index#bytewax.operators.batch) operates over a stream
-of data and collects a number of items until a fixed size, or a given timeout is reached.
+The [`collect`
+operator](/apidocs/bytewax.operators/index#bytewax.operators.collect)
+operates over a stream of data and collects a number of items until a
+max size, or a given timeout is reached.
 
 Let's construct a simple dataflow to demonstrate. In the following dataflow,
 we're using the [TestingSource](/apidocs/bytewax.testing#bytewax.testing.TestingSource)
 to generate sample data from a list. In a production dataflow, your input could come from
 [RedPanda](https://redpanda.com/), or any other input source.
 
-The `TestingSource` emits one integer at a time into the dataflow. In our batch
-operator, we'll configure it to wait for either 3 values, or for 10 seconds
-to expire before emitting the batch downstream. Since we won't be waiting for
-data with our TestingSource, we should see batches of 3 items until we run out
-of input from our `TestingSource`.
+The `TestingSource` emits one integer at a time into the dataflow. In
+our `collect` operator, we'll configure it to wait for either 3
+values, or for 10 seconds to expire before emitting the list
+downstream. Since we won't be waiting for data with our TestingSource,
+we should see list of 3 items until we run out of input from our
+`TestingSource`.
 
-It is important to remember that all **Batch** and **Windowing** operators
-collect data based on a key. We'll use the [key_on](/apidocs/bytewax.operators/index#bytewax.operators.key_on)
-operator to give all of our items the same fixed key so they are processed together.
+It is important to remember that the `collect` operator collects data
+based on a key. We'll use the
+[`key_on`](/apidocs/bytewax.operators/index#bytewax.operators.key_on)
+operator to give all of our items the same fixed key so they are
+processed together.
 
-Copy the following code into a file named `batch_example.py`:
+Copy the following code into a file named `collect_example.py`:
 
 ```python
 from datetime import timedelta
@@ -34,20 +36,20 @@ from bytewax.dataflow import Dataflow
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.testing import TestingSource
 
-flow = Dataflow("batching")
+flow = Dataflow("collect")
 stream = op.input("input", flow, TestingSource(list(range(10))))
-# We want to batch all the items together, so we assign the same fixed key to each of them
+# We want to consider all the items together, so we assign the same fixed key to each of them.
 keyed_stream = op.key_on("key", stream, lambda _x: "ALL")
-batched_stream = op.batch(
-    "batch", keyed_stream, timeout=timedelta(seconds=10), batch_size=3
+collected_stream = op.collect(
+    "collect", keyed_stream, timeout=timedelta(seconds=10), max_size=3
 )
-op.output("out", batched_stream, StdOutSink())
+op.output("out", collected_stream, StdOutSink())
 ```
 
-Now we have our dataflow, we can run our batch example:
+Now we have our dataflow, we can run our example:
 
 ```shell
-> python -m bytewax.run batch_example
+> python -m bytewax.run collect_example
 ('ALL', [0, 1, 2])
 ('ALL', [3, 4, 5])
 ('ALL', [6, 7, 8])

@@ -2,18 +2,18 @@ from datetime import datetime, timedelta, timezone
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.operators import _BatchLogic, _BatchState
+from bytewax.operators import _CollectLogic, _CollectState
 from bytewax.testing import TestingSink, TestingSource, run_main
 
 
 def test_batch_logic_snapshot():
     timeout = timedelta(seconds=10)
-    logic = _BatchLogic("test_step", timeout, 3, _BatchState())
+    logic = _CollectLogic("test_step", timeout, 3, _CollectState())
 
     now = datetime(2023, 1, 1, tzinfo=timezone.utc)
     logic.on_item(now, 1)
 
-    assert logic.snapshot() == _BatchState([1], now + timeout)
+    assert logic.snapshot() == _CollectState([1], now + timeout)
 
 
 def test_batch():
@@ -25,7 +25,7 @@ def test_batch():
     s = op.key_on("key", s, lambda _x: "ALL")
     # Use a long timeout to avoid triggering that.
     # We can't easily test system time based behavior.
-    s = op.batch("batch", s, timedelta(seconds=10), 3)
+    s = op.collect("collect", s, timedelta(seconds=10), 3)
     op.output("out", s, TestingSink(out))
 
     run_main(flow)
