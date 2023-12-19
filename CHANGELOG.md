@@ -9,6 +9,13 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Revamped kafka connector, added support for (de)serialization and
+  schema registries, through `RedpandaSchemaRegistry` and `ConfluentSchemaRegistry`
+  classes. Added custom operators in `bytewax.connectors.kafka.operators`:
+  `input`, `output`, `deserialize_key`, `deserialize_value`, `deserialize`,
+  `serialize_key`, `serialize_value` and `serialize`. The connector is now completely
+  typed.
+
 - Non-linear dataflows are now possible. Each operator method returns
   a handle to the `Stream`s it produces; add further steps via calling
   operator functions on those returned handles, not the root
