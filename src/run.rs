@@ -293,6 +293,8 @@ pub(crate) fn cluster_main(
             .any(|worker_thread| !worker_thread.is_finished())
         {
             thread::sleep(cooldown);
+            // The compiler can't figure out the lifetimes work out.
+            #[allow(clippy::redundant_closure)]
             Python::with_gil(|py| Python::check_signals(py)).map_err(|err| {
                 should_shutdown.store(true, Ordering::Relaxed);
                 err

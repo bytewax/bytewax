@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::panic::Location;
 
 use pyo3::exceptions::PyException;
@@ -215,7 +216,8 @@ pub(crate) fn prepend_tname(msg: String) -> String {
         .name()
         .unwrap_or("unnamed-thread")
         .to_string();
-    msg.lines()
-        .map(|line| format!("<{tname}> {line}\n"))
-        .collect()
+    msg.lines().fold(String::new(), |mut buf, line| {
+        let _ = writeln!(buf, "<{tname}> {line}");
+        buf
+    })
 }

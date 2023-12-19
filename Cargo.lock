@@ -725,8 +725,9 @@ checksum = "b4668fb0ea861c1df094127ac5f1da3409a82116a4ba74fca2e58ef927159bb3"
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.26.0"
-source = "git+https://github.com/rusqlite/rusqlite.git?rev=7b0393210be4bce17156a08fde732083d6342a75#7b0393210be4bce17156a08fde732083d6342a75"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf4e226dcd58b4be396f7bd3c20da8fdee2911400705297ba7d2d7cc2c30f716"
 dependencies = [
  "cc",
  "pkg-config",
@@ -1400,8 +1401,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.29.0"
-source = "git+https://github.com/rusqlite/rusqlite.git?rev=7b0393210be4bce17156a08fde732083d6342a75#7b0393210be4bce17156a08fde732083d6342a75"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a78046161564f5e7cd9008aff3b2990b3850dc8e0349119b98e8f251e099f24d"
 dependencies = [
  "bitflags 2.3.3",
  "fallible-iterator",
@@ -1413,9 +1415,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite_migration"
-version = "1.0.2"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef7dd29a4426624704d5966416682fb7ab3682f724986e9e3893eaca44accabc"
+checksum = "e4116d1697de2912db0b72069473dfb025f6c332b4a085ed041d121e8d745aea"
 dependencies = [
  "log",
  "rusqlite",
