@@ -6,7 +6,7 @@ Bytewax does not require a "coordinator" or "manager" process or machine to run 
 
 ## Workers
 
-A worker is a thread that is executing your dataflow. Workers can be
+A **worker** is a thread that is executing your dataflow. Workers can be
 grouped into separate processes, but refer to the individual threads within.
 
 Bytewax's execution model uses identical workers. Workers execute all steps in a
