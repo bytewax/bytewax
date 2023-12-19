@@ -25,11 +25,9 @@ available runtime options, run the following command:
 
 The first argument passed to the script is a dataflow getter string.
 
-The string is in the format `<dataflow-module>:<dataflow-getter>` where:
+The string is in the format `<dataflow-module>` where:
 - `<dataflow-module>` points to a Python [module](https://docs.python.org/3/tutorial/modules.html)
    containing the dataflow definition.
-- `<dataflow-getter>` is either the name of a Python variable holding the flow, or a function
-   call to a function defined in the module.
 
 Let's work through two examples. Make sure you have [installed Bytewax](/docs/articles/getting-started/installation.md)
 before you begin.
