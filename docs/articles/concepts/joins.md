@@ -1,5 +1,9 @@
 ## Joins
 
+_Here we're going to give a deep dive on how joins work in Bytewax. If
+you'd like a quick demo of "show me how to do a simple join", see
+[Getting Started: Joins](../getting-started/join-example.md)_
+
 A **join** is a way to combine items in two or more streams into a
 single stream, matching them by a **join key**.
 
