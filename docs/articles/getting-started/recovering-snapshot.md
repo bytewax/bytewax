@@ -95,20 +95,21 @@ If a dataflow aborts, abruptly shuts down, or gracefully exits due to
 reaching the end of input, you can resume the dataflow by running it again with the
 files stored in the recovery directory.
 
-Before we re-run our dataflow, let's change our input data to some new values:
+Before we re-run our dataflow, let's change our input data to add some new values:
 
 
 ```python
-inp = [3, 4]
+inp = [0, 1, 2, 3, 4]
 ```
 
 Now we can re-run our dataflow:
 
 ```shell
-> python -m bytewax.run recovery -r db_dir/ -s 30 -b 180
+> python -m bytewax.run recovery -r db_dir/ -s 30 -b 0
 ('ALL', 6)
 ('ALL', 10)
 ```
 
 You can see that the dataflow has restored the state of the `stateful_map` operator
-from our previous run, and then applied our new data to that restored state.
+from our previous run, started reading input from where it stopped, and then applied
+our new data to that restored state.
