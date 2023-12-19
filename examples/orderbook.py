@@ -162,6 +162,7 @@ def mapper(state, value):
 stats = op.stateful_map("order_book", inp, OrderBookState, mapper)
 # ('BTC-USD', (36905.39, 0.00334873, 36905.4, 1.6e-05, 0.010000000002037268))
 
+
 # filter on 0.1% spread as a per
 def just_large_spread(prod_summary):
     product, summary = prod_summary

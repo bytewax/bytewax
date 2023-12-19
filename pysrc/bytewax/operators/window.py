@@ -142,7 +142,9 @@ def collect_window(
     windower: WindowConfig,
     into: Type[C] = list,
 ) -> KeyedStream[Tuple[WindowMetadata, C]]:
-    """Collect all items in a window into a container.
+    """Collect items in a window into a container.
+
+    See `bytewax.operators.collect` for the ability to set a max size.
 
     Args:
         step_id: Unique ID.

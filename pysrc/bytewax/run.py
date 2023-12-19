@@ -316,8 +316,9 @@ if __name__ == "__main__":
     kwargs = vars(_parse_args())
     snapshot_interval = kwargs.pop("snapshot_interval")
 
-    recovery_directory, backup_interval = kwargs.pop("recovery_directory"), kwargs.pop(
-        "backup_interval"
+    recovery_directory, backup_interval = (
+        kwargs.pop("recovery_directory"),
+        kwargs.pop("backup_interval"),
     )
     kwargs["recovery_config"] = None
     if recovery_directory is not None:

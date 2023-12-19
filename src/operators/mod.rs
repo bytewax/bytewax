@@ -74,8 +74,8 @@ where
     }
 }
 
-fn next_batch(outbuf: &mut Vec<TdPyAny>, mapper: &PyAny, in_item: PyObject) -> PyResult<()> {
-    let res = mapper.call1((in_item,)).reraise("error calling mapper")?;
+fn next_batch(outbuf: &mut Vec<TdPyAny>, mapper: &PyAny, in_batch: Vec<PyObject>) -> PyResult<()> {
+    let res = mapper.call1((in_batch,)).reraise("error calling mapper")?;
     let iter = res.iter().reraise_with(|| {
         format!(
             "mapper must return an iterable; got a `{}` instead",
@@ -90,12 +90,12 @@ fn next_batch(outbuf: &mut Vec<TdPyAny>, mapper: &PyAny, in_item: PyObject) -> P
     Ok(())
 }
 
-pub(crate) trait FlatMapOp<S>
+pub(crate) trait FlatMapBatchOp<S>
 where
     S: Scope,
     S::Timestamp: TotalOrder,
 {
-    fn flat_map(
+    fn flat_map_batch(
         &self,
         py: Python,
         step_id: StepId,
@@ -103,12 +103,12 @@ where
     ) -> PyResult<Stream<S, TdPyAny>>;
 }
 
-impl<S> FlatMapOp<S> for Stream<S, TdPyAny>
+impl<S> FlatMapBatchOp<S> for Stream<S, TdPyAny>
 where
     S: Scope,
     S::Timestamp: TotalOrder,
 {
-    fn flat_map(
+    fn flat_map_batch(
         &self,
         _py: Python,
         step_id: StepId,
@@ -132,8 +132,8 @@ where
             .with_description("number of items this step has emitted")
             .init();
         let mapper_histogram = meter
-            .f64_histogram("flat_map_duration_seconds")
-            .with_description("`flat_map` `mapper` duration in seconds")
+            .f64_histogram("flat_map_batch_duration_seconds")
+            .with_description("`flat_map_batch` `mapper` duration in seconds")
             .init();
         let labels = vec![
             KeyValue::new("step_id", step_id.0.to_string()),
@@ -162,28 +162,24 @@ where
                             let cap = &caps[0];
                             let epoch = cap.time();
 
-                            if let Some(items) = inbuf.remove(epoch) {
-                                item_inp_count.add(items.len() as u64, &labels);
+                            if let Some(batch) = inbuf.remove(epoch) {
+                                item_inp_count.add(batch.len() as u64, &labels);
                                 let mut downstream_session = downstream_handle.session(cap);
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    let batch: Vec<_> =
+                                        batch.into_iter().map(PyObject::from).collect();
                                     let mapper = mapper.as_ref(py);
 
-                                    for item in items {
-                                        let item = PyObject::from(item);
-
-                                        with_timer!(
-                                            mapper_histogram,
-                                            labels,
-                                            next_batch(&mut outbuf, mapper, item).reraise_with(
-                                                || {
-                                                    format!(
-                                                        "error calling `mapper` in step {step_id}"
-                                                    )
-                                                }
-                                            )?
-                                        );
-                                    }
+                                    with_timer!(
+                                        mapper_histogram,
+                                        labels,
+                                        next_batch(&mut outbuf, mapper, batch).reraise_with(
+                                            || {
+                                                format!("error calling `mapper` in step {step_id}")
+                                            }
+                                        )?
+                                    );
 
                                     item_out_count.add(outbuf.len() as u64, &labels);
                                     downstream_session.give_vec(&mut outbuf);
@@ -372,115 +368,6 @@ where
 
             (key, TdPyAny::from(value))
         })
-    }
-}
-
-pub(crate) trait MapOp<S>
-where
-    S: Scope,
-    S::Timestamp: TotalOrder,
-{
-    fn map(
-        &self,
-        py: Python,
-        step_id: StepId,
-        mapper: TdPyCallable,
-    ) -> PyResult<Stream<S, TdPyAny>>;
-}
-
-impl<S> MapOp<S> for Stream<S, TdPyAny>
-where
-    S: Scope,
-    S::Timestamp: TotalOrder,
-{
-    fn map(
-        &self,
-        _py: Python,
-        step_id: StepId,
-        mapper: TdPyCallable,
-    ) -> PyResult<Stream<S, TdPyAny>> {
-        let this_worker = self.scope().w_index();
-
-        let mut op_builder = OperatorBuilder::new(step_id.0.clone(), self.scope());
-
-        let mut self_handle = op_builder.new_input(self, Pipeline);
-
-        let (mut downstream_output, downstream) = op_builder.new_output();
-
-        let meter = opentelemetry::global::meter("bytewax");
-        let item_inp_count = meter
-            .u64_counter("item_inp_count")
-            .with_description("number of items this step has ingested")
-            .init();
-        let item_out_count = meter
-            .u64_counter("item_out_count")
-            .with_description("number of items this step has emitted")
-            .init();
-        let mapper_histogram = meter
-            .f64_histogram("map_duration_seconds")
-            .with_description("`map` `mapper` duration in seconds")
-            .init();
-        let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
-            KeyValue::new("worker_index", this_worker.0.to_string()),
-        ];
-
-        op_builder.build(move |init_caps| {
-            let mut inbuf = InBuffer::new();
-            let mut ncater = EagerNotificator::new(init_caps, ());
-            // Timely forcibly flushes buffers when using
-            // `Session::give_vec` so we need to build up a buffer of
-            // items to reduce the overhead of that. It's fine that
-            // this is effectively 'static because Timely swaps this
-            // out under the covers so it doesn't end up growing
-            // without bound.
-            let mut outbuf = Vec::new();
-
-            move |input_frontiers| {
-                tracing::debug_span!("operator", operator = step_id.0.clone()).in_scope(|| {
-                    self_handle.buffer_notify(&mut inbuf, &mut ncater);
-
-                    let mut downstream_handle = downstream_output.activate();
-                    ncater.for_each(
-                        input_frontiers,
-                        |caps, ()| {
-                            let cap = &caps[0];
-                            let epoch = cap.time();
-
-                            if let Some(items) = inbuf.remove(epoch) {
-                                item_inp_count.add(items.len() as u64, &labels);
-                                let mut downstream_session = downstream_handle.session(cap);
-
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    let mapper = mapper.as_ref(py);
-
-                                    for in_item in items {
-                                        let in_item = PyObject::from(in_item);
-
-                                        let out_item = with_timer!(
-                                            mapper_histogram,
-                                            labels,
-                                            mapper.call1((in_item,)).reraise_with(|| {
-                                                format!("error calling `mapper` in step {step_id}")
-                                            })?
-                                        );
-                                        outbuf.push(TdPyAny::from(out_item));
-                                    }
-
-                                    item_out_count.add(outbuf.len() as u64, &labels);
-                                    downstream_session.give_vec(&mut outbuf);
-
-                                    Ok(())
-                                }));
-                            }
-                        },
-                        |_caps, ()| {},
-                    );
-                });
-            }
-        });
-
-        Ok(downstream)
     }
 }
 

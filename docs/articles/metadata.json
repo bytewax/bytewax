@@ -20,8 +20,8 @@
         "filename": "streaming-example"
       },
       {
-        "title": "Batching/windowing example",
-        "filename": "batch-example"
+        "title": "Collecting / Windowing example",
+        "filename": "window-collect-example"
       },
       {
         "title": "Join example",
@@ -38,7 +38,12 @@
       {
         "title": "Recovering from a snapshot",
         "filename": "recovering-snapshot"
+      },
+      {
+        "title": "Execution",
+        "filename": "execution"
       }
+
     ]
   },
   {

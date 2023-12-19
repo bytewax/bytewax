@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import partial
+from itertools import chain
 from typing import (
     Any,
     Callable,
@@ -26,7 +27,7 @@ from typing import (
     overload,
 )
 
-from typing_extensions import Self, TypeAlias
+from typing_extensions import Self, TypeAlias, TypeGuard
 
 from bytewax.dataflow import (
     Dataflow,
@@ -56,15 +57,29 @@ def _untyped_none() -> Any:
 
 
 @dataclass(frozen=True)
-class BranchOut(Generic[X]):
-    """Streams returned from `branch` operator.
-
-    You can tuple unpack this for convenience.
-
-    """
+class BranchOut(Generic[X, Y]):
+    """Streams returned from `branch` operator."""
 
     trues: Stream[X]
-    falses: Stream[X]
+    falses: Stream[Y]
+
+
+@overload
+def branch(
+    step_id: str,
+    up: Stream[X],
+    predicate: Callable[[X], TypeGuard[Y]],
+) -> BranchOut[Y, X]:
+    ...
+
+
+@overload
+def branch(
+    step_id: str,
+    up: Stream[X],
+    predicate: Callable[[X], bool],
+) -> BranchOut[X, X]:
+    ...
 
 
 @operator(_core=True)
@@ -72,7 +87,7 @@ def branch(
     step_id: str,
     up: Stream[X],
     predicate: Callable[[X], bool],
-) -> BranchOut[X]:
+) -> BranchOut:
     """Divide items into two streams with a predicate.
 
     >>> import bytewax.operators as op
@@ -98,7 +113,9 @@ def branch(
 
         predicate: Function to call on each upstream item. Items for
             which this returns `True` will be put into one branch
-            `Stream`; `False` the other branc `Stream`.h
+            `Stream`; `False` the other branch `Stream`. If this
+            function is a `typing.TypeGuard`, the downstreams will be
+            properly typed.
 
     Returns:
         A stream of items for which the predicate returns `True`, and
@@ -112,44 +129,31 @@ def branch(
 
 
 @operator(_core=True)
-def flat_map(
+def flat_map_batch(
     step_id: str,
     up: Stream[X],
-    mapper: Callable[[X], Iterable[Y]],
+    mapper: Callable[[List[X]], Iterable[Y]],
 ) -> Stream[Y]:
-    """Transform items one-to-many.
+    """Transform an entire batch of items 1-to-many.
 
-    This is like a combination of `map` and `flatten`.
+    The batch size received here depends on the exact behavior of the
+    upstream input sources and operators. It should be used as a
+    performance optimization when processing multiple items at once
+    has much reduced overhead.
 
-    It is commonly used for:
+    See also the `batch_size` parameter on various input sources.
 
-    - Tokenizing
-
-    - Flattening hierarchical objects
-
-    - Breaking up aggregations for further processing
-
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("flat_map_eg")
-    >>> inp = ["hello world"]
-    >>> s = op.input("inp", flow, TestingSource(inp))
-    >>> def split_into_words(sentence):
-    ...     return sentence.split()
-    >>> s = op.flat_map("split_words", s, split_into_words)
-    >>> _ = op.inspect("out", s)
-    >>> run_main(flow)
-    flat_map_eg.out: 'hello'
-    flat_map_eg.out: 'world'
+    See also the `batch` operator, which collects multiple items next
+    to each other in a stream into a single list of them flowing
+    through the stream.
 
     Args:
         step_id: Unique ID.
 
         up: Stream.
 
-        mapper: Called once on each upstream item. Returns the items
-            to emit downstream.
+        mapper: Called once with each batch of items the runtime
+            receives. Returns the items to emit downstream.
 
     Returns:
         A stream of each item returned by the mapper.
@@ -222,48 +226,6 @@ def inspect_debug(
     Return:
         The upstream unmodified.
 
-    """
-    return Stream(f"{up._scope.parent_id}.down", up._scope)
-
-
-@operator(_core=True)
-def map(  # noqa: A001
-    step_id: str,
-    up: Stream[X],
-    mapper: Callable[[X], Y],
-) -> Stream[Y]:
-    """Transform items one-by-one.
-
-    It is commonly used for:
-
-    - Serialization and deserialization.
-
-    - Selection of fields.
-
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import run_main, TestingSource
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("map_eg")
-    >>> s = op.input("inp", flow, TestingSource(range(3)))
-    >>> def add_one(item):
-    ...     return item + 10
-    >>> s = op.map("add_one", s, add_one)
-    >>> _ = op.inspect("out", s)
-    >>> run_main(flow)
-    map_eg.out: 10
-    map_eg.out: 11
-    map_eg.out: 12
-
-    Args:
-        step_id: Unique ID.
-
-        up: Stream.
-
-        mapper: Called on each item. Each return value is emitted
-            downstream.
-
-    Returns:
-        A stream of items returned from the mapper.
     """
     return Stream(f"{up._scope.parent_id}.down", up._scope)
 
@@ -519,23 +481,23 @@ def unary(
 
 
 @dataclass
-class _BatchState(Generic[V]):
+class _CollectState(Generic[V]):
     acc: List[V] = field(default_factory=list)
     timeout_at: Optional[datetime] = None
 
 
 @dataclass
-class _BatchLogic(UnaryLogic[V, List[V], _BatchState[V]]):
+class _CollectLogic(UnaryLogic[V, List[V], _CollectState[V]]):
     step_id: str
     timeout: timedelta
-    batch_size: int
-    state: _BatchState[V]
+    max_size: int
+    state: _CollectState[V]
 
     def on_item(self, now: datetime, value: V) -> Tuple[Iterable[List[V]], bool]:
         self.state.timeout_at = now + self.timeout
 
         self.state.acc.append(value)
-        if len(self.state.acc) >= self.batch_size:
+        if len(self.state.acc) >= self.max_size:
             # No need to deepcopy because we are discarding the state.
             return ((self.state.acc,), UnaryLogic.DISCARD)
 
@@ -550,36 +512,40 @@ class _BatchLogic(UnaryLogic[V, List[V], _BatchState[V]]):
     def notify_at(self) -> Optional[datetime]:
         return self.state.timeout_at
 
-    def snapshot(self) -> _BatchState[V]:
+    def snapshot(self) -> _CollectState[V]:
         return copy.deepcopy(self.state)
 
 
 @operator
-def batch(
-    step_id: str, up: KeyedStream[V], timeout: timedelta, batch_size: int
+def collect(
+    step_id: str, up: KeyedStream[V], timeout: timedelta, max_size: int
 ) -> KeyedStream[List[V]]:
-    """Batch incoming items up to a size or a timeout.
+    """Collect items into a list up to a size or a timeout.
+
+    See `bytewax.operators.window.collect_window` for more control
+    over time.
 
     Args:
         step_id: Unique ID.
 
         up: Stream of individual items.
 
-        timeout: Timeout before emitting the batch, even if max_size
+        timeout: Timeout before emitting the list, even if `max_size`
             was not reached.
 
-        batch_size: Maximum size of the batch.
+        max_size: Emit the list once it reaches this size, even if
+        `timeout` was not reached.
 
     Returns:
-        A stream of batches of upstream items gathered into a `list`.
+        A stream of upstream items gathered into `list`s.
 
     """
 
     def shim_builder(
-        _now: datetime, resume_state: Optional[_BatchState[V]]
-    ) -> _BatchLogic[V]:
-        state = resume_state if resume_state is not None else _BatchState()
-        return _BatchLogic(step_id, timeout, batch_size, state)
+        _now: datetime, resume_state: Optional[_CollectState[V]]
+    ) -> _CollectLogic[V]:
+        state = resume_state if resume_state is not None else _CollectState()
+        return _CollectLogic(step_id, timeout, max_size, state)
 
     return unary("unary", up, shim_builder)
 
@@ -608,6 +574,57 @@ def count_final(
     """
     down: KeyedStream[int] = map("init_count", up, lambda x: (key(x), 1))
     return reduce_final("sum", down, lambda s, x: s + x)
+
+
+@operator
+def flat_map(
+    step_id: str,
+    up: Stream[X],
+    mapper: Callable[[X], Iterable[Y]],
+) -> Stream[Y]:
+    """Transform items one-to-many.
+
+    This is like a combination of `map` and `flatten`.
+
+    It is commonly used for:
+
+    - Tokenizing
+
+    - Flattening hierarchical objects
+
+    - Breaking up aggregations for further processing
+
+    >>> import bytewax.operators as op
+    >>> from bytewax.testing import TestingSource, run_main
+    >>> from bytewax.dataflow import Dataflow
+    >>> flow = Dataflow("flat_map_eg")
+    >>> inp = ["hello world"]
+    >>> s = op.input("inp", flow, TestingSource(inp))
+    >>> def split_into_words(sentence):
+    ...     return sentence.split()
+    >>> s = op.flat_map("split_words", s, split_into_words)
+    >>> _ = op.inspect("out", s)
+    >>> run_main(flow)
+    flat_map_eg.out: 'hello'
+    flat_map_eg.out: 'world'
+
+    Args:
+        step_id: Unique ID.
+
+        up: Stream.
+
+        mapper: Called once on each upstream item. Returns the items
+            to emit downstream.
+
+    Returns:
+        A stream of each item returned by the mapper.
+
+    """
+
+    def shim_mapper(xs: List[X]) -> Iterable[Y]:
+        return chain.from_iterable(mapper(x) for x in xs)
+
+    return flat_map_batch("flat_map_batch", up, shim_mapper)
 
 
 @operator
@@ -788,10 +805,16 @@ def filter_map(
     >>> from bytewax.testing import TestingSource, run_main
     >>> from bytewax.dataflow import Dataflow
     >>> flow = Dataflow("filter_map_eg")
-    >>> s = op.input("inp", flow, TestingSource([
-    ...     {"key": "a", "val": 1},
-    ...     {"bad": "obj"},
-    ... ]))
+    >>> s = op.input(
+    ...     "inp",
+    ...     flow,
+    ...     TestingSource(
+    ...         [
+    ...             {"key": "a", "val": 1},
+    ...             {"bad": "obj"},
+    ...         ]
+    ...     ),
+    ... )
     >>> def validate(data):
     ...     if type(data) != dict or "key" not in data:
     ...         return None
@@ -1130,6 +1153,52 @@ def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -> KeyedStream[
         return (k, x)
 
     return map("map", up, shim_mapper)
+
+
+@operator
+def map(  # noqa: A001
+    step_id: str,
+    up: Stream[X],
+    mapper: Callable[[X], Y],
+) -> Stream[Y]:
+    """Transform items one-by-one.
+
+    It is commonly used for:
+
+    - Serialization and deserialization.
+
+    - Selection of fields.
+
+    >>> import bytewax.operators as op
+    >>> from bytewax.testing import run_main, TestingSource
+    >>> from bytewax.dataflow import Dataflow
+    >>> flow = Dataflow("map_eg")
+    >>> s = op.input("inp", flow, TestingSource(range(3)))
+    >>> def add_one(item):
+    ...     return item + 10
+    >>> s = op.map("add_one", s, add_one)
+    >>> _ = op.inspect("out", s)
+    >>> run_main(flow)
+    map_eg.out: 10
+    map_eg.out: 11
+    map_eg.out: 12
+
+    Args:
+        step_id: Unique ID.
+
+        up: Stream.
+
+        mapper: Called on each item. Each return value is emitted
+            downstream.
+
+    Returns:
+        A stream of items returned from the mapper.
+    """
+
+    def shim_mapper(xs: List[X]) -> Iterable[Y]:
+        return (mapper(x) for x in xs)
+
+    return flat_map_batch("flat_map_batch", up, shim_mapper)
 
 
 @operator

@@ -1,6 +1,5 @@
-Now that we've installed bytewax, let's begin with an end-to-end
-example. We'll start by building out a simple dataflow that performs
-count of words in a file.
+Let's look at an end-to-end example using Bytewax. We'll start by building out a
+simple dataflow that performs a count of words in a file.
 
 To begin, save a copy of this text in a file called `wordcount.txt`:
 
@@ -50,10 +49,10 @@ op.output("out", counts, StdOutSink())
 
 ## Running the example
 
-Now that we have our program and our input, we can run our example via
-`python -m bytewax.run wordcount:flow` and see the completed result:
+Now that we have our program and our input, we can run our example to see it in action:
 
-```
+```shell
+> python -m bytewax.run wordcount
 ("'tis", 1)
 ('a', 1)
 ('against', 1)
@@ -88,8 +87,7 @@ Now that we have our program and our input, we can run our example via
 
 ## Unpacking the program
 
-Now that we've run our first bytewax program, let's walk through the
-components that we used.
+Now that we've run our dataflow, let's walk through the components that we used.
 
 In a dataflow program, each step added to the flow will occur in the
 order that it is added. For our wordcount dataflow, we'll want the
@@ -121,9 +119,8 @@ read the text file line-by-line and emit each line into the dataflow
 at that point.
 
 To read more about other options for sources, see the [module docs for
-`bytewax.connectors`](/apidocs/bytewax.connectors/index) or on how to
-make your own custom sources, see [the module docs for
-`bytewax.inputs`](/apidocs/bytewax.inputs).
+`bytewax.connectors`](/apidocs/bytewax.connectors/index) for information on
+how to make your own custom sources, see [the module docs for `bytewax.inputs`](/apidocs/bytewax.inputs).
 
 ### Lowercase all characters in the line
 
@@ -173,9 +170,18 @@ The flat map operator defines a step which calls a function on each input item. 
 
 ### Build up counts
 
-At this point in the dataflow, the items of data are the individual words.
+At this point in the dataflow, the items of data are the individual words. In order to tally counts of words, we'll need to be able
+to group words together.
 
-TODO explain key.
+We can use the [`count_final` operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.count_final) to
+produce a count of all items in a dataflow. The `count_final` operator should only be used in a dataflow
+that is run in a batch context, as it waits for all data to be read before producing output. In this
+example, we want to count all of the items in the entire file before returning the result.
+
+`count_final` takes a function that produces a key for each item in the dataflow. Many operators
+in Bytewax require their input stream to be keyed, to ensure that all items for a given key
+are processed together. In our word count example, we can use the word itself as the key,
+so that each instance of that word is counted together.
 
 ```python
 counts = op.count_final("count", tokens, lambda word: word)
@@ -202,7 +208,8 @@ When we call `bytewax.run`, our dataflow program will begin running, Bytewax wil
 
 Here is the complete output when running the example:
 
-```
+```shell
+> python -m bytewax.run wordcount
 ('opposing', 1)
 ('and', 2)
 ('of', 2)
@@ -235,4 +242,4 @@ Here is the complete output when running the example:
 ('fortune', 1)
 ```
 
-To learn more about possible modes of execution, [read our page on execution](/docs/getting-started/execution/).
+To learn more about possible modes of execution, [read our page on execution](docs/getting-started/execution.md)

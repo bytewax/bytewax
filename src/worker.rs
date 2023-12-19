@@ -331,18 +331,18 @@ where
                             .insert_downstream(py, &step, "falses", falses)
                             .reraise("core operator `branch` missing port")?;
                     }
-                    "flat_map" => {
+                    "flat_map_batch" => {
                         let mapper = step.get_arg(py, "mapper")?.extract(py)?;
 
                         let up = streams
                             .get_upstream(py, &step, "up")
-                            .reraise("core operator `flat_map` missing port")?;
+                            .reraise("core operator `flat_map_batch` missing port")?;
 
-                        let down = up.flat_map(py, step_id, mapper)?;
+                        let down = up.flat_map_batch(py, step_id, mapper)?;
 
                         streams
                             .insert_downstream(py, &step, "down", down)
-                            .reraise("core operator `flat_map` missing port")?;
+                            .reraise("core operator `flat_map_batch` missing port")?;
                     }
                     // TODO: Rewrite windowing logic in Python.
                     "fold_window" => {
@@ -445,19 +445,6 @@ where
                         streams
                             .insert_downstream(py, &step, "down", down)
                             .reraise("core operator `inspect_debug` missing port")?;
-                    }
-                    "map" => {
-                        let mapper = step.get_arg(py, "mapper")?.extract(py)?;
-
-                        let up = streams
-                            .get_upstream(py, &step, "up")
-                            .reraise("core operator `map` missing port")?;
-
-                        let down = up.map(py, step_id, mapper)?;
-
-                        streams
-                            .insert_downstream(py, &step, "down", down)
-                            .reraise("core operator `map` missing port")?;
                     }
                     "merge" => {
                         let ups = streams

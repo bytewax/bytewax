@@ -257,22 +257,22 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
 
     ```
     {
-      'index': '0',
-      'timestamp': '2022-02-24 11:42:08',
-      'value': '0.132',
-      'instance': '24ae8d'
+        "index": "0",
+        "timestamp": "2022-02-24 11:42:08",
+        "value": "0.132",
+        "instance": "24ae8d",
     }
     {
-      'index': '0',
-      'timestamp': '2022-02-24 11:42:08',
-      'value': '0.066',
-      'instance': 'c6585a'
+        "index": "0",
+        "timestamp": "2022-02-24 11:42:08",
+        "value": "0.066",
+        "instance": "c6585a",
     }
     {
-      'index': '0',
-      'timestamp': '2022-02-24 11:42:08',
-      'value': '42.652',
-      'instance': 'ac20cd'
+        "index": "0",
+        "timestamp": "2022-02-24 11:42:08",
+        "value": "42.652",
+        "instance": "ac20cd",
     }
     ```
 

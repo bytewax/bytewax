@@ -36,6 +36,9 @@ notes on GitHub when we make a new release.__
   `fold_final` and `reduce_final`. They now only emit on EOF and are
   only for use in batch contexts.
 
+- *Breaking change* `batch` operator renamed to `collect`, so as to
+  not be confused with runtime batching. Behavior is unchanged.
+
 - *Breaking change* `output` operator does not forward downstream its
   items. Add operators on the upstream handle instead.
 

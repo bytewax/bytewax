@@ -419,7 +419,7 @@ mod session {
     /// We order Sessions based on their start time
     impl PartialOrd for Session {
         fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-            self.start.partial_cmp(&other.start)
+            Some(self.cmp(other))
         }
     }
 

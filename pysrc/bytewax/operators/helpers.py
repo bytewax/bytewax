@@ -19,10 +19,16 @@ def map_dict_value(
     >>> from bytewax.testing import run_main, TestingSource
     >>> from bytewax.dataflow import Dataflow
     >>> flow = Dataflow("lens_item_map_eg")
-    >>> s = op.input("inp", flow, TestingSource([
-    ...     {"name": "Rachel White", "email": "rachel@white.com"},
-    ...     {"name": "John Smith", "email": "john@smith.com"},
-    ... ]))
+    >>> s = op.input(
+    ...     "inp",
+    ...     flow,
+    ...     TestingSource(
+    ...         [
+    ...             {"name": "Rachel White", "email": "rachel@white.com"},
+    ...             {"name": "John Smith", "email": "john@smith.com"},
+    ...         ]
+    ...     ),
+    ... )
     >>> def normalize(name):
     ...     return name.upper()
     >>> s = op.map("normalize", s, map_dict_value("name", normalize))
