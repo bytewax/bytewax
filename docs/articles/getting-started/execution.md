@@ -2,8 +2,7 @@ Bytewax allows a dataflow to be run using multiple processes and/or
 threads, allowing you to scale your dataflow to take advantage of multiple cores
 on a single machine or multiple machines over the network.
 
-Bytewax does not require an additional process to run a dataflow, or to
-coordinate multiple processes on different machines.
+Bytewax does not require a "coordinator" or "manager" process or machine to run a distributed dataflow. All worker processes perform their own coordination.
 
 ## Workers
 
