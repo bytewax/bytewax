@@ -80,7 +80,7 @@ see the concept section on [recovery](/docs/articles/concepts/recovery.md).
 Running the example above, you should see the following output:
 
 ```shell
-> python -m bytewax.run recovery.py -r db_dir/ -s 30 -b 180
+> python -m bytewax.run recovery -r db_dir/ -s 30 -b 0
 ('ALL', 0)
 ('ALL', 1)
 ('ALL', 3)
