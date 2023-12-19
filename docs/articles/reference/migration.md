@@ -49,6 +49,56 @@ add_one_stream = op.map("add_one", stream, lambda x: x + 1)
 op.output("out", add_one_stream, StdOutSink())
 ```
 
+### Kafka/RedPanda Input
+
+[KafkaSource](/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSource) has been
+updated. `KafkaSource` now returns a stream of
+[KafkaSourceMessage](/apidocs/html/bytewax/connectors/kafka/index.html#bytewax.connectors.kafka.KafkaSourceMessage)
+dataclasses, and a stream of errors rather than a stream of (key, value) tuples.
+
+You can use `KafkaSource` and `KafkaSink` directly, or use the custom operators in
+[bytewax.connectors.kafka](bytewax/apidocs/html/bytewax/connectors/kafka/) to construct
+an input source.
+
+Before:
+
+```python doctest:SKIP
+from bytewax.connectors.kafka import KafkaInput, KafkaOutput
+from bytewax.connectors.stdio import StdOutput
+from bytewax.dataflow import Dataflow
+
+flow = Dataflow()
+flow.input("inp", KafkaInput(["localhost:9092"], ["input_topic"]))
+flow.output(
+    "out",
+    KafkaOutput(
+        brokers=["localhost:9092"],
+        topic="output_topic",
+    ),
+)
+```
+
+After:
+
+```python
+from bytewax import operators as op
+from bytewax.connectors.kafka import operators as kop
+from bytewax.dataflow import Dataflow
+
+flow = Dataflow("kafka_in_out")
+kinp = kop.input("inp", flow, brokers=["localhost:19092"], topics=["in_topic"])
+op.inspect("inspect-errors", kinp.errs)
+op.inspect("inspect-oks", kinp.oks)
+kop.output("out1", kinp.oks, brokers=["localhost:19092"], topic="out_topic")
+```
+
+`KafkaSource` can now be configured to use the [Redpanda Schema Registry](https://docs.redpanda.com/current/manage/schema-registry/)
+or the [Confluent Schema Registry](https://docs.confluent.io/platform/current/schema-registry/index.html) to
+deserialize messages.
+
+For more information, see the [`bytewax.connectors.kafka.registry`](/apidocs/html/bytewax/connectors/kafka/registry.html)
+documentation.
+
 ### Refactored IO Classes
 
 ## Renaming
@@ -133,7 +183,13 @@ Previously, the defaults values were to create a snapshot every 10 seconds and
 keep a day's worth of old snapshots. This means your recovery DB would max out at a size on disk
 theoretically thousands of times bigger than your in-memory state.
 
-See [our documentation on the recovery system]() for how to appropriately pick these values for your deployment.
+See [our documentation on the recovery system](/docs/articles/concepts/recovery.md) for how to
+appropriately pick these values for your deployment.
+
+### Batch -> Collect
+
+In v0.18, we've renamed the `batch` operator to `collect` so as to not be confused with runtime batching.
+Behavior is unchanged.
 
 ## From v0.16 to v0.17
 
