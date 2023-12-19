@@ -249,7 +249,7 @@ def _join_window_product_folder(
 
 
 def _join_astuples_flat_mapper(
-    meta_state: Tuple[WindowMetadata, _JoinState]
+    meta_state: Tuple[WindowMetadata, _JoinState],
 ) -> Iterable[Tuple[WindowMetadata, Tuple]]:
     meta, state = meta_state
     for t in state.astuples():
@@ -257,7 +257,7 @@ def _join_astuples_flat_mapper(
 
 
 def _join_asdicts_flat_mapper(
-    meta_state: Tuple[WindowMetadata, _JoinState]
+    meta_state: Tuple[WindowMetadata, _JoinState],
 ) -> Iterable[Tuple[WindowMetadata, Dict]]:
     meta, state = meta_state
     for d in state.asdicts():
