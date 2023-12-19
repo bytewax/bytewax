@@ -15,6 +15,7 @@ from bytewax.testing import TestingSink, TestingSource, cluster_main, run_main
 from pytest import raises
 
 ZERO_TD = timedelta(seconds=0)
+FIVE_TD = timedelta(seconds=5)
 
 
 def test_continuation(recovery_config):
@@ -25,15 +26,19 @@ def test_continuation(recovery_config):
     s = op.input("inp", flow, TestingSource(inp))
     op.output("out", s, TestingSink(out))
 
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
     assert out == [0, 1, 2]
 
     out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
     assert out == [3, 4]
 
     out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == []
+
+    out.clear()
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
     assert out == []
 
 
