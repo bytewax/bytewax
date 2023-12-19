@@ -67,7 +67,7 @@ op.output("out", total_sum_stream, StdOutSink())
 
 To enable recovery when you execute a dataflow, pass the `-r` flag to
 `bytewax.run` and specify the recovery directory. We will also need to set
-two values for recovery, the `snapshot_interval` and the `backup_interval`.
+two values for recovery, the `snapshot_interval` via the `-s` flag and the `backup_interval` via the `-b` flag.
 
 The `snapshot_interval` specifies the amount of time in seconds to wait
 before creating a snapshot. The `backup_interval` specifies the amount
