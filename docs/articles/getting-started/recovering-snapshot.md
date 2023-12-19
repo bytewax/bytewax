@@ -30,7 +30,7 @@ to use the [stateful_map](/apidocs/bytewax.operators/index#bytewax.operators.sta
 to keep a running sum of the numbers we receive as input.
 
 `stateful_map` is, as the name implies, a stateful operator. `stateful_map` takes four
-parameters: a `step_id`, a [Stream](/apidocs/bytewax.dataflow#bytewax.dataflow.Stream)
+parameters: a `step_id`, a [`Stream`](/apidocs/bytewax.dataflow#bytewax.dataflow.Stream)
 of input data, a **builder** function, and a **mapper** function.
 
 The **mapper** function should return a 2-tuple of `(updated_state, emit_value)`. The `updated_state`
