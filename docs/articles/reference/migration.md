@@ -51,13 +51,13 @@ op.output("out", add_one_stream, StdOutSink())
 
 ### Kafka/RedPanda Input
 
-[KafkaSource](/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSource) has been
+[`KafkaSource`](/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSource) has been
 updated. `KafkaSource` now returns a stream of
-[KafkaSourceMessage](/apidocs/html/bytewax/connectors/kafka/index.html#bytewax.connectors.kafka.KafkaSourceMessage)
+[`KafkaSourceMessage`](/apidocs/html/bytewax/connectors/kafka/index.html#bytewax.connectors.kafka.KafkaSourceMessage)
 dataclasses, and a stream of errors rather than a stream of (key, value) tuples.
 
 You can use `KafkaSource` and `KafkaSink` directly, or use the custom operators in
-[bytewax.connectors.kafka](bytewax/apidocs/html/bytewax/connectors/kafka/) to construct
+[`bytewax.connectors.kafka`](bytewax/apidocs/html/bytewax/connectors/kafka/) to construct
 an input source.
 
 Before:
@@ -81,15 +81,25 @@ flow.output(
 After:
 
 ```python
+from typing import Tuple, Optional
+
 from bytewax import operators as op
 from bytewax.connectors.kafka import operators as kop
+from bytewax.connectors.kafka.message import KafkaSinkMessage
 from bytewax.dataflow import Dataflow
 
 flow = Dataflow("kafka_in_out")
 kinp = kop.input("inp", flow, brokers=["localhost:19092"], topics=["in_topic"])
-op.inspect("inspect-errors", kinp.errs)
-op.inspect("inspect-oks", kinp.oks)
-kop.output("out1", kinp.oks, brokers=["localhost:19092"], topic="out_topic")
+in_msgs = op.map("get_k_v", kinp.oks, lambda msg: (msg.key, msg.value))
+
+
+def wrap_msg(k_v):
+    k, v = k_v
+    return KafkaSinkMessage(k, v)
+
+
+out_msgs = op.map("wrap_k_v", in_msgs, wrap_msg)
+kop.output("out1", out_msgs, brokers=["localhost:19092"], topic="out_topic")
 ```
 
 `KafkaSource` can now be configured to use the [Redpanda Schema Registry](https://docs.redpanda.com/current/manage/schema-registry/)
