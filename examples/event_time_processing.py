@@ -22,7 +22,8 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from bytewax import operators as op
-from bytewax.connectors.kafka import KafkaSource
+from bytewax.connectors.kafka import KafkaSourceMessage
+from bytewax.connectors.kafka import operators as kop
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.operators import window as window_op
@@ -32,13 +33,12 @@ from bytewax.operators.window import EventClockConfig, TumblingWindow
 flow = Dataflow("event time")
 brokers = ["localhost:19092"]
 topics = ["sensors"]
-stream = op.input("inp", flow, KafkaSource(brokers, topics, tail=False))
+stream = kop.input("inp", flow, brokers, topics, tail=False)
 
 
-# We expect a json string that represents a reading from a sensor.
-def parse_value(key__data):
-    _, data = key__data
-    return json.loads(data)
+# We expect a json string that represents a reading from a sensor in msg.value.
+def parse_value(msg: KafkaSourceMessage):
+    return json.loads(msg.value)
 
 
 parsed_stream = op.map("parse_value", stream, parse_value)
