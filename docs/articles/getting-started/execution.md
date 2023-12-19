@@ -14,7 +14,7 @@ dataflow and automatically exchange data to ensure the semantics of the operator
 
 ## Running a dataflow
 
-Bytewax includes a module that is used to run dataflows. To see all of the
+The `bytewax.run` module is used to run dataflows. To see all of the
 available runtime options, run the following command:
 
 ```shell
