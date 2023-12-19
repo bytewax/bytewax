@@ -144,6 +144,8 @@ def collect_window(
 ) -> KeyedStream:
     """Collect items in a window into a container.
 
+    See `bytewax.operators.collect` for the ability to set a max size.
+
     Args:
         step_id: Unique ID.
 

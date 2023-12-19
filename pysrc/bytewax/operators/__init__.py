@@ -522,6 +522,9 @@ def collect(
 ) -> KeyedStream[List[V]]:
     """Collect items into a list up to a size or a timeout.
 
+    See `bytewax.operators.window.collect_window` for more control
+    over time.
+
     Args:
         step_id: Unique ID.
 
