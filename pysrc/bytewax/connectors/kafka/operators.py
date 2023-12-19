@@ -61,7 +61,7 @@ def _to_sink(
     """Automatically convert a KafkaSourceMessage to KafkaSinkMessage."""
 
     def shim_mapper(
-        msg: Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]]
+        msg: Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]],
     ) -> KafkaSinkMessage[K, V]:
         if isinstance(msg, KafkaSourceMessage):
             return msg.to_sink()
@@ -186,7 +186,7 @@ def deserialize_key(
     # the `oks` stream and the second one the `errs` stream for the
     # `_kafka_error_split` operator.
     def shim_mapper(
-        msg: KafkaSourceMessage[K, V]
+        msg: KafkaSourceMessage[K, V],
     ) -> Union[KafkaSourceMessage[K2, V], KafkaError[K, V]]:
         try:
             key = deserializer.de(msg.key)
@@ -212,7 +212,7 @@ def deserialize_value(
     """
 
     def shim_mapper(
-        msg: KafkaSourceMessage[K, V]
+        msg: KafkaSourceMessage[K, V],
     ) -> Union[KafkaSourceMessage[K, V2], KafkaError[K, V]]:
         try:
             value = deserializer.de(msg.value)
@@ -246,7 +246,7 @@ def deserialize(
     # deserialize_key and deserialize_value so we can
     # return the original message if any of the 2 fail.
     def shim_mapper(
-        msg: KafkaSourceMessage[K, V]
+        msg: KafkaSourceMessage[K, V],
     ) -> Union[KafkaSourceMessage[K2, V2], KafkaError[K, V]]:
         try:
             key = key_deserializer.de(msg.key)

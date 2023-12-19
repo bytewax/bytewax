@@ -1,35 +1,37 @@
 """KafkaSink."""
 
-import time
 from typing import Dict, Iterable, List, Optional
 
 from confluent_kafka import Producer
 
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
+from ._types import MaybeStrBytes
 from .message import KafkaSinkMessage
 
 
-class _KafkaSinkPartition(StatelessSinkPartition[KafkaSinkMessage]):
+class _KafkaSinkPartition(
+    StatelessSinkPartition[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]
+):
     def __init__(self, producer, topic):
         self._producer = producer
         self._topic = topic
 
-    def write_batch(self, items: List[KafkaSinkMessage]) -> None:
+    def write_batch(
+        self, items: List[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]
+    ) -> None:
         for msg in items:
             topic = self._topic if msg.topic is None else msg.topic
             if topic is None:
                 err = f"No topic to produce to for {msg}"
                 raise RuntimeError(err)
 
-            ts = int(time.time() * 1000) if msg.timestamp is None else msg.timestamp
-
             self._producer.produce(
                 value=msg.value,
                 key=msg.key,
                 headers=msg.headers,
                 topic=topic,
-                timestamp=ts,
+                timestamp=0 if msg.timestamp is None else msg.timestamp,
             )
             self._producer.poll(0)
         self._producer.flush()
@@ -38,7 +40,7 @@ class _KafkaSinkPartition(StatelessSinkPartition[KafkaSinkMessage]):
         self._producer.flush()
 
 
-class KafkaSink(DynamicSink[KafkaSinkMessage]):
+class KafkaSink(DynamicSink[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]):
     """Use a single Kafka topic as an output sink.
 
     Items consumed from the dataflow must look like two-tuples of
