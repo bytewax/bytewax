@@ -105,7 +105,7 @@ inp = [3, 4]
 Now we can re-run our dataflow:
 
 ```shell
-> python -m bytewax.run recovery.py -r db_dir/ -s 30 -b 180
+> python -m bytewax.run recovery -r db_dir/ -s 30 -b 180
 ('ALL', 6)
 ('ALL', 10)
 ```
