@@ -48,14 +48,7 @@ plus_one = op.map("plus_one", inp, lambda item: item + 1)
 op.output("out", plus_one, StdOutSink())
 ```
 
-To run this flow, you can use `simple:flow`:
-
-```shell
-> python -m bytewax.run simple:flow
-```
-
-In this case, you can even elide the `:flow` part of the dataflow getter string,
-as Bytewax will default to running a dataflow stored in a variable named `flow`:
+To run this flow use `simple` because creating a file named `simple.py` results in a module just named `simple`:
 
 ```shell
 > python -m bytewax.run simple
