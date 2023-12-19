@@ -23,8 +23,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - uses: actions/setup-python@v3
-      - name: Install black for cbfmt
-        run: pip install .[fmt]
       - uses: mkroening/rust-toolchain-toml@main
       - name: Install cbfmt
         run: |
@@ -32,6 +30,8 @@ jobs:
             curl -fsSL -o cbfmt.tar.gz "https://github.com/lukas-reineke/cbfmt/releases/download/v0.2.0/cbfmt_linux-x86_64_v0.2.0.tar.gz"
             tar --strip-components 1 -xvf cbfmt.tar.gz
             mv cbfmt /usr/local/bin/
+      - name: Install cbfmt sub-formatting commands
+        run: pip install .[cbfmt]
       - uses: pre-commit/action@v3.0.0
 
   linux:

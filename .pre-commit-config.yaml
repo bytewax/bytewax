@@ -7,24 +7,24 @@ repos:
     - id: mixed-line-ending
       args: ["--fix=lf"]
     - id: trailing-whitespace
-  - repo: https://github.com/psf/black
-    rev: 22.3.0
-    hooks:
-    - id: black
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.0.284
+    rev: v0.1.8
     hooks:
       - id: ruff
         args: ["--fix", "--exit-non-zero-on-fix"]
+      - id: ruff-format
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
       - id: clippy
+        name: "cargo clippy"
       - id: fmt
+        name: "cargo fmt"
   - repo: https://github.com/bytewax/pre-commit-cbfmt
     rev: v0.1
     hooks:
       - id: fmt
+        name: cbfmt
   - repo: https://github.com/netromdk/vermin
     rev: v1.5.2
     hooks:

@@ -260,9 +260,8 @@ class Stream(Generic[X_co]):
         and
 
         >>> flow = Dataflow("map_eg")
-        >>> s = (
-        ...     op.input("inp", flow, TestingSource(range(3)))
-        ...     .then(op.map, "add_one", add_one)
+        >>> s = op.input("inp", flow, TestingSource(range(3))).then(
+        ...     op.map, "add_one", add_one
         ... )
 
         This kind of method chaining is called a "fluent style API".

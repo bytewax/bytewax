@@ -804,10 +804,16 @@ def filter_map(
     >>> from bytewax.testing import TestingSource, run_main
     >>> from bytewax.dataflow import Dataflow
     >>> flow = Dataflow("filter_map_eg")
-    >>> s = op.input("inp", flow, TestingSource([
-    ...     {"key": "a", "val": 1},
-    ...     {"bad": "obj"},
-    ... ]))
+    >>> s = op.input(
+    ...     "inp",
+    ...     flow,
+    ...     TestingSource(
+    ...         [
+    ...             {"key": "a", "val": 1},
+    ...             {"bad": "obj"},
+    ...         ]
+    ...     ),
+    ... )
     >>> def validate(data):
     ...     if type(data) != dict or "key" not in data:
     ...         return None
