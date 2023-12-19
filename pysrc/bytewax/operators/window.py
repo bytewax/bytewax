@@ -142,7 +142,7 @@ def collect_window(
     windower: WindowConfig,
     into: Type = list,
 ) -> KeyedStream:
-    """Collect all items in a window into a container.
+    """Collect items in a window into a container.
 
     Args:
         step_id: Unique ID.
