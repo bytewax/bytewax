@@ -31,7 +31,7 @@ class _KafkaSinkPartition(
                 key=msg.key,
                 headers=msg.headers,
                 topic=topic,
-                timestamp=0 if msg.timestamp is None else msg.timestamp,
+                timestamp=msg.timestamp,
             )
             self._producer.poll(0)
         self._producer.flush()
