@@ -27,6 +27,8 @@ When designing a custom connector, consider the following key concepts:
 
 ## Advanced Connector Concepts
 
+For more technical details on how to work with custom IO for Bytewax, please refer to the [custom connector documentation](/docs/articles/advanced-concepts/custom-io-connector)
+
 ### Partitions
 
 In Bytewax, partitioning refers to the process of dividing a data source into smaller, manageable segments, each of which can be processed independently. This enhances parallel processing and scalability. Connectors should try to leverage partitions where possible.
