@@ -41,7 +41,9 @@ RUN pip install bytewax
 # Copy the dataflow in the workdir
 COPY dataflow.py dataflow.py
 # And run it
-CMD ["python", "-m", "bytewax.run", "dataflow"]
+# Note: use `-u` too to let python run unbuffered,
+# which causes a number of issues on Docker.
+CMD ["python", "-um", "bytewax.run", "dataflow"]
 ```
 
 Now you can build the image:
@@ -62,6 +64,12 @@ Modify the Dockerfile to install optional `kafka` dependencies in bytewax:
 + RUN pip install bytewax[kafka]
 ```
 
+Rebuild the image with:
+
+```bash
+docker build . -t bytewax-custom
+```
+
 Modify the dataflow to read data from a kafka topic rather than the testing input:
 
 ```python
@@ -71,7 +79,7 @@ from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 
 flow = Dataflow("test")
-inp = kop.input("in", flow, brokers=["kafka:91092"], topics=["in_topic"])
+inp = kop.input("in", flow, brokers=["redpanda:9092"], topics=["in_topic"])
 op.output("out", inp, StdOutSink())
 ```
 
@@ -88,27 +96,36 @@ services:
   redpanda:
     command:
       - redpanda start
-      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
-      - --advertise-kafka-addr internal://redpanda:9092,external://redpanda:19092
-      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
-      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
-      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --kafka-addr internal://0.0.0.0:9092
+      - --advertise-kafka-addr internal://redpanda:9092
+      - --pandaproxy-addr internal://0.0.0.0:8082
+      - --advertise-pandaproxy-addr internal://redpanda:8082
+      - --schema-registry-addr internal://0.0.0.0:8081
       - --rpc-addr redpanda:33145
       - --advertise-rpc-addr redpanda:33145
       - --smp 1
       - --memory 1G
       - --mode dev-container
-      - --default-log-level=warning
+      - --default-log-level=warn
     image: docker.redpanda.com/redpandadata/redpanda:v23.2.19
     container_name: redpanda
     volumes:
       - redpanda:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
   dataflow:
     image: bytewax-custom
     container_name: bytewax
+    depends_on:
+      redpanda:
+        condition: service_healthy
 ```
 
-And run it with:
+Run it with:
 
 ```
 docker compose up
@@ -118,7 +135,7 @@ And you will see the output from the dataflow as soon as you start producing mes
 To produce messages with this setup, you can use the `rpk` tool included in the redpanda docker images:
 
 ```
-docker exec -it redpanda-0 rpk topic produce in_topic
+docker exec -it redpanda rpk topic produce in_topic
 ```
 
 Write a message and press "Enter", then check the output from the dataflow.
