@@ -1,8 +1,132 @@
-It is very simple to run a Bytewax dataflow program in a container. In this section we will describe how to do that.
+In this chapter we are going to build a Docker image where we can run a dataflow, and present the prebuilt images we offer.
+
+## Your dataflow
+Let's start with a simple dataflow.
+
+Create a new file `dataflow.py` with the following content:
+
+```python
+from bytewax import operators as op
+from bytewax.connectors.stdio import StdOutSink
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+flow = Dataflow("test")
+inp = op.input("in", flow, TestingSource(list(range(5))))
+op.output("out", inp, StdOutSink())
+```
+
+Run it locally to check everything's working fine:
+```
+$ python -m bytewax.run dataflow
+0
+1
+2
+3
+4
+```
+
+## Docker image
+You can run the dataflow inside a Docker image.
+You'll need an image with python support, and can just install bytewax and run the dataflow.
+
+Create a `Dockerfile` with the following content:
+```Dockerfile
+# Start from a debian slim with python support
+FROM python:3.11-slim-bullseye
+# Setup a workdir where we can put our dataflow
+WORKDIR /bytewax
+# Install bytewax and the dependencies you need here
+RUN pip install bytewax
+# Copy the dataflow in the workdir
+COPY dataflow.py dataflow.py
+# And run it
+CMD ["python", "-m", "bytewax.run", "dataflow"]
+```
+
+Now you can build the image:
+```bash
+docker build . -t bytewax-custom
+```
+
+And check that everything's working:
+```bash
+docker run --rm bytewax-custom
+```
+
+## Example: docker compose, kafka connector and redpanda
+
+Modify the Dockerfile to install optional `kafka` dependencies in bytewax:
+```diff
+- RUN pip install bytewax
++ RUN pip install bytewax[kafka]
+```
+
+Modify the dataflow to read data from a kafka topic rather than the testing input:
+
+```python
+from bytewax import operators as op
+from bytewax.connectors.kafka import operators as kop
+from bytewax.connectors.stdio import StdOutSink
+from bytewax.dataflow import Dataflow
+
+flow = Dataflow("test")
+inp = kop.input("in", flow, brokers=["kafka:91092"], topics=["in_topic"])
+op.output("out", inp, StdOutSink())
+```
+
+Now we can create a docker-compose file that runs both a `Redpanda` instance and our dataflow.
+
+Create a file named `docker-compose.yml` with the following content:
+
+```yaml
+version: "3.7"
+name: bytewax-redpanda
+volumes:
+  redpanda: null
+services:
+  redpanda:
+    command:
+      - redpanda start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://redpanda:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --smp 1
+      - --memory 1G
+      - --mode dev-container
+      - --default-log-level=warning
+    image: docker.redpanda.com/redpandadata/redpanda:v23.2.19
+    container_name: redpanda
+    volumes:
+      - redpanda:/var/lib/redpanda/data
+  dataflow:
+    image: bytewax-custom
+    container_name: bytewax
+```
+
+And run it with:
+
+```
+docker compose up
+```
+
+And you will see the output from the dataflow as soon as you start producing messages in the topic.
+To produce messages with this setup, you can use the `rpk` tool included in the redpanda docker images:
+
+```
+docker exec -it redpanda-0 rpk topic produce in_topic
+```
+
+Write a message and press "Enter", then check the output from the dataflow.
 
 ## Bytewax Images in Docker Hub
 
-Bytewax has several public container images available. Releases are available in Docker Hub with these python versions: 3.8, 3.9, 3.10 and 3.11.
+We showed how to build a custom image to run a bytewax dataflow, but bytewax also offers some premade images, that are optimizied for build size and have customizations options so that you don't always have to create your own image from scratch.
+Releases are available in Docker Hub with these python versions: 3.8, 3.9, 3.10 and 3.11.
 
 We implement the following naming convention:
 
@@ -73,10 +197,10 @@ Process ended.
 
 Bytewax's image includes a small number of modules: `bytewax` itself, `jsonpickle`, `pip`, `setuptools` and `wheel`
 
-So if you try to run a script like the [wikistream](https://github.com/bytewax/bytewax/blob/main/examples/wikistream.py) example which requires additional modules:
+So if you try to run a dataflow which requires additional modules, you will get a `ModuleNotFoundError`:
 
 ```bash
-# Fetch the dataflow first
+# Fetch an example dataflow that requires one external dependency
 wget https://raw.githubusercontent.com/bytewax/bytewax/v0.18.0/examples/wikistream.py -o dataflows/wikistream.py
 # Then run it
 docker run --rm --name=my-dataflow \
@@ -85,7 +209,7 @@ docker run --rm --name=my-dataflow \
     bytewax/bytewax
 ```
 
-You will get a `ModuleNotFoundError`:
+Output:
 ```
 Traceback (most recent call last):
   ...
@@ -95,10 +219,10 @@ ModuleNotFoundError: No module named 'aiohttp_sse_client'
 Process ended.
 ```
 
-You need to create your own container image and install the missing dependencies.
-Create a file named `Dockerfile.custom` with the content below:
+You can inherit the base bytewax image and just install the missing dependencies in a `RUN` step:
 
 ```
+# Dockerfile
 FROM bytewax/bytewax
 
 RUN /venv/bin/pip install aiohttp-sse-client
@@ -107,7 +231,7 @@ RUN /venv/bin/pip install aiohttp-sse-client
 Build the image:
 
 ```bash
-docker build -f Dockerfile.custom -t bytewax-wikistream .
+docker build -t bytewax-wikistream .
 ```
 
 Now you can run the example using the new image:
@@ -130,8 +254,6 @@ ja.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time
 sr.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time: 2023-12-15 14:34:54 UTC), 1)
 ...
 ```
-
-In summary, to create your own docker image, you will need to use the Bytewax images available in Docker Hub as your base image and then install the needed modules in the virtual environment that the image already has.
 
 ## How The Bytewax Image works
 
@@ -212,7 +334,3 @@ BYTEWAX_PYTHON_FILE_PATH=examples.pagerank:flow
 3
 4
 ```
-
-## Bytewax Container Images and Security
-
-Our Images are based on `python:$PYTHON_VERSION-slim-bullseye` images which have a small attack surface (less than 50MB) and a very good scan report with zero CVE at the time of this writing.
