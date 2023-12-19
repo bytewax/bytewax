@@ -66,10 +66,6 @@ def add_date_columns(event: dict) -> dict:
     event["day"] = timestamp.day
     return event
 
-
-def group_by_page(event: dict) -> Tuple[str, pd.DataFrame]:
-    return event["page_url_path"], event
-
 flow = Dataflow("events_to_parquet")
 stream = op.input("input", flow, FakeWebEventsSource())
 stream = op.map("load_json", stream, json.loads)
