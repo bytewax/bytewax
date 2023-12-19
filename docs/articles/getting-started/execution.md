@@ -54,41 +54,6 @@ To run this flow use `simple` because creating a file named `simple.py` results 
 > python -m bytewax.run simple
 ```
 
-## Parameterizing a dataflow
-
-In some cases you might want to change the Dataflow's behaviour
-without having to change the source code.
-
-As an example, what if you want to test the previous Dataflow with different
-input ranges? To accomplish this, you can rewrite the file so that the Dataflow
-is built from a function, rather than being defined as a variable in the file.
-
-Create a new file named `parametric.py` with the following contents:
-
-```python
-# ./parametric.py
-import bytewax.operators as op
-
-from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource
-from bytewax.connectors.stdio import StdOutSink
-
-
-def get_flow(input_range):
-    flow = Dataflow("parametric")
-    inp = op.input("inp", flow, TestingSource(range(input_range)))
-    plus_one = op.map("plus_one", inp, lambda item: item + 1)
-    op.output("out", plus_one, StdOutSink())
-    return flow
-```
-
-You can now run your dataflow with parameters that are passed
-to the `get_flow` function:
-
-```shell
-> python -m bytewax.run "parametric:get_flow(10)"
-```
-
 ## Single Worker Run
 
 By default `bytewax.run` will run your dataflow on a single worker
