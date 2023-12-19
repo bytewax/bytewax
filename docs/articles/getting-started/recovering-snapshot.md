@@ -66,11 +66,21 @@ op.output("out", total_sum_stream, StdOutSink())
 ```
 
 To enable recovery when you execute a dataflow, pass the `-r` flag to
-`bytewax.run` and specify the recovery directory. Running our
-example above, you should see the following output:
+`bytewax.run` and specify the recovery directory. We will also need to set
+two values for recovery, the `snapshot_interval` and the `backup_interval`.
+
+The `snapshot_interval` specifies the amount of time in seconds to wait
+before creating a snapshot. The `backup_interval` specifies the amount
+of time in seconds to keep older state snapshots around.
+
+For production dataflows, you should set these values carefully for
+each dataflow to match your operational needs. For more information, please
+see the concept section on [recovery](/docs/articles/concepts/recovery.md).
+
+Running the example above, you should see the following output:
 
 ```shell
-> python -m bytewax.run recovery.py -r db_dir/
+> python -m bytewax.run recovery.py -r db_dir/ -s 30 -b 180
 ('ALL', 0)
 ('ALL', 1)
 ('ALL', 3)
@@ -82,7 +92,7 @@ Bytewax has saved a snapshot of the state of the dataflow before exiting.
 ## Resuming
 
 If a dataflow aborts, abruptly shuts down, or gracefully exits due to
-EOF, you can resume the dataflow by running it again with the
+reaching the end of input, you can resume the dataflow by running it again with the
 files stored in the recovery directory.
 
 Before we re-run our dataflow, let's change our input data to some new values:
@@ -95,19 +105,10 @@ inp = [3, 4]
 Now we can re-run our dataflow:
 
 ```shell
-> python -m bytewax.run recovery.py -r db_dir/
+> python -m bytewax.run recovery.py -r db_dir/ -s 30 -b 180
 ('ALL', 6)
 ('ALL', 10)
 ```
 
 You can see that the dataflow has restored the state of the `stateful_map` operator
 from our previous run, and then applied our new data to that restored state.
-
-
-## Caveats
-
-Because snapshotting only happens periodically, it is possible that
-your output systems will see duplicate data around resume with some
-input and output connectors. See documentation for the
-[`bytewax.connectors`](/apidocs/bytewax.connectors/index) module
-for more information.
