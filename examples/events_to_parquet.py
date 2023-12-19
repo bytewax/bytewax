@@ -70,23 +70,24 @@ def add_date_columns(event: dict) -> dict:
 def group_by_page(event: dict) -> Tuple[str, pd.DataFrame]:
     return event["page_url_path"], event
 
-
-def append_event(events_df: pd.DataFrame, event_df: pd.DataFrame) -> pd.DataFrame:
-    return pd.concat([events_df, event_df])
-
 flow = Dataflow("events_to_parquet")
 stream = op.input("input", flow, FakeWebEventsSource())
 stream = op.map("load_json", stream, json.loads)
 # {"page_url_path": "/path", "event_timestamp": "2022-01-02 03:04:05", ...}
 stream = op.map("add_date_columns", stream, add_date_columns)
 # {"page_url_path": "/path", "year": 2022, "month": 1, "day": 5, ... }
-keyed_stream = op.map("group_by_page", stream, group_by_page)
-# ("/path", DataFrame([{"page_url_path": "/path","year": 2022,...}]))
+keyed_stream = op.key_on(
+    "group_by_page", stream, lambda record: record["page_url_path"]
+)
+# ("/path", {"page_url_path": "/path", "year": 2022, "month": 1, ...})
 batched_stream = op.batch(
     "batch_records", keyed_stream, batch_size=50, timeout=timedelta(seconds=2)
 )
+# ("/path", [{"page_url_path": "/path",...}, ...])
 arrow_stream = op.map(
-    "arrow_table", batched_stream, lambda x: (x[0], Table.from_pylist(x[1]))
+    "arrow_table",
+    batched_stream,
+    lambda keyed_batch: (keyed_batch[0], Table.from_pylist(keyed_batch[1]))
 )
 # ("/path", pyarrow.Table(event_id: [["/path", ...,...]], ...)
 op.output("out", arrow_stream, ParquetSink())
