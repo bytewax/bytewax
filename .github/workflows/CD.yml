@@ -81,8 +81,8 @@ jobs:
           python-version: 3.9
       - name: Publish to PyPI
         env:
-          TWINE_USERNAME: bytewax
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
         run: |
           pip install --upgrade twine
           twine upload --skip-existing *.whl
