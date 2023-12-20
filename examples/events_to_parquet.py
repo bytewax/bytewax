@@ -1,9 +1,8 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional
 
 # pip install pandas pyarrow fake-web-events
-import pandas as pd
 from bytewax import operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
@@ -29,7 +28,9 @@ class FakeWebEventsSource(FixedPartitionedSource):
     def list_parts(self) -> List[str]:
         return ["singleton"]
 
-    def build_part(self, now: datetime, for_part: str, resume_state: Optional[int]) -> SimulatedPartition:
+    def build_part(
+        self, now: datetime, for_part: str, resume_state: Optional[int]
+    ) -> SimulatedPartition:
         assert for_part == "singleton"
         assert resume_state is None
         return SimulatedPartition()
@@ -66,6 +67,7 @@ def add_date_columns(event: dict) -> dict:
     event["day"] = timestamp.day
     return event
 
+
 flow = Dataflow("events_to_parquet")
 stream = op.input("input", flow, FakeWebEventsSource())
 stream = op.map("load_json", stream, json.loads)
@@ -76,14 +78,14 @@ keyed_stream = op.key_on(
     "group_by_page", stream, lambda record: record["page_url_path"]
 )
 # ("/path", {"page_url_path": "/path", "year": 2022, "month": 1, ...})
-batched_stream = op.batch(
+batched_stream = op.collect(
     "batch_records", keyed_stream, batch_size=50, timeout=timedelta(seconds=2)
 )
 # ("/path", [{"page_url_path": "/path",...}, ...])
 arrow_stream = op.map(
     "arrow_table",
     batched_stream,
-    lambda keyed_batch: (keyed_batch[0], Table.from_pylist(keyed_batch[1]))
+    lambda keyed_batch: (keyed_batch[0], Table.from_pylist(keyed_batch[1])),
 )
 # ("/path", pyarrow.Table(event_id: [["/path", ...,...]], ...)
 op.output("out", arrow_stream, ParquetSink())
