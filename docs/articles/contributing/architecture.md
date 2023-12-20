@@ -17,10 +17,9 @@ Bytewax leverages another open-source project to bring the Python Native capabil
 
 ## Putting it all together
 
-![bytewax_arch(2)](https://github.com/bytewax/developer-relations/assets/6073079/1e5a25f9-3f76-414f-a652-c5f54876f06d)
-> https://excalidraw.com/#json=TdvLIlABLMyGeHdAqL-Ih,r13ADBKyxNq7uVShJgg58g
+![Bytewax Arch](https://github.com/bytewax/bytewax/assets/6073079/821c85ca-35a7-4112-9ce9-29dabfe65878)
 
-This is a rough diagram of the Bytewax architecture. The developer interacts with the Bytewax API by writing Python code. They describe the dataflow program via connectors and operators and provide the Python native code that will execute any transformations. The operators exposed in the bytewax API via PyO3 like `dataflow.map` are often based on the Timely Operators at the very root, although many have been modified or extended for ease of use. The operators are exposed as Python operators to facilitate customizing and extending them. When a dataflow is run with the `bytewax.run` command the dataflow program is run on each Timely worker and the developer's Python code will run in the Python interpreter running on the Timely worker. State and progress from the dataflow are persisted from memory to SQLite for recovery purposes and this can also be backed up in the cloud (S3, Azure Blob etc.) when using the Bytewax platform.
+This is a simplified diagram of the Bytewax architecture. The developer interacts with the Bytewax API by writing Python code. They describe the dataflow program via connectors and operators and provide the Python native code that will execute any transformations. The operators exposed in the bytewax API via PyO3 like `dataflow.map` are often based on the Timely Operators at the very root, although many have been modified or extended for ease of use. The operators are exposed as Python operators to facilitate customizing and extending them. When a dataflow is run with the `bytewax.run` command the dataflow program is run on each Timely worker and the developer's Python code will run in the Python interpreter running on the Timely worker. State and progress from the dataflow are persisted from memory to SQLite for recovery purposes and this can also be backed up in the cloud (S3, Azure Blob etc.) when using the Bytewax platform.
 
 ## Bytewax at sea level
 
