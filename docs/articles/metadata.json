@@ -67,7 +67,7 @@
       },
       {
         "title": "PubSub, Queues, and Polling",
-        "filename": "pubsub-queues-polling"
+        "filename": "pubsub-to-polling"
       },
       {
         "title": "Rescaling",
@@ -110,10 +110,6 @@
         "filename": "helm-chart"
       },
       {
-        "title": "Observability",
-        "filename": "observability"
-      },
-      {
         "title": "Metrics",
         "filename": "metrics"
       }
@@ -124,20 +120,12 @@
     "directory": "reference",
     "articles": [
       {
-        "title": "API Documentation",
-        "filename": "api-docs"
-      },
-      {
         "title": "Glossary",
         "filename": "glossary"
       },
       {
         "title": "Migration Guide",
         "filename": "migration"
-      },
-      {
-        "title": "Sample Kafka producer",
-        "filename": "sample-producer"
       }
     ]
   },

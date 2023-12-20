@@ -1,6 +1,4 @@
-# Helm chart
-
-(below is old K8S ecosystem)
+<!-- (below is old K8S ecosystem) -->
 
 As we mentioned in our [Execution section](/docs/getting-started/execution#multiple-workers-manual-cluster). Bytewax allows you to run a dataflow program in a coordinated set of processes if you use the `bytewax.cluster_main()` entry point.
 
@@ -45,6 +43,7 @@ my-dataflow-0.my-dataflow.bytewax.svc.cluster.local:9999
 my-dataflow-1.my-dataflow.bytewax.svc.cluster.local:9999
 my-dataflow-2.my-dataflow.bytewax.svc.cluster.local:9999
 ```
+
 As you can see we use the port 9999 to expose each process.
 
 Leveraging the Kubernetes naming convention for Pods and their DNS we automated the stack configuration.
@@ -64,25 +63,25 @@ Also, the image shows that the init-container is reading the content of the Conf
 In the above diagram, the application container has these environment variables:
 
 ```yaml
-        - name: BYTEWAX_IMPORT_STR
-          value: basic:flow
-        - name: BYTEWAX_WORKDIR
-          value: /var/bytewax
-        - name: BYTEWAX_WORKERS_PER_PROCESS
-          value: "1"
-        - name: BYTEWAX_POD_NAME
-          valueFrom:
-            fieldRef:
-              apiVersion: v1
-              fieldPath: metadata.name
-        - name: BYTEWAX_REPLICAS
-          value: "3"
-        - name: BYTEWAX_KEEP_CONTAINER_ALIVE
-          value: "true"
-        - name: BYTEWAX_HOSTFILE_PATH
-          value: /etc/bytewax/hostfile.txt
-        - name: BYTEWAX_STATEFULSET_NAME
-          value: my-dataflow
+- name: BYTEWAX_IMPORT_STR
+  value: basic:flow
+- name: BYTEWAX_WORKDIR
+  value: /var/bytewax
+- name: BYTEWAX_WORKERS_PER_PROCESS
+  value: "1"
+- name: BYTEWAX_POD_NAME
+  valueFrom:
+    fieldRef:
+      apiVersion: v1
+      fieldPath: metadata.name
+- name: BYTEWAX_REPLICAS
+  value: "3"
+- name: BYTEWAX_KEEP_CONTAINER_ALIVE
+  value: "true"
+- name: BYTEWAX_HOSTFILE_PATH
+  value: /etc/bytewax/hostfile.txt
+- name: BYTEWAX_STATEFULSET_NAME
+  value: my-dataflow
 ```
 
 Some of those were already covered in the [How Bytewax Image Works](/docs/deployment/container/#how-the-bytewax-image-works) section.
@@ -165,7 +164,7 @@ metadata:
   name: bytewax
 spec:
   finalizers:
-  - kubernetes
+    - kubernetes
 ---
 apiVersion: v1
 data:
@@ -251,103 +250,103 @@ spec:
         app.kubernetes.io/name: bytewax
     spec:
       containers:
-      - command:
-        - sh
-        - -c
-        - sh ./entrypoint.sh
-        env:
-        - name: RUST_LOG
-          value: librdkafka=debug,rdkafka::client=debug
-        - name: RUST_BACKTRACE
-          value: full
-        - name: BYTEWAX_PYTHON_FILE_PATH
-          value: /var/bytewax/basic.py
-        - name: BYTEWAX_WORKDIR
-          value: /var/bytewax
-        - name: BYTEWAX_WORKERS_PER_PROCESS
-          value: "1"
-        - name: BYTEWAX_POD_NAME
-          valueFrom:
-            fieldRef:
-              apiVersion: v1
-              fieldPath: metadata.name
-        - name: BYTEWAX_REPLICAS
-          value: "3"
-        - name: BYTEWAX_KEEP_CONTAINER_ALIVE
-          value: "true"
-        - name: BYTEWAX_HOSTFILE_PATH
-          value: /etc/bytewax/hostfile.txt
-        - name: BYTEWAX_STATEFULSET_NAME
-          value: my-dataflow
-        image: bytewax/bytewax:latest
-        imagePullPolicy: Always
-        name: process
-        ports:
-        - containerPort: 9999
+        - command:
+            - sh
+            - -c
+            - sh ./entrypoint.sh
+          env:
+            - name: RUST_LOG
+              value: librdkafka=debug,rdkafka::client=debug
+            - name: RUST_BACKTRACE
+              value: full
+            - name: BYTEWAX_PYTHON_FILE_PATH
+              value: /var/bytewax/basic.py
+            - name: BYTEWAX_WORKDIR
+              value: /var/bytewax
+            - name: BYTEWAX_WORKERS_PER_PROCESS
+              value: "1"
+            - name: BYTEWAX_POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: BYTEWAX_REPLICAS
+              value: "3"
+            - name: BYTEWAX_KEEP_CONTAINER_ALIVE
+              value: "true"
+            - name: BYTEWAX_HOSTFILE_PATH
+              value: /etc/bytewax/hostfile.txt
+            - name: BYTEWAX_STATEFULSET_NAME
+              value: my-dataflow
+          image: bytewax/bytewax:latest
+          imagePullPolicy: Always
           name: process
-          protocol: TCP
-        resources: {}
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            add:
-            - NET_BIND_SERVICE
-            drop:
-            - ALL
-          readOnlyRootFilesystem: true
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
-        volumeMounts:
-        - mountPath: /etc/bytewax
-          name: hostfile
-        - mountPath: /var/bytewax/
-          name: working-directory
+          ports:
+            - containerPort: 9999
+              name: process
+              protocol: TCP
+          resources: {}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              add:
+                - NET_BIND_SERVICE
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /etc/bytewax
+              name: hostfile
+            - mountPath: /var/bytewax/
+              name: working-directory
       dnsPolicy: ClusterFirst
       imagePullSecrets:
-      - name: default-credentials
+        - name: default-credentials
       initContainers:
-      - command:
-        - sh
-        - -c
-        - |
-          set -ex
-          # Generate hostfile.txt.
-          echo "my-dataflow-0.my-dataflow.bytewax.svc.cluster.local:9999" > /etc/bytewax/hostfile.txt
-          replicas=$(($BYTEWAX_REPLICAS-1))
-          x=1
-          while [ $x -le $replicas ]
-          do
-            echo "my-dataflow-$x.my-dataflow.bytewax.svc.cluster.local:9999" >> /etc/bytewax/hostfile.txt
-            x=$(( $x + 1 ))
-          done
-          # Copy python files to working directory
-          cp /tmp/bytewax/. /var/bytewax -R
-          cd /var/bytewax
-          tar -xvf *.tar || echo "No tar files found."
-        env:
-        - name: BYTEWAX_REPLICAS
-          value: "3"
-        image: busybox
-        imagePullPolicy: Always
-        name: init-hostfile
-        resources: {}
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            add:
-            - NET_BIND_SERVICE
-            drop:
-            - ALL
-          readOnlyRootFilesystem: true
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
-        volumeMounts:
-        - mountPath: /etc/bytewax
-          name: hostfile
-        - mountPath: /var/bytewax/
-          name: working-directory
-        - mountPath: /tmp/bytewax/
-          name: python-files
+        - command:
+            - sh
+            - -c
+            - |
+              set -ex
+              # Generate hostfile.txt.
+              echo "my-dataflow-0.my-dataflow.bytewax.svc.cluster.local:9999" > /etc/bytewax/hostfile.txt
+              replicas=$(($BYTEWAX_REPLICAS-1))
+              x=1
+              while [ $x -le $replicas ]
+              do
+                echo "my-dataflow-$x.my-dataflow.bytewax.svc.cluster.local:9999" >> /etc/bytewax/hostfile.txt
+                x=$(( $x + 1 ))
+              done
+              # Copy python files to working directory
+              cp /tmp/bytewax/. /var/bytewax -R
+              cd /var/bytewax
+              tar -xvf *.tar || echo "No tar files found."
+          env:
+            - name: BYTEWAX_REPLICAS
+              value: "3"
+          image: busybox
+          imagePullPolicy: Always
+          name: init-hostfile
+          resources: {}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              add:
+                - NET_BIND_SERVICE
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /etc/bytewax
+              name: hostfile
+            - mountPath: /var/bytewax/
+              name: working-directory
+            - mountPath: /tmp/bytewax/
+              name: python-files
       restartPolicy: Always
       schedulerName: default-scheduler
       securityContext:
@@ -359,14 +358,14 @@ spec:
       serviceAccountName: my-dataflow-bytewax
       terminationGracePeriodSeconds: 10
       volumes:
-      - emptyDir: {}
-        name: hostfile
-      - configMap:
-          defaultMode: 420
-          name: my-dataflow
-        name: python-files
-      - emptyDir: {}
-        name: working-directory
+        - emptyDir: {}
+          name: hostfile
+        - configMap:
+            defaultMode: 420
+            name: my-dataflow
+          name: python-files
+        - emptyDir: {}
+          name: working-directory
   updateStrategy:
     rollingUpdate:
       partition: 0
@@ -390,15 +389,15 @@ metadata:
 spec:
   clusterIP: None
   clusterIPs:
-  - None
+    - None
   ipFamilies:
-  - IPv4
+    - IPv4
   ipFamilyPolicy: SingleStack
   ports:
-  - name: worker
-    port: 9999
-    protocol: TCP
-    targetPort: 9999
+    - name: worker
+      port: 9999
+      protocol: TCP
+      targetPort: 9999
   selector:
     app.kubernetes.io/instance: my-dataflow
     app.kubernetes.io/name: bytewax
@@ -407,7 +406,7 @@ spec:
 ---
 apiVersion: v1
 imagePullSecrets:
-- name: default-credentials
+  - name: default-credentials
 kind: ServiceAccount
 metadata:
   annotations:
@@ -423,5 +422,5 @@ metadata:
   name: my-dataflow-bytewax
   namespace: bytewax
 secrets:
-- name: my-dataflow-bytewax-token-2nnxc
+  - name: my-dataflow-bytewax-token-2nnxc
 ```

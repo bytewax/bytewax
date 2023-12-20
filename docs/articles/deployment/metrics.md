@@ -1,7 +1,3 @@
-# Metrics
-
-Something something metrics
-
 Bytewax is instrumented to offer observability of your dataflow.
 
 The default configuration logs anything at the log level `ERROR` to
@@ -125,6 +121,7 @@ pip install bytewax sseclient-py urllib3
 ```
 
 Now you can run it with:
+
 ```shell
 python -m bytewax.run dataflow
 ```

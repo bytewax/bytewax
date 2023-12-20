@@ -1,8 +1,6 @@
-# Extending Python API
-
 Have you ever wanted to implement particular weird semantic with your operators? Or maybe support something tricky? Or you have a fever and the only prescription is more decorators? Well with this guide you can!
 
-# Custom Operators
+## Custom Operators
 
 You can define new custom operators in terms of already existing
 operators. To do this you define an **operator function** and
@@ -41,7 +39,7 @@ operators, you must follow a few rules when writing your function:
   directly, or the top-level fields of a dataclass that is the return
   type; nowhere else.
 
-## Docstrings
+### Docstrings
 
 A good docstring for a custom operator has a few things:
 
