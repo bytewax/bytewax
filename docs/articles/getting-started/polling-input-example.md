@@ -8,8 +8,10 @@ First, import the necessary modules. We'll use `logging` for basic logging, `tim
 
 ```python
 import logging
-from datetime import timedelta
 import requests
+
+from typing import Optional
+from datetime import timedelta
 from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
@@ -50,6 +52,7 @@ def mapper(old_max_id, new_max_id):
         old_max_id = new_max_id - 10
     return (new_max_id, range(old_max_id, new_max_id))
 
+
 ids = op.stateful_map("range", max_id, lambda: None, mapper)
 ```
 
@@ -73,8 +76,9 @@ def download_metadata(hn_id) -> Optional[dict]:
     ).json()
 
     if data is None:
-        logger.warning(f"Couldn't fetch item {hn_id}, skipping")
+        logging.warning(f"Couldn't fetch item {hn_id}, skipping")
     return data
+
 
 items = op.filter_map("meta_download", ids, download_metadata)
 ```
@@ -84,7 +88,7 @@ items = op.filter_map("meta_download", ids, download_metadata)
 We have different types of items retrieved from the API and we are intrested in dealing with them separately so we can leverage the branch operator to split out the comments from the stories. We can then print the streams out separately. Building on this, you would most likely publish the separate streams to separate Kafka topics or tables in a database.
 
 ```python
-split_stream = op.branch("split_comments", items, lambda item: item["type"]=="story")
+split_stream = op.branch("split_comments", items, lambda item: item["type"] == "story")
 stories = split_stream.trues
 comments = split_stream.falses
 op.output("stories-out", stories, StdOutSink())
