@@ -67,7 +67,7 @@
       },
       {
         "title": "PubSub, Queues, and Polling",
-        "filename": "pubsub-queues-polling"
+        "filename": "pubsub-to-polling"
       },
       {
         "title": "Rescaling",
@@ -108,10 +108,6 @@
       {
         "title": "Helm chart",
         "filename": "helm-chart"
-      },
-      {
-        "title": "Observability",
-        "filename": "observability"
       },
       {
         "title": "Metrics",
