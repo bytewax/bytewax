@@ -37,13 +37,14 @@ FROM python:3.11-slim-bullseye
 # Setup a workdir where we can put our dataflow
 WORKDIR /bytewax
 # Install bytewax and the dependencies you need here
-RUN pip install bytewax
+RUN pip install bytewax==0.18.0
 # Copy the dataflow in the workdir
 COPY dataflow.py dataflow.py
-# And run it
-# Note: use `-u` too to let python run unbuffered,
-# which causes a number of issues on Docker.
-CMD ["python", "-um", "bytewax.run", "dataflow"]
+# And run it.
+# Set PYTHONUNBUFFERED to any value to make python flush stdout,
+# or you risk not seeing any output from your python scripts.
+ENV PYTHONUNBUFFERED 1
+CMD ["python", "-m", "bytewax.run", "dataflow"]
 ```
 
 Now you can build the image:
@@ -60,8 +61,8 @@ docker run --rm bytewax-custom
 
 Modify the Dockerfile to install optional `kafka` dependencies in bytewax:
 ```diff
-- RUN pip install bytewax
-+ RUN pip install bytewax[kafka]
+- RUN pip install bytewax==0.18.0
++ RUN pip install bytewax[kafka]==0.18.0
 ```
 
 Rebuild the image with:
@@ -80,10 +81,11 @@ from bytewax.dataflow import Dataflow
 
 flow = Dataflow("test")
 inp = kop.input("in", flow, brokers=["redpanda:9092"], topics=["in_topic"])
-op.output("out", inp, StdOutSink())
+op.output("out", inp.oks, StdOutSink())
 ```
 
 Now we can create a docker-compose file that runs both a `Redpanda` instance and our dataflow.
+This is a simplified version of the docker compose file offered in redpanda's docs for a development setup.
 
 Create a file named `docker-compose.yml` with the following content:
 
@@ -188,13 +190,13 @@ from bytewax.testing import TestingSource
 
 flow = Dataflow("test")
 inp = op.input("in", flow, TestingSource(list(range(5))))
-op.output(inp, "out", StdOutSink())
+op.output("out", inp, StdOutSink())
 ```
 
 Now you can run it with:
 ```bash
 docker run --rm --name=my-dataflow \
-    -v ./dataflows:/bytewax/dataflows \
+    -v $(pwd)/dataflows:/bytewax/dataflows \
     -e BYTEWAX_PYTHON_FILE_PATH=dataflows.my_flow \
     bytewax/bytewax
 ```
@@ -221,7 +223,7 @@ So if you try to run a dataflow which requires additional modules, you will get 
 wget https://raw.githubusercontent.com/bytewax/bytewax/v0.18.0/examples/wikistream.py -o dataflows/wikistream.py
 # Then run it
 docker run --rm --name=my-dataflow \
-    -v ./dataflows:/bytewax/dataflows \
+    -v $(pwd)/dataflows:/bytewax/dataflows \
     -e BYTEWAX_PYTHON_FILE_PATH=dataflows.wikistream \
     bytewax/bytewax
 ```
@@ -255,7 +257,7 @@ Now you can run the example using the new image:
 
 ```bash
 docker run --rm --name=my-dataflow \
-    -v ./dataflows:/bytewax/dataflows \
+    -v $(pwd)/dataflows:/bytewax/dataflows \
     -e BYTEWAX_PYTHON_FILE_PATH=dataflows.wikistream \
     bytewax-wikistream
 ```
@@ -306,7 +308,7 @@ We are going to use the `BYTEWAX_KEEP_CONTAINER_ALIVE` environment variable to k
 
 ```bash
 docker run --rm --name=my-dataflow \
-    -v ./dataflows:/bytewax/dataflows \
+    -v $(pwd)/dataflows:/bytewax/dataflows \
     -e BYTEWAX_PYTHON_FILE_PATH=dataflows.my_flow \
     -e BYTEWAX_KEEP_CONTAINER_ALIVE=true \
     bytewax/bytewax
@@ -351,3 +353,7 @@ BYTEWAX_PYTHON_FILE_PATH=examples.pagerank:flow
 3
 4
 ```
+
+## Bytewax Container Images and Security
+
+Our Images are based on `python:$PYTHON_VERSION-slim-bullseye` images which have a small attack surface (less than 50MB) and a very good scan report with zero CVE at the time of this writing.
