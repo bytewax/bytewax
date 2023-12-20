@@ -3,7 +3,7 @@
     - Installing bytewax
     - Simple example
     - Streaming example
-    - Batching/windowing example
+    - Collecting / Windowing example
     - Joins example
     - Wordcount example
     - Polling Input example

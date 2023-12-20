@@ -413,6 +413,11 @@ impl FixedPartitionedSource {
                             );
                             let epoch = *part_state.downstream_cap.time();
 
+                            // When we increment the epoch for this
+                            // partition, wait until all ouputs have
+                            // finished the previous epoch before
+                            // emitting more data to have
+                            // backpressure.
                             if !probe.less_than(&epoch) && part_state.awake_due(now) {
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     let batch_res = with_timer!(
@@ -424,6 +429,7 @@ impl FixedPartitionedSource {
                                             .reraise_with(|| format!("error calling `StatefulSourcePartition.next_batch` in step {step_id} for partition {part_key}"))?
                                     );
 
+                                    let mut eof = false;
                                     match batch_res {
                                         BatchResult::Batch(batch) => {
                                             let batch_len = batch.len();
@@ -441,6 +447,7 @@ impl FixedPartitionedSource {
                                             part_state.next_awake = default_next_awake(next_awake_res, batch_len, now);
                                         },
                                         BatchResult::Eof => {
+                                            eof = true;
                                             eofd_parts_buffer.push(part_key.clone());
                                             tracing::debug!("EOFd");
                                         },
@@ -450,12 +457,21 @@ impl FixedPartitionedSource {
                                         }
                                     }
 
-                                    // Don't allow progress unless
-                                    // we've caught up, otherwise you
-                                    // can get cascading advancement
-                                    // and never poll input.
-                                    if now - part_state.epoch_started >= epoch_interval.0
-                                    {
+                                    // Increment the epoch for this
+                                    // partition when the interval
+                                    // elapses or the input is EOF. We
+                                    // increment and snapshot on EOF
+                                    // so that we capture the offsets
+                                    // for this partition to resume
+                                    // from; we produce the same
+                                    // behavior as if this partition
+                                    // would have lived to the next
+                                    // epoch interval. Only increment
+                                    // once we've caught up (in this
+                                    // if-block) otherwise you can get
+                                    // cascading advancement and never
+                                    // poll input.
+                                    if now - part_state.epoch_started >= epoch_interval.0 || eof {
                                         let state = with_timer!(
                                             snapshot_histogram,
                                             labels,
@@ -716,6 +732,10 @@ impl DynamicSource {
                     if let Some(part_state) = &mut part_state {
                         let epoch = part_state.output_cap.time();
 
+                        // When we increment the epoch for this
+                        // partition, wait until all ouputs have
+                        // finished the previous epoch before emitting
+                        // more data to have backpressure.
                         if !probe.less_than(epoch) && part_state.awake_due(now) {
                             unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                 let res = with_timer!(
@@ -757,8 +777,8 @@ impl DynamicSource {
                                 Ok(())
                             }));
 
-                            // Don't allow progress unless we've
-                            // caught up, otherwise you can get
+                            // Only increment once we've caught up (in
+                            // this if-block) otherwise you can get
                             // cascading advancement and never poll
                             // input.
                             if now - part_state.epoch_started >= epoch_interval.0 {

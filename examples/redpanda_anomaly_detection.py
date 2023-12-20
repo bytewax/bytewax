@@ -21,16 +21,15 @@ flow = Dataflow("anomaly detection")
 stream = op.input("inp", flow, KafkaSource(["localhost:19092"], ["ec2_metrics"]))
 
 
-def normalize(key__data):
+def normalize(msg):
     """
     We require the data to be normalized so it falls
     between 0 and 1. Since this is a percentage already, we
     just need to divide it by 100
     """
-    _, data = key__data
-    json_data = json.loads(data)
-    json_data["value"] = float(data["value"]) / 100
-    return json_data["instance"], json_data
+    data = json.loads(msg.value)
+    data["value"] = float(data["value"]) / 100
+    return data["instance"], data
 
 
 normalized_stream = op.map("normalize", stream, normalize)
@@ -73,7 +72,6 @@ anomaly_stream = op.stateful_map(
     "anom", normalized_stream, lambda: AnomalyDetector(), AnomalyDetector.update
 )
 # (("fe7f93", {"index": "1", "value":0.08, "instance":"fe7f93", "score":0.02}))
-stream = op.filter("filter", stream, lambda x: bool(x[1][4]))
 
 
 def format_output(event):

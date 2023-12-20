@@ -481,23 +481,23 @@ def unary(
 
 
 @dataclass
-class _BatchState(Generic[V]):
+class _CollectState(Generic[V]):
     acc: List[V] = field(default_factory=list)
     timeout_at: Optional[datetime] = None
 
 
 @dataclass
-class _BatchLogic(UnaryLogic[V, List[V], _BatchState[V]]):
+class _CollectLogic(UnaryLogic[V, List[V], _CollectState[V]]):
     step_id: str
     timeout: timedelta
-    batch_size: int
-    state: _BatchState[V]
+    max_size: int
+    state: _CollectState[V]
 
     def on_item(self, now: datetime, value: V) -> Tuple[Iterable[List[V]], bool]:
         self.state.timeout_at = now + self.timeout
 
         self.state.acc.append(value)
-        if len(self.state.acc) >= self.batch_size:
+        if len(self.state.acc) >= self.max_size:
             # No need to deepcopy because we are discarding the state.
             return ((self.state.acc,), UnaryLogic.DISCARD)
 
@@ -512,39 +512,40 @@ class _BatchLogic(UnaryLogic[V, List[V], _BatchState[V]]):
     def notify_at(self) -> Optional[datetime]:
         return self.state.timeout_at
 
-    def snapshot(self) -> _BatchState[V]:
+    def snapshot(self) -> _CollectState[V]:
         return copy.deepcopy(self.state)
 
 
 @operator
-def batch(
-    step_id: str, up: KeyedStream[V], timeout: timedelta, batch_size: int
+def collect(
+    step_id: str, up: KeyedStream[V], timeout: timedelta, max_size: int
 ) -> KeyedStream[List[V]]:
-    """Batch incoming items up to a size or a timeout.
+    """Collect items into a list up to a size or a timeout.
 
-    See also the `flat_map_batch` operator to process mutiple items
-    simultaneously.
+    See `bytewax.operators.window.collect_window` for more control
+    over time.
 
     Args:
         step_id: Unique ID.
 
         up: Stream of individual items.
 
-        timeout: Timeout before emitting the batch, even if max_size
+        timeout: Timeout before emitting the list, even if `max_size`
             was not reached.
 
-        batch_size: Maximum size of the batch.
+        max_size: Emit the list once it reaches this size, even if
+        `timeout` was not reached.
 
     Returns:
-        A stream of batches of upstream items gathered into a `list`.
+        A stream of upstream items gathered into `list`s.
 
     """
 
     def shim_builder(
-        _now: datetime, resume_state: Optional[_BatchState[V]]
-    ) -> _BatchLogic[V]:
-        state = resume_state if resume_state is not None else _BatchState()
-        return _BatchLogic(step_id, timeout, batch_size, state)
+        _now: datetime, resume_state: Optional[_CollectState[V]]
+    ) -> _CollectLogic[V]:
+        state = resume_state if resume_state is not None else _CollectState()
+        return _CollectLogic(step_id, timeout, max_size, state)
 
     return unary("unary", up, shim_builder)
 
@@ -804,10 +805,16 @@ def filter_map(
     >>> from bytewax.testing import TestingSource, run_main
     >>> from bytewax.dataflow import Dataflow
     >>> flow = Dataflow("filter_map_eg")
-    >>> s = op.input("inp", flow, TestingSource([
-    ...     {"key": "a", "val": 1},
-    ...     {"bad": "obj"},
-    ... ]))
+    >>> s = op.input(
+    ...     "inp",
+    ...     flow,
+    ...     TestingSource(
+    ...         [
+    ...             {"key": "a", "val": 1},
+    ...             {"bad": "obj"},
+    ...         ]
+    ...     ),
+    ... )
     >>> def validate(data):
     ...     if type(data) != dict or "key" not in data:
     ...         return None
@@ -1045,11 +1052,12 @@ def join(
 
         *sides: Keyed streams.
 
-        running: If `True`, emit the current set of values (if any)
-            each time a new value arrives. The set of values will
-            _never be discarded_ so might result in unbounded memory
-            use. If `False`, only emit once there is a value on each
-            stream, then discard the set. Defaults to `False`.
+        running: If `True`, perform a "running join" and, emit the
+            current set of values (if any) each time a new value
+            arrives. The set of values will _never be discarded_ so
+            might result in unbounded memory use. If `False`, perform
+            a "complete join" and, only emit once there is a value on
+            each stream, then discard the set. Defaults to `False`.
 
     Returns:
         Emits a tuple with the value from each stream in the order of
@@ -1085,11 +1093,12 @@ def join_named(
         **sides: Named keyed streams. The name of each stream will be
             used in the emitted `dict`s.
 
-        running: If `True`, emit the current set of values (if any)
-            each time a new value arrives. The set of values will
-            _never be discarded_ so might result in unbounded memory
-            use. If `False`, only emit once there is a value on each
-            stream, then discard the set. Defaults to `False`.
+        running: If `True`, perform a "running join" and, emit the
+            current set of values (if any) each time a new value
+            arrives. The set of values will _never be discarded_ so
+            might result in unbounded memory use. If `False`, perform
+            a "complete join" and, only emit once there is a value on
+            each stream, then discard the set. Defaults to `False`.
 
     Returns:
         Emits a `dict` mapping the name to the value from each stream.

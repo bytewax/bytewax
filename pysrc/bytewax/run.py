@@ -309,6 +309,18 @@ def _parse_args():
                 "the addresses option is required if a process_id is passed"
             )
 
+    # If recovery is configured, make sure that the snapshot_interval and
+    # backup_interval are set.
+    if args.recovery_directory is not None and (
+        not args.snapshot_interval or not args.backup_interval
+    ):
+        arg_parser.error(
+            "when running with recovery, the `-s/--snapshot_interval` and "
+            "`-b/--backup_interval` values must be set. For more information "
+            "about setting these values, please see "
+            "https://bytewax.io/docs/concepts/recovery."
+        )
+
     return args
 
 
@@ -316,8 +328,9 @@ if __name__ == "__main__":
     kwargs = vars(_parse_args())
     snapshot_interval = kwargs.pop("snapshot_interval")
 
-    recovery_directory, backup_interval = kwargs.pop("recovery_directory"), kwargs.pop(
-        "backup_interval"
+    recovery_directory, backup_interval = (
+        kwargs.pop("recovery_directory"),
+        kwargs.pop("backup_interval"),
     )
     kwargs["recovery_config"] = None
     if recovery_directory is not None:
