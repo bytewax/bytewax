@@ -50,7 +50,7 @@ ids = op.redistribute("redist", ids)
 # If you run this dataflow with multiple workers, downloads in the
 # next `map` will be parallelized thanks to .redistribute()
 items = op.filter_map("meta_download", ids, download_metadata)
-split_stream = op.branch("split_comments", items, lambda item: item["type"]=="story")
+split_stream = op.branch("split_comments", items, lambda item: item["type"] == "story")
 stories = split_stream.trues
 comments = split_stream.falses
 op.output("stories-out", stories, StdOutSink())
