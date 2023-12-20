@@ -1,0 +1,800 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.connectors.kafka</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<p>Connectors for <a href="https://kafka.apache.org">Kafka</a>.</p>
+<p>Importing this module requires the
+<a href="https://github.com/confluentinc/confluent-kafka-python"><code>confluent-kafka</code></a>
+package to be installed.</p>
+<p>The input source returns a stream of <code>KafkaMessage</code>.
+See the docstring for its use.</p>
+<p>You can use <code><a title="bytewax.connectors.kafka.KafkaSource" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSource">KafkaSource</a></code> and <code><a title="bytewax.connectors.kafka.KafkaSink" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSink">KafkaSink</a></code> directly:</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.connectors.kafka import KafkaSource, KafkaSink
+&gt;&gt;&gt; from bytewax import operators as op
+&gt;&gt;&gt; from bytewax.dataflow import Dataflow
+&gt;&gt;&gt;
+&gt;&gt;&gt; brokers = [&quot;localhost:1909&quot;]
+&gt;&gt;&gt; flow = Dataflow(&quot;example&quot;)
+&gt;&gt;&gt; kinp = op.input(&quot;kafka-in&quot;, flow, KafkaSource([&quot;localhost:1909&quot;], [&quot;in-topic&quot;]))
+&gt;&gt;&gt; processed = op.map(&quot;map&quot;, kinp, lambda x: (x.key, x.value))
+&gt;&gt;&gt; op.output(&quot;kafka-out&quot;, processed, KafkaSink(brokers, &quot;out-topic&quot;))
+</code></pre>
+<p>Or the custom operators:</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.connectors.kafka import operators as kop
+&gt;&gt;&gt; from bytewax import operators as op
+&gt;&gt;&gt; from bytewax.dataflow import Dataflow
+&gt;&gt;&gt;
+&gt;&gt;&gt; brokers = [&quot;localhost:1909&quot;]
+&gt;&gt;&gt; flow = Dataflow(&quot;example&quot;)
+&gt;&gt;&gt; kinp = kop.input(&quot;kafka-in&quot;, flow, brokers=brokers, topics=[&quot;in-topic&quot;])
+&gt;&gt;&gt; errs = op.inspect(&quot;errors&quot;, kinp.errs).then(op.raises, &quot;crash-on-err&quot;)
+&gt;&gt;&gt; processed = op.map(&quot;map&quot;, kinp.oks, lambda x: (x.key, x.value))
+&gt;&gt;&gt; kop.output(&quot;kafka-out&quot;, processed, brokers=brokers, topic=&quot;out-topic&quot;)
+</code></pre>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Connectors for [Kafka](https://kafka.apache.org).
+
+Importing this module requires the
+[`confluent-kafka`](https://github.com/confluentinc/confluent-kafka-python)
+package to be installed.
+
+The input source returns a stream of `KafkaMessage`.
+See the docstring for its use.
+
+You can use `KafkaSource` and `KafkaSink` directly:
+
+&gt;&gt;&gt; from bytewax.connectors.kafka import KafkaSource, KafkaSink
+&gt;&gt;&gt; from bytewax import operators as op
+&gt;&gt;&gt; from bytewax.dataflow import Dataflow
+&gt;&gt;&gt;
+&gt;&gt;&gt; brokers = [&#34;localhost:1909&#34;]
+&gt;&gt;&gt; flow = Dataflow(&#34;example&#34;)
+&gt;&gt;&gt; kinp = op.input(&#34;kafka-in&#34;, flow, KafkaSource([&#34;localhost:1909&#34;], [&#34;in-topic&#34;]))
+&gt;&gt;&gt; processed = op.map(&#34;map&#34;, kinp, lambda x: (x.key, x.value))
+&gt;&gt;&gt; op.output(&#34;kafka-out&#34;, processed, KafkaSink(brokers, &#34;out-topic&#34;))
+
+Or the custom operators:
+
+&gt;&gt;&gt; from bytewax.connectors.kafka import operators as kop
+&gt;&gt;&gt; from bytewax import operators as op
+&gt;&gt;&gt; from bytewax.dataflow import Dataflow
+&gt;&gt;&gt;
+&gt;&gt;&gt; brokers = [&#34;localhost:1909&#34;]
+&gt;&gt;&gt; flow = Dataflow(&#34;example&#34;)
+&gt;&gt;&gt; kinp = kop.input(&#34;kafka-in&#34;, flow, brokers=brokers, topics=[&#34;in-topic&#34;])
+&gt;&gt;&gt; errs = op.inspect(&#34;errors&#34;, kinp.errs).then(op.raises, &#34;crash-on-err&#34;)
+&gt;&gt;&gt; processed = op.map(&#34;map&#34;, kinp.oks, lambda x: (x.key, x.value))
+&gt;&gt;&gt; kop.output(&#34;kafka-out&#34;, processed, brokers=brokers, topic=&#34;out-topic&#34;)
+
+&#34;&#34;&#34;
+from . import operators, registry, serde
+from .message import KafkaSinkMessage, KafkaSourceMessage
+from .sink import KafkaSink
+from .source import KafkaSource
+
+__all__ = [
+    &#34;KafkaSource&#34;,
+    &#34;KafkaSink&#34;,
+    &#34;KafkaSinkMessage&#34;,
+    &#34;KafkaSourceMessage&#34;,
+    &#34;operators&#34;,
+    &#34;registry&#34;,
+    &#34;serde&#34;,
+]</code></pre>
+</details>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-submodules">Sub-modules</h2>
+<div class="api__article-submodules">
+<div class="api__article-submodules-item">
+<h4><a title="bytewax.connectors.kafka.error" href="/apidocs/bytewax.connectors/kafka/error">bytewax.connectors.kafka.error</a></h4>
+<p>
+<div class="desc"><p>Error handling related stuff.</p></div>
+</p>
+</div>
+<div class="api__article-submodules-item">
+<h4><a title="bytewax.connectors.kafka.message" href="/apidocs/bytewax.connectors/kafka/message">bytewax.connectors.kafka.message</a></h4>
+<p>
+<div class="desc"><p>KafkaMessage definition.</p></div>
+</p>
+</div>
+<div class="api__article-submodules-item">
+<h4><a title="bytewax.connectors.kafka.operators" href="/apidocs/bytewax.connectors/kafka/operators">bytewax.connectors.kafka.operators</a></h4>
+<p>
+<div class="desc"><p>Operators for the kafka source and sink.</p></div>
+</p>
+</div>
+<div class="api__article-submodules-item">
+<h4><a title="bytewax.connectors.kafka.registry" href="/apidocs/bytewax.connectors/kafka/registry">bytewax.connectors.kafka.registry</a></h4>
+<p>
+<div class="desc"><p>Schema registries connection …</p></div>
+</p>
+</div>
+<div class="api__article-submodules-item">
+<h4><a title="bytewax.connectors.kafka.serde" href="/apidocs/bytewax.connectors/kafka/serde">bytewax.connectors.kafka.serde</a></h4>
+<p>
+<div class="desc"><p>Serializers and deserializers for kafka messages.</p></div>
+</p>
+</div>
+<div class="api__article-submodules-item">
+<h4><a title="bytewax.connectors.kafka.sink" href="/apidocs/bytewax.connectors/kafka/sink">bytewax.connectors.kafka.sink</a></h4>
+<p>
+<div class="desc"><p>KafkaSink.</p></div>
+</p>
+</div>
+<div class="api__article-submodules-item">
+<h4><a title="bytewax.connectors.kafka.source" href="/apidocs/bytewax.connectors/kafka/source">bytewax.connectors.kafka.source</a></h4>
+<p>
+<div class="desc"><p>KafkaSource.</p></div>
+</p>
+</div>
+</div>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
+<dl>
+<dt id="bytewax.connectors.kafka.KafkaSink"><code class="language-python flex name class">
+<span>class <span class="ident">KafkaSink</span></span>
+<span>(</span><span>brokers: Iterable[str], topic: Optional[str], add_config: Optional[Dict[str, str]] = None)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use a single Kafka topic as an output sink.</p>
+<p>Items consumed from the dataflow must look like two-tuples of
+<code>(key_bytes, value_bytes)</code>. Default partition routing is used.</p>
+<p>Workers are the unit of parallelism.</p>
+<p>Can support at-least-once processing. Messages from the resume
+epoch will be duplicated right after resume.</p>
+<p>Init.</p>
+<h2 id="args">Args</h2>
+<p>brokers:
+List of <code>host:port</code> strings of Kafka brokers.
+topic:
+Topic to produce to. If it's <code>None</code>, the topic
+to produce to will be read in each KafkaMessage.
+add_config:
+Any additional configuration properties. See <a href="https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md">the
+<code>rdkafka</code>
+documentation</a>
+for options.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class KafkaSink(DynamicSink[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]):
+    &#34;&#34;&#34;Use a single Kafka topic as an output sink.
+
+    Items consumed from the dataflow must look like two-tuples of
+    `(key_bytes, value_bytes)`. Default partition routing is used.
+
+    Workers are the unit of parallelism.
+
+    Can support at-least-once processing. Messages from the resume
+    epoch will be duplicated right after resume.
+    &#34;&#34;&#34;
+
+    def __init__(
+        self,
+        brokers: Iterable[str],
+        # Optional with no defaults, so you have to explicitely pass
+        # `topic=None` if you want to use the topic from the messages
+        topic: Optional[str],
+        add_config: Optional[Dict[str, str]] = None,
+    ):
+        &#34;&#34;&#34;Init.
+
+        Args:
+            brokers:
+                List of `host:port` strings of Kafka brokers.
+            topic:
+                Topic to produce to. If it&#39;s `None`, the topic
+                to produce to will be read in each KafkaMessage.
+            add_config:
+                Any additional configuration properties. See [the
+                `rdkafka`
+                documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+                for options.
+        &#34;&#34;&#34;
+        self._brokers = brokers
+        self._topic = topic
+        self._add_config = {} if add_config is None else add_config
+
+    def build(self, worker_index: int, worker_count: int) -&gt; _KafkaSinkPartition:
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        config = {
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+        }
+        config.update(self._add_config)
+        producer = Producer(config)
+
+        return _KafkaSinkPartition(producer, self._topic)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.outputs.DynamicSink" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicSink">DynamicSink</a></li>
+<li><a title="bytewax.outputs.Sink" href="/apidocs/bytewax.outputs#bytewax.outputs.Sink">Sink</a></li>
+<li>abc.ABC</li>
+<li>typing.Generic</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.connectors.kafka.KafkaSink.build"><code class="language-python name flex">
+<span>def <span class="ident">build</span></span>(<span>self, worker_index: int, worker_count: int) ‑> bytewax.connectors.kafka.sink._KafkaSinkPartition</span>
+</code></dt>
+<dd>
+<div class="desc"><p>See ABC docstring.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def build(self, worker_index: int, worker_count: int) -&gt; _KafkaSinkPartition:
+    &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+    config = {
+        &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+    }
+    config.update(self._add_config)
+    producer = Producer(config)
+
+    return _KafkaSinkPartition(producer, self._topic)</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSinkMessage"><code class="language-python flex name class">
+<span>class <span class="ident">KafkaSinkMessage</span></span>
+<span>(</span><span>key: ~K, value: ~V, topic: Optional[str] = None, headers: List[Tuple[str, bytes]] = &lt;factory&gt;, partition: Optional[int] = None, timestamp: int = 0)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Class that holds a message from kafka with metadata.</p>
+<p>Use <code>KafkaMessage.key</code> to get the key and <code>KafkaMessage.value</code> to get
+the value.</p>
+<p>Other fields: <code>topic</code>, <code>headers</code>, <code>partition</code>, <code>timestamp</code></p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@dataclass(frozen=True)
+class KafkaSinkMessage(Generic[K, V]):
+    &#34;&#34;&#34;Class that holds a message from kafka with metadata.
+
+    Use `KafkaMessage.key` to get the key and `KafkaMessage.value` to get
+    the value.
+
+    Other fields: `topic`, `headers`, `partition`, `timestamp`
+    &#34;&#34;&#34;
+
+    key: K
+    value: V
+
+    topic: Optional[str] = None
+    headers: List[Tuple[str, bytes]] = field(default_factory=list)
+    partition: Optional[int] = None
+    timestamp: int = 0
+
+    def _with_key(self, key: K2) -&gt; &#34;KafkaSinkMessage[K2, V]&#34;:
+        &#34;&#34;&#34;Returns a new instance with the specified key.&#34;&#34;&#34;
+        # Can&#39;t use `dataclasses.replace` directly since it requires
+        # the fields you change to be the same type.
+        return KafkaSinkMessage(
+            key=key,
+            value=self.value,
+            topic=self.topic,
+            headers=self.headers,
+            partition=self.partition,
+            timestamp=self.timestamp,
+        )
+
+    def _with_value(self, value: V2) -&gt; &#34;KafkaSinkMessage[K, V2]&#34;:
+        &#34;&#34;&#34;Returns a new instance with the specified value.&#34;&#34;&#34;
+        return KafkaSinkMessage(
+            key=self.key,
+            value=value,
+            topic=self.topic,
+            headers=self.headers,
+            partition=self.partition,
+            timestamp=self.timestamp,
+        )
+
+    def _with_key_and_value(self, key: K2, value: V2) -&gt; &#34;KafkaSinkMessage[K2, V2]&#34;:
+        &#34;&#34;&#34;Returns a new instance with the specified key and value.&#34;&#34;&#34;
+        return KafkaSinkMessage(
+            key=key,
+            value=value,
+            topic=self.topic,
+            headers=self.headers,
+            partition=self.partition,
+            timestamp=self.timestamp,
+        )</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>typing.Generic</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="bytewax.connectors.kafka.KafkaSinkMessage.headers"><code class="language-python name">var <span class="ident">headers</span> : List[Tuple[str, bytes]]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSinkMessage.key"><code class="language-python name">var <span class="ident">key</span> : ~K</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSinkMessage.partition"><code class="language-python name">var <span class="ident">partition</span> : Optional[int]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSinkMessage.timestamp"><code class="language-python name">var <span class="ident">timestamp</span> : int</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSinkMessage.topic"><code class="language-python name">var <span class="ident">topic</span> : Optional[str]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSinkMessage.value"><code class="language-python name">var <span class="ident">value</span> : ~V</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSource"><code class="language-python flex name class">
+<span>class <span class="ident">KafkaSource</span></span>
+<span>(</span><span>brokers: Iterable[str], topics: Iterable[str], tail: bool = True, starting_offset: int = -2, add_config: Optional[Dict[str, str]] = None, batch_size: int = 1, raise_on_errors: bool = True)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use a set of Kafka topics as an input source.</p>
+<p>Partitions are the unit of parallelism.
+Can support exactly-once processing.</p>
+<p>Messages are emitted into the dataflow
+as <code>bytewax.connectors.kafka.KafkaMessage</code> objects.</p>
+<p>Init.</p>
+<h2 id="args">Args</h2>
+<p>brokers:
+List of <code>host:port</code> strings of Kafka brokers.
+topics:
+List of topics to consume from.
+tail:
+Whether to wait for new data on this topic when the
+end is initially reached.
+starting_offset:
+Can be either <code>confluent_kafka.OFFSET_BEGINNING</code> or
+<code>confluent_kafka.OFFSET_END</code>. Defaults to beginning of
+topic.
+add_config:
+Any additional configuration properties. See <a href="https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md">the
+<code>rdkafka</code>
+documentation</a>
+for options.
+batch_size:
+How many messages to consume at most at each poll.
+This is 1 by default, which means messages will be
+consumed one at a time. The default setting is suited
+for lower latency, but negatively affects
+throughput. If you need higher throughput, set this to
+a higher value (eg: 1000)
+raise_on_errors:
+If set to False, errors won't stop the dataflow, and the
+KafkaMessage.error field will be set. It's up to you to
+properly handle the error later</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class KafkaSource(FixedPartitionedSource[_KafkaItem, Optional[int]]):
+    &#34;&#34;&#34;Use a set of Kafka topics as an input source.
+
+    Partitions are the unit of parallelism.
+    Can support exactly-once processing.
+
+    Messages are emitted into the dataflow
+    as `bytewax.connectors.kafka.KafkaMessage` objects.
+    &#34;&#34;&#34;
+
+    def __init__(
+        self,
+        brokers: Iterable[str],
+        topics: Iterable[str],
+        tail: bool = True,
+        starting_offset: int = OFFSET_BEGINNING,
+        add_config: Optional[Dict[str, str]] = None,
+        batch_size: int = 1,
+        raise_on_errors: bool = True,
+    ):
+        &#34;&#34;&#34;Init.
+
+        Args:
+            brokers:
+                List of `host:port` strings of Kafka brokers.
+            topics:
+                List of topics to consume from.
+            tail:
+                Whether to wait for new data on this topic when the
+                end is initially reached.
+            starting_offset:
+                Can be either `confluent_kafka.OFFSET_BEGINNING` or
+                `confluent_kafka.OFFSET_END`. Defaults to beginning of
+                topic.
+            add_config:
+                Any additional configuration properties. See [the
+                `rdkafka`
+                documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+                for options.
+            batch_size:
+                How many messages to consume at most at each poll.
+                This is 1 by default, which means messages will be
+                consumed one at a time. The default setting is suited
+                for lower latency, but negatively affects
+                throughput. If you need higher throughput, set this to
+                a higher value (eg: 1000)
+            raise_on_errors:
+                If set to False, errors won&#39;t stop the dataflow, and the
+                KafkaMessage.error field will be set. It&#39;s up to you to
+                properly handle the error later
+        &#34;&#34;&#34;
+        if isinstance(brokers, str):
+            msg = &#34;brokers must be an iterable and not a string&#34;
+            raise TypeError(msg)
+        self._brokers = brokers
+        if isinstance(topics, str):
+            msg = &#34;topics must be an iterable and not a string&#34;
+            raise TypeError(msg)
+        self._topics = topics
+        self._tail = tail
+        self._starting_offset = starting_offset
+        self._add_config = {} if add_config is None else add_config
+        self._batch_size = batch_size
+        self._raise_on_errors = raise_on_errors
+
+    def list_parts(self) -&gt; List[str]:
+        &#34;&#34;&#34;Each Kafka partition is an input partition.&#34;&#34;&#34;
+        config = {
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+        }
+        config.update(self._add_config)
+        client = AdminClient(config)
+
+        return list(_list_parts(client, self._topics))
+
+    def build_part(
+        self, now: datetime, for_part: str, resume_state: Optional[int]
+    ) -&gt; _KafkaSourcePartition:
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        idx, topic = for_part.split(&#34;-&#34;, 1)
+        part_idx = int(idx)
+        # TODO: Warn and then return None. This might be an indication
+        # of dataflow continuation with a new topic (to enable
+        # re-partitioning), which is fine.
+        assert topic in self._topics, &#34;Can&#39;t resume from different set of Kafka topics&#34;
+
+        config = {
+            # We&#39;ll manage our own &#34;consumer group&#34; via recovery
+            # system.
+            &#34;group.id&#34;: &#34;BYTEWAX_IGNORED&#34;,
+            &#34;enable.auto.commit&#34;: &#34;false&#34;,
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+            &#34;enable.partition.eof&#34;: str(not self._tail),
+        }
+        config.update(self._add_config)
+        consumer = Consumer(config)
+        return _KafkaSourcePartition(
+            consumer,
+            topic,
+            part_idx,
+            self._starting_offset,
+            resume_state,
+            self._batch_size,
+            self._raise_on_errors,
+        )</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.inputs.FixedPartitionedSource" href="/apidocs/bytewax.inputs#bytewax.inputs.FixedPartitionedSource">FixedPartitionedSource</a></li>
+<li><a title="bytewax.inputs.Source" href="/apidocs/bytewax.inputs#bytewax.inputs.Source">Source</a></li>
+<li>abc.ABC</li>
+<li>typing.Generic</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.connectors.kafka.KafkaSource.build_part"><code class="language-python name flex">
+<span>def <span class="ident">build_part</span></span>(<span>self, now: datetime.datetime, for_part: str, resume_state: Optional[int]) ‑> bytewax.connectors.kafka.source._KafkaSourcePartition</span>
+</code></dt>
+<dd>
+<div class="desc"><p>See ABC docstring.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def build_part(
+    self, now: datetime, for_part: str, resume_state: Optional[int]
+) -&gt; _KafkaSourcePartition:
+    &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+    idx, topic = for_part.split(&#34;-&#34;, 1)
+    part_idx = int(idx)
+    # TODO: Warn and then return None. This might be an indication
+    # of dataflow continuation with a new topic (to enable
+    # re-partitioning), which is fine.
+    assert topic in self._topics, &#34;Can&#39;t resume from different set of Kafka topics&#34;
+
+    config = {
+        # We&#39;ll manage our own &#34;consumer group&#34; via recovery
+        # system.
+        &#34;group.id&#34;: &#34;BYTEWAX_IGNORED&#34;,
+        &#34;enable.auto.commit&#34;: &#34;false&#34;,
+        &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+        &#34;enable.partition.eof&#34;: str(not self._tail),
+    }
+    config.update(self._add_config)
+    consumer = Consumer(config)
+    return _KafkaSourcePartition(
+        consumer,
+        topic,
+        part_idx,
+        self._starting_offset,
+        resume_state,
+        self._batch_size,
+        self._raise_on_errors,
+    )</code></pre>
+</details>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSource.list_parts"><code class="language-python name flex">
+<span>def <span class="ident">list_parts</span></span>(<span>self) ‑> List[str]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Each Kafka partition is an input partition.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def list_parts(self) -&gt; List[str]:
+    &#34;&#34;&#34;Each Kafka partition is an input partition.&#34;&#34;&#34;
+    config = {
+        &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+    }
+    config.update(self._add_config)
+    client = AdminClient(config)
+
+    return list(_list_parts(client, self._topics))</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSourceMessage"><code class="language-python flex name class">
+<span>class <span class="ident">KafkaSourceMessage</span></span>
+<span>(</span><span>key: ~K, value: ~V, topic: Optional[str] = None, headers: List[Tuple[str, bytes]] = &lt;factory&gt;, latency: Optional[float] = None, offset: Optional[int] = None, partition: Optional[int] = None, timestamp: Optional[Tuple[int, int]] = None)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Class that holds a message from kafka with metadata.</p>
+<p>Use <code>msg.key</code> to get the key and <code>msg.value</code> to get
+the value.</p>
+<p>Other fields: <code>topic</code>, <code>headers</code>, <code>latency</code> <code>offset</code>, <code>partition</code>, <code>timestamp</code></p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@dataclass(frozen=True)
+class KafkaSourceMessage(Generic[K, V]):
+    &#34;&#34;&#34;Class that holds a message from kafka with metadata.
+
+    Use `msg.key` to get the key and `msg.value` to get
+    the value.
+
+    Other fields: `topic`, `headers`, `latency` `offset`, `partition`, `timestamp`
+    &#34;&#34;&#34;
+
+    key: K
+    value: V
+
+    topic: Optional[str] = field(default=None)
+    headers: List[Tuple[str, bytes]] = field(default_factory=list)
+    latency: Optional[float] = field(default=None)
+    offset: Optional[int] = field(default=None)
+    partition: Optional[int] = field(default=None)
+    timestamp: Optional[Tuple[int, int]] = field(default=None)
+
+    def to_sink(self) -&gt; &#34;KafkaSinkMessage[K, V]&#34;:
+        &#34;&#34;&#34;Safely convert KafkaSourceMessage to KafkaSinkMessage.
+
+        Only `key`, `value` and `timestamp` are used.
+        &#34;&#34;&#34;
+        return KafkaSinkMessage(key=self.key, value=self.value, headers=self.headers)
+
+    def _with_key(self, key: K2) -&gt; &#34;KafkaSourceMessage[K2, V]&#34;:
+        &#34;&#34;&#34;Returns a new instance with the specified key.&#34;&#34;&#34;
+        # Can&#39;t use `dataclasses.replace` directly since it requires
+        # the fields you change to be the same type.
+        return KafkaSourceMessage(
+            key=key,
+            value=self.value,
+            topic=self.topic,
+            headers=self.headers,
+            latency=self.latency,
+            offset=self.offset,
+            partition=self.partition,
+            timestamp=self.timestamp,
+        )
+
+    def _with_value(self, value: V2) -&gt; &#34;KafkaSourceMessage[K, V2]&#34;:
+        &#34;&#34;&#34;Returns a new instance with the specified value.&#34;&#34;&#34;
+        return KafkaSourceMessage(
+            key=self.key,
+            value=value,
+            topic=self.topic,
+            headers=self.headers,
+            latency=self.latency,
+            offset=self.offset,
+            partition=self.partition,
+            timestamp=self.timestamp,
+        )
+
+    def _with_key_and_value(self, key: K2, value: V2) -&gt; &#34;KafkaSourceMessage[K2, V2]&#34;:
+        &#34;&#34;&#34;Returns a new instance with the specified key and value.&#34;&#34;&#34;
+        return KafkaSourceMessage(
+            key=key,
+            value=value,
+            topic=self.topic,
+            headers=self.headers,
+            latency=self.latency,
+            offset=self.offset,
+            partition=self.partition,
+            timestamp=self.timestamp,
+        )</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>typing.Generic</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="bytewax.connectors.kafka.KafkaSourceMessage.headers"><code class="language-python name">var <span class="ident">headers</span> : List[Tuple[str, bytes]]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSourceMessage.key"><code class="language-python name">var <span class="ident">key</span> : ~K</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSourceMessage.latency"><code class="language-python name">var <span class="ident">latency</span> : Optional[float]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSourceMessage.offset"><code class="language-python name">var <span class="ident">offset</span> : Optional[int]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSourceMessage.partition"><code class="language-python name">var <span class="ident">partition</span> : Optional[int]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSourceMessage.timestamp"><code class="language-python name">var <span class="ident">timestamp</span> : Optional[Tuple[int, int]]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSourceMessage.topic"><code class="language-python name">var <span class="ident">topic</span> : Optional[str]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="bytewax.connectors.kafka.KafkaSourceMessage.value"><code class="language-python name">var <span class="ident">value</span> : ~V</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.connectors.kafka.KafkaSourceMessage.to_sink"><code class="language-python name flex">
+<span>def <span class="ident">to_sink</span></span>(<span>self) ‑> <a title="bytewax.connectors.kafka.message.KafkaSinkMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage">KafkaSinkMessage</a>[~K, ~V]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Safely convert KafkaSourceMessage to KafkaSinkMessage.</p>
+<p>Only <code>key</code>, <code>value</code> and <code>timestamp</code> are used.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def to_sink(self) -&gt; &#34;KafkaSinkMessage[K, V]&#34;:
+    &#34;&#34;&#34;Safely convert KafkaSourceMessage to KafkaSinkMessage.
+
+    Only `key`, `value` and `timestamp` are used.
+    &#34;&#34;&#34;
+    return KafkaSinkMessage(key=self.key, value=self.value, headers=self.headers)</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors" href="/apidocs/bytewax.connectors/index">bytewax.connectors</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item"><h3 class="api__sidebar-nav-title"><a href="#header-submodules">Sub-modules</a></h3>
+<ul class="api__sidebar-nav-menu api__sidebar-nav-menu--submodules">
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors.kafka.error" href="/apidocs/bytewax.connectors/kafka/error">bytewax.connectors.kafka.error</a>
+</li>
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors.kafka.message" href="/apidocs/bytewax.connectors/kafka/message">bytewax.connectors.kafka.message</a>
+</li>
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors.kafka.operators" href="/apidocs/bytewax.connectors/kafka/operators">bytewax.connectors.kafka.operators</a>
+</li>
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors.kafka.registry" href="/apidocs/bytewax.connectors/kafka/registry">bytewax.connectors.kafka.registry</a>
+</li>
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors.kafka.serde" href="/apidocs/bytewax.connectors/kafka/serde">bytewax.connectors.kafka.serde</a>
+</li>
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors.kafka.sink" href="/apidocs/bytewax.connectors/kafka/sink">bytewax.connectors.kafka.sink</a>
+</li>
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors.kafka.source" href="/apidocs/bytewax.connectors/kafka/source">bytewax.connectors.kafka.source</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
+<ul class="api__sidebar-nav-classes">
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.KafkaSink" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSink">KafkaSink</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSink.build" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSink.build">build</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.KafkaSinkMessage" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSinkMessage">KafkaSinkMessage</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSinkMessage.headers" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSinkMessage.headers">headers</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSinkMessage.key" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSinkMessage.key">key</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSinkMessage.partition" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSinkMessage.partition">partition</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSinkMessage.timestamp" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSinkMessage.timestamp">timestamp</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSinkMessage.topic" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSinkMessage.topic">topic</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSinkMessage.value" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSinkMessage.value">value</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.KafkaSource" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSource">KafkaSource</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSource.build_part" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSource.build_part">build_part</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSource.list_parts" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSource.list_parts">list_parts</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.KafkaSourceMessage" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSourceMessage">KafkaSourceMessage</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSourceMessage.headers" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSourceMessage.headers">headers</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSourceMessage.key" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSourceMessage.key">key</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSourceMessage.latency" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSourceMessage.latency">latency</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSourceMessage.offset" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSourceMessage.offset">offset</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSourceMessage.partition" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSourceMessage.partition">partition</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSourceMessage.timestamp" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSourceMessage.timestamp">timestamp</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSourceMessage.to_sink" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSourceMessage.to_sink">to_sink</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSourceMessage.topic" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSourceMessage.topic">topic</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.KafkaSourceMessage.value" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSourceMessage.value">value</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>

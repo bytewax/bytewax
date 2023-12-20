@@ -31,15 +31,15 @@ from typing import (
     Generic,
     Iterable,
     List,
+    Optional,
     Protocol,
-    Tuple,
     Type,
     TypeVar,
     overload,
     runtime_checkable,
 )
 
-from typing_extensions import Concatenate, ParamSpec
+from typing_extensions import Concatenate, ParamSpec, Self
 
 P = ParamSpec(&#34;P&#34;)
 R = TypeVar(&#34;R&#34;)
@@ -130,7 +130,7 @@ class Operator:
 
     step_name: str
     step_id: str
-    substeps: List[&#34;Operator&#34;]
+    substeps: List[Self]
     ups_names: ClassVar[List[str]]
     dwn_names: ClassVar[List[str]]
 
@@ -154,7 +154,7 @@ class _HasScope(Protocol):
     def _get_scopes(self) -&gt; Iterable[_Scope]:
         ...
 
-    def _with_scope(self, scope: _Scope):
+    def _with_scope(self, scope: _Scope) -&gt; Self:
         ...
 
 
@@ -162,31 +162,6 @@ class _HasScope(Protocol):
 class _ToRef(Protocol):
     def _to_ref(self, port_id: str):
         ...
-
-
-@runtime_checkable
-class _AsArgs(Protocol):
-    @staticmethod
-    def _from_args(args: Tuple):
-        ...
-
-    @staticmethod
-    def _into_args(obj) -&gt; Tuple:
-        ...
-
-    @staticmethod
-    def _from_kwargs(kwargs: Dict):
-        ...
-
-    @staticmethod
-    def _into_kwargs(obj) -&gt; Dict:
-        ...
-
-
-def _rec_subclasses(cls):
-    yield cls
-    for subcls in cls.__subclasses__():
-        yield from _rec_subclasses(subcls)
 
 
 @dataclass(frozen=True)
@@ -224,7 +199,7 @@ class Dataflow:
     def _get_scopes(self) -&gt; Iterable[_Scope]:
         return [self._scope]
 
-    def _with_scope(self, scope: _Scope) -&gt; &#34;Dataflow&#34;:
+    def _with_scope(self, scope: _Scope) -&gt; Self:
         return dataclasses.replace(self, _scope=scope)
 
     def _to_ref(self, _port_id: str) -&gt; DataflowId:
@@ -263,31 +238,15 @@ class Stream(Generic[X_co]):
     def _get_scopes(self) -&gt; Iterable[_Scope]:
         return [self._scope]
 
-    def _with_scope(self, scope: _Scope) -&gt; &#34;Stream[X_co]&#34;:
+    def _with_scope(self, scope: _Scope) -&gt; Self:
         return dataclasses.replace(self, _scope=scope)
 
     def _to_ref(self, ref_id: str) -&gt; SinglePort:
         return SinglePort(ref_id, self.stream_id)
 
-    @staticmethod
-    def _from_args(args: Tuple) -&gt; &#34;MultiStream[int, X_co]&#34;:
-        return MultiStream({i: stream for i, stream in enumerate(args)})
-
-    @staticmethod
-    def _into_args(obj: &#34;MultiStream[int, X_co]&#34;) -&gt; Tuple:
-        return tuple(obj.streams.values())
-
-    @staticmethod
-    def _from_kwargs(kwargs: Dict[str, &#34;Stream[X_co]&#34;]) -&gt; &#34;MultiStream[str, X_co]&#34;:
-        return MultiStream(kwargs)
-
-    @staticmethod
-    def _into_kwargs(obj: &#34;MultiStream[str, X_co]&#34;) -&gt; Dict[str, &#34;Stream[X_co]&#34;]:
-        return dict(obj.streams)
-
     def then(
         self,
-        op_fn: Callable[Concatenate[str, &#34;Stream[X_co]&#34;, P], R],
+        op_fn: Callable[Concatenate[str, Self, P], R],
         step_id: str,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -313,9 +272,8 @@ class Stream(Generic[X_co]):
         and
 
         &gt;&gt;&gt; flow = Dataflow(&#34;map_eg&#34;)
-        &gt;&gt;&gt; s = (
-        ...     op.input(&#34;inp&#34;, flow, TestingSource(range(3)))
-        ...     .then(op.map, &#34;add_one&#34;, add_one)
+        &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource(range(3))).then(
+        ...     op.map, &#34;add_one&#34;, add_one
         ... )
 
         This kind of method chaining is called a &#34;fluent style API&#34;.
@@ -343,59 +301,20 @@ class Stream(Generic[X_co]):
 
 
 @dataclass(frozen=True)
-class MultiStream(Generic[K, X_co]):
+class _MultiStream(Generic[K]):
     &#34;&#34;&#34;A bundle of named `Stream`s.
-
-    Operator functions take or return this if they want to create an
-    input or output port that can recieve multiple named streams
-    dynamically.
-
-    You will need to unpack the `Stream`s within in order to add
-    further steps:
-
-    &gt;&gt;&gt; import bytewax.operators as op
-    &gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
-    &gt;&gt;&gt; from bytewax.dataflow import Dataflow
-    &gt;&gt;&gt; flow = Dataflow(&#34;multistream_eg&#34;)
-    &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource(range(3)))
-    &gt;&gt;&gt; a_s, b_s = op.key_split(
-    ...     &#34;split1&#34;,
-    ...     s,
-    ...     lambda x: &#34;KEY&#34;,
-    ...     lambda x: &#34;a&#34;,
-    ...     lambda x: &#34;b&#34;,
-    ... )
-
-    If you only have a single stream within, you can unpack using the
-    &#34;unpack a single item tuple&#34; syntax:
-
-    &gt;&gt;&gt; (a_s,) = op.key_split(
-    ...     &#34;split2&#34;,
-    ...     s,
-    ...     lambda x: &#34;KEY&#34;,
-    ...     lambda x: &#34;a&#34;,
-    ... )
 
     This is also created internally whenever a builder function takes
     or returns a `*args` of `Stream` or `**kwargs` of `Stream`s.
 
     &#34;&#34;&#34;
 
-    streams: Dict[K, Stream[X_co]]
-
-    @property
-    def _scope(self):
-        msg = (
-            &#34;`MultiStream` must be unpacked to use the `Stream` inside; &#34;
-            &#34;&#34;&#34;e.g. `(names,) = op.key_split(&#34;step_id&#34;, up, &#34;&#34;&#34;
-            &#34;&#34;&#34;lambda x: x[&#34;id&#34;], lambda x: x[&#34;name&#34;])`&#34;&#34;&#34;
-        )
-        raise TypeError(msg)
+    streams: Dict[K, Stream[Any]]
 
     def _get_scopes(self) -&gt; Iterable[_Scope]:
         return (stream._scope for stream in self.streams.values())
 
-    def _with_scope(self, scope: _Scope) -&gt; &#34;MultiStream[K, X_co]&#34;:
+    def _with_scope(self, scope: _Scope) -&gt; Self:
         streams = {
             name: stream._with_scope(scope) for name, stream in self.streams.items()
         }
@@ -407,75 +326,89 @@ class MultiStream(Generic[K, X_co]):
             {name: stream.stream_id for name, stream in self.streams.items()},
         )
 
-    def __iter__(self):
-        return iter(self.streams.values())
-
-
-ArgsMultiStream = MultiStream[int, X_co]
-KwargsMultiStream = MultiStream[str, X_co]
-
-
-def _norm_type_hints(obj) -&gt; Dict[str, Type]:
-    sig_types = typing.get_type_hints(obj)
-    for name, typ in sig_types.items():
-        orig = typing.get_origin(typ)
-        if orig is not None:
-            sig_types[name] = orig
-        elif typ is Any:
-            sig_types[name] = object
-
-    return sig_types
-
 
 _OPERATOR_BASE_NAMES = frozenset(typing.get_type_hints(_CoreOperator).keys())
 
 
-def _gen_inp_fields(sig: Signature, sig_types: Dict[str, Type]) -&gt; Dict[str, Type]:
-    inp_fields = {}
+def _anno_to_typ(anno: Any) -&gt; Optional[Type]:
+    if anno is Any:
+        return object
+
+    if inspect.isclass(anno):
+        return anno
+
+    orig = typing.get_origin(anno)
+    if orig is not None and inspect.isclass(orig):
+        return orig
+
+    return None
+
+
+def _gen_inp_fields(sig: Signature, sig_annos: Dict[str, Any]) -&gt; Dict[str, Any]:
+    inp_fields: Dict[str, Any] = {}
     for name, param in sig.parameters.items():
         # If the argument is un-annotated, assume the type class for
         # &#34;Any&#34;.
-        typ = sig_types.get(name, object)
+        anno = sig_annos.get(name, Any)
+        # Assume we pass through the annotation unmodified.
+        inp_fields[name] = anno
 
-        as_typ = typ
-        # If any of the arguments require special casing when they&#39;re
-        # *args or **kwargs, find out what the &#34;packed&#34; version of the
-        # argument type is. The most common use of this is `*ups:
-        # Stream` will actually be stored as a single `MultiStream`,
-        # rather than a `Tuple[Stream]`.
-        if issubclass(typ, _AsArgs):
-            if param.kind == Parameter.VAR_POSITIONAL:
-                method_typs = _norm_type_hints(typ._from_args)
-                as_typ = method_typs.get(&#34;return&#34;, object)
-            elif param.kind == Parameter.VAR_KEYWORD:
-                method_typs = _norm_type_hints(typ._from_kwargs)
-                as_typ = method_typs.get(&#34;return&#34;, object)
+        typ = _anno_to_typ(anno)
+        if typ is not None:
+            # If any of the arguments require special casing when
+            # they&#39;re *args or **kwargs, find out what the &#34;packed&#34;
+            # version of the argument type is. The most common use of
+            # this is `*ups: Stream` will actually be stored as a
+            # single `_MultiStream`, rather than a `Tuple[Stream]`.
+            if issubclass(typ, Stream):
+                # If the stream is typed, get that inner type to apply to
+                # the `_MultiStream`.
+                try:
+                    stream_typ_arg = typing.get_args(anno)[0]
+                except IndexError:
+                    # If not, it&#39;s effectively typed `Any`.
+                    stream_typ_arg = Any
 
-        inp_fields[name] = as_typ
+                if param.kind == Parameter.VAR_POSITIONAL:
+                    inp_fields[name] = _MultiStream[stream_typ_arg]
+                elif param.kind == Parameter.VAR_KEYWORD:
+                    inp_fields[name] = _MultiStream[stream_typ_arg]
 
     return inp_fields
 
 
-def _gen_out_fields(_sig: Signature, sig_types: Dict[str, Type]) -&gt; Dict[str, Type]:
-    out_fields = {}
-    out_typ = sig_types.get(&#34;return&#34;, object)
-    # A single `Stream` is stored by convention in a field named
-    # &#34;down&#34;.
-    if issubclass(out_typ, Stream) or issubclass(out_typ, MultiStream):
-        out_fields[&#34;down&#34;] = out_typ
-    # A `None` return value doesn&#39;t store any field.
-    elif issubclass(out_typ, type(None)):  # type: ignore
-        pass
-    # Dataclass is the &#34;named return value&#34; options. We copy all the
-    # first level fields into the operator dataclass. We use
-    # dataclasses because the stdlib gives us tools to introspect them
-    # easily.
-    elif dataclasses.is_dataclass(out_typ):
-        out_field_typs = _norm_type_hints(out_typ)
-        for fld in dataclasses.fields(out_typ):
-            out_fields[fld.name] = out_field_typs.get(fld.name, object)
+def _gen_out_fields(_sig: Signature, sig_annos: Dict[str, Any]) -&gt; Dict[str, Any]:
+    out_fields: Dict[str, Any] = {}
+    anno = sig_annos.get(&#34;return&#34;, Any)
+    typ = _anno_to_typ(anno)
+    if typ is not None:
+        # A single `Stream` is stored by convention in a field named
+        # &#34;down&#34;. This must be first even though it is the same
+        # behavior as the else branch because `Stream` is defined
+        # using dataclasses and we don&#39;t want to split the stream into
+        # it&#39;s private fields.
+        if issubclass(typ, Stream) or issubclass(typ, _MultiStream):
+            out_fields[&#34;down&#34;] = anno
+        # A `None` return value doesn&#39;t store any field.
+        elif issubclass(typ, type(None)):
+            pass
+        # Dataclass is the &#34;named return value&#34; options. We copy all the
+        # first level fields into the operator dataclass. We use
+        # dataclasses because the stdlib gives us tools to introspect them
+        # easily.
+        elif dataclasses.is_dataclass(typ):
+            out_field_annos = typing.get_type_hints(typ)
+            for fld in dataclasses.fields(typ):
+                out_fields[fld.name] = out_field_annos.get(fld.name, Any)
+        else:
+            # If this isn&#39;t a 0 return value function (via `None`) or
+            # an N return value function (via a dataclass), there&#39;s a
+            # single field called `down`. Copy the annotation.
+            out_fields[&#34;down&#34;] = anno
     else:
-        out_fields[&#34;down&#34;] = out_typ
+        # If the return type is not checkable, assume it&#39;s a single
+        # value and copy the annotation.
+        out_fields[&#34;down&#34;] = anno
 
     return out_fields
 
@@ -483,7 +416,7 @@ def _gen_out_fields(_sig: Signature, sig_types: Dict[str, Type]) -&gt; Dict[str,
 def _gen_op_cls(
     builder: FunctionType,
     sig: Signature,
-    sig_types: Dict[str, Type],
+    sig_annos: Dict[str, Any],
     core: bool,
 ) -&gt; Type[Operator]:
     if &#34;step_id&#34; not in sig.parameters:
@@ -491,9 +424,9 @@ def _gen_op_cls(
         raise TypeError(msg)
 
     # First add fields for all the input arguments.
-    inp_fields = _gen_inp_fields(sig, sig_types)
+    inp_fields = _gen_inp_fields(sig, sig_annos)
     # Then add fields for the return values.
-    out_fields = _gen_out_fields(sig, sig_types)
+    out_fields = _gen_out_fields(sig, sig_annos)
 
     conflicting_fields = frozenset(inp_fields.keys()) &amp; frozenset(out_fields.keys())
     if len(conflicting_fields) &gt; 0:
@@ -505,7 +438,7 @@ def _gen_op_cls(
         )
         raise TypeError(msg)
 
-    cls_fields = {}
+    cls_fields: Dict[str, Any] = {}
     cls_fields.update(inp_fields)
     cls_fields.update(out_fields)
 
@@ -515,17 +448,21 @@ def _gen_op_cls(
     # the substep list) if stored directly. Their &#34;reference versions&#34;
     # (for `Stream` it&#39;s `SinglePort`) don&#39;t include the scope or
     # anything that is just there to facilitate the fluent API.
-    for name, typ in cls_fields.items():
-        if issubclass(typ, _ToRef):
-            method_typs = _norm_type_hints(typ._to_ref)
-            cls_fields[name] = method_typs.get(&#34;return&#34;, object)
+    for name, anno in cls_fields.items():
+        typ = _anno_to_typ(anno)
+        if typ is not None and issubclass(typ, _ToRef):
+            method_typs = typing.get_type_hints(typ._to_ref)
+            cls_fields[name] = method_typs.get(&#34;return&#34;, Any)
 
     # Store the names of the upstream and downstream ports to enable
     # visualization.
     ups_names = []
     dwn_names = []
-    for name, typ in cls_fields.items():
-        if issubclass(typ, SinglePort) or issubclass(typ, MultiPort):
+    for name, anno in cls_fields.items():
+        typ = _anno_to_typ(anno)
+        if typ is not None and (
+            issubclass(typ, SinglePort) or issubclass(typ, MultiPort)
+        ):
             if name in inp_fields:
                 ups_names.append(name)
             elif name in out_fields:
@@ -572,7 +509,7 @@ def _gen_op_cls(
 
 def _gen_op_fn(
     sig: Signature,
-    sig_types: Dict[str, Type],
+    sig_annos: Dict[str, Any],
     builder: FunctionType,
     cls: Type[Operator],
     _core: bool,
@@ -583,32 +520,53 @@ def _gen_op_fn(
         try:
             bound = sig.bind(*args, **kwargs)
         except TypeError as ex:
-            msg = (
-                f&#34;operator {cls.__name__!r} method called incorrectly; &#34;
-                &#34;see cause above&#34;
-            )
+            msg = f&#34;operator {cls.__name__!r} called incorrectly; see cause above&#34;
             raise TypeError(msg) from ex
         bound.apply_defaults()
 
+        for name in cls.ups_names:
+            param = sig.parameters[name]
+            if param.kind == Parameter.VAR_POSITIONAL:
+                vals = bound.arguments[name]
+                desc = f&#34;{name!r} *args all&#34;
+            elif param.kind == Parameter.VAR_KEYWORD:
+                vals = bound.arguments[name].values()
+                desc = f&#34;{name!r} **kwargs all&#34;
+            else:
+                vals = [bound.arguments[name]]
+                desc = f&#34;{name!r} argument&#34;
+
+            for val in vals:
+                if not isinstance(val, Stream):
+                    msg = (
+                        f&#34;{desc} must be a `Stream`; &#34;
+                        f&#34;got a {type(val)!r} instead; &#34;
+                        &#34;did you forget to unpack the result of an operator &#34;
+                        &#34;that returns multiple streams?&#34;
+                    )
+                    raise TypeError(msg)
+
         step_id = bound.arguments[&#34;step_id&#34;]
         if not isinstance(step_id, str):
-            msg = &#34;&#39;step_id&#39; must be a string&#34;
+            msg = &#34;&#39;step_id&#39; must be a `str`&#34;
             raise TypeError(msg)
         if &#34;.&#34; in step_id:
             msg = &#34;&#39;step_id&#39; can&#39;t contain any periods &#39;.&#39;&#34;
             raise ValueError(msg)
 
-        # Pack *args and **kwargs into any special types.
+        # Pack `Stream`s of *args and **kwargs into the special type
+        # we can re-scope.
         for name, param in sig.parameters.items():
             val = bound.arguments[name]
-            typ = sig_types.get(name, object)
-            if issubclass(typ, _AsArgs):
+            anno = sig_annos.get(name, Any)
+            typ = _anno_to_typ(anno)
+            if typ is not None and issubclass(typ, Stream):
                 if param.kind == Parameter.VAR_POSITIONAL:
-                    bound.arguments[name] = typ._from_args(val)
+                    bound.arguments[name] = _MultiStream(dict(enumerate(val)))
                 elif param.kind == Parameter.VAR_KEYWORD:
-                    bound.arguments[name] = typ._from_kwargs(val)
+                    bound.arguments[name] = _MultiStream(val)
 
-        outer_scopes = set(
+        outer_scopes = frozenset(
             itertools.chain.from_iterable(
                 val._get_scopes()
                 for val in bound.arguments.values()
@@ -618,12 +576,15 @@ def _gen_op_fn(
         if len(outer_scopes) != 1:
             msg = (
                 &#34;inconsistent stream scoping; &#34;
-                f&#34;found scopes {outer_scopes!r}; &#34;
-                &#34;possible nested `Stream` in arguments to this operator &#34;
+                f&#34;found multiple scopes {outer_scopes!r}; &#34;
+                &#34;expected one; &#34;
+                &#34;possible invalid operator definition; &#34;
+                &#34;might be nested `Stream` in arguments to this operator &#34;
                 &#34;or return value from previous operator; &#34;
-                &#34;see `bytewax.dataflow` module docstring for custom operator rules&#34;
+                &#34;see `bytewax.dataflow.operator` docstring for custom &#34;
+                &#34;operator rules&#34;
             )
-            raise ValueError(msg)
+            raise AssertionError(msg)
         # Get the singular outer_scope.
         outer_scope = next(iter(outer_scopes))
         # Re-scope input arguments that have a scope so internal calls
@@ -648,18 +609,19 @@ def _gen_op_fn(
         # Now unpack the special *args and **kwargs types for calling.
         for name, param in sig.parameters.items():
             val = bound.arguments[name]
-            typ = sig_types.get(name, object)
-            if issubclass(typ, _AsArgs):
+            anno = sig_annos.get(name, Any)
+            typ = _anno_to_typ(anno)
+            if typ is not None and issubclass(typ, Stream):
                 if param.kind == Parameter.VAR_POSITIONAL:
-                    bound.arguments[name] = typ._into_args(val)
+                    bound.arguments[name] = tuple(val.streams.values())
                 elif param.kind == Parameter.VAR_KEYWORD:
-                    bound.arguments[name] = typ._into_kwargs(val)
+                    bound.arguments[name] = dict(val.streams)
 
         # Now call the builder to cause sub-steps to be built.
         out = builder(*bound.args, **bound.kwargs)
 
         # Now unwrap output values into the cls.
-        if isinstance(out, Stream) or isinstance(out, MultiStream):
+        if isinstance(out, Stream) or isinstance(out, _MultiStream):
             cls_vals[&#34;down&#34;] = out
         elif isinstance(out, type(None)):
             pass
@@ -683,13 +645,15 @@ def _gen_op_fn(
 
         # Check for ID clashes since this will cause streams to be
         # lost.
-        for existing_step in outer_scope.substeps:
-            if existing_step.step_id == step.step_id:
-                msg = (
-                    f&#34;step {step.step_id!r} already exists; &#34;
-                    &#34;do you have two steps with the same ID?&#34;
-                )
-                raise ValueError(msg)
+        existing_step_ids = frozenset(
+            existing_step.step_id for existing_step in outer_scope.substeps
+        )
+        if step.step_id in existing_step_ids:
+            msg = (
+                f&#34;step {step.step_id!r} already exists; &#34;
+                &#34;do you have two steps with the same ID?&#34;
+            )
+            raise ValueError(msg)
 
         # And store it in the outer scope.
         outer_scope.substeps.append(step)
@@ -733,9 +697,9 @@ def operator(builder=None, *, _core: bool = False) -&gt; Callable:
 
     def inner_deco(builder: FunctionType) -&gt; Callable:
         sig = inspect.signature(builder)
-        sig_types = _norm_type_hints(builder)
-        cls = _gen_op_cls(builder, sig, sig_types, _core)
-        fn = _gen_op_fn(sig, sig_types, builder, cls, _core)
+        sig_annos = typing.get_type_hints(builder)
+        cls = _gen_op_cls(builder, sig, sig_annos, _core)
+        fn = _gen_op_fn(sig, sig_annos, builder, cls, _core)
         fn._op_cls = cls  # type: ignore[attr-defined]
         return fn
 
@@ -810,9 +774,9 @@ operators.</p>
 
     def inner_deco(builder: FunctionType) -&gt; Callable:
         sig = inspect.signature(builder)
-        sig_types = _norm_type_hints(builder)
-        cls = _gen_op_cls(builder, sig, sig_types, _core)
-        fn = _gen_op_fn(sig, sig_types, builder, cls, _core)
+        sig_annos = typing.get_type_hints(builder)
+        cls = _gen_op_cls(builder, sig, sig_annos, _core)
+        fn = _gen_op_fn(sig, sig_annos, builder, cls, _core)
         fn._op_cls = cls  # type: ignore[attr-defined]
         return fn
 
@@ -867,7 +831,7 @@ class Dataflow:
     def _get_scopes(self) -&gt; Iterable[_Scope]:
         return [self._scope]
 
-    def _with_scope(self, scope: _Scope) -&gt; &#34;Dataflow&#34;:
+    def _with_scope(self, scope: _Scope) -&gt; Self:
         return dataclasses.replace(self, _scope=scope)
 
     def _to_ref(self, _port_id: str) -&gt; DataflowId:
@@ -918,7 +882,7 @@ class DataflowId:
 <p>You won't be instantiating this manually. The <code><a title="bytewax.dataflow.operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.operator">operator()</a></code> decorator
 will create these for you whenever an operator function takes or
 returns a <code>*args</code> of <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code> or <code>**kwargs</code> of <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code>s or a
-<code><a title="bytewax.dataflow.MultiStream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.MultiStream">MultiStream</a></code>.</p></div>
+<code>MultiStream</code>.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -953,128 +917,9 @@ class MultiPort(Generic[K]):
 </dd>
 </dl>
 </dd>
-<dt id="bytewax.dataflow.MultiStream"><code class="language-python flex name class">
-<span>class <span class="ident">MultiStream</span></span>
-<span>(</span><span>streams: Dict[~K, <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[+X_co]])</span>
-</code></dt>
-<dd>
-<div class="desc"><p>A bundle of named <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code>s.</p>
-<p>Operator functions take or return this if they want to create an
-input or output port that can recieve multiple named streams
-dynamically.</p>
-<p>You will need to unpack the <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code>s within in order to add
-further steps:</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; import bytewax.operators as op
-&gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
-&gt;&gt;&gt; from bytewax.dataflow import Dataflow
-&gt;&gt;&gt; flow = Dataflow(&quot;multistream_eg&quot;)
-&gt;&gt;&gt; s = op.input(&quot;inp&quot;, flow, TestingSource(range(3)))
-&gt;&gt;&gt; a_s, b_s = op.key_split(
-...     &quot;split1&quot;,
-...     s,
-...     lambda x: &quot;KEY&quot;,
-...     lambda x: &quot;a&quot;,
-...     lambda x: &quot;b&quot;,
-... )
-</code></pre>
-<p>If you only have a single stream within, you can unpack using the
-"unpack a single item tuple" syntax:</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; (a_s,) = op.key_split(
-...     &quot;split2&quot;,
-...     s,
-...     lambda x: &quot;KEY&quot;,
-...     lambda x: &quot;a&quot;,
-... )
-</code></pre>
-<p>This is also created internally whenever a builder function takes
-or returns a <code>*args</code> of <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code> or <code>**kwargs</code> of <code><a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a></code>s.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">@dataclass(frozen=True)
-class MultiStream(Generic[K, X_co]):
-    &#34;&#34;&#34;A bundle of named `Stream`s.
-
-    Operator functions take or return this if they want to create an
-    input or output port that can recieve multiple named streams
-    dynamically.
-
-    You will need to unpack the `Stream`s within in order to add
-    further steps:
-
-    &gt;&gt;&gt; import bytewax.operators as op
-    &gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
-    &gt;&gt;&gt; from bytewax.dataflow import Dataflow
-    &gt;&gt;&gt; flow = Dataflow(&#34;multistream_eg&#34;)
-    &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource(range(3)))
-    &gt;&gt;&gt; a_s, b_s = op.key_split(
-    ...     &#34;split1&#34;,
-    ...     s,
-    ...     lambda x: &#34;KEY&#34;,
-    ...     lambda x: &#34;a&#34;,
-    ...     lambda x: &#34;b&#34;,
-    ... )
-
-    If you only have a single stream within, you can unpack using the
-    &#34;unpack a single item tuple&#34; syntax:
-
-    &gt;&gt;&gt; (a_s,) = op.key_split(
-    ...     &#34;split2&#34;,
-    ...     s,
-    ...     lambda x: &#34;KEY&#34;,
-    ...     lambda x: &#34;a&#34;,
-    ... )
-
-    This is also created internally whenever a builder function takes
-    or returns a `*args` of `Stream` or `**kwargs` of `Stream`s.
-
-    &#34;&#34;&#34;
-
-    streams: Dict[K, Stream[X_co]]
-
-    @property
-    def _scope(self):
-        msg = (
-            &#34;`MultiStream` must be unpacked to use the `Stream` inside; &#34;
-            &#34;&#34;&#34;e.g. `(names,) = op.key_split(&#34;step_id&#34;, up, &#34;&#34;&#34;
-            &#34;&#34;&#34;lambda x: x[&#34;id&#34;], lambda x: x[&#34;name&#34;])`&#34;&#34;&#34;
-        )
-        raise TypeError(msg)
-
-    def _get_scopes(self) -&gt; Iterable[_Scope]:
-        return (stream._scope for stream in self.streams.values())
-
-    def _with_scope(self, scope: _Scope) -&gt; &#34;MultiStream[K, X_co]&#34;:
-        streams = {
-            name: stream._with_scope(scope) for name, stream in self.streams.items()
-        }
-        return dataclasses.replace(self, streams=streams)
-
-    def _to_ref(self, port_id: str) -&gt; MultiPort[K]:
-        return MultiPort(
-            port_id,
-            {name: stream.stream_id for name, stream in self.streams.items()},
-        )
-
-    def __iter__(self):
-        return iter(self.streams.values())</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>typing.Generic</li>
-</ul>
-<h3>Class variables</h3>
-<dl>
-<dt id="bytewax.dataflow.MultiStream.streams"><code class="language-python name">var <span class="ident">streams</span> : Dict[~K, <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[+X_co]]</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-</dl>
-</dd>
 <dt id="bytewax.dataflow.Operator"><code class="language-python flex name class">
 <span>class <span class="ident">Operator</span></span>
-<span>(</span><span>step_name: str, step_id: str, substeps: List[ForwardRef('<a title="bytewax.dataflow.Operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator">Operator</a>')])</span>
+<span>(</span><span>step_name: str, step_id: str, substeps: List[Self])</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Base class for an operator type.</p>
@@ -1102,19 +947,30 @@ class Operator:
 
     step_name: str
     step_id: str
-    substeps: List[&#34;Operator&#34;]
+    substeps: List[Self]
     ups_names: ClassVar[List[str]]
     dwn_names: ClassVar[List[str]]</code></pre>
 </details>
 <h3>Subclasses</h3>
 <ul class="hlist">
+<li>bytewax.connectors.kafka.operators._kafka_error_split</li>
+<li>bytewax.connectors.kafka.operators._to_sink</li>
+<li><a title="bytewax.connectors.kafka.operators.deserialize" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.deserialize">deserialize()</a></li>
+<li><a title="bytewax.connectors.kafka.operators.deserialize_key" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.deserialize_key">deserialize_key()</a></li>
+<li><a title="bytewax.connectors.kafka.operators.deserialize_value" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.deserialize_value">deserialize_value()</a></li>
+<li><a title="bytewax.connectors.kafka.operators.input" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.input">input()</a></li>
+<li><a title="bytewax.connectors.kafka.operators.output" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.output">output()</a></li>
+<li><a title="bytewax.connectors.kafka.operators.serialize" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.serialize">serialize()</a></li>
+<li><a title="bytewax.connectors.kafka.operators.serialize_key" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.serialize_key">serialize_key()</a></li>
+<li><a title="bytewax.connectors.kafka.operators.serialize_value" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.serialize_value">serialize_value()</a></li>
 <li>bytewax.dataflow._CoreOperator</li>
 <li>bytewax.operators._join_name_merge</li>
-<li><a title="bytewax.operators.batch" href="/apidocs/bytewax.operators/index#bytewax.operators.batch">batch()</a></li>
+<li><a title="bytewax.operators.collect" href="/apidocs/bytewax.operators/index#bytewax.operators.collect">collect()</a></li>
 <li><a title="bytewax.operators.count_final" href="/apidocs/bytewax.operators/index#bytewax.operators.count_final">count_final()</a></li>
 <li><a title="bytewax.operators.filter" href="/apidocs/bytewax.operators/index#bytewax.operators.filter">filter()</a></li>
 <li><a title="bytewax.operators.filter_map" href="/apidocs/bytewax.operators/index#bytewax.operators.filter_map">filter_map()</a></li>
 <li><a title="bytewax.operators.filter_value" href="/apidocs/bytewax.operators/index#bytewax.operators.filter_value">filter_value()</a></li>
+<li><a title="bytewax.operators.flat_map" href="/apidocs/bytewax.operators/index#bytewax.operators.flat_map">flat_map()</a></li>
 <li><a title="bytewax.operators.flat_map_value" href="/apidocs/bytewax.operators/index#bytewax.operators.flat_map_value">flat_map_value()</a></li>
 <li><a title="bytewax.operators.flatten" href="/apidocs/bytewax.operators/index#bytewax.operators.flatten">flatten()</a></li>
 <li><a title="bytewax.operators.fold_final" href="/apidocs/bytewax.operators/index#bytewax.operators.fold_final">fold_final()</a></li>
@@ -1122,7 +978,6 @@ class Operator:
 <li><a title="bytewax.operators.join" href="/apidocs/bytewax.operators/index#bytewax.operators.join">join()</a></li>
 <li><a title="bytewax.operators.join_named" href="/apidocs/bytewax.operators/index#bytewax.operators.join_named">join_named()</a></li>
 <li><a title="bytewax.operators.key_on" href="/apidocs/bytewax.operators/index#bytewax.operators.key_on">key_on()</a></li>
-<li><a title="bytewax.operators.key_split" href="/apidocs/bytewax.operators/index#bytewax.operators.key_split">key_split()</a></li>
 <li><a title="bytewax.operators.map" href="/apidocs/bytewax.operators/index#bytewax.operators.map">map()</a></li>
 <li><a title="bytewax.operators.map_value" href="/apidocs/bytewax.operators/index#bytewax.operators.map_value">map_value()</a></li>
 <li><a title="bytewax.operators.max_final" href="/apidocs/bytewax.operators/index#bytewax.operators.max_final">max_final()</a></li>
@@ -1152,7 +1007,7 @@ class Operator:
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="bytewax.dataflow.Operator.substeps"><code class="language-python name">var <span class="ident">substeps</span> : List[<a title="bytewax.dataflow.Operator" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Operator">Operator</a>]</code></dt>
+<dt id="bytewax.dataflow.Operator.substeps"><code class="language-python name">var <span class="ident">substeps</span> : List[Self]</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -1310,31 +1165,15 @@ class Stream(Generic[X_co]):
     def _get_scopes(self) -&gt; Iterable[_Scope]:
         return [self._scope]
 
-    def _with_scope(self, scope: _Scope) -&gt; &#34;Stream[X_co]&#34;:
+    def _with_scope(self, scope: _Scope) -&gt; Self:
         return dataclasses.replace(self, _scope=scope)
 
     def _to_ref(self, ref_id: str) -&gt; SinglePort:
         return SinglePort(ref_id, self.stream_id)
 
-    @staticmethod
-    def _from_args(args: Tuple) -&gt; &#34;MultiStream[int, X_co]&#34;:
-        return MultiStream({i: stream for i, stream in enumerate(args)})
-
-    @staticmethod
-    def _into_args(obj: &#34;MultiStream[int, X_co]&#34;) -&gt; Tuple:
-        return tuple(obj.streams.values())
-
-    @staticmethod
-    def _from_kwargs(kwargs: Dict[str, &#34;Stream[X_co]&#34;]) -&gt; &#34;MultiStream[str, X_co]&#34;:
-        return MultiStream(kwargs)
-
-    @staticmethod
-    def _into_kwargs(obj: &#34;MultiStream[str, X_co]&#34;) -&gt; Dict[str, &#34;Stream[X_co]&#34;]:
-        return dict(obj.streams)
-
     def then(
         self,
-        op_fn: Callable[Concatenate[str, &#34;Stream[X_co]&#34;, P], R],
+        op_fn: Callable[Concatenate[str, Self, P], R],
         step_id: str,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -1360,9 +1199,8 @@ class Stream(Generic[X_co]):
         and
 
         &gt;&gt;&gt; flow = Dataflow(&#34;map_eg&#34;)
-        &gt;&gt;&gt; s = (
-        ...     op.input(&#34;inp&#34;, flow, TestingSource(range(3)))
-        ...     .then(op.map, &#34;add_one&#34;, add_one)
+        &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource(range(3))).then(
+        ...     op.map, &#34;add_one&#34;, add_one
         ... )
 
         This kind of method chaining is called a &#34;fluent style API&#34;.
@@ -1423,7 +1261,7 @@ like <code>bytewax.operators.merge_all.merge_all</code>.</p></div>
 </details>
 </dd>
 <dt id="bytewax.dataflow.Stream.then"><code class="language-python name flex">
-<span>def <span class="ident">then</span></span>(<span>self, op_fn: Callable[Concatenate[str, ForwardRef('<a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[X_co]'), ~P], ~R], step_id: str, *args: P.args, **kwargs: P.kwargs) ‑> ~R</span>
+<span>def <span class="ident">then</span></span>(<span>self, op_fn: Callable[Concatenate[str, Self, ~P], ~R], step_id: str, *args: P.args, **kwargs: P.kwargs) ‑> ~R</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Chain a new step onto this stream.</p>
@@ -1443,9 +1281,8 @@ intermediate variables.</p>
 </code></pre>
 <p>and</p>
 <pre><code class="language-python-repl">&gt;&gt;&gt; flow = Dataflow(&quot;map_eg&quot;)
-&gt;&gt;&gt; s = (
-...     op.input(&quot;inp&quot;, flow, TestingSource(range(3)))
-...     .then(op.map, &quot;add_one&quot;, add_one)
+&gt;&gt;&gt; s = op.input(&quot;inp&quot;, flow, TestingSource(range(3))).then(
+...     op.map, &quot;add_one&quot;, add_one
 ... )
 </code></pre>
 <p>This kind of method chaining is called a "fluent style API".</p>
@@ -1474,7 +1311,7 @@ second argument.</dd>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">def then(
     self,
-    op_fn: Callable[Concatenate[str, &#34;Stream[X_co]&#34;, P], R],
+    op_fn: Callable[Concatenate[str, Self, P], R],
     step_id: str,
     *args: P.args,
     **kwargs: P.kwargs,
@@ -1500,9 +1337,8 @@ second argument.</dd>
     and
 
     &gt;&gt;&gt; flow = Dataflow(&#34;map_eg&#34;)
-    &gt;&gt;&gt; s = (
-    ...     op.input(&#34;inp&#34;, flow, TestingSource(range(3)))
-    ...     .then(op.map, &#34;add_one&#34;, add_one)
+    &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource(range(3))).then(
+    ...     op.map, &#34;add_one&#34;, add_one
     ... )
 
     This kind of method chaining is called a &#34;fluent style API&#34;.
@@ -1577,12 +1413,6 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <ul class="api__sidebar-nav-menu">
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.MultiPort.port_id" href="/apidocs/bytewax.dataflow#bytewax.dataflow.MultiPort.port_id">port_id</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.MultiPort.stream_ids" href="/apidocs/bytewax.dataflow#bytewax.dataflow.MultiPort.stream_ids">stream_ids</a></li>
-</ul>
-</li>
-<li class="api__sidebar-nav-classes-item">
-<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.dataflow.MultiStream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.MultiStream">MultiStream</a></h4>
-<ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.dataflow.MultiStream.streams" href="/apidocs/bytewax.dataflow#bytewax.dataflow.MultiStream.streams">streams</a></li>
 </ul>
 </li>
 <li class="api__sidebar-nav-classes-item">

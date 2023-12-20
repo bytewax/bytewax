@@ -42,7 +42,7 @@ class StdOutSink(DynamicSink[Any]):
 
     &#34;&#34;&#34;
 
-    def build(self, _worker_index: int, _worker_count: int) -&gt; _PrintSinkPartition:
+    def build(self, worker_index: int, worker_count: int) -&gt; _PrintSinkPartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         return _PrintSinkPartition()</code></pre>
 </details>
@@ -83,7 +83,7 @@ epoch will be duplicated right after resume.</p></div>
 
     &#34;&#34;&#34;
 
-    def build(self, _worker_index: int, _worker_count: int) -&gt; _PrintSinkPartition:
+    def build(self, worker_index: int, worker_count: int) -&gt; _PrintSinkPartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         return _PrintSinkPartition()</code></pre>
 </details>
@@ -97,7 +97,7 @@ epoch will be duplicated right after resume.</p></div>
 <h3>Methods</h3>
 <dl>
 <dt id="bytewax.connectors.stdio.StdOutSink.build"><code class="language-python name flex">
-<span>def <span class="ident">build</span></span>(<span>self, _worker_index: int, _worker_count: int) ‑> bytewax.connectors.stdio._PrintSinkPartition</span>
+<span>def <span class="ident">build</span></span>(<span>self, worker_index: int, worker_count: int) ‑> bytewax.connectors.stdio._PrintSinkPartition</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -105,7 +105,7 @@ epoch will be duplicated right after resume.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def build(self, _worker_index: int, _worker_count: int) -&gt; _PrintSinkPartition:
+<pre class="language-python line-numbers"><code class="language-python">def build(self, worker_index: int, worker_count: int) -&gt; _PrintSinkPartition:
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
     return _PrintSinkPartition()</code></pre>
 </details>

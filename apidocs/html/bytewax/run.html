@@ -31,7 +31,6 @@ import ast
 import inspect
 import os
 import sys
-import traceback
 from datetime import timedelta
 from pathlib import Path
 
@@ -57,15 +56,11 @@ def _locate_dataflow(module_name, dataflow_name):
 
     try:
         __import__(module_name)
-    except ImportError:
+    except ImportError as ex:
         # Reraise the ImportError if it occurred within the imported module.
         # Determine this by checking whether the trace has a depth &gt; 1.
-        if sys.exc_info()[2].tb_next:
-            msg = (
-                f&#34;While importing {module_name!r}, an ImportError was raised:\n\n&#34;
-                f&#34;{traceback.format_exc()}&#34;
-            )
-            raise ImportError(msg) from None
+        if ex.__traceback__ is not None:
+            raise
         else:
             msg = f&#34;Could not import {module_name!r}.&#34;
             raise ImportError(msg) from None
@@ -95,7 +90,7 @@ def _locate_dataflow(module_name, dataflow_name):
         # Parse the positional and keyword arguments as literals.
         try:
             args = [ast.literal_eval(arg) for arg in expr.args]
-            kwargs = {kw.arg: ast.literal_eval(kw.value) for kw in expr.keywords}
+            kwargs = {str(kw.arg): ast.literal_eval(kw.value) for kw in expr.keywords}
         except ValueError:
             # literal_eval gives cryptic error messages, show a generic
             # message with the full expression instead.
@@ -246,9 +241,9 @@ def _create_arg_parser():
         &#34;-s&#34;,
         &#34;--snapshot-interval&#34;,
         type=_parse_timedelta,
-        default=timedelta(seconds=10),
         help=&#34;&#34;&#34;System time duration in seconds to snapshot state for recovery;
-        defaults to 10 sec&#34;&#34;&#34;,
+        on resume, dataflow might need to rewind and replay all the data processed
+        in one of these intervals&#34;&#34;&#34;,
         action=_EnvDefault,
         envvar=&#34;BYTEWAX_SNAPSHOT_INTERVAL&#34;,
     )
@@ -256,10 +251,8 @@ def _create_arg_parser():
         &#34;-b&#34;,
         &#34;--backup-interval&#34;,
         type=_parse_timedelta,
-        default=timedelta(days=1),
         help=&#34;&#34;&#34;System time duration in seconds to keep extra state snapshots around;
-        set this to the interval at which you are backing up recovery partitions;
-        defaults to 1 day&#34;&#34;&#34;,
+        set this to the interval at which you are backing up recovery partitions&#34;&#34;&#34;,
         action=_EnvDefault,
         envvar=&#34;BYTEWAX_RECOVERY_BACKUP_INTERVAL&#34;,
     )
@@ -332,19 +325,38 @@ def _parse_args():
                 &#34;the addresses option is required if a process_id is passed&#34;
             )
 
+    # If recovery is configured, make sure that the snapshot_interval and
+    # backup_interval are set.
+    if args.recovery_directory is not None and (
+        not args.snapshot_interval or not args.backup_interval
+    ):
+        arg_parser.error(
+            &#34;when running with recovery, the `-s/--snapshot_interval` and &#34;
+            &#34;`-b/--backup_interval` values must be set. For more information &#34;
+            &#34;about setting these values, please see &#34;
+            &#34;https://bytewax.io/docs/concepts/recovery.&#34;
+        )
+
     return args
 
 
 if __name__ == &#34;__main__&#34;:
     kwargs = vars(_parse_args())
-    kwargs[&#34;epoch_interval&#34;] = kwargs.pop(&#34;snapshot_interval&#34;)
+    snapshot_interval = kwargs.pop(&#34;snapshot_interval&#34;)
 
-    recovery_directory, backup_interval = kwargs.pop(&#34;recovery_directory&#34;), kwargs.pop(
-        &#34;backup_interval&#34;
+    recovery_directory, backup_interval = (
+        kwargs.pop(&#34;recovery_directory&#34;),
+        kwargs.pop(&#34;backup_interval&#34;),
     )
     kwargs[&#34;recovery_config&#34;] = None
     if recovery_directory is not None:
+        kwargs[&#34;epoch_interval&#34;] = snapshot_interval
         kwargs[&#34;recovery_config&#34;] = RecoveryConfig(recovery_directory, backup_interval)
+    else:
+        # Default epoch interval if there is no recovery setup. Since
+        # there&#39;s no recovery, this needs not be coordinated with
+        # anything else.
+        kwargs[&#34;epoch_interval&#34;] = snapshot_interval or timedelta(seconds=10)
 
     # Prepare addresses
     addresses = kwargs.pop(&#34;addresses&#34;)

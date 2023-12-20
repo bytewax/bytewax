@@ -21,12 +21,10 @@ If you want pre-built connectors for various external systems, see
 import asyncio
 import queue
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import islice
 from typing import (
-    Any,
     Callable,
     Generic,
     Iterable,
@@ -36,6 +34,8 @@ from typing import (
     Type,
     TypeVar,
 )
+
+from typing_extensions import AsyncIterable
 
 from .bytewax import AbortExecution  # type: ignore[import]
 
@@ -74,7 +74,7 @@ class StatefulSourcePartition(ABC, Generic[X, S]):
     &#34;&#34;&#34;Input partition that maintains state of its position.&#34;&#34;&#34;
 
     @abstractmethod
-    def next_batch(self, sched: datetime) -&gt; Iterable[X]:
+    def next_batch(self, sched: Optional[datetime]) -&gt; Iterable[X]:
         &#34;&#34;&#34;Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
@@ -82,7 +82,8 @@ class StatefulSourcePartition(ABC, Generic[X, S]):
         items to emit yet.
 
         Args:
-            sched: The scheduled awake time.
+            sched: The scheduled awake time, if one was returned by
+                `next_awake`.
 
         Returns:
             Items immediately ready. May be empty if no new items.
@@ -321,7 +322,7 @@ class _SimplePollingPartition(StatefulSourcePartition[X, None]):
         else:
             self._next_awake = now
 
-    def next_batch(self, _sched: datetime) -&gt; List[X]:
+    def next_batch(self, sched: datetime) -&gt; List[X]:
         try:
             item = self._getter()
             self._next_awake += self._interval
@@ -398,7 +399,7 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
         return [&#34;singleton&#34;]
 
     def build_part(
-        self, now: datetime, _for_part: str, _resume_state: Optional[None]
+        self, now: datetime, for_part: str, resume_state: Optional[None]
     ) -&gt; _SimplePollingPartition[X]:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         return _SimplePollingPartition(
@@ -471,7 +472,7 @@ def batch_getter(
 
     &#34;&#34;&#34;
     while True:
-        batch: List[Any] = []
+        batch = []
         while len(batch) &lt; batch_size:
             try:
                 item = getter()
@@ -511,7 +512,7 @@ def batch_getter_ex(
 
     &#34;&#34;&#34;
     while True:
-        batch: List[Any] = []
+        batch = []
         while len(batch) &lt; batch_size:
             try:
                 item = getter()
@@ -525,11 +526,11 @@ def batch_getter_ex(
 
 
 def batch_async(
-    aib: AsyncIterable,
+    aib: AsyncIterable[X],
     timeout: timedelta,
     batch_size: int,
     loop=None,
-) -&gt; Iterator[List[Any]]:
+) -&gt; Iterator[List[X]]:
     &#34;&#34;&#34;Batch an async iterable synchronously up to a timeout.
 
     This allows using an async iterator as an input source. The
@@ -569,7 +570,11 @@ def batch_async(
         # Only try to gather this many items.
         for _ in range(batch_size):
             if task is None:
-                task = loop.create_task(ait.__anext__())
+
+                async def coro():
+                    return await ait.__anext__()
+
+                task = loop.create_task(coro())
 
             try:
                 # Prevent the `wait_for` cancellation from
@@ -659,7 +664,7 @@ Maximum number of items to yield in a batch.</p>
 </details>
 </dd>
 <dt id="bytewax.inputs.batch_async"><code class="language-python name flex">
-<span>def <span class="ident">batch_async</span></span>(<span>aib: collections.abc.AsyncIterable, timeout: datetime.timedelta, batch_size: int, loop=None) ‑> Iterator[List[Any]]</span>
+<span>def <span class="ident">batch_async</span></span>(<span>aib: AsyncIterable[~X], timeout: datetime.timedelta, batch_size: int, loop=None) ‑> Iterator[List[~X]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Batch an async iterable synchronously up to a timeout.</p>
@@ -687,11 +692,11 @@ will return a list with length up to <code>max_len</code>.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">def batch_async(
-    aib: AsyncIterable,
+    aib: AsyncIterable[X],
     timeout: timedelta,
     batch_size: int,
     loop=None,
-) -&gt; Iterator[List[Any]]:
+) -&gt; Iterator[List[X]]:
     &#34;&#34;&#34;Batch an async iterable synchronously up to a timeout.
 
     This allows using an async iterator as an input source. The
@@ -731,7 +736,11 @@ will return a list with length up to <code>max_len</code>.</p></div>
         # Only try to gather this many items.
         for _ in range(batch_size):
             if task is None:
-                task = loop.create_task(ait.__anext__())
+
+                async def coro():
+                    return await ait.__anext__()
+
+                task = loop.create_task(coro())
 
             try:
                 # Prevent the `wait_for` cancellation from
@@ -817,7 +826,7 @@ yet, and to return the current batch. Defaults to <code>None</code>.</p>
 
     &#34;&#34;&#34;
     while True:
-        batch: List[Any] = []
+        batch = []
         while len(batch) &lt; batch_size:
             try:
                 item = getter()
@@ -880,7 +889,7 @@ batch. Defaults to <code>queue.Empty</code>.</p>
 
     &#34;&#34;&#34;
     while True:
-        batch: List[Any] = []
+        batch = []
         while len(batch) &lt; batch_size:
             try:
                 item = getter()
@@ -1095,7 +1104,7 @@ items.</p></div>
 <li><a title="bytewax.connectors.files.CSVSource" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.CSVSource">CSVSource</a></li>
 <li><a title="bytewax.connectors.files.DirSource" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.DirSource">DirSource</a></li>
 <li><a title="bytewax.connectors.files.FileSource" href="/apidocs/bytewax.connectors/files#bytewax.connectors.files.FileSource">FileSource</a></li>
-<li><a title="bytewax.connectors.kafka.KafkaSource" href="/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSource">KafkaSource</a></li>
+<li><a title="bytewax.connectors.kafka.source.KafkaSource" href="/apidocs/bytewax.connectors/kafka/source#bytewax.connectors.kafka.source.KafkaSource">KafkaSource</a></li>
 <li><a title="bytewax.inputs.SimplePollingSource" href="/apidocs/bytewax.inputs#bytewax.inputs.SimplePollingSource">SimplePollingSource</a></li>
 <li><a title="bytewax.testing.TestingSource" href="/apidocs/bytewax.testing#bytewax.testing.TestingSource">TestingSource</a></li>
 </ul>
@@ -1284,7 +1293,7 @@ now.</p></div>
         return [&#34;singleton&#34;]
 
     def build_part(
-        self, now: datetime, _for_part: str, _resume_state: Optional[None]
+        self, now: datetime, for_part: str, resume_state: Optional[None]
     ) -&gt; _SimplePollingPartition[X]:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         return _SimplePollingPartition(
@@ -1329,7 +1338,7 @@ now.</p></div>
 <h3>Methods</h3>
 <dl>
 <dt id="bytewax.inputs.SimplePollingSource.build_part"><code class="language-python name flex">
-<span>def <span class="ident">build_part</span></span>(<span>self, now: datetime.datetime, _for_part: str, _resume_state: None) ‑> bytewax.inputs._SimplePollingPartition[~X]</span>
+<span>def <span class="ident">build_part</span></span>(<span>self, now: datetime.datetime, for_part: str, resume_state: None) ‑> bytewax.inputs._SimplePollingPartition[~X]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -1338,7 +1347,7 @@ now.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">def build_part(
-    self, now: datetime, _for_part: str, _resume_state: Optional[None]
+    self, now: datetime, for_part: str, resume_state: Optional[None]
 ) -&gt; _SimplePollingPartition[X]:
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
     return _SimplePollingPartition(
@@ -1444,7 +1453,7 @@ of the specific source sub-types below in this module.</p></div>
     &#34;&#34;&#34;Input partition that maintains state of its position.&#34;&#34;&#34;
 
     @abstractmethod
-    def next_batch(self, sched: datetime) -&gt; Iterable[X]:
+    def next_batch(self, sched: Optional[datetime]) -&gt; Iterable[X]:
         &#34;&#34;&#34;Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
@@ -1452,7 +1461,8 @@ of the specific source sub-types below in this module.</p></div>
         items to emit yet.
 
         Args:
-            sched: The scheduled awake time.
+            sched: The scheduled awake time, if one was returned by
+                `next_awake`.
 
         Returns:
             Items immediately ready. May be empty if no new items.
@@ -1526,7 +1536,7 @@ of the specific source sub-types below in this module.</p></div>
 <li>bytewax.connectors.demo._RandomMetricPartition</li>
 <li>bytewax.connectors.files._CSVPartition</li>
 <li>bytewax.connectors.files._FileSourcePartition</li>
-<li>bytewax.connectors.kafka._KafkaSourcePartition</li>
+<li>bytewax.connectors.kafka.source._KafkaSourcePartition</li>
 <li>bytewax.inputs._SimplePollingPartition</li>
 <li>bytewax.testing._IterSourcePartition</li>
 </ul>
@@ -1601,7 +1611,7 @@ case there is a 1 millisecond delay.</p>
 </details>
 </dd>
 <dt id="bytewax.inputs.StatefulSourcePartition.next_batch"><code class="language-python name flex">
-<span>def <span class="ident">next_batch</span></span>(<span>self, sched: datetime.datetime) ‑> Iterable[~X]</span>
+<span>def <span class="ident">next_batch</span></span>(<span>self, sched: Optional[datetime.datetime]) ‑> Iterable[~X]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Attempt to get the next batch of input items.</p>
@@ -1611,7 +1621,8 @@ items to emit yet.</p>
 <h2 id="args">Args</h2>
 <dl>
 <dt><strong><code>sched</code></strong></dt>
-<dd>The scheduled awake time.</dd>
+<dd>The scheduled awake time, if one was returned by
+<code>next_awake</code>.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>Items immediately ready. May be empty if no new items.</p>
@@ -1625,7 +1636,7 @@ items to emit yet.</p>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@abstractmethod
-def next_batch(self, sched: datetime) -&gt; Iterable[X]:
+def next_batch(self, sched: Optional[datetime]) -&gt; Iterable[X]:
     &#34;&#34;&#34;Attempt to get the next batch of input items.
 
     This must participate in a kind of cooperative multi-tasking,
@@ -1633,7 +1644,8 @@ def next_batch(self, sched: datetime) -&gt; Iterable[X]:
     items to emit yet.
 
     Args:
-        sched: The scheduled awake time.
+        sched: The scheduled awake time, if one was returned by
+            `next_awake`.
 
     Returns:
         Items immediately ready. May be empty if no new items.

@@ -77,7 +77,7 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
         ffwd_iter(self._it, self._start_idx)
         self._raise: Optional[Exception] = None
 
-    def next_batch(self, _sched: datetime) -&gt; List[X]:
+    def next_batch(self, sched: datetime) -&gt; List[X]:
         if self._raise is not None:
             raise self._raise
 
@@ -184,7 +184,7 @@ class TestingSource(FixedPartitionedSource[X, int]):
         return [&#34;iterable&#34;]
 
     def build_part(
-        self, _now: datetime, _for_key: str, resume_state: Optional[int]
+        self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -&gt; _IterSourcePartition[X]:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         return _IterSourcePartition(self._ib, self._batch_size, resume_state)
@@ -218,7 +218,7 @@ class TestingSink(DynamicSink[X]):
         &#34;&#34;&#34;
         self._ls = ls
 
-    def build(self, _worker_index: int, _worker_count: int) -&gt; _ListSinkPartition[X]:
+    def build(self, worker_index: int, worker_count: int) -&gt; _ListSinkPartition[X]:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         return _ListSinkPartition(self._ls)
 
@@ -290,8 +290,9 @@ if __name__ == &#34;__main__&#34;:
 
     kwargs[&#34;epoch_interval&#34;] = kwargs.pop(&#34;snapshot_interval&#34;)
 
-    recovery_directory, backup_interval = kwargs.pop(&#34;recovery_directory&#34;), kwargs.pop(
-        &#34;backup_interval&#34;
+    recovery_directory, backup_interval = (
+        kwargs.pop(&#34;recovery_directory&#34;),
+        kwargs.pop(&#34;backup_interval&#34;),
     )
     kwargs[&#34;recovery_config&#34;] = None
     if recovery_directory is not None:
@@ -511,7 +512,7 @@ between executions.</p>
         &#34;&#34;&#34;
         self._ls = ls
 
-    def build(self, _worker_index: int, _worker_count: int) -&gt; _ListSinkPartition[X]:
+    def build(self, worker_index: int, worker_count: int) -&gt; _ListSinkPartition[X]:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         return _ListSinkPartition(self._ls)</code></pre>
 </details>
@@ -525,7 +526,7 @@ between executions.</p>
 <h3>Methods</h3>
 <dl>
 <dt id="bytewax.testing.TestingSink.build"><code class="language-python name flex">
-<span>def <span class="ident">build</span></span>(<span>self, _worker_index: int, _worker_count: int) ‑> bytewax.testing._ListSinkPartition[~X]</span>
+<span>def <span class="ident">build</span></span>(<span>self, worker_index: int, worker_count: int) ‑> bytewax.testing._ListSinkPartition[~X]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -533,7 +534,7 @@ between executions.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def build(self, _worker_index: int, _worker_count: int) -&gt; _ListSinkPartition[X]:
+<pre class="language-python line-numbers"><code class="language-python">def build(self, worker_index: int, worker_count: int) -&gt; _ListSinkPartition[X]:
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
     return _ListSinkPartition(self._ls)</code></pre>
 </details>
@@ -632,7 +633,7 @@ each batch. Defaults to 1.</dd>
         return [&#34;iterable&#34;]
 
     def build_part(
-        self, _now: datetime, _for_key: str, resume_state: Optional[int]
+        self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -&gt; _IterSourcePartition[X]:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         return _IterSourcePartition(self._ib, self._batch_size, resume_state)</code></pre>
@@ -664,7 +665,7 @@ other workers don't know when to stop.</p></div>
 <h3>Methods</h3>
 <dl>
 <dt id="bytewax.testing.TestingSource.build_part"><code class="language-python name flex">
-<span>def <span class="ident">build_part</span></span>(<span>self, _now: datetime.datetime, _for_key: str, resume_state: Optional[int]) ‑> bytewax.testing._IterSourcePartition[~X]</span>
+<span>def <span class="ident">build_part</span></span>(<span>self, now: datetime.datetime, for_part: str, resume_state: Optional[int]) ‑> bytewax.testing._IterSourcePartition[~X]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -673,7 +674,7 @@ other workers don't know when to stop.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">def build_part(
-    self, _now: datetime, _for_key: str, resume_state: Optional[int]
+    self, now: datetime, for_part: str, resume_state: Optional[int]
 ) -&gt; _IterSourcePartition[X]:
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
     return _IterSourcePartition(self._ib, self._batch_size, resume_state)</code></pre>

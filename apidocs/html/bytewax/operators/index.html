@@ -27,6 +27,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import partial
+from itertools import chain
 from typing import (
     Any,
     Callable,
@@ -40,10 +41,10 @@ from typing import (
     overload,
 )
 
+from typing_extensions import Self, TypeAlias, TypeGuard
+
 from bytewax.dataflow import (
-    ArgsMultiStream,
     Dataflow,
-    MultiStream,
     Stream,
     f_repr,
     operator,
@@ -56,7 +57,9 @@ Y = TypeVar(&#34;Y&#34;)  # Output Item
 V = TypeVar(&#34;V&#34;)  # Value
 W = TypeVar(&#34;W&#34;)  # Output Value
 S = TypeVar(&#34;S&#34;)  # State
-KeyedStream = Stream[Tuple[str, V]]
+KeyedStream: TypeAlias = Stream[Tuple[str, V]]
+
+EMPTY = tuple()
 
 
 def _identity(x: X) -&gt; X:
@@ -68,18 +71,29 @@ def _untyped_none() -&gt; Any:
 
 
 @dataclass(frozen=True)
-class BranchOut(Generic[X]):
-    &#34;&#34;&#34;Streams returned from `branch` operator.
-
-    You can tuple unpack this for convenience.
-
-    &#34;&#34;&#34;
+class BranchOut(Generic[X, Y]):
+    &#34;&#34;&#34;Streams returned from `branch` operator.&#34;&#34;&#34;
 
     trues: Stream[X]
-    falses: Stream[X]
+    falses: Stream[Y]
 
-    def __iter__(self):
-        return iter((self.trues, self.falses))
+
+@overload
+def branch(
+    step_id: str,
+    up: Stream[X],
+    predicate: Callable[[X], TypeGuard[Y]],
+) -&gt; BranchOut[Y, X]:
+    ...
+
+
+@overload
+def branch(
+    step_id: str,
+    up: Stream[X],
+    predicate: Callable[[X], bool],
+) -&gt; BranchOut[X, X]:
+    ...
 
 
 @operator(_core=True)
@@ -87,14 +101,16 @@ def branch(
     step_id: str,
     up: Stream[X],
     predicate: Callable[[X], bool],
-) -&gt; BranchOut[X]:
+) -&gt; BranchOut:
     &#34;&#34;&#34;Divide items into two streams with a predicate.
 
     &gt;&gt;&gt; import bytewax.operators as op
     &gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
     &gt;&gt;&gt; flow = Dataflow(&#34;branch_eg&#34;)
     &gt;&gt;&gt; nums = op.input(&#34;nums&#34;, flow, TestingSource([1, 2, 3, 4, 5]))
-    &gt;&gt;&gt; evens, odds = op.branch(&#34;even_odd&#34;, nums, lambda x: x % 2 == 0)
+    &gt;&gt;&gt; b_out = op.branch(&#34;even_odd&#34;, nums, lambda x: x % 2 == 0)
+    &gt;&gt;&gt; evens = b_out.trues
+    &gt;&gt;&gt; odds = b_out.falses
     &gt;&gt;&gt; _ = op.inspect(&#34;evens&#34;, evens)
     &gt;&gt;&gt; _ = op.inspect(&#34;odds&#34;, odds)
     &gt;&gt;&gt; run_main(flow)
@@ -111,7 +127,9 @@ def branch(
 
         predicate: Function to call on each upstream item. Items for
             which this returns `True` will be put into one branch
-            `Stream`; `False` the other branc `Stream`.h
+            `Stream`; `False` the other branch `Stream`. If this
+            function is a `typing.TypeGuard`, the downstreams will be
+            properly typed.
 
     Returns:
         A stream of items for which the predicate returns `True`, and
@@ -125,44 +143,31 @@ def branch(
 
 
 @operator(_core=True)
-def flat_map(
+def flat_map_batch(
     step_id: str,
     up: Stream[X],
-    mapper: Callable[[X], Iterable[Y]],
+    mapper: Callable[[List[X]], Iterable[Y]],
 ) -&gt; Stream[Y]:
-    &#34;&#34;&#34;Transform items one-to-many.
+    &#34;&#34;&#34;Transform an entire batch of items 1-to-many.
 
-    This is like a combination of `map` and `flatten`.
+    The batch size received here depends on the exact behavior of the
+    upstream input sources and operators. It should be used as a
+    performance optimization when processing multiple items at once
+    has much reduced overhead.
 
-    It is commonly used for:
+    See also the `batch_size` parameter on various input sources.
 
-    - Tokenizing
-
-    - Flattening hierarchical objects
-
-    - Breaking up aggregations for further processing
-
-    &gt;&gt;&gt; import bytewax.operators as op
-    &gt;&gt;&gt; from bytewax.testing import TestingSource, run_main
-    &gt;&gt;&gt; from bytewax.dataflow import Dataflow
-    &gt;&gt;&gt; flow = Dataflow(&#34;flat_map_eg&#34;)
-    &gt;&gt;&gt; inp = [&#34;hello world&#34;]
-    &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource(inp))
-    &gt;&gt;&gt; def split_into_words(sentence):
-    ...     return sentence.split()
-    &gt;&gt;&gt; s = op.flat_map(&#34;split_words&#34;, s, split_into_words)
-    &gt;&gt;&gt; _ = op.inspect(&#34;out&#34;, s)
-    &gt;&gt;&gt; run_main(flow)
-    flat_map_eg.out: &#39;hello&#39;
-    flat_map_eg.out: &#39;world&#39;
+    See also the `batch` operator, which collects multiple items next
+    to each other in a stream into a single list of them flowing
+    through the stream.
 
     Args:
         step_id: Unique ID.
 
         up: Stream.
 
-        mapper: Called once on each upstream item. Returns the items
-            to emit downstream.
+        mapper: Called once with each batch of items the runtime
+            receives. Returns the items to emit downstream.
 
     Returns:
         A stream of each item returned by the mapper.
@@ -366,7 +371,7 @@ class UnaryLogic(ABC, Generic[V, W, S]):
     DISCARD: bool = True
 
     @abstractmethod
-    def on_item(self, now: datetime, value: V) -&gt; Tuple[List[W], bool]:
+    def on_item(self, now: datetime, value: V) -&gt; Tuple[Iterable[W], bool]:
         &#34;&#34;&#34;Called on each new upstream item.
 
         This will be called multiple times in a row if there are
@@ -386,7 +391,7 @@ class UnaryLogic(ABC, Generic[V, W, S]):
         ...
 
     @abstractmethod
-    def on_notify(self, sched: datetime) -&gt; Tuple[List[W], bool]:
+    def on_notify(self, sched: datetime) -&gt; Tuple[Iterable[W], bool]:
         &#34;&#34;&#34;Called when the scheduled notification time has passed.
 
         Args:
@@ -401,7 +406,7 @@ class UnaryLogic(ABC, Generic[V, W, S]):
         ...
 
     @abstractmethod
-    def on_eof(self) -&gt; Tuple[List[W], bool]:
+    def on_eof(self) -&gt; Tuple[Iterable[W], bool]:
         &#34;&#34;&#34;The upstream has no more items on this execution.
 
         This will only be called once per execution after `on_item` is
@@ -490,67 +495,71 @@ def unary(
 
 
 @dataclass
-class _BatchState(Generic[V]):
+class _CollectState(Generic[V]):
     acc: List[V] = field(default_factory=list)
     timeout_at: Optional[datetime] = None
 
 
 @dataclass
-class _BatchLogic(UnaryLogic[V, List[V], _BatchState[V]]):
+class _CollectLogic(UnaryLogic[V, List[V], _CollectState[V]]):
     step_id: str
     timeout: timedelta
-    batch_size: int
-    state: _BatchState[V]
+    max_size: int
+    state: _CollectState[V]
 
-    def on_item(self, now: datetime, v: V) -&gt; Tuple[List[List[V]], bool]:
+    def on_item(self, now: datetime, value: V) -&gt; Tuple[Iterable[List[V]], bool]:
         self.state.timeout_at = now + self.timeout
 
-        self.state.acc.append(v)
-        if len(self.state.acc) &gt;= self.batch_size:
+        self.state.acc.append(value)
+        if len(self.state.acc) &gt;= self.max_size:
             # No need to deepcopy because we are discarding the state.
-            return ([self.state.acc], UnaryLogic.DISCARD)
+            return ((self.state.acc,), UnaryLogic.DISCARD)
 
-        return ([], UnaryLogic.RETAIN)
+        return (EMPTY, UnaryLogic.RETAIN)
 
-    def on_notify(self, sched: datetime) -&gt; Tuple[List[List[V]], bool]:
-        return ([self.state.acc], UnaryLogic.DISCARD)
+    def on_notify(self, sched: datetime) -&gt; Tuple[Iterable[List[V]], bool]:
+        return ((self.state.acc,), UnaryLogic.DISCARD)
 
-    def on_eof(self) -&gt; Tuple[List[List[V]], bool]:
-        return ([self.state.acc], UnaryLogic.DISCARD)
+    def on_eof(self) -&gt; Tuple[Iterable[List[V]], bool]:
+        return ((self.state.acc,), UnaryLogic.DISCARD)
 
     def notify_at(self) -&gt; Optional[datetime]:
         return self.state.timeout_at
 
-    def snapshot(self) -&gt; _BatchState[V]:
+    def snapshot(self) -&gt; _CollectState[V]:
         return copy.deepcopy(self.state)
 
 
 @operator
-def batch(
-    step_id: str, up: KeyedStream[V], timeout: timedelta, batch_size: int
+def collect(
+    step_id: str, up: KeyedStream[V], timeout: timedelta, max_size: int
 ) -&gt; KeyedStream[List[V]]:
-    &#34;&#34;&#34;Batch incoming items up to a size or a timeout.
+    &#34;&#34;&#34;Collect items into a list up to a size or a timeout.
+
+    See `bytewax.operators.window.collect_window` for more control
+    over time.
 
     Args:
         step_id: Unique ID.
 
         up: Stream of individual items.
 
-        timeout: Timeout before emitting the batch, even if max_size
+        timeout: Timeout before emitting the list, even if `max_size`
             was not reached.
 
-        batch_size: Maximum size of the batch.
+        max_size: Emit the list once it reaches this size, even if
+        `timeout` was not reached.
 
     Returns:
-        A stream of batches of upstream items gathered into a `list`.
+        A stream of upstream items gathered into `list`s.
 
     &#34;&#34;&#34;
 
     def shim_builder(
-        _now: datetime, resume_state: Optional[_BatchState[V]]
-    ) -&gt; _BatchLogic[V]:
-        state = resume_state if resume_state is not None else _BatchState()
-        return _BatchLogic(step_id, timeout, batch_size, state)
+        _now: datetime, resume_state: Optional[_CollectState[V]]
+    ) -&gt; _CollectLogic[V]:
+        state = resume_state if resume_state is not None else _CollectState()
+        return _CollectLogic(step_id, timeout, max_size, state)
 
     return unary(&#34;unary&#34;, up, shim_builder)
 
@@ -579,6 +588,57 @@ def count_final(
     &#34;&#34;&#34;
     down: KeyedStream[int] = map(&#34;init_count&#34;, up, lambda x: (key(x), 1))
     return reduce_final(&#34;sum&#34;, down, lambda s, x: s + x)
+
+
+@operator
+def flat_map(
+    step_id: str,
+    up: Stream[X],
+    mapper: Callable[[X], Iterable[Y]],
+) -&gt; Stream[Y]:
+    &#34;&#34;&#34;Transform items one-to-many.
+
+    This is like a combination of `map` and `flatten`.
+
+    It is commonly used for:
+
+    - Tokenizing
+
+    - Flattening hierarchical objects
+
+    - Breaking up aggregations for further processing
+
+    &gt;&gt;&gt; import bytewax.operators as op
+    &gt;&gt;&gt; from bytewax.testing import TestingSource, run_main
+    &gt;&gt;&gt; from bytewax.dataflow import Dataflow
+    &gt;&gt;&gt; flow = Dataflow(&#34;flat_map_eg&#34;)
+    &gt;&gt;&gt; inp = [&#34;hello world&#34;]
+    &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource(inp))
+    &gt;&gt;&gt; def split_into_words(sentence):
+    ...     return sentence.split()
+    &gt;&gt;&gt; s = op.flat_map(&#34;split_words&#34;, s, split_into_words)
+    &gt;&gt;&gt; _ = op.inspect(&#34;out&#34;, s)
+    &gt;&gt;&gt; run_main(flow)
+    flat_map_eg.out: &#39;hello&#39;
+    flat_map_eg.out: &#39;world&#39;
+
+    Args:
+        step_id: Unique ID.
+
+        up: Stream.
+
+        mapper: Called once on each upstream item. Returns the items
+            to emit downstream.
+
+    Returns:
+        A stream of each item returned by the mapper.
+
+    &#34;&#34;&#34;
+
+    def shim_mapper(xs: List[X]) -&gt; Iterable[Y]:
+        return chain.from_iterable(mapper(x) for x in xs)
+
+    return flat_map_batch(&#34;flat_map_batch&#34;, up, shim_mapper)
 
 
 @operator
@@ -691,7 +751,7 @@ def filter(  # noqa: A001
 
     &#34;&#34;&#34;
 
-    def shim_mapper(x: X) -&gt; List[X]:
+    def shim_mapper(x: X) -&gt; Iterable[X]:
         keep = predicate(x)
         if not isinstance(keep, bool):
             msg = (
@@ -701,9 +761,9 @@ def filter(  # noqa: A001
             )
             raise TypeError(msg)
         if keep:
-            return [x]
+            return (x,)
 
-        return []
+        return EMPTY
 
     return flat_map(&#34;flat_map&#34;, up, shim_mapper)
 
@@ -729,7 +789,7 @@ def filter_value(
 
     &#34;&#34;&#34;
 
-    def shim_mapper(v: V) -&gt; List[V]:
+    def shim_mapper(v: V) -&gt; Iterable[V]:
         keep = predicate(v)
         if not isinstance(keep, bool):
             msg = (
@@ -739,9 +799,9 @@ def filter_value(
             )
             raise TypeError(msg)
         if keep:
-            return [v]
+            return (v,)
 
-        return []
+        return EMPTY
 
     return flat_map_value(&#34;filter&#34;, up, shim_mapper)
 
@@ -759,10 +819,16 @@ def filter_map(
     &gt;&gt;&gt; from bytewax.testing import TestingSource, run_main
     &gt;&gt;&gt; from bytewax.dataflow import Dataflow
     &gt;&gt;&gt; flow = Dataflow(&#34;filter_map_eg&#34;)
-    &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource([
-    ...     {&#34;key&#34;: &#34;a&#34;, &#34;val&#34;: 1},
-    ...     {&#34;bad&#34;: &#34;obj&#34;},
-    ... ]))
+    &gt;&gt;&gt; s = op.input(
+    ...     &#34;inp&#34;,
+    ...     flow,
+    ...     TestingSource(
+    ...         [
+    ...             {&#34;key&#34;: &#34;a&#34;, &#34;val&#34;: 1},
+    ...             {&#34;bad&#34;: &#34;obj&#34;},
+    ...         ]
+    ...     ),
+    ... )
     &gt;&gt;&gt; def validate(data):
     ...     if type(data) != dict or &#34;key&#34; not in data:
     ...         return None
@@ -787,12 +853,12 @@ def filter_map(
 
     &#34;&#34;&#34;
 
-    def shim_mapper(x: X) -&gt; List[Y]:
+    def shim_mapper(x: X) -&gt; Iterable[Y]:
         y = mapper(x)
         if y is not None:
-            return [y]
+            return (y,)
 
-        return []
+        return EMPTY
 
     return flat_map(&#34;flat_map&#34;, up, shim_mapper)
 
@@ -803,16 +869,16 @@ class _FoldFinalLogic(UnaryLogic[V, S, S]):
     folder: Callable[[S, V], S]
     state: S
 
-    def on_item(self, _now: datetime, v: V) -&gt; Tuple[List[S], bool]:
-        self.state = self.folder(self.state, v)
-        return ([], UnaryLogic.RETAIN)
+    def on_item(self, now: datetime, value: V) -&gt; Tuple[Iterable[S], bool]:
+        self.state = self.folder(self.state, value)
+        return (EMPTY, UnaryLogic.RETAIN)
 
-    def on_notify(self, _s: datetime) -&gt; Tuple[List[S], bool]:
-        return ([], UnaryLogic.RETAIN)
+    def on_notify(self, sched: datetime) -&gt; Tuple[Iterable[S], bool]:
+        return (EMPTY, UnaryLogic.RETAIN)
 
-    def on_eof(self) -&gt; Tuple[List[S], bool]:
+    def on_eof(self) -&gt; Tuple[Iterable[S], bool]:
         # No need to deepcopy because we are discarding the state.
-        return ([self.state], UnaryLogic.DISCARD)
+        return ((self.state,), UnaryLogic.DISCARD)
 
     def notify_at(self) -&gt; Optional[datetime]:
         return None
@@ -905,17 +971,17 @@ def inspect(
 
 
 @dataclass
-class _JoinState(Generic[V]):
-    seen: Dict[str, List[V]]
+class _JoinState:
+    seen: Dict[str, List[Any]]
 
     @classmethod
-    def for_names(cls, names: List[str]) -&gt; &#34;_JoinState[V]&#34;:
+    def for_names(cls, names: List[str]) -&gt; Self:
         return cls({name: [] for name in names})
 
-    def set_val(self, name: str, value: V) -&gt; None:
+    def set_val(self, name: str, value: Any) -&gt; None:
         self.seen[name] = [value]
 
-    def add_val(self, name: str, value: V) -&gt; None:
+    def add_val(self, name: str, value: Any) -&gt; None:
         self.seen[name].append(value)
 
     def is_set(self, name: str) -&gt; bool:
@@ -930,57 +996,54 @@ class _JoinState(Generic[V]):
             itertools.product(*(vals if len(vals) &gt; 0 else [empty] for vals in values))
         )
 
-    def asdicts(self) -&gt; List[Dict[str, V]]:
+    def asdicts(self) -&gt; List[Dict[str, Any]]:
         EMPTY = object()
-        ts = self.astuples(empty=EMPTY)
-        dicts = []
-        for t in ts:
-            dicts.append(
-                dict((n, v) for n, v in zip(self.seen.keys(), t) if v is not EMPTY)
-            )
-        return dicts
+        return [
+            dict((n, v) for n, v in zip(self.seen.keys(), t) if v is not EMPTY)
+            for t in self.astuples(empty=EMPTY)
+        ]
 
 
 @dataclass
-class _JoinLogic(UnaryLogic[Tuple[str, V], _JoinState[V], _JoinState[V]]):
+class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
     step_id: str
     running: bool
-    state: _JoinState[V]
+    state: _JoinState
 
     def on_item(
-        self, _now: datetime, name_value: Tuple[str, V]
-    ) -&gt; Tuple[List[_JoinState[V]], bool]:
-        name, value = name_value
+        self, now: datetime, value: Tuple[str, Any]
+    ) -&gt; Tuple[Iterable[_JoinState], bool]:
+        name, value = value
 
         self.state.set_val(name, value)
 
         if self.running:
-            return ([copy.deepcopy(self.state)], UnaryLogic.RETAIN)
+            return ((copy.deepcopy(self.state),), UnaryLogic.RETAIN)
         else:
             if self.state.all_set():
                 # No need to deepcopy because we are discarding the state.
-                return ([self.state], UnaryLogic.DISCARD)
+                return ((self.state,), UnaryLogic.DISCARD)
             else:
-                return ([], UnaryLogic.RETAIN)
+                return (EMPTY, UnaryLogic.RETAIN)
 
-    def on_notify(self, _s: datetime) -&gt; Tuple[List[_JoinState[V]], bool]:
-        return ([], UnaryLogic.RETAIN)
+    def on_notify(self, sched: datetime) -&gt; Tuple[Iterable[_JoinState], bool]:
+        return (EMPTY, UnaryLogic.RETAIN)
 
-    def on_eof(self) -&gt; Tuple[List[_JoinState[V]], bool]:
-        return ([], UnaryLogic.RETAIN)
+    def on_eof(self) -&gt; Tuple[Iterable[_JoinState], bool]:
+        return (EMPTY, UnaryLogic.RETAIN)
 
     def notify_at(self) -&gt; Optional[datetime]:
         return None
 
-    def snapshot(self) -&gt; _JoinState[V]:
+    def snapshot(self) -&gt; _JoinState:
         return copy.deepcopy(self.state)
 
 
 @operator
 def _join_name_merge(
     step_id: str,
-    **named_ups: KeyedStream[V],
-) -&gt; KeyedStream[Tuple[str, V]]:
+    **named_ups: KeyedStream[Any],
+) -&gt; KeyedStream[Tuple[str, Any]]:
     with_names = [
         # Horrible mess, see
         # https://docs.astral.sh/ruff/rules/function-uses-loop-variable/
@@ -993,7 +1056,7 @@ def _join_name_merge(
 @operator
 def join(
     step_id: str,
-    *sides: KeyedStream[V],
+    *sides: KeyedStream[Any],
     running: bool = False,
 ) -&gt; KeyedStream[Tuple]:
     &#34;&#34;&#34;Gather together the value for a key on multiple streams.
@@ -1003,11 +1066,12 @@ def join(
 
         *sides: Keyed streams.
 
-        running: If `True`, emit the current set of values (if any)
-            each time a new value arrives. The set of values will
-            _never be discarded_ so might result in unbounded memory
-            use. If `False`, only emit once there is a value on each
-            stream, then discard the set. Defaults to `False`.
+        running: If `True`, perform a &#34;running join&#34; and, emit the
+            current set of values (if any) each time a new value
+            arrives. The set of values will _never be discarded_ so
+            might result in unbounded memory use. If `False`, perform
+            a &#34;complete join&#34; and, only emit once there is a value on
+            each stream, then discard the set. Defaults to `False`.
 
     Returns:
         Emits a tuple with the value from each stream in the order of
@@ -1018,9 +1082,7 @@ def join(
     named_sides = dict((str(i), s) for i, s in enumerate(sides))
     names = list(named_sides.keys())
 
-    def shim_builder(
-        _now: datetime, resume_state: Optional[_JoinState[V]]
-    ) -&gt; _JoinLogic[V]:
+    def shim_builder(_now: datetime, resume_state: Optional[_JoinState]) -&gt; _JoinLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
@@ -1035,8 +1097,8 @@ def join(
 def join_named(
     step_id: str,
     running: bool = False,
-    **sides: KeyedStream[V],
-) -&gt; KeyedStream[Dict[str, V]]:
+    **sides: KeyedStream[Any],
+) -&gt; KeyedStream[Dict[str, Any]]:
     &#34;&#34;&#34;Gather together the value for a key on multiple named streams.
 
     Args:
@@ -1045,11 +1107,12 @@ def join_named(
         **sides: Named keyed streams. The name of each stream will be
             used in the emitted `dict`s.
 
-        running: If `True`, emit the current set of values (if any)
-            each time a new value arrives. The set of values will
-            _never be discarded_ so might result in unbounded memory
-            use. If `False`, only emit once there is a value on each
-            stream, then discard the set. Defaults to `False`.
+        running: If `True`, perform a &#34;running join&#34; and, emit the
+            current set of values (if any) each time a new value
+            arrives. The set of values will _never be discarded_ so
+            might result in unbounded memory use. If `False`, perform
+            a &#34;complete join&#34; and, only emit once there is a value on
+            each stream, then discard the set. Defaults to `False`.
 
     Returns:
         Emits a `dict` mapping the name to the value from each stream.
@@ -1059,9 +1122,7 @@ def join_named(
     &#34;&#34;&#34;
     names = list(sides.keys())
 
-    def shim_builder(
-        _now: datetime, resume_state: Optional[_JoinState[V]]
-    ) -&gt; _JoinLogic[V]:
+    def shim_builder(_now: datetime, resume_state: Optional[_JoinState]) -&gt; _JoinLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
@@ -1109,43 +1170,6 @@ def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -&gt; KeyedStre
 
 
 @operator
-def key_split(
-    step_id: str,
-    up: Stream[X],
-    key: Callable[[X], str],
-    *values: Callable[[X], V],
-) -&gt; ArgsMultiStream[Tuple[str, V]]:
-    &#34;&#34;&#34;Split objects apart into a separate stream for each field.
-
-    This allows you to use all the keyed operators that only are
-    methods on `KeyedStream`.
-
-    Args:
-        step_id: Unique ID.
-
-        up: Stream.
-
-        key: Called on each item and should return the key for that
-            item.
-
-        *values: A &#34;field getter&#34; which
-
-    Returns:
-        A set of streams of 2-tuples of `(key, value)` AKA a keyed
-        streams. The keys come from the return value of the `key`
-        function; the return value of each `values` function will be
-        the value.
-
-    &#34;&#34;&#34;
-    keyed_up = key_on(&#34;key&#34;, up, key)
-    streams = {
-        i: map_value(f&#34;value_{str(i)}&#34;, keyed_up, value)
-        for i, value in enumerate(values)
-    }
-    return MultiStream(streams)
-
-
-@operator
 def map(  # noqa: A001
     step_id: str,
     up: Stream[X],
@@ -1185,11 +1209,10 @@ def map(  # noqa: A001
         A stream of items returned from the mapper.
     &#34;&#34;&#34;
 
-    def shim_mapper(x: X) -&gt; List[Y]:
-        y = mapper(x)
-        return [y]
+    def shim_mapper(xs: List[X]) -&gt; Iterable[Y]:
+        return (mapper(x) for x in xs)
 
-    return flat_map(&#34;flat_map&#34;, up, shim_mapper)
+    return flat_map_batch(&#34;flat_map_batch&#34;, up, shim_mapper)
 
 
 @operator
@@ -1212,11 +1235,12 @@ def map_value(
 
     &#34;&#34;&#34;
 
-    def shim_mapper(v: V) -&gt; List[W]:
+    def shim_mapper(k_v: Tuple[str, V]) -&gt; Tuple[str, W]:
+        k, v = k_v
         w = mapper(v)
-        return [w]
+        return (k, w)
 
-    return flat_map_value(&#34;flat_map_value&#34;, up, shim_mapper)
+    return map(&#34;map&#34;, up, shim_mapper)
 
 
 @overload
@@ -1315,7 +1339,7 @@ class _RaisePartition(StatelessSinkPartition[Any]):
 class _RaiseSink(DynamicSink[Any]):
     step_id: str
 
-    def build(self, _worker_index: int, _worker_count: int) -&gt; _RaisePartition:
+    def build(self, worker_index: int, worker_count: int) -&gt; _RaisePartition:
         return _RaisePartition(self.step_id)
 
 
@@ -1377,8 +1401,8 @@ class _StatefulMapLogic(UnaryLogic[V, W, S]):
     mapper: Callable[[S, V], Tuple[Optional[S], W]]
     state: S
 
-    def on_item(self, _now: datetime, v: V) -&gt; Tuple[List[W], bool]:
-        res = self.mapper(self.state, v)
+    def on_item(self, now: datetime, value: V) -&gt; Tuple[Iterable[W], bool]:
+        res = self.mapper(self.state, value)
         try:
             s, w = res
         except TypeError as ex:
@@ -1392,16 +1416,16 @@ class _StatefulMapLogic(UnaryLogic[V, W, S]):
         if s is None:
             # No need to update state as we&#39;re thowing everything
             # away.
-            return ([w], UnaryLogic.DISCARD)
+            return ((w,), UnaryLogic.DISCARD)
         else:
             self.state = s
-            return ([w], UnaryLogic.RETAIN)
+            return ((w,), UnaryLogic.RETAIN)
 
-    def on_notify(self, _s: datetime) -&gt; Tuple[List[W], bool]:
-        return ([], UnaryLogic.RETAIN)
+    def on_notify(self, sched: datetime) -&gt; Tuple[Iterable[W], bool]:
+        return (EMPTY, UnaryLogic.RETAIN)
 
-    def on_eof(self) -&gt; Tuple[List[W], bool]:
-        return ([], UnaryLogic.RETAIN)
+    def on_eof(self) -&gt; Tuple[Iterable[W], bool]:
+        return (EMPTY, UnaryLogic.RETAIN)
 
     def notify_at(self) -&gt; Optional[datetime]:
         return None
@@ -1501,61 +1525,8 @@ def stateful_map(
 <section>
 <h2 class="api__article-subtitle" id="header-functions">Functions</h2>
 <dl>
-<dt id="bytewax.operators.batch"><code class="language-python name flex">
-<span>def <span class="ident">batch</span></span>(<span>step_id: str, up: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Tuple[str, ~V]], timeout: datetime.timedelta, batch_size: int) ‑> <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Tuple[str, typing.List[~V]]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Batch incoming items up to a size or a timeout.</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>step_id</code></strong></dt>
-<dd>Unique ID.</dd>
-<dt><strong><code>up</code></strong></dt>
-<dd>Stream of individual items.</dd>
-<dt><strong><code>timeout</code></strong></dt>
-<dd>Timeout before emitting the batch, even if max_size
-was not reached.</dd>
-<dt><strong><code>batch_size</code></strong></dt>
-<dd>Maximum size of the batch.</dd>
-</dl>
-<h2 id="returns">Returns</h2>
-<p>A stream of batches of upstream items gathered into a <code>list</code>.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">@operator
-def batch(
-    step_id: str, up: KeyedStream[V], timeout: timedelta, batch_size: int
-) -&gt; KeyedStream[List[V]]:
-    &#34;&#34;&#34;Batch incoming items up to a size or a timeout.
-
-    Args:
-        step_id: Unique ID.
-
-        up: Stream of individual items.
-
-        timeout: Timeout before emitting the batch, even if max_size
-            was not reached.
-
-        batch_size: Maximum size of the batch.
-
-    Returns:
-        A stream of batches of upstream items gathered into a `list`.
-
-    &#34;&#34;&#34;
-
-    def shim_builder(
-        _now: datetime, resume_state: Optional[_BatchState[V]]
-    ) -&gt; _BatchLogic[V]:
-        state = resume_state if resume_state is not None else _BatchState()
-        return _BatchLogic(step_id, timeout, batch_size, state)
-
-    return unary(&#34;unary&#34;, up, shim_builder)</code></pre>
-</details>
-</dd>
 <dt id="bytewax.operators.branch"><code class="language-python name flex">
-<span>def <span class="ident">branch</span></span>(<span>step_id: str, up: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[~X], predicate: Callable[[~X], bool]) ‑> <a title="bytewax.operators.BranchOut" href="/apidocs/bytewax.operators/index#bytewax.operators.BranchOut">BranchOut</a>[~X]</span>
+<span>def <span class="ident">branch</span></span>(<span>step_id: str, up: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[~X], predicate: Callable[[~X], bool]) ‑> <a title="bytewax.operators.BranchOut" href="/apidocs/bytewax.operators/index#bytewax.operators.BranchOut">BranchOut</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Divide items into two streams with a predicate.</p>
@@ -1563,7 +1534,9 @@ def batch(
 &gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
 &gt;&gt;&gt; flow = Dataflow(&quot;branch_eg&quot;)
 &gt;&gt;&gt; nums = op.input(&quot;nums&quot;, flow, TestingSource([1, 2, 3, 4, 5]))
-&gt;&gt;&gt; evens, odds = op.branch(&quot;even_odd&quot;, nums, lambda x: x % 2 == 0)
+&gt;&gt;&gt; b_out = op.branch(&quot;even_odd&quot;, nums, lambda x: x % 2 == 0)
+&gt;&gt;&gt; evens = b_out.trues
+&gt;&gt;&gt; odds = b_out.falses
 &gt;&gt;&gt; _ = op.inspect(&quot;evens&quot;, evens)
 &gt;&gt;&gt; _ = op.inspect(&quot;odds&quot;, odds)
 &gt;&gt;&gt; run_main(flow)
@@ -1582,7 +1555,9 @@ branch_eg.odds: 5
 <dt><strong><code>predicate</code></strong></dt>
 <dd>Function to call on each upstream item. Items for
 which this returns <code>True</code> will be put into one branch
-<code>Stream</code>; <code>False</code> the other branc <code>Stream</code>.h</dd>
+<code>Stream</code>; <code>False</code> the other branch <code>Stream</code>. If this
+function is a <code>typing.TypeGuard</code>, the downstreams will be
+properly typed.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>A stream of items for which the predicate returns <code>True</code>, and
@@ -1596,14 +1571,16 @@ def branch(
     step_id: str,
     up: Stream[X],
     predicate: Callable[[X], bool],
-) -&gt; BranchOut[X]:
+) -&gt; BranchOut:
     &#34;&#34;&#34;Divide items into two streams with a predicate.
 
     &gt;&gt;&gt; import bytewax.operators as op
     &gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
     &gt;&gt;&gt; flow = Dataflow(&#34;branch_eg&#34;)
     &gt;&gt;&gt; nums = op.input(&#34;nums&#34;, flow, TestingSource([1, 2, 3, 4, 5]))
-    &gt;&gt;&gt; evens, odds = op.branch(&#34;even_odd&#34;, nums, lambda x: x % 2 == 0)
+    &gt;&gt;&gt; b_out = op.branch(&#34;even_odd&#34;, nums, lambda x: x % 2 == 0)
+    &gt;&gt;&gt; evens = b_out.trues
+    &gt;&gt;&gt; odds = b_out.falses
     &gt;&gt;&gt; _ = op.inspect(&#34;evens&#34;, evens)
     &gt;&gt;&gt; _ = op.inspect(&#34;odds&#34;, odds)
     &gt;&gt;&gt; run_main(flow)
@@ -1620,7 +1597,9 @@ def branch(
 
         predicate: Function to call on each upstream item. Items for
             which this returns `True` will be put into one branch
-            `Stream`; `False` the other branc `Stream`.h
+            `Stream`; `False` the other branch `Stream`. If this
+            function is a `typing.TypeGuard`, the downstreams will be
+            properly typed.
 
     Returns:
         A stream of items for which the predicate returns `True`, and
@@ -1631,6 +1610,66 @@ def branch(
         trues=Stream(f&#34;{up._scope.parent_id}.trues&#34;, up._scope),
         falses=Stream(f&#34;{up._scope.parent_id}.falses&#34;, up._scope),
     )</code></pre>
+</details>
+</dd>
+<dt id="bytewax.operators.collect"><code class="language-python name flex">
+<span>def <span class="ident">collect</span></span>(<span>step_id: str, up: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Tuple[str, ~V]], timeout: datetime.timedelta, max_size: int) ‑> <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Tuple[str, typing.List[~V]]]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Collect items into a list up to a size or a timeout.</p>
+<p>See <code><a title="bytewax.operators.window.collect_window" href="/apidocs/bytewax.operators/window#bytewax.operators.window.collect_window">collect_window()</a></code> for more control
+over time.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>step_id</code></strong></dt>
+<dd>Unique ID.</dd>
+<dt><strong><code>up</code></strong></dt>
+<dd>Stream of individual items.</dd>
+<dt><strong><code>timeout</code></strong></dt>
+<dd>Timeout before emitting the list, even if <code>max_size</code>
+was not reached.</dd>
+<dt><strong><code>max_size</code></strong></dt>
+<dd>Emit the list once it reaches this size, even if</dd>
+</dl>
+<p><code>timeout</code> was not reached.</p>
+<h2 id="returns">Returns</h2>
+<p>A stream of upstream items gathered into <code>list</code>s.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@operator
+def collect(
+    step_id: str, up: KeyedStream[V], timeout: timedelta, max_size: int
+) -&gt; KeyedStream[List[V]]:
+    &#34;&#34;&#34;Collect items into a list up to a size or a timeout.
+
+    See `bytewax.operators.window.collect_window` for more control
+    over time.
+
+    Args:
+        step_id: Unique ID.
+
+        up: Stream of individual items.
+
+        timeout: Timeout before emitting the list, even if `max_size`
+            was not reached.
+
+        max_size: Emit the list once it reaches this size, even if
+        `timeout` was not reached.
+
+    Returns:
+        A stream of upstream items gathered into `list`s.
+
+    &#34;&#34;&#34;
+
+    def shim_builder(
+        _now: datetime, resume_state: Optional[_CollectState[V]]
+    ) -&gt; _CollectLogic[V]:
+        state = resume_state if resume_state is not None else _CollectState()
+        return _CollectLogic(step_id, timeout, max_size, state)
+
+    return unary(&#34;unary&#34;, up, shim_builder)</code></pre>
 </details>
 </dd>
 <dt id="bytewax.operators.count_final"><code class="language-python name flex">
@@ -1776,7 +1815,7 @@ def filter(  # noqa: A001
 
     &#34;&#34;&#34;
 
-    def shim_mapper(x: X) -&gt; List[X]:
+    def shim_mapper(x: X) -&gt; Iterable[X]:
         keep = predicate(x)
         if not isinstance(keep, bool):
             msg = (
@@ -1786,9 +1825,9 @@ def filter(  # noqa: A001
             )
             raise TypeError(msg)
         if keep:
-            return [x]
+            return (x,)
 
-        return []
+        return EMPTY
 
     return flat_map(&#34;flat_map&#34;, up, shim_mapper)</code></pre>
 </details>
@@ -1804,10 +1843,16 @@ predicate removing <code>None</code> values.</p>
 &gt;&gt;&gt; from bytewax.testing import TestingSource, run_main
 &gt;&gt;&gt; from bytewax.dataflow import Dataflow
 &gt;&gt;&gt; flow = Dataflow(&quot;filter_map_eg&quot;)
-&gt;&gt;&gt; s = op.input(&quot;inp&quot;, flow, TestingSource([
-...     {&quot;key&quot;: &quot;a&quot;, &quot;val&quot;: 1},
-...     {&quot;bad&quot;: &quot;obj&quot;},
-... ]))
+&gt;&gt;&gt; s = op.input(
+...     &quot;inp&quot;,
+...     flow,
+...     TestingSource(
+...         [
+...             {&quot;key&quot;: &quot;a&quot;, &quot;val&quot;: 1},
+...             {&quot;bad&quot;: &quot;obj&quot;},
+...         ]
+...     ),
+... )
 &gt;&gt;&gt; def validate(data):
 ...     if type(data) != dict or &quot;key&quot; not in data:
 ...         return None
@@ -1848,10 +1893,16 @@ def filter_map(
     &gt;&gt;&gt; from bytewax.testing import TestingSource, run_main
     &gt;&gt;&gt; from bytewax.dataflow import Dataflow
     &gt;&gt;&gt; flow = Dataflow(&#34;filter_map_eg&#34;)
-    &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource([
-    ...     {&#34;key&#34;: &#34;a&#34;, &#34;val&#34;: 1},
-    ...     {&#34;bad&#34;: &#34;obj&#34;},
-    ... ]))
+    &gt;&gt;&gt; s = op.input(
+    ...     &#34;inp&#34;,
+    ...     flow,
+    ...     TestingSource(
+    ...         [
+    ...             {&#34;key&#34;: &#34;a&#34;, &#34;val&#34;: 1},
+    ...             {&#34;bad&#34;: &#34;obj&#34;},
+    ...         ]
+    ...     ),
+    ... )
     &gt;&gt;&gt; def validate(data):
     ...     if type(data) != dict or &#34;key&#34; not in data:
     ...         return None
@@ -1876,12 +1927,12 @@ def filter_map(
 
     &#34;&#34;&#34;
 
-    def shim_mapper(x: X) -&gt; List[Y]:
+    def shim_mapper(x: X) -&gt; Iterable[Y]:
         y = mapper(x)
         if y is not None:
-            return [y]
+            return (y,)
 
-        return []
+        return EMPTY
 
     return flat_map(&#34;flat_map&#34;, up, shim_mapper)</code></pre>
 </details>
@@ -1930,7 +1981,7 @@ def filter_value(
 
     &#34;&#34;&#34;
 
-    def shim_mapper(v: V) -&gt; List[V]:
+    def shim_mapper(v: V) -&gt; Iterable[V]:
         keep = predicate(v)
         if not isinstance(keep, bool):
             msg = (
@@ -1940,9 +1991,9 @@ def filter_value(
             )
             raise TypeError(msg)
         if keep:
-            return [v]
+            return (v,)
 
-        return []
+        return EMPTY
 
     return flat_map_value(&#34;filter&#34;, up, shim_mapper)</code></pre>
 </details>
@@ -1995,7 +2046,7 @@ to emit downstream.</dd>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">@operator(_core=True)
+<pre class="language-python line-numbers"><code class="language-python">@operator
 def flat_map(
     step_id: str,
     up: Stream[X],
@@ -2034,6 +2085,73 @@ def flat_map(
 
         mapper: Called once on each upstream item. Returns the items
             to emit downstream.
+
+    Returns:
+        A stream of each item returned by the mapper.
+
+    &#34;&#34;&#34;
+
+    def shim_mapper(xs: List[X]) -&gt; Iterable[Y]:
+        return chain.from_iterable(mapper(x) for x in xs)
+
+    return flat_map_batch(&#34;flat_map_batch&#34;, up, shim_mapper)</code></pre>
+</details>
+</dd>
+<dt id="bytewax.operators.flat_map_batch"><code class="language-python name flex">
+<span>def <span class="ident">flat_map_batch</span></span>(<span>step_id: str, up: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[~X], mapper: Callable[[List[~X]], Iterable[~Y]]) ‑> <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[~Y]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Transform an entire batch of items 1-to-many.</p>
+<p>The batch size received here depends on the exact behavior of the
+upstream input sources and operators. It should be used as a
+performance optimization when processing multiple items at once
+has much reduced overhead.</p>
+<p>See also the <code>batch_size</code> parameter on various input sources.</p>
+<p>See also the <code>batch</code> operator, which collects multiple items next
+to each other in a stream into a single list of them flowing
+through the stream.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>step_id</code></strong></dt>
+<dd>Unique ID.</dd>
+<dt><strong><code>up</code></strong></dt>
+<dd>Stream.</dd>
+<dt><strong><code>mapper</code></strong></dt>
+<dd>Called once with each batch of items the runtime
+receives. Returns the items to emit downstream.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>A stream of each item returned by the mapper.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@operator(_core=True)
+def flat_map_batch(
+    step_id: str,
+    up: Stream[X],
+    mapper: Callable[[List[X]], Iterable[Y]],
+) -&gt; Stream[Y]:
+    &#34;&#34;&#34;Transform an entire batch of items 1-to-many.
+
+    The batch size received here depends on the exact behavior of the
+    upstream input sources and operators. It should be used as a
+    performance optimization when processing multiple items at once
+    has much reduced overhead.
+
+    See also the `batch_size` parameter on various input sources.
+
+    See also the `batch` operator, which collects multiple items next
+    to each other in a stream into a single list of them flowing
+    through the stream.
+
+    Args:
+        step_id: Unique ID.
+
+        up: Stream.
+
+        mapper: Called once with each batch of items the runtime
+            receives. Returns the items to emit downstream.
 
     Returns:
         A stream of each item returned by the mapper.
@@ -2410,7 +2528,7 @@ def inspect_debug(
 </details>
 </dd>
 <dt id="bytewax.operators.join"><code class="language-python name flex">
-<span>def <span class="ident">join</span></span>(<span>step_id: str, *sides: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Tuple[str, ~V]], running: bool = False) ‑> <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Tuple[str, typing.Tuple]]</span>
+<span>def <span class="ident">join</span></span>(<span>step_id: str, *sides: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Tuple[str, typing.Any]], running: bool = False) ‑> <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Tuple[str, typing.Tuple]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Gather together the value for a key on multiple streams.</p>
@@ -2421,11 +2539,12 @@ def inspect_debug(
 <dt><strong><code>*sides</code></strong></dt>
 <dd>Keyed streams.</dd>
 <dt><strong><code>running</code></strong></dt>
-<dd>If <code>True</code>, emit the current set of values (if any)
-each time a new value arrives. The set of values will
-<em>never be discarded</em> so might result in unbounded memory
-use. If <code>False</code>, only emit once there is a value on each
-stream, then discard the set. Defaults to <code>False</code>.</dd>
+<dd>If <code>True</code>, perform a "running join" and, emit the
+current set of values (if any) each time a new value
+arrives. The set of values will <em>never be discarded</em> so
+might result in unbounded memory use. If <code>False</code>, perform
+a "complete join" and, only emit once there is a value on
+each stream, then discard the set. Defaults to <code>False</code>.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>Emits a tuple with the value from each stream in the order of
@@ -2438,7 +2557,7 @@ be <code>None</code>.</p></div>
 <pre class="language-python line-numbers"><code class="language-python">@operator
 def join(
     step_id: str,
-    *sides: KeyedStream[V],
+    *sides: KeyedStream[Any],
     running: bool = False,
 ) -&gt; KeyedStream[Tuple]:
     &#34;&#34;&#34;Gather together the value for a key on multiple streams.
@@ -2448,11 +2567,12 @@ def join(
 
         *sides: Keyed streams.
 
-        running: If `True`, emit the current set of values (if any)
-            each time a new value arrives. The set of values will
-            _never be discarded_ so might result in unbounded memory
-            use. If `False`, only emit once there is a value on each
-            stream, then discard the set. Defaults to `False`.
+        running: If `True`, perform a &#34;running join&#34; and, emit the
+            current set of values (if any) each time a new value
+            arrives. The set of values will _never be discarded_ so
+            might result in unbounded memory use. If `False`, perform
+            a &#34;complete join&#34; and, only emit once there is a value on
+            each stream, then discard the set. Defaults to `False`.
 
     Returns:
         Emits a tuple with the value from each stream in the order of
@@ -2463,9 +2583,7 @@ def join(
     named_sides = dict((str(i), s) for i, s in enumerate(sides))
     names = list(named_sides.keys())
 
-    def shim_builder(
-        _now: datetime, resume_state: Optional[_JoinState[V]]
-    ) -&gt; _JoinLogic[V]:
+    def shim_builder(_now: datetime, resume_state: Optional[_JoinState]) -&gt; _JoinLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
@@ -2477,7 +2595,7 @@ def join(
 </details>
 </dd>
 <dt id="bytewax.operators.join_named"><code class="language-python name flex">
-<span>def <span class="ident">join_named</span></span>(<span>step_id: str, running: bool = False, **sides: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Tuple[str, ~V]]) ‑> <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Tuple[str, typing.Dict[str, ~V]]]</span>
+<span>def <span class="ident">join_named</span></span>(<span>step_id: str, running: bool = False, **sides: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Tuple[str, typing.Any]]) ‑> <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Tuple[str, typing.Dict[str, typing.Any]]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Gather together the value for a key on multiple named streams.</p>
@@ -2489,11 +2607,12 @@ def join(
 <dd>Named keyed streams. The name of each stream will be
 used in the emitted <code>dict</code>s.</dd>
 <dt><strong><code>running</code></strong></dt>
-<dd>If <code>True</code>, emit the current set of values (if any)
-each time a new value arrives. The set of values will
-<em>never be discarded</em> so might result in unbounded memory
-use. If <code>False</code>, only emit once there is a value on each
-stream, then discard the set. Defaults to <code>False</code>.</dd>
+<dd>If <code>True</code>, perform a "running join" and, emit the
+current set of values (if any) each time a new value
+arrives. The set of values will <em>never be discarded</em> so
+might result in unbounded memory use. If <code>False</code>, perform
+a "complete join" and, only emit once there is a value on
+each stream, then discard the set. Defaults to <code>False</code>.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>Emits a <code>dict</code> mapping the name to the value from each stream.
@@ -2507,8 +2626,8 @@ If <code>running</code> is <code>True</code>, some names might be missing from t
 def join_named(
     step_id: str,
     running: bool = False,
-    **sides: KeyedStream[V],
-) -&gt; KeyedStream[Dict[str, V]]:
+    **sides: KeyedStream[Any],
+) -&gt; KeyedStream[Dict[str, Any]]:
     &#34;&#34;&#34;Gather together the value for a key on multiple named streams.
 
     Args:
@@ -2517,11 +2636,12 @@ def join_named(
         **sides: Named keyed streams. The name of each stream will be
             used in the emitted `dict`s.
 
-        running: If `True`, emit the current set of values (if any)
-            each time a new value arrives. The set of values will
-            _never be discarded_ so might result in unbounded memory
-            use. If `False`, only emit once there is a value on each
-            stream, then discard the set. Defaults to `False`.
+        running: If `True`, perform a &#34;running join&#34; and, emit the
+            current set of values (if any) each time a new value
+            arrives. The set of values will _never be discarded_ so
+            might result in unbounded memory use. If `False`, perform
+            a &#34;complete join&#34; and, only emit once there is a value on
+            each stream, then discard the set. Defaults to `False`.
 
     Returns:
         Emits a `dict` mapping the name to the value from each stream.
@@ -2531,9 +2651,7 @@ def join_named(
     &#34;&#34;&#34;
     names = list(sides.keys())
 
-    def shim_builder(
-        _now: datetime, resume_state: Optional[_JoinState[V]]
-    ) -&gt; _JoinLogic[V]:
+    def shim_builder(_now: datetime, resume_state: Optional[_JoinState]) -&gt; _JoinLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
@@ -2603,71 +2721,6 @@ def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -&gt; KeyedStre
         return (k, x)
 
     return map(&#34;map&#34;, up, shim_mapper)</code></pre>
-</details>
-</dd>
-<dt id="bytewax.operators.key_split"><code class="language-python name flex">
-<span>def <span class="ident">key_split</span></span>(<span>step_id: str, up: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[~X], key: Callable[[~X], str], *values: Callable[[~X], ~V]) ‑> <a title="bytewax.dataflow.MultiStream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.MultiStream">MultiStream</a>[int, typing.Tuple[str, ~V]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Split objects apart into a separate stream for each field.</p>
-<p>This allows you to use all the keyed operators that only are
-methods on <code>KeyedStream</code>.</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>step_id</code></strong></dt>
-<dd>Unique ID.</dd>
-<dt><strong><code>up</code></strong></dt>
-<dd>Stream.</dd>
-<dt><strong><code>key</code></strong></dt>
-<dd>Called on each item and should return the key for that
-item.</dd>
-<dt><strong><code>*values</code></strong></dt>
-<dd>A "field getter" which</dd>
-</dl>
-<h2 id="returns">Returns</h2>
-<p>A set of streams of 2-tuples of <code>(key, value)</code> AKA a keyed
-streams. The keys come from the return value of the <code>key</code>
-function; the return value of each <code>values</code> function will be
-the value.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre class="language-python line-numbers"><code class="language-python">@operator
-def key_split(
-    step_id: str,
-    up: Stream[X],
-    key: Callable[[X], str],
-    *values: Callable[[X], V],
-) -&gt; ArgsMultiStream[Tuple[str, V]]:
-    &#34;&#34;&#34;Split objects apart into a separate stream for each field.
-
-    This allows you to use all the keyed operators that only are
-    methods on `KeyedStream`.
-
-    Args:
-        step_id: Unique ID.
-
-        up: Stream.
-
-        key: Called on each item and should return the key for that
-            item.
-
-        *values: A &#34;field getter&#34; which
-
-    Returns:
-        A set of streams of 2-tuples of `(key, value)` AKA a keyed
-        streams. The keys come from the return value of the `key`
-        function; the return value of each `values` function will be
-        the value.
-
-    &#34;&#34;&#34;
-    keyed_up = key_on(&#34;key&#34;, up, key)
-    streams = {
-        i: map_value(f&#34;value_{str(i)}&#34;, keyed_up, value)
-        for i, value in enumerate(values)
-    }
-    return MultiStream(streams)</code></pre>
 </details>
 </dd>
 <dt id="bytewax.operators.map"><code class="language-python name flex">
@@ -2754,11 +2807,10 @@ def map(  # noqa: A001
         A stream of items returned from the mapper.
     &#34;&#34;&#34;
 
-    def shim_mapper(x: X) -&gt; List[Y]:
-        y = mapper(x)
-        return [y]
+    def shim_mapper(xs: List[X]) -&gt; Iterable[Y]:
+        return (mapper(x) for x in xs)
 
-    return flat_map(&#34;flat_map&#34;, up, shim_mapper)</code></pre>
+    return flat_map_batch(&#34;flat_map_batch&#34;, up, shim_mapper)</code></pre>
 </details>
 </dd>
 <dt id="bytewax.operators.map_value"><code class="language-python name flex">
@@ -2803,11 +2855,12 @@ def map_value(
 
     &#34;&#34;&#34;
 
-    def shim_mapper(v: V) -&gt; List[W]:
+    def shim_mapper(k_v: Tuple[str, V]) -&gt; Tuple[str, W]:
+        k, v = k_v
         w = mapper(v)
-        return [w]
+        return (k, w)
 
-    return flat_map_value(&#34;flat_map_value&#34;, up, shim_mapper)</code></pre>
+    return map(&#34;map&#34;, up, shim_mapper)</code></pre>
 </details>
 </dd>
 <dt id="bytewax.operators.max_final"><code class="language-python name flex">
@@ -3397,28 +3450,20 @@ def unary(
 <dl>
 <dt id="bytewax.operators.BranchOut"><code class="language-python flex name class">
 <span>class <span class="ident">BranchOut</span></span>
-<span>(</span><span>trues: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[~X], falses: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[~X])</span>
+<span>(</span><span>trues: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[~X], falses: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[~Y])</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Streams returned from <code><a title="bytewax.operators.branch" href="/apidocs/bytewax.operators/index#bytewax.operators.branch">branch()</a></code> operator.</p>
-<p>You can tuple unpack this for convenience.</p></div>
+<div class="desc"><p>Streams returned from <code><a title="bytewax.operators.branch" href="/apidocs/bytewax.operators/index#bytewax.operators.branch">branch()</a></code> operator.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@dataclass(frozen=True)
-class BranchOut(Generic[X]):
-    &#34;&#34;&#34;Streams returned from `branch` operator.
-
-    You can tuple unpack this for convenience.
-
-    &#34;&#34;&#34;
+class BranchOut(Generic[X, Y]):
+    &#34;&#34;&#34;Streams returned from `branch` operator.&#34;&#34;&#34;
 
     trues: Stream[X]
-    falses: Stream[X]
-
-    def __iter__(self):
-        return iter((self.trues, self.falses))</code></pre>
+    falses: Stream[Y]</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -3426,7 +3471,7 @@ class BranchOut(Generic[X]):
 </ul>
 <h3>Class variables</h3>
 <dl>
-<dt id="bytewax.operators.BranchOut.falses"><code class="language-python name">var <span class="ident">falses</span> : <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[~X]</code></dt>
+<dt id="bytewax.operators.BranchOut.falses"><code class="language-python name">var <span class="ident">falses</span> : <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[~Y]</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -3475,7 +3520,7 @@ periodically called.</p></div>
     DISCARD: bool = True
 
     @abstractmethod
-    def on_item(self, now: datetime, value: V) -&gt; Tuple[List[W], bool]:
+    def on_item(self, now: datetime, value: V) -&gt; Tuple[Iterable[W], bool]:
         &#34;&#34;&#34;Called on each new upstream item.
 
         This will be called multiple times in a row if there are
@@ -3495,7 +3540,7 @@ periodically called.</p></div>
         ...
 
     @abstractmethod
-    def on_notify(self, sched: datetime) -&gt; Tuple[List[W], bool]:
+    def on_notify(self, sched: datetime) -&gt; Tuple[Iterable[W], bool]:
         &#34;&#34;&#34;Called when the scheduled notification time has passed.
 
         Args:
@@ -3510,7 +3555,7 @@ periodically called.</p></div>
         ...
 
     @abstractmethod
-    def on_eof(self) -&gt; Tuple[List[W], bool]:
+    def on_eof(self) -&gt; Tuple[Iterable[W], bool]:
         &#34;&#34;&#34;The upstream has no more items on this execution.
 
         This will only be called once per execution after `on_item` is
@@ -3568,7 +3613,7 @@ periodically called.</p></div>
 </ul>
 <h3>Subclasses</h3>
 <ul class="hlist">
-<li>bytewax.operators._BatchLogic</li>
+<li>bytewax.operators._CollectLogic</li>
 <li>bytewax.operators._FoldFinalLogic</li>
 <li>bytewax.operators._JoinLogic</li>
 <li>bytewax.operators._StatefulMapLogic</li>
@@ -3626,7 +3671,7 @@ def notify_at(self) -&gt; Optional[datetime]:
 </details>
 </dd>
 <dt id="bytewax.operators.UnaryLogic.on_eof"><code class="language-python name flex">
-<span>def <span class="ident">on_eof</span></span>(<span>self) ‑> Tuple[List[~W], bool]</span>
+<span>def <span class="ident">on_eof</span></span>(<span>self) ‑> Tuple[Iterable[~W], bool]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>The upstream has no more items on this execution.</p>
@@ -3641,7 +3686,7 @@ value)</code> automatically.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@abstractmethod
-def on_eof(self) -&gt; Tuple[List[W], bool]:
+def on_eof(self) -&gt; Tuple[Iterable[W], bool]:
     &#34;&#34;&#34;The upstream has no more items on this execution.
 
     This will only be called once per execution after `on_item` is
@@ -3657,7 +3702,7 @@ def on_eof(self) -&gt; Tuple[List[W], bool]:
 </details>
 </dd>
 <dt id="bytewax.operators.UnaryLogic.on_item"><code class="language-python name flex">
-<span>def <span class="ident">on_item</span></span>(<span>self, now: datetime.datetime, value: ~V) ‑> Tuple[List[~W], bool]</span>
+<span>def <span class="ident">on_item</span></span>(<span>self, now: datetime.datetime, value: ~V) ‑> Tuple[Iterable[~W], bool]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Called on each new upstream item.</p>
@@ -3679,7 +3724,7 @@ value)</code> automatically.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@abstractmethod
-def on_item(self, now: datetime, value: V) -&gt; Tuple[List[W], bool]:
+def on_item(self, now: datetime, value: V) -&gt; Tuple[Iterable[W], bool]:
     &#34;&#34;&#34;Called on each new upstream item.
 
     This will be called multiple times in a row if there are
@@ -3700,7 +3745,7 @@ def on_item(self, now: datetime, value: V) -&gt; Tuple[List[W], bool]:
 </details>
 </dd>
 <dt id="bytewax.operators.UnaryLogic.on_notify"><code class="language-python name flex">
-<span>def <span class="ident">on_notify</span></span>(<span>self, sched: datetime.datetime) ‑> Tuple[List[~W], bool]</span>
+<span>def <span class="ident">on_notify</span></span>(<span>self, sched: datetime.datetime) ‑> Tuple[Iterable[~W], bool]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Called when the scheduled notification time has passed.</p>
@@ -3718,7 +3763,7 @@ value)</code> automatically.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@abstractmethod
-def on_notify(self, sched: datetime) -&gt; Tuple[List[W], bool]:
+def on_notify(self, sched: datetime) -&gt; Tuple[Iterable[W], bool]:
     &#34;&#34;&#34;Called when the scheduled notification time has passed.
 
     Args:
@@ -3803,13 +3848,14 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <li class="api__sidebar-nav-item">
 <h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
 <ul class="api__sidebar-nav-menu">
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.batch" href="/apidocs/bytewax.operators/index#bytewax.operators.batch">batch</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.branch" href="/apidocs/bytewax.operators/index#bytewax.operators.branch">branch</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.collect" href="/apidocs/bytewax.operators/index#bytewax.operators.collect">collect</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.count_final" href="/apidocs/bytewax.operators/index#bytewax.operators.count_final">count_final</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.filter" href="/apidocs/bytewax.operators/index#bytewax.operators.filter">filter</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.filter_map" href="/apidocs/bytewax.operators/index#bytewax.operators.filter_map">filter_map</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.filter_value" href="/apidocs/bytewax.operators/index#bytewax.operators.filter_value">filter_value</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.flat_map" href="/apidocs/bytewax.operators/index#bytewax.operators.flat_map">flat_map</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.flat_map_batch" href="/apidocs/bytewax.operators/index#bytewax.operators.flat_map_batch">flat_map_batch</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.flat_map_value" href="/apidocs/bytewax.operators/index#bytewax.operators.flat_map_value">flat_map_value</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.flatten" href="/apidocs/bytewax.operators/index#bytewax.operators.flatten">flatten</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.fold_final" href="/apidocs/bytewax.operators/index#bytewax.operators.fold_final">fold_final</a></li>
@@ -3819,7 +3865,6 @@ Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API docu
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.join" href="/apidocs/bytewax.operators/index#bytewax.operators.join">join</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.join_named" href="/apidocs/bytewax.operators/index#bytewax.operators.join_named">join_named</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.key_on" href="/apidocs/bytewax.operators/index#bytewax.operators.key_on">key_on</a></li>
-<li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.key_split" href="/apidocs/bytewax.operators/index#bytewax.operators.key_split">key_split</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.map" href="/apidocs/bytewax.operators/index#bytewax.operators.map">map</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.map_value" href="/apidocs/bytewax.operators/index#bytewax.operators.map_value">map_value</a></li>
 <li class="api__sidebar-nav-menu-item"><a title="bytewax.operators.max_final" href="/apidocs/bytewax.operators/index#bytewax.operators.max_final">max_final</a></li>

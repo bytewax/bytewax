@@ -60,7 +60,7 @@ class _FileSourcePartition(StatefulSourcePartition[str, int]):
         it = map(_strip_n, _readlines(self._f))
         self._batcher = batch(it, batch_size)
 
-    def next_batch(self, _sched: datetime) -&gt; List[str]:
+    def next_batch(self, sched: datetime) -&gt; List[str]:
         return next(self._batcher)
 
     def snapshot(self) -&gt; int:
@@ -141,10 +141,10 @@ class DirSource(FixedPartitionedSource[str, int]):
             return []
 
     def build_part(
-        self, _now: datetime, part_key: str, resume_state: Optional[int]
+        self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -&gt; _FileSourcePartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-        _fs_id, for_path = part_key.split(&#34;::&#34;, 1)
+        _fs_id, for_path = for_part.split(&#34;::&#34;, 1)
         path = self._dir_path / for_path
         return _FileSourcePartition(path, self._batch_size, resume_state)
 
@@ -206,10 +206,10 @@ class FileSource(FixedPartitionedSource[str, int]):
             return []
 
     def build_part(
-        self, _now: datetime, part_key: str, resume_state: Optional[int]
+        self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -&gt; _FileSourcePartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-        _fs_id, path = part_key.split(&#34;::&#34;, 1)
+        _fs_id, path = for_part.split(&#34;::&#34;, 1)
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert path == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
@@ -232,7 +232,7 @@ class _CSVPartition(StatefulSourcePartition[Dict[str, str], int]):
             self._f.seek(resume_state)
         self._batcher = batch(reader, batch_size)
 
-    def next_batch(self, _sched: datetime) -&gt; List[Dict[str, str]]:
+    def next_batch(self, sched: datetime) -&gt; List[Dict[str, str]]:
         return next(self._batcher)
 
     def snapshot(self) -&gt; int:
@@ -268,22 +268,22 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
 
     ```
     {
-      &#39;index&#39;: &#39;0&#39;,
-      &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;,
-      &#39;value&#39;: &#39;0.132&#39;,
-      &#39;instance&#39;: &#39;24ae8d&#39;
+        &#34;index&#34;: &#34;0&#34;,
+        &#34;timestamp&#34;: &#34;2022-02-24 11:42:08&#34;,
+        &#34;value&#34;: &#34;0.132&#34;,
+        &#34;instance&#34;: &#34;24ae8d&#34;,
     }
     {
-      &#39;index&#39;: &#39;0&#39;,
-      &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;,
-      &#39;value&#39;: &#39;0.066&#39;,
-      &#39;instance&#39;: &#39;c6585a&#39;
+        &#34;index&#34;: &#34;0&#34;,
+        &#34;timestamp&#34;: &#34;2022-02-24 11:42:08&#34;,
+        &#34;value&#34;: &#34;0.066&#34;,
+        &#34;instance&#34;: &#34;c6585a&#34;,
     }
     {
-      &#39;index&#39;: &#39;0&#39;,
-      &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;,
-      &#39;value&#39;: &#39;42.652&#39;,
-      &#39;instance&#39;: &#39;ac20cd&#39;
+        &#34;index&#34;: &#34;0&#34;,
+        &#34;timestamp&#34;: &#34;2022-02-24 11:42:08&#34;,
+        &#34;value&#34;: &#34;42.652&#34;,
+        &#34;instance&#34;: &#34;ac20cd&#34;,
     }
     ```
 
@@ -325,9 +325,9 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
         &#34;&#34;&#34;Same logic as `FileSource.list_parts`.&#34;&#34;&#34;
         return self._file_source.list_parts()
 
-    def build_part(self, _now: datetime, part_key: str, resume_state: Optional[Any]):
+    def build_part(self, now: datetime, for_part: str, resume_state: Optional[Any]):
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-        _fs_id, path = part_key.split(&#34;::&#34;, 1)
+        _fs_id, path = for_part.split(&#34;::&#34;, 1)
         assert path == str(
             self._file_source._path
         ), &#34;Can&#39;t resume reading from different file&#34;
@@ -347,9 +347,9 @@ class _FileSinkPartition(StatefulSinkPartition[str, int]):
         self._f.truncate()
         self._end = end
 
-    def write_batch(self, items: List[str]) -&gt; None:
-        for item in items:
-            self._f.write(item)
+    def write_batch(self, values: List[str]) -&gt; None:
+        for value in values:
+            self._f.write(value)
             self._f.write(self._end)
         self._f.flush()
         os.fsync(self._f.fileno())
@@ -509,22 +509,22 @@ interleaved.</p>
 </code></pre>
 <p>Sample output:</p>
 <pre><code>{
-  'index': '0',
-  'timestamp': '2022-02-24 11:42:08',
-  'value': '0.132',
-  'instance': '24ae8d'
+    &quot;index&quot;: &quot;0&quot;,
+    &quot;timestamp&quot;: &quot;2022-02-24 11:42:08&quot;,
+    &quot;value&quot;: &quot;0.132&quot;,
+    &quot;instance&quot;: &quot;24ae8d&quot;,
 }
 {
-  'index': '0',
-  'timestamp': '2022-02-24 11:42:08',
-  'value': '0.066',
-  'instance': 'c6585a'
+    &quot;index&quot;: &quot;0&quot;,
+    &quot;timestamp&quot;: &quot;2022-02-24 11:42:08&quot;,
+    &quot;value&quot;: &quot;0.066&quot;,
+    &quot;instance&quot;: &quot;c6585a&quot;,
 }
 {
-  'index': '0',
-  'timestamp': '2022-02-24 11:42:08',
-  'value': '42.652',
-  'instance': 'ac20cd'
+    &quot;index&quot;: &quot;0&quot;,
+    &quot;timestamp&quot;: &quot;2022-02-24 11:42:08&quot;,
+    &quot;value&quot;: &quot;42.652&quot;,
+    &quot;instance&quot;: &quot;ac20cd&quot;,
 }
 </code></pre>
 <p>Init.</p>
@@ -580,22 +580,22 @@ to
 
     ```
     {
-      &#39;index&#39;: &#39;0&#39;,
-      &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;,
-      &#39;value&#39;: &#39;0.132&#39;,
-      &#39;instance&#39;: &#39;24ae8d&#39;
+        &#34;index&#34;: &#34;0&#34;,
+        &#34;timestamp&#34;: &#34;2022-02-24 11:42:08&#34;,
+        &#34;value&#34;: &#34;0.132&#34;,
+        &#34;instance&#34;: &#34;24ae8d&#34;,
     }
     {
-      &#39;index&#39;: &#39;0&#39;,
-      &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;,
-      &#39;value&#39;: &#39;0.066&#39;,
-      &#39;instance&#39;: &#39;c6585a&#39;
+        &#34;index&#34;: &#34;0&#34;,
+        &#34;timestamp&#34;: &#34;2022-02-24 11:42:08&#34;,
+        &#34;value&#34;: &#34;0.066&#34;,
+        &#34;instance&#34;: &#34;c6585a&#34;,
     }
     {
-      &#39;index&#39;: &#39;0&#39;,
-      &#39;timestamp&#39;: &#39;2022-02-24 11:42:08&#39;,
-      &#39;value&#39;: &#39;42.652&#39;,
-      &#39;instance&#39;: &#39;ac20cd&#39;
+        &#34;index&#34;: &#34;0&#34;,
+        &#34;timestamp&#34;: &#34;2022-02-24 11:42:08&#34;,
+        &#34;value&#34;: &#34;42.652&#34;,
+        &#34;instance&#34;: &#34;ac20cd&#34;,
     }
     ```
 
@@ -637,9 +637,9 @@ to
         &#34;&#34;&#34;Same logic as `FileSource.list_parts`.&#34;&#34;&#34;
         return self._file_source.list_parts()
 
-    def build_part(self, _now: datetime, part_key: str, resume_state: Optional[Any]):
+    def build_part(self, now: datetime, for_part: str, resume_state: Optional[Any]):
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-        _fs_id, path = part_key.split(&#34;::&#34;, 1)
+        _fs_id, path = for_part.split(&#34;::&#34;, 1)
         assert path == str(
             self._file_source._path
         ), &#34;Can&#39;t resume reading from different file&#34;
@@ -660,7 +660,7 @@ to
 <h3>Methods</h3>
 <dl>
 <dt id="bytewax.connectors.files.CSVSource.build_part"><code class="language-python name flex">
-<span>def <span class="ident">build_part</span></span>(<span>self, _now: datetime.datetime, part_key: str, resume_state: Optional[Any])</span>
+<span>def <span class="ident">build_part</span></span>(<span>self, now: datetime.datetime, for_part: str, resume_state: Optional[Any])</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -668,9 +668,9 @@ to
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre class="language-python line-numbers"><code class="language-python">def build_part(self, _now: datetime, part_key: str, resume_state: Optional[Any]):
+<pre class="language-python line-numbers"><code class="language-python">def build_part(self, now: datetime, for_part: str, resume_state: Optional[Any]):
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-    _fs_id, path = part_key.split(&#34;::&#34;, 1)
+    _fs_id, path = for_part.split(&#34;::&#34;, 1)
     assert path == str(
         self._file_source._path
     ), &#34;Can&#39;t resume reading from different file&#34;
@@ -974,10 +974,10 @@ _dir: "SHARED"</code>.</p>
             return []
 
     def build_part(
-        self, _now: datetime, part_key: str, resume_state: Optional[int]
+        self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -&gt; _FileSourcePartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-        _fs_id, for_path = part_key.split(&#34;::&#34;, 1)
+        _fs_id, for_path = for_part.split(&#34;::&#34;, 1)
         path = self._dir_path / for_path
         return _FileSourcePartition(path, self._batch_size, resume_state)</code></pre>
 </details>
@@ -991,7 +991,7 @@ _dir: "SHARED"</code>.</p>
 <h3>Methods</h3>
 <dl>
 <dt id="bytewax.connectors.files.DirSource.build_part"><code class="language-python name flex">
-<span>def <span class="ident">build_part</span></span>(<span>self, _now: datetime.datetime, part_key: str, resume_state: Optional[int]) ‑> bytewax.connectors.files._FileSourcePartition</span>
+<span>def <span class="ident">build_part</span></span>(<span>self, now: datetime.datetime, for_part: str, resume_state: Optional[int]) ‑> bytewax.connectors.files._FileSourcePartition</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -1000,10 +1000,10 @@ _dir: "SHARED"</code>.</p>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">def build_part(
-    self, _now: datetime, part_key: str, resume_state: Optional[int]
+    self, now: datetime, for_part: str, resume_state: Optional[int]
 ) -&gt; _FileSourcePartition:
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-    _fs_id, for_path = part_key.split(&#34;::&#34;, 1)
+    _fs_id, for_path = for_part.split(&#34;::&#34;, 1)
     path = self._dir_path / for_path
     return _FileSourcePartition(path, self._batch_size, resume_state)</code></pre>
 </details>
@@ -1253,10 +1253,10 @@ _dir: "SHARED"</code>.</p>
             return []
 
     def build_part(
-        self, _now: datetime, part_key: str, resume_state: Optional[int]
+        self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -&gt; _FileSourcePartition:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-        _fs_id, path = part_key.split(&#34;::&#34;, 1)
+        _fs_id, path = for_part.split(&#34;::&#34;, 1)
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert path == str(self._path), &#34;Can&#39;t resume reading from different file&#34;
@@ -1272,7 +1272,7 @@ _dir: "SHARED"</code>.</p>
 <h3>Methods</h3>
 <dl>
 <dt id="bytewax.connectors.files.FileSource.build_part"><code class="language-python name flex">
-<span>def <span class="ident">build_part</span></span>(<span>self, _now: datetime.datetime, part_key: str, resume_state: Optional[int]) ‑> bytewax.connectors.files._FileSourcePartition</span>
+<span>def <span class="ident">build_part</span></span>(<span>self, now: datetime.datetime, for_part: str, resume_state: Optional[int]) ‑> bytewax.connectors.files._FileSourcePartition</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -1281,10 +1281,10 @@ _dir: "SHARED"</code>.</p>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">def build_part(
-    self, _now: datetime, part_key: str, resume_state: Optional[int]
+    self, now: datetime, for_part: str, resume_state: Optional[int]
 ) -&gt; _FileSourcePartition:
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
-    _fs_id, path = part_key.split(&#34;::&#34;, 1)
+    _fs_id, path = for_part.split(&#34;::&#34;, 1)
     # TODO: Warn and return None. Then we could support
     # continuation from a different file.
     assert path == str(self._path), &#34;Can&#39;t resume reading from different file&#34;

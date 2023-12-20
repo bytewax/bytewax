@@ -12,7 +12,7 @@
 <pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Serialization for recovery and transport.&#34;&#34;&#34;
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, cast
 
 import jsonpickle
 
@@ -58,14 +58,15 @@ class JsonPickleSerde(Serde):
     &#34;&#34;&#34;
 
     @staticmethod
-    def ser(obj):
+    def ser(obj: Any) -&gt; str:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         # Enable `keys`, otherwise all __dict__ keys are coereced to
-        # strings, which might not be true in general.
-        return jsonpickle.encode(obj, keys=True)
+        # strings, which might not be true in general. `jsonpickle`
+        # isn&#39;t at typed library, so we have to cast here.
+        return cast(str, jsonpickle.encode(obj, keys=True))
 
     @staticmethod
-    def de(s):
+    def de(s: str) -&gt; Any:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         return jsonpickle.decode(s, keys=True)</code></pre>
 </details>
@@ -99,14 +100,15 @@ more info.</p></div>
     &#34;&#34;&#34;
 
     @staticmethod
-    def ser(obj):
+    def ser(obj: Any) -&gt; str:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         # Enable `keys`, otherwise all __dict__ keys are coereced to
-        # strings, which might not be true in general.
-        return jsonpickle.encode(obj, keys=True)
+        # strings, which might not be true in general. `jsonpickle`
+        # isn&#39;t at typed library, so we have to cast here.
+        return cast(str, jsonpickle.encode(obj, keys=True))
 
     @staticmethod
-    def de(s):
+    def de(s: str) -&gt; Any:
         &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
         return jsonpickle.decode(s, keys=True)</code></pre>
 </details>
@@ -118,7 +120,7 @@ more info.</p></div>
 <h3>Static methods</h3>
 <dl>
 <dt id="bytewax.serde.JsonPickleSerde.de"><code class="language-python name flex">
-<span>def <span class="ident">de</span></span>(<span>s)</span>
+<span>def <span class="ident">de</span></span>(<span>s: str) ‑> Any</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -127,13 +129,13 @@ more info.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@staticmethod
-def de(s):
+def de(s: str) -&gt; Any:
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
     return jsonpickle.decode(s, keys=True)</code></pre>
 </details>
 </dd>
 <dt id="bytewax.serde.JsonPickleSerde.ser"><code class="language-python name flex">
-<span>def <span class="ident">ser</span></span>(<span>obj)</span>
+<span>def <span class="ident">ser</span></span>(<span>obj: Any) ‑> str</span>
 </code></dt>
 <dd>
 <div class="desc"><p>See ABC docstring.</p></div>
@@ -142,11 +144,12 @@ def de(s):
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@staticmethod
-def ser(obj):
+def ser(obj: Any) -&gt; str:
     &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
     # Enable `keys`, otherwise all __dict__ keys are coereced to
-    # strings, which might not be true in general.
-    return jsonpickle.encode(obj, keys=True)</code></pre>
+    # strings, which might not be true in general. `jsonpickle`
+    # isn&#39;t at typed library, so we have to cast here.
+    return cast(str, jsonpickle.encode(obj, keys=True))</code></pre>
 </details>
 </dd>
 </dl>

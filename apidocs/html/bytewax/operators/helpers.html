@@ -30,10 +30,16 @@ def map_dict_value(
     &gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
     &gt;&gt;&gt; from bytewax.dataflow import Dataflow
     &gt;&gt;&gt; flow = Dataflow(&#34;lens_item_map_eg&#34;)
-    &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource([
-    ...     {&#34;name&#34;: &#34;Rachel White&#34;, &#34;email&#34;: &#34;rachel@white.com&#34;},
-    ...     {&#34;name&#34;: &#34;John Smith&#34;, &#34;email&#34;: &#34;john@smith.com&#34;},
-    ... ]))
+    &gt;&gt;&gt; s = op.input(
+    ...     &#34;inp&#34;,
+    ...     flow,
+    ...     TestingSource(
+    ...         [
+    ...             {&#34;name&#34;: &#34;Rachel White&#34;, &#34;email&#34;: &#34;rachel@white.com&#34;},
+    ...             {&#34;name&#34;: &#34;John Smith&#34;, &#34;email&#34;: &#34;john@smith.com&#34;},
+    ...         ]
+    ...     ),
+    ... )
     &gt;&gt;&gt; def normalize(name):
     ...     return name.upper()
     &gt;&gt;&gt; s = op.map(&#34;normalize&#34;, s, map_dict_value(&#34;name&#34;, normalize))
@@ -87,10 +93,16 @@ a dict, but leave the other values untouched.</p>
 &gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
 &gt;&gt;&gt; from bytewax.dataflow import Dataflow
 &gt;&gt;&gt; flow = Dataflow(&quot;lens_item_map_eg&quot;)
-&gt;&gt;&gt; s = op.input(&quot;inp&quot;, flow, TestingSource([
-...     {&quot;name&quot;: &quot;Rachel White&quot;, &quot;email&quot;: &quot;rachel@white.com&quot;},
-...     {&quot;name&quot;: &quot;John Smith&quot;, &quot;email&quot;: &quot;john@smith.com&quot;},
-... ]))
+&gt;&gt;&gt; s = op.input(
+...     &quot;inp&quot;,
+...     flow,
+...     TestingSource(
+...         [
+...             {&quot;name&quot;: &quot;Rachel White&quot;, &quot;email&quot;: &quot;rachel@white.com&quot;},
+...             {&quot;name&quot;: &quot;John Smith&quot;, &quot;email&quot;: &quot;john@smith.com&quot;},
+...         ]
+...     ),
+... )
 &gt;&gt;&gt; def normalize(name):
 ...     return name.upper()
 &gt;&gt;&gt; s = op.map(&quot;normalize&quot;, s, map_dict_value(&quot;name&quot;, normalize))
@@ -133,10 +145,16 @@ called.</p></div>
     &gt;&gt;&gt; from bytewax.testing import run_main, TestingSource
     &gt;&gt;&gt; from bytewax.dataflow import Dataflow
     &gt;&gt;&gt; flow = Dataflow(&#34;lens_item_map_eg&#34;)
-    &gt;&gt;&gt; s = op.input(&#34;inp&#34;, flow, TestingSource([
-    ...     {&#34;name&#34;: &#34;Rachel White&#34;, &#34;email&#34;: &#34;rachel@white.com&#34;},
-    ...     {&#34;name&#34;: &#34;John Smith&#34;, &#34;email&#34;: &#34;john@smith.com&#34;},
-    ... ]))
+    &gt;&gt;&gt; s = op.input(
+    ...     &#34;inp&#34;,
+    ...     flow,
+    ...     TestingSource(
+    ...         [
+    ...             {&#34;name&#34;: &#34;Rachel White&#34;, &#34;email&#34;: &#34;rachel@white.com&#34;},
+    ...             {&#34;name&#34;: &#34;John Smith&#34;, &#34;email&#34;: &#34;john@smith.com&#34;},
+    ...         ]
+    ...     ),
+    ... )
     &gt;&gt;&gt; def normalize(name):
     ...     return name.upper()
     &gt;&gt;&gt; s = op.map(&#34;normalize&#34;, s, map_dict_value(&#34;name&#34;, normalize))

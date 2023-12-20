@@ -1,0 +1,504 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.connectors.kafka.sink</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<p>KafkaSink.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;KafkaSink.&#34;&#34;&#34;
+
+from typing import Dict, Iterable, List, Optional
+
+from confluent_kafka import Producer
+
+from bytewax.outputs import DynamicSink, StatelessSinkPartition
+
+from ._types import MaybeStrBytes
+from .message import KafkaSinkMessage
+
+
+class _KafkaSinkPartition(
+    StatelessSinkPartition[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]
+):
+    def __init__(self, producer, topic):
+        self._producer = producer
+        self._topic = topic
+
+    def write_batch(
+        self, items: List[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]
+    ) -&gt; None:
+        for msg in items:
+            topic = self._topic if msg.topic is None else msg.topic
+            if topic is None:
+                err = f&#34;No topic to produce to for {msg}&#34;
+                raise RuntimeError(err)
+
+            self._producer.produce(
+                value=msg.value,
+                key=msg.key,
+                headers=msg.headers,
+                topic=topic,
+                timestamp=msg.timestamp,
+            )
+            self._producer.poll(0)
+        self._producer.flush()
+
+    def close(self) -&gt; None:
+        self._producer.flush()
+
+
+class KafkaSink(DynamicSink[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]):
+    &#34;&#34;&#34;Use a single Kafka topic as an output sink.
+
+    Items consumed from the dataflow must look like two-tuples of
+    `(key_bytes, value_bytes)`. Default partition routing is used.
+
+    Workers are the unit of parallelism.
+
+    Can support at-least-once processing. Messages from the resume
+    epoch will be duplicated right after resume.
+    &#34;&#34;&#34;
+
+    def __init__(
+        self,
+        brokers: Iterable[str],
+        # Optional with no defaults, so you have to explicitely pass
+        # `topic=None` if you want to use the topic from the messages
+        topic: Optional[str],
+        add_config: Optional[Dict[str, str]] = None,
+    ):
+        &#34;&#34;&#34;Init.
+
+        Args:
+            brokers:
+                List of `host:port` strings of Kafka brokers.
+            topic:
+                Topic to produce to. If it&#39;s `None`, the topic
+                to produce to will be read in each KafkaMessage.
+            add_config:
+                Any additional configuration properties. See [the
+                `rdkafka`
+                documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+                for options.
+        &#34;&#34;&#34;
+        self._brokers = brokers
+        self._topic = topic
+        self._add_config = {} if add_config is None else add_config
+
+    def build(self, worker_index: int, worker_count: int) -&gt; _KafkaSinkPartition:
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        config = {
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+        }
+        config.update(self._add_config)
+        producer = Producer(config)
+
+        return _KafkaSinkPartition(producer, self._topic)</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-classes">Classes</h2>
+<dl>
+<dt id="bytewax.connectors.kafka.sink.KafkaSink"><code class="language-python flex name class">
+<span>class <span class="ident">KafkaSink</span></span>
+<span>(</span><span>brokers: Iterable[str], topic: Optional[str], add_config: Optional[Dict[str, str]] = None)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use a single Kafka topic as an output sink.</p>
+<p>Items consumed from the dataflow must look like two-tuples of
+<code>(key_bytes, value_bytes)</code>. Default partition routing is used.</p>
+<p>Workers are the unit of parallelism.</p>
+<p>Can support at-least-once processing. Messages from the resume
+epoch will be duplicated right after resume.</p>
+<p>Init.</p>
+<h2 id="args">Args</h2>
+<p>brokers:
+List of <code>host:port</code> strings of Kafka brokers.
+topic:
+Topic to produce to. If it's <code>None</code>, the topic
+to produce to will be read in each KafkaMessage.
+add_config:
+Any additional configuration properties. See <a href="https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md">the
+<code>rdkafka</code>
+documentation</a>
+for options.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">class KafkaSink(DynamicSink[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]):
+    &#34;&#34;&#34;Use a single Kafka topic as an output sink.
+
+    Items consumed from the dataflow must look like two-tuples of
+    `(key_bytes, value_bytes)`. Default partition routing is used.
+
+    Workers are the unit of parallelism.
+
+    Can support at-least-once processing. Messages from the resume
+    epoch will be duplicated right after resume.
+    &#34;&#34;&#34;
+
+    def __init__(
+        self,
+        brokers: Iterable[str],
+        # Optional with no defaults, so you have to explicitely pass
+        # `topic=None` if you want to use the topic from the messages
+        topic: Optional[str],
+        add_config: Optional[Dict[str, str]] = None,
+    ):
+        &#34;&#34;&#34;Init.
+
+        Args:
+            brokers:
+                List of `host:port` strings of Kafka brokers.
+            topic:
+                Topic to produce to. If it&#39;s `None`, the topic
+                to produce to will be read in each KafkaMessage.
+            add_config:
+                Any additional configuration properties. See [the
+                `rdkafka`
+                documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+                for options.
+        &#34;&#34;&#34;
+        self._brokers = brokers
+        self._topic = topic
+        self._add_config = {} if add_config is None else add_config
+
+    def build(self, worker_index: int, worker_count: int) -&gt; _KafkaSinkPartition:
+        &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+        config = {
+            &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+        }
+        config.update(self._add_config)
+        producer = Producer(config)
+
+        return _KafkaSinkPartition(producer, self._topic)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="bytewax.outputs.DynamicSink" href="/apidocs/bytewax.outputs#bytewax.outputs.DynamicSink">DynamicSink</a></li>
+<li><a title="bytewax.outputs.Sink" href="/apidocs/bytewax.outputs#bytewax.outputs.Sink">Sink</a></li>
+<li>abc.ABC</li>
+<li>typing.Generic</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.connectors.kafka.sink.KafkaSink.build"><code class="language-python name flex">
+<span>def <span class="ident">build</span></span>(<span>self, worker_index: int, worker_count: int) ‑> bytewax.connectors.kafka.sink._KafkaSinkPartition</span>
+</code></dt>
+<dd>
+<div class="desc"><p>See ABC docstring.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">def build(self, worker_index: int, worker_count: int) -&gt; _KafkaSinkPartition:
+    &#34;&#34;&#34;See ABC docstring.&#34;&#34;&#34;
+    config = {
+        &#34;bootstrap.servers&#34;: &#34;,&#34;.join(self._brokers),
+    }
+    config.update(self._add_config)
+    producer = Producer(config)
+
+    return _KafkaSinkPartition(producer, self._topic)</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="bytewax.connectors.kafka.sink.Producer"><code class="language-python flex name class">
+<span>class <span class="ident">Producer</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Asynchronous Kafka Producer</p>
+<p>.. py:function:: Producer(config)</p>
+<p>:param dict config: Configuration properties. At a minimum <code>bootstrap.servers</code> <strong>should</strong> be set</p>
+<p>Create a new Producer instance using the provided configuration dict.</p>
+<p>.. py:function:: <strong>len</strong>(self)</p>
+<p>Producer implements <strong>len</strong> that can be used as len(producer) to obtain number of messages waiting.
+:returns: Number of messages and Kafka protocol requests waiting to be delivered to broker.
+:rtype: int</p></div>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li>confluent_kafka.serializing_producer.SerializingProducer</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="bytewax.connectors.kafka.sink.Producer.abort_transaction"><code class="language-python name flex">
+<span>def <span class="ident">abort_transaction</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: abort_transaction([timeout])</p>
+<p>Aborts the current transaction.
+This function should also be used to recover from non-fatal
+abortable transaction errors when KafkaError.txn_requires_abort()
+is True.</p>
+<p>Any outstanding messages will be purged and fail with
+_PURGE_INFLIGHT or _PURGE_QUEUE.</p>
+<p>Note: This function will block until all outstanding messages
+are purged and the transaction abort request has been
+successfully handled by the transaction coordinator, or until
+the timeout expires, which ever comes first. On timeout the
+application may call the function again.</p>
+<p>Note: Will automatically call purge() and flush()
+to ensure
+all queued and in-flight messages are purged before attempting
+to abort the transaction.</p>
+<p>:param float timeout: The maximum amount of time to block
+waiting for transaction to abort in seconds.</p>
+<p>:raises: KafkaError: Use exc.args[0].retriable() to check if the
+operation may be retried.
+Treat any other error as a fatal error.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.sink.Producer.begin_transaction"><code class="language-python name flex">
+<span>def <span class="ident">begin_transaction</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: begin_transaction()</p>
+<p>Begin a new transaction.</p>
+<p>init_transactions() must have been called successfully (once)
+before this function is called.</p>
+<p>Any messages produced or offsets sent to a transaction, after
+the successful return of this function will be part of the
+transaction and committed or aborted atomically.</p>
+<p>Complete the transaction by calling commit_transaction() or
+Abort the transaction by calling abort_transaction().</p>
+<p>:raises: KafkaError: Use exc.args[0].retriable() to check if the
+operation may be retried, else treat the
+error as a fatal error.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.sink.Producer.commit_transaction"><code class="language-python name flex">
+<span>def <span class="ident">commit_transaction</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: commit_transaction([timeout])</p>
+<p>Commmit the current transaction.
+Any outstanding messages will be flushed (delivered) before
+actually committing the transaction.</p>
+<p>If any of the outstanding messages fail permanently the current
+transaction will enter the abortable error state and this
+function will return an abortable error, in this case the
+application must call abort_transaction() before attempting
+a new transaction with begin_transaction().</p>
+<p>Note: This function will block until all outstanding messages
+are delivered and the transaction commit request has been
+successfully handled by the transaction coordinator, or until
+the timeout expires, which ever comes first. On timeout the
+application may call the function again.</p>
+<p>Note: Will automatically call flush() to ensure all queued
+messages are delivered before attempting to commit the
+transaction. Delivery reports and other callbacks may thus be
+triggered from this method.</p>
+<p>:param float timeout: The amount of time to block in seconds.</p>
+<p>:raises: KafkaError: Use exc.args[0].retriable() to check if the
+operation may be retried, or
+exc.args[0].txn_requires_abort() if the current
+transaction has failed and must be aborted by calling
+abort_transaction() and then start a new transaction
+with begin_transaction().
+Treat any other error as a fatal error.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.sink.Producer.flush"><code class="language-python name flex">
+<span>def <span class="ident">flush</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: flush([timeout])</p>
+<p>Wait for all messages in the Producer queue to be delivered.
+This is a convenience method that calls :py:func:<code>poll()</code> until :py:func:<code>len()</code> is zero or the optional timeout elapses.</p>
+<p>:param: float timeout: Maximum time to block (requires librdkafka &gt;= v0.9.4). (Seconds)
+:returns: Number of messages still in queue.</p>
+<div class="admonition note">
+<p class="admonition-title">Note:&ensp;See :py:func:<code>poll()</code> for a description on what callbacks may be triggered.</p>
+</div></div>
+</dd>
+<dt id="bytewax.connectors.kafka.sink.Producer.init_transactions"><code class="language-python name flex">
+<span>def <span class="ident">init_transactions</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function: init_transactions([timeout])</p>
+<p>Initializes transactions for the producer instance.</p>
+<p>This function ensures any transactions initiated by previous
+instances of the producer with the same <code>transactional.id</code> are
+completed.
+If the previous instance failed with a transaction in progress
+the previous transaction will be aborted.
+This function needs to be called before any other transactional
+or produce functions are called when the <code>transactional.id</code> is
+configured.</p>
+<p>If the last transaction had begun completion (following
+transaction commit) but not yet finished, this function will
+await the previous transaction's completion.</p>
+<p>When any previous transactions have been fenced this function
+will acquire the internal producer id and epoch, used in all
+future transactional messages issued by this producer instance.</p>
+<p>Upon successful return from this function the application has to
+perform at least one of the following operations within
+<code>transaction.timeout.ms</code> to avoid timing out the transaction
+on the broker:
+* produce() (et.al)
+* send_offsets_to_transaction()
+* commit_transaction()
+* abort_transaction()</p>
+<p>:param float timeout: Maximum time to block in seconds.</p>
+<p>:raises: KafkaError: Use exc.args[0].retriable() to check if the
+operation may be retried, else treat the
+error as a fatal error.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.sink.Producer.list_topics"><code class="language-python name flex">
+<span>def <span class="ident">list_topics</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: list_topics([topic=None], [timeout=-1])</p>
+<p>Request metadata from the cluster.
+This method provides the same information as
+listTopics(), describeTopics() and describeCluster() in
+the Java Admin client.</p>
+<p>:param str topic: If specified, only request information about this topic, else return results for all topics in cluster. Warning: If auto.create.topics.enable is set to true on the broker and an unknown topic is specified, it will be created.
+:param float timeout: The maximum response time before timing out, or -1 for infinite timeout.
+:rtype: ClusterMetadata
+:raises: KafkaException</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.sink.Producer.poll"><code class="language-python name flex">
+<span>def <span class="ident">poll</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: poll([timeout])</p>
+<p>Polls the producer for events and calls the corresponding callbacks (if registered).</p>
+<p>Callbacks:</p>
+<ul>
+<li><code>on_delivery</code> callbacks from :py:func:<code>produce()</code></li>
+<li>&hellip;</li>
+</ul>
+<p>:param float timeout: Maximum time to block waiting for events. (Seconds)
+:returns: Number of events processed (callbacks served)
+:rtype: int</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.sink.Producer.produce"><code class="language-python name flex">
+<span>def <span class="ident">produce</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: produce(topic, [value], [key], [partition], [on_delivery], [timestamp], [headers])</p>
+<p>Produce message to topic.
+This is an asynchronous operation, an application may use the <code>callback</code> (alias <code>on_delivery</code>) argument to pass a function (or lambda) that will be called from :py:func:<code>poll()</code> when the message has been successfully delivered or permanently fails delivery.</p>
+<p>Currently message headers are not supported on the message returned to the callback. The <code>msg.headers()</code> will return None even if the original message had headers set.</p>
+<p>:param str topic: Topic to produce message to
+:param str|bytes value: Message payload
+:param str|bytes key: Message key
+:param int partition: Partition to produce to, else uses the configured built-in partitioner.
+:param func on_delivery(err,msg): Delivery report callback to call (from :py:func:<code>poll()</code> or :py:func:<code>flush()</code>) on successful or failed delivery
+:param int timestamp: Message timestamp (CreateTime) in milliseconds since epoch UTC (requires librdkafka &gt;= v0.9.4, api.version.request=true, and broker &gt;= 0.10.0.0). Default value is current time.</p>
+<p>:param dict|list headers: Message headers to set on the message. The header key must be a string while the value must be binary, unicode or None. Accepts a list of (key,value) or a dict. (Requires librdkafka &gt;= v0.11.4 and broker version &gt;= 0.11.0.0)
+:rtype: None
+:raises BufferError: if the internal producer message queue is full (<code>queue.buffering.max.messages</code> exceeded)
+:raises KafkaException: for other errors, see exception code
+:raises NotImplementedError: if timestamp is specified without underlying library support.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.sink.Producer.purge"><code class="language-python name flex">
+<span>def <span class="ident">purge</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: purge([in_queue=True], [in_flight=True], [blocking=True])</p>
+<p>Purge messages currently handled by the producer instance.
+The application will need to call poll() or flush() afterwards to serve the delivery report callbacks of the purged messages.</p>
+<p>:param: bool in_queue: Purge messages from internal queues. By default, true.
+:param: bool in_flight: Purge messages in flight to or from the broker. By default, true.
+:param: bool blocking: If set to False, will not wait on background thread queue purging to finish. By default, true.</p></div>
+</dd>
+<dt id="bytewax.connectors.kafka.sink.Producer.send_offsets_to_transaction"><code class="language-python name flex">
+<span>def <span class="ident">send_offsets_to_transaction</span></span>(<span>...)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>.. py:function:: send_offsets_to_transaction(positions, group_metadata, [timeout])</p>
+<p>Sends a list of topic partition offsets to the consumer group
+coordinator for group_metadata and marks the offsets as part
+of the current transaction.
+These offsets will be considered committed only if the
+transaction is committed successfully.</p>
+<p>The offsets should be the next message your application will
+consume, i.e., the last processed message's offset + 1 for each
+partition.
+Either track the offsets manually during processing or use
+consumer.position() (on the consumer) to get the current offsets
+for the partitions assigned to the consumer.</p>
+<p>Use this method at the end of a consume-transform-produce loop
+prior to committing the transaction with commit_transaction().</p>
+<p>Note: The consumer must disable auto commits
+(set <code>enable.auto.commit</code> to false on the consumer).</p>
+<p>Note: Logical and invalid offsets (e.g., OFFSET_INVALID) in
+offsets will be ignored. If there are no valid offsets in
+offsets the function will return successfully and no action
+will be taken.</p>
+<p>:param list(TopicPartition) offsets: current consumer/processing
+position(offsets) for the
+list of partitions.
+:param object group_metadata: consumer group metadata retrieved
+from the input consumer's
+get_consumer_group_metadata().
+:param float timeout: Amount of time to block in seconds.</p>
+<p>:raises: KafkaError: Use exc.args[0].retriable() to check if the
+operation may be retried, or
+exc.args[0].txn_requires_abort() if the current
+transaction has failed and must be aborted by calling
+abort_transaction() and then start a new transaction
+with begin_transaction().
+Treat any other error as a fatal error.</p></div>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors.kafka" href="/apidocs/bytewax.connectors/kafka/index">bytewax.connectors.kafka</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-classes">Classes</a></h3>
+<ul class="api__sidebar-nav-classes">
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.sink.KafkaSink" href="/apidocs/bytewax.connectors/kafka/sink#bytewax.connectors.kafka.sink.KafkaSink">KafkaSink</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.sink.KafkaSink.build" href="/apidocs/bytewax.connectors/kafka/sink#bytewax.connectors.kafka.sink.KafkaSink.build">build</a></li>
+</ul>
+</li>
+<li class="api__sidebar-nav-classes-item">
+<h4 class="api__sidebar-nav-classes-title"><a title="bytewax.connectors.kafka.sink.Producer" href="/apidocs/bytewax.connectors/kafka/sink#bytewax.connectors.kafka.sink.Producer">Producer</a></h4>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.sink.Producer.abort_transaction" href="/apidocs/bytewax.connectors/kafka/sink#bytewax.connectors.kafka.sink.Producer.abort_transaction">abort_transaction</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.sink.Producer.begin_transaction" href="/apidocs/bytewax.connectors/kafka/sink#bytewax.connectors.kafka.sink.Producer.begin_transaction">begin_transaction</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.sink.Producer.commit_transaction" href="/apidocs/bytewax.connectors/kafka/sink#bytewax.connectors.kafka.sink.Producer.commit_transaction">commit_transaction</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.sink.Producer.flush" href="/apidocs/bytewax.connectors/kafka/sink#bytewax.connectors.kafka.sink.Producer.flush">flush</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.sink.Producer.init_transactions" href="/apidocs/bytewax.connectors/kafka/sink#bytewax.connectors.kafka.sink.Producer.init_transactions">init_transactions</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.sink.Producer.list_topics" href="/apidocs/bytewax.connectors/kafka/sink#bytewax.connectors.kafka.sink.Producer.list_topics">list_topics</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.sink.Producer.poll" href="/apidocs/bytewax.connectors/kafka/sink#bytewax.connectors.kafka.sink.Producer.poll">poll</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.sink.Producer.produce" href="/apidocs/bytewax.connectors/kafka/sink#bytewax.connectors.kafka.sink.Producer.produce">produce</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.sink.Producer.purge" href="/apidocs/bytewax.connectors/kafka/sink#bytewax.connectors.kafka.sink.Producer.purge">purge</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.sink.Producer.send_offsets_to_transaction" href="/apidocs/bytewax.connectors/kafka/sink#bytewax.connectors.kafka.sink.Producer.send_offsets_to_transaction">send_offsets_to_transaction</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>

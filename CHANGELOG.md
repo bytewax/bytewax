@@ -9,6 +9,8 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## v0.18.0
+
 - Support for schema registries, through `bytewax.connectors.kafka.registry.RedpandaSchemaRegistry` and `bytewax.connectors.kafka.registry.ConfluentSchemaRegistry`.
 
 - Custom Kafka operators in `bytewax.connectors.kafka.operators`:
