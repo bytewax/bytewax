@@ -1,16 +1,13 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from typing import Any, List, Optional
 
 # pip install pandas pyarrow fake-web-events
-import pandas
 from bytewax import operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
-from bytewax.operators import window as window_op
-from bytewax.operators.window import SystemClockConfig, TumblingWindow
 from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
 from fake_web_events import Simulation
-from pandas import DataFrame
 from pyarrow import Table, parquet
 
 
@@ -20,49 +17,50 @@ class SimulatedPartition(StatefulSourcePartition):
             duration_seconds=10
         )
 
-    def next_batch(self):
+    def next_batch(self, sched: datetime) -> List[Any]:
         return [json.dumps(next(self.events))]
 
-    def snapshot(self):
+    def snapshot(self) -> Any:
         return None
 
 
 class FakeWebEventsSource(FixedPartitionedSource):
-    def list_parts(self):
+    def list_parts(self) -> List[str]:
         return ["singleton"]
 
-    def build_part(self, for_key, resume_state):
-        assert for_key == "singleton"
+    def build_part(
+        self, now: datetime, for_part: str, resume_state: Optional[int]
+    ) -> SimulatedPartition:
+        assert for_part == "singleton"
         assert resume_state is None
         return SimulatedPartition()
 
 
 class ParquetPartition(StatefulSinkPartition):
-    def write_batch(self, batch):
-        for _metadata, value in batch:
-            table = Table.from_pandas(value)
+    def write_batch(self, batch: List[Table]) -> None:
+        for table in batch:
             parquet.write_to_dataset(
                 table,
                 root_path="parquet_demo_out",
                 partition_cols=["year", "month", "day", "page_url_path"],
             )
 
-    def snapshot(self):
+    def snapshot(self) -> Any:
         return None
 
 
 class ParquetSink(FixedPartitionedSink):
-    def list_parts(self):
+    def list_parts(self) -> List[str]:
         return ["singleton"]
 
-    def assign_part(self, item_key):
+    def assign_part(self, item_key: str) -> str:
         return "singleton"
 
-    def build_part(self, for_part, resume_state):
+    def build_part(self, for_part: str, resume_state: Any) -> ParquetPartition:
         return ParquetPartition()
 
 
-def add_date_columns(event):
+def add_date_columns(event: dict) -> dict:
     timestamp = datetime.fromisoformat(event["event_timestamp"])
     event["year"] = timestamp.year
     event["month"] = timestamp.month
@@ -70,38 +68,24 @@ def add_date_columns(event):
     return event
 
 
-def group_by_page(event):
-    return event["page_url_path"], DataFrame([event])
-
-
-def append_event(events_df, event_df):
-    return pandas.concat([events_df, event_df])
-
-
-def drop_page(page__events_df):
-    page, events_df = page__events_df
-    return events_df
-
-
-cc = SystemClockConfig()
-wc = TumblingWindow(
-    length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
-)
-
 flow = Dataflow("events_to_parquet")
 stream = op.input("input", flow, FakeWebEventsSource())
 stream = op.map("load_json", stream, json.loads)
 # {"page_url_path": "/path", "event_timestamp": "2022-01-02 03:04:05", ...}
 stream = op.map("add_date_columns", stream, add_date_columns)
 # {"page_url_path": "/path", "year": 2022, "month": 1, "day": 5, ... }
-stream = op.map("group_by_page", stream, group_by_page)
-# ("/path", DataFrame([{
-#     "page_url_path": "/path",
-#     "year": 2022,
-#     "month": 1,
-#     "day": 5,
-#     ...
-# }]))
-stream = window_op.reduce_window("reducer", stream, cc, wc, append_event)
-# ("/path", DataFrame([{"page_url_path": "/path", ...}, ...]))
-op.output("out", stream, ParquetSink())
+keyed_stream = op.key_on(
+    "group_by_page", stream, lambda record: record["page_url_path"]
+)
+# ("/path", {"page_url_path": "/path", "year": 2022, "month": 1, ...})
+batched_stream = op.collect(
+    "batch_records", keyed_stream, batch_size=50, timeout=timedelta(seconds=2)
+)
+# ("/path", [{"page_url_path": "/path",...}, ...])
+arrow_stream = op.map(
+    "arrow_table",
+    batched_stream,
+    lambda keyed_batch: (keyed_batch[0], Table.from_pylist(keyed_batch[1])),
+)
+# ("/path", pyarrow.Table(event_id: [["/path", ...,...]], ...)
+op.output("out", arrow_stream, ParquetSink())
