@@ -1,5 +1,3 @@
-# Recovery and State handling
-
 Bytewax allows you to **recover** a stateful dataflow; it will let you
 resume processing and output due to a failure _without_ re-processing
 all initial data to re-calculate all internal state. It does this by
@@ -159,7 +157,7 @@ Snapshotting
 The **snapshot interval** is the system time interval at which an
 execution cluster synchronizes and snapshots its progress and
 state. You can adjust this duration via the `-s` parameter to
-`bytewax.run`. It defaults to every 10 seconds.
+`bytewax.run`.
 
 The dataflow can only resume on snapshot interval boundaries.
 
@@ -179,7 +177,7 @@ command](https://litestream.io/alternatives/cron/) or
 
 The recovery system also tries to be efficient and does not want
 recovery data to grow without bound. It will **garbage collect**
-snapshot data that is no longer necessary to support resumeing from an
+snapshot data that is no longer necessary to support resuming from an
 epoch far in the past.
 
 Bytewax can only resume a dataflow when it is able to find a
@@ -193,4 +191,5 @@ data should be retained longer than when it would be otherwise garbage
 collected. This generally should be set slightly longer than your
 backup latency. This gives a larger window for independent backup
 processes for each partition to complete and still enable a succesful
-recovery.
+recovery. You can adjust this duration via the `-b` parameter to
+`bytewax.run`.

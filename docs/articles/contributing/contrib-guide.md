@@ -1,5 +1,3 @@
-# Welcome to Bytewax contributing guide
-
 Thank you for investing your time in contributing to our project! Any contribution you make will be included in future Bytewax releases :sparkles:.
 
 _This contributing guide is for the [bytewax core GitHub repo](https://www.github.com/bytewax/). If you are interested in contributing a connector, please see the [connector hub documentation](/docs/articles/contributing/connector-hub) that explains how to contribute a community connector to the Connector Hub._

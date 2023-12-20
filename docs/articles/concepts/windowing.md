@@ -1,7 +1,3 @@
-# Windowing
-
-Lots of pics!
-
 Bytewax provides some operators and pre-built configurations for
 easily grouping data into buckets called **windows** and running code
 on just the values in those windows.

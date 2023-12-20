@@ -1,6 +1,4 @@
-# Workers and parallelization
-
-# Execution Model
+## Execution Model
 
 A **worker** is a thread that is helping execute your dataflow.
 Workers can be grouped into separate **processes**, but refer to the
@@ -17,9 +15,9 @@ higher throughput. See the "Stateful Operators" section of `bytewax`
 and the `bytewax.operators.redistribute` operator for more
 information.
 
-# Run Script
+## Run Script
 
-## Specifying the Dataflow
+### Specifying the Dataflow
 
 The first argument passed to the script is a dataflow getter string.
 The string is in the format `<dataflow-module>[:<dataflow-getter>]`.
