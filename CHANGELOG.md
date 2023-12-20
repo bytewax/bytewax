@@ -14,7 +14,7 @@ notes on GitHub when we make a new release.__
 - Custom Kafka operators in `bytewax.connectors.kafka.operators`:
   `input`, `output`, `deserialize_key`, `deserialize_value`, `deserialize`,
   `serialize_key`, `serialize_value` and `serialize`.
-  
+
 - *Breaking change* `KafkaSource` now emits a special `KafkaSourceMessage` to allow access to all data on consumed messages. `KafkaSink` now consumes `KafkaSinkMessage` to allow setting additional fields on produced messages.
 
 - Non-linear dataflows are now possible. Each operator method returns
