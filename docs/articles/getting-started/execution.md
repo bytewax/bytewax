@@ -67,7 +67,7 @@ you can spawn mulitple workers per process. We can run the previous dataflow
 with 3 workers using the same file, changing only the command:
 
 ```shell
-> python -m bytewax.run -w3 simple:flow
+> python -m bytewax.run -w3 simple
 ```
 
 ## Clustering Bytewax processes
@@ -75,8 +75,9 @@ with 3 workers using the same file, changing only the command:
 If you want to run Bytewax processes on one or more machines on the same network,
 you can use the `-i/--process-id`,`-a/--addresses` parameters.
 
-The `-i` and `-a` flags allow you to start up a single process within a cluster
-of processes that you are manually coordinating.
+When you specify the `-i` and `-a` flags, you are starting up a single process within a cluster
+of processes that you are manually coordinating. You will have to run `bytewax.run` multiple times
+to start up each process in the cluster individually.
 
 The `-a/--addresses` parameter is a list of `addresses:port` entries for all the processes,
 each entry separated by a ';'.
@@ -90,26 +91,26 @@ where the machines are known via DNS in the network as `cluster_one` and `cluste
 you should run the first process on `cluster_one` as follows:
 
 ```shell
-> python -m bytewax.run simple:flow -i0 -a "cluster_one:2101;cluster_two:2101"
+> python -m bytewax.run simple -i0 -a "cluster_one:2101;cluster_two:2101"
 ```
 
 And on the `cluster_two` machine as:
 
 ```shell
-> python -m bytewax.run simple:flow -i1 -a "cluster_one:2101;cluster_two:2101"
+> python -m bytewax.run simple -i1 -a "cluster_one:2101;cluster_two:2101"
 ```
 
 As before, each process can start multiple workers with the `-w` flag for increased
 parallelism. To start the same dataflow with a total of 6 workers:
 
 ```shell
-> python -m bytewax.run simple:flow -w3 -i0 -a "cluster_one:2101;cluster_two:2101"
+> python -m bytewax.run simple -w3 -i0 -a "cluster_one:2101;cluster_two:2101"
 ```
 
 And on the `cluster_two` machine as:
 
 ```shell
-> python -m bytewax.run simple:flow -w3 -i1 -a "cluster_one:2101;cluster_two:2101"
+> python -m bytewax.run simple -w3 -i1 -a "cluster_one:2101;cluster_two:2101"
 ```
 
 For more information about deployment options for Bytewax dataflows, please see

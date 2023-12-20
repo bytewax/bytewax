@@ -26,7 +26,7 @@ part-0.sqlite3
 ## Executing with Recovery
 
 Let's create an example dataflow that we can use to demonstrate recovery. We're going
-to use the [stateful_map](/apidocs/bytewax.operators/index#bytewax.operators.stateful_map) operator
+to use the [`stateful_map`](/apidocs/bytewax.operators/index#bytewax.operators.stateful_map) operator
 to keep a running sum of the numbers we receive as input.
 
 `stateful_map` is, as the name implies, a stateful operator. `stateful_map` takes four
@@ -67,7 +67,8 @@ op.output("out", total_sum_stream, StdOutSink())
 
 To enable recovery when you execute a dataflow, pass the `-r` flag to
 `bytewax.run` and specify the recovery directory. We will also need to set
-two values for recovery, the `snapshot_interval` via the `-s` flag and the `backup_interval` via the `-b` flag.
+two values for recovery, the `snapshot_interval` via the `-s` flag and the
+`backup_interval` via the `-b` flag.
 
 The `snapshot_interval` specifies the amount of time in seconds to wait
 before creating a snapshot. The `backup_interval` specifies the amount
