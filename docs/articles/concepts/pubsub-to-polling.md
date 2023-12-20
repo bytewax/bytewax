@@ -19,8 +19,6 @@ The Request/Response pattern is a synchronous communication method where a reque
 
 Request/ACK extends the basic request/response pattern by adding an acknowledgment step. The receiver sends an ACK message back to the sender to confirm receipt. This pattern is more common in distributed systems and acknowledgment patterns are often used with queues like AWS SQS and RabbitMQ. The consumer of the message will acknowledge the successful processing. For exactly-once guarantees the acknowledgement needs to be coordinated with the successful delivery to the final part of the system. For example, the service would acknowledge successful processing once it has written the data to a database after finishing processing.
 
-**_Acknowledgement for exactly-once processing guarantee is not currently supported in Bytewax_**
-
 ## Request/Forget
 
 Request/Forget is an asynchronous pattern where the sender emits a request and immediately moves on without waiting for a response or acknowledgment. It's useful for logging, metrics collection, or any scenario where the sender doesn't need confirmation of receipt or processing. Bytewax can fulfill this pattern when coupled with a system that can decouple the request effectively from the processing. One example would be to use Redpanda or Kafka with an HTTP proxy and Bytewax consuming from the Kafka/Redpanda topic.
