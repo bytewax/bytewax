@@ -1,0 +1,762 @@
+<main class="api__content">
+<article class="api__article" id="content">
+<header class="api__article-header">
+<h1 class="api__article-title">Module <strong>bytewax.connectors.kafka.operators</strong></h1>
+</header>
+<section class="api__article-intro" id="section-intro">
+<p>Operators for the kafka source and sink.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">&#34;&#34;&#34;Operators for the kafka source and sink.&#34;&#34;&#34;
+from dataclasses import dataclass
+from typing import Dict, Generic, List, Optional, Union, cast
+
+from confluent_kafka import OFFSET_BEGINNING
+from confluent_kafka import KafkaError as ConfluentKafkaError
+
+import bytewax.operators as op
+from bytewax.dataflow import Dataflow
+from bytewax.operators import Stream, operator
+
+from ._types import K2, V2, K, MaybeStrBytes, V
+from .error import KafkaError
+from .message import KafkaSinkMessage, KafkaSourceMessage
+from .serde import SchemaDeserializer, SchemaSerializer
+from .sink import KafkaSink
+from .source import KafkaSource
+
+__all__ = [
+    &#34;deserialize&#34;,
+    &#34;deserialize_key&#34;,
+    &#34;deserialize_value&#34;,
+    &#34;serialize&#34;,
+    &#34;serialize_key&#34;,
+    &#34;serialize_value&#34;,
+    &#34;input&#34;,
+    &#34;output&#34;,
+]
+
+
+@dataclass(frozen=True)
+class KafkaSourceOut(Generic[K, V, K2, V2]):
+    &#34;&#34;&#34;Contains two streams of KafkaMessages, oks and errors.
+
+    - KafkaStreams.oks:
+        A stream of `KafkaMessage`s where `KafkaMessage.error is None`
+    - KafkaStreams.errors:
+        A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+    &#34;&#34;&#34;
+
+    oks: Stream[KafkaSourceMessage[K, V]]
+    errs: Stream[KafkaError[K2, V2]]
+
+
+@operator
+def _kafka_error_split(
+    step_id: str, up: Stream[Union[KafkaSourceMessage[K2, V2], KafkaError[K, V]]]
+) -&gt; KafkaSourceOut[K2, V2, K, V]:
+    &#34;&#34;&#34;Split a stream of KafkaMessages in two.&#34;&#34;&#34;
+    branch = op.branch(&#34;branch&#34;, up, lambda msg: isinstance(msg, KafkaSourceMessage))
+    # Cast the streams to the proper expected types.
+    oks = cast(Stream[KafkaSourceMessage[K2, V2]], branch.trues)
+    errs = cast(Stream[KafkaError[K, V]], branch.falses)
+    return KafkaSourceOut(oks, errs)
+
+
+@operator
+def _to_sink(
+    step_id: str, up: Stream[Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]]]
+) -&gt; Stream[KafkaSinkMessage[K, V]]:
+    &#34;&#34;&#34;Automatically convert a KafkaSourceMessage to KafkaSinkMessage.&#34;&#34;&#34;
+
+    def shim_mapper(
+        msg: Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]],
+    ) -&gt; KafkaSinkMessage[K, V]:
+        if isinstance(msg, KafkaSourceMessage):
+            return msg.to_sink()
+        else:
+            return msg
+
+    return op.map(&#34;map&#34;, up, shim_mapper)
+
+
+@operator
+def input(  # noqa A001
+    step_id: str,
+    flow: Dataflow,
+    *,
+    brokers: List[str],
+    topics: List[str],
+    tail: bool = True,
+    starting_offset: int = OFFSET_BEGINNING,
+    add_config: Optional[Dict[str, str]] = None,
+    batch_size: int = 1000,
+) -&gt; KafkaSourceOut[MaybeStrBytes, MaybeStrBytes, MaybeStrBytes, MaybeStrBytes]:
+    &#34;&#34;&#34;Use a set of Kafka topics as an input source.
+
+    Partitions are the unit of parallelism.
+    Can support exactly-once processing.
+
+    Messages are emitted into the dataflow
+    as `bytewax.connectors.kafka.KafkaMessage` objects.
+
+    Args:
+        step_id:
+            Unique name for this step
+        flow:
+            A Dataflow
+        brokers:
+            List of `host:port` strings of Kafka brokers.
+        topics:
+            List of topics to consume from.
+        tail:
+            Whether to wait for new data on this topic when the
+            end is initially reached.
+        starting_offset:
+            Can be either `confluent_kafka.OFFSET_BEGINNING` or
+            `confluent_kafka.OFFSET_END`. Defaults to beginning of
+            topic.
+        add_config:
+            Any additional configuration properties. See the `rdkafka`
+            [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+            for options.
+        batch_size:
+            How many messages to consume at most at each poll. Defaults to 1000.
+    &#34;&#34;&#34;
+    return op.input(
+        &#34;kafka_input&#34;,
+        flow,
+        KafkaSource(
+            brokers,
+            topics,
+            tail,
+            starting_offset,
+            add_config,
+            batch_size,
+            # Don&#39;t raise on errors, since we split
+            # the stream and let users handle that
+            raise_on_errors=False,
+        ),
+    ).then(_kafka_error_split, &#34;split_err&#34;)
+
+
+@operator
+def output(
+    step_id: str,
+    up: Stream[Union[KafkaSourceMessage, KafkaSinkMessage]],
+    *,
+    brokers: List[str],
+    topic: str,
+    add_config: Optional[Dict[str, str]] = None,
+) -&gt; None:
+    &#34;&#34;&#34;Use a single Kafka topic as an output sink.
+
+    Items consumed from the dataflow must look like two-tuples of
+    `(key_bytes, value_bytes)`. Default partition routing is used.
+
+    Workers are the unit of parallelism.
+
+    Can support at-least-once processing. Messages from the resume
+    epoch will be duplicated right after resume.
+
+    Args:
+        step_id:
+            Unique name for this step
+        up:
+            A stream of `(key_bytes, value_bytes)` 2-tuples
+        brokers:
+            List of `host:port` strings of Kafka brokers.
+        topic:
+            Topic to produce to.
+        add_config:
+            Any additional configuration properties. See the `rdkafka`
+            [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+            for options.
+    &#34;&#34;&#34;
+    return _to_sink(&#34;to_sink&#34;, up).then(
+        op.output, &#34;kafka_output&#34;, KafkaSink(brokers, topic, add_config)
+    )
+
+
+@operator
+def deserialize_key(
+    step_id: str,
+    up: Stream[KafkaSourceMessage[K, V]],
+    deserializer: SchemaDeserializer[K, K2],
+) -&gt; KafkaSourceOut[K2, V, K, V]:
+    &#34;&#34;&#34;Deserialize the key of a KafkaMessage using the provided SchemaDeserializer.
+
+    Returns an object with two attributes:
+        - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
+        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+    &#34;&#34;&#34;
+
+    # Make sure the first KafkaMessage in the return type&#39;s Union represents
+    # the `oks` stream and the second one the `errs` stream for the
+    # `_kafka_error_split` operator.
+    def shim_mapper(
+        msg: KafkaSourceMessage[K, V],
+    ) -&gt; Union[KafkaSourceMessage[K2, V], KafkaError[K, V]]:
+        try:
+            key = deserializer.de(msg.key)
+            return msg._with_key(key)
+        except Exception as e:
+            err = ConfluentKafkaError(ConfluentKafkaError._KEY_DESERIALIZATION, f&#34;{e}&#34;)
+            return KafkaError(err, msg)
+
+    return op.map(&#34;map&#34;, up, shim_mapper).then(_kafka_error_split, &#34;split&#34;)
+
+
+@operator
+def deserialize_value(
+    step_id: str,
+    up: Stream[KafkaSourceMessage[K, V]],
+    deserializer: SchemaDeserializer[V, V2],
+) -&gt; KafkaSourceOut[K, V2, K, V]:
+    &#34;&#34;&#34;Deserialize the value of a KafkaMessage using the provided SchemaDeserializer.
+
+    Returns an object with two attributes:
+        - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
+        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+    &#34;&#34;&#34;
+
+    def shim_mapper(
+        msg: KafkaSourceMessage[K, V],
+    ) -&gt; Union[KafkaSourceMessage[K, V2], KafkaError[K, V]]:
+        try:
+            value = deserializer.de(msg.value)
+            return msg._with_value(value)
+        except Exception as e:
+            err = ConfluentKafkaError(
+                ConfluentKafkaError._VALUE_DESERIALIZATION, f&#34;{e}&#34;
+            )
+            return KafkaError(err, msg)
+
+    return op.map(&#34;map&#34;, up, shim_mapper).then(_kafka_error_split, &#34;split_err&#34;)
+
+
+@operator
+def deserialize(
+    step_id: str,
+    up: Stream[KafkaSourceMessage[K, V]],
+    *,
+    key_deserializer: SchemaDeserializer[K, K2],
+    val_deserializer: SchemaDeserializer[V, V2],
+) -&gt; KafkaSourceOut[K2, V2, K, V]:
+    &#34;&#34;&#34;Serialize both keys and values with the given serializers.
+
+    Returns an object with two attributes:
+        - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
+        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+    A message will be put in .errors even if only one of the deserializers fail.
+    &#34;&#34;&#34;
+
+    # Use a single map step rather than concatenating
+    # deserialize_key and deserialize_value so we can
+    # return the original message if any of the 2 fail.
+    def shim_mapper(
+        msg: KafkaSourceMessage[K, V],
+    ) -&gt; Union[KafkaSourceMessage[K2, V2], KafkaError[K, V]]:
+        try:
+            key = key_deserializer.de(msg.key)
+        except Exception as e:
+            err = ConfluentKafkaError(ConfluentKafkaError._KEY_DESERIALIZATION, f&#34;{e}&#34;)
+            return KafkaError(err, msg)
+
+        try:
+            value = val_deserializer.de(msg.value)
+        except Exception as e:
+            err = ConfluentKafkaError(
+                ConfluentKafkaError._VALUE_DESERIALIZATION, f&#34;{e}&#34;
+            )
+            return KafkaError(err, msg)
+
+        return msg._with_key_and_value(key, value)
+
+    return op.map(&#34;map&#34;, up, shim_mapper).then(_kafka_error_split, &#34;split_err&#34;)
+
+
+@operator
+def serialize_key(
+    step_id: str,
+    up: Stream[Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]]],
+    serializer: SchemaSerializer[K, K2],
+) -&gt; Stream[KafkaSinkMessage[K2, V]]:
+    &#34;&#34;&#34;Serialize the key of a KafkaMessage using the provided SchemaSerializer.
+
+    Crash if any error occurs.
+    &#34;&#34;&#34;
+
+    def shim_mapper(msg: KafkaSinkMessage[K, V]) -&gt; KafkaSinkMessage[K2, V]:
+        key = serializer.ser(msg.key)
+        return msg._with_key(key)
+
+    return _to_sink(&#34;to_sink&#34;, up).then(op.map, &#34;map&#34;, shim_mapper)
+
+
+@operator
+def serialize_value(
+    step_id: str,
+    up: Stream[Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]]],
+    serializer: SchemaSerializer[V, V2],
+) -&gt; Stream[KafkaSinkMessage[K, V2]]:
+    &#34;&#34;&#34;Serialize the value of a KafkaMessage using the provided SchemaSerializer.
+
+    Crash if any error occurs.
+    &#34;&#34;&#34;
+
+    def shim_mapper(msg: KafkaSinkMessage[K, V]) -&gt; KafkaSinkMessage[K, V2]:
+        value = serializer.ser(msg.value)
+        return msg._with_value(value)
+
+    return _to_sink(&#34;to_sink&#34;, up).then(op.map, &#34;map&#34;, shim_mapper)
+
+
+@operator
+def serialize(
+    step_id: str,
+    up: Stream[Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]]],
+    *,
+    key_serializer: SchemaSerializer[K, K2],
+    val_serializer: SchemaSerializer[V, V2],
+) -&gt; Stream[KafkaSinkMessage[K2, V2]]:
+    &#34;&#34;&#34;Serialize both keys and values with the given serializers.
+
+    Crash if any error occurs.
+    &#34;&#34;&#34;
+
+    def shim_mapper(msg: KafkaSinkMessage[K, V]) -&gt; KafkaSinkMessage[K2, V2]:
+        key = key_serializer.ser(msg.key)
+        value = val_serializer.ser(msg.value)
+        return msg._with_key_and_value(key, value)
+
+    return _to_sink(&#34;to_sink&#34;, up).then(op.map, &#34;map&#34;, shim_mapper)</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="api__article-subtitle" id="header-functions">Functions</h2>
+<dl>
+<dt id="bytewax.connectors.kafka.operators.deserialize"><code class="language-python name flex">
+<span>def <span class="ident">deserialize</span></span>(<span>step_id: str, up: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[<a title="bytewax.connectors.kafka.message.KafkaSourceMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage">KafkaSourceMessage</a>[~K, ~V]], *, key_deserializer: <a title="bytewax.connectors.kafka.serde.SchemaDeserializer" href="/apidocs/bytewax.connectors/kafka/serde#bytewax.connectors.kafka.serde.SchemaDeserializer">SchemaDeserializer</a>[~K, ~K2], val_deserializer: <a title="bytewax.connectors.kafka.serde.SchemaDeserializer" href="/apidocs/bytewax.connectors/kafka/serde#bytewax.connectors.kafka.serde.SchemaDeserializer">SchemaDeserializer</a>[~V, ~V2]) ‑> bytewax.connectors.kafka.operators.KafkaSourceOut[~K2, ~V2, ~K, ~V]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Serialize both keys and values with the given serializers.</p>
+<p>Returns an object with two attributes:
+- .oks: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is None</code>
+- .errors: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is not None</code>
+A message will be put in .errors even if only one of the deserializers fail.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@operator
+def deserialize(
+    step_id: str,
+    up: Stream[KafkaSourceMessage[K, V]],
+    *,
+    key_deserializer: SchemaDeserializer[K, K2],
+    val_deserializer: SchemaDeserializer[V, V2],
+) -&gt; KafkaSourceOut[K2, V2, K, V]:
+    &#34;&#34;&#34;Serialize both keys and values with the given serializers.
+
+    Returns an object with two attributes:
+        - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
+        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+    A message will be put in .errors even if only one of the deserializers fail.
+    &#34;&#34;&#34;
+
+    # Use a single map step rather than concatenating
+    # deserialize_key and deserialize_value so we can
+    # return the original message if any of the 2 fail.
+    def shim_mapper(
+        msg: KafkaSourceMessage[K, V],
+    ) -&gt; Union[KafkaSourceMessage[K2, V2], KafkaError[K, V]]:
+        try:
+            key = key_deserializer.de(msg.key)
+        except Exception as e:
+            err = ConfluentKafkaError(ConfluentKafkaError._KEY_DESERIALIZATION, f&#34;{e}&#34;)
+            return KafkaError(err, msg)
+
+        try:
+            value = val_deserializer.de(msg.value)
+        except Exception as e:
+            err = ConfluentKafkaError(
+                ConfluentKafkaError._VALUE_DESERIALIZATION, f&#34;{e}&#34;
+            )
+            return KafkaError(err, msg)
+
+        return msg._with_key_and_value(key, value)
+
+    return op.map(&#34;map&#34;, up, shim_mapper).then(_kafka_error_split, &#34;split_err&#34;)</code></pre>
+</details>
+</dd>
+<dt id="bytewax.connectors.kafka.operators.deserialize_key"><code class="language-python name flex">
+<span>def <span class="ident">deserialize_key</span></span>(<span>step_id: str, up: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[<a title="bytewax.connectors.kafka.message.KafkaSourceMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage">KafkaSourceMessage</a>[~K, ~V]], deserializer: <a title="bytewax.connectors.kafka.serde.SchemaDeserializer" href="/apidocs/bytewax.connectors/kafka/serde#bytewax.connectors.kafka.serde.SchemaDeserializer">SchemaDeserializer</a>[~K, ~K2]) ‑> bytewax.connectors.kafka.operators.KafkaSourceOut[~K2, ~V, ~K, ~V]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Deserialize the key of a KafkaMessage using the provided SchemaDeserializer.</p>
+<p>Returns an object with two attributes:
+- .oks: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is None</code>
+- .errors: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is not None</code></p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@operator
+def deserialize_key(
+    step_id: str,
+    up: Stream[KafkaSourceMessage[K, V]],
+    deserializer: SchemaDeserializer[K, K2],
+) -&gt; KafkaSourceOut[K2, V, K, V]:
+    &#34;&#34;&#34;Deserialize the key of a KafkaMessage using the provided SchemaDeserializer.
+
+    Returns an object with two attributes:
+        - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
+        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+    &#34;&#34;&#34;
+
+    # Make sure the first KafkaMessage in the return type&#39;s Union represents
+    # the `oks` stream and the second one the `errs` stream for the
+    # `_kafka_error_split` operator.
+    def shim_mapper(
+        msg: KafkaSourceMessage[K, V],
+    ) -&gt; Union[KafkaSourceMessage[K2, V], KafkaError[K, V]]:
+        try:
+            key = deserializer.de(msg.key)
+            return msg._with_key(key)
+        except Exception as e:
+            err = ConfluentKafkaError(ConfluentKafkaError._KEY_DESERIALIZATION, f&#34;{e}&#34;)
+            return KafkaError(err, msg)
+
+    return op.map(&#34;map&#34;, up, shim_mapper).then(_kafka_error_split, &#34;split&#34;)</code></pre>
+</details>
+</dd>
+<dt id="bytewax.connectors.kafka.operators.deserialize_value"><code class="language-python name flex">
+<span>def <span class="ident">deserialize_value</span></span>(<span>step_id: str, up: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[<a title="bytewax.connectors.kafka.message.KafkaSourceMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage">KafkaSourceMessage</a>[~K, ~V]], deserializer: <a title="bytewax.connectors.kafka.serde.SchemaDeserializer" href="/apidocs/bytewax.connectors/kafka/serde#bytewax.connectors.kafka.serde.SchemaDeserializer">SchemaDeserializer</a>[~V, ~V2]) ‑> bytewax.connectors.kafka.operators.KafkaSourceOut[~K, ~V2, ~K, ~V]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Deserialize the value of a KafkaMessage using the provided SchemaDeserializer.</p>
+<p>Returns an object with two attributes:
+- .oks: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is None</code>
+- .errors: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is not None</code></p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@operator
+def deserialize_value(
+    step_id: str,
+    up: Stream[KafkaSourceMessage[K, V]],
+    deserializer: SchemaDeserializer[V, V2],
+) -&gt; KafkaSourceOut[K, V2, K, V]:
+    &#34;&#34;&#34;Deserialize the value of a KafkaMessage using the provided SchemaDeserializer.
+
+    Returns an object with two attributes:
+        - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
+        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+    &#34;&#34;&#34;
+
+    def shim_mapper(
+        msg: KafkaSourceMessage[K, V],
+    ) -&gt; Union[KafkaSourceMessage[K, V2], KafkaError[K, V]]:
+        try:
+            value = deserializer.de(msg.value)
+            return msg._with_value(value)
+        except Exception as e:
+            err = ConfluentKafkaError(
+                ConfluentKafkaError._VALUE_DESERIALIZATION, f&#34;{e}&#34;
+            )
+            return KafkaError(err, msg)
+
+    return op.map(&#34;map&#34;, up, shim_mapper).then(_kafka_error_split, &#34;split_err&#34;)</code></pre>
+</details>
+</dd>
+<dt id="bytewax.connectors.kafka.operators.input"><code class="language-python name flex">
+<span>def <span class="ident">input</span></span>(<span>step_id: str, flow: <a title="bytewax.dataflow.Dataflow" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow">Dataflow</a>, *, brokers: List[str], topics: List[str], tail: bool = True, starting_offset: int = -2, add_config: Optional[Dict[str, str]] = None, batch_size: int = 1000) ‑> bytewax.connectors.kafka.operators.KafkaSourceOut[typing.Union[str, bytes, ForwardRef(None)], typing.Union[str, bytes, ForwardRef(None)], typing.Union[str, bytes, ForwardRef(None)], typing.Union[str, bytes, ForwardRef(None)]]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use a set of Kafka topics as an input source.</p>
+<p>Partitions are the unit of parallelism.
+Can support exactly-once processing.</p>
+<p>Messages are emitted into the dataflow
+as <code>bytewax.connectors.kafka.KafkaMessage</code> objects.</p>
+<h2 id="args">Args</h2>
+<p>step_id:
+Unique name for this step
+flow:
+A Dataflow
+brokers:
+List of <code>host:port</code> strings of Kafka brokers.
+topics:
+List of topics to consume from.
+tail:
+Whether to wait for new data on this topic when the
+end is initially reached.
+starting_offset:
+Can be either <code>confluent_kafka.OFFSET_BEGINNING</code> or
+<code>confluent_kafka.OFFSET_END</code>. Defaults to beginning of
+topic.
+add_config:
+Any additional configuration properties. See the <code>rdkafka</code>
+<a href="https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md">docs</a>
+for options.
+batch_size:
+How many messages to consume at most at each poll. Defaults to 1000.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@operator
+def input(  # noqa A001
+    step_id: str,
+    flow: Dataflow,
+    *,
+    brokers: List[str],
+    topics: List[str],
+    tail: bool = True,
+    starting_offset: int = OFFSET_BEGINNING,
+    add_config: Optional[Dict[str, str]] = None,
+    batch_size: int = 1000,
+) -&gt; KafkaSourceOut[MaybeStrBytes, MaybeStrBytes, MaybeStrBytes, MaybeStrBytes]:
+    &#34;&#34;&#34;Use a set of Kafka topics as an input source.
+
+    Partitions are the unit of parallelism.
+    Can support exactly-once processing.
+
+    Messages are emitted into the dataflow
+    as `bytewax.connectors.kafka.KafkaMessage` objects.
+
+    Args:
+        step_id:
+            Unique name for this step
+        flow:
+            A Dataflow
+        brokers:
+            List of `host:port` strings of Kafka brokers.
+        topics:
+            List of topics to consume from.
+        tail:
+            Whether to wait for new data on this topic when the
+            end is initially reached.
+        starting_offset:
+            Can be either `confluent_kafka.OFFSET_BEGINNING` or
+            `confluent_kafka.OFFSET_END`. Defaults to beginning of
+            topic.
+        add_config:
+            Any additional configuration properties. See the `rdkafka`
+            [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+            for options.
+        batch_size:
+            How many messages to consume at most at each poll. Defaults to 1000.
+    &#34;&#34;&#34;
+    return op.input(
+        &#34;kafka_input&#34;,
+        flow,
+        KafkaSource(
+            brokers,
+            topics,
+            tail,
+            starting_offset,
+            add_config,
+            batch_size,
+            # Don&#39;t raise on errors, since we split
+            # the stream and let users handle that
+            raise_on_errors=False,
+        ),
+    ).then(_kafka_error_split, &#34;split_err&#34;)</code></pre>
+</details>
+</dd>
+<dt id="bytewax.connectors.kafka.operators.output"><code class="language-python name flex">
+<span>def <span class="ident">output</span></span>(<span>step_id: str, up: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Union[<a title="bytewax.connectors.kafka.message.KafkaSourceMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage">KafkaSourceMessage</a>, <a title="bytewax.connectors.kafka.message.KafkaSinkMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage">KafkaSinkMessage</a>]], *, brokers: List[str], topic: str, add_config: Optional[Dict[str, str]] = None) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use a single Kafka topic as an output sink.</p>
+<p>Items consumed from the dataflow must look like two-tuples of
+<code>(key_bytes, value_bytes)</code>. Default partition routing is used.</p>
+<p>Workers are the unit of parallelism.</p>
+<p>Can support at-least-once processing. Messages from the resume
+epoch will be duplicated right after resume.</p>
+<h2 id="args">Args</h2>
+<p>step_id:
+Unique name for this step
+up:
+A stream of <code>(key_bytes, value_bytes)</code> 2-tuples
+brokers:
+List of <code>host:port</code> strings of Kafka brokers.
+topic:
+Topic to produce to.
+add_config:
+Any additional configuration properties. See the <code>rdkafka</code>
+<a href="https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md">docs</a>
+for options.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@operator
+def output(
+    step_id: str,
+    up: Stream[Union[KafkaSourceMessage, KafkaSinkMessage]],
+    *,
+    brokers: List[str],
+    topic: str,
+    add_config: Optional[Dict[str, str]] = None,
+) -&gt; None:
+    &#34;&#34;&#34;Use a single Kafka topic as an output sink.
+
+    Items consumed from the dataflow must look like two-tuples of
+    `(key_bytes, value_bytes)`. Default partition routing is used.
+
+    Workers are the unit of parallelism.
+
+    Can support at-least-once processing. Messages from the resume
+    epoch will be duplicated right after resume.
+
+    Args:
+        step_id:
+            Unique name for this step
+        up:
+            A stream of `(key_bytes, value_bytes)` 2-tuples
+        brokers:
+            List of `host:port` strings of Kafka brokers.
+        topic:
+            Topic to produce to.
+        add_config:
+            Any additional configuration properties. See the `rdkafka`
+            [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+            for options.
+    &#34;&#34;&#34;
+    return _to_sink(&#34;to_sink&#34;, up).then(
+        op.output, &#34;kafka_output&#34;, KafkaSink(brokers, topic, add_config)
+    )</code></pre>
+</details>
+</dd>
+<dt id="bytewax.connectors.kafka.operators.serialize"><code class="language-python name flex">
+<span>def <span class="ident">serialize</span></span>(<span>step_id: str, up: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Union[<a title="bytewax.connectors.kafka.message.KafkaSourceMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage">KafkaSourceMessage</a>[~K, ~V], <a title="bytewax.connectors.kafka.message.KafkaSinkMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage">KafkaSinkMessage</a>[~K, ~V]]], *, key_serializer: <a title="bytewax.connectors.kafka.serde.SchemaSerializer" href="/apidocs/bytewax.connectors/kafka/serde#bytewax.connectors.kafka.serde.SchemaSerializer">SchemaSerializer</a>[~K, ~K2], val_serializer: <a title="bytewax.connectors.kafka.serde.SchemaSerializer" href="/apidocs/bytewax.connectors/kafka/serde#bytewax.connectors.kafka.serde.SchemaSerializer">SchemaSerializer</a>[~V, ~V2]) ‑> <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[<a title="bytewax.connectors.kafka.message.KafkaSinkMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage">KafkaSinkMessage</a>[~K2, ~V2]]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Serialize both keys and values with the given serializers.</p>
+<p>Crash if any error occurs.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@operator
+def serialize(
+    step_id: str,
+    up: Stream[Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]]],
+    *,
+    key_serializer: SchemaSerializer[K, K2],
+    val_serializer: SchemaSerializer[V, V2],
+) -&gt; Stream[KafkaSinkMessage[K2, V2]]:
+    &#34;&#34;&#34;Serialize both keys and values with the given serializers.
+
+    Crash if any error occurs.
+    &#34;&#34;&#34;
+
+    def shim_mapper(msg: KafkaSinkMessage[K, V]) -&gt; KafkaSinkMessage[K2, V2]:
+        key = key_serializer.ser(msg.key)
+        value = val_serializer.ser(msg.value)
+        return msg._with_key_and_value(key, value)
+
+    return _to_sink(&#34;to_sink&#34;, up).then(op.map, &#34;map&#34;, shim_mapper)</code></pre>
+</details>
+</dd>
+<dt id="bytewax.connectors.kafka.operators.serialize_key"><code class="language-python name flex">
+<span>def <span class="ident">serialize_key</span></span>(<span>step_id: str, up: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Union[<a title="bytewax.connectors.kafka.message.KafkaSourceMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage">KafkaSourceMessage</a>[~K, ~V], <a title="bytewax.connectors.kafka.message.KafkaSinkMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage">KafkaSinkMessage</a>[~K, ~V]]], serializer: <a title="bytewax.connectors.kafka.serde.SchemaSerializer" href="/apidocs/bytewax.connectors/kafka/serde#bytewax.connectors.kafka.serde.SchemaSerializer">SchemaSerializer</a>[~K, ~K2]) ‑> <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[<a title="bytewax.connectors.kafka.message.KafkaSinkMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage">KafkaSinkMessage</a>[~K2, ~V]]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Serialize the key of a KafkaMessage using the provided SchemaSerializer.</p>
+<p>Crash if any error occurs.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@operator
+def serialize_key(
+    step_id: str,
+    up: Stream[Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]]],
+    serializer: SchemaSerializer[K, K2],
+) -&gt; Stream[KafkaSinkMessage[K2, V]]:
+    &#34;&#34;&#34;Serialize the key of a KafkaMessage using the provided SchemaSerializer.
+
+    Crash if any error occurs.
+    &#34;&#34;&#34;
+
+    def shim_mapper(msg: KafkaSinkMessage[K, V]) -&gt; KafkaSinkMessage[K2, V]:
+        key = serializer.ser(msg.key)
+        return msg._with_key(key)
+
+    return _to_sink(&#34;to_sink&#34;, up).then(op.map, &#34;map&#34;, shim_mapper)</code></pre>
+</details>
+</dd>
+<dt id="bytewax.connectors.kafka.operators.serialize_value"><code class="language-python name flex">
+<span>def <span class="ident">serialize_value</span></span>(<span>step_id: str, up: <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[typing.Union[<a title="bytewax.connectors.kafka.message.KafkaSourceMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage">KafkaSourceMessage</a>[~K, ~V], <a title="bytewax.connectors.kafka.message.KafkaSinkMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage">KafkaSinkMessage</a>[~K, ~V]]], serializer: <a title="bytewax.connectors.kafka.serde.SchemaSerializer" href="/apidocs/bytewax.connectors/kafka/serde#bytewax.connectors.kafka.serde.SchemaSerializer">SchemaSerializer</a>[~V, ~V2]) ‑> <a title="bytewax.dataflow.Stream" href="/apidocs/bytewax.dataflow#bytewax.dataflow.Stream">Stream</a>[<a title="bytewax.connectors.kafka.message.KafkaSinkMessage" href="/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage">KafkaSinkMessage</a>[~K, ~V2]]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Serialize the value of a KafkaMessage using the provided SchemaSerializer.</p>
+<p>Crash if any error occurs.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre class="language-python line-numbers"><code class="language-python">@operator
+def serialize_value(
+    step_id: str,
+    up: Stream[Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]]],
+    serializer: SchemaSerializer[V, V2],
+) -&gt; Stream[KafkaSinkMessage[K, V2]]:
+    &#34;&#34;&#34;Serialize the value of a KafkaMessage using the provided SchemaSerializer.
+
+    Crash if any error occurs.
+    &#34;&#34;&#34;
+
+    def shim_mapper(msg: KafkaSinkMessage[K, V]) -&gt; KafkaSinkMessage[K, V2]:
+        value = serializer.ser(msg.value)
+        return msg._with_value(value)
+
+    return _to_sink(&#34;to_sink&#34;, up).then(op.map, &#34;map&#34;, shim_mapper)</code></pre>
+</details>
+</dd>
+</dl>
+</section>
+<section>
+</section>
+<footer class="api__footer" id="footer">
+<p class="api__footer-copyright">
+Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.
+</p>
+</footer>
+</article>
+<nav class="api__sidebar" id="sidebar">
+<ul class="api__sidebar-nav" id="index">
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title">Super-module</h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item">
+<a title="bytewax.connectors.kafka" href="/apidocs/bytewax.connectors/kafka/index">bytewax.connectors.kafka</a>
+</li>
+</ul>
+</li>
+<li class="api__sidebar-nav-item">
+<h3 class="api__sidebar-nav-title"><a href="#header-functions">Functions</a></h3>
+<ul class="api__sidebar-nav-menu">
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.operators.deserialize" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.deserialize">deserialize</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.operators.deserialize_key" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.deserialize_key">deserialize_key</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.operators.deserialize_value" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.deserialize_value">deserialize_value</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.operators.input" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.input">input</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.operators.output" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.output">output</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.operators.serialize" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.serialize">serialize</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.operators.serialize_key" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.serialize_key">serialize_key</a></li>
+<li class="api__sidebar-nav-menu-item"><a title="bytewax.connectors.kafka.operators.serialize_value" href="/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.serialize_value">serialize_value</a></li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>

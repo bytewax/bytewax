@@ -16,10 +16,6 @@
         "filename": "simple-example"
       },
       {
-        "title": "Streaming example",
-        "filename": "streaming-example"
-      },
-      {
         "title": "Collecting / Windowing example",
         "filename": "window-collect-example"
       },
@@ -43,17 +39,12 @@
         "title": "Execution",
         "filename": "execution"
       }
-
     ]
   },
   {
     "category": "Concepts",
     "directory": "concepts",
     "articles": [
-      {
-        "title": "Streaming and batch execution",
-        "filename": "streaming-and-batch-execution"
-      },
       {
         "title": "Workers and parallelization",
         "filename": "workers-and-parallelization"
@@ -75,24 +66,12 @@
         "filename": "recovery"
       },
       {
-        "title": "Inputs and Outputs",
-        "filename": "inputs-and-outputs"
-      },
-      {
         "title": "PubSub, Queues, and Polling",
         "filename": "pubsub-queues-polling"
       },
       {
-        "title": "Design Patterns",
-        "filename": "design-patterns"
-      },
-      {
         "title": "Rescaling",
         "filename": "rescaling"
-      },
-      {
-        "title": "Analytics and Operational tier",
-        "filename": "analytics-and-operational"
       }
     ]
   },
@@ -100,14 +79,6 @@
     "category": "Advanced Concepts",
     "directory": "advanced-concepts",
     "articles": [
-      {
-        "title": "Custom Unary Operators",
-        "filename": "custom-unary-operators"
-      },
-      {
-        "title": "Custom IO Connectors",
-        "filename": "custom-io-connectors"
-      },
       {
         "title": "Extending Python API",
         "filename": "extending-python-api"
@@ -167,14 +138,6 @@
       {
         "title": "Sample Kafka producer",
         "filename": "sample-producer"
-      },
-      {
-        "title": "Testing and Debugging",
-        "filename": "testing"
-      },
-      {
-        "title": "Support",
-        "filename": "support"
       }
     ]
   },
@@ -193,10 +156,6 @@
       {
         "title": "Custom input connectors/connector hub",
         "filename": "connector-hub"
-      },
-      {
-        "title": "Custom operators/operator hub",
-        "filename": "operator-hub"
       }
     ]
   }

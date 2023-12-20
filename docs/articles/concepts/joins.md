@@ -1,5 +1,3 @@
-## Joins
-
 _Here we're going to give a deep dive on how joins work in Bytewax. If
 you'd like a quick demo of "show me how to do a simple join", see
 [Getting Started: Joins](../getting-started/join-example.md)_
