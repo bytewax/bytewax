@@ -250,12 +250,12 @@ python -m bytewax.run my_dataflow:flow
 # multiple workers in a single process
 python -m bytewax.run my_dataflow:flow -w 2
 
-# multiple workers in more than one process
-# first we start the first process running in cluster_one port 2101
-python -m bytewax.run my_dataflow:flow -w 2 -i0 -a "cluster_one:2101;cluster_two:2101"
+# Start a process on two separate machines to form a Bytewax cluster.
+# Start the first process with two worker threads on `machine_one`.
+machine_one$ python -m bytewax.run my_dataflow -w 2 -i0 -a "machine_one:2101;machine_two:2101"
 
-# then the second in cluster_two
-python -m bytewax.run simple -w 3 -i1 -a "cluster_one:2101;cluster_two:2101"
+# Then start the second process with three worker threads on `machine_two`.
+machine_two$ python -m bytewax.run my_dataflow -w 3 -i1 -a "machine_one:2101;machine_two:2101"
 ```
 
 It can also be run in a Docker container as described further in the [documentation](https://bytewax.io/docs/deployment/container).
