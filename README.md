@@ -70,6 +70,7 @@ def remove_bytewax(user_id__event_data):
     user_id, event_data = user_id__event_data
     return "bytewax" not in event_data["email"]
 
+
 flow = Dataflow("kafka_in_out")
 stream = kop.input("inp", flow, brokers=BROKERS, topics=IN_TOPICS)
 # we can inspect the stream coming from the kafka topic
