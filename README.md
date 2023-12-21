@@ -158,7 +158,7 @@ op.inspect("debug", merged_stream)
 
 ##### Joining Streams
 
-Joining streams is different than merging because it uses logic to join the records in the streams together. The joins in Bytewax can be running or not. A regular join in streaming is more closely related to an inner join in SQL in that the stream will progress when the records match on the key.
+Joining streams is different than merging because it uses logic to join the records in the streams together. The joins in Bytewax can be running or not. A regular join in streaming is more closely related to an inner join in SQL in that the dataflow will emit data downstream from a join when all of the sides of the join have matched on the key.
 
 ```python
 from bytewax import operators as op
