@@ -189,31 +189,26 @@ op.inspect("debug", merged_stream)
 Output in Bytewax is described as a sink and these are grouped into [connectors](https://www.bytewax.io/apidocs/bytewax.connectors/index). There are a number of basic connectors in the bytewax repo to help you during development. In addition to the built-in connectors, it is possible to use the input and output API to build a custom sink and source. There is also a hub for connectors built by the community, partners and Bytewax. Below is an example of a custom connector for Postgres using the psycopg2 library.
 
 ```python
-import json
-
 import psycopg2
 
 from bytewax import operators as op
-from bytewax.outputs import PartitionedOutput, StatefulSink
+from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
 
 
-class PsqlSink(StatefulSink):
+class PsqlSink(StatefulSinkPartition):
     def __init__(self):
         self.conn = psycopg2.connect("dbname=website user=bytewax")
         self.conn.set_session(autocommit=True)
         self.cur = self.conn.cursor()
 
-    def write(self, user_id__user_data):
-        user_id, user_data = user_id__user_data
+    def write_batch(self, values):
         query_string = """
             INSERT INTO events (user_id, data)
             VALUES (%s, %s)
             ON CONFLICT (user_id)
             DO UPDATE SET data = %s;
         """
-        self.cur.execute(
-            query_string, (user_id, json.dumps(user_data), json.dumps(user_data))
-        )
+        self.cur.execute_values(query_string, values)
 
     def snapshot(self):
         pass
@@ -222,18 +217,12 @@ class PsqlSink(StatefulSink):
         self.conn.close()
 
 
-class PsqlOutput(PartitionedOutput):
+class PsqlOutput(FixedPartitionedSink):
     def list_parts(self):
-        return {"single"}
-
-    def assign_part(self, item_key):
-        return "single"
+        return ["single"]
 
     def build_part(for_part, resume_state):
         return PsqlSink()
-
-
-op.output("pg-out", PsqlOutput())
 ```
 
 #### Execution
