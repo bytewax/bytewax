@@ -78,9 +78,10 @@ op.inspect("inspect-errors", stream.errs)
 op.inspect("inspect-oks", stream.oks, brokers=BROKERS, topic=ERR_TOPIC)
 # and output errors to be handled as needed
 kop.output("out_errs", stream.errs)
-stream = op.map("deserialize", stream.oks, deserialize)
-stream = op.map("anon", stream, anonymize_email)
-stream = op.filter("filter_employees", stream, remove_bytewax)
+deser_msgs = op.map("deserialize", stream.oks, deserialize)
+keyed_msgs = op.key_on("key_on_user", deser_msgs, lambda msg: msg["user_id"])
+anon_msgs = op.map_value("anon", keyed_msgs, anonymize_email)
+filtered_msgs = op.filter_value("filter_employees", anon_msgs, remove_bytewax)
 # and finally output the cleaned data to a new topic
 kop.output("out1", stream, brokers=BROKERS, topic=OUT_TOPIC)
 ```
