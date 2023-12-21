@@ -32,6 +32,8 @@ pip install bytewax
 
 [_Install waxctl_](https://bytewax.io/downloads/)
 
+#### Dataflow, Input and Operators
+
 A Bytewax dataflow is Python code that will represent an input, a series of processing steps, and an output. The inputs could range from a Kafka stream to a WebSocket and the outputs could vary from a data lake to a key-value store.
 
 ```python
@@ -82,6 +84,8 @@ stream = op.filter("filter_employees", stream, remove_bytewax)
 kop.output("out1", stream, brokers=BROKERS, topic=OUT_TOPIC)
 ```
 
+#### Windowing, Reducing and Aggregating
+
 Bytewax is a stateful stream processing framework, which means that some operations remember information across multiple events.  Windows and aggregations are also stateful, and can be reconstructed in the event of failure. Bytewax can be configured with different [state recovery mechanisms](https://bytewax.io/apidocs/bytewax.recovery) to durably persist state in order to recover from failure.
 
 There are multiple stateful operators available like `reduce`, `stateful_map` and `fold_window`. The complete list can be found in the [API documentation for all operators](https://www.bytewax.io/apidocs/bytewax.operators/index). Below we use the `fold_window` operator with a tumbling window based on system time to gather events and calculate the number of times events have occurred on a per-user basis.
@@ -120,6 +124,68 @@ running_avg_stream = window_op.fold_window(
     "running_average", keyed_stream, cc, wc, list, acc_values
 )
 ```
+
+#### Merges and Joins
+
+Merging or Joining multiple input streams is a common task for stream processing, Bytewax enables different types of joins to facilitate different patters.
+
+##### Merging Streams
+
+Merging streams is like concatenating, there is no logic and the resulting stream will potentially include heterogenous records.
+
+```python
+from bytewax import operators as op
+
+from bytewax.connectors.stdio import StdOutSink
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+flow = Dataflow("merge")
+
+src_1 = [
+    {"user_id": "123", "name": "Bumble"},
+]
+inp1 = op.input("inp1", flow, TestingSource(src_1))
+
+src_2 = [
+    {"user_id": "123", "email": "bee@bytewax.com"},
+    {"user_id": "456", "email": "hive@bytewax.com"},
+]
+inp2 = op.input("inp2", flow, TestingSource(src_2))
+merged_stream = op.merge("merge", inp1, inp2)
+op.inspect("debug", merged_stream)
+```
+
+##### Joining Streams
+
+Joining streams is different than merging because it uses logic to join the records in the streams together. The joins in Bytewax can be running or not. A regular join in streaming is more closely related to an inner join in SQL in that the stream will progress when the records match on the key.
+
+```python
+from bytewax import operators as op
+
+from bytewax.connectors.stdio import StdOutSink
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+flow = Dataflow("join")
+
+src_1 = [
+    {"user_id": "123", "name": "Bumble"},
+]
+inp1 = op.input("inp1", flow, TestingSource(src_1))
+keyed_inp_1 = op.key_on("key_stream_1", inp1, lambda x: x["user_id"])
+src_2 = [
+    {"user_id": "123", "email": "bee@bytewax.com"},
+    {"user_id": "456", "email": "hive@bytewax.com"},
+]
+inp2 = op.input("inp2", flow, TestingSource(src_2))
+keyed_inp_2 = op.key_on("key_stream_2", inp2, lambda x: x["user_id"])
+
+merged_stream = op.join("join", keyed_inp_1, keyed_inp_2)
+op.inspect("debug", merged_stream)
+```
+
+#### Output
 
 Output in Bytewax is described as a sink and these are grouped into [connectors](https://www.bytewax.io/apidocs/bytewax.connectors/index). There are a number of basic connectors in the bytewax repo to help you during development. In addition to the built-in connectors, it is possible to use the input and output API to build a custom sink and source. There is also a hub for connectors built by the community, partners and Bytewax. Below is an example of a custom connector for Postgres using the psycopg2 library.
 
@@ -170,6 +236,8 @@ class PsqlOutput(PartitionedOutput):
 
 op.output("pg-out", PsqlOutput())
 ```
+
+#### Execution
 
 Bytewax dataflows can be executed on a single host with multiple Python processes, or on multiple hosts. When processing data in a distributed fashion, Bytewax will ensure that all items with the same key are routed to the same host.
 
