@@ -73,7 +73,7 @@ def remove_bytewax(user_id__event_data):
 
 flow = Dataflow("kafka_in_out")
 stream = kop.input("inp", flow, brokers=BROKERS, topics=IN_TOPICS)
-# we can inspect the stream coming from the kafka topic
+# we can inspect the stream coming from the kafka topic to view the items within on std out for debugging
 op.inspect("inspect-errors", stream.errs)
 op.inspect("inspect-oks", stream.oks, brokers=BROKERS, topic=ERR_TOPIC)
 # and output errors to be handled as needed
