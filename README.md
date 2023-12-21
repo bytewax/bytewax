@@ -247,8 +247,8 @@ Bytewax dataflows can be executed in a single Python process, or on multiple pro
 # a single worker locally
 python -m bytewax.run my_dataflow:flow
 
-# multiple workers in a single process
-python -m bytewax.run my_dataflow:flow -w 2
+# Start two worker threads in a single process.
+python -m bytewax.run my_dataflow -w 2
 
 # Start a process on two separate machines to form a Bytewax cluster.
 # Start the first process with two worker threads on `machine_one`.
