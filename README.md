@@ -37,6 +37,8 @@ pip install bytewax
 A Bytewax dataflow is Python code that will represent an input, a series of processing steps, and an output. The inputs could range from a Kafka stream to a WebSocket and the outputs could vary from a data lake to a key-value store.
 
 ```python
+import json
+
 from bytewax import operators as op
 from bytewax.connectors.kafka import operators as kop
 from bytewax.dataflow import Dataflow
@@ -54,36 +56,31 @@ OUT_TOPIC = "out_topic"
 ERR_TOPIC = "errors"
 
 
-def deserialize(key_bytes__payload_bytes):
-    _, payload_bytes = key_bytes__payload_bytes
-    event_data = json.loads(payload_bytes) if payload_bytes else None
-    return event_data["user_id"], event_data
+def deserialize(kafka_message):
+    return json.loads(kafka_message.value)
 
 
-def anonymize_email(user_id__event_data):
-    user_id, event_data = user_id__event_data
+def anonymize_email(event_data):
     event_data["email"] = "@".join(["******", event_data["email"].split("@")[-1]])
-    return user_id, event_data
+    return event_data
 
 
-def remove_bytewax(user_id__event_data):
-    user_id, event_data = user_id__event_data
+def remove_bytewax(event_data):
     return "bytewax" not in event_data["email"]
 
 
 flow = Dataflow("kafka_in_out")
 stream = kop.input("inp", flow, brokers=BROKERS, topics=IN_TOPICS)
 # we can inspect the stream coming from the kafka topic to view the items within on std out for debugging
-op.inspect("inspect-errors", stream.errs)
-op.inspect("inspect-oks", stream.oks, brokers=BROKERS, topic=ERR_TOPIC)
-# and output errors to be handled as needed
-kop.output("out_errs", stream.errs)
+op.inspect("inspect-oks", stream.oks)
+# we can also inspect kafka errors as a separate stream and raise an exception when one is encountered
+errs = op.inspect("errors", stream.errs).then(op.raises, "crash-on-err")
 deser_msgs = op.map("deserialize", stream.oks, deserialize)
-keyed_msgs = op.key_on("key_on_user", deser_msgs, lambda msg: msg["user_id"])
-anon_msgs = op.map_value("anon", keyed_msgs, anonymize_email)
-filtered_msgs = op.filter_value("filter_employees", anon_msgs, remove_bytewax)
+anon_msgs = op.map("anon", deser_msgs, anonymize_email)
+filtered_msgs = op.filter("filter_employees", anon_msgs, remove_bytewax)
+processed = op.map("map", anon_msgs, lambda m: KafkaSinkMessage(None, json.dumps(m)))
 # and finally output the cleaned data to a new topic
-kop.output("out1", stream, brokers=BROKERS, topic=OUT_TOPIC)
+kop.output("out1", processed, brokers=BROKERS, topic=OUT_TOPIC)
 ```
 
 #### Windowing, Reducing and Aggregating
