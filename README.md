@@ -241,7 +241,7 @@ op.output("pg-out", PsqlOutput())
 
 #### Execution
 
-Bytewax dataflows can be executed on a single host with multiple Python processes, or on multiple hosts. When processing data in a distributed fashion, Bytewax will ensure that all items with the same key are routed to the same host.
+Bytewax dataflows can be executed in a single Python process, or on multiple processes on multiple hosts with multiple worker threads. When processing data in a distributed fashion, Bytewax uses routing keys to ensure your state is updated in a correct way automatically.
 
 ```sh
 # a single worker locally
