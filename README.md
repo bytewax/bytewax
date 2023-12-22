@@ -20,7 +20,7 @@ Bytewax is a Python framework that simplifies event and stream processing. Becau
 
 Bytewax is a Python framework and Rust distributed processing engine that uses a dataflow computational model to provide parallelizable stream processing and event processing capabilities similar to Flink, Spark, and Kafka Streams. You can use Bytewax for a variety of workloads from moving data à la Kafka Connect style all the way to advanced online machine learning workloads. Bytewax is not limited to streaming applications but excels anywhere that data can be distributed at the input and output.
 
-Bytewax has an accompanying command line interface, [waxctl](https://bytewax.io/docs/deployment/waxctl/), which supports the deployment of dataflows on cloud servers or kuberentes. You can download it [here](https://bytewax.io/downloads/).
+Bytewax has an accompanying command line interface, [waxctl](https://bytewax.io/docs/deployment/waxctl/), which supports the deployment of dataflows on cloud servers or Kubernetes. You can download it [here](https://bytewax.io/downloads/).
 
 _____________
 
