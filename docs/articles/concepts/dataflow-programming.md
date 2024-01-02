@@ -173,7 +173,7 @@ copied_math.check_merge: 30
 ```
 
 If you'd like to take a stream and selectively send the items within
-down one of two stream (instead of copying all of them), you can use
+down one of two streams (instead of copying all of them), you can use
 the
 [`branch`](/apidocs/bytewax.operators/index#bytewax.operators.branch)
 operator.
