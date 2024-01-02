@@ -367,8 +367,22 @@ documentation](joins.md) for more info.
 
 #### Stateful Operators
 
-To manage any mutable state, it must be within a **stateful operator**
-are any operators which bring together data from multiple items. E.g.
+The most basic Bytewax operators like
+[`map`](/apidocs/bytewax.operators/index#bytewax.operators.map),
+[`filter`](/apidocs/bytewax.operators/index#bytewax.operators.filter),
+[`branch`](/apidocs/bytewax.operators/index#bytewax.operators.branch)
+only operator on individual items at a time and forget all context
+between items. In order to have items interact with each other in a
+structured manner, we introduce the concept of **state** or data that
+persists across multiple items. To do things like "group items into
+time windows", or "join together the email and name for a user", or
+"find me the maximum value", the dataflow has to keep around and
+modify some amount of state so that the correct answer can be
+calculated.
+
+Bytewax provides a suite of built-in **stateful operators** which help
+you manage mutable state and give you some pre-packaged solutions to
+common state-containing problems. E.g.
 [`stateful_map`](/apidocs/bytewax.operators/index#bytewax.operators.stateful_map),
 [`join`](/apidocs/bytewax.operators/index#bytewax.operators.join), all
 the window operators like
