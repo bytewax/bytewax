@@ -650,6 +650,12 @@ the end of the state but keeping it capped at three items.
 
 ## Helpful Patterns
 
+Although not solely related to dataflow programming, here are some
+tips for how we use some of the functional programming features of
+Python in order to more concisely write the logic for dataflows. We
+use these frequently in our examples and documentation, and encourage
+you to do so as well.
+
 ### Quick Logic Functions
 
 Operator's logic functions can be specified in a few ways. The most
