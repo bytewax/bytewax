@@ -77,9 +77,7 @@ cc = EventClockConfig(get_event_time, wait_for_system_duration=timedelta(seconds
 align_to = datetime(2023, 1, 1, tzinfo=timezone.utc)
 wc = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
 
-windowed_stream = window_op.collect_window(
-    "window", keyed_stream, cc, wc, acc_values
-)
+windowed_stream = window_op.collect_window("window", keyed_stream, cc, wc, acc_values)
 
 
 # Calculate the average of the values for each window, and
