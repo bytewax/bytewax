@@ -388,7 +388,7 @@ in serial.
 What you should use for the state key depends on specifically what you
 want to do in your stateful step. In general it will be things like
 "user ID" or "session ID". Make this key unique enough so you don't
-bring together too much, but be weary using a static constant, since
+bring together too much, but be careful using a static constant, since
 it will bring together all items from the whole dataflow into one
 worker.
 
