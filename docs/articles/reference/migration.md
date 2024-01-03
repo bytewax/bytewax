@@ -706,7 +706,7 @@ Bytewax's built-in input handlers, like [KafkaInputConfig](/apidocs/bytewax.inpu
 
 ### Stateful windowing
 
-Version 0.11 also introduces stateful windowing operators, including a new [fold_window](/apidocs/bytewax.dataflow#bytewax.Dataflow.fold_window) operator.
+Version 0.11 also introduces stateful windowing operators, including a new [fold_window](/apidocs/bytewax.operators/index#bytewax.operators.fold_window) operator.
 
 Previously, Bytewax included helper functions to manage windows in terms of epochs. Now that Bytewax manages epochs internally, windowing functions are now operators that appear as a processing step in a dataflow. Dataflows can now have more than one windowing step.
 

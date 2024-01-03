@@ -124,7 +124,7 @@ how to make your own custom sources, see [the module docs for `bytewax.inputs`](
 
 ### Lowercase all characters in the line
 
-If you look closely at our input, we have instances of both `To` and `to`. Let's add a step to our dataflow that transforms each line into lowercase letters. At the same time, we'll introduce the [map](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.map) operator.
+If you look closely at our input, we have instances of both `To` and `to`. Let's add a step to our dataflow that transforms each line into lowercase letters. At the same time, we'll introduce the [map](/apidocs/bytewax.operators/index#bytewax.operators.map) operator.
 
 ```python
 def lower(line):
@@ -160,7 +160,7 @@ results in:
 ['To', 'be', 'or', 'not', 'to', 'be', 'that', 'is', 'the', 'question']
 ```
 
-To make use of `tokenize` function, we'll use the [flat map operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.flat_map):
+To make use of `tokenize` function, we'll use the [flat map operator](/apidocs/bytewax.operators/index#bytewax.operators.flat_map):
 
 ```python
 tokens = op.flat_map("tokenize_input", lowers, tokenize)
@@ -173,7 +173,7 @@ The flat map operator defines a step which calls a function on each input item. 
 At this point in the dataflow, the items of data are the individual words. In order to tally counts of words, we'll need to be able
 to group words together.
 
-We can use the [`count_final` operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.count_final) to
+We can use the [`count_final` operator](/apidocs/bytewax.operators/index#bytewax.operators.count_final) to
 produce a count of all items in a dataflow. The `count_final` operator should only be used in a dataflow
 that is run in a batch context, as it waits for all data to be read before producing output. In this
 example, we want to count all of the items in the entire file before returning the result.
@@ -189,7 +189,7 @@ counts = op.count_final("count", tokens, lambda word: word)
 
 ### Print out the counts
 
-The last part of our dataflow program will use an [output operator](/apidocs/bytewax.dataflow#bytewax.dataflow.Dataflow.output) to mark the output of our reduction as the dataflow's final output.
+The last part of our dataflow program will use an [output operator](/apidocs/bytewax.operators/index#bytewax.operators.output) to mark the output of our reduction as the dataflow's final output.
 
 ```python
 op.output("out", counts, StdOutSink())
