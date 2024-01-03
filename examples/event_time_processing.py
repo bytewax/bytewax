@@ -70,16 +70,14 @@ def get_event_time(event):
     return datetime.fromisoformat(event["time"])
 
 
-# Configure the `fold_window` operator to use the event time.
+# Configure the `collect_window` operator to use the event time.
 cc = EventClockConfig(get_event_time, wait_for_system_duration=timedelta(seconds=10))
 
 # And a 5 seconds tumbling window
 align_to = datetime(2023, 1, 1, tzinfo=timezone.utc)
 wc = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
 
-running_avg_stream = window_op.fold_window(
-    "running_average", keyed_stream, cc, wc, list, acc_values
-)
+windowed_stream = window_op.collect_window("window", keyed_stream, cc, wc, acc_values)
 
 
 # Calculate the average of the values for each window, and
@@ -96,5 +94,5 @@ def format_event(event):
     )
 
 
-formatted_stream = op.map("format_event", running_avg_stream, format_event)
+formatted_stream = op.map("format_event", windowed_stream, format_event)
 op.output("out", formatted_stream, StdOutSink())
