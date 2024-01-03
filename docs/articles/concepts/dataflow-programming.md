@@ -371,7 +371,7 @@ The most basic Bytewax operators like
 [`map`](/apidocs/bytewax.operators/index#bytewax.operators.map),
 [`filter`](/apidocs/bytewax.operators/index#bytewax.operators.filter),
 [`branch`](/apidocs/bytewax.operators/index#bytewax.operators.branch)
-only operator on individual items at a time and forget all context
+only operate on individual items at a time and forget all context
 between items. In order to have items interact with each other in a
 structured manner, we introduce the concept of **state** or data that
 persists across multiple items. To do things like "group items into
