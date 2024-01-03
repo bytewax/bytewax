@@ -56,9 +56,9 @@ emails = op.input("emails", flow, TestingSource(emails_l))
 Bytewax provides the
 [`join`](/apidocs/bytewax.operators/index#bytewax.operators.join),
 [`join_named`](/apidocs/bytewax.operators/index#bytewax.operators.join_named),
-[`join_window`](/apidocs/bytewax.operators/window/index#bytewax.operators.window.join_window),
+[`join_window`](/apidocs/bytewax.operators/window#bytewax.operators.window.join_window),
 and
-[`join_window_named`](/apidocs/bytewax.operators/window/index#bytewax.operators.window.join_window)
+[`join_window_named`](/apidocs/bytewax.operators/window#bytewax.operators.window.join_window_named)
 operators to provide this functionality.
 
 ### Join Keys
@@ -440,9 +440,9 @@ need to know the join values over an infinite stream when you aren't
 sure that you'll see values on all sides of the join.
 
 Bytewax provides the operators
-[`join_window`](/apidocs/bytewax.operators/window/index#bytewax.operators.window.join_window),
+[`join_window`](/apidocs/bytewax.operators/window#bytewax.operators.window.join_window),
 and
-[`join_window_named`](/apidocs/bytewax.operators/window/index#bytewax.operators.window.join_window)
+[`join_window_named`](/apidocs/bytewax.operators/window#bytewax.operators.window.join_window_named)
 to implement this.
 
 For the details of all the types of windows you can define and
