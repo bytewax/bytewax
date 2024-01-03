@@ -134,7 +134,12 @@ def input(  # noqa A001
 @operator
 def output(
     step_id: str,
-    up: Stream[Union[KafkaSourceMessage, KafkaSinkMessage]],
+    up: Stream[
+        Union[
+            KafkaSourceMessage[MaybeStrBytes, MaybeStrBytes],
+            KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes],
+        ]
+    ],
     *,
     brokers: List[str],
     topic: str,
