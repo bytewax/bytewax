@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Generic, List, Optional, Tuple
 
-from ._types import K2, V2, K, V, K_co, V_co
+from ._types import K2, V2, K, K_co, V, V_co
 
 
 @dataclass(frozen=True)
