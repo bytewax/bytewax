@@ -273,7 +273,7 @@ class DynamicSource(Source[X]):
         Args:
             now: The current time.
 
-            worker_index: Index of this worker.
+            worker_index: Index of this worker. Workers are zero-indexed. 
 
             worker_count: Total number of workers.
 
