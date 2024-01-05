@@ -34,7 +34,7 @@ class KafkaSourceOut(Generic[K, V, K2, V2]):
 
     - KafkaStreams.oks:
         A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-    - KafkaStreams.errors:
+    - KafkaStreams.errs:
         A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
     """
 
@@ -184,7 +184,7 @@ def deserialize_key(
 
     Returns an object with two attributes:
         - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+        - .errs: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
     """
 
     # Make sure the first KafkaMessage in the return type's Union represents
@@ -213,7 +213,7 @@ def deserialize_value(
 
     Returns an object with two attributes:
         - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+        - .errs: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
     """
 
     def shim_mapper(
@@ -243,8 +243,8 @@ def deserialize(
 
     Returns an object with two attributes:
         - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
-    A message will be put in .errors even if only one of the deserializers fail.
+        - .errs: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+    A message will be put in .errs even if only one of the deserializers fail.
     """
 
     # Use a single map step rather than concatenating
