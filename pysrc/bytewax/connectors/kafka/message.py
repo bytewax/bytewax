@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Generic, List, Optional, Tuple
 
-from ._types import K2, V2, K, V
+from ._types import K2, V2, K, K_co, V, V_co
 
 
 @dataclass(frozen=True)
@@ -76,7 +76,7 @@ class KafkaSourceMessage(Generic[K, V]):
 
 
 @dataclass(frozen=True)
-class KafkaSinkMessage(Generic[K, V]):
+class KafkaSinkMessage(Generic[K_co, V_co]):
     """Class that holds a message from kafka with metadata.
 
     Use `KafkaMessage.key` to get the key and `KafkaMessage.value` to get
@@ -85,15 +85,15 @@ class KafkaSinkMessage(Generic[K, V]):
     Other fields: `topic`, `headers`, `partition`, `timestamp`
     """
 
-    key: K
-    value: V
+    key: K_co
+    value: V_co
 
     topic: Optional[str] = None
     headers: List[Tuple[str, bytes]] = field(default_factory=list)
     partition: Optional[int] = None
     timestamp: int = 0
 
-    def _with_key(self, key: K2) -> "KafkaSinkMessage[K2, V]":
+    def _with_key(self, key: K2) -> "KafkaSinkMessage[K2, V_co]":
         """Returns a new instance with the specified key."""
         # Can't use `dataclasses.replace` directly since it requires
         # the fields you change to be the same type.
@@ -106,7 +106,7 @@ class KafkaSinkMessage(Generic[K, V]):
             timestamp=self.timestamp,
         )
 
-    def _with_value(self, value: V2) -> "KafkaSinkMessage[K, V2]":
+    def _with_value(self, value: V2) -> "KafkaSinkMessage[K_co, V2]":
         """Returns a new instance with the specified value."""
         return KafkaSinkMessage(
             key=self.key,

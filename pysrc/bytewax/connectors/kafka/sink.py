@@ -43,8 +43,8 @@ class _KafkaSinkPartition(
 class KafkaSink(DynamicSink[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]):
     """Use a single Kafka topic as an output sink.
 
-    Items consumed from the dataflow must look like two-tuples of
-    `(key_bytes, value_bytes)`. Default partition routing is used.
+    Items consumed from the dataflow must be `KafkaSinkMessage` with
+    both key and value represented as `str | bytes | None`.
 
     Workers are the unit of parallelism.
 
