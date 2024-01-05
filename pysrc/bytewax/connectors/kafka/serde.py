@@ -17,7 +17,6 @@ __all__ = [
     "SerdeOut",
     "SchemaSerializer",
     "SchemaDeserializer",
-    # Reexport AvroMessage too
     "AvroMessage",
 ]
 

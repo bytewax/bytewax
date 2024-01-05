@@ -30,12 +30,11 @@ __all__ = [
 
 @dataclass(frozen=True)
 class KafkaSourceOut(Generic[K, V, K2, V2]):
-    """Contains two streams of KafkaMessages, oks and errors.
+    """Split output for KafkaSource.
 
-    - KafkaStreams.oks:
-        A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-    - KafkaStreams.errs:
-        A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+    Returns an object with two attributes:
+        - `.oks` is a stream of `KafkaSourceMessage`.
+        - `.errs` is a stream of `KafkaError`.
     """
 
     oks: Stream[KafkaSourceMessage[K, V]]
@@ -46,7 +45,7 @@ class KafkaSourceOut(Generic[K, V, K2, V2]):
 def _kafka_error_split(
     step_id: str, up: Stream[Union[KafkaSourceMessage[K2, V2], KafkaError[K, V]]]
 ) -> KafkaSourceOut[K2, V2, K, V]:
-    """Split a stream of KafkaMessages in two."""
+    """Split the stream from KafkaSource between oks and errs."""
     branch = op.branch("branch", up, lambda msg: isinstance(msg, KafkaSourceMessage))
     # Cast the streams to the proper expected types.
     oks = cast(Stream[KafkaSourceMessage[K2, V2]], branch.trues)
@@ -89,7 +88,7 @@ def input(  # noqa A001
     Can support exactly-once processing.
 
     Messages are emitted into the dataflow
-    as `bytewax.connectors.kafka.KafkaMessage` objects.
+    as `bytewax.connectors.kafka.KafkaSourceMessage` objects.
 
     Args:
         step_id:
@@ -147,8 +146,9 @@ def output(
 ) -> None:
     """Use a single Kafka topic as an output sink.
 
-    Items consumed from the dataflow must look like two-tuples of
-    `(key_bytes, value_bytes)`. Default partition routing is used.
+    Items consumed from the dataflow must be either a `KafkaSourceMessage`
+    or a `KafkaSinkMessage` with both key and values expressed as `str | bytes | None`.
+    Default partition routing is used.
 
     Workers are the unit of parallelism.
 
@@ -159,7 +159,7 @@ def output(
         step_id:
             Unique name for this step
         up:
-            A stream of `(key_bytes, value_bytes)` 2-tuples
+            A stream of `KafkaSourceMessage | KafkaSinkMessage`
         brokers:
             List of `host:port` strings of Kafka brokers.
         topic:
@@ -180,11 +180,11 @@ def deserialize_key(
     up: Stream[KafkaSourceMessage[K, V]],
     deserializer: SchemaDeserializer[K, K2],
 ) -> KafkaSourceOut[K2, V, K, V]:
-    """Deserialize the key of a KafkaMessage using the provided SchemaDeserializer.
+    """Deserialize the key of a KafkaSourceMessage using the provided deserializer.
 
     Returns an object with two attributes:
-        - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-        - .errs: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+        - .oks: A stream of `KafkaSourceMessage`
+        - .errs: A stream of `KafkaError`
     """
 
     # Make sure the first KafkaMessage in the return type's Union represents
@@ -209,11 +209,11 @@ def deserialize_value(
     up: Stream[KafkaSourceMessage[K, V]],
     deserializer: SchemaDeserializer[V, V2],
 ) -> KafkaSourceOut[K, V2, K, V]:
-    """Deserialize the value of a KafkaMessage using the provided SchemaDeserializer.
+    """Deserialize the value of a KafkaSourceMessage using the provided deserializer.
 
     Returns an object with two attributes:
-        - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-        - .errs: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+        - .oks: A stream of `KafkaSourceMessage`
+        - .errs: A stream of `KafkaError`
     """
 
     def shim_mapper(
@@ -242,8 +242,9 @@ def deserialize(
     """Serialize both keys and values with the given serializers.
 
     Returns an object with two attributes:
-        - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-        - .errs: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+        - .oks: A stream of `KafkaSourceMessage`
+        - .errs: A stream of `KafkaError`
+
     A message will be put in .errs even if only one of the deserializers fail.
     """
 
@@ -278,7 +279,11 @@ def serialize_key(
     up: Stream[Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]]],
     serializer: SchemaSerializer[K, K2],
 ) -> Stream[KafkaSinkMessage[K2, V]]:
-    """Serialize the key of a KafkaMessage using the provided SchemaSerializer.
+    """Serialize the key of a kafka message using the provided SchemaSerializer.
+
+    It accepts both KafkaSourceMessage and KafkaSinkMessage.
+    KafkaSourceMessages will be automatically converted to a KafkaSinkMessage
+    ignoring all metadata.
 
     Crash if any error occurs.
     """
@@ -296,7 +301,11 @@ def serialize_value(
     up: Stream[Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]]],
     serializer: SchemaSerializer[V, V2],
 ) -> Stream[KafkaSinkMessage[K, V2]]:
-    """Serialize the value of a KafkaMessage using the provided SchemaSerializer.
+    """Serialize the value of a kafka message using the provided SchemaSerializer.
+
+    It accepts both KafkaSourceMessage and KafkaSinkMessage.
+    KafkaSourceMessages will be automatically converted to a KafkaSinkMessage
+    ignoring all metadata.
 
     Crash if any error occurs.
     """
@@ -317,6 +326,10 @@ def serialize(
     val_serializer: SchemaSerializer[V, V2],
 ) -> Stream[KafkaSinkMessage[K2, V2]]:
     """Serialize both keys and values with the given serializers.
+
+    It accepts both KafkaSourceMessage and KafkaSinkMessage.
+    KafkaSourceMessages will be automatically converted to a KafkaSinkMessage
+    ignoring all metadata.
 
     Crash if any error occurs.
     """
