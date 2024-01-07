@@ -1,6 +1,6 @@
 _Here we're going to give a deep dive on how joins work in Bytewax. If
 you'd like a quick demo of "show me how to do a simple join", see
-[Getting Started: Joins](../getting-started/join-example.md)_
+[Getting Started: Joins](/docs/articles/getting-started/join-example.md)_
 
 A **join** is a way to combine items in two or more streams into a
 single stream, matching them by a **join key**.
@@ -248,21 +248,21 @@ Then it sees the first name value and emits nothing downstream.
 
 | Key | Name Value | Email Value |
 | --- | ---------- | ----------- |
-| 123 | `"Bee"` | |
+| 123 | `"Bee"`    |             |
 
 Then it sees the second name value and emits nothing downstream.
 
 | Key | Name Value | Email Value |
 | --- | ---------- | ----------- |
-| 123 | `"Bee"` | |
-| 456 | `"Hive"` | |
+| 123 | `"Bee"`    |             |
+| 456 | `"Hive"`   |             |
 
 Then finally it sees the first email value.
 
-| Key | Name Value | Email Value |
-| --- | ---------- | ----------- |
-| 123 | `"Bee"` | `"bee@bytewax.io"` |
-| 456 | `"Hive"` | |
+| Key | Name Value | Email Value        |
+| --- | ---------- | ------------------ |
+| 123 | `"Bee"`    | `"bee@bytewax.io"` |
+| 456 | `"Hive"`   |                    |
 
 Right after this point, it gathers together each of the values, and
 then clears that "row" in the "table" and the tuple is emitted
@@ -270,7 +270,7 @@ downstream.
 
 | Key | Name Value | Email Value |
 | --- | ---------- | ----------- |
-| 456 | `"Hive"` | |
+| 456 | `"Hive"`   |             |
 
 ```
 ('123', ('Bee', 'bee@bytewax.io'))
@@ -289,9 +289,9 @@ that row.
 So note, now that the table is empty, when we see the email update for
 the Bee, there's no name state. So nothing is emitted!
 
-| Key | Name Value | Email Value |
-| --- | ---------- | ----------- |
-| 123 | | `"bee@bytewax.io"` |
+| Key | Name Value | Email Value        |
+| --- | ---------- | ------------------ |
+| 123 |            | `"bee@bytewax.io"` |
 
 Hopefully this helps clarify how basic streaming joins work. Realizing
 that the
@@ -366,7 +366,7 @@ table! If it doesn't know a value yet, it fills it in as `None`.
 
 | Key | Name Value | Email Value |
 | --- | ---------- | ----------- |
-| 123 | `"Bee"` | |
+| 123 | `"Bee"`    |             |
 
 ```
 ('123', ({'user_id': 123, 'name': 'Bee'}, None))
@@ -376,8 +376,8 @@ Then we see the second name value. The same thing happens
 
 | Key | Name Value | Email Value |
 | --- | ---------- | ----------- |
-| 123 | `"Bee"` | |
-| 456 | `"Hive"` | |
+| 123 | `"Bee"`    |             |
+| 456 | `"Hive"`   |             |
 
 ```
 ('456', ({'user_id': 456, 'name': 'Hive'}, None))
@@ -387,10 +387,10 @@ Now we see the first email value. The same rules apply, but now since
 there are values for all the sides, we see them all in the output. The
 state for that key is not cleared!
 
-| Key | Name Value | Email Value |
-| --- | ---------- | ----------- |
-| 123 | `"Bee"` | `"bee@bytewax.io"` |
-| 456 | `"Hive"` | |
+| Key | Name Value | Email Value        |
+| --- | ---------- | ------------------ |
+| 123 | `"Bee"`    | `"bee@bytewax.io"` |
+| 456 | `"Hive"`   |                    |
 
 ```
 ('123', ('Bee', 'bee@bytewax.io'))
@@ -398,10 +398,10 @@ state for that key is not cleared!
 
 Then we see the second email value.
 
-| Key | Name Value | Email Value |
-| --- | ---------- | ----------- |
-| 123 | `"Bee"` | `"bee@bytewax.io"` |
-| 456 | `"Hive"` | `"hive@bytewax.io"` |
+| Key | Name Value | Email Value         |
+| --- | ---------- | ------------------- |
+| 123 | `"Bee"`    | `"bee@bytewax.io"`  |
+| 456 | `"Hive"`   | `"hive@bytewax.io"` |
 
 ```
 ('456', ('Hive', 'hive@bytewax.io'))
@@ -410,10 +410,10 @@ Then we see the second email value.
 Note that none of the state we have seen has been cleared. This now
 means when we see the updated Bee email, we'll see some output!
 
-| Key | Name Value | Email Value |
-| --- | ---------- | ----------- |
-| 123 | `"Bee"` | `"queen@bytewax.io"` |
-| 456 | `"Hive"` | `"hive@bytewax.io"` |
+| Key | Name Value | Email Value          |
+| --- | ---------- | -------------------- |
+| 123 | `"Bee"`    | `"queen@bytewax.io"` |
+| 456 | `"Hive"`   | `"hive@bytewax.io"`  |
 
 ```
 ('123', ('Bee', 'queen@bytewax.io'))

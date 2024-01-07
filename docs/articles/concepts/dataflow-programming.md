@@ -12,7 +12,7 @@ out and polls the input for new items and automatically pushes them
 through the steps until they reach an output. An **item** is a single
 Python object that is flowing through the dataflow.
 
-See [our getting started guides](../getting-started/simple-example.md)
+See [our getting started guides](/docs/articles/getting-started/simple-example.md)
 for the most basic examples. In this document, we're going to discuss
 in more detail the conceptual parts of dataflow programming.
 
