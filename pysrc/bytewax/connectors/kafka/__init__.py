@@ -13,9 +13,9 @@ You can use `KafkaSource` and `KafkaSink` directly:
 >>> from bytewax import operators as op
 >>> from bytewax.dataflow import Dataflow
 >>>
->>> brokers = ["localhost:1909"]
+>>> brokers = ["localhost:19092"]
 >>> flow = Dataflow("example")
->>> kinp = op.input("kafka-in", flow, KafkaSource(["localhost:1909"], ["in-topic"]))
+>>> kinp = op.input("kafka-in", flow, KafkaSource(brokers, ["in-topic"]))
 >>> processed = op.map("map", kinp, lambda x: (x.key, x.value))
 >>> op.output("kafka-out", processed, KafkaSink(brokers, "out-topic"))
 
@@ -25,7 +25,7 @@ Or the custom operators:
 >>> from bytewax import operators as op
 >>> from bytewax.dataflow import Dataflow
 >>>
->>> brokers = ["localhost:1909"]
+>>> brokers = ["localhost:19092"]
 >>> flow = Dataflow("example")
 >>> kinp = kop.input("kafka-in", flow, brokers=brokers, topics=["in-topic"])
 >>> errs = op.inspect("errors", kinp.errs).then(op.raises, "crash-on-err")
