@@ -59,6 +59,7 @@ flow = Dataflow("1brc")
 rows = op.input("inp", flow, CoopFileSource(Path(os.environ["BRC_FILE"]), 2**16))
 
 
+# This will be a tuple of (min, max, sum, count).
 State: TypeAlias = Tuple[float, float, float, int]
 
 
