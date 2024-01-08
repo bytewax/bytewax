@@ -91,27 +91,26 @@ def input(  # noqa A001
     as `bytewax.connectors.kafka.KafkaSourceMessage` objects.
 
     Args:
-        step_id:
-            Unique name for this step
-        flow:
-            A Dataflow
-        brokers:
-            List of `host:port` strings of Kafka brokers.
-        topics:
-            List of topics to consume from.
-        tail:
-            Whether to wait for new data on this topic when the
+        step_id: Unique name for this step
+
+        flow: A Dataflow
+
+        brokers: List of `host:port` strings of Kafka brokers.
+
+        topics: List of topics to consume from.
+
+        tail: Whether to wait for new data on this topic when the
             end is initially reached.
-        starting_offset:
-            Can be either `confluent_kafka.OFFSET_BEGINNING` or
+
+        starting_offset: Can be either `confluent_kafka.OFFSET_BEGINNING` or
             `confluent_kafka.OFFSET_END`. Defaults to beginning of
             topic.
-        add_config:
-            Any additional configuration properties. See the `rdkafka`
+
+        add_config: Any additional configuration properties. See the `rdkafka`
             [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
             for options.
-        batch_size:
-            How many messages to consume at most at each poll. Defaults to 1000.
+
+        batch_size: How many messages to consume at most at each poll. Defaults to 1000.
     """
     return op.input(
         "kafka_input",
@@ -156,16 +155,13 @@ def output(
     epoch will be duplicated right after resume.
 
     Args:
-        step_id:
-            Unique name for this step
-        up:
-            A stream of `KafkaSourceMessage | KafkaSinkMessage`
-        brokers:
-            List of `host:port` strings of Kafka brokers.
-        topic:
-            Topic to produce to.
-        add_config:
-            Any additional configuration properties. See the `rdkafka`
+        up: A stream of `KafkaSourceMessage | KafkaSinkMessage`
+
+        brokers: List of `host:port` strings of Kafka brokers.
+
+        topic: Topic to produce to.
+
+        add_config: Any additional configuration properties. See the `rdkafka`
             [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
             for options.
     """
@@ -183,6 +179,7 @@ def deserialize_key(
     """Deserialize the key of a KafkaSourceMessage using the provided deserializer.
 
     Returns an object with two attributes:
+
         - .oks: A stream of `KafkaSourceMessage`
         - .errs: A stream of `KafkaError`
     """
@@ -212,6 +209,7 @@ def deserialize_value(
     """Deserialize the value of a KafkaSourceMessage using the provided deserializer.
 
     Returns an object with two attributes:
+
         - .oks: A stream of `KafkaSourceMessage`
         - .errs: A stream of `KafkaError`
     """
@@ -242,6 +240,7 @@ def deserialize(
     """Serialize both keys and values with the given serializers.
 
     Returns an object with two attributes:
+
         - .oks: A stream of `KafkaSourceMessage`
         - .errs: A stream of `KafkaError`
 

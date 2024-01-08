@@ -5,8 +5,8 @@ Kafka compatible systems, like [Redpanda](https://redpanda.com/).
 
 Bytewax provides two basic ways to connect to Kafka.
 
-You can use [`KafkaSource`](/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSource)
-and [`KafkaSink`](/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSink) directly:
+You can use [`KafkaSource`](/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSource)
+and [`KafkaSink`](/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSink) directly:
 
 ```python
 from bytewax.connectors.kafka import KafkaSource, KafkaSink
@@ -20,7 +20,7 @@ processed = op.map("map", kinp, lambda x: (x.key, x.value))
 op.output("kafka-out", processed, KafkaSink(brokers, "out-topic"))
 ```
 
-Or use the custom Kafka operator:
+Or use the Kafka input [operator](/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.input):
 
 ```python
 from bytewax.connectors.kafka import operators as kop
@@ -30,32 +30,38 @@ from bytewax.dataflow import Dataflow
 brokers = ["localhost:1909"]
 flow = Dataflow("example")
 kinp = kop.input("kafka-in", flow, brokers=brokers, topics=["in-topic"])
-op.inspect("errors", kinp.errs).then(op.raises, "crash-on-err")
 processed = op.map("map", kinp.oks, lambda x: (x.key, x.value))
 kop.output("kafka-out", processed, brokers=brokers, topic="out-topic")
 ```
 
-## Error handling
+## Batch sizes
 
-In the previous section, you may have noted that we added a chain of operators
-for error handling using the [`raises`](/apidocs/bytewax.operators/index#bytewax.operators.raises)
-operator.
+By default, Bytewax will consume a single message at a time from Kafka. The default
+setting is often sufficient for lower latency, but negatively affects throughput.
 
-Kafka sources in Bytewax return a dataclass that contains two output streams of
-[`KafkaMessage`s](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage).
+If your workload would from higher throughput, you can set the `batch_size` parameter
+to a higher value (eg: 1000). The `batch_size` parameter sets the maximum number of messages
+that will be fetched at a time from each worker.
 
-The `.oks` stream contains messages that were successfully processed. The `.err` stream
-contains messages where an error was encountered. Items that encountered an error
-have their `.error` field set with details about the error.
+## Message Types
 
-## Kafka Offsets and Recovery
+Messages received from `KafkaSource` are of type [`KafkaSourceMessage`](
+/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage).
+This dataclass includes basic Kafka fields like `.key` and `.value`, as well as
+extra information fields like `.headers`.
+
+Messages that are published to a `KafkaSink` must be of type [`KafkaSinkMessage`](
+https://bytewax.io/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage).
+With the `.key` and `.value` fields set.
+
+## Kafka and Recovery
 
 Typical deployments of Kafka utilize [consumer groups](https://developer.confluent.io/courses/architecture/consumer-group-protocol/)
 in order to manage partition assignment and the storing of Kafka offsets.
 
-Bytewax by default does **not** use consumer groups to store partition offsets for consumers. In order
-to support [recovery](/docs/concepts/recovery), Bytewax must manage and store the partition offsets
-in recovery partitions.
+Bytewax does **not** use consumer groups to store offsets or asssign partitions to consumers. In order
+to correctly support [recovery](/docs/concepts/recovery), Bytewax must manage and store the
+consumer offsets in recovery partitions.
 
 When recovery is not enabled, Bytewax will start consuming from each partition using the earliest
 available offset. This setting can be changed when creating a new `KafkaSource` with the
@@ -86,13 +92,15 @@ kinp = kop.input(
 
 ## Partitions
 
-When multiple workers are started, Bytewax will assign individual partitions to the available number of workers.
-If the number of partitions changes, Dataflows will need to be restarted in order to assign new partitions
-to workers.
+Partitions are a fundamental concept for Kafka and Redpanda, and are the unit of parallelism for
+producing and consuming messages.
 
-If there are fewer partitions than workers, some workers will not be assigned a partition to read from.
-In cases where items are not exchanged between workers, workers without an assigned input partition
-will not process any data.
+When multiple workers are started, Bytewax will internally assign individual partitions to the
+available number of workers. If there are fewer partitions than workers, some workers will not
+be assigned a partition to read from.
+
+If the number of partitions changes, Dataflows will need to be restarted in order to rebalance
+new partition assignments to workers.
 
 ## Schema registry
 
@@ -131,3 +139,26 @@ operator accepts a `SchemaDeserializer` for both the key and value of the Kafka 
 
 If the deserialization step encounters an error, a separate stream of `.errs` is returned that
 can be used for error handling.
+
+When integrating with the Confluent schema registry, new schema versions will attempt to be fetched
+when a message with a new schema id is encountered. When using the Redpanda schema registry, dataflows
+will need to be restarted in order to fetch new versions of a schema.
+
+## Error handling
+
+Kafka input sources in Bytewax return a dataclass that contains two output streams of
+[`KafkaMessage`s](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage).
+
+The `.oks` field contains a stream of messages that were successfully processed. The `.errs` field
+contains a stream of messages where an error was encountered. Items that encountered an error
+have their `.error` field set with more details about the error.
+
+In the previous section, we used the [`raises`](/apidocs/bytewax.operators/index#bytewax.operators.raises) operator
+to crash the dataflow when encountering messages in the `.errs` stream.
+
+It is important to note that if no processing is attached to the `.errs` stream of messages, they will be silently
+dropped, and processing will continue.
+
+In some cases, you will want your dataflow to crash and stop consuming messages so that the error can be inspected
+and fixed. In other cases, you may want error messages to be published to a "dead letter queue" where they can be
+inspected and reprocessed later, while allowing the main dataflow to continue processing new data.

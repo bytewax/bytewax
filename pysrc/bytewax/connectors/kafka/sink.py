@@ -63,13 +63,12 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]):
         """Init.
 
         Args:
-            brokers:
-                List of `host:port` strings of Kafka brokers.
-            topic:
-                Topic to produce to. If it's `None`, the topic
+            brokers: List of `host:port` strings of Kafka brokers.
+
+            topic: Topic to produce to. If it's `None`, the topic
                 to produce to will be read in each KafkaMessage.
-            add_config:
-                Any additional configuration properties. See [the
+
+            add_config: Any additional configuration properties. See [the
                 `rdkafka`
                 documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
                 for options.

@@ -103,27 +103,26 @@ def input(  # noqa A001
     as `bytewax.connectors.kafka.KafkaMessage` objects.
 
     Args:
-        step_id:
-            Unique name for this step
-        flow:
-            A Dataflow
-        brokers:
-            List of `host:port` strings of Kafka brokers.
-        topics:
-            List of topics to consume from.
-        tail:
-            Whether to wait for new data on this topic when the
+        step_id: Unique name for this step
+
+        flow: A Dataflow
+
+        brokers: List of `host:port` strings of Kafka brokers.
+
+        topics: List of topics to consume from.
+
+        tail: Whether to wait for new data on this topic when the
             end is initially reached.
-        starting_offset:
-            Can be either `confluent_kafka.OFFSET_BEGINNING` or
+
+        starting_offset: Can be either `confluent_kafka.OFFSET_BEGINNING` or
             `confluent_kafka.OFFSET_END`. Defaults to beginning of
             topic.
-        add_config:
-            Any additional configuration properties. See the `rdkafka`
+
+        add_config: Any additional configuration properties. See the `rdkafka`
             [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
             for options.
-        batch_size:
-            How many messages to consume at most at each poll. Defaults to 1000.
+
+        batch_size: How many messages to consume at most at each poll. Defaults to 1000.
     &#34;&#34;&#34;
     return op.input(
         &#34;kafka_input&#34;,
@@ -162,16 +161,15 @@ def output(
     epoch will be duplicated right after resume.
 
     Args:
-        step_id:
-            Unique name for this step
-        up:
-            A stream of `(key_bytes, value_bytes)` 2-tuples
-        brokers:
-            List of `host:port` strings of Kafka brokers.
-        topic:
-            Topic to produce to.
-        add_config:
-            Any additional configuration properties. See the `rdkafka`
+        step_id: Unique name for this step
+
+        up: A stream of `(key_bytes, value_bytes)` 2-tuples
+
+        brokers: List of `host:port` strings of Kafka brokers.
+
+        topic: Topic to produce to.
+
+        add_config: Any additional configuration properties. See the `rdkafka`
             [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
             for options.
     &#34;&#34;&#34;
@@ -188,9 +186,12 @@ def deserialize_key(
 ) -&gt; KafkaSourceOut[K2, V, K, V]:
     &#34;&#34;&#34;Deserialize the key of a KafkaMessage using the provided SchemaDeserializer.
 
-    Returns an object with two attributes:
+    Returns:
+        An object with two attributes:
+
         - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error
+            is not None`
     &#34;&#34;&#34;
 
     # Make sure the first KafkaMessage in the return type&#39;s Union represents
@@ -217,9 +218,12 @@ def deserialize_value(
 ) -&gt; KafkaSourceOut[K, V2, K, V]:
     &#34;&#34;&#34;Deserialize the value of a KafkaMessage using the provided SchemaDeserializer.
 
-    Returns an object with two attributes:
-        - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+    Returns:
+        An object with two attributes:
+
+        - `.oks`: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
+        - `.errors`: A stream of `KafkaMessage`s where `KafkaMessage.error is
+            not None`
     &#34;&#34;&#34;
 
     def shim_mapper(
@@ -247,10 +251,13 @@ def deserialize(
 ) -&gt; KafkaSourceOut[K2, V2, K, V]:
     &#34;&#34;&#34;Serialize both keys and values with the given serializers.
 
-    Returns an object with two attributes:
-        - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
-    A message will be put in .errors even if only one of the deserializers fail.
+    Returns:
+        An object with two attributes:
+
+        - `.oks`: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
+        - `.errors`: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+
+        A message will be put in .errors even if only one of the deserializers fail.
     &#34;&#34;&#34;
 
     # Use a single map step rather than concatenating
@@ -347,10 +354,13 @@ def serialize(
 </code></dt>
 <dd>
 <div class="desc"><p>Serialize both keys and values with the given serializers.</p>
-<p>Returns an object with two attributes:
-- .oks: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is None</code>
-- .errors: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is not None</code>
-A message will be put in .errors even if only one of the deserializers fail.</p></div>
+<h2 id="returns">Returns</h2>
+<p>An object with two attributes:</p>
+<ul>
+<li><code>.oks</code>: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is None</code></li>
+<li><code>.errors</code>: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is not None</code></li>
+</ul>
+<p>A message will be put in .errors even if only one of the deserializers fail.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -365,10 +375,13 @@ def deserialize(
 ) -&gt; KafkaSourceOut[K2, V2, K, V]:
     &#34;&#34;&#34;Serialize both keys and values with the given serializers.
 
-    Returns an object with two attributes:
-        - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
-    A message will be put in .errors even if only one of the deserializers fail.
+    Returns:
+        An object with two attributes:
+
+        - `.oks`: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
+        - `.errors`: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+
+        A message will be put in .errors even if only one of the deserializers fail.
     &#34;&#34;&#34;
 
     # Use a single map step rather than concatenating
@@ -401,9 +414,13 @@ def deserialize(
 </code></dt>
 <dd>
 <div class="desc"><p>Deserialize the key of a KafkaMessage using the provided SchemaDeserializer.</p>
-<p>Returns an object with two attributes:
-- .oks: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is None</code>
-- .errors: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is not None</code></p></div>
+<h2 id="returns">Returns</h2>
+<p>An object with two attributes:</p>
+<ul>
+<li>.oks: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is None</code></li>
+<li>.errors: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error
+is not None</code></li>
+</ul></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -416,9 +433,12 @@ def deserialize_key(
 ) -&gt; KafkaSourceOut[K2, V, K, V]:
     &#34;&#34;&#34;Deserialize the key of a KafkaMessage using the provided SchemaDeserializer.
 
-    Returns an object with two attributes:
+    Returns:
+        An object with two attributes:
+
         - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error
+            is not None`
     &#34;&#34;&#34;
 
     # Make sure the first KafkaMessage in the return type&#39;s Union represents
@@ -442,9 +462,13 @@ def deserialize_key(
 </code></dt>
 <dd>
 <div class="desc"><p>Deserialize the value of a KafkaMessage using the provided SchemaDeserializer.</p>
-<p>Returns an object with two attributes:
-- .oks: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is None</code>
-- .errors: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is not None</code></p></div>
+<h2 id="returns">Returns</h2>
+<p>An object with two attributes:</p>
+<ul>
+<li><code>.oks</code>: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is None</code></li>
+<li><code>.errors</code>: A stream of <code>KafkaMessage</code>s where <code>KafkaMessage.error is
+not None</code></li>
+</ul></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -457,9 +481,12 @@ def deserialize_value(
 ) -&gt; KafkaSourceOut[K, V2, K, V]:
     &#34;&#34;&#34;Deserialize the value of a KafkaMessage using the provided SchemaDeserializer.
 
-    Returns an object with two attributes:
-        - .oks: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
-        - .errors: A stream of `KafkaMessage`s where `KafkaMessage.error is not None`
+    Returns:
+        An object with two attributes:
+
+        - `.oks`: A stream of `KafkaMessage`s where `KafkaMessage.error is None`
+        - `.errors`: A stream of `KafkaMessage`s where `KafkaMessage.error is
+            not None`
     &#34;&#34;&#34;
 
     def shim_mapper(
@@ -487,27 +514,29 @@ Can support exactly-once processing.</p>
 <p>Messages are emitted into the dataflow
 as <code>bytewax.connectors.kafka.KafkaMessage</code> objects.</p>
 <h2 id="args">Args</h2>
-<p>step_id:
-Unique name for this step
-flow:
-A Dataflow
-brokers:
-List of <code>host:port</code> strings of Kafka brokers.
-topics:
-List of topics to consume from.
-tail:
-Whether to wait for new data on this topic when the
-end is initially reached.
-starting_offset:
-Can be either <code>confluent_kafka.OFFSET_BEGINNING</code> or
+<dl>
+<dt><strong><code>step_id</code></strong></dt>
+<dd>Unique name for this step</dd>
+<dt><strong><code>flow</code></strong></dt>
+<dd>A Dataflow</dd>
+<dt><strong><code>brokers</code></strong></dt>
+<dd>List of <code>host:port</code> strings of Kafka brokers.</dd>
+<dt><strong><code>topics</code></strong></dt>
+<dd>List of topics to consume from.</dd>
+<dt><strong><code>tail</code></strong></dt>
+<dd>Whether to wait for new data on this topic when the
+end is initially reached.</dd>
+<dt><strong><code>starting_offset</code></strong></dt>
+<dd>Can be either <code>confluent_kafka.OFFSET_BEGINNING</code> or
 <code>confluent_kafka.OFFSET_END</code>. Defaults to beginning of
-topic.
-add_config:
-Any additional configuration properties. See the <code>rdkafka</code>
+topic.</dd>
+<dt><strong><code>add_config</code></strong></dt>
+<dd>Any additional configuration properties. See the <code>rdkafka</code>
 <a href="https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md">docs</a>
-for options.
-batch_size:
-How many messages to consume at most at each poll. Defaults to 1000.</p></div>
+for options.</dd>
+<dt><strong><code>batch_size</code></strong></dt>
+<dd>How many messages to consume at most at each poll. Defaults to 1000.</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -533,27 +562,26 @@ def input(  # noqa A001
     as `bytewax.connectors.kafka.KafkaMessage` objects.
 
     Args:
-        step_id:
-            Unique name for this step
-        flow:
-            A Dataflow
-        brokers:
-            List of `host:port` strings of Kafka brokers.
-        topics:
-            List of topics to consume from.
-        tail:
-            Whether to wait for new data on this topic when the
+        step_id: Unique name for this step
+
+        flow: A Dataflow
+
+        brokers: List of `host:port` strings of Kafka brokers.
+
+        topics: List of topics to consume from.
+
+        tail: Whether to wait for new data on this topic when the
             end is initially reached.
-        starting_offset:
-            Can be either `confluent_kafka.OFFSET_BEGINNING` or
+
+        starting_offset: Can be either `confluent_kafka.OFFSET_BEGINNING` or
             `confluent_kafka.OFFSET_END`. Defaults to beginning of
             topic.
-        add_config:
-            Any additional configuration properties. See the `rdkafka`
+
+        add_config: Any additional configuration properties. See the `rdkafka`
             [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
             for options.
-        batch_size:
-            How many messages to consume at most at each poll. Defaults to 1000.
+
+        batch_size: How many messages to consume at most at each poll. Defaults to 1000.
     &#34;&#34;&#34;
     return op.input(
         &#34;kafka_input&#34;,
@@ -583,18 +611,20 @@ def input(  # noqa A001
 <p>Can support at-least-once processing. Messages from the resume
 epoch will be duplicated right after resume.</p>
 <h2 id="args">Args</h2>
-<p>step_id:
-Unique name for this step
-up:
-A stream of <code>(key_bytes, value_bytes)</code> 2-tuples
-brokers:
-List of <code>host:port</code> strings of Kafka brokers.
-topic:
-Topic to produce to.
-add_config:
-Any additional configuration properties. See the <code>rdkafka</code>
+<dl>
+<dt><strong><code>step_id</code></strong></dt>
+<dd>Unique name for this step</dd>
+<dt><strong><code>up</code></strong></dt>
+<dd>A stream of <code>(key_bytes, value_bytes)</code> 2-tuples</dd>
+<dt><strong><code>brokers</code></strong></dt>
+<dd>List of <code>host:port</code> strings of Kafka brokers.</dd>
+<dt><strong><code>topic</code></strong></dt>
+<dd>Topic to produce to.</dd>
+<dt><strong><code>add_config</code></strong></dt>
+<dd>Any additional configuration properties. See the <code>rdkafka</code>
 <a href="https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md">docs</a>
-for options.</p></div>
+for options.</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -619,16 +649,15 @@ def output(
     epoch will be duplicated right after resume.
 
     Args:
-        step_id:
-            Unique name for this step
-        up:
-            A stream of `(key_bytes, value_bytes)` 2-tuples
-        brokers:
-            List of `host:port` strings of Kafka brokers.
-        topic:
-            Topic to produce to.
-        add_config:
-            Any additional configuration properties. See the `rdkafka`
+        step_id: Unique name for this step
+
+        up: A stream of `(key_bytes, value_bytes)` 2-tuples
+
+        brokers: List of `host:port` strings of Kafka brokers.
+
+        topic: Topic to produce to.
+
+        add_config: Any additional configuration properties. See the `rdkafka`
             [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
             for options.
     &#34;&#34;&#34;
