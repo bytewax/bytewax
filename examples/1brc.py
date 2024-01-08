@@ -1,3 +1,11 @@
+# See https://github.com/gunnarmorling/1brc for how to generate the
+# input file. Unfortunately it is 13 GB so it can't be included here.
+#
+# USAGE: `BRC_FILE=~/bytewax/1brc/measurements.txt python -m
+# bytewax.run examples.1brc` Set the `BRC_FILE` env var to change the
+# input file. Multiple worker processes can be used on the same
+# machine and this custom input source here will divvy up the work of
+# reading.
 import os
 from datetime import datetime
 from pathlib import Path
