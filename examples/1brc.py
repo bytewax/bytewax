@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Tuple
 
 from bytewax import operators as op
@@ -10,7 +11,9 @@ from typing_extensions import TypeAlias
 
 
 class FilePartition(StatelessSourcePartition):
-    def __init__(self, path: str, start_offset: int, end_offset: int, batch_bytes: int):
+    def __init__(
+        self, path: Path, start_offset: int, end_offset: int, batch_bytes: int
+    ):
         self._f = open(path, "rb")
         self._f.seek(start_offset)
         self._end_offset = end_offset
@@ -25,14 +28,14 @@ class FilePartition(StatelessSourcePartition):
 
 
 class CoopFileSource(DynamicSource):
-    def __init__(self, path: str, batch_bytes: int):
+    def __init__(self, path: Path, batch_bytes: int):
         self._path = path
         self._batch_bytes = batch_bytes
 
     def build(
         self, now: datetime, worker_index: int, worker_count: int
     ) -> FilePartition:
-        file_size = os.path.getsize(self._path)
+        file_size = self._path.stat().st_size
         chunk_size = file_size // worker_count
         start_offset = worker_index * chunk_size
         end_offset = (worker_index + 1) * chunk_size
@@ -53,7 +56,7 @@ class CoopFileSource(DynamicSource):
 
 
 flow = Dataflow("1brc")
-rows = op.input("inp", flow, CoopFileSource(os.environ["BRC_FILE"], 2**16))
+rows = op.input("inp", flow, CoopFileSource(Path(os.environ["BRC_FILE"]), 2**16))
 
 
 State: TypeAlias = Tuple[float, float, float, int]
