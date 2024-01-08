@@ -1370,6 +1370,19 @@ def reduce_final(
 
     """
 
+    def pre_reducer(mixed_batch: List[Tuple[str, V]]) -> Iterable[Tuple[str, V]]:
+        states = {}
+        for k, v in mixed_batch:
+            try:
+                s = states[k]
+            except KeyError:
+                states[k] = v
+            else:
+                states[k] = reducer(s, v)
+        return states.items()
+
+    pre_up = flat_map_batch("pre_reduce", up, pre_reducer)
+
     def shim_folder(s: V, v: V) -> V:
         if s is None:
             s = v
@@ -1378,7 +1391,7 @@ def reduce_final(
 
         return s
 
-    return fold_final("fold_final", up, _untyped_none, shim_folder)
+    return fold_final("fold_final", pre_up, _untyped_none, shim_folder)
 
 
 @dataclass
