@@ -54,8 +54,8 @@ class _KafkaSinkPartition(
 class KafkaSink(DynamicSink[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]):
     &#34;&#34;&#34;Use a single Kafka topic as an output sink.
 
-    Items consumed from the dataflow must look like two-tuples of
-    `(key_bytes, value_bytes)`. Default partition routing is used.
+    Items consumed from the dataflow must be `KafkaSinkMessage` with
+    both key and value represented as `str | bytes | None`.
 
     Workers are the unit of parallelism.
 
@@ -114,8 +114,8 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]):
 </code></dt>
 <dd>
 <div class="desc"><p>Use a single Kafka topic as an output sink.</p>
-<p>Items consumed from the dataflow must look like two-tuples of
-<code>(key_bytes, value_bytes)</code>. Default partition routing is used.</p>
+<p>Items consumed from the dataflow must be <code>KafkaSinkMessage</code> with
+both key and value represented as <code>str | bytes | None</code>.</p>
 <p>Workers are the unit of parallelism.</p>
 <p>Can support at-least-once processing. Messages from the resume
 epoch will be duplicated right after resume.</p>
@@ -140,8 +140,8 @@ for options.</dd>
 <pre class="language-python line-numbers"><code class="language-python">class KafkaSink(DynamicSink[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]):
     &#34;&#34;&#34;Use a single Kafka topic as an output sink.
 
-    Items consumed from the dataflow must look like two-tuples of
-    `(key_bytes, value_bytes)`. Default partition routing is used.
+    Items consumed from the dataflow must be `KafkaSinkMessage` with
+    both key and value represented as `str | bytes | None`.
 
     Workers are the unit of parallelism.
 

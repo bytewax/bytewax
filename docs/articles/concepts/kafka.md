@@ -1,6 +1,10 @@
 Bytewax ships with connectors for [Kafka](https://www.confluent.io/) and
 Kafka compatible systems, like [Redpanda](https://redpanda.com/).
 
+In this section, we'll discuss these connectors in detail, as well as
+provide some important operational information about using them as sources
+and sinks.
+
 ## Connecting to Kafka
 
 Bytewax provides two basic ways to connect to Kafka.
@@ -39,8 +43,8 @@ kop.output("kafka-out", processed, brokers=brokers, topic="out-topic")
 By default, Bytewax will consume a single message at a time from Kafka. The default
 setting is often sufficient for lower latency, but negatively affects throughput.
 
-If your workload would from higher throughput, you can set the `batch_size` parameter
-to a higher value (eg: 1000). The `batch_size` parameter sets the maximum number of messages
+If your dataflow would benefit from higher throughput, you can set the `batch_size` parameter
+to a higher value (eg: 1000). The `batch_size` parameter configures the maximum number of messages
 that will be fetched at a time from each worker.
 
 ## Message Types
@@ -51,7 +55,7 @@ This dataclass includes basic Kafka fields like `.key` and `.value`, as well as
 extra information fields like `.headers`.
 
 Messages that are published to a `KafkaSink` must be of type [`KafkaSinkMessage`](
-https://bytewax.io/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage).
+/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage).
 With the `.key` and `.value` fields set.
 
 ## Kafka and Recovery
@@ -146,15 +150,10 @@ will need to be restarted in order to fetch new versions of a schema.
 
 ## Error handling
 
-Kafka input sources in Bytewax return a dataclass that contains two output streams of
-[`KafkaMessage`s](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage).
-
-The `.oks` field contains a stream of messages that were successfully processed. The `.errs` field
-contains a stream of messages where an error was encountered. Items that encountered an error
-have their `.error` field set with more details about the error.
-
-In the previous section, we used the [`raises`](/apidocs/bytewax.operators/index#bytewax.operators.raises) operator
-to crash the dataflow when encountering messages in the `.errs` stream.
+Kafka input sources in Bytewax return a dataclass that contains two output streams.
+The `.oks` field contains a stream of [`KafkaMessage`](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage)
+that were successfully processed. The `.errs` field contains a stream of [`KafkaError`](/apidocs/bytewax.connectors/kafka/error#bytewax.connectors.kafka.message.KafkaError)
+where an error was encountered. Items that encountered an error have their `.err` field set with more details about the error.
 
 It is important to note that if no processing is attached to the `.errs` stream of messages, they will be silently
 dropped, and processing will continue.

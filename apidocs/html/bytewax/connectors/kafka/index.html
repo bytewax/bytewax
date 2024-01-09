@@ -11,26 +11,26 @@ package to be installed.</p>
 <p>The input source returns a stream of <code>KafkaMessage</code>.
 See the docstring for its use.</p>
 <p>You can use <code><a title="bytewax.connectors.kafka.KafkaSource" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSource">KafkaSource</a></code> and <code><a title="bytewax.connectors.kafka.KafkaSink" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSink">KafkaSink</a></code> directly:</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.connectors.kafka import KafkaSource, KafkaSink
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.connectors.kafka import KafkaSource, KafkaSink, KafkaSinkMessage
 &gt;&gt;&gt; from bytewax import operators as op
 &gt;&gt;&gt; from bytewax.dataflow import Dataflow
 &gt;&gt;&gt;
-&gt;&gt;&gt; brokers = [&quot;localhost:1909&quot;]
+&gt;&gt;&gt; brokers = [&quot;localhost:19092&quot;]
 &gt;&gt;&gt; flow = Dataflow(&quot;example&quot;)
-&gt;&gt;&gt; kinp = op.input(&quot;kafka-in&quot;, flow, KafkaSource([&quot;localhost:1909&quot;], [&quot;in-topic&quot;]))
-&gt;&gt;&gt; processed = op.map(&quot;map&quot;, kinp, lambda x: (x.key, x.value))
+&gt;&gt;&gt; kinp = op.input(&quot;kafka-in&quot;, flow, KafkaSource(brokers, [&quot;in-topic&quot;]))
+&gt;&gt;&gt; processed = op.map(&quot;map&quot;, kinp, lambda x: KafkaSinkMessage(x.key, x.value))
 &gt;&gt;&gt; op.output(&quot;kafka-out&quot;, processed, KafkaSink(brokers, &quot;out-topic&quot;))
 </code></pre>
 <p>Or the custom operators:</p>
-<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.connectors.kafka import operators as kop
+<pre><code class="language-python-repl">&gt;&gt;&gt; from bytewax.connectors.kafka import operators as kop, KafkaSinkMessage
 &gt;&gt;&gt; from bytewax import operators as op
 &gt;&gt;&gt; from bytewax.dataflow import Dataflow
 &gt;&gt;&gt;
-&gt;&gt;&gt; brokers = [&quot;localhost:1909&quot;]
+&gt;&gt;&gt; brokers = [&quot;localhost:19092&quot;]
 &gt;&gt;&gt; flow = Dataflow(&quot;example&quot;)
 &gt;&gt;&gt; kinp = kop.input(&quot;kafka-in&quot;, flow, brokers=brokers, topics=[&quot;in-topic&quot;])
 &gt;&gt;&gt; errs = op.inspect(&quot;errors&quot;, kinp.errs).then(op.raises, &quot;crash-on-err&quot;)
-&gt;&gt;&gt; processed = op.map(&quot;map&quot;, kinp.oks, lambda x: (x.key, x.value))
+&gt;&gt;&gt; processed = op.map(&quot;map&quot;, kinp.oks, lambda x: KafkaSinkMessage(x.key, x.value))
 &gt;&gt;&gt; kop.output(&quot;kafka-out&quot;, processed, brokers=brokers, topic=&quot;out-topic&quot;)
 </code></pre>
 <details class="source">
@@ -48,27 +48,27 @@ See the docstring for its use.
 
 You can use `KafkaSource` and `KafkaSink` directly:
 
-&gt;&gt;&gt; from bytewax.connectors.kafka import KafkaSource, KafkaSink
+&gt;&gt;&gt; from bytewax.connectors.kafka import KafkaSource, KafkaSink, KafkaSinkMessage
 &gt;&gt;&gt; from bytewax import operators as op
 &gt;&gt;&gt; from bytewax.dataflow import Dataflow
 &gt;&gt;&gt;
-&gt;&gt;&gt; brokers = [&#34;localhost:1909&#34;]
+&gt;&gt;&gt; brokers = [&#34;localhost:19092&#34;]
 &gt;&gt;&gt; flow = Dataflow(&#34;example&#34;)
-&gt;&gt;&gt; kinp = op.input(&#34;kafka-in&#34;, flow, KafkaSource([&#34;localhost:1909&#34;], [&#34;in-topic&#34;]))
-&gt;&gt;&gt; processed = op.map(&#34;map&#34;, kinp, lambda x: (x.key, x.value))
+&gt;&gt;&gt; kinp = op.input(&#34;kafka-in&#34;, flow, KafkaSource(brokers, [&#34;in-topic&#34;]))
+&gt;&gt;&gt; processed = op.map(&#34;map&#34;, kinp, lambda x: KafkaSinkMessage(x.key, x.value))
 &gt;&gt;&gt; op.output(&#34;kafka-out&#34;, processed, KafkaSink(brokers, &#34;out-topic&#34;))
 
 Or the custom operators:
 
-&gt;&gt;&gt; from bytewax.connectors.kafka import operators as kop
+&gt;&gt;&gt; from bytewax.connectors.kafka import operators as kop, KafkaSinkMessage
 &gt;&gt;&gt; from bytewax import operators as op
 &gt;&gt;&gt; from bytewax.dataflow import Dataflow
 &gt;&gt;&gt;
-&gt;&gt;&gt; brokers = [&#34;localhost:1909&#34;]
+&gt;&gt;&gt; brokers = [&#34;localhost:19092&#34;]
 &gt;&gt;&gt; flow = Dataflow(&#34;example&#34;)
 &gt;&gt;&gt; kinp = kop.input(&#34;kafka-in&#34;, flow, brokers=brokers, topics=[&#34;in-topic&#34;])
 &gt;&gt;&gt; errs = op.inspect(&#34;errors&#34;, kinp.errs).then(op.raises, &#34;crash-on-err&#34;)
-&gt;&gt;&gt; processed = op.map(&#34;map&#34;, kinp.oks, lambda x: (x.key, x.value))
+&gt;&gt;&gt; processed = op.map(&#34;map&#34;, kinp.oks, lambda x: KafkaSinkMessage(x.key, x.value))
 &gt;&gt;&gt; kop.output(&#34;kafka-out&#34;, processed, brokers=brokers, topic=&#34;out-topic&#34;)
 
 &#34;&#34;&#34;
@@ -148,8 +148,8 @@ __all__ = [
 </code></dt>
 <dd>
 <div class="desc"><p>Use a single Kafka topic as an output sink.</p>
-<p>Items consumed from the dataflow must look like two-tuples of
-<code>(key_bytes, value_bytes)</code>. Default partition routing is used.</p>
+<p>Items consumed from the dataflow must be <code><a title="bytewax.connectors.kafka.KafkaSinkMessage" href="/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSinkMessage">KafkaSinkMessage</a></code> with
+both key and value represented as <code>str | bytes | None</code>.</p>
 <p>Workers are the unit of parallelism.</p>
 <p>Can support at-least-once processing. Messages from the resume
 epoch will be duplicated right after resume.</p>
@@ -174,8 +174,8 @@ for options.</dd>
 <pre class="language-python line-numbers"><code class="language-python">class KafkaSink(DynamicSink[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]):
     &#34;&#34;&#34;Use a single Kafka topic as an output sink.
 
-    Items consumed from the dataflow must look like two-tuples of
-    `(key_bytes, value_bytes)`. Default partition routing is used.
+    Items consumed from the dataflow must be `KafkaSinkMessage` with
+    both key and value represented as `str | bytes | None`.
 
     Workers are the unit of parallelism.
 
@@ -251,7 +251,7 @@ for options.</dd>
 </dd>
 <dt id="bytewax.connectors.kafka.KafkaSinkMessage"><code class="language-python flex name class">
 <span>class <span class="ident">KafkaSinkMessage</span></span>
-<span>(</span><span>key: ~K, value: ~V, topic: Optional[str] = None, headers: List[Tuple[str, bytes]] = &lt;factory&gt;, partition: Optional[int] = None, timestamp: int = 0)</span>
+<span>(</span><span>key: +K_co, value: +V_co, topic: Optional[str] = None, headers: List[Tuple[str, bytes]] = &lt;factory&gt;, partition: Optional[int] = None, timestamp: int = 0)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Class that holds a message from kafka with metadata.</p>
@@ -263,7 +263,7 @@ the value.</p>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@dataclass(frozen=True)
-class KafkaSinkMessage(Generic[K, V]):
+class KafkaSinkMessage(Generic[K_co, V_co]):
     &#34;&#34;&#34;Class that holds a message from kafka with metadata.
 
     Use `KafkaMessage.key` to get the key and `KafkaMessage.value` to get
@@ -272,15 +272,15 @@ class KafkaSinkMessage(Generic[K, V]):
     Other fields: `topic`, `headers`, `partition`, `timestamp`
     &#34;&#34;&#34;
 
-    key: K
-    value: V
+    key: K_co
+    value: V_co
 
     topic: Optional[str] = None
     headers: List[Tuple[str, bytes]] = field(default_factory=list)
     partition: Optional[int] = None
     timestamp: int = 0
 
-    def _with_key(self, key: K2) -&gt; &#34;KafkaSinkMessage[K2, V]&#34;:
+    def _with_key(self, key: K2) -&gt; &#34;KafkaSinkMessage[K2, V_co]&#34;:
         &#34;&#34;&#34;Returns a new instance with the specified key.&#34;&#34;&#34;
         # Can&#39;t use `dataclasses.replace` directly since it requires
         # the fields you change to be the same type.
@@ -293,7 +293,7 @@ class KafkaSinkMessage(Generic[K, V]):
             timestamp=self.timestamp,
         )
 
-    def _with_value(self, value: V2) -&gt; &#34;KafkaSinkMessage[K, V2]&#34;:
+    def _with_value(self, value: V2) -&gt; &#34;KafkaSinkMessage[K_co, V2]&#34;:
         &#34;&#34;&#34;Returns a new instance with the specified value.&#34;&#34;&#34;
         return KafkaSinkMessage(
             key=self.key,
@@ -325,7 +325,7 @@ class KafkaSinkMessage(Generic[K, V]):
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="bytewax.connectors.kafka.KafkaSinkMessage.key"><code class="language-python name">var <span class="ident">key</span> : ~K</code></dt>
+<dt id="bytewax.connectors.kafka.KafkaSinkMessage.key"><code class="language-python name">var <span class="ident">key</span> : +K_co</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -341,7 +341,7 @@ class KafkaSinkMessage(Generic[K, V]):
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="bytewax.connectors.kafka.KafkaSinkMessage.value"><code class="language-python name">var <span class="ident">value</span> : ~V</code></dt>
+<dt id="bytewax.connectors.kafka.KafkaSinkMessage.value"><code class="language-python name">var <span class="ident">value</span> : +V_co</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
