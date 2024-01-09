@@ -13,28 +13,28 @@ You can use [`KafkaSource`](/apidocs/bytewax.connectors/kafka/index#bytewax.conn
 and [`KafkaSink`](/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSink) directly:
 
 ```python
-from bytewax.connectors.kafka import KafkaSource, KafkaSink
+from bytewax.connectors.kafka import KafkaSource, KafkaSink, KafkaSinkMessage
 from bytewax import operators as op
 from bytewax.dataflow import Dataflow
 
 brokers = ["localhost:19092"]
 flow = Dataflow("example")
 kinp = op.input("kafka-in", flow, KafkaSource(brokers, ["in-topic"]))
-processed = op.map("map", kinp, lambda x: (x.key, x.value))
+processed = op.map("map", kinp, lambda x: KafkaSinkMessage(x.key, x.value))
 op.output("kafka-out", processed, KafkaSink(brokers, "out-topic"))
 ```
 
 Or use the Kafka input [operator](/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.input):
 
 ```python
-from bytewax.connectors.kafka import operators as kop
+from bytewax.connectors.kafka import operators as kop, KafkaSinkMessage
 from bytewax import operators as op
 from bytewax.dataflow import Dataflow
 
 brokers = ["localhost:19092"]
 flow = Dataflow("example")
 kinp = kop.input("kafka-in", flow, brokers=brokers, topics=["in-topic"])
-processed = op.map("map", kinp.oks, lambda x: (x.key, x.value))
+processed = op.map("map", kinp.oks, lambda x: KafkaSinkMessage(x.key, x.value))
 kop.output("kafka-out", processed, brokers=brokers, topic="out-topic")
 ```
 
@@ -54,9 +54,9 @@ Messages received from `KafkaSource` are of type [`KafkaSourceMessage`](
 This dataclass includes basic Kafka fields like `.key` and `.value`, as well as
 extra information fields like `.headers`.
 
-Messages that are published to a `KafkaSink` must be of type [`KafkaSinkMessage`](
-/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage).
-With the `.key` and `.value` fields set.
+Messages that are published to a `KafkaSink` must be of type
+[`KafkaSinkMessage`](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage).
+With the `.key` and `.value` fields set, or of type `KafkaSourceMessage`, if the message is unmodified.
 
 ## Kafka and Recovery
 
@@ -150,14 +150,25 @@ will need to be restarted in order to fetch new versions of a schema.
 
 ## Error handling
 
-Kafka input sources in Bytewax return a dataclass that contains two output streams.
-The `.oks` field contains a stream of [`KafkaMessage`](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage)
-that were successfully processed. The `.errs` field contains a stream of [`KafkaError`](/apidocs/bytewax.connectors/kafka/error#bytewax.connectors.kafka.message.KafkaError)
-where an error was encountered. Items that encountered an error have their `.err` field set with more details about the error.
+The Kafka input [operator](/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.input)
+returns a dataclass containing two output streams. The `.oks` field is a stream of
+[`KafkaMessage`](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage)
+that were successfully processed. The `.errs` field is a stream of [`KafkaError`](/apidocs/bytewax.connectors/kafka/error#bytewax.connectors.kafka.message.KafkaError)
+messages where an error was encountered. Items that encountered an error have their `.err` field set with more
+details about the error.
 
-It is important to note that if no processing is attached to the `.errs` stream of messages, they will be silently
+Note that if no processing is attached to the `.errs` stream of messages, they will be silently
 dropped, and processing will continue.
 
-In some cases, you will want your dataflow to crash and stop consuming messages so that the error can be inspected
-and fixed. In other cases, you may want error messages to be published to a "dead letter queue" where they can be
-inspected and reprocessed later, while allowing the main dataflow to continue processing new data.
+In some cases, you will want your dataflow to crash and stop consuming messages so that the error can be
+fixed before processing continues. To do so, you can set the `raise_on_errors` parameter to `True` on the
+Kafka input operator:
+
+```python
+kinp = kop.input(
+    "kafka-in", flow, brokers=BROKERS, topics=IN_TOPICS, raise_on_errors=True
+)
+```
+
+Alternatively, error messages in the `.errs` stream can be published to a "dead letter queue" where they
+can be inspected and reprocessed later, while allowing the dataflow to continue processing data.
