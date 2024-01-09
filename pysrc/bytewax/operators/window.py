@@ -194,8 +194,15 @@ def count_window(
         A stream of `(key, count)` per window at the end of each window.
 
     """
-    init_count: KeyedStream[int] = op.map("init_count", up, lambda x: (key(x), 1))
-    return reduce_window("sum", init_count, clock, windower, lambda s, x: s + x)
+
+    def _shim_builder() -> int:
+        return 0
+
+    def _shim_folder(count: int, _item: X) -> int:
+        return count + 1
+
+    keyed: KeyedStream[int] = op.key_on("extract_key", up, key)
+    return fold_window("sum", keyed, clock, windower, _shim_builder, _shim_folder)
 
 
 @operator(_core=True)
