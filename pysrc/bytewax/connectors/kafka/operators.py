@@ -155,6 +155,8 @@ def output(
     epoch will be duplicated right after resume.
 
     Args:
+        step_id: Unique name for this step
+
         up: A stream of `KafkaSourceMessage | KafkaSinkMessage`
 
         brokers: List of `host:port` strings of Kafka brokers.
