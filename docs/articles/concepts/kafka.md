@@ -38,6 +38,24 @@ processed = op.map("map", kinp.oks, lambda x: KafkaSinkMessage(x.key, x.value))
 kop.output("kafka-out", processed, brokers=brokers, topic="out-topic")
 ```
 
+## Error handling
+
+The [`KafkaSource`](/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSource) input
+source will raise an exception whenever an error is encountered when consuming from Kafka.
+
+The Kafka input [operator](/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.input)
+returns a dataclass containing two output streams. The `.oks` field is a stream of
+[`KafkaMessage`](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage)
+that were successfully processed. The `.errs` field is a stream of [`KafkaError`](/apidocs/bytewax.connectors/kafka/error#bytewax.connectors.kafka.message.KafkaError)
+messages where an error was encountered. Items that encountered an error have their `.err` field set with more
+details about the error.
+
+Note that if no processing is attached to the `.errs` stream of messages, they will be silently
+dropped, and processing will continue.
+
+Alternatively, error messages in the `.errs` stream can be published to a "dead letter queue" where they
+can be inspected and reprocessed later, while allowing the dataflow to continue processing data.
+
 ## Batch sizes
 
 By default, Bytewax will consume a single message at a time from Kafka. The default
@@ -147,28 +165,3 @@ can be used for error handling.
 When integrating with the Confluent schema registry, new schema versions will attempt to be fetched
 when a message with a new schema id is encountered. When using the Redpanda schema registry, dataflows
 will need to be restarted in order to fetch new versions of a schema.
-
-## Error handling
-
-The Kafka input [operator](/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.input)
-returns a dataclass containing two output streams. The `.oks` field is a stream of
-[`KafkaMessage`](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage)
-that were successfully processed. The `.errs` field is a stream of [`KafkaError`](/apidocs/bytewax.connectors/kafka/error#bytewax.connectors.kafka.message.KafkaError)
-messages where an error was encountered. Items that encountered an error have their `.err` field set with more
-details about the error.
-
-Note that if no processing is attached to the `.errs` stream of messages, they will be silently
-dropped, and processing will continue.
-
-In some cases, you will want your dataflow to crash and stop consuming messages so that the error can be
-fixed before processing continues. To do so, you can set the `raise_on_errors` parameter to `True` on the
-Kafka input operator:
-
-```python
-kinp = kop.input(
-    "kafka-in", flow, brokers=BROKERS, topics=IN_TOPICS, raise_on_errors=True
-)
-```
-
-Alternatively, error messages in the `.errs` stream can be published to a "dead letter queue" where they
-can be inspected and reprocessed later, while allowing the dataflow to continue processing data.
