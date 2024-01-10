@@ -220,7 +220,7 @@ custom (de)serializers.
 As a trivial example, we can implement a class that uses the [orjson](https://github.com/ijl/orjson)
 library to deserialize a JSON payload from bytes.
 
-```python
+```python doctest:SKIP
 import orjson
 
 from typing import Dict, Any
