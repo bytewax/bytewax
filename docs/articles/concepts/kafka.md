@@ -74,7 +74,14 @@ extra information fields like `.headers`.
 
 Messages that are published to a `KafkaSink` must be of type
 [`KafkaSinkMessage`](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSinkMessage).
-With the `.key` and `.value` fields set, or of type `KafkaSourceMessage`, if the message is unmodified.
+
+You can create a `KafkaSinkMessage` with the data you want:
+```python
+msg = KafkaSinkMessage(key=None, value="some_value")
+```
+And you can optionally set `topic`, `headers`, `partition` and `timestamp`.
+
+The `output` operator also accepts messages of type [`KafkaSourceMessage`](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage). They are automatically converted to `KafkaSinkMessage` keeping only `.key` and `.value` from `KafkaSourceMessage`.
 
 ## Kafka and Recovery
 
