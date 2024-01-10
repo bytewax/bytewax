@@ -38,6 +38,9 @@ processed = op.map("map", kinp.oks, lambda x: KafkaSinkMessage(x.key, x.value))
 kop.output("kafka-out", processed, brokers=brokers, topic="out-topic")
 ```
 
+Typical use cases should prefer the Kafka input operator, while the `KafkaSource` connector
+can be used for other customizations.
+
 ## Error handling
 
 The [`KafkaSource`](/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSource) input
@@ -50,6 +53,13 @@ that were successfully processed. The `.errs` field is a stream of [`KafkaError`
 messages where an error was encountered. Items that encountered an error have their `.err` field set with more
 details about the error.
 
+```python
+flow = Dataflow("example")
+kinp = kop.input("kafka-in-2", flow, brokers=brokers, topics=["in-topic"])
+# Print out errors that are encountered, and then raise an exception
+op.inspect("inspect_err", kinp.errs).then(op.raises, "raise_errors")
+```
+
 Note that if no processing is attached to the `.errs` stream of messages, they will be silently
 dropped, and processing will continue.
 
@@ -58,11 +68,12 @@ can be inspected and reprocessed later, while allowing the dataflow to continue 
 
 ## Batch sizes
 
-By default, Bytewax will consume a single message at a time from Kafka. The default
-setting is often sufficient for lower latency, but negatively affects throughput.
+By default, Bytewax will consume a batch of up to 1000 messages at a time from Kafka. The default
+setting is often sufficient, but some dataflows may benefit from a smaller batch size to decrease
+overall latency.
 
-If your dataflow would benefit from higher throughput, you can set the `batch_size` parameter
-to a higher value (eg: 1000). The `batch_size` parameter configures the maximum number of messages
+If your dataflow would benefit from lower latency, you can set the `batch_size` parameter
+to a lower value. The `batch_size` parameter configures the maximum number of messages
 that will be fetched at a time from each worker.
 
 ## Message Types
@@ -81,16 +92,38 @@ msg = KafkaSinkMessage(key=None, value="some_value")
 ```
 And you can optionally set `topic`, `headers`, `partition` and `timestamp`.
 
-The `output` operator also accepts messages of type [`KafkaSourceMessage`](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage). They are automatically converted to `KafkaSinkMessage` keeping only `.key` and `.value` from `KafkaSourceMessage`.
+The `output` operator also accepts messages of type [`KafkaSourceMessage`](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage).
+ They are automatically converted to `KafkaSinkMessage` keeping only `.key` and `.value` from `KafkaSourceMessage`.
+
+## Dynamic topic writes
+
+Setting the `topic` field of a `KafkaSinkMessage` will cause that message to be written to
+that topic.
+
+Additionally, the `KafkaSink` class can be constructed without specifying a topic:
+
+```python
+op.output("kafka-dynamic-out", processed, KafkaSink(brokers, topic=None))
+```
+
+Writes to this output will be written to the topic that is specified when creating a `KafkaSinkMessage`.
+
+```python
+KafkaSinkMessage(msg.key, msg.value, topic="out-topic-1")
+```
+
+Note that not setting a topic for a `KafkaSinkMessage` when `KafkaSink` is not configured with
+a default topic will result in a runtime error.
 
 ## Kafka and Recovery
 
-Typical deployments of Kafka utilize [consumer groups](https://developer.confluent.io/courses/architecture/consumer-group-protocol/)
+Typical deployments of Kafka utilize [consumer groups](
+https://developer.confluent.io/learn/apache-kafka-on-the-go/consumer-groups/)
 in order to manage partition assignment and the storing of Kafka offsets.
 
-Bytewax does **not** use consumer groups to store offsets or asssign partitions to consumers. In order
-to correctly support [recovery](/docs/concepts/recovery), Bytewax must manage and store the
-consumer offsets in recovery partitions.
+Bytewax does **not** use consumer groups to store offsets or asssign Kafka topic partitions to consumers.
+In order to correctly support [recovery](/docs/concepts/recovery), Bytewax must manage and store the
+consumer offsets in Bytewax recovery partitions.
 
 When recovery is not enabled, Bytewax will start consuming from each partition using the earliest
 available offset. This setting can be changed when creating a new `KafkaSource` with the
@@ -119,14 +152,22 @@ kinp = kop.input(
 )
 ```
 
+The code above creates a Kafka consumer that uses a `group_id` of `consumer_group` that periodically
+commits it's consumed offsets according to the `auto.commit.interval.ms` parameter. By default,
+this interval is set to 5000ms.
+
+It is important to note that this interval is not coordinated with any processing steps within Bytewax.
+As a result, some messages may not be processed if the dataflow crashes.
+
 ## Partitions
 
 Partitions are a fundamental concept for Kafka and Redpanda, and are the unit of parallelism for
 producing and consuming messages.
 
-When multiple workers are started, Bytewax will internally assign individual partitions to the
-available number of workers. If there are fewer partitions than workers, some workers will not
-be assigned a partition to read from. If there are more partitions than workers, some worker will handle more than one partition.
+When multiple workers are started, Bytewax will assign individual Kafka topic partitions
+to the available number of workers. If there are fewer partitions than workers, some workers will not
+be assigned a partition to read from. If there are more partitions than workers, some workers
+will handle more than one partition.
 
 If the number of partitions changes, Dataflows will need to be restarted in order to rebalance
 new partition assignments to workers.
@@ -138,7 +179,6 @@ as well as the [Confluent Schema Registry](https://docs.confluent.io/platform/cu
 
 The following is an example of integrating with the Redpanda Schema Registry:
 
-
 ```python doctest:SKIP
 import bytewax.operators as op
 
@@ -149,7 +189,6 @@ from bytewax.connectors.kafka.registry import RedpandaSchemaRegistry, SchemaRef
 
 BROKERS = ["localhost:19092"]
 IN_TOPICS = ["in_topic"]
-OUT_TOPIC = "out_topic"
 REDPANDA_REGISTRY_URL = "http://localhost:8080/schema-registry"
 
 registry = RedpandaSchemaRegistry(REDPANDA_REGISTRY_URL)
@@ -172,3 +211,48 @@ can be used for error handling.
 When integrating with the Confluent schema registry, new schema versions will attempt to be fetched
 when a message with a new schema id is encountered. When using the Redpanda schema registry, dataflows
 will need to be restarted in order to fetch new versions of a schema.
+
+## Implementing custom ser/de classes
+
+Bytewax includes support for creating your own schema registry implementation, or
+custom (de)serializers.
+
+As a trivial example, we can implement a class that uses the [orjson](https://github.com/ijl/orjson)
+library to deserialize a JSON payload from bytes.
+
+```python
+import orjson
+
+from typing import Dict, Any
+
+from bytewax import operators as op
+from bytewax.connectors.kafka.serde import SchemaDeserializer
+
+from bytewax.connectors.kafka import operators as kop, KafkaSinkMessage, KafkaSink
+from bytewax.dataflow import Dataflow
+
+BROKERS = ["localhost:19092"]
+IN_TOPICS = ["in_topic"]
+
+
+class KeyDeserializer(SchemaDeserializer[bytes, str]):
+    def de(self, obj: bytes) -> str:
+        return str(obj)
+
+
+class JSONDeserializer(SchemaDeserializer[bytes, Dict]):
+    def de(self, obj: bytes) -> Dict[Any, Any]:
+        return orjson.loads(obj)
+
+
+brokers = ["localhost:19092"]
+val_de = JSONDeserializer()
+key_de = KeyDeserializer()
+
+flow = Dataflow("example")
+kinp = kop.input("kafka-in", flow, brokers=brokers, topics=["in-topic"])
+json_stream = kop.deserialize(
+    "load_json", kinp.oks, key_deserializer=key_de, val_deserializer=val_de
+)
+op.inspect("inspect", json_stream.oks)
+```
