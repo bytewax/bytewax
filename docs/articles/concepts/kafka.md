@@ -126,7 +126,7 @@ producing and consuming messages.
 
 When multiple workers are started, Bytewax will internally assign individual partitions to the
 available number of workers. If there are fewer partitions than workers, some workers will not
-be assigned a partition to read from.
+be assigned a partition to read from. If there are more partitions than workers, some worker will handle more than one partition.
 
 If the number of partitions changes, Dataflows will need to be restarted in order to rebalance
 new partition assignments to workers.
