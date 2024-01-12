@@ -4,6 +4,11 @@ from datetime import datetime, timedelta, timezone
 from itertools import islice
 from typing import Any, Iterable, Iterator, List, Optional, TypeVar, Union
 
+from bytewax._bytewax import (  # type: ignore[import]
+    cluster_main,
+    run_main,
+    test_cluster,
+)
 from bytewax.inputs import (
     AbortExecution,
     FixedPartitionedSource,
@@ -16,12 +21,6 @@ from bytewax.run import (
     _EnvDefault,
     _locate_dataflow,
     _prepare_import,
-)
-
-from .bytewax import (  # type: ignore[import]
-    cluster_main,
-    run_main,
-    test_cluster,
 )
 
 __all__ = [
