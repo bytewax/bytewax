@@ -91,10 +91,8 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 ///   epoch_interval (typing.Optional[datetime.timedelta]): System
 ///     time length of each epoch. Defaults to 10 seconds.
 ///
-///   recovery_config
-///   (typing.Optional[bytewax.recovery.RecoveryConfig]): State
-///     recovery config. If `None`, state will not be persisted.
-///
+///   recovery_config (typing.Optional[bytewax.recovery.RecoveryConfig]):
+///     State recovery config. If `None`, state will not be persisted.
 #[pyfunction]
 #[pyo3(
     signature = (flow, *, epoch_interval = None, recovery_config = None)
@@ -195,9 +193,8 @@ pub(crate) fn run_main(
 ///   epoch_interval (typing.Optional[datetime.timedelta]): System
 ///     time length of each epoch. Defaults to 10 seconds.
 ///
-///   recovery_config
-///   (typing.Optional[bytewax.recovery.RecoveryConfig]): State
-///     recovery config. If `None`, state will not be persisted.
+///   recovery_config (typing.Optional[bytewax.recovery.RecoveryConfig]):
+///     State recovery config. If `None`, state will not be persisted.
 ///
 ///   worker_count_per_proc (int): Number of worker threads to start
 ///     on each process. Defaults to `1`.
