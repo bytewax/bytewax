@@ -1,94 +1,80 @@
-Bytewax is instrumented to offer observability of your dataflow.
+Bytewax offers a lot of flexibility, and some choices can have a huge impact on performances.
 
-The default configuration logs anything at the log level `ERROR` to
-standard output. You can control the log level by passing the
-`log_level` parameter to the `setup_tracing` function. If you want to
-see all the messages bytewax emits, set the level to `TRACE`.
+In this article we explore ways to understand what's happening on a running dataflow.
 
-The `TRACE` level includes everything that would be sent to an
-opentelemetry compatible backend, like
-[Jaeger](https://www.jaegertracing.io/), or the [Opentelemetry
-Collector](https://opentelemetry.io/docs/collector/). It is really
-verbose, and your stdoutput will be flooded with logs, so use it
-carefully.
+## Metrics, Prometheus and Graphana
+Bytewax dataflows can expose a webserver with a metrics endpoint that can be parsed by Prometheus.
 
-## Try it
+Run your dataflow with the env var `BYTEWAX_DATAFLOW_API_ENABLED` set to "true":
 
-Let's try to see what `jaeger` can show us about a dataflow. We will
-make bytewax talk to the opentelemetry collector integrated in a jaeger instance. We will use the
-[wikistream.py](https://github.com/bytewax/bytewax/blob/main/examples/wikistream.py)
-example as a reference, since it doesn't require any other setup. You
-will need [docker](https://www.docker.com/) and
-[docker-compose](https://docs.docker.com/compose/) to run this
-example.
-
-Create a folder where you'll keep the dataflow and two more files
-we'll need to run everything.
-
-```shell
-mkdir bytewax-tracing
-cd bytewax-tracing
+```bash
+BYTEWAX_DATAFLOW_API_ENABLED=true python -m bytewax.run dataflow
 ```
 
-Then create a docker compose file to run jaeger with the opentelemetry collector:
+Now you can access the metrics page at `http://localhost:3030/metrics`
+You can use Prometheus to read metrics from that endpoint and make queries on them.
+
+A proper production setup for Prometheus + Graphana stack is out of the scope of this article,
+but we can showcase a local development setup using docker-compose.
+
+You first need to create a minimal configuration for both prometheus and graphana.
+Add a file named `prometheus.yml` with the following content:
+
+```yml
+# prometheus.yml
+global:
+  scrape_interval: 10s
+scrape_configs:
+  - job_name: bytewax
+    honor_timestamps: true
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+    - targets: 
+      - localhost:3030
+```
+
+And a file named `datasource.yml` to preconfigure our prometheus instance to work with graphana:
 
 ```yaml
-# file: docker-compose.yml
-version: "3"
+# datasource.yml
+apiVersion: 1
+
+datasources:
+- name: Prometheus
+  type: prometheus
+  url: http://localhost:9090 
+  isDefault: true
+  access: proxy
+  editable: true
+```
+
+Then run prometheus and graphana with the following `docker-compose.yml`:
+
+```yaml
+# docker-compose.yml
+version: "3.7"
 services:
-  jaeger:
-    image: jaegertracing/all-in-one:latest
+  prometheus:
+    image: prom/prometheus:latest
+    network_mode: "host"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+  grafana:
+    image: grafana/grafana:latest
+    network_mode: "host"
+    volumes:
+      - ./datasource.yml:/etc/grafana/provisioning/datasources/datasource.yaml
     environment:
-      - COLLECTOR_OTLP_ENABLED=true
-    ports:
-      - "16686:16686"
-      - "4317:4317"
-      - "4318:4318"
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=grafana
 ```
 
-Now run `docker compose up` and everything should be up and running.
+Run:
 
-Now we need the dataflow. Download the example in this folder:
-
-```shell
-curl https://raw.githubusercontent.com/bytewax/bytewax/main/examples/wikistream.py \
-  -o dataflow.py
+```bash
+docker compose up
 ```
 
-To instrument your dataflow, call `setup_tracing` from
-`bytewax.tracing` with the config object you want, and keep the
-returned object around (if you don't assign to the `tracer` variable,
-tracing would not work)
-
-```python
-# file: dataflow.py
-from bytewax.tracing import OtlpTracingConfig, setup_tracing
-
-tracer = setup_tracing(
-    tracing_config=OtlpTracingConfig(
-        service_name="Wikistream",
-        url="grpc://127.0.0.1:4317",
-    ),
-    log_level="ERROR",
-)
-#
-# ...rest of the file
-#
-```
-
-Create a virtual environment and install the needed dependencies:
-
-```shell
-python3 -m venv .venv
-source .venv/bin/activate # Or activate.fish on fish shell
-pip install bytewax sseclient-py urllib3 aiohttp_sse_client
-```
-
-Now you can run it with:
-
-```shell
-python -m bytewax.run dataflow
-```
-
-Open your browser at [http://127.0.0.1:16686](http://127.0.0.1:16686)
-and take a look at traces coming into Jaeger's UI.
+Now you can access `http://localhost:9090` and see the metrics for your dataflow in the prometheus
+web UI, or go to `http://localhost:3000` and work with your metrics in the graphana ui.
