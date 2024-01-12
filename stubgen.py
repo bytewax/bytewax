@@ -232,8 +232,9 @@ def _indent_docstring(s: str, by_spaces: int) -> str:
     lines = s.splitlines()
     # Don't indent first line.
     lines[1:] = [prefix + line if line else line for line in lines[1:]]
-    lines.append(prefix)
-    lines.append(prefix)
+    if len(lines) > 1:
+        lines.append("")
+        lines.append(prefix)
     return "\n".join(lines)
 
 
