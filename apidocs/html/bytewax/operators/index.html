@@ -1384,6 +1384,19 @@ def reduce_final(
 
     &#34;&#34;&#34;
 
+    def pre_reducer(mixed_batch: List[Tuple[str, V]]) -&gt; Iterable[Tuple[str, V]]:
+        states = {}
+        for k, v in mixed_batch:
+            try:
+                s = states[k]
+            except KeyError:
+                states[k] = v
+            else:
+                states[k] = reducer(s, v)
+        return states.items()
+
+    pre_up = flat_map_batch(&#34;pre_reduce&#34;, up, pre_reducer)
+
     def shim_folder(s: V, v: V) -&gt; V:
         if s is None:
             s = v
@@ -1392,7 +1405,7 @@ def reduce_final(
 
         return s
 
-    return fold_final(&#34;fold_final&#34;, up, _untyped_none, shim_folder)
+    return fold_final(&#34;fold_final&#34;, pre_up, _untyped_none, shim_folder)
 
 
 @dataclass
@@ -3233,6 +3246,19 @@ def reduce_final(
 
     &#34;&#34;&#34;
 
+    def pre_reducer(mixed_batch: List[Tuple[str, V]]) -&gt; Iterable[Tuple[str, V]]:
+        states = {}
+        for k, v in mixed_batch:
+            try:
+                s = states[k]
+            except KeyError:
+                states[k] = v
+            else:
+                states[k] = reducer(s, v)
+        return states.items()
+
+    pre_up = flat_map_batch(&#34;pre_reduce&#34;, up, pre_reducer)
+
     def shim_folder(s: V, v: V) -&gt; V:
         if s is None:
             s = v
@@ -3241,7 +3267,7 @@ def reduce_final(
 
         return s
 
-    return fold_final(&#34;fold_final&#34;, up, _untyped_none, shim_folder)</code></pre>
+    return fold_final(&#34;fold_final&#34;, pre_up, _untyped_none, shim_folder)</code></pre>
 </details>
 </dd>
 <dt id="bytewax.operators.stateful_map"><code class="language-python name flex">

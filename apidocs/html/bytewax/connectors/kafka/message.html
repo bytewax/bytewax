@@ -14,7 +14,7 @@
 from dataclasses import dataclass, field
 from typing import Generic, List, Optional, Tuple
 
-from ._types import K2, V2, K, V
+from ._types import K2, V2, K, K_co, V, V_co
 
 
 @dataclass(frozen=True)
@@ -87,7 +87,7 @@ class KafkaSourceMessage(Generic[K, V]):
 
 
 @dataclass(frozen=True)
-class KafkaSinkMessage(Generic[K, V]):
+class KafkaSinkMessage(Generic[K_co, V_co]):
     &#34;&#34;&#34;Class that holds a message from kafka with metadata.
 
     Use `KafkaMessage.key` to get the key and `KafkaMessage.value` to get
@@ -96,15 +96,15 @@ class KafkaSinkMessage(Generic[K, V]):
     Other fields: `topic`, `headers`, `partition`, `timestamp`
     &#34;&#34;&#34;
 
-    key: K
-    value: V
+    key: K_co
+    value: V_co
 
     topic: Optional[str] = None
     headers: List[Tuple[str, bytes]] = field(default_factory=list)
     partition: Optional[int] = None
     timestamp: int = 0
 
-    def _with_key(self, key: K2) -&gt; &#34;KafkaSinkMessage[K2, V]&#34;:
+    def _with_key(self, key: K2) -&gt; &#34;KafkaSinkMessage[K2, V_co]&#34;:
         &#34;&#34;&#34;Returns a new instance with the specified key.&#34;&#34;&#34;
         # Can&#39;t use `dataclasses.replace` directly since it requires
         # the fields you change to be the same type.
@@ -117,7 +117,7 @@ class KafkaSinkMessage(Generic[K, V]):
             timestamp=self.timestamp,
         )
 
-    def _with_value(self, value: V2) -&gt; &#34;KafkaSinkMessage[K, V2]&#34;:
+    def _with_value(self, value: V2) -&gt; &#34;KafkaSinkMessage[K_co, V2]&#34;:
         &#34;&#34;&#34;Returns a new instance with the specified value.&#34;&#34;&#34;
         return KafkaSinkMessage(
             key=self.key,
@@ -151,7 +151,7 @@ class KafkaSinkMessage(Generic[K, V]):
 <dl>
 <dt id="bytewax.connectors.kafka.message.KafkaSinkMessage"><code class="language-python flex name class">
 <span>class <span class="ident">KafkaSinkMessage</span></span>
-<span>(</span><span>key: ~K, value: ~V, topic: Optional[str] = None, headers: List[Tuple[str, bytes]] = &lt;factory&gt;, partition: Optional[int] = None, timestamp: int = 0)</span>
+<span>(</span><span>key: +K_co, value: +V_co, topic: Optional[str] = None, headers: List[Tuple[str, bytes]] = &lt;factory&gt;, partition: Optional[int] = None, timestamp: int = 0)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Class that holds a message from kafka with metadata.</p>
@@ -163,7 +163,7 @@ the value.</p>
 <span>Expand source code</span>
 </summary>
 <pre class="language-python line-numbers"><code class="language-python">@dataclass(frozen=True)
-class KafkaSinkMessage(Generic[K, V]):
+class KafkaSinkMessage(Generic[K_co, V_co]):
     &#34;&#34;&#34;Class that holds a message from kafka with metadata.
 
     Use `KafkaMessage.key` to get the key and `KafkaMessage.value` to get
@@ -172,15 +172,15 @@ class KafkaSinkMessage(Generic[K, V]):
     Other fields: `topic`, `headers`, `partition`, `timestamp`
     &#34;&#34;&#34;
 
-    key: K
-    value: V
+    key: K_co
+    value: V_co
 
     topic: Optional[str] = None
     headers: List[Tuple[str, bytes]] = field(default_factory=list)
     partition: Optional[int] = None
     timestamp: int = 0
 
-    def _with_key(self, key: K2) -&gt; &#34;KafkaSinkMessage[K2, V]&#34;:
+    def _with_key(self, key: K2) -&gt; &#34;KafkaSinkMessage[K2, V_co]&#34;:
         &#34;&#34;&#34;Returns a new instance with the specified key.&#34;&#34;&#34;
         # Can&#39;t use `dataclasses.replace` directly since it requires
         # the fields you change to be the same type.
@@ -193,7 +193,7 @@ class KafkaSinkMessage(Generic[K, V]):
             timestamp=self.timestamp,
         )
 
-    def _with_value(self, value: V2) -&gt; &#34;KafkaSinkMessage[K, V2]&#34;:
+    def _with_value(self, value: V2) -&gt; &#34;KafkaSinkMessage[K_co, V2]&#34;:
         &#34;&#34;&#34;Returns a new instance with the specified value.&#34;&#34;&#34;
         return KafkaSinkMessage(
             key=self.key,
@@ -225,7 +225,7 @@ class KafkaSinkMessage(Generic[K, V]):
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="bytewax.connectors.kafka.message.KafkaSinkMessage.key"><code class="language-python name">var <span class="ident">key</span> : ~K</code></dt>
+<dt id="bytewax.connectors.kafka.message.KafkaSinkMessage.key"><code class="language-python name">var <span class="ident">key</span> : +K_co</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -241,7 +241,7 @@ class KafkaSinkMessage(Generic[K, V]):
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="bytewax.connectors.kafka.message.KafkaSinkMessage.value"><code class="language-python name">var <span class="ident">value</span> : ~V</code></dt>
+<dt id="bytewax.connectors.kafka.message.KafkaSinkMessage.value"><code class="language-python name">var <span class="ident">value</span> : +V_co</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>

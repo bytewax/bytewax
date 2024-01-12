@@ -130,39 +130,37 @@ class KafkaSource(FixedPartitionedSource[_KafkaItem, Optional[int]]):
         tail: bool = True,
         starting_offset: int = OFFSET_BEGINNING,
         add_config: Optional[Dict[str, str]] = None,
-        batch_size: int = 1,
+        batch_size: int = 1000,
         raise_on_errors: bool = True,
     ):
         """Init.
 
         Args:
-            brokers:
-                List of `host:port` strings of Kafka brokers.
-            topics:
-                List of topics to consume from.
-            tail:
-                Whether to wait for new data on this topic when the
+            brokers: List of `host:port` strings of Kafka brokers.
+
+            topics: List of topics to consume from.
+
+            tail: Whether to wait for new data on this topic when the
                 end is initially reached.
-            starting_offset:
-                Can be either `confluent_kafka.OFFSET_BEGINNING` or
+
+            starting_offset: Can be either `confluent_kafka.OFFSET_BEGINNING` or
                 `confluent_kafka.OFFSET_END`. Defaults to beginning of
                 topic.
-            add_config:
-                Any additional configuration properties. See [the
+
+            add_config: Any additional configuration properties. See [the
                 `rdkafka`
                 documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
                 for options.
-            batch_size:
-                How many messages to consume at most at each poll.
-                This is 1 by default, which means messages will be
-                consumed one at a time. The default setting is suited
-                for lower latency, but negatively affects
-                throughput. If you need higher throughput, set this to
-                a higher value (eg: 1000)
-            raise_on_errors:
-                If set to False, errors won't stop the dataflow, and the
+
+            batch_size: How many messages to consume at most at each poll.
+                This is 1000 by default. The default setting is a suitable
+                starting point for higher throughput dataflows, but can be
+                tuned lower to potentially decrease individual message
+                processing latency.
+
+            raise_on_errors: If set to False, errors won't stop the dataflow, and the
                 KafkaMessage.error field will be set. It's up to you to
-                properly handle the error later
+                properly handle the error later.
         """
         if isinstance(brokers, str):
             msg = "brokers must be an iterable and not a string"
