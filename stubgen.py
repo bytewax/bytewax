@@ -16,6 +16,7 @@ import ast
 import dataclasses
 import importlib
 import inspect
+import itertools
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from inspect import Parameter, Signature
@@ -27,9 +28,18 @@ from types import (
     MethodType,
     ModuleType,
 )
-from typing import Any, Union
+from typing import List, Tuple, Union
 
-import astor
+import graphlib
+from typing_extensions import Self, TypeVar
+
+try:
+    from ast import unparse
+except ImportError:
+    from astor import to_source as unparse
+
+
+_N = TypeVar("_N")
 
 _INDENT_SPACES = 4
 
@@ -40,27 +50,51 @@ def _is_public(name: str) -> bool:
 
 @dataclass(frozen=True)
 class _Ctx:
-    col_offset: int = 0
+    col_offset: int = -_INDENT_SPACES
 
     def idnt(self):
         return self.col_offset + _INDENT_SPACES
 
-    def new_scope(self):
+    def new_scope(self) -> Self:
         return dataclasses.replace(
             self,
             col_offset=self.col_offset + _INDENT_SPACES,
         )
 
 
+@dataclass(frozen=True)
+class _Meta:
+    qualname: str
+    deps: List[str]
+
+    @classmethod
+    def for_obj(cls, obj: object, deps: List[str]) -> Self:
+        return cls(obj.__qualname__, deps)
+
+
+def _raise_deps(children: List[Tuple[_Meta, _N]]) -> List[str]:
+    return list(itertools.chain.from_iterable(m.deps for m, _ in children))
+
+
+def _sort_children(children: List[Tuple[_Meta, _N]]) -> List[_N]:
+    qualname_to_node = {m.qualname: node for m, node in children}
+    body_order = graphlib.TopologicalSorter(
+        {m.qualname: m.deps for m, _ in children}
+    ).static_order()
+    nodes = [qualname_to_node.get(qualname) for qualname in body_order]
+
+    return [node for node in nodes if node is not None]
+
+
 def _stub_func(
+    ctx: _Ctx,
     f: Union[
         BuiltinFunctionType,
         BuiltinMethodType,
         FunctionType,
         MethodType,
     ],
-    ctx: _Ctx,
-) -> ast.FunctionDef:
+) -> Tuple[_Meta, ast.FunctionDef]:
     sig = inspect.signature(f)
 
     posonly_args = []
@@ -113,7 +147,8 @@ def _stub_func(
         body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.idnt()))]
     body += [ast.Expr(ast.Constant(...))]
 
-    return ast.FunctionDef(
+    meta = _Meta.for_obj(f, [])
+    node = ast.FunctionDef(
         name=f.__name__,
         args=args,
         body=body,
@@ -125,27 +160,36 @@ def _stub_func(
         type_params=[],
     )
 
+    return (meta, node)
 
-def _stub_cls(cls: type, ctx: _Ctx) -> ast.ClassDef:
+
+def _stub_cls(ctx: _Ctx, cls: type) -> Tuple[_Meta, ast.ClassDef]:
+    deps = []
     bases = []
     for base in cls.__bases__:
         if base is not object:
-            bases.append(ast.Name(base.__name__))
+            bases.append(ast.Name(base.__qualname__))
+            deps.append(base.__module__ + base.__qualname__)
 
     body = []
     docstring = inspect.getdoc(cls)
     if docstring:
         body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.idnt()))]
     body += [ast.Expr(ast.Constant(...))]
-    body += [
-        _stub_obj(n, obj, ctx.new_scope())
+
+    children = [
+        _stub_obj(ctx.new_scope(), obj)
         for n, obj
-        # Stubs for inherited items will come through the base class.
+        # Do not list out inherited items.
         in cls.__dict__.items()
         if _is_public(n)
     ]
 
-    return ast.ClassDef(
+    deps += _raise_deps(children)
+    body += _sort_children(children)
+
+    meta = _Meta.for_obj(cls, deps)
+    node = ast.ClassDef(
         name=cls.__name__,
         bases=bases,
         keywords=[],
@@ -154,8 +198,12 @@ def _stub_cls(cls: type, ctx: _Ctx) -> ast.ClassDef:
         type_params=[],
     )
 
+    return (meta, node)
 
-def _stub_getsetdescriptor(gsd: GetSetDescriptorType, ctx: _Ctx) -> ast.FunctionDef:
+
+def _stub_getsetdescriptor(
+    ctx: _Ctx, gsd: GetSetDescriptorType
+) -> Tuple[_Meta, ast.FunctionDef]:
     args = ast.arguments(
         posonlyargs=[],
         args=[ast.arg("self")],
@@ -172,7 +220,8 @@ def _stub_getsetdescriptor(gsd: GetSetDescriptorType, ctx: _Ctx) -> ast.Function
         body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.idnt()))]
     body += [ast.Expr(ast.Constant(...))]
 
-    return ast.FunctionDef(
+    meta = _Meta.for_obj(gsd, [])
+    node = ast.FunctionDef(
         name=gsd.__name__,
         args=args,
         body=body,
@@ -182,8 +231,10 @@ def _stub_getsetdescriptor(gsd: GetSetDescriptorType, ctx: _Ctx) -> ast.Function
         type_params=[],
     )
 
+    return (meta, node)
 
-def _stub_obj(n: str, obj: Any, ctx: _Ctx) -> ast.AST:
+
+def _stub_obj(ctx: _Ctx, obj: object) -> Tuple[_Meta, ast.AST]:
     if (
         inspect.isfunction(obj)
         or
@@ -193,18 +244,20 @@ def _stub_obj(n: str, obj: Any, ctx: _Ctx) -> ast.AST:
         # Supports class methods.
         inspect.ismethod(obj)
     ):
-        return _stub_func(obj, ctx)
+        return _stub_func(ctx, obj)
     elif inspect.isclass(obj):
-        return _stub_cls(obj, ctx)
+        return _stub_cls(ctx, obj)
     # PyO3 `#[pyo3(get)]` produces these native "properties".
     elif inspect.isgetsetdescriptor(obj):
-        return _stub_getsetdescriptor(obj, ctx)
+        return _stub_getsetdescriptor(ctx, obj)
     else:
-        msg = f"unknown type in module: {n} is {type(obj)!r}"
+        msg = f"unknown type in module: {type(obj)!r}"
         raise TypeError(msg)
 
 
-def _stub_mod(mod: ModuleType, ctx: _Ctx) -> ast.Module:
+def _stub_mod(mod: ModuleType) -> ast.Module:
+    ctx = _Ctx()
+
     body = []
     docstring = inspect.getdoc(mod)
     if docstring:
@@ -213,10 +266,12 @@ def _stub_mod(mod: ModuleType, ctx: _Ctx) -> ast.Module:
     try:
         a = mod.__all__
     except NameError:
-        a = filter(_is_public, dir(mod))
+        a = list(filter(_is_public, dir(mod)))
 
-    ls = [(n, obj) for n, obj in inspect.getmembers(mod) if n in a]
-    body += [_stub_obj(n, obj, ctx) for n, obj in ls]
+    children = [
+        _stub_obj(ctx.new_scope(), obj) for n, obj in inspect.getmembers(mod) if n in a
+    ]
+    body += _sort_children(children)
 
     # TODO: Handle imports if classes have superclasses that are
     # imported or functions have type hints that are imported.
@@ -256,15 +311,12 @@ def _main():
 
     mod = importlib.import_module(args.module)
 
-    ctx = _Ctx()
-    stub_mod_ast = _stub_mod(mod, ctx)
+    stub_mod_ast = _stub_mod(mod)
     ast.fix_missing_locations(stub_mod_ast)
     _DocstringReIndenter().visit(stub_mod_ast)
 
     stub_src = f"# Programmatically generated stubs for `{args.module}`.\n\n"
-    # If we drop support for 3.8, can use `ast.unparse` and not need
-    # the `astor` dep.
-    stub_src += astor.to_source(stub_mod_ast)
+    stub_src += unparse(stub_mod_ast)
 
     if args.output != "-":
         with open(args.output, "wt") as out:
