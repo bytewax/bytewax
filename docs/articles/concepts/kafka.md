@@ -38,18 +38,21 @@ processed = op.map("map", kinp.oks, lambda x: KafkaSinkMessage(x.key, x.value))
 kop.output("kafka-out", processed, brokers=brokers, topic="out-topic")
 ```
 
-Typical use cases should prefer the Kafka input operator, while the `KafkaSource` connector
+Typical use cases should prefer the Kafka operators, while the `KafkaSource` connector
 can be used for other customizations.
 
 ## Error handling
 
-The [`KafkaSource`](/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSource) input
-source will raise an exception whenever an error is encountered when consuming from Kafka.
+By default, the [`KafkaSource`](/apidocs/bytewax.connectors/kafka/index#bytewax.connectors.kafka.KafkaSource)
+input source will raise an exception whenever an error is encountered when consuming from Kafka. This
+behavior can be configured with the `raise_on_errors` parameter, which will yield [`KafkaError`](
+/apidocs/bytewax.connectors/kafka/error#bytewax.connectors.kafka.message.KafkaError) messages.
+Those errors can be handled downstream individually.
 
 The Kafka input [operator](/apidocs/bytewax.connectors/kafka/operators#bytewax.connectors.kafka.operators.input)
 returns a dataclass containing two output streams. The `.oks` field is a stream of
 [`KafkaMessage`](/apidocs/bytewax.connectors/kafka/message#bytewax.connectors.kafka.message.KafkaSourceMessage)
-that were successfully processed. The `.errs` field is a stream of [`KafkaError`](/apidocs/bytewax.connectors/kafka/error#bytewax.connectors.kafka.message.KafkaError)
+that were successfully processed. The `.errs` field is a stream of `KafkaError`
 messages where an error was encountered. Items that encountered an error have their `.err` field set with more
 details about the error.
 
@@ -63,8 +66,9 @@ op.inspect("inspect_err", kinp.errs).then(op.raises, "raise_errors")
 Note that if no processing is attached to the `.errs` stream of messages, they will be silently
 dropped, and processing will continue.
 
-Alternatively, error messages in the `.errs` stream can be published to a "dead letter queue" where they
-can be inspected and reprocessed later, while allowing the dataflow to continue processing data.
+Alternatively, error messages in the `.errs` stream can be published to a "dead letter queue", a
+separate Kafka topic where they can be inspected and reprocessed later, while allowing the
+dataflow to continue processing data.
 
 ## Batch sizes
 

@@ -160,7 +160,7 @@ class KafkaSource(FixedPartitionedSource[_KafkaItem, Optional[int]]):
 
             raise_on_errors: If set to False, errors won't stop the dataflow, and the
                 KafkaMessage.error field will be set. It's up to you to
-                properly handle the error later
+                properly handle the error later.
         """
         if isinstance(brokers, str):
             msg = "brokers must be an iterable and not a string"
