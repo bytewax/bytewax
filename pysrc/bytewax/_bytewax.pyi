@@ -35,18 +35,20 @@ class RecoveryConfig:
     """Configuration settings for recovery.
 
     Args:
-      db_dir (Path): Local filesystem directory to search for recovery
-          database partitions.
+      db_dir (pathlib.Path): Local filesystem directory to search for
+        recovery database partitions.
 
-      backup_interval (datetime.duration): Amount of system time to
-          wait to permanently delete a state snapshot after it is no
-          longer needed. You should set this to the interval at which
-          you are backing up the recovery partitions off of the
-          workers into archival storage (e.g. S3). Defaults to zero
-          duration.
+      backup_interval (typing.Optional[datetime.duration]): Amount of
+        system time to wait to permanently delete a state snapshot after
+        it is no longer needed. You should set this to the interval at
+        which you are backing up the recovery partitions off of the
+        workers into archival storage (e.g. S3). Defaults to zero
+        duration.
 
-      snapshot_serde (SnapshotSerde): Serialization to use when
-          encoding state snapshot objects in the recovery partitions.
+      snapshot_serde (typing.Optional[bytewax.serde.Serde]):
+        Serialization to use when encoding state snapshot objects in the
+        recovery partitions. Defaults to
+        `bytewax.serde.JsonPickleSerde`.
 
     """
 
@@ -89,6 +91,11 @@ class WindowMetadata:
     ...
 
     @property
+    def open_time(self):
+        """The time that the window starts."""
+        ...
+
+    @property
     def close_time(self):
         """The time that the window closes.
 
@@ -96,11 +103,6 @@ class WindowMetadata:
         change as new data is received.
 
         """
-        ...
-
-    @property
-    def open_time(self):
-        """The time that the window starts."""
         ...
 
 def cli_main(
@@ -142,21 +144,21 @@ def cluster_main(
     2
 
     Args:
-      flow (Dataflow): Dataflow to run.
+      flow (bytewax.dataflow.Dataflow): Dataflow to run.
 
-      addresses (List[str]): List of host/port addresses for all
-        processes in this cluster (including this one).
+      addresses (typing.List[str]): List of host/port addresses for
+        all processes in this cluster (including this one).
 
-      proc_id(int): Index of this process in cluster; starts from 0.
+      proc_id (int): Index of this process in cluster; starts from 0.
 
-      epoch_interval (datetime.timedelta): System time length of each
-        epoch. Defaults to 10 seconds.
+      epoch_interval (typing.Optional[datetime.timedelta]): System
+        time length of each epoch. Defaults to 10 seconds.
 
-      recovery_config (bytewax.recovery.RecoveryConfig): State
-        recovery config. If `None`, state will not be persisted.
+      recovery_config (typing.Optional[bytewax.recovery.RecoveryConfig]):
+        State recovery config. If `None`, state will not be persisted.
 
       worker_count_per_proc (int): Number of worker threads to start
-        on each process.
+        on each process. Defaults to `1`.
 
     """
     ...
@@ -191,13 +193,13 @@ def run_main(flow, *, epoch_interval=None, recovery_config=None):
     2
 
     Args:
-      flow (Dataflow): Dataflow to run.
+      flow (bytewax.dataflow.Dataflow): Dataflow to run.
 
-      epoch_interval (datetime.timedelta): System time length of each
-        epoch. Defaults to 10 seconds.
+      epoch_interval (typing.Optional[datetime.timedelta]): System
+        time length of each epoch. Defaults to 10 seconds.
 
-      recovery_config (bytewax.recovery.RecoveryConfig): State
-        recovery config. If `None`, state will not be persisted.
+      recovery_config (typing.Optional[bytewax.recovery.RecoveryConfig]):
+        State recovery config. If `None`, state will not be persisted.
 
     """
     ...
@@ -259,10 +261,9 @@ class EventClockConfig(ClockConfig):
     If the dataflow has no more input, all windows are closed.
 
     Args:
-      dt_getter (Callable): Returns the timestamp for an item. The
-        `datetime` returned must have tzinfo set to `timezone.utc`.
-        E.g.
-      `datetime(1970, 1, 1, tzinfo=timezone.utc)`
+      dt_getter (typing.Callable): Returns the timestamp for an item.
+        The `datetime` returned must have tzinfo set to `timezone.utc`.
+        E.g. `datetime(1970, 1, 1, tzinfo=timezone.utc)`
 
       wait_for_system_duration (datetime.timedelta): How much system
         time to wait before considering an event late.
@@ -276,9 +277,9 @@ class EventClockConfig(ClockConfig):
     ...
 
     @property
-    def dt_getter(self): ...
-    @property
     def wait_for_system_duration(self): ...
+    @property
+    def dt_getter(self): ...
 
 class SystemClockConfig(ClockConfig):
     """Use the current system time as the timestamp for each item.
@@ -323,8 +324,8 @@ class JaegerConfig(TracingConfig):
     Args:
       service_name (str): Identifies this dataflow in Jaeger.
 
-      endpoint (Optional[str]): Connection info. Takes precidence over
-        env vars. Defaults to `"127.0.0.1:6831"`.
+      endpoint (typing.Optional[str]): Connection info. Takes
+        precidence over env vars. Defaults to `"127.0.0.1:6831"`.
 
       sampling_ratio (float): Fraction of traces to send between `0.0`
         and `1.0`.
@@ -334,11 +335,11 @@ class JaegerConfig(TracingConfig):
     ...
 
     @property
-    def endpoint(self): ...
+    def sampling_ratio(self): ...
     @property
     def service_name(self): ...
     @property
-    def sampling_ratio(self): ...
+    def endpoint(self): ...
 
 class OtlpTracingConfig(TracingConfig):
     """Send traces to the OpenTelemetry collector.
@@ -355,7 +356,7 @@ class OtlpTracingConfig(TracingConfig):
     Args:
       service_name (str): Identifies this dataflow in Otlp.
 
-      endpoint (Optional[str]): Connection info. Defaults to
+      url (typing.Optional[str]): Connection info. Defaults to
         `"grpc:://127.0.0.1:4317"`.
 
       sampling_ratio (float): Fraction of traces to send between `0.0`
@@ -366,11 +367,11 @@ class OtlpTracingConfig(TracingConfig):
     ...
 
     @property
+    def url(self): ...
+    @property
     def sampling_ratio(self): ...
     @property
     def service_name(self): ...
-    @property
-    def url(self): ...
 
 class MissingPartitionsError(FileNotFoundError):
     """Raised when an incomplete set of recovery partitions is detected."""
@@ -443,9 +444,9 @@ class SlidingWindow(WindowConfig):
     ...
 
     @property
-    def length(self): ...
-    @property
     def align_to(self): ...
+    @property
+    def length(self): ...
     @property
     def offset(self): ...
 
@@ -472,6 +473,6 @@ class TumblingWindow(WindowConfig):
     ...
 
     @property
-    def align_to(self): ...
-    @property
     def length(self): ...
+    @property
+    def align_to(self): ...
