@@ -9,6 +9,12 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## v0.18.1
+
+- Changes the default batch size for `KafkaSource` from 1 to 1000 to match
+  the Kafka input operator.
+- Fixes an issue with the `count_window` operator: https://github.com/bytewax/bytewax/issues/364.
+
 ## v0.18.0
 
 - Support for schema registries, through `bytewax.connectors.kafka.registry.RedpandaSchemaRegistry` and `bytewax.connectors.kafka.registry.ConfluentSchemaRegistry`.

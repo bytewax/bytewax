@@ -205,8 +205,15 @@ def count_window(
         A stream of `(key, count)` per window at the end of each window.
 
     &#34;&#34;&#34;
-    init_count: KeyedStream[int] = op.map(&#34;init_count&#34;, up, lambda x: (key(x), 1))
-    return reduce_window(&#34;sum&#34;, init_count, clock, windower, lambda s, x: s + x)
+
+    def _shim_builder() -&gt; int:
+        return 0
+
+    def _shim_folder(count: int, _item: X) -&gt; int:
+        return count + 1
+
+    keyed: KeyedStream[int] = op.key_on(&#34;extract_key&#34;, up, key)
+    return fold_window(&#34;sum&#34;, keyed, clock, windower, _shim_builder, _shim_folder)
 
 
 @operator(_core=True)
@@ -667,8 +674,15 @@ def count_window(
         A stream of `(key, count)` per window at the end of each window.
 
     &#34;&#34;&#34;
-    init_count: KeyedStream[int] = op.map(&#34;init_count&#34;, up, lambda x: (key(x), 1))
-    return reduce_window(&#34;sum&#34;, init_count, clock, windower, lambda s, x: s + x)</code></pre>
+
+    def _shim_builder() -&gt; int:
+        return 0
+
+    def _shim_folder(count: int, _item: X) -&gt; int:
+        return count + 1
+
+    keyed: KeyedStream[int] = op.key_on(&#34;extract_key&#34;, up, key)
+    return fold_window(&#34;sum&#34;, keyed, clock, windower, _shim_builder, _shim_folder)</code></pre>
 </details>
 </dd>
 <dt id="bytewax.operators.window.fold_window"><code class="language-python name flex">

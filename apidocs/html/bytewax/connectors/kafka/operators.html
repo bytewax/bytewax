@@ -166,6 +166,8 @@ def output(
     epoch will be duplicated right after resume.
 
     Args:
+        step_id: Unique name for this step
+
         up: A stream of `KafkaSourceMessage | KafkaSinkMessage`
 
         brokers: List of `host:port` strings of Kafka brokers.
@@ -610,6 +612,8 @@ Default partition routing is used.</p>
 epoch will be duplicated right after resume.</p>
 <h2 id="args">Args</h2>
 <dl>
+<dt><strong><code>step_id</code></strong></dt>
+<dd>Unique name for this step</dd>
 <dt><strong><code>up</code></strong></dt>
 <dd>A stream of <code>KafkaSourceMessage | KafkaSinkMessage</code></dd>
 <dt><strong><code>brokers</code></strong></dt>
@@ -651,6 +655,8 @@ def output(
     epoch will be duplicated right after resume.
 
     Args:
+        step_id: Unique name for this step
+
         up: A stream of `KafkaSourceMessage | KafkaSinkMessage`
 
         brokers: List of `host:port` strings of Kafka brokers.
