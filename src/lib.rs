@@ -19,6 +19,10 @@ pub(crate) mod worker;
 #[macro_use]
 pub(crate) mod macros;
 
+/// Internal Bytewax symbols from Rust.
+///
+/// These are re-imported elsewhere in the public `bytewax` module for
+/// use.
 #[pymodule]
 #[pyo3(name = "_bytewax")]
 fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {

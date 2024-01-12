@@ -1,5 +1,5 @@
 """Logging and tracing configuration."""
-from bytewax._bytewax import (  # type: ignore[import]
+from bytewax._bytewax import (
     JaegerConfig,
     OtlpTracingConfig,
     TracingConfig,

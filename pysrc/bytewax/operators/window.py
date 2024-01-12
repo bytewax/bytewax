@@ -15,7 +15,7 @@ from typing import (
 )
 
 import bytewax.operators as op
-from bytewax._bytewax import (  # type: ignore[import]
+from bytewax._bytewax import (
     ClockConfig,
     EventClockConfig,
     SessionWindow,

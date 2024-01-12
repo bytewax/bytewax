@@ -22,13 +22,13 @@ use super::*;
 /// If the dataflow has no more input, all windows are closed.
 ///
 /// Args:
-///   dt_getter:
-///     Python function to get a datetime from an event. The datetime
-///     returned must have tzinfo set to
-///     `timezone.utc`. E.g. `datetime(1970, 1, 1,
-///     tzinfo=timezone.utc)`
-///   wait_for_system_duration:
-///     How much system time to wait before considering an event late.
+///   dt_getter (Callable): Returns the timestamp for an item. The
+///     `datetime` returned must have tzinfo set to `timezone.utc`.
+///     E.g.
+///   `datetime(1970, 1, 1, tzinfo=timezone.utc)`
+///
+///   wait_for_system_duration (datetime.timedelta): How much system
+///     time to wait before considering an event late.
 ///
 /// Returns:
 ///   Config object. Pass this as the `clock_config` parameter to

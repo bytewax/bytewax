@@ -18,7 +18,7 @@ import sys
 from datetime import timedelta
 from pathlib import Path
 
-from bytewax._bytewax import cli_main  # type: ignore[import]
+from bytewax._bytewax import cli_main
 from bytewax.recovery import RecoveryConfig
 
 __all__ = [

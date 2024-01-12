@@ -16,14 +16,15 @@ use super::WindowMetadata;
 use super::Windower;
 
 /// Session windowing with a fixed inactivity gap.
-/// Each time a new item is received, it is added to the latest
-/// window if the time since the latest event is < gap.
-/// Otherwise a new window is created that starts at current clock's time.
 ///
-///  Args:
-///    gap (datetime.timedelta):
-///      Gap of inactivity before considering a session closed. The
-///      gap should not be negative.
+/// Each time a new item is received, it is added to the latest window
+/// if the time since the latest event is < `gap`. Otherwise a new
+/// window is created that starts at current clock's time.
+///
+/// Args:
+///   gap (datetime.timedelta):
+///     Gap of inactivity before considering a session closed. The gap
+///     should not be negative.
 ///
 /// Returns:
 ///   Config object. Pass this as the `window_config` parameter to

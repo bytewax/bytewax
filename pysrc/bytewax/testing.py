@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from itertools import islice
 from typing import Any, Iterable, Iterator, List, Optional, TypeVar, Union
 
-from bytewax._bytewax import (  # type: ignore[import]
+from bytewax._bytewax import (
     cluster_main,
     run_main,
     test_cluster,

@@ -159,25 +159,17 @@ impl IntoPy<PyObject> for WindowKey {
     }
 }
 
-/// Metadata object for a window.
-///
-///  Args:
-///    key (WindowKey):
-///      Internal window ID
-///    open_time (datetime.datetime)
-///      The time that the window starts.
-///    close_time (datetime.datetime)
-///      The time that the window closes. For some window
-///      types(SessionWindow), this value can change as new
-///      data is received.
-///
-/// Returns:
-///   WindowMetadata object
+/// Contains information about a window.
 #[pyclass(module = "bytewax.window")]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct WindowMetadata {
+    /// The time that the window starts.
     #[pyo3(get)]
     pub(crate) open_time: DateTime<Utc>,
+    /// The time that the window closes.
+    ///
+    /// For some window types like `SessionWindow`, this value can
+    /// change as new data is received.
     #[pyo3(get)]
     pub(crate) close_time: DateTime<Utc>,
 }

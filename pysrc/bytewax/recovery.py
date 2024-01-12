@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from bytewax._bytewax import (  # type: ignore[import]
+from bytewax._bytewax import (
     InconsistentPartitionsError,
     MissingPartitionsError,
     NoPartitionsError,
