@@ -18,8 +18,8 @@ use super::TracingConfig;
 /// Args:
 ///   service_name (str): Identifies this dataflow in Jaeger.
 ///
-///   endpoint (Optional[str]): Connection info. Takes precidence over
-///     env vars. Defaults to `"127.0.0.1:6831"`.
+///   endpoint (typing.Optional[str]): Connection info. Takes
+///     precidence over env vars. Defaults to `"127.0.0.1:6831"`.
 ///
 ///   sampling_ratio (float): Fraction of traces to send between `0.0`
 ///     and `1.0`.

@@ -27,7 +27,7 @@ use super::TracingConfig;
 /// Args:
 ///   service_name (str): Identifies this dataflow in Otlp.
 ///
-///   endpoint (Optional[str]): Connection info. Defaults to
+///   url (typing.Optional[str]): Connection info. Defaults to
 ///     `"grpc:://127.0.0.1:4317"`.
 ///
 ///   sampling_ratio (float): Fraction of traces to send between `0.0`

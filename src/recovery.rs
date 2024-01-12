@@ -254,18 +254,20 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<String>);
 /// Configuration settings for recovery.
 ///
 /// Args:
-///   db_dir (Path): Local filesystem directory to search for recovery
-///       database partitions.
+///   db_dir (pathlib.Path): Local filesystem directory to search for
+///     recovery database partitions.
 ///
-///   backup_interval (datetime.duration): Amount of system time to
-///       wait to permanently delete a state snapshot after it is no
-///       longer needed. You should set this to the interval at which
-///       you are backing up the recovery partitions off of the
-///       workers into archival storage (e.g. S3). Defaults to zero
-///       duration.
+///   backup_interval (typing.Optional[datetime.duration]): Amount of
+///     system time to wait to permanently delete a state snapshot after
+///     it is no longer needed. You should set this to the interval at
+///     which you are backing up the recovery partitions off of the
+///     workers into archival storage (e.g. S3). Defaults to zero
+///     duration.
 ///
-///   snapshot_serde (SnapshotSerde): Serialization to use when
-///       encoding state snapshot objects in the recovery partitions.
+///   snapshot_serde (typing.Optional[bytewax.serde.Serde]):
+///     Serialization to use when encoding state snapshot objects in the
+///     recovery partitions. Defaults to
+///     `bytewax.serde.JsonPickleSerde`.
 #[pyclass(module = "bytewax.recovery")]
 pub(crate) struct RecoveryConfig {
     #[pyo3(get)]
