@@ -42,6 +42,7 @@ docs = [
 ]
 dev = [
     "bytewax[cbfmt,docs,kafka,test]",
+    "astor==0.8.1",
     "pre-commit==2.19.0",
     "ruff==0.1.8",
     "vermin==1.5.2",
