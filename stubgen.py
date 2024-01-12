@@ -30,11 +30,11 @@ from types import (
 )
 from typing import List, Tuple, Union
 
-import graphlib
+import graphlib  # novermin
 from typing_extensions import Self, TypeVar
 
 try:
-    from ast import unparse
+    from ast import unparse  # novermin
 except ImportError:
     from astor import to_source as unparse
 
