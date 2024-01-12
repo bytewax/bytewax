@@ -15,8 +15,7 @@ carefully.
 ## Try it
 
 Let's try to see what `jaeger` can show us about a dataflow. We will
-make bytewax talk to the opentelemetry collector, and let the
-collector send everything to a jaeger instance. We will use the
+make bytewax talk to the opentelemetry collector integrated in a jaeger instance. We will use the
 [wikistream.py](https://github.com/bytewax/bytewax/blob/main/examples/wikistream.py)
 example as a reference, since it doesn't require any other setup. You
 will need [docker](https://www.docker.com/) and
@@ -31,33 +30,7 @@ mkdir bytewax-tracing
 cd bytewax-tracing
 ```
 
-Now create a configuration file for the collector, telling it to
-receive traces from grpc and send them to jaeger, with the following
-content:
-
-```yaml
-# file: otel-collector-config.yml
-receivers:
-  otlp:
-    protocols:
-      grpc:
-
-exporters:
-  jaeger:
-    endpoint: jaeger:14250
-    tls:
-      insecure: true
-
-service:
-  pipelines:
-    traces:
-      receivers: [otlp]
-      processors: []
-      exporters: [jaeger]
-```
-
-Then create a docker compose file to run both jaeger and the
-collector, mounting the config we just wrote:
+Then create a docker compose file to run jaeger with the opentelemetry collector:
 
 ```yaml
 # file: docker-compose.yml
@@ -65,21 +38,12 @@ version: "3"
 services:
   jaeger:
     image: jaegertracing/all-in-one:latest
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
     ports:
       - "16686:16686"
-      - "14250"
-
-  otel-collector:
-    image: otel/opentelemetry-collector:latest
-    command: ["--config=/etc/otel-collector-config.yml"]
-    volumes:
-      - type: "bind"
-        source: ./otel-collector-config.yml
-        target: /etc/otel-collector-config.yml
-    ports:
       - "4317:4317"
-    depends_on:
-      - jaeger
+      - "4318:4318"
 ```
 
 Now run `docker compose up` and everything should be up and running.
@@ -117,7 +81,7 @@ Create a virtual environment and install the needed dependencies:
 ```shell
 python3 -m venv .venv
 source .venv/bin/activate # Or activate.fish on fish shell
-pip install bytewax sseclient-py urllib3
+pip install bytewax sseclient-py urllib3 aiohttp_sse_client
 ```
 
 Now you can run it with:
