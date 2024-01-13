@@ -29,7 +29,7 @@ from types import (
     MethodType,
     ModuleType,
 )
-from typing import List, Tuple, Union
+from typing import List, Mapping, Optional, Tuple, Union
 
 import graphlib  # novermin
 from typing_extensions import Self, TypeVar
@@ -81,18 +81,7 @@ def _sort_children(children: List[Tuple[_Meta, _N]]) -> List[_N]:
     return [node for node in nodes if node is not None]
 
 
-def _stub_func(
-    ctx: _Ctx,
-    f: Union[
-        BuiltinFunctionType,
-        BuiltinMethodType,
-        FunctionType,
-        MethodDescriptorType,
-        MethodType,
-    ],
-) -> Tuple[_Meta, ast.FunctionDef]:
-    sig = inspect.signature(f)
-
+def _stub_args(params: Mapping[str, Parameter]) -> ast.arguments:
     posonly_args = []
     args = []
     defaults = []
@@ -100,7 +89,7 @@ def _stub_func(
     kwonly_defaults = []
     vararg = None
     kwarg = None
-    for pname, param in sig.parameters.items():
+    for pname, param in params.items():
         if param.kind == Parameter.POSITIONAL_ONLY:
             posonly_args.append(ast.arg(arg=pname))
             if param.default is not Parameter.empty:
@@ -127,7 +116,7 @@ def _stub_func(
         else:
             raise ValueError()
 
-    args = ast.arguments(
+    return ast.arguments(
         posonly_args,
         args,
         vararg,
@@ -136,6 +125,19 @@ def _stub_func(
         kwarg,
         defaults,
     )
+
+
+def _stub_func(
+    ctx: _Ctx,
+    f: Union[
+        BuiltinFunctionType,
+        BuiltinMethodType,
+        FunctionType,
+        MethodDescriptorType,
+        MethodType,
+    ],
+) -> Tuple[_Meta, ast.FunctionDef]:
+    sig = inspect.signature(f)
 
     body = []
     docstring = inspect.getdoc(f)
@@ -146,7 +148,7 @@ def _stub_func(
     meta = _Meta(ctx.path, [])
     node = ast.FunctionDef(
         name=ctx.name(),
-        args=args,
+        args=_stub_args(sig.parameters),
         body=body,
         decorator_list=[],
         returns=sig.return_annotation
@@ -159,8 +161,47 @@ def _stub_func(
     return (meta, node)
 
 
+def _stub_new(
+    ctx: _Ctx,
+    cls: type,
+) -> Optional[Tuple[_Meta, ast.FunctionDef]]:
+    try:
+        sig = inspect.signature(cls)
+    except ValueError:
+        # There is no way to instantiate this class from Python.
+        sig = None
+
+    if sig is not None:
+        params = list(sig.parameters.items())
+        params.insert(
+            0, ("cls", Parameter(name="cls", kind=Parameter.POSITIONAL_OR_KEYWORD))
+        )
+        params = dict(params)
+
+        body = [ast.Expr(ast.Constant(...))]
+
+        meta = _Meta(ctx.path, [])
+        node = ast.FunctionDef(
+            name=ctx.name(),
+            args=_stub_args(params),
+            body=body,
+            decorator_list=[],
+            returns=ast.Name(cls.__name__),
+            type_comment=None,
+            type_params=[],
+        )
+
+        return (meta, node)
+    else:
+        return None
+
+
 CLS_IGNORE = [
     "__doc__",
+    # Special override below. PyO3 doesn't properly add docstrings or
+    # `__text_signature__` to `__new__` but does add the correct
+    # signature to the class, so use that.
+    "__new__",
     "__module__",
     "__weakref__",
 ]
@@ -180,7 +221,12 @@ def _stub_cls(ctx: _Ctx, cls: type) -> Tuple[_Meta, ast.ClassDef]:
         body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.col_offset))]
     body += [ast.Expr(ast.Constant(...))]
 
-    children = [
+    children = []
+    if "__new__" in cls.__dict__:
+        new = _stub_new(ctx.new_scope("__new__"), cls)
+        if new is not None:
+            children = [new]
+    children += [
         _stub_obj(ctx.new_scope(n), obj)
         for n, obj
         # Do not list out inherited items.
