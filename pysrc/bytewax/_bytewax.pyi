@@ -7,28 +7,15 @@ use.
 
 """
 
-class BytewaxTracer:
-    """Utility class used to handle tracing.
+def init_db_dir(db_dir, count):
+    """Create and init a set of empty recovery partitions.
 
-    It keeps a tokio runtime that is alive as long as the struct itself.
+    Args:
+      db_dir (path.Path): Local directory to create partitions in.
 
-    This should only be built via `setup_tracing`.
-
-    """
-
-    ...
-
-class ClockConfig:
-    """Base class for a clock config.
-
-    This describes how a windowing operator should determine the
-    current time and the time for each element.
-
-    Use a specific subclass of this that matches the time definition
-    you'd like to use.
+      count (int): Number of partitions to create.
 
     """
-
     ...
 
 class RecoveryConfig:
@@ -54,66 +41,46 @@ class RecoveryConfig:
 
     ...
 
-    @property
-    def backup_interval(self): ...
+    def __new__(
+        cls, db_dir, backup_interval=None, snapshot_serde=None
+    ) -> RecoveryConfig: ...
     @property
     def snapshot_serde(self): ...
     @property
     def db_dir(self): ...
+    @property
+    def backup_interval(self): ...
 
-class TracingConfig:
-    """Base class for tracing/logging configuration.
+def run_main(flow, *, epoch_interval=None, recovery_config=None):
+    """Execute a dataflow in the current thread.
 
-    There defines what to do with traces and logs emitted by Bytewax.
+    Blocks until execution is complete.
 
-    Use a specific subclass of this to configure where you want the
-    traces to go.
+    This is only used for unit testing. See `bytewax.run`.
+
+    >>> from bytewax.dataflow import Dataflow
+    >>> from bytewax.testing import TestingInput, run_main
+    >>> from bytewax.connectors.stdio import StdOutput
+    >>> flow = Dataflow("my_df")
+    >>> flow.input("inp", TestingInput(range(3)))
+    >>> flow.capture(StdOutput())
+    >>> run_main(flow)
+    0
+    1
+    2
+
+    Args:
+      flow (bytewax.dataflow.Dataflow): Dataflow to run.
+
+      epoch_interval (typing.Optional[datetime.timedelta]): System
+        time length of each epoch. Defaults to 10 seconds.
+
+      recovery_config (typing.Optional[bytewax.recovery.RecoveryConfig]):
+        State recovery config. If `None`, state will not be persisted.
 
     """
-
     ...
 
-class WindowConfig:
-    """Base class for a windower config.
-
-    This describes the type of windows you would like.
-
-    Use a specific subclass of this that matches the window definition
-    you'd like to use.
-
-    """
-
-    ...
-
-class WindowMetadata:
-    """Contains information about a window."""
-
-    ...
-
-    @property
-    def open_time(self):
-        """The time that the window starts."""
-        ...
-
-    @property
-    def close_time(self):
-        """The time that the window closes.
-
-        For some window types like `SessionWindow`, this value can
-        change as new data is received.
-
-        """
-        ...
-
-def cli_main(
-    flow,
-    *,
-    workers_per_process=1,
-    process_id=None,
-    addresses=None,
-    epoch_interval=None,
-    recovery_config=None,
-): ...
 def cluster_main(
     flow,
     addresses,
@@ -163,45 +130,55 @@ def cluster_main(
     """
     ...
 
-def init_db_dir(db_dir, count):
-    """Create and init a set of empty recovery partitions.
+def cli_main(
+    flow,
+    *,
+    workers_per_process=1,
+    process_id=None,
+    addresses=None,
+    epoch_interval=None,
+    recovery_config=None,
+): ...
+def test_cluster(
+    flow,
+    *,
+    epoch_interval=None,
+    recovery_config=None,
+    processes=1,
+    workers_per_process=1,
+):
+    """Execute a Dataflow by spawning multiple Python processes.
 
-    Args:
-      db_dir (path.Path): Local directory to create partitions in.
+    Blocks until execution is complete.
 
-      count (int): Number of partitions to create.
+    This function should only be used for testing purposes.
 
     """
     ...
 
-def run_main(flow, *, epoch_interval=None, recovery_config=None):
-    """Execute a dataflow in the current thread.
+class TracingConfig:
+    """Base class for tracing/logging configuration.
 
-    Blocks until execution is complete.
+    There defines what to do with traces and logs emitted by Bytewax.
 
-    This is only used for unit testing. See `bytewax.run`.
-
-    >>> from bytewax.dataflow import Dataflow
-    >>> from bytewax.testing import TestingInput, run_main
-    >>> from bytewax.connectors.stdio import StdOutput
-    >>> flow = Dataflow("my_df")
-    >>> flow.input("inp", TestingInput(range(3)))
-    >>> flow.capture(StdOutput())
-    >>> run_main(flow)
-    0
-    1
-    2
-
-    Args:
-      flow (bytewax.dataflow.Dataflow): Dataflow to run.
-
-      epoch_interval (typing.Optional[datetime.timedelta]): System
-        time length of each epoch. Defaults to 10 seconds.
-
-      recovery_config (typing.Optional[bytewax.recovery.RecoveryConfig]):
-        State recovery config. If `None`, state will not be persisted.
+    Use a specific subclass of this to configure where you want the
+    traces to go.
 
     """
+
+    ...
+
+    def __new__(cls) -> TracingConfig: ...
+
+class BytewaxTracer:
+    """Utility class used to handle tracing.
+
+    It keeps a tokio runtime that is alive as long as the struct itself.
+
+    This should only be built via `setup_tracing`.
+
+    """
+
     ...
 
 def setup_tracing(tracing_config=None, log_level=None):
@@ -227,27 +204,197 @@ def setup_tracing(tracing_config=None, log_level=None):
     """
     ...
 
-def test_cluster(
-    flow,
-    *,
-    epoch_interval=None,
-    recovery_config=None,
-    processes=1,
-    workers_per_process=1,
-):
-    """Execute a Dataflow by spawning multiple Python processes.
+class ClockConfig:
+    """Base class for a clock config.
 
-    Blocks until execution is complete.
+    This describes how a windowing operator should determine the
+    current time and the time for each element.
 
-    This function should only be used for testing purposes.
+    Use a specific subclass of this that matches the time definition
+    you'd like to use.
 
     """
+
     ...
+
+    def __new__(cls) -> ClockConfig: ...
+
+class WindowConfig:
+    """Base class for a windower config.
+
+    This describes the type of windows you would like.
+
+    Use a specific subclass of this that matches the window definition
+    you'd like to use.
+
+    """
+
+    ...
+
+    def __new__(cls) -> WindowConfig: ...
+
+class WindowMetadata:
+    """Contains information about a window."""
+
+    ...
+
+    def __new__(cls, open_time, close_time) -> WindowMetadata: ...
+    def __repr__(self, /):
+        """Return repr(self)."""
+        ...
+
+    def __lt__(self, value, /):
+        """Return self<value."""
+        ...
+
+    def __le__(self, value, /):
+        """Return self<=value."""
+        ...
+
+    def __eq__(self, value, /):
+        """Return self==value."""
+        ...
+
+    def __ne__(self, value, /):
+        """Return self!=value."""
+        ...
+
+    def __gt__(self, value, /):
+        """Return self>value."""
+        ...
+
+    def __ge__(self, value, /):
+        """Return self>=value."""
+        ...
+
+    def __getstate__(self, /):
+        """Return a representation of this class as a PyDict for pickling."""
+        ...
+
+    def __getnewargs__(self, /):
+        """Required boilerplate for unpickling."""
+        ...
+
+    def __setstate__(self, /, state):
+        """Unpickle from a PyDict of arguments."""
+        ...
+
+    @property
+    def close_time(self):
+        """The time that the window closes.
+
+        For some window types like `SessionWindow`, this value can
+        change as new data is received.
+
+        """
+        ...
+
+    @property
+    def open_time(self):
+        """The time that the window starts."""
+        ...
 
 class AbortExecution(RuntimeError):
     """Raise this from `next_batch` to abort for testing purposes."""
 
     ...
+
+class InconsistentPartitionsError(ValueError):
+    """Raised when two recovery partitions are from very different times.
+
+    Bytewax only keeps around state snapshots for the backup interval.
+    This means that if you are resuming a dataflow with one recovery
+    partition much newer than another, it's not possible to find a
+    consistent set of snapshots between them.
+
+    This is probably due to not restoring a consistent set of recovery
+    partition backups onto all workers or the backup process has been
+    continously failing on only some workers.
+
+    """
+
+    ...
+
+class MissingPartitionsError(FileNotFoundError):
+    """Raised when an incomplete set of recovery partitions is detected."""
+
+    ...
+
+class NoPartitionsError(FileNotFoundError):
+    """Raised when no recovery partitions are found on any worker.
+
+    This is probably due to the wrong recovery directory being specified.
+
+    """
+
+    ...
+
+class JaegerConfig(TracingConfig):
+    """Configure tracing to send traces to a Jaeger instance.
+
+    The endpoint can be configured with the parameter passed to this
+    config, or with two environment variables:
+
+      OTEL_EXPORTER_JAEGER_AGENT_HOST="127.0.0.1"
+      OTEL_EXPORTER_JAEGER_AGENT_PORT="6831"
+
+    Args:
+      service_name (str): Identifies this dataflow in Jaeger.
+
+      endpoint (typing.Optional[str]): Connection info. Takes
+        precidence over env vars. Defaults to `"127.0.0.1:6831"`.
+
+      sampling_ratio (float): Fraction of traces to send between `0.0`
+        and `1.0`.
+
+    """
+
+    ...
+
+    def __new__(
+        cls, service_name, endpoint=None, sampling_ratio=1.0
+    ) -> JaegerConfig: ...
+    @property
+    def endpoint(self): ...
+    @property
+    def sampling_ratio(self): ...
+    @property
+    def service_name(self): ...
+
+class OtlpTracingConfig(TracingConfig):
+    """Send traces to the OpenTelemetry collector.
+
+    See [OpenTelemetry collector
+    docs](https://opentelemetry.io/docs/collector/) for more info.
+
+    Only supports GRPC protocol, so make sure to enable it on your
+    OTEL configuration.
+
+    This is the recommended approach since it allows the maximum
+    flexibility in what to do with all the data bytewax can generate.
+
+    Args:
+      service_name (str): Identifies this dataflow in Otlp.
+
+      url (typing.Optional[str]): Connection info. Defaults to
+        `"grpc:://127.0.0.1:4317"`.
+
+      sampling_ratio (float): Fraction of traces to send between `0.0`
+        and `1.0`.
+
+    """
+
+    ...
+
+    def __new__(
+        cls, service_name, url=None, sampling_ratio=1.0
+    ) -> OtlpTracingConfig: ...
+    @property
+    def service_name(self): ...
+    @property
+    def url(self): ...
+    @property
+    def sampling_ratio(self): ...
 
 class EventClockConfig(ClockConfig):
     """Use a getter function to lookup the timestamp for each item.
@@ -276,6 +423,7 @@ class EventClockConfig(ClockConfig):
 
     ...
 
+    def __new__(cls, dt_getter, wait_for_system_duration) -> EventClockConfig: ...
     @property
     def wait_for_system_duration(self): ...
     @property
@@ -296,108 +444,21 @@ class SystemClockConfig(ClockConfig):
 
     ...
 
-class InconsistentPartitionsError(ValueError):
-    """Raised when two recovery partitions are from very different times.
+    def __new__(cls) -> SystemClockConfig: ...
 
-    Bytewax only keeps around state snapshots for the backup interval.
-    This means that if you are resuming a dataflow with one recovery
-    partition much newer than another, it's not possible to find a
-    consistent set of snapshots between them.
+class TumblingWindow(WindowConfig):
+    """Tumbling windows of fixed duration.
 
-    This is probably due to not restoring a consistent set of recovery
-    partition backups onto all workers or the backup process has been
-    continously failing on only some workers.
+    Each item will fall in exactly one window.
 
-    """
-
-    ...
-
-class JaegerConfig(TracingConfig):
-    """Configure tracing to send traces to a Jaeger instance.
-
-    The endpoint can be configured with the parameter passed to this
-    config, or with two environment variables:
-
-      OTEL_EXPORTER_JAEGER_AGENT_HOST="127.0.0.1"
-      OTEL_EXPORTER_JAEGER_AGENT_PORT="6831"
+    Window start times are inclusive, but end times are exclusive.
 
     Args:
-      service_name (str): Identifies this dataflow in Jaeger.
+      length (datetime.timedelta): Length of windows.
 
-      endpoint (typing.Optional[str]): Connection info. Takes
-        precidence over env vars. Defaults to `"127.0.0.1:6831"`.
-
-      sampling_ratio (float): Fraction of traces to send between `0.0`
-        and `1.0`.
-
-    """
-
-    ...
-
-    @property
-    def sampling_ratio(self): ...
-    @property
-    def service_name(self): ...
-    @property
-    def endpoint(self): ...
-
-class OtlpTracingConfig(TracingConfig):
-    """Send traces to the OpenTelemetry collector.
-
-    See [OpenTelemetry collector
-    docs](https://opentelemetry.io/docs/collector/) for more info.
-
-    Only supports GRPC protocol, so make sure to enable it on your
-    OTEL configuration.
-
-    This is the recommended approach since it allows the maximum
-    flexibility in what to do with all the data bytewax can generate.
-
-    Args:
-      service_name (str): Identifies this dataflow in Otlp.
-
-      url (typing.Optional[str]): Connection info. Defaults to
-        `"grpc:://127.0.0.1:4317"`.
-
-      sampling_ratio (float): Fraction of traces to send between `0.0`
-        and `1.0`.
-
-    """
-
-    ...
-
-    @property
-    def url(self): ...
-    @property
-    def sampling_ratio(self): ...
-    @property
-    def service_name(self): ...
-
-class MissingPartitionsError(FileNotFoundError):
-    """Raised when an incomplete set of recovery partitions is detected."""
-
-    ...
-
-class NoPartitionsError(FileNotFoundError):
-    """Raised when no recovery partitions are found on any worker.
-
-    This is probably due to the wrong recovery directory being specified.
-
-    """
-
-    ...
-
-class SessionWindow(WindowConfig):
-    """Session windowing with a fixed inactivity gap.
-
-    Each time a new item is received, it is added to the latest window
-    if the time since the latest event is < `gap`. Otherwise a new
-    window is created that starts at current clock's time.
-
-    Args:
-      gap (datetime.timedelta):
-        Gap of inactivity before considering a session closed. The gap
-        should not be negative.
+      align_to (datetime.datetime): Align windows so this instant
+        starts a window. This must be a constant. You can use this to
+        align all windows to hour boundaries, e.g.
 
     Returns:
       Config object. Pass this as the `window_config` parameter to
@@ -407,8 +468,11 @@ class SessionWindow(WindowConfig):
 
     ...
 
+    def __new__(cls, length, align_to) -> TumblingWindow: ...
     @property
-    def gap(self): ...
+    def length(self): ...
+    @property
+    def align_to(self): ...
 
 class SlidingWindow(WindowConfig):
     """Sliding windows of fixed duration.
@@ -443,26 +507,25 @@ class SlidingWindow(WindowConfig):
 
     ...
 
+    def __new__(cls, length, offset, align_to) -> SlidingWindow: ...
+    @property
+    def offset(self): ...
     @property
     def align_to(self): ...
     @property
     def length(self): ...
-    @property
-    def offset(self): ...
 
-class TumblingWindow(WindowConfig):
-    """Tumbling windows of fixed duration.
+class SessionWindow(WindowConfig):
+    """Session windowing with a fixed inactivity gap.
 
-    Each item will fall in exactly one window.
-
-    Window start times are inclusive, but end times are exclusive.
+    Each time a new item is received, it is added to the latest window
+    if the time since the latest event is < `gap`. Otherwise a new
+    window is created that starts at current clock's time.
 
     Args:
-      length (datetime.timedelta): Length of windows.
-
-      align_to (datetime.datetime): Align windows so this instant
-        starts a window. This must be a constant. You can use this to
-        align all windows to hour boundaries, e.g.
+      gap (datetime.timedelta):
+        Gap of inactivity before considering a session closed. The gap
+        should not be negative.
 
     Returns:
       Config object. Pass this as the `window_config` parameter to
@@ -472,7 +535,6 @@ class TumblingWindow(WindowConfig):
 
     ...
 
+    def __new__(cls, gap) -> SessionWindow: ...
     @property
-    def length(self): ...
-    @property
-    def align_to(self): ...
+    def gap(self): ...
