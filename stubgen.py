@@ -25,6 +25,7 @@ from types import (
     BuiltinMethodType,
     FunctionType,
     GetSetDescriptorType,
+    MethodDescriptorType,
     MethodType,
     ModuleType,
 )
@@ -44,32 +45,26 @@ _N = TypeVar("_N")
 _INDENT_SPACES = 4
 
 
-def _is_public(name: str) -> bool:
-    return not name.startswith("_")
-
-
 @dataclass(frozen=True)
 class _Ctx:
-    col_offset: int = -_INDENT_SPACES
+    path: str
+    col_offset: int = 0
 
-    def idnt(self):
-        return self.col_offset + _INDENT_SPACES
+    def name(self):
+        return self.path.split(".")[-1]
 
-    def new_scope(self) -> Self:
+    def new_scope(self, name: str) -> Self:
         return dataclasses.replace(
             self,
+            path=f"{self.path}.{name}",
             col_offset=self.col_offset + _INDENT_SPACES,
         )
 
 
 @dataclass(frozen=True)
 class _Meta:
-    qualname: str
+    path: str
     deps: List[str]
-
-    @classmethod
-    def for_obj(cls, obj: object, deps: List[str]) -> Self:
-        return cls(obj.__qualname__, deps)
 
 
 def _raise_deps(children: List[Tuple[_Meta, _N]]) -> List[str]:
@@ -77,11 +72,11 @@ def _raise_deps(children: List[Tuple[_Meta, _N]]) -> List[str]:
 
 
 def _sort_children(children: List[Tuple[_Meta, _N]]) -> List[_N]:
-    qualname_to_node = {m.qualname: node for m, node in children}
+    qualname_to_node = {m.path: node for m, node in children}
     body_order = graphlib.TopologicalSorter(
-        {m.qualname: m.deps for m, _ in children}
+        {m.path: m.deps for m, _ in children}
     ).static_order()
-    nodes = [qualname_to_node.get(qualname) for qualname in body_order]
+    nodes = [qualname_to_node.get(path) for path in body_order]
 
     return [node for node in nodes if node is not None]
 
@@ -92,6 +87,7 @@ def _stub_func(
         BuiltinFunctionType,
         BuiltinMethodType,
         FunctionType,
+        MethodDescriptorType,
         MethodType,
     ],
 ) -> Tuple[_Meta, ast.FunctionDef]:
@@ -144,12 +140,12 @@ def _stub_func(
     body = []
     docstring = inspect.getdoc(f)
     if docstring:
-        body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.idnt()))]
+        body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.col_offset))]
     body += [ast.Expr(ast.Constant(...))]
 
-    meta = _Meta.for_obj(f, [])
+    meta = _Meta(ctx.path, [])
     node = ast.FunctionDef(
-        name=f.__name__,
+        name=ctx.name(),
         args=args,
         body=body,
         decorator_list=[],
@@ -163,6 +159,13 @@ def _stub_func(
     return (meta, node)
 
 
+CLS_IGNORE = [
+    "__doc__",
+    "__module__",
+    "__weakref__",
+]
+
+
 def _stub_cls(ctx: _Ctx, cls: type) -> Tuple[_Meta, ast.ClassDef]:
     deps = []
     bases = []
@@ -174,23 +177,23 @@ def _stub_cls(ctx: _Ctx, cls: type) -> Tuple[_Meta, ast.ClassDef]:
     body = []
     docstring = inspect.getdoc(cls)
     if docstring:
-        body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.idnt()))]
+        body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.col_offset))]
     body += [ast.Expr(ast.Constant(...))]
 
     children = [
-        _stub_obj(ctx.new_scope(), obj)
+        _stub_obj(ctx.new_scope(n), obj)
         for n, obj
         # Do not list out inherited items.
         in cls.__dict__.items()
-        if _is_public(n)
+        if n not in CLS_IGNORE
     ]
 
     deps += _raise_deps(children)
     body += _sort_children(children)
 
-    meta = _Meta.for_obj(cls, deps)
+    meta = _Meta(ctx.path, deps)
     node = ast.ClassDef(
-        name=cls.__name__,
+        name=ctx.name(),
         bases=bases,
         keywords=[],
         body=body,
@@ -217,12 +220,12 @@ def _stub_getsetdescriptor(
     body = []
     docstring = inspect.getdoc(gsd)
     if docstring:
-        body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.idnt()))]
+        body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.col_offset))]
     body += [ast.Expr(ast.Constant(...))]
 
-    meta = _Meta.for_obj(gsd, [])
+    meta = _Meta(ctx.path, [])
     node = ast.FunctionDef(
-        name=gsd.__name__,
+        name=ctx.name(),
         args=args,
         body=body,
         decorator_list=[ast.Name("property", ast.Load())],
@@ -234,42 +237,69 @@ def _stub_getsetdescriptor(
     return (meta, node)
 
 
+def _stub_val(ctx: _Ctx, obj: object) -> Tuple[_Meta, ast.Expr]:
+    meta = _Meta(ctx.path, [])
+    body = ast.Expr(
+        ast.AnnAssign(
+            target=ast.Name(ctx.name()),
+            annotation=ast.Name(type(obj).__name__),
+            simple=1,
+        )
+    )
+
+    # docstring = inspect.getdoc(obj)
+    # if docstring:
+    #     body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.col_offset))]
+
+    return (meta, body)
+
+
 def _stub_obj(ctx: _Ctx, obj: object) -> Tuple[_Meta, ast.AST]:
     if (
         inspect.isfunction(obj)
         or
         # PyO3 native pyfunctions are "builtins".
         inspect.isbuiltin(obj)
+        or inspect.ismethod(obj)
         or
-        # Supports class methods.
-        inspect.ismethod(obj)
+        # PyO3 native methods.
+        inspect.ismethoddescriptor(obj)
     ):
         return _stub_func(ctx, obj)
     elif inspect.isclass(obj):
         return _stub_cls(ctx, obj)
     # PyO3 `#[pyo3(get)]` produces these native "properties".
+    # `inspect.signature` fails on them, so we have to handle them
+    # separately.
     elif inspect.isgetsetdescriptor(obj):
         return _stub_getsetdescriptor(ctx, obj)
     else:
-        msg = f"unknown type in module: {type(obj)!r}"
-        raise TypeError(msg)
+        return _stub_val(ctx, obj)
+
+
+MOD_IGNORE = [
+    "__all__",
+    "__doc__",
+    "__file__",
+    "__loader__",
+    "__name__",
+    "__package__",
+    "__spec__",
+]
 
 
 def _stub_mod(mod: ModuleType) -> ast.Module:
-    ctx = _Ctx()
+    ctx = _Ctx(mod.__name__)
 
     body = []
     docstring = inspect.getdoc(mod)
     if docstring:
-        body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.idnt()))]
-
-    try:
-        a = mod.__all__
-    except NameError:
-        a = list(filter(_is_public, dir(mod)))
+        body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.col_offset))]
 
     children = [
-        _stub_obj(ctx.new_scope(), obj) for n, obj in inspect.getmembers(mod) if n in a
+        _stub_obj(ctx.new_scope(n), obj)
+        for n, obj in mod.__dict__.items()
+        if n not in MOD_IGNORE
     ]
     body += _sort_children(children)
 
