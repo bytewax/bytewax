@@ -211,7 +211,7 @@ impl WindowMetadata {
         })
     }
 
-    /// Required boilerplate for unpickling
+    /// Required boilerplate for unpickling.
     fn __getnewargs__(&self) -> (DateTime<Utc>, DateTime<Utc>) {
         (Utc::now(), Utc::now())
     }
