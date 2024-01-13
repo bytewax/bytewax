@@ -198,6 +198,8 @@ def _stub_new(
 
 CLS_IGNORE = [
     "__doc__",
+    # Special override because this can be `None` and not a function.
+    "__hash__",
     # Special override below. PyO3 doesn't properly add docstrings or
     # `__text_signature__` to `__new__` but does add the correct
     # signature to the class, so use that.
@@ -233,6 +235,10 @@ def _stub_cls(ctx: _Ctx, cls: type) -> Tuple[_Meta, ast.ClassDef]:
         in cls.__dict__.items()
         if n not in CLS_IGNORE
     ]
+    if "__hash__" in cls.__dict__:
+        h = cls.__dict__["__hash__"]
+        if h is not None:
+            children += [_stub_obj(ctx.new_scope("__hash__"), h)]
 
     deps += _raise_deps(children)
     body += _sort_children(children)
@@ -288,7 +294,7 @@ def _stub_val(ctx: _Ctx, obj: object) -> Tuple[_Meta, ast.Expr]:
     body = ast.Expr(
         ast.AnnAssign(
             target=ast.Name(ctx.name()),
-            annotation=ast.Name(type(obj).__name__),
+            annotation=ast.Name("object"),
             simple=1,
         )
     )
