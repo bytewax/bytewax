@@ -9,6 +9,12 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Better error messages on invalid epoch and backup interval
+  parameters.
+
+- Fixes bug where dataflow will hang if a source's `next_awake` is set
+  far in the future.
+
 ## v0.18.1
 
 - Changes the default batch size for `KafkaSource` from 1 to 1000 to match
