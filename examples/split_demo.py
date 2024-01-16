@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+from datetime import timedelta
+from random import choice
 from typing import Dict
 
 from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource
+from bytewax.inputs import SimplePollingSource
 
 
 @dataclass
@@ -15,12 +17,22 @@ class Msg:
     num: int
 
 
-a = Msg("a_key", "a_val", {"a": 1}, 1)
-b = Msg("b_key", "b_val", {"b": 1}, 2)
-c = Msg("c_key", "c_val", {"c": 1}, 3)
+class MsgSource(SimplePollingSource):
+    def __init__(self):
+        super().__init__(interval=timedelta(seconds=1))
+        self.keys = ["a", "b", "c"]
+        self.nums = [1, 2, 3]
+
+    def next_item(self):
+        key = choice(self.keys)
+        value = f"{key}_value"
+        headers = {"key": 1}
+        num = choice(self.nums)
+        return Msg(key, value, headers, num)
+
 
 flow = Dataflow("my_flow")
-inp = op.input("inp", flow, TestingSource([a, b, c]))
+inp = op.input("inp", flow, MsgSource())
 
 vals = op.map("vals", inp, lambda msg: (msg.key, msg.val))
 op.inspect("v", vals)
