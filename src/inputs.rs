@@ -46,8 +46,20 @@ const DEFAULT_COOLDOWN: Duration = Duration::milliseconds(1);
 /// The epoch is also used as backpressure within the dataflow; input
 /// sources do not start reading new data until all data in the
 /// previous epoch has been output and recovery data written.
-#[derive(Debug, Copy, Clone, FromPyObject)]
+#[derive(Debug, Copy, Clone)]
 pub(crate) struct EpochInterval(Duration);
+
+impl<'source> FromPyObject<'source> for EpochInterval {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        if let Ok(duration) = ob.extract::<Duration>() {
+            Ok(Self(duration))
+        } else {
+            Err(PyTypeError::new_err(
+                "epoch interval must be a `datetime.timedelta`",
+            ))
+        }
+    }
+}
 
 impl EpochInterval {
     /// Determine how many epochs (rounded up) exist in some other
