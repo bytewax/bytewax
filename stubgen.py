@@ -167,43 +167,36 @@ def _stub_init(
 ) -> Optional[Tuple[_Meta, ast.FunctionDef]]:
     try:
         sig = inspect.signature(cls)
-    except ValueError:
-        # There is no way to instantiate this class from Python.
-        sig = None
+    except ValueError as ex:
+        raise NotImplementedError() from ex
 
-    if sig is not None:
-        params = list(sig.parameters.items())
-        params.insert(
-            0, ("self", Parameter(name="self", kind=Parameter.POSITIONAL_OR_KEYWORD))
-        )
-        params = dict(params)
+    params = list(sig.parameters.items())
+    params.insert(
+        0, ("self", Parameter(name="self", kind=Parameter.POSITIONAL_OR_KEYWORD))
+    )
+    params = dict(params)
 
-        body = [ast.Expr(ast.Constant(...))]
+    body = [ast.Expr(ast.Constant(...))]
 
-        meta = _Meta(ctx.path, [])
-        node = ast.FunctionDef(
-            name=ctx.name(),
-            args=_stub_args(params),
-            body=body,
-            decorator_list=[],
-            returns=None,
-            type_comment=None,
-            type_params=[],
-        )
+    meta = _Meta(ctx.path, [])
+    node = ast.FunctionDef(
+        name=ctx.name(),
+        args=_stub_args(params),
+        body=body,
+        decorator_list=[],
+        returns=None,
+        type_comment=None,
+        type_params=[],
+    )
 
-        return (meta, node)
-    else:
-        return None
+    return (meta, node)
 
 
 CLS_IGNORE = [
     "__doc__",
-    # Special override because this can be `None` and not a function.
+    # Special override because `__hash__` can be `None` and not a
+    # function.
     "__hash__",
-    # Special override below. PyO3 doesn't properly add docstrings or
-    # `__text_signature__` to `__new__` but does add the correct
-    # signature to the class, so use that.
-    "__new__",
     "__module__",
     "__weakref__",
 ]
@@ -224,12 +217,15 @@ def _stub_cls(ctx: _Ctx, cls: type) -> Tuple[_Meta, ast.ClassDef]:
     body += [ast.Expr(ast.Constant(...))]
 
     children = []
-    if "__new__" in cls.__dict__ and "__init__" not in cls.__dict__:
-        # `__new__` is rewritten to `__init__` so pylsp / Jedi
-        # correctly finds the constructor signature.
-        new = _stub_init(ctx.new_scope("__init__"), cls)
-        if new is not None:
-            children = [new]
+    if "__init__" not in cls.__dict__:
+        # If there is no explicit `__init__`, try to derive it from
+        # the class signature. The stub class's signature is derived
+        # from this.
+        try:
+            new = _stub_init(ctx.new_scope("__init__"), cls)
+            children += [new]
+        except NotImplementedError:
+            pass
     children += [
         _stub_obj(ctx.new_scope(n), obj)
         for n, obj
