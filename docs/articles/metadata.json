@@ -58,6 +58,10 @@
         "filename": "joins"
       },
       {
+        "title": "Kafka",
+        "filename": "kafka"
+      },
+      {
         "title": "Windowing",
         "filename": "windowing"
       },
