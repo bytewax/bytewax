@@ -21,16 +21,13 @@ c = Msg("c_key", "c_val", {"c": 1}, 3)
 
 flow = Dataflow("my_flow")
 inp = op.input("inp", flow, TestingSource([a, b, c]))
-vals, headers, nums = op.key_split(
-    "fields",
-    inp,
-    lambda msg: msg.key,
-    lambda msg: msg.val,
-    lambda msg: msg.headers,
-    lambda msg: msg.num,
-)
+
+vals = op.map("vals", inp, lambda msg: (msg.key, msg.val))
 op.inspect("v", vals)
+headers = op.map("headers", inp, lambda msg: (msg.key, msg.headers))
 op.inspect("h", headers)
+nums = op.map("nums", inp, lambda msg: (msg.key, msg.num))
 op.inspect("n", nums)
+
 tog = op.join_named("join", vals=vals, headers=headers, nums=nums)
 op.output("tog_out", tog, StdOutSink())
