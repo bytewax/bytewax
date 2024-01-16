@@ -161,7 +161,7 @@ def _stub_func(
     return (meta, node)
 
 
-def _stub_new(
+def _stub_init(
     ctx: _Ctx,
     cls: type,
 ) -> Optional[Tuple[_Meta, ast.FunctionDef]]:
@@ -174,7 +174,7 @@ def _stub_new(
     if sig is not None:
         params = list(sig.parameters.items())
         params.insert(
-            0, ("cls", Parameter(name="cls", kind=Parameter.POSITIONAL_OR_KEYWORD))
+            0, ("self", Parameter(name="self", kind=Parameter.POSITIONAL_OR_KEYWORD))
         )
         params = dict(params)
 
@@ -224,8 +224,10 @@ def _stub_cls(ctx: _Ctx, cls: type) -> Tuple[_Meta, ast.ClassDef]:
     body += [ast.Expr(ast.Constant(...))]
 
     children = []
-    if "__new__" in cls.__dict__:
-        new = _stub_new(ctx.new_scope("__new__"), cls)
+    if "__new__" in cls.__dict__ and "__init__" not in cls.__dict__:
+        # `__new__` is rewritten to `__init__` so pylsp / Jedi
+        # correctly finds the constructor signature.
+        new = _stub_init(ctx.new_scope("__init__"), cls)
         if new is not None:
             children = [new]
     children += [
