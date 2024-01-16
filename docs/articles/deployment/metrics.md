@@ -33,7 +33,7 @@ scrape_configs:
     metrics_path: /metrics
     scheme: http
     static_configs:
-    - targets: 
+    - targets:
       - localhost:3030
 ```
 
@@ -57,7 +57,7 @@ datasources:
 
 This tells graphana to look for a Prometheus source at `http://localhost:9090`.
 The configurations used here assume everything is running on the same network.
-In a real world scenario you'll have to use the proper urls. 
+In a real world scenario you'll have to use the proper urls.
 
 Create a `docker-compose.yml` file with the two services and the needed configuration:
 

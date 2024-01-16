@@ -127,8 +127,10 @@ JAEGER_URL = os.getenv("BYTEWAX_OTLP_URL")
 SERVICE_NAME = "tracing-example"
 
 tracer = setup_tracing(
-    tracing_config=OtlpTracingConfig(url=JAEGER_URL), 
-    service_name=SERVICE_NAME,
+    tracing_config=OtlpTracingConfig(
+        service_name=SERVICE_NAME,
+        url=JAEGER_URL,
+    ),
 )
 
 
