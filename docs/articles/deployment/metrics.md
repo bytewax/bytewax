@@ -3,22 +3,25 @@ Bytewax offers a lot of flexibility, and some choices can have a huge impact on 
 In this article we explore ways to understand what's happening on a running dataflow.
 
 ## Metrics, Prometheus and Graphana
-Bytewax dataflows can expose a webserver with a metrics endpoint that can be parsed by Prometheus.
+Bytewax dataflows can expose a webserver with a metrics endpoint that can be parsed by any Prometheus
+compatible monitoring infrastructure.
 
-Run your dataflow with the env var `BYTEWAX_DATAFLOW_API_ENABLED` set to "true":
+To do that, you must run your dataflow with the env var `BYTEWAX_DATAFLOW_API_ENABLED` set to any value:
 
 ```bash
 BYTEWAX_DATAFLOW_API_ENABLED=true python -m bytewax.run dataflow
 ```
 
-Now you can access the metrics page at `http://localhost:3030/metrics`
-You can use Prometheus to read metrics from that endpoint and make queries on them.
+Once the dataflow is running, and only until it keeps running, you can access the
+metrics at `http://localhost:3030/metrics`.
 
-A proper production setup for Prometheus + Graphana stack is out of the scope of this article,
+You can configure Prometheus to read metrics from that endpoint and make queries on them.
+A proper, production-ready setup for Prometheus and Graphana is out of the scope of this article,
 but we can showcase a local development setup using docker-compose.
 
-You first need to create a minimal configuration for both prometheus and graphana.
-Add a file named `prometheus.yml` with the following content:
+You'll need to create a couple of configuration files, one for prometheus and one for graphana.
+
+First, create a file named `prometheus.yml` with the following content:
 
 ```yml
 # prometheus.yml
@@ -34,7 +37,10 @@ scrape_configs:
       - localhost:3030
 ```
 
-And a file named `datasource.yml` to preconfigure our prometheus instance to work with graphana:
+This will instruct Prometheus to scrape the endpoint `http://localhost:3030/metrics` every 10 seconds.
+
+Next, we can add a configuration file for graphana, so we can preconfigure the prometheus source in the graphana instance.
+Create a file named `datasource.yml`, we will add it to graphana in the docker compose file:
 
 ```yaml
 # datasource.yml
@@ -43,13 +49,17 @@ apiVersion: 1
 datasources:
 - name: Prometheus
   type: prometheus
-  url: http://localhost:9090 
+  url: http://localhost:9090
   isDefault: true
   access: proxy
   editable: true
 ```
 
-Then run prometheus and graphana with the following `docker-compose.yml`:
+This tells graphana to look for a Prometheus source at `http://localhost:9090`.
+The configurations used here assume everything is running on the same network.
+In a real world scenario you'll have to use the proper urls. 
+
+Create a `docker-compose.yml` file with the two services and the needed configuration:
 
 ```yaml
 # docker-compose.yml
@@ -70,11 +80,14 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=grafana
 ```
 
-Run:
+Run it:
 
 ```bash
 docker compose up
 ```
 
-Now you can access `http://localhost:9090` and see the metrics for your dataflow in the prometheus
-web UI, or go to `http://localhost:3000` and work with your metrics in the graphana ui.
+If everything went right, you should be able to access Prometheus webui at `http://localhost:9090`.
+From there you can see the metrics for your dataflow.
+Graphana exposes its WebUI at `http://localhost:3000`.
+You can login with the credentials provided in the docker-compose file,
+and query your metrics and create dashboards there.
