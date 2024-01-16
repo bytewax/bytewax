@@ -186,7 +186,7 @@ def _stub_new(
             args=_stub_args(params),
             body=body,
             decorator_list=[],
-            returns=ast.Name(cls.__name__),
+            returns=None,
             type_comment=None,
             type_params=[],
         )
