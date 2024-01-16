@@ -264,10 +264,9 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<String>);
 ///     workers into archival storage (e.g. S3). Defaults to zero
 ///     duration.
 ///
-///   snapshot_serde (typing.Optional[bytewax.serde.Serde]):
-///     Serialization to use when encoding state snapshot objects in the
-///     recovery partitions. Defaults to
-///     `bytewax.serde.JsonPickleSerde`.
+///   snapshot_serde (typing.Optional[bytewax.serde.Serde]): Format to
+///     use when encoding state snapshot objects in the recovery
+///     partitions. Defaults to `bytewax.serde.JsonPickleSerde`.
 #[pyclass(module = "bytewax.recovery")]
 pub(crate) struct RecoveryConfig {
     #[pyo3(get)]
