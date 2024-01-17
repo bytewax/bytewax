@@ -16,10 +16,11 @@ Once the dataflow is running, and only until it keeps running, you can access th
 metrics at `http://localhost:3030/metrics`.
 
 You can configure Prometheus to read metrics from that endpoint and make queries on them.
-A proper, production-ready setup for Prometheus and Graphana is out of the scope of this article,
+A proper, production-ready setup for Prometheus and Grafana is out of the scope of this article,
+Comment
 but we can showcase a local development setup using docker-compose.
 
-You'll need to create a couple of configuration files, one for prometheus and one for graphana.
+You'll need to create a couple of configuration files, one for Prometheus and one for Grafana.
 
 First, create a file named `prometheus.yml` with the following content:
 
@@ -39,7 +40,7 @@ scrape_configs:
 
 This will instruct Prometheus to scrape the endpoint `http://localhost:3030/metrics` every 10 seconds.
 
-Next, we can add a configuration file for graphana, so we can preconfigure the prometheus source in the graphana instance.
+Next, we can add a configuration file for Grafana, so we can preconfigure the Prometheus source in the Grafana instance.
 Create a file named `datasource.yml`, we will add it to graphana in the docker compose file:
 
 ```yaml
@@ -55,7 +56,7 @@ datasources:
   editable: true
 ```
 
-This tells graphana to look for a Prometheus source at `http://localhost:9090`.
+This tells Grafana to look for a Prometheus source at `http://localhost:9090`.
 The configurations used here assume everything is running on the same network.
 In a real world scenario you'll have to use the proper urls.
 
@@ -88,6 +89,6 @@ docker compose up
 
 If everything went right, you should be able to access Prometheus webui at `http://localhost:9090`.
 From there you can see the metrics for your dataflow.
-Graphana exposes its WebUI at `http://localhost:3000`.
+Grafana exposes its WebUI at `http://localhost:3000`.
 You can login with the credentials provided in the docker-compose file,
 and query your metrics and create dashboards there.
