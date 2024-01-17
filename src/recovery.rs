@@ -20,6 +20,7 @@ use chrono::Duration;
 use pyo3::create_exception;
 use pyo3::exceptions::PyFileNotFoundError;
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
@@ -126,7 +127,7 @@ pub(crate) struct CommitMeta(PartitionIndex, u64);
 /// can ensure that there's some resume epoch shared by all partitions
 /// we can use when resuming from a backup that might not be the most
 /// recent.
-#[derive(Debug, Copy, Clone, FromPyObject)]
+#[derive(Debug, Copy, Clone)]
 pub(crate) struct BackupInterval(Duration);
 
 impl Default for BackupInterval {
@@ -138,6 +139,18 @@ impl Default for BackupInterval {
 impl IntoPy<Py<PyAny>> for BackupInterval {
     fn into_py(self, py: Python<'_>) -> Py<PyAny> {
         self.0.into_py(py)
+    }
+}
+
+impl<'source> FromPyObject<'source> for BackupInterval {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        if let Ok(duration) = ob.extract::<Duration>() {
+            Ok(Self(duration))
+        } else {
+            Err(PyTypeError::new_err(
+                "backup interval must be a `datetime.timedelta`",
+            ))
+        }
     }
 }
 

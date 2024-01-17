@@ -2,8 +2,9 @@ import asyncio
 import itertools
 import queue
 import re
+import sys
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Tuple
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
@@ -103,94 +104,159 @@ def pairwise(ib):
     return zip(a, b)
 
 
+class _DynamicMetronomePartition(StatelessSourcePartition[Tuple[datetime, int]]):
+    def __init__(self, interval: timedelta, count: int, next_awake: datetime, n: int):
+        self._interval = interval
+        self._count = count
+        self._next_awake = next_awake
+        self._n = n
+
+    def next_batch(self, sched: Optional[datetime]) -> List[Tuple[datetime, int]]:
+        now = datetime.now(timezone.utc)
+        self._next_awake = now + self._interval
+        if self._n < 5:
+            n = self._n
+            self._n += 1
+            return [(now, n)]
+        else:
+            raise StopIteration()
+
+    def next_awake(self) -> Optional[datetime]:
+        return self._next_awake
+
+
+class DynamicMetronomeSource(DynamicSource[datetime]):
+    def __init__(self, interval: timedelta, count: int = sys.maxsize):
+        self._interval = interval
+        self._count = count
+
+    def build(
+        self, now: datetime, worker_index: int, worker_count: int
+    ) -> _DynamicMetronomePartition:
+        return _DynamicMetronomePartition(self._interval, self._count, now, 0)
+
+
 def test_dynamic_source_next_awake():
     out = []
-
-    class TestPartition(StatelessSourcePartition[datetime]):
-        def __init__(self, now: datetime, interval: timedelta):
-            self._interval = interval
-            self._next_awake = now
-            self._n = 0
-
-        def next_batch(self, _sched: datetime) -> List[datetime]:
-            now = datetime.now(timezone.utc)
-            self._next_awake = now + self._interval
-            if self._n < 5:
-                self._n += 1
-                return [now]
-            else:
-                raise StopIteration()
-
-        def next_awake(self) -> Optional[datetime]:
-            return self._next_awake
-
-    class TestSource(DynamicSource[datetime]):
-        def __init__(self, interval: timedelta):
-            self._interval = interval
-
-        def build(
-            self, now: datetime, _worker_index: int, _worker_count: int
-        ) -> TestPartition:
-            return TestPartition(now, self._interval)
 
     interval = timedelta(seconds=0.1)
 
     flow = Dataflow("test_df")
-    s = op.input("in", flow, TestSource(interval))
+    s = op.input("in", flow, DynamicMetronomeSource(interval))
     op.output("out", s, TestingSink(out))
 
     run_main(flow)
     for x, y in pairwise(out):
-        td = y - x
+        x_time, _ = x
+        y_time, _ = y
+        td = y_time - x_time
         assert td >= interval
+
+
+def test_dynamic_source_advances_epoch_even_if_not_awoken():
+    fast_out = []
+    slow_out = []
+
+    fast_interval = timedelta(seconds=0.1)
+    slow_interval = timedelta(seconds=0.5)
+
+    flow = Dataflow("test_df")
+    fast_s = op.input("fast_inp", flow, DynamicMetronomeSource(fast_interval, 5))
+    op.output("fast_out", fast_s, TestingSink(fast_out))
+    slow_s = op.input("slow_inp", flow, DynamicMetronomeSource(slow_interval, 5))
+    op.output("slow_out", slow_s, TestingSink(slow_out))
+
+    run_main(flow, epoch_interval=timedelta(seconds=0.25))
+    for x, y in pairwise(fast_out):
+        x_time, _ = x
+        y_time, _ = y
+        td = y_time - x_time
+        assert td >= fast_interval
+
+
+class _MetronomePartition(
+    StatefulSourcePartition[Tuple[datetime, int], Tuple[datetime, int]]
+):
+    def __init__(self, interval: timedelta, count: int, next_awake: datetime, n: int):
+        self._interval = interval
+        self._count = count
+        self._next_awake = next_awake
+        self._n = n
+
+    def next_batch(self, sched: Optional[datetime]) -> Iterable[Tuple[datetime, int]]:
+        now = datetime.now(timezone.utc)
+        self._next_awake = now + self._interval
+        if self._n < self._count:
+            n = self._n
+            self._n += 1
+            return [(now, n)]
+        else:
+            raise StopIteration()
+
+    def next_awake(self) -> Optional[datetime]:
+        return self._next_awake
+
+    def snapshot(self) -> Tuple[datetime, int]:
+        return (self._next_awake, self._n)
+
+
+class MetronomeSource(
+    FixedPartitionedSource[Tuple[datetime, int], Tuple[datetime, int]]
+):
+    def __init__(self, interval: timedelta, count: int = sys.maxsize):
+        self._interval = interval
+        self._count = count
+
+    def list_parts(self) -> List[str]:
+        return ["singleton"]
+
+    def build_part(
+        self, now: datetime, for_part: str, resume_state: Optional[Tuple[datetime, int]]
+    ) -> _MetronomePartition:
+        if resume_state is not None:
+            next_awake, n = resume_state
+        else:
+            next_awake = now
+            n = 0
+        return _MetronomePartition(self._interval, self._count, next_awake, n)
 
 
 def test_fixed_partitioned_source_next_awake():
     out = []
 
-    class TestPartition(StatefulSourcePartition[datetime, None]):
-        def __init__(self, now: datetime, interval: timedelta):
-            self._interval = interval
-            self._next_awake = now
-            self._n = 0
-
-        def next_batch(self, _sched: datetime) -> List[datetime]:
-            now = datetime.now(timezone.utc)
-            self._next_awake = now + self._interval
-            if self._n < 5:
-                self._n += 1
-                return [now]
-            else:
-                raise StopIteration()
-
-        def next_awake(self) -> Optional[datetime]:
-            return self._next_awake
-
-        def snapshot(self) -> None:
-            return None
-
-    class TestSource(FixedPartitionedSource[datetime, None]):
-        def __init__(self, interval: timedelta):
-            self._interval = interval
-
-        def list_parts(self) -> List[str]:
-            return ["one"]
-
-        def build_part(
-            self, now: datetime, _for_part: str, _resume_state: Optional[None]
-        ) -> TestPartition:
-            return TestPartition(now, self._interval)
-
     interval = timedelta(seconds=0.1)
 
     flow = Dataflow("test_df")
-    s = op.input("inp", flow, TestSource(interval))
+    s = op.input("inp", flow, MetronomeSource(interval, 5))
     op.output("out", s, TestingSink(out))
 
     run_main(flow)
     for x, y in pairwise(out):
-        td = y - x
+        x_time, _ = x
+        y_time, _ = y
+        td = y_time - x_time
         assert td >= interval
+
+
+def test_fixed_partitioned_source_advances_epoch_even_if_not_awoken():
+    fast_out = []
+    slow_out = []
+
+    fast_interval = timedelta(seconds=0.1)
+    slow_interval = timedelta(seconds=0.5)
+
+    flow = Dataflow("test_df")
+    fast_s = op.input("fast_inp", flow, MetronomeSource(fast_interval, 5))
+    op.output("fast_out", fast_s, TestingSink(fast_out))
+    slow_s = op.input("slow_inp", flow, MetronomeSource(slow_interval, 5))
+    op.output("slow_out", slow_s, TestingSink(slow_out))
+
+    run_main(flow, epoch_interval=timedelta(seconds=0.25))
+    for x, y in pairwise(fast_out):
+        x_time, _ = x
+        y_time, _ = y
+        td = y_time - x_time
+        assert td >= fast_interval
 
 
 def test_simple_polling_source_interval():
