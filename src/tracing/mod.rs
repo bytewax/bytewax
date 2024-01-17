@@ -142,19 +142,24 @@ impl BytewaxTracer {
     }
 }
 
-/// Helper function used to setup tracing and logging from the Rust side.
+/// Setup Bytewax's internal tracing and logging.
 ///
-/// Args:
-///   tracing_config: A subclass of TracingConfig for a specific backend
-///   log_level: String of the log level, on of ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"]
+/// By default it starts a tracer that logs all `ERROR`-level messages
+/// to stdout.
 ///
-/// By default it starts a tracer that logs all ERROR messages to stdout.
-///
-/// Note: to make this work, you have to keep a reference of the returned object:
+/// Note: To make this work, you have to keep a reference of the
+/// returned object.
 ///
 /// ```python
 /// tracer = setup_tracing()
 /// ```
+///
+/// Args:
+///   tracing_config (TracingConfig): The specific backend you want to
+///     use.
+///
+///   log_level (str): String of the log level. One of `"ERROR"`,
+///     `"WARN"`, `"INFO"`, `"DEBUG"`, `"TRACE"`.
 #[pyfunction]
 fn setup_tracing(
     py: Python,

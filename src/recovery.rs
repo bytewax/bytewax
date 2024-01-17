@@ -267,19 +267,19 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<String>);
 /// Configuration settings for recovery.
 ///
 /// Args:
+///   db_dir (pathlib.Path): Local filesystem directory to search for
+///     recovery database partitions.
 ///
-///   db_dir (Path): Local filesystem directory to search for recovery
-///       database partitions.
+///   backup_interval (typing.Optional[datetime.duration]): Amount of
+///     system time to wait to permanently delete a state snapshot after
+///     it is no longer needed. You should set this to the interval at
+///     which you are backing up the recovery partitions off of the
+///     workers into archival storage (e.g. S3). Defaults to zero
+///     duration.
 ///
-///   backup_interval (datetime.duration): Amount of system time to
-///       wait to permanently delete a state snapshot after it is no
-///       longer needed. You should set this to the interval at which
-///       you are backing up the recovery partitions off of the
-///       workers into archival storage (e.g. S3). Defaults to zero
-///       duration.
-///
-///   snapshot_serde (SnapshotSerde): Serialization to use when
-///       encoding state snapshot objects in the recovery partitions.
+///   snapshot_serde (typing.Optional[bytewax.serde.Serde]): Format to
+///     use when encoding state snapshot objects in the recovery
+///     partitions. Defaults to `bytewax.serde.JsonPickleSerde`.
 #[pyclass(module = "bytewax.recovery")]
 pub(crate) struct RecoveryConfig {
     #[pyo3(get)]
@@ -970,14 +970,27 @@ create_exception!(
     bytewax.recovery,
     InconsistentPartitionsError,
     PyValueError,
-    "Raised when it is not possible to resume without state corruption because at least two partitions are from greater than the backup interval apart."
+    "Raised when two recovery partitions are from very different times.
+
+Bytewax only keeps around state snapshots for the backup interval.
+This means that if you are resuming a dataflow with one recovery
+partition much newer than another, it's not possible to find a
+consistent set of snapshots between them.
+
+This is probably due to not restoring a consistent set of recovery
+partition backups onto all workers or the backup process has been
+continously failing on only some workers."
 );
+
 create_exception!(
     bytewax.recovery,
     NoPartitionsError,
     PyFileNotFoundError,
-    "Raised when no recovery partitions have been initialized on any worker in the recovery directory."
+    "Raised when no recovery partitions are found on any worker.
+
+This is probably due to the wrong recovery directory being specified."
 );
+
 create_exception!(
     bytewax.recovery,
     MissingPartitionsError,
@@ -1280,7 +1293,6 @@ fn resume_from_inconsistent_error() {
 /// Create and init a set of empty recovery partitions.
 ///
 /// Args:
-///
 ///   db_dir (path.Path): Local directory to create partitions in.
 ///
 ///   count (int): Number of partitions to create.

@@ -15,13 +15,7 @@ from typing import (
 )
 
 import bytewax.operators as op
-from bytewax.dataflow import (
-    Stream,
-    operator,
-)
-from bytewax.operators import KeyedStream, _identity, _JoinState, _untyped_none
-
-from ..bytewax import (  # type: ignore[import]
+from bytewax._bytewax import (
     ClockConfig,
     EventClockConfig,
     SessionWindow,
@@ -31,6 +25,11 @@ from ..bytewax import (  # type: ignore[import]
     WindowConfig,
     WindowMetadata,
 )
+from bytewax.dataflow import (
+    Stream,
+    operator,
+)
+from bytewax.operators import KeyedStream, _identity, _JoinState, _untyped_none
 
 __all__ = [
     "ClockConfig",

@@ -86,15 +86,13 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 /// 2
 ///
 /// Args:
+///   flow (bytewax.dataflow.Dataflow): Dataflow to run.
 ///
-///   flow: Dataflow to run.
+///   epoch_interval (typing.Optional[datetime.timedelta]): System
+///     time length of each epoch. Defaults to 10 seconds.
 ///
-///   epoch_interval (datetime.timedelta): System time length of each
-///       epoch. Defaults to 10 seconds.
-///
-///   recovery_config (bytewax.recovery.RecoveryConfig): State
-///       recovery config. If `None`, state will not be persisted.
-///
+///   recovery_config (typing.Optional[bytewax.recovery.RecoveryConfig]):
+///     State recovery config. If `None`, state will not be persisted.
 #[pyfunction]
 #[pyo3(
     signature = (flow, *, epoch_interval = None, recovery_config = None)
@@ -176,30 +174,30 @@ pub(crate) fn run_main(
 /// >>> flow = Dataflow("my_df")
 /// >>> flow.input("inp", TestingInput(range(3)))
 /// >>> flow.capture(StdOutput())
-/// >>> addresses = []  # In a real example, you'd find the "host:port" of all other Bytewax workers.
-/// >>> proc_id = 0  # In a real example, you'd assign each worker a distinct ID from 0..proc_count.
+/// >>> # In a real example, use "host:port" of all other workers.
+/// >>> addresses = []
+/// >>> proc_id = 0
 /// >>> cluster_main(flow, addresses, proc_id)
 /// 0
 /// 1
 /// 2
 ///
 /// Args:
+///   flow (bytewax.dataflow.Dataflow): Dataflow to run.
 ///
-///   flow: Dataflow to run.
+///   addresses (typing.List[str]): List of host/port addresses for
+///     all processes in this cluster (including this one).
 ///
-///   addresses: List of host/port addresses for all processes in
-///       this cluster (including this one).
+///   proc_id (int): Index of this process in cluster; starts from 0.
 ///
-///   proc_id: Index of this process in cluster; starts from 0.
+///   epoch_interval (typing.Optional[datetime.timedelta]): System
+///     time length of each epoch. Defaults to 10 seconds.
 ///
-///   epoch_interval (datetime.timedelta): System time length of each
-///       epoch. Defaults to 10 seconds.
+///   recovery_config (typing.Optional[bytewax.recovery.RecoveryConfig]):
+///     State recovery config. If `None`, state will not be persisted.
 ///
-///   recovery_config (bytewax.recovery.RecoveryConfig): State
-///       recovery config. If `None`, state will not be persisted.
-///
-///   worker_count_per_proc: Number of worker threads to start on
-///       each process.
+///   worker_count_per_proc (int): Number of worker threads to start
+///     on each process. Defaults to `1`.
 #[pyfunction]
 #[pyo3(
     signature = (flow, addresses, proc_id, *, epoch_interval = None, recovery_config = None, worker_count_per_proc = 1)
@@ -315,8 +313,6 @@ pub(crate) fn cluster_main(
     })
 }
 
-/// This is only supposed to be used through `python -m
-/// bytewax.run`. See the module docstring for use.
 #[pyfunction]
 #[pyo3(
     signature=(flow, *, workers_per_process=1, process_id=None, addresses=None, epoch_interval=None, recovery_config=None)
@@ -361,7 +357,6 @@ pub(crate) fn cli_main(
 /// Blocks until execution is complete.
 ///
 /// This function should only be used for testing purposes.
-///
 #[pyfunction]
 #[pyo3(
     signature = (flow, *, epoch_interval = None, recovery_config = None, processes = 1, workers_per_process = 1)

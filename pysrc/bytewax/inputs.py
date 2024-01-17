@@ -24,7 +24,7 @@ from typing import (
 
 from typing_extensions import AsyncIterable
 
-from .bytewax import AbortExecution  # type: ignore[import]
+from bytewax._bytewax import AbortExecution
 
 __all__ = [
     "AbortExecution",

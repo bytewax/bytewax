@@ -33,4 +33,4 @@ repos:
         # field in pyproject.toml. Add a `-` after the Python version
         # to say for `3.8-` "even if this code would work on 3.7,
         # that's fine".
-        args: ["--eval-annotations", "--no-parse-comments", "--no-tips", "--violations", "-t=3.8-"]
+        args: ["--eval-annotations", "--no-tips", "--violations", "-t=3.8-"]

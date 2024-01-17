@@ -11,27 +11,27 @@ use super::*;
 
 /// Sliding windows of fixed duration.
 ///
-/// If offset == length, windows cover all time but do not
-/// overlap. Each item will fall in exactly one window. The
-/// `TumblingWindow` config will do this for you.
+/// If `offset == length`, windows cover all time but do not overlap.
+/// Each item will fall in exactly one window. The `TumblingWindow`
+/// config will do this for you.
 ///
-/// If offset < length, windows overlap. Each item will fall in
+/// If `offset < length`, windows overlap. Each item will fall in
 /// multiple windows.
 ///
-/// If offset > length, there will be gaps between windows. Each item
-/// can fall in up to one window, but might fall into none.
+/// If `offset > length`, there will be gaps between windows. Each
+/// item can fall in up to one window, but might fall into none.
 ///
 /// Window start times are inclusive, but end times are exclusive.
 ///
 /// Args:
-///   length (datetime.timedelta):
-///     Length of windows.
-///   offset (datetime.timedelta):
-///     Duration between start times of adjacent windows.
-///   align_to (datetime.datetime):
-///     Align windows so this instant starts a window. This must be a
-///     constant. You can use this to align all windows to hour
-///     boundaries, e.g.
+///   length (datetime.timedelta): Length of windows.
+///
+///   offset (datetime.timedelta): Duration between start times of
+///     adjacent windows.
+///
+///   align_to (datetime.datetime): Align windows so this instant
+///     starts a window. This must be a constant. You can use this to
+///     align all windows to hour boundaries, e.g.
 ///
 /// Returns:
 ///   Config object. Pass this as the `window_config` parameter to

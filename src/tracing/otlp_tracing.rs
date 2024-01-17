@@ -13,27 +13,32 @@ use crate::errors::PythonException;
 use super::TracerBuilder;
 use super::TracingConfig;
 
-/// Send traces to the opentelemetry collector:
-/// https://opentelemetry.io/docs/collector/
+/// Send traces to the OpenTelemetry collector.
 ///
-/// Only supports GRPC protocol, so make sure to enable
-/// it on your OTEL configuration.
+/// See [OpenTelemetry collector
+/// docs](https://opentelemetry.io/docs/collector/) for more info.
 ///
-/// This is the recommended approach since it allows
-/// the maximum flexibility in what to do with all the data
-/// bytewax can generate.
+/// Only supports GRPC protocol, so make sure to enable it on your
+/// OTEL configuration.
+///
+/// This is the recommended approach since it allows the maximum
+/// flexibility in what to do with all the data bytewax can generate.
+///
+/// Args:
+///   service_name (str): Identifies this dataflow in Otlp.
+///
+///   url (typing.Optional[str]): Connection info. Defaults to
+///     `"grpc:://127.0.0.1:4317"`.
+///
+///   sampling_ratio (float): Fraction of traces to send between `0.0`
+///     and `1.0`.
 #[pyclass(module="bytewax.tracing", extends=TracingConfig)]
 #[derive(Clone)]
 pub(crate) struct OtlpTracingConfig {
-    /// Service name, identifies this dataflow.
     #[pyo3(get)]
     pub(crate) service_name: String,
-    /// Optional collector's URL, defaults to `grpc:://127.0.0.1:4317`
     #[pyo3(get)]
     pub(crate) url: Option<String>,
-    /// Sampling ratio:
-    ///   samplig_ratio >= 1 - all traces are sampled
-    ///   samplig_ratio <= 0 - most traces are not sampled
     #[pyo3(get)]
     pub(crate) sampling_ratio: f64,
 }
