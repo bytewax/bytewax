@@ -13,7 +13,18 @@ Make a PR which commits the following:
    +version = "1.2.3"
    ```
 
-2. Commits updated API docs
+2. Commits updated stubs
+
+   ```sh
+   (.venv) bytewax/ $ maturin develop -E dev
+   (.venv) bytewax/ $ python stubgen.py bytewax._bytewax -o pysrc/bytewax/_bytewax.pyi
+   (.venv) bytewax/ $ ruff format pysrc/bytewax/_bytewax.pyi
+   ```
+
+   If there was no change to any of our PyO3 Rust API, there might be
+   no changes to commit here.
+
+3. Commits updated API docs
 
    ```sh
    (.venv) bytewax/ $ maturin develop -E dev
@@ -29,7 +40,7 @@ Make a PR which commits the following:
    If we've been committing these as we go, there might not be any
    changes to commit here. That's fine.
 
-3. Labels the latest changelog entries with the version number
+4. Labels the latest changelog entries with the version number
 
    Look in `CHANGELOG.md` for the latest batch of hand-written
    changelog notes and add a new headings with the version number.
@@ -48,9 +59,9 @@ Make a PR which commits the following:
       automatically.
    ```
 
-Approve and merge that PR.
+   Approve and merge that PR.
 
-4. Check that the CI run completed for the just updated `main` branch
+5. Check that the CI run completed for the just updated `main` branch
    on [our CI actions
    page](https://github.com/bytewax/bytewax/actions/workflows/CI.yml).
 
