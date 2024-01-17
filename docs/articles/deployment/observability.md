@@ -16,9 +16,8 @@ carefully.
 
 Let's try to see what `jaeger` can show us about a dataflow. We will
 make bytewax talk to the jaeger collector, and visualize metrics in the
-jaeger instance. We will use the
-[wikistream.py](https://github.com/bytewax/bytewax/blob/main/examples/wikistream.py)
-example as a reference. You will need [docker](https://www.docker.com/) and
+jaeger instance. We will use a simple example dataflow as a reference.
+You will need [docker](https://www.docker.com/) and
 [docker-compose](https://docs.docker.com/compose/) to run this example.
 
 Create a folder where you'll keep the dataflow and two more files
@@ -43,43 +42,60 @@ services:
     environment:
       - COLLECTOR_OTLP_ENABLED=true
 ```
-
 Now run `docker compose up` and everything should be up and running.
 
-Now we need the dataflow. Download the example in this folder:
-
-```shell
-curl https://raw.githubusercontent.com/bytewax/bytewax/main/examples/wikistream.py \
-  -o dataflow.py
-```
-
-To instrument your dataflow, call `setup_tracing` from
-`bytewax.tracing` with the config object you want, and keep the
-returned object around (if you don't assign to the `tracer` variable,
-tracing would not work)
-
+Next you'll need the dataflow. Create a new file named `dataflow.py` with the following content:
 ```python
-# file: dataflow.py
+# dataflow.py
+import os
+import time
+
+from bytewax import operators as op
+from bytewax.connectors.stdio import StdOutSink
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
 from bytewax.tracing import OtlpTracingConfig, setup_tracing
+
+JAEGER_URL = os.getenv("BYTEWAX_OTLP_URL", "grpc://127.0.0.1:4317")
+SERVICE_NAME = "tracing-example"
 
 tracer = setup_tracing(
     tracing_config=OtlpTracingConfig(
-        service_name="Wikistream",
-        url="grpc://127.0.0.1:4317",
+        service_name=SERVICE_NAME,
+        url=JAEGER_URL,
     ),
-    log_level="ERROR",
 )
-#
-# ...rest of the file
-#
+
+
+def inp():
+    i = 0
+    while True:
+        time.sleep(0.5)
+        yield i
+        i += 1
+
+
+def stringy(x):
+    return f"<dance>{x}</dance>"
+
+
+flow = Dataflow("tracing")
+stream = op.input("inp", flow, TestingSource(inp()))
+stream = op.map("stringy", stream, stringy)
+op.output("out", stream, StdOutSink())
 ```
+
+To instrument the dataflow we use `setup_tracing` from
+`bytewax.tracing` with the `OtlpTracingConfig` object.
+Remember to keep the returned object around: if you don't
+assign to the `tracer` variable, tracing doesn't work.
 
 Create a virtual environment and install the needed dependencies:
 
 ```shell
 python3 -m venv .venv
 source .venv/bin/activate # Or `.venv/bin/activate.fish` on fish shell
-pip install bytewax aiohttp-sse-client
+pip install bytewax
 ```
 
 Now you can run it with:
@@ -109,50 +125,10 @@ jaeger:
     minimumMasterNodes: 1
 ```
 
-Then use a dataflow with a tracing configuration that takes Jaeger's url from an env var
-that will be injected by the helm chart:
+You can reuse the same dataflow we used before, as the Jaeger url will
+be injected as an env var named `BYTEWAX_OTLP_URL`.
 
-```python
-# dataflow.py
-import os
-import time
-
-from bytewax import operators as op
-from bytewax.connectors.stdio import StdOutSink
-from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource
-from bytewax.tracing import OtlpTracingConfig, setup_tracing
-
-JAEGER_URL = os.getenv("BYTEWAX_OTLP_URL")
-SERVICE_NAME = "tracing-example"
-
-tracer = setup_tracing(
-    tracing_config=OtlpTracingConfig(
-        service_name=SERVICE_NAME,
-        url=JAEGER_URL,
-    ),
-)
-
-
-def inp():
-    i = 0
-    while True:
-        time.sleep(0.5)
-        yield i
-        i += 1
-
-
-def stringy(x):
-    return f"<dance>{x}</dance>"
-
-
-flow = Dataflow("tracing")
-stream = op.input("inp", flow, TestingSource(inp()))
-stream = op.map("stringy", stream, stringy)
-op.output("out", stream, StdOutSink())
-```
-
-And finally deploy it with:
+You can now deploy it with:
 
 ```bash
 waxctl df deploy dataflow.py \
@@ -160,7 +136,7 @@ waxctl df deploy dataflow.py \
   -V ./values.yml
 ```
 
-Now you can access your Jaeger instance by port-forwarding the web ui in the deployed jaeger service:
+You can access your Jaeger instance by port-forwarding the web ui in the deployed jaeger service:
 
 ```bash
 kubectl port-forward svc/tracing-example-jaeger-query 8080:80
