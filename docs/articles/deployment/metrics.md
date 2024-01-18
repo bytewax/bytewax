@@ -17,7 +17,6 @@ metrics at `http://localhost:3030/metrics`.
 
 You can configure Prometheus to read metrics from that endpoint and make queries on them.
 A proper, production-ready setup for Prometheus and Grafana is out of the scope of this article,
-Comment
 but we can showcase a local development setup using docker-compose.
 
 You'll need to create a couple of configuration files, one for Prometheus and one for Grafana.
