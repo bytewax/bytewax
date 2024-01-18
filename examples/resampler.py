@@ -13,9 +13,13 @@ s3 = op.input("source3", flow, RandomMetricSource("tmp3", timedelta(seconds=1.00
 merged = op.merge("sources", s1, s2, s3)
 
 
-def sampler(batch: List[float]) -> Optional[float]:
+def sampler(prev_sample: Optional[float], batch: List[float]) -> Optional[float]:
     if batch:
         return sum(batch) / len(batch)
+    elif prev_sample:
+        # If no items in this batch, return the previous
+        # sampled value, if any
+        return prev_sample
     else:
         return None
 

@@ -1503,41 +1503,52 @@ def stateful_map(
 
 
 @dataclass
-class _ResampleLogic(UnaryLogic[V, W, List[V]]):
+class _ResampleState(Generic[V, W]):
+    prev_sample: Optional[W]
+    acc: List[V]
+
+
+@dataclass
+class _ResampleLogic(UnaryLogic[V, W, _ResampleState[V, W]]):
     step_id: str
-    sampler: Callable[[List[V]], W]
-    state: List[V]
+    sampler: Callable[[Optional[W], List[V]], W]
     next_awake: datetime
+
+    state: _ResampleState[V, W]
 
     def __init__(
         self,
-        sampler: Callable[[List[V]], W],
+        sampler: Callable[[Optional[W], List[V]], W],
         interval: timedelta,
-        state: Optional[List[V]],
+        state: Optional[_ResampleState],
     ):
-        self.state = state or []
+        self.state = state or _ResampleState(None, [])
         self.interval = interval
         self.sampler = sampler
         self.next_awake = datetime.now(timezone.utc) + self.interval
 
     def on_item(self, now: datetime, value: V) -> Tuple[Iterable[W], bool]:
-        self.state.append(value)
+        self.state.acc.append(value)
         return (EMPTY, UnaryLogic.RETAIN)
 
     def on_notify(self, sched: datetime) -> Tuple[Iterable[W], bool]:
         self.next_awake += self.interval
-        sampled = self.sampler(self.state)
-        self.state = []
-        return ((sampled,), UnaryLogic.RETAIN)
+        sample = self._sample()
+        self.state.prev_sample = sample
+        self.state.acc = []
+        return ((sample,), UnaryLogic.RETAIN)
 
     def on_eof(self) -> Tuple[Iterable[W], bool]:
-        return ((self.sampler(self.state),), UnaryLogic.DISCARD)
+        return ((self._sample(),), UnaryLogic.DISCARD)
 
     def notify_at(self) -> Optional[datetime]:
         return self.next_awake
 
-    def snapshot(self) -> List[V]:
+    def snapshot(self) -> _ResampleState[V, W]:
         return copy.deepcopy(self.state)
+
+    def _sample(self) -> W:
+        return self.sampler(self.state.prev_sample, self.state.acc)
 
 
 @operator
@@ -1545,7 +1556,7 @@ def resample(
     step_id: str,
     up: KeyedStream[V],
     interval: timedelta,
-    sampler: Callable[[List[V]], W],
+    sampler: Callable[[Optional[W], List[V]], W],
 ) -> KeyedStream[W]:
     """Resample the input stream into a fixed frequency output stream.
 
