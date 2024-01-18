@@ -16,12 +16,10 @@ merged = op.merge("sources", s1, s2, s3)
 def sampler(prev_sample: Optional[float], batch: List[float]) -> Optional[float]:
     if batch:
         return sum(batch) / len(batch)
-    elif prev_sample:
-        # If no items in this batch, return the previous
-        # sampled value, if any
-        return prev_sample
     else:
-        return None
+        # If no items in this batch, return the previous
+        # sampled value, which might still be `None`
+        return prev_sample
 
 
 resampled = op.resample("resample", merged, timedelta(seconds=0.5), sampler)

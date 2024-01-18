@@ -1573,7 +1573,9 @@ def resample(
     >>> s2 = op.input("s2", flow, RandomMetricSource("2", timedelta(seconds=0.2), 4))
     >>> s3 = op.input("s3", flow, RandomMetricSource("3", timedelta(seconds=0.1), 1))
     >>> merged = op.merge("sources", s1, s2, s3)
-    >>> resampled = op.resample("res", merged, timedelta(seconds=1.0), lambda t: len(t))
+    >>> def sampler(prev_sample, batch):
+    ...     return len(batch)
+    >>> resampled = op.resample("res", merged, timedelta(seconds=1.0), sampler)
     >>> res = op.inspect("resampled", resampled)
     >>> run_main(flow)
     resample.resampled: ('1', 5)
