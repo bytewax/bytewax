@@ -11,7 +11,7 @@ import copy
 import itertools
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import partial
 from itertools import chain
 from typing import (
@@ -1498,5 +1498,95 @@ def stateful_map(
     ) -> _StatefulMapLogic[V, W, S]:
         state = resume_state if resume_state is not None else builder()
         return _StatefulMapLogic(step_id, mapper, state)
+
+    return unary("unary", up, shim_builder)
+
+
+@dataclass
+class _ResampleLogic(UnaryLogic[V, W, List[V]]):
+    step_id: str
+    sampler: Callable[[List[V]], W]
+    state: List[V]
+    next_awake: datetime
+
+    def __init__(
+        self,
+        sampler: Callable[[List[V]], W],
+        interval: timedelta,
+        state: Optional[List[V]],
+    ):
+        self.state = state or []
+        self.interval = interval
+        self.sampler = sampler
+        self.next_awake = datetime.now(timezone.utc) + self.interval
+
+    def on_item(self, now: datetime, value: V) -> Tuple[Iterable[W], bool]:
+        self.state.append(value)
+        return (EMPTY, UnaryLogic.RETAIN)
+
+    def on_notify(self, sched: datetime) -> Tuple[Iterable[W], bool]:
+        self.next_awake += self.interval
+        sampled = self.sampler(self.state)
+        self.state = []
+        return ((sampled,), UnaryLogic.RETAIN)
+
+    def on_eof(self) -> Tuple[Iterable[W], bool]:
+        return ((self.sampler(self.state),), UnaryLogic.DISCARD)
+
+    def notify_at(self) -> Optional[datetime]:
+        return self.next_awake
+
+    def snapshot(self) -> List[V]:
+        return copy.deepcopy(self.state)
+
+
+@operator
+def resample(
+    step_id: str,
+    up: KeyedStream[V],
+    interval: timedelta,
+    sampler: Callable[[List[V]], W],
+) -> KeyedStream[W]:
+    """Resample the input stream into a fixed frequency output stream.
+
+    The operator accumulates items in a list until it's time to emit
+    the next stream. It passes the list of items (that might be empty)
+    to the provided `sampler` function, and emits the return value of that.
+
+    >>> from datetime import timedelta
+    >>> import bytewax.operators as op
+    >>> from bytewax.connectors.demo import RandomMetricSource
+    >>> from bytewax.testing import run_main
+    >>> flow = Dataflow("resample")
+    >>> s1 = op.input("s1", flow, RandomMetricSource("1", timedelta(seconds=0.1), 5))
+    >>> s2 = op.input("s2", flow, RandomMetricSource("2", timedelta(seconds=0.2), 4))
+    >>> s3 = op.input("s3", flow, RandomMetricSource("3", timedelta(seconds=0.1), 1))
+    >>> merged = op.merge("sources", s1, s2, s3)
+    >>> resampled = op.resample("res", merged, timedelta(seconds=1.0), lambda t: len(t))
+    >>> res = op.inspect("resampled", resampled)
+    >>> run_main(flow)
+    resample.resampled: ('1', 5)
+    resample.resampled: ('2', 4)
+    resample.resampled: ('3', 1)
+
+    Args:
+        step_id: Unique ID.
+
+        up: KeyedStream of items to resample
+
+        interval: Fixed item emission interval
+
+        sampler: Function that takes a list of items
+            and returns the sampled value.
+
+    Returns:
+        A stream of items. The item type is decided by the sampler function
+    """
+
+    def shim_builder(
+        _now: datetime, resume_state: Optional[List[V]]
+    ) -> _ResampleLogic[V, W]:
+        state = resume_state if resume_state is not None else []
+        return _ResampleLogic(sampler, interval, state)
 
     return unary("unary", up, shim_builder)
