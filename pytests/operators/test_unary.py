@@ -5,6 +5,7 @@ import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.operators import UnaryLogic
 from bytewax.testing import TestingSink, TestingSource, run_main
+from typing_extensions import override
 
 ZERO_TD = timedelta(seconds=0)
 
@@ -29,6 +30,7 @@ class BaseTestLogic(UnaryLogic):
         self._notify_at: Optional[datetime] = None
         self._state = state if state is not None else "NEW"
 
+    @override
     def on_item(self, now: datetime, value: Any) -> Tuple[List[Any], bool]:
         if self.item_triggers_notify:
             self._notify_at = now
@@ -37,6 +39,7 @@ class BaseTestLogic(UnaryLogic):
         self._state = "ITEM"
         return ([(old_state, self._state)], self.after_item)
 
+    @override
     def on_notify(self, sched: datetime) -> Tuple[List[Any], bool]:
         self._notify_at = None
 
@@ -44,14 +47,17 @@ class BaseTestLogic(UnaryLogic):
         self._state = "NOTIFY"
         return ([(old_state, self._state)], self.after_notify)
 
+    @override
     def on_eof(self) -> Tuple[List[Any], bool]:
         old_state = self._state
         self._state = "EOF"
         return ([(old_state, self._state)], self.after_eof)
 
+    @override
     def notify_at(self) -> Optional[datetime]:
         return self._notify_at
 
+    @override
     def snapshot(self) -> Any:
         return self._state
 
@@ -188,20 +194,25 @@ class KeepLastLogic(UnaryLogic):
     def __init__(self, _now: datetime, resume_state: Any):
         self._state = resume_state
 
+    @override
     def on_item(self, now: datetime, value: Any) -> Tuple[List[Any], bool]:
         old_state = self._state
         self._state = value
         return ([(old_state, self._state)], self._state == "DISCARD")
 
+    @override
     def on_notify(self, sched: datetime) -> Tuple[List[Any], bool]:
         return ([], UnaryLogic.RETAIN)
 
+    @override
     def on_eof(self) -> Tuple[List[Any], bool]:
         return ([], UnaryLogic.RETAIN)
 
+    @override
     def notify_at(self) -> Optional[datetime]:
         return None
 
+    @override
     def snapshot(self) -> Any:
         return self._state
 

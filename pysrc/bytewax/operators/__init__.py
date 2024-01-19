@@ -27,7 +27,7 @@ from typing import (
     overload,
 )
 
-from typing_extensions import Self, TypeAlias, TypeGuard
+from typing_extensions import Self, TypeAlias, TypeGuard, override
 
 from bytewax.dataflow import (
     Dataflow,
@@ -503,15 +503,19 @@ class _CollectLogic(UnaryLogic[V, List[V], _CollectState[V]]):
 
         return (EMPTY, UnaryLogic.RETAIN)
 
+    @override
     def on_notify(self, sched: datetime) -> Tuple[Iterable[List[V]], bool]:
         return ((self.state.acc,), UnaryLogic.DISCARD)
 
+    @override
     def on_eof(self) -> Tuple[Iterable[List[V]], bool]:
         return ((self.state.acc,), UnaryLogic.DISCARD)
 
+    @override
     def notify_at(self) -> Optional[datetime]:
         return self.state.timeout_at
 
+    @override
     def snapshot(self) -> _CollectState[V]:
         return copy.deepcopy(self.state)
 
@@ -855,20 +859,25 @@ class _FoldFinalLogic(UnaryLogic[V, S, S]):
     folder: Callable[[S, V], S]
     state: S
 
+    @override
     def on_item(self, now: datetime, value: V) -> Tuple[Iterable[S], bool]:
         self.state = self.folder(self.state, value)
         return (EMPTY, UnaryLogic.RETAIN)
 
+    @override
     def on_notify(self, sched: datetime) -> Tuple[Iterable[S], bool]:
         return (EMPTY, UnaryLogic.RETAIN)
 
+    @override
     def on_eof(self) -> Tuple[Iterable[S], bool]:
         # No need to deepcopy because we are discarding the state.
         return ((self.state,), UnaryLogic.DISCARD)
 
+    @override
     def notify_at(self) -> Optional[datetime]:
         return None
 
+    @override
     def snapshot(self) -> S:
         return copy.deepcopy(self.state)
 
@@ -996,6 +1005,7 @@ class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
     running: bool
     state: _JoinState
 
+    @override
     def on_item(
         self, now: datetime, value: Tuple[str, Any]
     ) -> Tuple[Iterable[_JoinState], bool]:
@@ -1012,15 +1022,19 @@ class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
             else:
                 return (EMPTY, UnaryLogic.RETAIN)
 
+    @override
     def on_notify(self, sched: datetime) -> Tuple[Iterable[_JoinState], bool]:
         return (EMPTY, UnaryLogic.RETAIN)
 
+    @override
     def on_eof(self) -> Tuple[Iterable[_JoinState], bool]:
         return (EMPTY, UnaryLogic.RETAIN)
 
+    @override
     def notify_at(self) -> Optional[datetime]:
         return None
 
+    @override
     def snapshot(self) -> _JoinState:
         return copy.deepcopy(self.state)
 
@@ -1315,6 +1329,7 @@ def min_final(
 class _RaisePartition(StatelessSinkPartition[Any]):
     step_id: str
 
+    @override
     def write_batch(self, items: List[Any]) -> None:
         for item in items:
             msg = f"`raises` step {self.step_id!r} got an item: {item!r}"
@@ -1325,6 +1340,7 @@ class _RaisePartition(StatelessSinkPartition[Any]):
 class _RaiseSink(DynamicSink[Any]):
     step_id: str
 
+    @override
     def build(self, worker_index: int, worker_count: int) -> _RaisePartition:
         return _RaisePartition(self.step_id)
 
@@ -1400,6 +1416,7 @@ class _StatefulMapLogic(UnaryLogic[V, W, S]):
     mapper: Callable[[S, V], Tuple[Optional[S], W]]
     state: S
 
+    @override
     def on_item(self, now: datetime, value: V) -> Tuple[Iterable[W], bool]:
         res = self.mapper(self.state, value)
         try:
@@ -1420,15 +1437,19 @@ class _StatefulMapLogic(UnaryLogic[V, W, S]):
             self.state = s
             return ((w,), UnaryLogic.RETAIN)
 
+    @override
     def on_notify(self, sched: datetime) -> Tuple[Iterable[W], bool]:
         return (EMPTY, UnaryLogic.RETAIN)
 
+    @override
     def on_eof(self) -> Tuple[Iterable[W], bool]:
         return (EMPTY, UnaryLogic.RETAIN)
 
+    @override
     def notify_at(self) -> Optional[datetime]:
         return None
 
+    @override
     def snapshot(self) -> S:
         return copy.deepcopy(self.state)
 
