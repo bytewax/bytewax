@@ -188,7 +188,7 @@ class KeepLastLogic(UnaryLogic):
     def __init__(self, _now: datetime, resume_state: Any):
         self._state = resume_state
 
-    def on_item(self, _now: datetime, value: Any) -> Tuple[List[Any], bool]:
+    def on_item(self, now: datetime, value: Any) -> Tuple[List[Any], bool]:
         old_state = self._state
         self._state = value
         return ([(old_state, self._state)], self._state == "DISCARD")

@@ -29,7 +29,8 @@ class _RandomMetricPartition(
     state: _RandomMetricState
 
     @override
-    def next_batch(self, sched: datetime) -> List[Tuple[str, float]]:
+    def next_batch(self, sched: Optional[datetime]) -> List[Tuple[str, float]]:
+        assert sched is not None
         self.state.awake_at = sched + self.interval
         self.state.count += 1
 

@@ -310,7 +310,7 @@ class _SimplePollingPartition(StatefulSourcePartition[X, None]):
             self._next_awake = now
 
     @override
-    def next_batch(self, sched: datetime) -> List[X]:
+    def next_batch(self, sched: Optional[datetime]) -> List[X]:
         try:
             item = self._getter()
             self._next_awake += self._interval

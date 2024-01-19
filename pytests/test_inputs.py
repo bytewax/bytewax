@@ -39,7 +39,7 @@ def test_dynamic_source_next_batch_iterator():
         def __init__(self):
             self._n = 0
 
-        def next_batch(self, _sched: datetime) -> Iterable[int]:
+        def next_batch(self, sched: Optional[datetime]) -> Iterable[int]:
             if self._n < 5:
                 n = self._n
                 self._n += 1
@@ -49,7 +49,7 @@ def test_dynamic_source_next_batch_iterator():
 
     class TestSource(DynamicSource[int]):
         def build(
-            self, _now: datetime, _worker_index: int, _worker_count: int
+            self, now: datetime, worker_index: int, worker_count: int
         ) -> TestPartition:
             return TestPartition()
 
@@ -68,7 +68,7 @@ def test_fixed_partitioned_source_next_batch_iterator():
         def __init__(self):
             self._n = 0
 
-        def next_batch(self, _sched: datetime) -> Iterable[int]:
+        def next_batch(self, sched: Optional[datetime]) -> Iterable[int]:
             if self._n < 5:
                 n = self._n
                 self._n += 1
@@ -84,7 +84,7 @@ def test_fixed_partitioned_source_next_batch_iterator():
             return ["one"]
 
         def build_part(
-            self, _now: datetime, _worker_index: int, _worker_count: int
+            self, now: datetime, for_part: str, resume_state: None
         ) -> TestPartition:
             return TestPartition()
 
@@ -125,7 +125,7 @@ class _DynamicMetronomePartition(StatelessSourcePartition[Tuple[datetime, int]])
         return self._next_awake
 
 
-class DynamicMetronomeSource(DynamicSource[datetime]):
+class DynamicMetronomeSource(DynamicSource[Tuple[datetime, int]]):
     def __init__(self, interval: timedelta, count: int = sys.maxsize):
         self._interval = interval
         self._count = count

@@ -52,7 +52,7 @@ class _FileSourcePartition(StatefulSourcePartition[str, int]):
         self._batcher = batch(it, batch_size)
 
     @override
-    def next_batch(self, sched: datetime) -> List[str]:
+    def next_batch(self, sched: Optional[datetime]) -> List[str]:
         return next(self._batcher)
 
     @override
@@ -227,7 +227,7 @@ class _CSVPartition(StatefulSourcePartition[Dict[str, str], int]):
         self._batcher = batch(reader, batch_size)
 
     @override
-    def next_batch(self, sched: datetime) -> List[Dict[str, str]]:
+    def next_batch(self, sched: Optional[datetime]) -> List[Dict[str, str]]:
         return next(self._batcher)
 
     @override

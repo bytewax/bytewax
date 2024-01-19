@@ -68,7 +68,7 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
         self._raise: Optional[Exception] = None
 
     @override
-    def next_batch(self, sched: datetime) -> List[X]:
+    def next_batch(self, sched: Optional[datetime]) -> List[X]:
         if self._raise is not None:
             raise self._raise
 
