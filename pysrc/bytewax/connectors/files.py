@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 from zlib import adler32
 
+from typing_extensions import override
+
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch
 from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
 
@@ -49,12 +51,15 @@ class _FileSourcePartition(StatefulSourcePartition[str, int]):
         it = map(_strip_n, _readlines(self._f))
         self._batcher = batch(it, batch_size)
 
+    @override
     def next_batch(self, sched: datetime) -> List[str]:
         return next(self._batcher)
 
+    @override
     def snapshot(self) -> int:
         return self._f.tell()
 
+    @override
     def close(self) -> None:
         self._f.close()
 
@@ -119,8 +124,8 @@ class DirSource(FixedPartitionedSource[str, int]):
             msg = f"result of `get_fs_id` must not contain `::`; got {self._fs_id!r}"
             raise ValueError(msg)
 
+    @override
     def list_parts(self) -> List[str]:
-        """Each file is a separate partition."""
         if self._dir_path.exists():
             return [
                 f"{self._fs_id}::{path.relative_to(self._dir_path)}"
@@ -129,10 +134,10 @@ class DirSource(FixedPartitionedSource[str, int]):
         else:
             return []
 
+    @override
     def build_part(
         self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -> _FileSourcePartition:
-        """See ABC docstring."""
         _fs_id, for_path = for_part.split("::", 1)
         path = self._dir_path / for_path
         return _FileSourcePartition(path, self._batch_size, resume_state)
@@ -187,17 +192,17 @@ class FileSource(FixedPartitionedSource[str, int]):
             msg = f"result of `get_fs_id` must not contain `::`; got {self._fs_id!r}"
             raise ValueError(msg)
 
+    @override
     def list_parts(self) -> List[str]:
-        """The file is a single partition."""
         if self._path.exists():
             return [f"{self._fs_id}::{self._path}"]
         else:
             return []
 
+    @override
     def build_part(
         self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -> _FileSourcePartition:
-        """See ABC docstring."""
         _fs_id, path = for_part.split("::", 1)
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
@@ -221,12 +226,15 @@ class _CSVPartition(StatefulSourcePartition[Dict[str, str], int]):
             self._f.seek(resume_state)
         self._batcher = batch(reader, batch_size)
 
+    @override
     def next_batch(self, sched: datetime) -> List[Dict[str, str]]:
         return next(self._batcher)
 
+    @override
     def snapshot(self) -> int:
         return self._f.tell()
 
+    @override
     def close(self) -> None:
         self._f.close()
 
@@ -310,12 +318,12 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
         self._file_source = FileSource(path, batch_size, get_fs_id)
         self._fmtparams = fmtparams
 
+    @override
     def list_parts(self) -> List[str]:
-        """Same logic as `FileSource.list_parts`."""
         return self._file_source.list_parts()
 
+    @override
     def build_part(self, now: datetime, for_part: str, resume_state: Optional[Any]):
-        """See ABC docstring."""
         _fs_id, path = for_part.split("::", 1)
         assert path == str(
             self._file_source._path
@@ -336,6 +344,7 @@ class _FileSinkPartition(StatefulSinkPartition[str, int]):
         self._f.truncate()
         self._end = end
 
+    @override
     def write_batch(self, values: List[str]) -> None:
         for value in values:
             self._f.write(value)
@@ -343,9 +352,11 @@ class _FileSinkPartition(StatefulSinkPartition[str, int]):
         self._f.flush()
         os.fsync(self._f.fileno())
 
+    @override
     def snapshot(self) -> int:
         return self._f.tell()
 
+    @override
     def close(self) -> None:
         self._f.close()
 
@@ -404,18 +415,18 @@ class DirSink(FixedPartitionedSink[str, int]):
         self._assign_file = assign_file
         self._end = end
 
+    @override
     def list_parts(self) -> List[str]:
-        """Each file is a partition."""
         return [self._file_namer(i, self._file_count) for i in range(self._file_count)]
 
+    @override
     def part_fn(self, item_key: str) -> int:
-        """Use the specified file assigner."""
         return self._assign_file(item_key)
 
+    @override
     def build_part(
         self, for_part: str, resume_state: Optional[int]
     ) -> _FileSinkPartition:
-        """See ABC docstring."""
         path = self._dir_path / for_part
         return _FileSinkPartition(path, resume_state, self._end)
 
@@ -449,18 +460,18 @@ class FileSink(FixedPartitionedSink[str, int]):
         self._path = path
         self._end = end
 
+    @override
     def list_parts(self) -> List[str]:
-        """The file is a single partition."""
         return [str(self._path)]
 
+    @override
     def part_fn(self, item_key: str) -> int:
-        """Only one partition."""
         return 0
 
+    @override
     def build_part(
         self, for_part: str, resume_state: Optional[int]
     ) -> _FileSinkPartition:
-        """See ABC docstring."""
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
         assert for_part == str(self._path), "Can't resume writing to different file"

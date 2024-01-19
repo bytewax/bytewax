@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable, List, Optional, Tuple, TypeVar
 
+from typing_extensions import override
+
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 
 X = TypeVar("X")
@@ -26,6 +28,7 @@ class _RandomMetricPartition(
     next_random: Callable[[], float]
     state: _RandomMetricState
 
+    @override
     def next_batch(self, sched: datetime) -> List[Tuple[str, float]]:
         self.state.awake_at = sched + self.interval
         self.state.count += 1
@@ -36,9 +39,11 @@ class _RandomMetricPartition(
         value = self.next_random()
         return [(self.metric_name, value)]
 
+    @override
     def next_awake(self) -> Optional[datetime]:
         return self.state.awake_at
 
+    @override
     def snapshot(self) -> _RandomMetricState:
         return self.state
 
@@ -71,14 +76,14 @@ class RandomMetricSource(FixedPartitionedSource[Tuple[str, float], _RandomMetric
     count: int = sys.maxsize
     next_random: Callable[[], float] = lambda: random.randrange(0, 10)
 
+    @override
     def list_parts(self) -> List[str]:
-        """A single stream of values."""
         return [self.metric_name]
 
+    @override
     def build_part(
         self, now: datetime, for_part: str, resume_state: Optional[_RandomMetricState]
     ):
-        """See ABC docstring."""
         state = resume_state if resume_state is not None else _RandomMetricState(now, 0)
         return _RandomMetricPartition(
             for_part, self.interval, self.count, self.next_random, state

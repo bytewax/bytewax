@@ -22,7 +22,7 @@ from typing import (
     TypeVar,
 )
 
-from typing_extensions import AsyncIterable
+from typing_extensions import AsyncIterable, override
 
 from bytewax._bytewax import AbortExecution
 
@@ -309,6 +309,7 @@ class _SimplePollingPartition(StatefulSourcePartition[X, None]):
         else:
             self._next_awake = now
 
+    @override
     def next_batch(self, sched: datetime) -> List[X]:
         try:
             item = self._getter()
@@ -320,9 +321,11 @@ class _SimplePollingPartition(StatefulSourcePartition[X, None]):
             self._next_awake += ex.timeout
             return []
 
+    @override
     def next_awake(self) -> Optional[datetime]:
         return self._next_awake
 
+    @override
     def snapshot(self) -> None:
         return None
 
@@ -381,14 +384,15 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
         self._interval = interval
         self._align_to = align_to
 
+    @override
     def list_parts(self) -> List[str]:
         """Assumes the source has a single partition."""
         return ["singleton"]
 
+    @override
     def build_part(
         self, now: datetime, for_part: str, resume_state: Optional[None]
     ) -> _SimplePollingPartition[X]:
-        """See ABC docstring."""
         return _SimplePollingPartition(
             now, self._interval, self._align_to, self.next_item
         )

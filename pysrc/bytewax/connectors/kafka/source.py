@@ -6,6 +6,7 @@ from typing import Dict, Iterable, List, Optional, Union
 from confluent_kafka import OFFSET_BEGINNING, Consumer, TopicPartition
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.admin import AdminClient
+from typing_extensions import override
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 
@@ -58,6 +59,7 @@ class _KafkaSourcePartition(StatefulSourcePartition[_KafkaItem, Optional[int]]):
         self._eof = False
         self._raise_on_errors = raise_on_errors
 
+    @override
     def next_batch(self, sched: Optional[datetime]) -> List[_KafkaItem]:
         if self._eof:
             raise StopIteration()
@@ -106,9 +108,11 @@ class _KafkaSourcePartition(StatefulSourcePartition[_KafkaItem, Optional[int]]):
             self._offset = last_offset + 1
         return batch
 
+    @override
     def snapshot(self) -> Optional[int]:
         return self._offset
 
+    @override
     def close(self) -> None:
         self._consumer.close()
 
@@ -176,8 +180,8 @@ class KafkaSource(FixedPartitionedSource[_KafkaItem, Optional[int]]):
         self._batch_size = batch_size
         self._raise_on_errors = raise_on_errors
 
+    @override
     def list_parts(self) -> List[str]:
-        """Each Kafka partition is an input partition."""
         config = {
             "bootstrap.servers": ",".join(self._brokers),
         }
@@ -186,10 +190,10 @@ class KafkaSource(FixedPartitionedSource[_KafkaItem, Optional[int]]):
 
         return list(_list_parts(client, self._topics))
 
+    @override
     def build_part(
         self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -> _KafkaSourcePartition:
-        """See ABC docstring."""
         idx, topic = for_part.split("-", 1)
         part_idx = int(idx)
         # TODO: Warn and then return None. This might be an indication

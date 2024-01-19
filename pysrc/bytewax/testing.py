@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 from itertools import islice
 from typing import Any, Iterable, Iterator, List, Optional, TypeVar, Union
 
+from typing_extensions import override
+
 from bytewax._bytewax import (
     cluster_main,
     run_main,
@@ -65,6 +67,7 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
         ffwd_iter(self._it, self._start_idx)
         self._raise: Optional[Exception] = None
 
+    @override
     def next_batch(self, sched: datetime) -> List[X]:
         if self._raise is not None:
             raise self._raise
@@ -103,6 +106,7 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
         else:
             raise StopIteration()
 
+    @override
     def snapshot(self) -> int:
         return self._start_idx
 
@@ -167,14 +171,14 @@ class TestingSource(FixedPartitionedSource[X, int]):
         self._ib = ib
         self._batch_size = batch_size
 
+    @override
     def list_parts(self):
-        """The iterable is read on a single worker."""
         return ["iterable"]
 
+    @override
     def build_part(
         self, now: datetime, for_part: str, resume_state: Optional[int]
     ) -> _IterSourcePartition[X]:
-        """See ABC docstring."""
         return _IterSourcePartition(self._ib, self._batch_size, resume_state)
 
 
@@ -182,6 +186,7 @@ class _ListSinkPartition(StatelessSinkPartition[X]):
     def __init__(self, ls: List[X]):
         self._ls = ls
 
+    @override
     def write_batch(self, items: List[X]) -> None:
         self._ls += items
 
@@ -206,8 +211,8 @@ class TestingSink(DynamicSink[X]):
         """
         self._ls = ls
 
+    @override
     def build(self, worker_index: int, worker_count: int) -> _ListSinkPartition[X]:
-        """See ABC docstring."""
         return _ListSinkPartition(self._ls)
 
 
