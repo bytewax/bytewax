@@ -613,7 +613,7 @@ def _gen_op_fn(
             cls_vals["down"] = out
         elif isinstance(out, type(None)):
             pass
-        elif dataclasses.is_dataclass(out):
+        elif dataclasses.is_dataclass(out) and not isinstance(out, type):
             for fld in dataclasses.fields(out):
                 cls_vals[fld.name] = getattr(out, fld.name)
         else:
@@ -650,7 +650,7 @@ def _gen_op_fn(
         # methods will not still be added in this operator a substeps.
         if isinstance(out, _HasScope):
             out = out._with_scope(outer_scope)
-        elif dataclasses.is_dataclass(out):
+        elif dataclasses.is_dataclass(out) and not isinstance(out, type):
             vals = {}
             for fld in dataclasses.fields(out):
                 val = getattr(out, fld.name)
