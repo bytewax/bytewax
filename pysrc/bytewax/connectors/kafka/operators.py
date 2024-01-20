@@ -293,7 +293,8 @@ def serialize_key(
         key = serializer.ser(msg.key)
         return msg._with_key(key)
 
-    return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)
+    sinks = _to_sink("to_sink", up)
+    return op.map("map", sinks, shim_mapper)
 
 
 @operator
@@ -315,7 +316,8 @@ def serialize_value(
         value = serializer.ser(msg.value)
         return msg._with_value(value)
 
-    return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)
+    sinks = _to_sink("to_sink", up)
+    return op.map("map", sinks, shim_mapper)
 
 
 @operator
@@ -340,4 +342,5 @@ def serialize(
         value = val_serializer.ser(msg.value)
         return msg._with_key_and_value(key, value)
 
-    return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)
+    sinks = _to_sink("to_sink", up)
+    return op.map("map", sinks, shim_mapper)
