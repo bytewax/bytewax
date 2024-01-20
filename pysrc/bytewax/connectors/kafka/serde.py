@@ -3,7 +3,7 @@ import io
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, Generic, TypeVar
+from typing import Dict, Generic, TypeVar, cast
 
 from confluent_kafka.schema_registry import record_subject_name_strategy
 from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
@@ -55,7 +55,9 @@ class _ConfluentAvroSerializer(SchemaSerializer[Dict, bytes]):
         )
 
     def ser(self, obj: Dict) -> bytes:
-        return self.serializer(obj, ctx=None)
+        b = self.serializer(obj, ctx=None)
+        # The serializer only returns `None` if the input is `None`.
+        return cast(bytes, b)
 
 
 class _ConfluentAvroDeserializer(SchemaDeserializer[MaybeStrBytes, AvroMessage]):
@@ -72,7 +74,9 @@ class _ConfluentAvroDeserializer(SchemaDeserializer[MaybeStrBytes, AvroMessage])
         # function is passed to the deserializer, but we
         # initialize it ourselves and don't pass that,
         # so we can set `ctx` to None
-        return self.deserializer(data, ctx=None)
+        obj = self.deserializer(data, ctx=None)
+        # The deserializer only returns `None` if the input is `None`.
+        return cast(Dict, obj)
 
 
 class _AvroSerializer(SchemaSerializer[Dict, bytes]):
