@@ -21,17 +21,19 @@ use super::*;
 ///
 /// If the dataflow has no more input, all windows are closed.
 ///
-/// Args:
-///   dt_getter (typing.Callable): Returns the timestamp for an item.
-///     The `datetime` returned must have tzinfo set to `timezone.utc`.
-///     E.g. `datetime(1970, 1, 1, tzinfo=timezone.utc)`
+/// :arg dt_getter: Returns the timestamp for an item. The `datetime`
+///     returned must have tzinfo set to `timezone.utc`. E.g.
+///     `datetime(1970, 1, 1, tzinfo=timezone.utc)`
 ///
-///   wait_for_system_duration (datetime.timedelta): How much system
-///     time to wait before considering an event late.
+/// :type dt_getter: typing.Callable[[typing.Any], datetime.datetime]
 ///
-/// Returns:
-///   Config object. Pass this as the `clock_config` parameter to
-///   your windowing operator.
+/// :arg wait_for_system_duration: How much time to wait before
+///     considering an event late.
+///
+/// :type wait_for_system_duration: datetime.timedelta
+///
+/// :returns: Config object. Pass this as the `clock_config` parameter
+///     to your windowing operator.
 #[pyclass(module="bytewax.window", extends=ClockConfig)]
 #[derive(Clone)]
 pub(crate) struct EventClockConfig {

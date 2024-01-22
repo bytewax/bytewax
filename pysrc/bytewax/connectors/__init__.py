@@ -1,6 +1,6 @@
 """Connectors for IO with external systems.
 
-See `bytewax.inputs` and `bytewax.outputs` for the lower level
-primitives to implement your own connector.
+See {py:obj}`bytewax.inputs` and {py:obj}`bytewax.outputs` for the
+lower level primitives to implement your own connector.
 
 """

@@ -10,10 +10,13 @@ use.
 def init_db_dir(db_dir, count):
     """Create and init a set of empty recovery partitions.
 
-    Args:
-      db_dir (path.Path): Local directory to create partitions in.
+    :arg db_dir: Local directory to create partitions in.
 
-      count (int): Number of partitions to create.
+    :type db_dir: pathlib.Path
+
+    :arg count: Number of partitions to create.
+
+    :type count: int
 
     """
     ...
@@ -21,20 +24,24 @@ def init_db_dir(db_dir, count):
 class RecoveryConfig:
     """Configuration settings for recovery.
 
-    Args:
-      db_dir (pathlib.Path): Local filesystem directory to search for
-        recovery database partitions.
+    :arg db_dir: Local filesystem directory to search for recovery
+        database partitions.
 
-      backup_interval (typing.Optional[datetime.duration]): Amount of
-        system time to wait to permanently delete a state snapshot after
-        it is no longer needed. You should set this to the interval at
-        which you are backing up the recovery partitions off of the
-        workers into archival storage (e.g. S3). Defaults to zero
-        duration.
+    :type db_dir: pathlib.Path
 
-      snapshot_serde (typing.Optional[bytewax.serde.Serde]): Format to
-        use when encoding state snapshot objects in the recovery
-        partitions. Defaults to `bytewax.serde.JsonPickleSerde`.
+    :arg backup_interval: Amount of system time to wait to permanently
+        delete a state snapshot after it is no longer needed. You
+        should set this to the interval at which you are backing up
+        the recovery partitions off of the workers into archival
+        storage (e.g. S3). Defaults to zero duration.
+
+    :type backup_interval: typing.Optional[datetime.timedelta]
+
+    :arg snapshot_serde: Format to use when encoding state snapshot
+        objects in the recovery partitions. Defaults to
+        {py:obj}`~bytewax.serde.JsonPickleSerde`.
+
+    :type snapshot_serde: typing.Optional[bytewax.serde.Serde]
 
     """
 
@@ -70,14 +77,20 @@ def run_main(flow, *, epoch_interval=None, recovery_config=None):
     1
     2
 
-    Args:
-      flow (bytewax.dataflow.Dataflow): Dataflow to run.
+    :arg flow: Dataflow to run.
 
-      epoch_interval (typing.Optional[datetime.timedelta]): System
-        time length of each epoch. Defaults to 10 seconds.
+    :type flow: bytewax.dataflow.Dataflow
 
-      recovery_config (typing.Optional[bytewax.recovery.RecoveryConfig]):
-        State recovery config. If `None`, state will not be persisted.
+    :arg epoch_interval: System time length of each epoch. Defaults to
+        10 seconds.
+
+    :type epoch_interval: typing.Optional[datetime.timedelta]
+
+    :arg recovery_config: State recovery config. If `None`, state will
+        not be persisted.
+
+    :type recovery_config:
+        typing.Optional[bytewax.recovery.RecoveryConfig]
 
     """
     ...
@@ -111,22 +124,34 @@ def cluster_main(
     1
     2
 
-    Args:
-      flow (bytewax.dataflow.Dataflow): Dataflow to run.
+    :arg flow: Dataflow to run.
 
-      addresses (typing.List[str]): List of host/port addresses for
-        all processes in this cluster (including this one).
+    :type flow: bytewax.dataflow.Dataflow
 
-      proc_id (int): Index of this process in cluster; starts from 0.
+    :arg addresses: List of host/port addresses for all processes in
+        this cluster (including this one).
 
-      epoch_interval (typing.Optional[datetime.timedelta]): System
-        time length of each epoch. Defaults to 10 seconds.
+    :type addresses: typing.List[str]
 
-      recovery_config (typing.Optional[bytewax.recovery.RecoveryConfig]):
-        State recovery config. If `None`, state will not be persisted.
+    :arg proc_id: Index of this process in cluster; starts from 0.
 
-      worker_count_per_proc (int): Number of worker threads to start
-        on each process. Defaults to `1`.
+    :type proc_id: int
+
+    :arg epoch_interval: System time length of each epoch. Defaults to
+        10 seconds.
+
+    :type epoch_interval: typing.Optional[datetime.timedelta]
+
+    :arg recovery_config: State recovery config. If `None`, state will
+        not be persisted.
+
+    :type recovery_config:
+        typing.Optional[bytewax.recovery.RecoveryConfig]
+
+    :arg worker_count_per_proc: Number of worker threads to start on
+        each process. Defaults to `1`.
+
+    :type worker_count_per_proc: int
 
     """
     ...
@@ -202,12 +227,15 @@ def setup_tracing(tracing_config=None, log_level=None):
     tracer = setup_tracing()
     ```
 
-    Args:
-      tracing_config (TracingConfig): The specific backend you want to
-        use.
+    :arg tracing_config: The specific backend you want to use.
 
-      log_level (str): String of the log level. One of `"ERROR"`,
-        `"WARN"`, `"INFO"`, `"DEBUG"`, `"TRACE"`.
+    :type tracing_config: bytewax.tracing.TracingConfig
+
+    :arg log_level: String of the log level. One of `"ERROR"`,
+        `"WARN"`, `"INFO"`, `"DEBUG"`, `"TRACE"`. Defaults to
+        `"ERROR"`.
+
+    :type log_level: str
 
     """
     ...
@@ -356,14 +384,19 @@ class JaegerConfig(TracingConfig):
       OTEL_EXPORTER_JAEGER_AGENT_HOST="127.0.0.1"
       OTEL_EXPORTER_JAEGER_AGENT_PORT="6831"
 
-    Args:
-      service_name (str): Identifies this dataflow in Jaeger.
+    :arg service_name: Identifies this dataflow in Jaeger.
 
-      endpoint (typing.Optional[str]): Connection info. Takes
-        precidence over env vars. Defaults to `"127.0.0.1:6831"`.
+    :type service_name: str
 
-      sampling_ratio (float): Fraction of traces to send between `0.0`
-        and `1.0`.
+    :arg endpoint: Connection info. Takes precidence over env vars.
+        Defaults to `"127.0.0.1:6831"`.
+
+    :type endpoint: str
+
+    :arg sampling_ratio: Fraction of traces to send between `0.0` and
+        `1.0`.
+
+    :type sampling_ratio: float
 
     """
 
@@ -393,14 +426,18 @@ class OtlpTracingConfig(TracingConfig):
     This is the recommended approach since it allows the maximum
     flexibility in what to do with all the data bytewax can generate.
 
-    Args:
-      service_name (str): Identifies this dataflow in Otlp.
+    :arg service_name: Identifies this dataflow in OTLP.
 
-      url (typing.Optional[str]): Connection info. Defaults to
-        `"grpc:://127.0.0.1:4317"`.
+    :type service_name: str
 
-      sampling_ratio (float): Fraction of traces to send between `0.0`
-        and `1.0`.
+    :arg url: Connection info. Defaults to `"grpc:://127.0.0.1:4317"`.
+
+    :type url: str
+
+    :arg sampling_ratio: Fraction of traces to send between `0.0` and
+        `1.0`.
+
+    :type sampling_ratio: float
 
     """
 
@@ -429,17 +466,19 @@ class EventClockConfig(ClockConfig):
 
     If the dataflow has no more input, all windows are closed.
 
-    Args:
-      dt_getter (typing.Callable): Returns the timestamp for an item.
-        The `datetime` returned must have tzinfo set to `timezone.utc`.
-        E.g. `datetime(1970, 1, 1, tzinfo=timezone.utc)`
+    :arg dt_getter: Returns the timestamp for an item. The `datetime`
+        returned must have tzinfo set to `timezone.utc`. E.g.
+        `datetime(1970, 1, 1, tzinfo=timezone.utc)`
 
-      wait_for_system_duration (datetime.timedelta): How much system
-        time to wait before considering an event late.
+    :type dt_getter: typing.Callable[[typing.Any], datetime.datetime]
 
-    Returns:
-      Config object. Pass this as the `clock_config` parameter to
-      your windowing operator.
+    :arg wait_for_system_duration: How much time to wait before
+        considering an event late.
+
+    :type wait_for_system_duration: datetime.timedelta
+
+    :returns: Config object. Pass this as the `clock_config` parameter
+        to your windowing operator.
 
     """
 
@@ -482,37 +521,40 @@ class TumblingWindow(WindowConfig):
 
     Window start times are inclusive, but end times are exclusive.
 
-    Args:
-      length (datetime.timedelta): Length of windows.
+    :arg length: Length of windows.
 
-      align_to (datetime.datetime): Align windows so this instant
-        starts a window. This must be a constant. You can use this to
-        align all windows to hour boundaries, e.g.
+    :type length: datetime.timedelta
 
-    Returns:
-      Config object. Pass this as the `window_config` parameter to
-      your windowing operator.
+    :arg align_to: Align windows so this instant starts a window. This
+        must be a constant. You can use this to align all windows to
+        hour boundaries, e.g.
+
+    :type align_to: datetime.timedelta
+
+    :returns: Config object. Pass this as the `window_config`
+        parameter to your windowing operator.
 
     """
 
     ...
 
     def __init__(self, length, align_to): ...
-    def __new__(cls, *args, **kwargs):
+    def __new__(*args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
 
     @property
-    def align_to(self): ...
-    @property
     def length(self): ...
+    @property
+    def align_to(self): ...
 
 class SlidingWindow(WindowConfig):
     """Sliding windows of fixed duration.
 
     If `offset == length`, windows cover all time but do not overlap.
-    Each item will fall in exactly one window. The `TumblingWindow`
-    config will do this for you.
+    Each item will fall in exactly one window. This would be
+    equivalent to a
+    {py:obj}`~bytewax.operators.window.TumblingWindow`.
 
     If `offset < length`, windows overlap. Each item will fall in
     multiple windows.
@@ -522,19 +564,22 @@ class SlidingWindow(WindowConfig):
 
     Window start times are inclusive, but end times are exclusive.
 
-    Args:
-      length (datetime.timedelta): Length of windows.
+    :arg length: Length of windows.
 
-      offset (datetime.timedelta): Duration between start times of
-        adjacent windows.
+    :type length: datetime.timedelta
 
-      align_to (datetime.datetime): Align windows so this instant
-        starts a window. This must be a constant. You can use this to
-        align all windows to hour boundaries, e.g.
+    :arg offset: Duration between start times of adjacent windows.
 
-    Returns:
-      Config object. Pass this as the `window_config` parameter to
-      your windowing operator.
+    :type offset: datetime.timedelta
+
+    :arg align_to: Align windows so this instant starts a window. This
+        must be a constant. You can use this to align all windows to
+        hour boundaries, e.g.
+
+    :type align_to: datetime.datetime
+
+    :returns: Config object. Pass this as the `window_config`
+        parameter to your windowing operator.
 
     """
 
@@ -559,14 +604,13 @@ class SessionWindow(WindowConfig):
     if the time since the latest event is < `gap`. Otherwise a new
     window is created that starts at current clock's time.
 
-    Args:
-      gap (datetime.timedelta):
-        Gap of inactivity before considering a session closed. The gap
-        should not be negative.
+    :arg gap: Gap of inactivity before considering a session closed.
+        The gap should not be negative.
 
-    Returns:
-      Config object. Pass this as the `window_config` parameter to
-      your windowing operator.
+    :type gap: datetime.timedelta
+
+    :returns: Config object. Pass this as the `window_config`
+        parameter to your windowing operator.
 
     """
 

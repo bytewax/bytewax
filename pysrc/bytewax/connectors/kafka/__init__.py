@@ -5,12 +5,13 @@ Importing this module requires the
 package to be installed.
 
 The input source returns a stream of
-`bytewax.connectors.kafka.KafkaSourceMessage`. See the
+{py:obj}`~bytewax.connectors.kafka.KafkaSourceMessage`. See the
 docstring for its use.
 
-You can use `bytewax.connectors.kafka.KafkaSource` and
-`bytewax.connectors.kafka.KafkaSink` directly:
+You can use {py:obj}`~bytewax.connectors.kafka.KafkaSource` and
+{py:obj}`~bytewax.connectors.kafka.KafkaSink` directly:
 
+```python
 >>> from bytewax.connectors.kafka import KafkaSource, KafkaSink, KafkaSinkMessage
 >>> from bytewax import operators as op
 >>> from bytewax.dataflow import Dataflow
@@ -20,9 +21,11 @@ You can use `bytewax.connectors.kafka.KafkaSource` and
 >>> kinp = op.input("kafka-in", flow, KafkaSource(brokers, ["in-topic"]))
 >>> processed = op.map("map", kinp, lambda x: KafkaSinkMessage(x.key, x.value))
 >>> op.output("kafka-out", processed, KafkaSink(brokers, "out-topic"))
+```
 
 Or the custom operators:
 
+```python
 >>> from bytewax.connectors.kafka import operators as kop, KafkaSinkMessage
 >>> from bytewax import operators as op
 >>> from bytewax.dataflow import Dataflow
@@ -33,6 +36,7 @@ Or the custom operators:
 >>> errs = op.inspect("errors", kinp.errs).then(op.raises, "crash-on-err")
 >>> processed = op.map("map", kinp.oks, lambda x: KafkaSinkMessage(x.key, x.value))
 >>> kop.output("kafka-out", processed, brokers=brokers, topic="out-topic")
+```
 
 """
 from dataclasses import dataclass, field
@@ -86,7 +90,7 @@ class KafkaSourceMessage(Generic[K, V]):
     def to_sink(self) -> "KafkaSinkMessage[K, V]":
         """Convert a source message to be used with a sink.
 
-        Only `key`, `value` and `timestamp`
+        Only {py:obj}`key`, {py:obj}`value` and {py:obj}`timestamp`
         are used.
 
         """
@@ -142,7 +146,7 @@ SerializedKafkaSourceMessage: TypeAlias = KafkaSourceMessage[
 
 @dataclass(frozen=True)
 class KafkaError(Generic[K, V]):
-    """Error from a `KafkaSource`."""
+    """Error from a {py:obj}`KafkaSource`."""
 
     err: ConfluentKafkaError
     """Underlying error from the consumer."""
@@ -269,7 +273,7 @@ class KafkaSource(FixedPartitionedSource[SerializedKafkaSourceResult, Optional[i
     Can support exactly-once processing.
 
     Messages are emitted into the dataflow as
-    `SerializedKafkaSourceResult` objects.
+    {py:obj}`SerializedKafkaSourceResult` objects.
 
     """
 
@@ -285,32 +289,31 @@ class KafkaSource(FixedPartitionedSource[SerializedKafkaSourceResult, Optional[i
     ):
         """Init.
 
-        Args:
-            brokers: List of `host:port` strings of Kafka brokers.
+        :arg brokers: List of `host:port` strings of Kafka brokers.
 
-            topics: List of topics to consume from.
+        :arg topics: List of topics to consume from.
 
-            tail: Whether to wait for new data on this topic when the
-                end is initially reached.
+        :arg tail: Whether to wait for new data on this topic when the end
+            is initially reached.
 
-            starting_offset: Can be either
-                `confluent_kafka.OFFSET_BEGINNING` or
-                `confluent_kafka.OFFSET_END`. Defaults to beginning of
-                topic.
+        :arg starting_offset: Can be either
+            `confluent_kafka.OFFSET_BEGINNING` or
+            `confluent_kafka.OFFSET_END`. Defaults to beginning of
+            topic.
 
-            add_config: Any additional configuration properties. See
-                [the `rdkafka`
-                documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
-                for options.
+        :arg add_config: Any additional configuration properties. See
+            [the `rdkafka`
+            documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+            for options.
 
-            batch_size: How many messages to consume at most at each
-                poll. This is 1000 by default. The default setting is
-                a suitable starting point for higher throughput
-                dataflows, but can be tuned lower to potentially
-                decrease individual message processing latency.
+        :arg batch_size: How many messages to consume at most at each
+            poll. This is 1000 by default. The default setting is a
+            suitable starting point for higher throughput dataflows,
+            but can be tuned lower to potentially decrease individual
+            message processing latency.
 
-            raise_on_errors: If set to False, errors won't stop the
-                dataflow, and will be emitted into the dataflow.
+        :arg raise_on_errors: If set to False, errors won't stop the
+            dataflow, and will be emitted into the dataflow.
 
         """
         if isinstance(brokers, str):
@@ -455,7 +458,7 @@ class KafkaSink(DynamicSink[SerializedKafkaSinkMessage]):
     """Use a single Kafka topic as an output sink.
 
     Items consumed from the dataflow must be
-    `SerializedKafkaSinkMessage`.
+    {py:obj}`SerializedKafkaSinkMessage`.
 
     Workers are the unit of parallelism.
 
@@ -474,17 +477,16 @@ class KafkaSink(DynamicSink[SerializedKafkaSinkMessage]):
     ):
         """Init.
 
-        Args:
-            brokers: List of `host:port` strings of Kafka brokers.
+        :arg brokers: List of `host:port` strings of Kafka brokers.
 
-            topic: Topic to produce to. If it's `None`, the topic to
-                produce to will be read in each
-                `bytewax.connectors.kafka.KafkaSinkMessage`.
+        :arg topic: Topic to produce to. If it's `None`, the topic to
+            produce to will be read in each
+            {py:obj}`~bytewax.connectors.kafka.KafkaSinkMessage`.
 
-            add_config: Any additional configuration properties. See
-                [the `rdkafka`
-                documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
-                for options.
+        :arg add_config: Any additional configuration properties. See
+            [the `rdkafka`
+            documentation](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+            for options.
 
         """
         self._brokers = brokers

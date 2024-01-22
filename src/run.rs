@@ -85,14 +85,20 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 /// 1
 /// 2
 ///
-/// Args:
-///   flow (bytewax.dataflow.Dataflow): Dataflow to run.
+/// :arg flow: Dataflow to run.
 ///
-///   epoch_interval (typing.Optional[datetime.timedelta]): System
-///     time length of each epoch. Defaults to 10 seconds.
+/// :type flow: bytewax.dataflow.Dataflow
 ///
-///   recovery_config (typing.Optional[bytewax.recovery.RecoveryConfig]):
-///     State recovery config. If `None`, state will not be persisted.
+/// :arg epoch_interval: System time length of each epoch. Defaults to
+///     10 seconds.
+///
+/// :type epoch_interval: typing.Optional[datetime.timedelta]
+///
+/// :arg recovery_config: State recovery config. If `None`, state will
+///     not be persisted.
+///
+/// :type recovery_config:
+///     typing.Optional[bytewax.recovery.RecoveryConfig]
 #[pyfunction]
 #[pyo3(
     signature = (flow, *, epoch_interval = None, recovery_config = None)
@@ -182,22 +188,34 @@ pub(crate) fn run_main(
 /// 1
 /// 2
 ///
-/// Args:
-///   flow (bytewax.dataflow.Dataflow): Dataflow to run.
+/// :arg flow: Dataflow to run.
 ///
-///   addresses (typing.List[str]): List of host/port addresses for
-///     all processes in this cluster (including this one).
+/// :type flow: bytewax.dataflow.Dataflow
 ///
-///   proc_id (int): Index of this process in cluster; starts from 0.
+/// :arg addresses: List of host/port addresses for all processes in
+///     this cluster (including this one).
 ///
-///   epoch_interval (typing.Optional[datetime.timedelta]): System
-///     time length of each epoch. Defaults to 10 seconds.
+/// :type addresses: typing.List[str]
 ///
-///   recovery_config (typing.Optional[bytewax.recovery.RecoveryConfig]):
-///     State recovery config. If `None`, state will not be persisted.
+/// :arg proc_id: Index of this process in cluster; starts from 0.
 ///
-///   worker_count_per_proc (int): Number of worker threads to start
-///     on each process. Defaults to `1`.
+/// :type proc_id: int
+///
+/// :arg epoch_interval: System time length of each epoch. Defaults to
+///     10 seconds.
+///
+/// :type epoch_interval: typing.Optional[datetime.timedelta]
+///
+/// :arg recovery_config: State recovery config. If `None`, state will
+///     not be persisted.
+///
+/// :type recovery_config:
+///     typing.Optional[bytewax.recovery.RecoveryConfig]
+///
+/// :arg worker_count_per_proc: Number of worker threads to start on
+///     each process. Defaults to `1`.
+///
+/// :type worker_count_per_proc: int
 #[pyfunction]
 #[pyo3(
     signature = (flow, addresses, proc_id, *, epoch_interval = None, recovery_config = None, worker_count_per_proc = 1)

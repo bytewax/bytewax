@@ -1,9 +1,8 @@
 """Built-in operators.
 
-See the `bytewax` module docstring for the basics of building and
-running dataflows.
-
-See `bytewax.operators.window` for windowing operators.
+See [our getting started
+documentation](https://bytewax.io/docs/getting-started/simple-example)
+for the basics of building and running dataflows.
 
 """
 
@@ -38,12 +37,28 @@ from bytewax.dataflow import (
 from bytewax.inputs import Source
 from bytewax.outputs import DynamicSink, Sink, StatelessSinkPartition
 
-X = TypeVar("X")  # Item
-Y = TypeVar("Y")  # Output Item
-V = TypeVar("V")  # Value
-W = TypeVar("W")  # Output Value
-S = TypeVar("S")  # State
+X = TypeVar("X")
+"""Type of upstream items."""
+
+
+Y = TypeVar("Y")
+"""Type of modified downstream items."""
+
+
+V = TypeVar("V")
+"""Type of upstream values."""
+
+
+W = TypeVar("W")
+"""Type of modified downstream values."""
+
+
+S = TypeVar("S")
+"""Type of state snapshots."""
+
+
 KeyedStream: TypeAlias = Stream[Tuple[str, V]]
+"""A {py:obj}`~bytewax.dataflow.Stream` of `(key, value)` 2-tuples."""
 
 _EMPTY = tuple()
 
@@ -58,7 +73,7 @@ def _untyped_none() -> Any:
 
 @dataclass(frozen=True)
 class BranchOut(Generic[X, Y]):
-    """Streams returned from `branch` operator."""
+    """Streams returned from the {py:obj}`branch` operator."""
 
     trues: Stream[X]
     falses: Stream[Y]
@@ -90,6 +105,7 @@ def branch(
 ) -> BranchOut:
     """Divide items into two streams with a predicate.
 
+    ```python
     >>> import bytewax.operators as op
     >>> from bytewax.testing import run_main, TestingSource
     >>> flow = Dataflow("branch_eg")
@@ -105,21 +121,22 @@ def branch(
     branch_eg.odds: 3
     branch_eg.evens: 4
     branch_eg.odds: 5
+    ```
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream to divide.
+    :arg up: Stream to divide.
 
-        predicate: Function to call on each upstream item. Items for
-            which this returns `True` will be put into one branch
-            `Stream`; `False` the other branch `Stream`. If this
-            function is a `typing.TypeGuard`, the downstreams will be
-            properly typed.
+    :arg predicate: Function to call on each upstream item. Items for
+        which this returns `True` will be put into one branch stream;
+        `False` the other branch stream.
 
-    Returns:
-        A stream of items for which the predicate returns `True`, and
-        a stream of items for which the predicate returns `False`.
+        If this function is a {py:obj}`typing.TypeGuard`, the
+        downstreams will be properly typed.
+
+    :returns: A stream of items for which the predicate returns
+        `True`, and a stream of items for which the predicate returns
+        `False`.
 
     """
     return BranchOut(
@@ -143,20 +160,18 @@ def flat_map_batch(
 
     See also the `batch_size` parameter on various input sources.
 
-    See also the `batch` operator, which collects multiple items next
-    to each other in a stream into a single list of them flowing
-    through the stream.
+    See also the {py:obj}`collect` operator, which collects multiple
+    items next to each other in a stream into a single list of them
+    flowing through the stream.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream.
+    :arg up: Stream.
 
-        mapper: Called once with each batch of items the runtime
-            receives. Returns the items to emit downstream.
+    :arg mapper: Called once with each batch of items the runtime
+        receives. Returns the items to emit downstream.
 
-    Returns:
-        A stream of each item returned by the mapper.
+    :returns: A stream of each item returned by the mapper.
 
     """
     return Stream(f"{up._scope.parent_id}.down", up._scope)
@@ -170,22 +185,22 @@ def input(  # noqa: A001
 ) -> Stream[X]:
     """Introduce items into a dataflow.
 
-    See `bytewax.inputs` for more information on how input works. See
-    `bytewax.connectors` for a buffet of our built-in connector types.
+    See {py:obj}`bytewax.inputs` for more information on how input
+    works. See {py:obj}`bytewax.connectors` for a buffet of our
+    built-in connector types.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        flow: The dataflow.
+    :arg flow: The dataflow.
 
-        source: Read items from.
+    :arg source: To read items from.
 
-    Returns:
-        A stream of items from the source. See your specific source
-        documentation for what kind of item that is.
+    :returns: A stream of items from the source. See your specific
+        {py:obj}`~bytewax.inputs.Source` documentation for what kind
+        of item that is.
 
         This stream might be keyed. See your specific
-        `Source.stream_typ`.
+        {py:obj}`~bytewax.inputs.Source`.
 
     """
     return Stream(f"{flow._scope.parent_id}.down", flow._scope)
@@ -203,6 +218,7 @@ def inspect_debug(
 ) -> Stream[X]:
     """Observe items, their worker, and their epoch for debugging.
 
+    ```python
     >>> import bytewax.operators as op
     >>> from bytewax.testing import TestingSource, run_main
     >>> from bytewax.dataflow import Dataflow
@@ -213,18 +229,17 @@ def inspect_debug(
     inspect_debug_eg.help W0 @1: 0
     inspect_debug_eg.help W0 @1: 1
     inspect_debug_eg.help W0 @1: 2
+    ```
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream.
+    :arg up: Stream.
 
-        inspector: Called with the step ID, each item in the stream,
-            the epoch of that item, and the worker processing the
-            item. Defaults to printing out all the arguments.
+    :arg inspector: Called with the step ID, each item in the stream,
+        the epoch of that item, and the worker processing the item.
+        Defaults to printing out all the arguments.
 
-    Return:
-        The upstream unmodified.
+    :returns: The upstream unmodified.
 
     """
     return Stream(f"{up._scope.parent_id}.down", up._scope)
@@ -234,14 +249,12 @@ def inspect_debug(
 def merge(step_id: str, *ups: Stream[X]) -> Stream[X]:
     """Combine multiple streams together.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        *ups: Streams.
+    :arg *ups: Streams.
 
-    Returns:
-        A single stream of the same type as all the upstreams with
-        items from all upstreams merged into it unmodified.
+    :returns: A single stream of the same type as all the upstreams
+        with items from all upstreams merged into it unmodified.
 
     """
     up_scopes = set(up._scope for up in ups)
@@ -259,17 +272,17 @@ def merge(step_id: str, *ups: Stream[X]) -> Stream[X]:
 def output(step_id: str, up: Stream[X], sink: Sink[X]) -> None:
     """Write items out of a dataflow.
 
-    See `bytewax.outputs` for more information on how output works.
-    See `bytewax.connectors` for a buffet of our built-in connector
-    types.
+    See {py:obj}`bytewax.outputs` for more information on how output
+    works. See {py:obj}`bytewax.connectors` for a buffet of our
+    built-in connector types.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream of items to write. See your specific sink
-            documentation for the required type of those items.
+    :arg up: Stream of items to write. See your specific
+        {py:obj}`~bytewax.outputs.Sink` documentation for the required
+        type of those items.
 
-        sink: Write items to.
+    :arg sink: Write items to.
 
     """
     return None
@@ -283,17 +296,20 @@ def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
     state in each step is partitioned across workers by some key.
     Bytewax will only exchange an item between workers before stateful
     steps in order to ensure correctness, that they interact with the
-    correct state for that key. Stateless operators (like `filter`)
-    are run on all workers and do not result in exchanging items
-    before or after they are run.
+    correct state for that key. Stateless operators (like
+    {py:obj}`filter`) are run on all workers and do not result in
+    exchanging items before or after they are run.
 
     This can result in certain ordering of operators to result in poor
     parallelization across an entire execution cluster. If the
-    previous step (like a `reduce_window` or `input` with a
-    `PartitionedInput`) concentrated items on a subset of workers in
-    the cluster, but the next step is a CPU-intensive stateless step
-    (like a `map`), it's possible that not all workers will contribute
-    to processing the CPU-intesive step.
+    previous step (like a
+    {py:obj}`bytewax.operators.window.reduce_window` or
+    {py:obj}`input` with a
+    {py:obj}`~bytewax.inputs.FixedPartitionedSource`) concentrated
+    items on a subset of workers in the cluster, but the next step is
+    a CPU-intensive stateless step (like a {py:obj}`map`), it's
+    possible that not all workers will contribute to processing the
+    CPU-intesive step.
 
     This operation has a overhead, since it will need to serialize,
     send, and deserialize the items, so while it can significantly
@@ -321,40 +337,40 @@ def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
     those workers unless other operators explicitely move the item
     again (usually on output).
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream.
+    :arg up: Stream.
 
-    Returns:
-        Stream unmodified.
+    :returns: Stream unmodified.
 
     """
     return Stream(f"{up._scope.parent_id}.down", up._scope)
 
 
 class UnaryLogic(ABC, Generic[V, W, S]):
-    """Abstract class to define the behavior of a `unary` operator.
+    """Abstract class to define a {py:obj}`unary` operator.
 
-    The operator will call these methods in order: `on_item` once for
-    any items queued, then `on_notify` if the notification time has
-    passed, then `on_eof` if the upstream is EOF and no new items will
-    be received this execution. If the logic is retained after all the
-    above calls then `notify_at` will be called. `snapshot` is
+    The operator will call these methods in order: {py:obj}`on_item`
+    once for any items queued, then {py:obj}`on_notify` if the
+    notification time has passed, then {py:obj}`on_eof` if the
+    upstream is EOF and no new items will be received this execution.
+    If the logic is retained after all the above calls then
+    {py:obj}`notify_at` will be called. {py:obj}`snapshot` is
     periodically called.
 
     """
 
-    #: This logic should be retained after this call to `on_*`.
-    #
-    #: If you always return this, this state will never be deleted and
-    #: if your key-space grows without bound, your memory usage will
-    #: also grow without bound.
     RETAIN: bool = False
+    """This logic should be retained after this returns.
 
-    #: This logic should be discarded immediately after this call to
-    #: `on_*`.
+    If you always return this, this state will never be deleted and if
+    your key-space grows without bound, your memory usage will also
+    grow without bound.
+
+    """
+
     DISCARD: bool = True
+    """This logic should be discarded immediately after this returns."""
 
     @abstractmethod
     def on_item(self, now: datetime, value: V) -> Tuple[Iterable[W], bool]:
@@ -363,15 +379,13 @@ class UnaryLogic(ABC, Generic[V, W, S]):
         This will be called multiple times in a row if there are
         multiple items from upstream.
 
-        Args:
-            now: The current `datetime`.
+        :arg now: The current `datetime`.
 
-            value: The value of the upstream `(key, value)`.
+        :arg value: The value of the upstream `(key, value)`.
 
-        Returns:
-            A 2-tuple of: any values to emit downstream and wheither
-            to discard this logic. Values will be wrapped in `(key,
-            value)` automatically.
+        :returns: A 2-tuple of: any values to emit downstream and
+            wheither to discard this logic. Values will be wrapped in
+            `(key, value)` automatically.
 
         """
         ...
@@ -380,13 +394,11 @@ class UnaryLogic(ABC, Generic[V, W, S]):
     def on_notify(self, sched: datetime) -> Tuple[Iterable[W], bool]:
         """Called when the scheduled notification time has passed.
 
-        Args:
-            sched: The scheduled notification time.
+        :arg sched: The scheduled notification time.
 
-        Returns:
-            A 2-tuple of: any values to emit downstream and wheither
-            to discard this logic. Values will be wrapped in `(key,
-            value)` automatically.
+        :returns: A 2-tuple of: any values to emit downstream and
+            wheither to discard this logic. Values will be wrapped in
+            `(key, value)` automatically.
 
         """
         ...
@@ -395,13 +407,12 @@ class UnaryLogic(ABC, Generic[V, W, S]):
     def on_eof(self) -> Tuple[Iterable[W], bool]:
         """The upstream has no more items on this execution.
 
-        This will only be called once per execution after `on_item` is
-        done being called.
+        This will only be called once per execution after
+        {py:obj}`on_item` is done being called.
 
-        Returns:
-            A 2-tuple of: any values to emit downstream and wheither
-            to discard this logic. Values will be wrapped in `(key,
-            value)` automatically.
+        :returns: 2-tuple of: any values to emit downstream and
+            wheither to discard this logic. Values will be wrapped in
+            `(key, value)` automatically.
 
         """
         ...
@@ -412,14 +423,13 @@ class UnaryLogic(ABC, Generic[V, W, S]):
 
         This will be called once right after the logic is built, and
         if any of the `on_*` methods were called if the logic was
-        retained by `is_complete`.
+        retained.
 
         This must always return the next notification time. The
         operator only stores a single next time, so if
 
-        Returns:
-            Scheduled time. If `None`, no `on_notify` callback will
-            occur.
+        :returns: Scheduled time. If `None`, no {py:obj}`on_notify`
+            callback will occur.
 
         """
         ...
@@ -431,14 +441,20 @@ class UnaryLogic(ABC, Generic[V, W, S]):
         This will be called periodically by the runtime.
 
         The value returned here will be passed back to the `builder`
-        function of `unary.unary` when resuming.
+        function of {py:obj}`unary` when resuming.
 
-        The state must be `pickle`-able.
+        The state must be {py:obj}`pickle`-able.
+
+        :::{danger}
 
         **The state must be effectively immutable!** If any of the
         other functions in this class might be able to mutate the
-        state, you must `copy.deepcopy` or something equivalent before
-        returning it here.
+        state, you must {py:obj}`copy.deepcopy` or something
+        equivalent before returning it here.
+
+        :::
+
+        :returns: The immutable state to be {py:obj}`pickle`d.
 
         """
         ...
@@ -457,24 +473,23 @@ def unary(
     lifecycle. Usualy you will want to use a higher-level operator
     than this.
 
-    Subclass `UnaryLogic` to define its behavior. See documentation
-    there.
+    Subclass {py:obj}`UnaryLogic` to define its behavior. See
+    documentation there.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Keyed stream.
+    :arg up: Keyed stream.
 
-        builder: Called whenver a new key is encountered with the
-            current `datetime` and the resume state returned from
-            `UnaryLogic.snapshot` for this key, if any. This should
-            close over any non-state configuration and combine it with
-            the resume state to return the prepared `UnaryLogic` for
-            the new key.
+    :arg builder: Called whenver a new key is encountered with the
+        current {py:obj}`datetime` and the resume state returned from
+        {py:obj}`UnaryLogic.snapshot` for this key, if any. This
+        should close over any non-state configuration and combine it
+        with the resume state to return the prepared
+        {py:obj}`UnaryLogic` for the new key.
 
-    Returns:
-        Keyed stream of all items returned from `UnaryLogic.on_item`,
-        `UnaryLogic.on_notify`, and `UnaryLogic.on_eof`.
+    :returns: Keyed stream of all items returned from
+        {py:obj}`UnaryLogic.on_item`, {py:obj}`UnaryLogic.on_notify`,
+        and {py:obj}`UnaryLogic.on_eof`.
 
     """
     return Stream(f"{up._scope.parent_id}.down", up._scope)
@@ -526,22 +541,20 @@ def collect(
 ) -> KeyedStream[List[V]]:
     """Collect items into a list up to a size or a timeout.
 
-    See `bytewax.operators.window.collect_window` for more control
-    over time.
+    See {py:obj}`bytewax.operators.window.collect_window` for more
+    control over time.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream of individual items.
+    :arg up: Stream of individual items.
 
-        timeout: Timeout before emitting the list, even if `max_size`
-            was not reached.
+    :arg timeout: Timeout before emitting the list, even if `max_size`
+        was not reached.
 
-        max_size: Emit the list once it reaches this size, even if
+    :arg max_size: Emit the list once it reaches this size, even if
         `timeout` was not reached.
 
-    Returns:
-        A stream of upstream items gathered into `list`s.
+    :returns: A stream of upstream items gathered into lists.
 
     """
 
@@ -561,19 +574,18 @@ def count_final(
     """Count the number of occurrences of items in the entire stream.
 
     This will only return counts once the upstream is EOF. You'll need
-    to use `count_window` on infinite data.
+    to use {py:obj}`bytewax.operators.window.count_window` on infinite
+    data.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream of items to count.
+    :arg up: Stream of items to count.
 
-        key: Function to convert each item into a string key. The
-            counting machinery does not compare the items directly,
-            instead it groups by this string key.
+    :arg key: Function to convert each item into a string key. The
+        counting machinery does not compare the items directly,
+        instead it groups by this string key.
 
-    Returns:
-        A stream of `(key, count)` once the upstream is EOF.
+    :returns: A stream of `(key, count)` once the upstream is EOF.
 
     """
     down: KeyedStream[int] = map("init_count", up, lambda x: (key(x), 1))
@@ -588,7 +600,7 @@ def flat_map(
 ) -> Stream[Y]:
     """Transform items one-to-many.
 
-    This is like a combination of `map` and `flatten`.
+    This is like a combination of {py:obj}`map` and {py:obj}`flatten`.
 
     It is commonly used for:
 
@@ -598,6 +610,7 @@ def flat_map(
 
     - Breaking up aggregations for further processing
 
+    ```python
     >>> import bytewax.operators as op
     >>> from bytewax.testing import TestingSource, run_main
     >>> from bytewax.dataflow import Dataflow
@@ -611,17 +624,16 @@ def flat_map(
     >>> run_main(flow)
     flat_map_eg.out: 'hello'
     flat_map_eg.out: 'world'
+    ```
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream.
+    :arg up: Stream.
 
-        mapper: Called once on each upstream item. Returns the items
-            to emit downstream.
+    :arg mapper: Called once on each upstream item. Returns the items
+        to emit downstream.
 
-    Returns:
-        A stream of each item returned by the mapper.
+    :returns: A stream of each item returned by the mapper.
 
     """
 
@@ -639,16 +651,14 @@ def flat_map_value(
 ) -> KeyedStream[W]:
     """Transform values one-to-many.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Keyed stream.
+    :arg up: Keyed stream.
 
-        mapper: Called once on each upstream value. Returns the values
-            to emit downstream.
+    :arg mapper: Called once on each upstream value. Returns the
+        values to emit downstream.
 
-    Returns:
-        A keyed stream of each value returned by the mapper.
+    :returns: A keyed stream of each value returned by the mapper.
 
     """
 
@@ -675,13 +685,12 @@ def flatten(
 ) -> Stream[X]:
     """Move all sub-items up a level.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream of iterables.
+    :arg up: Stream of iterables.
 
-    Returns:
-        A stream of the items within each iterable in the upstream.
+    :returns: A stream of the items within each iterable in the
+        upstream.
 
     """
 
@@ -714,6 +723,7 @@ def filter(  # noqa: A001
 
     - Removing stop words
 
+    ```python
     >>> import bytewax.operators as op
     >>> from bytewax.testing import TestingSource, run_main
     >>> from bytewax.dataflow import Dataflow
@@ -726,18 +736,17 @@ def filter(  # noqa: A001
     >>> run_main(flow)
     filter_eg.out: 1
     filter_eg.out: 3
+    ```
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream.
+    :arg up: Stream.
 
-        predicate: Called with each upstream item. Only items for
-            which this returns true `True` will be emitted downstream.
+    :arg predicate: Called with each upstream item. Only items for
+        which this returns true `True` will be emitted downstream.
 
-    Returns:
-        A stream with only the upstream items for which the predicate
-        returns `True`.
+    :returns: A stream with only the upstream items for which the
+        predicate returns `True`.
 
     """
 
@@ -764,18 +773,16 @@ def filter_value(
 ) -> KeyedStream[V]:
     """Selectively keep only some items from a keyed stream.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Keyed stream.
+    :arg up: Keyed stream.
 
-        predicate: Will be called with each upstream value. Only
-            values for which this returns `True` will be emitted
-            downstream.
+    :arg predicate: Will be called with each upstream value. Only
+        values for which this returns `True` will be emitted
+        downstream.
 
-    Returns:
-        A keyed stream with only the upstream pairs for which the
-        predicate returns `True`.
+    :returns: A keyed stream with only the upstream pairs for which
+        the predicate returns `True`.
 
     """
 
@@ -805,6 +812,7 @@ def filter_map(
     This is like a combination of `map` and then `filter` with a
     predicate removing `None` values.
 
+    ```python
     >>> import bytewax.operators as op
     >>> from bytewax.testing import TestingSource, run_main
     >>> from bytewax.dataflow import Dataflow
@@ -828,17 +836,16 @@ def filter_map(
     >>> _ = op.inspect("out", s)
     >>> run_main(flow)
     filter_map_eg.out: ('a', {'key': 'a', 'val': 1})
+    ```
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream.
+    :arg up: Stream.
 
-        mapper: Called on each item. Each return value is emitted
-            downstream, unless it is `None`.
+    :arg mapper: Called on each item. Each return value is emitted
+        downstream, unless it is `None`.
 
-    Returns:
-        A stream of items returned from the mapper, unless it is
+    :returns: A stream of items returned from `mapper`, unless it is
         `None`.
 
     """
@@ -891,24 +898,22 @@ def fold_final(
 ) -> KeyedStream[S]:
     """Build an empty accumulator, then combine values into it.
 
-    It is like `reduce_final` but uses a function to build the initial
-    value.
+    It is like {py:obj}`reduce_final` but uses a function to build the
+    initial value.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Keyed stream.
+    :arg up: Keyed stream.
 
-        builder: Called the first time a key appears and is expected
-            to return the empty accumulator for that key.
+    :arg builder: Called the first time a key appears and is expected
+        to return the empty accumulator for that key.
 
-        folder: Combines a new value into an existing accumulator and
-            returns the updated accumulator. The accumulator is
-            initially the empty accumulator.
+    :arg folder: Combines a new value into an existing accumulator and
+        returns the updated accumulator. The accumulator is initially
+        the empty accumulator.
 
-    Returns:
-        A keyed stream of the accumulators. _Only once the upstream is
-        EOF._
+    :returns: A keyed stream of the accumulators. _Only once the
+        upstream is EOF._
 
     """
 
@@ -933,6 +938,7 @@ def inspect(
 ) -> Stream[X]:
     """Observe items for debugging.
 
+    ```python
     >>> import bytewax.operators as op
     >>> from bytewax.testing import run_main, TestingSource
     >>> from bytewax.dataflow import Dataflow
@@ -943,17 +949,16 @@ def inspect(
     my_flow.help: 0
     my_flow.help: 1
     my_flow.help: 2
+    ```
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream.
+    :arg up: Stream.
 
-        inspector: Called with the step ID and each item in the
-            stream. Defaults to printing the step ID and each item.
+    :arg inspector: Called with the step ID and each item in the
+        stream. Defaults to printing the step ID and each item.
 
-    Returns:
-        The upstream unmodified.
+    :returns: The upstream unmodified.
 
     """
 
@@ -1061,22 +1066,20 @@ def join(
 ) -> KeyedStream[Tuple]:
     """Gather together the value for a key on multiple streams.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        *sides: Keyed streams.
+    :arg *sides: Keyed streams.
 
-        running: If `True`, perform a "running join" and, emit the
-            current set of values (if any) each time a new value
-            arrives. The set of values will _never be discarded_ so
-            might result in unbounded memory use. If `False`, perform
-            a "complete join" and, only emit once there is a value on
-            each stream, then discard the set. Defaults to `False`.
+    :arg running: If `True`, perform a "running join" and, emit the
+        current set of values (if any) each time a new value arrives.
+        The set of values will _never be discarded_ so might result in
+        unbounded memory use. If `False`, perform a "complete join"
+        and, only emit once there is a value on each stream, then
+        discard the set. Defaults to `False`.
 
-    Returns:
-        Emits a tuple with the value from each stream in the order of
-        the argument list. If `running` is `True`, some values might
-        be `None`.
+    :returns: Emits a tuple with the value from each stream in the
+        order of the argument list. If `running` is `True`, some
+        values might be `None`.
 
     """
     named_sides = dict((str(i), s) for i, s in enumerate(sides))
@@ -1101,23 +1104,21 @@ def join_named(
 ) -> KeyedStream[Dict[str, Any]]:
     """Gather together the value for a key on multiple named streams.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        **sides: Named keyed streams. The name of each stream will be
-            used in the emitted `dict`s.
+    :arg **sides: Named keyed streams. The name of each stream will be
+        keys in the emitted {py:obj}`dict`.
 
-        running: If `True`, perform a "running join" and, emit the
-            current set of values (if any) each time a new value
-            arrives. The set of values will _never be discarded_ so
-            might result in unbounded memory use. If `False`, perform
-            a "complete join" and, only emit once there is a value on
-            each stream, then discard the set. Defaults to `False`.
+    :arg running: If `True`, perform a "running join" and, emit the
+        current set of values (if any) each time a new value arrives.
+        The set of values will _never be discarded_ so might result in
+        unbounded memory use. If `False`, perform a "complete join"
+        and, only emit once there is a value on each stream, then
+        discard the set. Defaults to `False`.
 
-    Returns:
-        Emits a `dict` mapping the name to the value from each stream.
+    :returns: Emits a mapping the name to the value from each stream.
         If `running` is `True`, some names might be missing from the
-        `dict`.
+        mapping.
 
     """
     names = list(sides.keys())
@@ -1137,21 +1138,20 @@ def join_named(
 def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -> KeyedStream[X]:
     """Add a key for each item.
 
-    This allows you to use all the keyed operators that only are
-    methods on `KeyedStream`.
+    This allows you to use all the keyed operators that require the
+    upstream to be a {py:obj}`KeyedStream`.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream.
+    :arg up: Stream.
 
-        key: Called on each item and should return the key for that
-            item.
+    :arg key: Called on each item and should return the key for that
+        item.
 
-    Returns:
-        A stream of 2-tuples of `(key, item)` AKA a keyed stream. The
-        keys come from the return value of the `key` function;
-        upstream items will automatically be attached as values.
+    :returns: A stream of 2-tuples of `(key, item)` AKA a keyed
+        stream. The keys come from the return value of the `key`
+        function; upstream items will automatically be attached as
+        values.
 
     """
 
@@ -1183,6 +1183,7 @@ def map(  # noqa: A001
 
     - Selection of fields.
 
+    ```python
     >>> import bytewax.operators as op
     >>> from bytewax.testing import run_main, TestingSource
     >>> from bytewax.dataflow import Dataflow
@@ -1196,17 +1197,17 @@ def map(  # noqa: A001
     map_eg.out: 10
     map_eg.out: 11
     map_eg.out: 12
+    ```
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream.
+    :arg up: Stream.
 
-        mapper: Called on each item. Each return value is emitted
-            downstream.
+    :arg mapper: Called on each item. Each return value is emitted
+        downstream.
 
-    Returns:
-        A stream of items returned from the mapper.
+    :returns: A stream of items returned from the mapper.
+
     """
 
     def shim_mapper(xs: List[X]) -> Iterable[Y]:
@@ -1221,17 +1222,15 @@ def map_value(
 ) -> KeyedStream[W]:
     """Transform values one-by-one.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Keyed stream.
+    :arg up: Keyed stream.
 
-        mapper: Called on each value. Each return value is emitted
-            downstream.
+    :arg mapper: Called on each value. Each return value is emitted
+        downstream.
 
-    Returns:
-        A keyed stream of values returned from the mapper. The key is
-        unchanged.
+    :returns: A keyed stream of values returned from the mapper. The
+        key is unchanged.
 
     """
 
@@ -1268,17 +1267,15 @@ def max_final(
 ) -> KeyedStream:
     """Find the maximum value for each key.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Keyed stream.
+    :arg up: Keyed stream.
 
-        by: A function called on each value that is used to extract
-            what to compare.
+    :arg by: A function called on each value that is used to extract
+        what to compare.
 
-    Returns:
-        A keyed stream of the max values. _Only once the upstream is
-        EOF._
+    :returns: A keyed stream of the max values. _Only once the
+        upstream is EOF._
 
     """
     return reduce_final("reduce_final", up, partial(max, key=by))
@@ -1309,17 +1306,15 @@ def min_final(
 ) -> KeyedStream:
     """Find the minumum value for each key.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Keyed stream.
+    :arg up: Keyed stream.
 
-        by: A function called on each value that is used to extract
-            what to compare.
+    :arg by: A function called on each value that is used to extract
+        what to compare.
 
-    Returns:
-        A keyed stream of the min values. _Only once the upstream is
-        EOF._
+    :returns: A keyed stream of the min values. _Only once the
+        upstream is EOF._
 
     """
     return reduce_final("reduce_final", up, partial(min, key=by))
@@ -1352,10 +1347,10 @@ def raises(
 ) -> None:
     """Raise an exception and crash the dataflow on any item.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Any item on this stream will throw a `RuntimeError`.
+    :arg up: Any item on this stream will throw a
+        {py:obj}`RuntimeError`.
 
     """
     return output("output", up, _RaiseSink(step_id))
@@ -1369,20 +1364,18 @@ def reduce_final(
 ) -> KeyedStream[V]:
     """Distill all values for a key down into a single value.
 
-    It is like `fold_final` but the first value is the initial
+    It is like {py:obj}`fold_final` but the first value is the initial
     accumulator.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Keyed stream.
+    :arg up: Keyed stream.
 
-        reducer: Combines a new value into an old value and returns
-            the combined value.
+    :arg reducer: Combines a new value into an old value and returns
+        the combined value.
 
-    Returns:
-        A keyed stream of the accumulators. _Only once the upstream is
-        EOF._
+    :returns: A keyed stream of the accumulators. _Only once the
+        upstream is EOF._
 
     """
 
@@ -1469,6 +1462,7 @@ def stateful_map(
 
     - State machines
 
+    ```python
     >>> import bytewax.operators as op
     >>> from bytewax.testing import TestingSource, run_main
     >>> from bytewax.dataflow import Dataflow
@@ -1495,22 +1489,21 @@ def stateful_map(
     stateful_map_eg.out: ('a', 3)
     stateful_map_eg.out: ('b', 1)
     stateful_map_eg.out: ('a', 4)
+    ```
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Keyed stream.
+    :arg up: Keyed stream.
 
-        builder: Called whenever a new key is encountered and should
-            return the "empty state" for this key.
+    :arg builder: Called whenever a new key is encountered and should
+        return the "empty state" for this key.
 
-        mapper: Called whenever a value is encountered from upstream
-            with the last state, and then the upstream value. Should
-            return a 2-tuple of `(updated_state, emit_value)`. If the
-            updated state is `None`, discard it.
+    :arg mapper: Called whenever a value is encountered from upstream
+        with the last state, and then the upstream value. Should
+        return a 2-tuple of `(updated_state, emit_value)`. If the
+        updated state is `None`, discard it.
 
-    Returns:
-        A keyed stream.
+    :returns: A keyed stream.
 
     """
 

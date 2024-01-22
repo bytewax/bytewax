@@ -2,9 +2,9 @@
 
 This module offers two preconfigured schema registries:
 
-- `ConfluentSchemaRegistry`
+- {py:obj}`~bytewax.connectors.kafka.registry.ConfluentSchemaRegistry`
 
-- `RedpandaSchemaRegistry`
+- {py:obj}`~bytewax.connectors.kafka.registry.RedpandaSchemaRegistry`
 
 """
 import logging
@@ -46,9 +46,8 @@ class ConfluentSchemaRegistry:
     def __init__(self, client: SchemaRegistryClient):
         """Init.
 
-        Args:
-            client: Configured
-                `confluent_kafka.schema_registry.SchemaRegistryClient`.
+        :arg client: Configured
+            {py:obj}`confluent_kafka.schema_registry.SchemaRegistryClient`.
 
         """
         self.client = client
@@ -94,9 +93,8 @@ class RedpandaSchemaRegistry:
     def __init__(self, base_url: str = "http://localhost:8081"):
         """Init.
 
-        Args:
-            base_url: Base url of redpanda's schema registry
-                instance.
+        :arg base_url: Base url of redpanda's schema registry
+            instance.
 
         """
         self._base_url = base_url
@@ -123,9 +121,8 @@ class RedpandaSchemaRegistry:
     ) -> SchemaSerializer[Dict, bytes]:
         """Fastavro serializer.
 
-        Args:
-            schema_ref: Specify either the `schema_id` or a
-                `SchemaRef` instance.
+        :arg schema_ref: Specify either the `schema_id` or a
+            `SchemaRef` instance.
 
         """
         schema = self._get_schema(schema_ref)
@@ -136,9 +133,8 @@ class RedpandaSchemaRegistry:
     ) -> SchemaDeserializer[MaybeStrBytes, AvroMessage]:
         """Fastavro deserializer.
 
-        Args:
-            schema_ref: Specify either the `schema_id` or a
-                `SchemaRef` instance.
+        :arg schema_ref: Specify either the `schema_id` or a
+            `SchemaRef` instance.
 
         """
         schema = self._get_schema(schema_ref)

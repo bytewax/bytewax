@@ -12,9 +12,10 @@ def map_dict_value(
     """Build a function to map an item in a dict and return the dict.
 
     Use this to help build mapper functions for the
-    `bytewax.operators.map` operator that work on a specific value in
-    a dict, but leave the other values untouched.
+    {py:obj}`~bytewax.operators.map` operator that work on a specific
+    value in a dict, but leave the other values untouched.
 
+    ```python
     >>> import bytewax.operators as op
     >>> from bytewax.testing import run_main, TestingSource
     >>> from bytewax.dataflow import Dataflow
@@ -36,6 +37,7 @@ def map_dict_value(
     >>> run_main(flow)
     lens_item_map_eg.out: {'name': 'RACHEL WHITE', 'email': 'rachel@white.com'}
     lens_item_map_eg.out: {'name': 'JOHN SMITH', 'email': 'john@smith.com'}
+    ```
 
     This type of "do an operation on a known nested structure" is
     called a **lens**. If you'd like to produce more complex lenses,
@@ -45,14 +47,13 @@ def map_dict_value(
     vs returning functions. You can use it to build mappers for
     Bytewax operators.
 
-    Args:
-        key: Dictionary key.
 
-        mapper: Function to run on the value for that key.
+    :arg key: Dictionary key.
 
-    Returns:
-        A function which will perform that mapping operation when
-        called.
+    :arg mapper: Function to run on the value for that key.
+
+    :returns: A function which will perform that mapping operation
+        when called.
 
     """
 

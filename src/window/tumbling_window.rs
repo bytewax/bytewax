@@ -11,16 +11,18 @@ use super::*;
 ///
 /// Window start times are inclusive, but end times are exclusive.
 ///
-/// Args:
-///   length (datetime.timedelta): Length of windows.
+/// :arg length: Length of windows.
 ///
-///   align_to (datetime.datetime): Align windows so this instant
-///     starts a window. This must be a constant. You can use this to
-///     align all windows to hour boundaries, e.g.
+/// :type length: datetime.timedelta
 ///
-/// Returns:
-///   Config object. Pass this as the `window_config` parameter to
-///   your windowing operator.
+/// :arg align_to: Align windows so this instant starts a window. This
+///     must be a constant. You can use this to align all windows to
+///     hour boundaries, e.g.
+///
+/// :type align_to: datetime.timedelta
+///
+/// :returns: Config object. Pass this as the `window_config`
+///     parameter to your windowing operator.
 #[pyclass(module="bytewax.window", extends=WindowConfig)]
 #[derive(Clone)]
 pub(crate) struct TumblingWindow {

@@ -1,7 +1,7 @@
 """Low-level input interfaces and input helpers.
 
 If you want pre-built connectors for various external systems, see
-`bytewax.connectors`.
+{py:obj}`bytewax.connectors`.
 
 """
 
@@ -30,10 +30,12 @@ __all__ = [
     "AbortExecution",
     "DynamicSource",
     "FixedPartitionedSource",
+    "S",
     "SimplePollingSource",
     "Source",
     "StatefulSourcePartition",
     "StatelessSourcePartition",
+    "X",
     "batch",
     "batch_async",
     "batch_getter",
@@ -41,7 +43,11 @@ __all__ = [
 ]
 
 X = TypeVar("X")
+"""Type emitted by a {py:obj}`Source`."""
+
+
 S = TypeVar("S")
+"""Type of state snapshots."""
 
 
 class Source(ABC, Generic[X]):  # noqa: B024
@@ -68,15 +74,13 @@ class StatefulSourcePartition(ABC, Generic[X, S]):
         never blocking but returning an empty list if there are no
         items to emit yet.
 
-        Args:
-            sched: The scheduled awake time, if one was returned by
-                `next_awake`.
+        :arg sched: The scheduled awake time, if one was returned by
+            {py:obj}`next_awake`.
 
-        Returns:
-            Items immediately ready. May be empty if no new items.
+        :returns: Items immediately ready. May be empty if no new
+            items.
 
-        Raises:
-            StopIteration: When the source is complete.
+        :raises StopIteration: When the source is complete.
 
         """
         ...
@@ -84,22 +88,23 @@ class StatefulSourcePartition(ABC, Generic[X, S]):
     def next_awake(self) -> Optional[datetime]:
         """When to next attempt to get input items.
 
-        `next_batch()` will not be called until the most recently returned
-        time has past.
+        {py:obj}`next_batch` will not be called until the most
+        recently returned time has past.
 
         This will be called upon initialization of the source and
-        after `next_batch()`, but also possibly at other times. Multiple
-        times are not stored; you must return the next awake time on
-        every call, if any.
+        after {py:obj}`next_batch`, but also possibly at other times.
+        Multiple times are not stored; you must return the next awake
+        time on every call, if any.
 
-        If this returns `None`, `next_batch()` will be called
+        If this returns `None`, {py:obj}`next_batch` will be called
         immediately unless the previous batch had no items, in which
         case there is a 1 millisecond delay.
 
-        Use this instead of `time.sleep` in `next_batch()`.
+        Use this instead of {py:obj}`time.sleep` in
+        {py:obj}`next_batch`.
 
-        Returns:
-            Next awake time or `None` to indicate automatic behavior.
+        :returns: Next awake time or `None` to indicate automatic
+            behavior.
 
         """
         return None
@@ -112,14 +117,13 @@ class StatefulSourcePartition(ABC, Generic[X, S]):
         of your input builder.
 
         Be careful of "off by one" errors in resume state. This should
-        return a state that, when built into a partition, resumes reading
-        _after the last read item item_, not the same item that
-        `next()` last returned.
+        return a state that, when built into a partition, resumes
+        reading _after the last read item_, not any of the the same
+        items that {py:obj}`next_batch` last returned.
 
-        This is guaranteed to never be called after `close()`.
+        This is guaranteed to never be called after {py:obj}`close`.
 
-        Returns:
-            Resume state.
+        :returns: Resume state.
 
         """
         ...
@@ -154,8 +158,7 @@ class FixedPartitionedSource(Source[X], Generic[X, S]):
 
         You do not need to list all partitions globally.
 
-        Returns:
-            Local partition keys.
+        :returns: Local partition keys.
 
         """
         ...
@@ -170,24 +173,23 @@ class FixedPartitionedSource(Source[X], Generic[X, S]):
         """Build anew or resume an input partition.
 
         Will be called once per execution for each partition key on a
-        worker that reported that partition was local in `list_parts`.
+        worker that reported that partition was local in
+        {py:obj}`list_parts`.
 
         Do not pre-build state about a partition in the
         constructor. All state must be derived from `resume_state` for
         recovery to work properly.
 
-        Args:
-            now: The current time.
+        :arg now: The current time.
 
-            for_part: Which partition to build. Will always be one of
-                the keys returned by `list_parts` on this worker.
+        :arg for_part: Which partition to build. Will always be one of
+            the keys returned by {py:obj}`list_parts` on this worker.
 
-            resume_state: State data containing where in the input
-                stream this partition should be begin reading during
-                this execution.
+        :arg resume_state: State data containing where in the input
+            stream this partition should be begin reading during this
+            execution.
 
-        Returns:
-            The built partition.
+        :returns: The built partition.
 
         """
         ...
@@ -204,14 +206,12 @@ class StatelessSourcePartition(ABC, Generic[X]):
         never blocking but yielding an empty list if there are no new
         items yet.
 
-        Args:
-            sched: The scheduled awake time.
+        :arg sched: The scheduled awake time.
 
-        Returns:
-            Items immediately ready. May be empty if no new items.
+        :returns: Items immediately ready. May be empty if no new
+            items.
 
-        Raises:
-            StopIteration: When the source is complete.
+        :raises StopIteration: When the source is complete.
 
         """
         ...
@@ -219,22 +219,23 @@ class StatelessSourcePartition(ABC, Generic[X]):
     def next_awake(self) -> Optional[datetime]:
         """When to next attempt to get input items.
 
-        `next_batch()` will not be called until the most recently returned
-        time has past.
+        {py:obj}`next_batch` will not be called until the most
+        recently returned time has past.
 
         This will be called upon initialization of the source and
-        after `next_batch()`, but also possibly at other times. Multiple
-        times are not stored; you must return the next awake time on
-        every call, if any.
+        after {py:obj}`next_batch`, but also possibly at other times.
+        Multiple times are not stored; you must return the next awake
+        time on every call, if any.
 
-        If this returns `None`, `next_batch()` will be called
+        If this returns `None`, {py:obj}`next_batch` will be called
         immediately unless the previous batch had no items, in which
         case there is a 1 millisecond delay.
 
-        Use this instead of `time.sleep` in `next_batch()`.
+        Use this instead of {py:obj}`time.sleep` in
+        {py:obj}`next_batch`.
 
-        Returns:
-            Next awake time or `None` to indicate automatic behavior.
+        :returns: Next awake time or `None` to indicate automatic
+            behavior.
 
         """
         return None
@@ -270,15 +271,13 @@ class DynamicSource(Source[X]):
 
         Will be called once on each worker.
 
-        Args:
-            now: The current time.
+        :arg now: The current time.
 
-            worker_index: Index of this worker. Workers are zero-indexed.
+        :arg worker_index: Index of this worker. Workers are zero-indexed.
 
-            worker_count: Total number of workers.
+        :arg worker_count: Total number of workers.
 
-        Returns:
-            The built partition.
+        :returns: The built partition.
 
         """
         ...
@@ -333,6 +332,7 @@ class _SimplePollingPartition(StatefulSourcePartition[X, None]):
 class SimplePollingSource(FixedPartitionedSource[X, None]):
     """Calls a user defined function at a regular interval.
 
+    ```python
     >>> class URLSource(SimplePollingSource):
     ...     def __init__(self):
     ...         super(interval=timedelta(seconds=10))
@@ -342,6 +342,7 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
     ...         if not res.ok:
     ...             raise SimplePollingSource.Retry(timedelta(seconds=1))
     ...         return res.text
+    ```
 
     There is no parallelism; only one worker will poll this source.
 
@@ -353,8 +354,8 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
 
     If you need a high-throughput source, or custom retry or timing,
     avoid this. Instead create a source using one of the other
-    `Source` subclasses where you can have increased paralellism,
-    batching, and finer control over timing.
+    {py:obj}`Source` subclasses where you can have increased
+    paralellism, batching, and finer control over timing.
 
     """
 
@@ -362,9 +363,8 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
     class Retry(Exception):
         """Raise this to try to get items before the usual interval.
 
-        Args:
-            timeout: How long to wait before calling
-                `SimplePollingSource.next_item` again.
+        :arg timeout: How long to wait before calling
+            {py:obj}`SimplePollingSource.next_item` again.
 
         """
 
@@ -373,12 +373,11 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
     def __init__(self, interval: timedelta, align_to: Optional[datetime] = None):
         """Init.
 
-        Args:
-            interval:
-                The interval between calling `next_item`.
-            align_to:
-                Align awake times to the given datetime. Defaults to
-                now.
+        :arg interval: The interval between calling
+            {py:obj}`next_item`.
+
+        :arg align_to: Align awake times to the given datetime. Defaults
+            to now.
 
         """
         self._interval = interval
@@ -386,7 +385,6 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
 
     @override
     def list_parts(self) -> List[str]:
-        """Assumes the source has a single partition."""
         return ["singleton"]
 
     @override
@@ -401,13 +399,11 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
     def next_item(self) -> X:
         """Override with custom logic to poll your source.
 
-        Raises:
-            Retry: Raise if you can't fetch items and would like to
-                call this function sooner than the usual interval.
+        :returns: Next item to emit into the dataflow. If `None`, no
+            item is emitted.
 
-        Returns:
-            Next item to emit into the dataflow. If `None`, no item is
-            emitted.
+        :raises Retry: Raise if you can't fetch items and would like
+            to call this function sooner than the usual interval.
 
         """
         ...
@@ -416,17 +412,14 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
 def batch(ib: Iterable[X], batch_size: int) -> Iterator[List[X]]:
     """Batch an iterable.
 
-    Use this to easily generate batches of items for a source's
+    Use this to easily generate batches of items for a partitions's
     `next_batch` method.
 
-    Args:
-        ib:
-            The underlying source iterable of items.
-        batch_size:
-            Maximum number of items to yield in a batch.
+    :arg ib: The underlying source iterable of items.
 
-    Yields:
-        The next gathered batch of items.
+    :arg batch_size: Maximum number of items to yield in a batch.
+
+    :yields: The next gathered batch of items.
 
     """
     # Ensure that we have the stateful iterator of the source.
@@ -443,23 +436,19 @@ def batch_getter(
 ) -> Iterator[List[X]]:
     """Batch from a getter function that might not return an item.
 
-     Use this to easily generate batches of items for a source's
+     Use this to easily generate batches of items for a partitions's
     `next_batch` method.
 
-    Args:
-        getter:
-            Function to call to get the next item. Should raise
-            `StopIteration` on EOF.
+    :arg getter: Function to call to get the next item. Should raise
+        {py:obj}`StopIteration` on EOF.
 
-        batch_size:
-            Maximum number of items to yield in a batch.
+    :arg batch_size: Maximum number of items to yield in a batch.
 
-        yield_on:
-            Sentinel value that indicates that there are no more items
-            yet, and to return the current batch. Defaults to `None`.
+    :arg yield_on: Sentinel value that indicates that there are no
+            more items yet, and to return the current batch. Defaults
+            to `None`.
 
-    Yields:
-        The next gathered batch of items.
+    :yields: The next gathered batch of items.
 
     """
     while True:
@@ -482,24 +471,19 @@ def batch_getter_ex(
 ) -> Iterator[List[X]]:
     """Batch from a getter function that raises on no items yet.
 
-     Use this to easily generate batches of items for a source's
+     Use this to easily generate batches of items for a partitions's
     `next_batch` method.
 
-    Args:
-        getter:
-            Function to call to get the next item. Should raise
-            `StopIteration` on EOF.
+    :arg getter: Function to call to get the next item. Should raise
+        {py:obj}`StopIteration` on EOF.
 
-        batch_size:
-            Maximum number of items to return in a batch.
+    :arg batch_size: Maximum number of items to return in a batch.
 
-        yield_ex:
-            Exception raised by `getter` that indicates that there are
-            no more items yet, and to return the current
-            batch. Defaults to `queue.Empty`.
+    :arg yield_ex: Exception raised by `getter` that indicates that
+        there are no more items yet, and to return the current batch.
+        Defaults to {py:obj}`queue.Empty`.
 
-    Yields:
-        The next gathered batch of items.
+    :yields: The next gathered batch of items.
 
     """
     while True:
@@ -525,24 +509,21 @@ def batch_async(
     """Batch an async iterable synchronously up to a timeout.
 
     This allows using an async iterator as an input source. The
-    `next_batch` method on an input source must never block, this
-    allows running an async iterator up to a timeout so that you
-    correctly cooperatively multitask with the rest of the dataflow.
+    `next_batch` method on a partition must never block, this allows
+    running an async iterator up to a timeout so that you correctly
+    cooperatively multitask with the rest of the dataflow.
 
-    Args:
-        aib:
-            The underlying source async iterable of items.
-        timeout:
-            Duration of time to repeatedly poll the source
-            async iterator for items.
-        batch_size:
-            Maximum number of items to yield in a batch, even if
-            the timeout has not been hit.
-        loop:
-            Custom `asyncio` run loop to use, if any.
+    :arg aib: The underlying source async iterable of items.
 
-    Yields:
-        The next gathered batch of items.
+    :arg timeout: Duration of time to repeatedly poll the source async
+        iterator for items.
+
+    :arg batch_size: Maximum number of items to yield in a batch, even
+        if the timeout has not been hit.
+
+    :arg loop: Custom `asyncio` run loop to use, if any.
+
+    :yields: The next gathered batch of items.
 
         This function will take up to `timeout` time to yield, or
         will return a list with length up to `max_len`.

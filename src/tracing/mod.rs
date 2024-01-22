@@ -154,12 +154,15 @@ impl BytewaxTracer {
 /// tracer = setup_tracing()
 /// ```
 ///
-/// Args:
-///   tracing_config (TracingConfig): The specific backend you want to
-///     use.
+/// :arg tracing_config: The specific backend you want to use.
 ///
-///   log_level (str): String of the log level. One of `"ERROR"`,
-///     `"WARN"`, `"INFO"`, `"DEBUG"`, `"TRACE"`.
+/// :type tracing_config: bytewax.tracing.TracingConfig
+///
+/// :arg log_level: String of the log level. One of `"ERROR"`,
+///     `"WARN"`, `"INFO"`, `"DEBUG"`, `"TRACE"`. Defaults to
+///     `"ERROR"`.
+///
+/// :type log_level: str
 #[pyfunction]
 fn setup_tracing(
     py: Python,

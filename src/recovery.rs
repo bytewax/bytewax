@@ -266,20 +266,24 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<String>);
 
 /// Configuration settings for recovery.
 ///
-/// Args:
-///   db_dir (pathlib.Path): Local filesystem directory to search for
-///     recovery database partitions.
+/// :arg db_dir: Local filesystem directory to search for recovery
+///     database partitions.
 ///
-///   backup_interval (typing.Optional[datetime.duration]): Amount of
-///     system time to wait to permanently delete a state snapshot after
-///     it is no longer needed. You should set this to the interval at
-///     which you are backing up the recovery partitions off of the
-///     workers into archival storage (e.g. S3). Defaults to zero
-///     duration.
+/// :type db_dir: pathlib.Path
 ///
-///   snapshot_serde (typing.Optional[bytewax.serde.Serde]): Format to
-///     use when encoding state snapshot objects in the recovery
-///     partitions. Defaults to `bytewax.serde.JsonPickleSerde`.
+/// :arg backup_interval: Amount of system time to wait to permanently
+///     delete a state snapshot after it is no longer needed. You
+///     should set this to the interval at which you are backing up
+///     the recovery partitions off of the workers into archival
+///     storage (e.g. S3). Defaults to zero duration.
+///
+/// :type backup_interval: typing.Optional[datetime.timedelta]
+///
+/// :arg snapshot_serde: Format to use when encoding state snapshot
+///     objects in the recovery partitions. Defaults to
+///     {py:obj}`~bytewax.serde.JsonPickleSerde`.
+///
+/// :type snapshot_serde: typing.Optional[bytewax.serde.Serde]
 #[pyclass(module = "bytewax.recovery")]
 pub(crate) struct RecoveryConfig {
     #[pyo3(get)]
@@ -1292,10 +1296,13 @@ fn resume_from_inconsistent_error() {
 
 /// Create and init a set of empty recovery partitions.
 ///
-/// Args:
-///   db_dir (path.Path): Local directory to create partitions in.
+/// :arg db_dir: Local directory to create partitions in.
 ///
-///   count (int): Number of partitions to create.
+/// :type db_dir: pathlib.Path
+///
+/// :arg count: Number of partitions to create.
+///
+/// :type count: int
 #[pyfunction]
 fn init_db_dir(py: Python, db_dir: PathBuf, count: PartitionCount) -> PyResult<()> {
     tracing::warn!("Creating {count:?} recovery partitions in {db_dir:?}");
