@@ -12,14 +12,6 @@ from fastavro.types import AvroMessage
 
 from bytewax.connectors.kafka import MaybeStrBytes
 
-__all__ = [
-    "SerdeIn",
-    "SerdeOut",
-    "SchemaSerializer",
-    "SchemaDeserializer",
-    "AvroMessage",
-]
-
 _logger = logging.getLogger(__name__)
 
 SerdeOut = TypeVar("SerdeOut")

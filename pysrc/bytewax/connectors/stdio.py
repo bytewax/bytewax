@@ -6,10 +6,6 @@ from typing_extensions import override
 
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
-__all__ = [
-    "StdOutSink",
-]
-
 
 class _PrintSinkPartition(StatelessSinkPartition[Any]):
     @override
