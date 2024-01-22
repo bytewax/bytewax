@@ -200,7 +200,7 @@ def count_window(
     def _shim_folder(count: int, _item: X) -> int:
         return count + 1
 
-    keyed: KeyedStream[int] = op.key_on("extract_key", up, key)
+    keyed = op.key_on("extract_key", up, key)
     return fold_window("sum", keyed, clock, windower, _shim_builder, _shim_folder)
 
 

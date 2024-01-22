@@ -3,6 +3,7 @@
 from typing import Dict, Iterable, List, Optional
 
 from confluent_kafka import Producer
+from typing_extensions import override
 
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
@@ -17,6 +18,7 @@ class _KafkaSinkPartition(
         self._producer = producer
         self._topic = topic
 
+    @override
     def write_batch(
         self, items: List[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]
     ) -> None:
@@ -36,6 +38,7 @@ class _KafkaSinkPartition(
             self._producer.poll(0)
         self._producer.flush()
 
+    @override
     def close(self) -> None:
         self._producer.flush()
 
@@ -77,8 +80,8 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]]):
         self._topic = topic
         self._add_config = {} if add_config is None else add_config
 
+    @override
     def build(self, worker_index: int, worker_count: int) -> _KafkaSinkPartition:
-        """See ABC docstring."""
         config = {
             "bootstrap.servers": ",".join(self._brokers),
         }

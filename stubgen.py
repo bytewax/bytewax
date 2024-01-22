@@ -192,12 +192,51 @@ def _stub_init(
     return (meta, node)
 
 
+def _stub_new(
+    ctx: _Ctx,
+    f: Union[
+        MethodDescriptorType,
+        MethodType,
+    ],
+) -> Tuple[_Meta, ast.FunctionDef]:
+    sig = inspect.signature(f)
+
+    if "cls" not in sig.parameters:
+        params = list(sig.parameters.items())
+        params.insert(
+            0, ("cls", Parameter(name="cls", kind=Parameter.POSITIONAL_OR_KEYWORD))
+        )
+        params = dict(params)
+    else:
+        params = sig.parameters
+
+    body = []
+    docstring = inspect.getdoc(f)
+    if docstring:
+        body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.col_offset))]
+    body += [ast.Expr(ast.Constant(...))]
+
+    meta = _Meta(ctx.path, [])
+    node = ast.FunctionDef(
+        name=ctx.name(),
+        args=_stub_args(params),
+        body=body,
+        decorator_list=[],
+        returns=sig.return_annotation
+        if sig.return_annotation is not Signature.empty
+        else None,
+        type_comment=None,
+        type_params=[],
+    )
+
+    return (meta, node)
+
+
 CLS_IGNORE = [
     "__doc__",
-    # Special override because `__hash__` can be `None` and not a
-    # function.
-    "__hash__",
+    "__hash__",  # Special override below.
     "__module__",
+    "__new__",  # Special override below.
     "__weakref__",
 ]
 
@@ -222,10 +261,12 @@ def _stub_cls(ctx: _Ctx, cls: type) -> Tuple[_Meta, ast.ClassDef]:
         # the class signature. The stub class's signature is derived
         # from this.
         try:
-            new = _stub_init(ctx.new_scope("__init__"), cls)
-            children += [new]
+            children += [_stub_init(ctx.new_scope("__init__"), cls)]
         except NotImplementedError:
             pass
+    if "__new__" in cls.__dict__:
+        new = cls.__dict__["__new__"]
+        children += [_stub_new(ctx.new_scope("__new__"), new)]
     children += [
         _stub_obj(ctx.new_scope(n), obj)
         for n, obj

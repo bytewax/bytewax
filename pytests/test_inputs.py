@@ -22,6 +22,7 @@ from bytewax.inputs import (
 )
 from bytewax.testing import TestingSink, run_main
 from pytest import raises
+from typing_extensions import override
 
 
 def test_flow_requires_input():
@@ -39,7 +40,8 @@ def test_dynamic_source_next_batch_iterator():
         def __init__(self):
             self._n = 0
 
-        def next_batch(self, _sched: datetime) -> Iterable[int]:
+        @override
+        def next_batch(self, sched: Optional[datetime]) -> Iterable[int]:
             if self._n < 5:
                 n = self._n
                 self._n += 1
@@ -48,8 +50,9 @@ def test_dynamic_source_next_batch_iterator():
                 raise StopIteration()
 
     class TestSource(DynamicSource[int]):
+        @override
         def build(
-            self, _now: datetime, _worker_index: int, _worker_count: int
+            self, now: datetime, worker_index: int, worker_count: int
         ) -> TestPartition:
             return TestPartition()
 
@@ -68,7 +71,8 @@ def test_fixed_partitioned_source_next_batch_iterator():
         def __init__(self):
             self._n = 0
 
-        def next_batch(self, _sched: datetime) -> Iterable[int]:
+        @override
+        def next_batch(self, sched: Optional[datetime]) -> Iterable[int]:
             if self._n < 5:
                 n = self._n
                 self._n += 1
@@ -76,15 +80,18 @@ def test_fixed_partitioned_source_next_batch_iterator():
             else:
                 raise StopIteration()
 
+        @override
         def snapshot(self) -> None:
             return None
 
     class TestSource(FixedPartitionedSource[int, None]):
+        @override
         def list_parts(self) -> List[str]:
             return ["one"]
 
+        @override
         def build_part(
-            self, _now: datetime, _worker_index: int, _worker_count: int
+            self, now: datetime, for_part: str, resume_state: None
         ) -> TestPartition:
             return TestPartition()
 
@@ -111,6 +118,7 @@ class _DynamicMetronomePartition(StatelessSourcePartition[Tuple[datetime, int]])
         self._next_awake = next_awake
         self._n = n
 
+    @override
     def next_batch(self, sched: Optional[datetime]) -> List[Tuple[datetime, int]]:
         now = datetime.now(timezone.utc)
         self._next_awake = now + self._interval
@@ -121,15 +129,17 @@ class _DynamicMetronomePartition(StatelessSourcePartition[Tuple[datetime, int]])
         else:
             raise StopIteration()
 
+    @override
     def next_awake(self) -> Optional[datetime]:
         return self._next_awake
 
 
-class DynamicMetronomeSource(DynamicSource[datetime]):
+class DynamicMetronomeSource(DynamicSource[Tuple[datetime, int]]):
     def __init__(self, interval: timedelta, count: int = sys.maxsize):
         self._interval = interval
         self._count = count
 
+    @override
     def build(
         self, now: datetime, worker_index: int, worker_count: int
     ) -> _DynamicMetronomePartition:
@@ -183,6 +193,7 @@ class _MetronomePartition(
         self._next_awake = next_awake
         self._n = n
 
+    @override
     def next_batch(self, sched: Optional[datetime]) -> Iterable[Tuple[datetime, int]]:
         now = datetime.now(timezone.utc)
         self._next_awake = now + self._interval
@@ -193,9 +204,11 @@ class _MetronomePartition(
         else:
             raise StopIteration()
 
+    @override
     def next_awake(self) -> Optional[datetime]:
         return self._next_awake
 
+    @override
     def snapshot(self) -> Tuple[datetime, int]:
         return (self._next_awake, self._n)
 
@@ -207,9 +220,11 @@ class MetronomeSource(
         self._interval = interval
         self._count = count
 
+    @override
     def list_parts(self) -> List[str]:
         return ["singleton"]
 
+    @override
     def build_part(
         self, now: datetime, for_part: str, resume_state: Optional[Tuple[datetime, int]]
     ) -> _MetronomePartition:

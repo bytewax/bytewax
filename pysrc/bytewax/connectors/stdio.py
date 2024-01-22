@@ -2,6 +2,8 @@
 import sys
 from typing import Any, List
 
+from typing_extensions import override
+
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 __all__ = [
@@ -10,6 +12,7 @@ __all__ = [
 
 
 class _PrintSinkPartition(StatelessSinkPartition[Any]):
+    @override
     def write_batch(self, items: List[Any]) -> None:
         for item in items:
             line = str(item)
@@ -31,6 +34,6 @@ class StdOutSink(DynamicSink[Any]):
 
     """
 
+    @override
     def build(self, worker_index: int, worker_count: int) -> _PrintSinkPartition:
-        """See ABC docstring."""
         return _PrintSinkPartition()
