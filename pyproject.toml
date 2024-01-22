@@ -72,8 +72,6 @@ long_description_content_type = "text/markdown"
 addopts = "-v --doctest-modules"
 doctest_optionflags = "NORMALIZE_WHITESPACE"
 testpaths = [
-    "docs",
-    "pysrc",
     "pytests",
 ]
 
