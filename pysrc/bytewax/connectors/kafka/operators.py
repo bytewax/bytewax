@@ -1,56 +1,56 @@
-"""Operators for the kafka source and sink."""
+"""Operators to help with Kafka IO."""
 from dataclasses import dataclass
-from typing import Dict, Generic, List, Optional, Union, cast
+from typing import Dict, Generic, List, Optional, TypeVar, Union, cast
 
 from confluent_kafka import OFFSET_BEGINNING
 from confluent_kafka import KafkaError as ConfluentKafkaError
 
 import bytewax.operators as op
-from bytewax.dataflow import Dataflow
-from bytewax.operators import Stream, operator
+from bytewax.connectors.kafka import (
+    K2,
+    V2,
+    K,
+    KafkaError,
+    KafkaSink,
+    KafkaSinkMessage,
+    KafkaSource,
+    KafkaSourceError,
+    KafkaSourceMessage,
+    SerializedKafkaSinkMessage,
+    SerializedKafkaSourceMessage,
+    V,
+)
+from bytewax.connectors.kafka.serde import SchemaDeserializer, SchemaSerializer
+from bytewax.dataflow import Dataflow, Stream, operator
 
-from ._types import K2, V2, K, MaybeStrBytes, V
-from .error import KafkaError
-from .message import KafkaSinkMessage, KafkaSourceMessage
-from .serde import SchemaDeserializer, SchemaSerializer
-from .sink import KafkaSink
-from .source import KafkaSource
+X = TypeVar("X")
+"""Type of sucessfully processed items."""
 
-__all__ = [
-    "deserialize",
-    "deserialize_key",
-    "deserialize_value",
-    "serialize",
-    "serialize_key",
-    "serialize_value",
-    "input",
-    "output",
-]
+E = TypeVar("E")
+"""Type of errors."""
 
 
 @dataclass(frozen=True)
-class KafkaSourceOut(Generic[K, V, K2, V2]):
-    """Split output for KafkaSource.
+class KafkaOpOut(Generic[X, E]):
+    """Result streams from Kafka operators."""
 
-    Returns an object with two attributes:
-        - `.oks` is a stream of `KafkaSourceMessage`.
-        - `.errs` is a stream of `KafkaError`.
-    """
+    oks: Stream[X]
+    """Successfully processed items."""
 
-    oks: Stream[KafkaSourceMessage[K, V]]
-    errs: Stream[KafkaError[K2, V2]]
+    errs: Stream[E]
+    """Errors."""
 
 
 @operator
 def _kafka_error_split(
     step_id: str, up: Stream[Union[KafkaSourceMessage[K2, V2], KafkaError[K, V]]]
-) -> KafkaSourceOut[K2, V2, K, V]:
+) -> KafkaOpOut[KafkaSourceMessage[K2, V2], KafkaError[K, V]]:
     """Split the stream from KafkaSource between oks and errs."""
     branch = op.branch("branch", up, lambda msg: isinstance(msg, KafkaSourceMessage))
     # Cast the streams to the proper expected types.
     oks = cast(Stream[KafkaSourceMessage[K2, V2]], branch.trues)
     errs = cast(Stream[KafkaError[K, V]], branch.falses)
-    return KafkaSourceOut(oks, errs)
+    return KafkaOpOut(oks, errs)
 
 
 @operator
@@ -81,36 +81,38 @@ def input(  # noqa A001
     starting_offset: int = OFFSET_BEGINNING,
     add_config: Optional[Dict[str, str]] = None,
     batch_size: int = 1000,
-) -> KafkaSourceOut[MaybeStrBytes, MaybeStrBytes, MaybeStrBytes, MaybeStrBytes]:
-    """Use a set of Kafka topics as an input source.
+) -> KafkaOpOut[SerializedKafkaSourceMessage, KafkaSourceError]:
+    """Consume from Kafka as an input source.
 
-    Partitions are the unit of parallelism.
-    Can support exactly-once processing.
-
-    Messages are emitted into the dataflow
-    as `bytewax.connectors.kafka.KafkaSourceMessage` objects.
+    Partitions are the unit of parallelism. Can support exactly-once
+    processing.
 
     Args:
-        step_id: Unique name for this step
+        step_id: Unique Id.
 
-        flow: A Dataflow
+        flow: Dataflow.
 
         brokers: List of `host:port` strings of Kafka brokers.
 
         topics: List of topics to consume from.
 
-        tail: Whether to wait for new data on this topic when the
-            end is initially reached.
+        tail: Whether to wait for new data on this topic when the end
+            is initially reached.
 
-        starting_offset: Can be either `confluent_kafka.OFFSET_BEGINNING` or
-            `confluent_kafka.OFFSET_END`. Defaults to beginning of
-            topic.
+        starting_offset: Can be either
+            `confluent_kafka.OFFSET_BEGINNING` or
+            `confluent_kafka.OFFSET_END`.
 
-        add_config: Any additional configuration properties. See the `rdkafka`
+        add_config: Any additional configuration properties. See the
+            `rdkafka`
             [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
             for options.
 
-        batch_size: How many messages to consume at most at each poll. Defaults to 1000.
+        batch_size: How many messages to consume at most at each poll.
+
+    Returns:
+        A stream of consumed items and a stream of consumer errors.
+
     """
     return op.input(
         "kafka_input",
@@ -132,21 +134,14 @@ def input(  # noqa A001
 @operator
 def output(
     step_id: str,
-    up: Stream[
-        Union[
-            KafkaSourceMessage[MaybeStrBytes, MaybeStrBytes],
-            KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes],
-        ]
-    ],
+    up: Stream[Union[SerializedKafkaSourceMessage, SerializedKafkaSinkMessage]],
     *,
     brokers: List[str],
     topic: str,
     add_config: Optional[Dict[str, str]] = None,
 ) -> None:
-    """Use a single Kafka topic as an output sink.
+    """Produce to Kafka as an output sink.
 
-    Items consumed from the dataflow must be either a `KafkaSourceMessage`
-    or a `KafkaSinkMessage` with both key and values expressed as `str | bytes | None`.
     Default partition routing is used.
 
     Workers are the unit of parallelism.
@@ -155,17 +150,22 @@ def output(
     epoch will be duplicated right after resume.
 
     Args:
-        step_id: Unique name for this step
+        step_id: Unique ID.
 
-        up: A stream of `KafkaSourceMessage | KafkaSinkMessage`
+        up: Stream of fully serialized messages. Key and value must be
+            `bytewax.connectors.kafka.MaybeStrBytes`.
 
         brokers: List of `host:port` strings of Kafka brokers.
 
-        topic: Topic to produce to.
+        topic: Topic to produce to. If individual items have
+            `bytewax.connectors.kafka.KafkaSinkMessage.topic` set,
+            will override this per-message.
 
-        add_config: Any additional configuration properties. See the `rdkafka`
+        add_config: Any additional configuration properties. See the
+            `rdkafka`
             [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
             for options.
+
     """
     return _to_sink("to_sink", up).then(
         op.output, "kafka_output", KafkaSink(brokers, topic, add_config)
@@ -177,13 +177,20 @@ def deserialize_key(
     step_id: str,
     up: Stream[KafkaSourceMessage[K, V]],
     deserializer: SchemaDeserializer[K, K2],
-) -> KafkaSourceOut[K2, V, K, V]:
-    """Deserialize the key of a KafkaSourceMessage using the provided deserializer.
+) -> KafkaOpOut[KafkaSourceMessage[K2, V], KafkaError[K, V]]:
+    """Deserialize Kafka message keys.
 
-    Returns an object with two attributes:
+    Args:
+        step_id: Unique ID.
 
-        - .oks: A stream of `KafkaSourceMessage`
-        - .errs: A stream of `KafkaError`
+        up: Stream.
+
+        deserializer: To use.
+
+    Returns:
+        Stream of deserialized messages and a stream of
+        deserialization errors.
+
     """
 
     # Make sure the first KafkaMessage in the return type's Union represents
@@ -207,13 +214,20 @@ def deserialize_value(
     step_id: str,
     up: Stream[KafkaSourceMessage[K, V]],
     deserializer: SchemaDeserializer[V, V2],
-) -> KafkaSourceOut[K, V2, K, V]:
-    """Deserialize the value of a KafkaSourceMessage using the provided deserializer.
+) -> KafkaOpOut[KafkaSourceMessage[K, V2], KafkaError[K, V]]:
+    """Deserialize Kafka message values.
 
-    Returns an object with two attributes:
+    Args:
+        step_id: Unique ID.
 
-        - .oks: A stream of `KafkaSourceMessage`
-        - .errs: A stream of `KafkaError`
+        up: Stream.
+
+        deserializer: To use.
+
+    Returns:
+        Stream of deserialized messages and a stream of
+        deserialization errors.
+
     """
 
     def shim_mapper(
@@ -238,15 +252,25 @@ def deserialize(
     *,
     key_deserializer: SchemaDeserializer[K, K2],
     val_deserializer: SchemaDeserializer[V, V2],
-) -> KafkaSourceOut[K2, V2, K, V]:
-    """Serialize both keys and values with the given serializers.
+) -> KafkaOpOut[KafkaSourceMessage[K2, V2], KafkaError[K, V]]:
+    """Deserialize Kafka messages.
 
-    Returns an object with two attributes:
+    If there is an error on deserializing either key or value, the
+    original message will be attached to the error.
 
-        - .oks: A stream of `KafkaSourceMessage`
-        - .errs: A stream of `KafkaError`
+    Args:
+        step_id: Unique ID.
 
-    A message will be put in .errs even if only one of the deserializers fail.
+        up: Stream.
+
+        key_deserializer: To use.
+
+        val_deserializer: To use.
+
+    Returns:
+        Stream of deserialized messages and a stream of
+        deserialization errors.
+
     """
 
     # Use a single map step rather than concatenating
@@ -280,21 +304,30 @@ def serialize_key(
     up: Stream[Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]]],
     serializer: SchemaSerializer[K, K2],
 ) -> Stream[KafkaSinkMessage[K2, V]]:
-    """Serialize the key of a kafka message using the provided SchemaSerializer.
+    """Serialize Kafka message keys.
 
-    It accepts both KafkaSourceMessage and KafkaSinkMessage.
-    KafkaSourceMessages will be automatically converted to a KafkaSinkMessage
-    ignoring all metadata.
+    If there is an error on serializing, this operator will raise an
+    exception.
 
-    Crash if any error occurs.
+    Args:
+        step_id: Unique ID.
+
+        up: Stream. Will automatically convert source messages to sink
+            messages via
+            `bytewax.connectors.kafka.KafkaSourceMessage.to_sink`.
+
+        serializer: To use.
+
+    Returns:
+        Stream of serialized messages.
+
     """
 
     def shim_mapper(msg: KafkaSinkMessage[K, V]) -> KafkaSinkMessage[K2, V]:
         key = serializer.ser(msg.key)
         return msg._with_key(key)
 
-    sinks = _to_sink("to_sink", up)
-    return op.map("map", sinks, shim_mapper)
+    return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)
 
 
 @operator
@@ -303,21 +336,30 @@ def serialize_value(
     up: Stream[Union[KafkaSourceMessage[K, V], KafkaSinkMessage[K, V]]],
     serializer: SchemaSerializer[V, V2],
 ) -> Stream[KafkaSinkMessage[K, V2]]:
-    """Serialize the value of a kafka message using the provided SchemaSerializer.
+    """Serialize Kafka message values.
 
-    It accepts both KafkaSourceMessage and KafkaSinkMessage.
-    KafkaSourceMessages will be automatically converted to a KafkaSinkMessage
-    ignoring all metadata.
+    If there is an error on serializing, this operator will raise an
+    exception.
 
-    Crash if any error occurs.
+    Args:
+        step_id: Unique ID.
+
+        up: Stream. Will automatically convert source messages to sink
+            messages via
+            `bytewax.connectors.kafka.KafkaSourceMessage.to_sink`.
+
+        serializer: To use.
+
+    Returns:
+        Stream of serialized messages.
+
     """
 
     def shim_mapper(msg: KafkaSinkMessage[K, V]) -> KafkaSinkMessage[K, V2]:
         value = serializer.ser(msg.value)
         return msg._with_value(value)
 
-    sinks = _to_sink("to_sink", up)
-    return op.map("map", sinks, shim_mapper)
+    return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)
 
 
 @operator
@@ -328,13 +370,25 @@ def serialize(
     key_serializer: SchemaSerializer[K, K2],
     val_serializer: SchemaSerializer[V, V2],
 ) -> Stream[KafkaSinkMessage[K2, V2]]:
-    """Serialize both keys and values with the given serializers.
+    """Serialize Kafka messages.
 
-    It accepts both KafkaSourceMessage and KafkaSinkMessage.
-    KafkaSourceMessages will be automatically converted to a KafkaSinkMessage
-    ignoring all metadata.
+    If there is an error on serializing, this operator will raise an
+    exception.
 
-    Crash if any error occurs.
+    Args:
+        step_id: Unique ID.
+
+        up: Stream. Will automatically convert source messages to sink
+            messages via
+            `bytewax.connectors.kafka.KafkaSourceMessage.to_sink`.
+
+        key_serializer: To use.
+
+        val_serializer: To use.
+
+    Returns:
+        Stream of serialized messages.
+
     """
 
     def shim_mapper(msg: KafkaSinkMessage[K, V]) -> KafkaSinkMessage[K2, V2]:
@@ -342,5 +396,4 @@ def serialize(
         value = val_serializer.ser(msg.value)
         return msg._with_key_and_value(key, value)
 
-    sinks = _to_sink("to_sink", up)
-    return op.map("map", sinks, shim_mapper)
+    return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)

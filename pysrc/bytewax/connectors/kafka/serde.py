@@ -3,14 +3,14 @@ import io
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, Generic, TypeVar, cast
+from typing import Dict, Generic, TypeVar
 
 from confluent_kafka.schema_registry import record_subject_name_strategy
 from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
 from fastavro import parse_schema, schemaless_reader, schemaless_writer
 from fastavro.types import AvroMessage
 
-from ._types import MaybeStrBytes
+from bytewax.connectors.kafka import MaybeStrBytes
 
 __all__ = [
     "SerdeIn",
@@ -20,7 +20,7 @@ __all__ = [
     "AvroMessage",
 ]
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 SerdeOut = TypeVar("SerdeOut")
 SerdeIn = TypeVar("SerdeIn")
@@ -55,9 +55,7 @@ class _ConfluentAvroSerializer(SchemaSerializer[Dict, bytes]):
         )
 
     def ser(self, obj: Dict) -> bytes:
-        b = self.serializer(obj, ctx=None)
-        # The serializer only returns `None` if the input is `None`.
-        return cast(bytes, b)
+        return self.serializer(obj, ctx=None)
 
 
 class _ConfluentAvroDeserializer(SchemaDeserializer[MaybeStrBytes, AvroMessage]):
@@ -74,9 +72,7 @@ class _ConfluentAvroDeserializer(SchemaDeserializer[MaybeStrBytes, AvroMessage])
         # function is passed to the deserializer, but we
         # initialize it ourselves and don't pass that,
         # so we can set `ctx` to None
-        obj = self.deserializer(data, ctx=None)
-        # The deserializer only returns `None` if the input is `None`.
-        return cast(Dict, obj)
+        return self.deserializer(data, ctx=None)
 
 
 class _AvroSerializer(SchemaSerializer[Dict, bytes]):
