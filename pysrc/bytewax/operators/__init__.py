@@ -45,7 +45,7 @@ W = TypeVar("W")  # Output Value
 S = TypeVar("S")  # State
 KeyedStream: TypeAlias = Stream[Tuple[str, V]]
 
-EMPTY = tuple()
+_EMPTY = tuple()
 
 
 def _identity(x: X) -> X:
@@ -501,7 +501,7 @@ class _CollectLogic(UnaryLogic[V, List[V], _CollectState[V]]):
             # No need to deepcopy because we are discarding the state.
             return ((self.state.acc,), UnaryLogic.DISCARD)
 
-        return (EMPTY, UnaryLogic.RETAIN)
+        return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
     def on_notify(self, sched: datetime) -> Tuple[Iterable[List[V]], bool]:
@@ -753,7 +753,7 @@ def filter(  # noqa: A001
         if keep:
             return (x,)
 
-        return EMPTY
+        return _EMPTY
 
     return flat_map("flat_map", up, shim_mapper)
 
@@ -791,7 +791,7 @@ def filter_value(
         if keep:
             return (v,)
 
-        return EMPTY
+        return _EMPTY
 
     return flat_map_value("filter", up, shim_mapper)
 
@@ -848,7 +848,7 @@ def filter_map(
         if y is not None:
             return (y,)
 
-        return EMPTY
+        return _EMPTY
 
     return flat_map("flat_map", up, shim_mapper)
 
@@ -862,11 +862,11 @@ class _FoldFinalLogic(UnaryLogic[V, S, S]):
     @override
     def on_item(self, now: datetime, value: V) -> Tuple[Iterable[S], bool]:
         self.state = self.folder(self.state, value)
-        return (EMPTY, UnaryLogic.RETAIN)
+        return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
     def on_notify(self, sched: datetime) -> Tuple[Iterable[S], bool]:
-        return (EMPTY, UnaryLogic.RETAIN)
+        return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
     def on_eof(self) -> Tuple[Iterable[S], bool]:
@@ -992,10 +992,10 @@ class _JoinState:
         )
 
     def asdicts(self) -> List[Dict[str, Any]]:
-        EMPTY = object()
+        empty = object()
         return [
-            dict((n, v) for n, v in zip(self.seen.keys(), t) if v is not EMPTY)
-            for t in self.astuples(empty=EMPTY)
+            dict((n, v) for n, v in zip(self.seen.keys(), t) if v is not empty)
+            for t in self.astuples(empty)
         ]
 
 
@@ -1020,15 +1020,15 @@ class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
                 # No need to deepcopy because we are discarding the state.
                 return ((self.state,), UnaryLogic.DISCARD)
             else:
-                return (EMPTY, UnaryLogic.RETAIN)
+                return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
     def on_notify(self, sched: datetime) -> Tuple[Iterable[_JoinState], bool]:
-        return (EMPTY, UnaryLogic.RETAIN)
+        return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
     def on_eof(self) -> Tuple[Iterable[_JoinState], bool]:
-        return (EMPTY, UnaryLogic.RETAIN)
+        return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
     def notify_at(self) -> Optional[datetime]:
@@ -1439,11 +1439,11 @@ class _StatefulMapLogic(UnaryLogic[V, W, S]):
 
     @override
     def on_notify(self, sched: datetime) -> Tuple[Iterable[W], bool]:
-        return (EMPTY, UnaryLogic.RETAIN)
+        return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
     def on_eof(self) -> Tuple[Iterable[W], bool]:
-        return (EMPTY, UnaryLogic.RETAIN)
+        return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
     def notify_at(self) -> Optional[datetime]:
