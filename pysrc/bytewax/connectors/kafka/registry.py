@@ -1,10 +1,11 @@
 """Schema registries connection.
 
 This module offers two preconfigured schema registries:
-- ConfluentSchemaRegistry
-- RedpandaSchemaRegistry
 
-Subclass "SchemaRegistry" to implement support for your any registry.
+- `ConfluentSchemaRegistry`
+
+- `RedpandaSchemaRegistry`
+
 """
 import logging
 from dataclasses import dataclass
@@ -14,8 +15,8 @@ import requests
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from fastavro.types import AvroMessage
 
-from ._types import MaybeStrBytes
-from .serde import (
+from bytewax.connectors.kafka import MaybeStrBytes
+from bytewax.connectors.kafka.serde import (
     SchemaDeserializer,
     SchemaSerializer,
     _AvroDeserializer,
@@ -24,28 +25,19 @@ from .serde import (
     _ConfluentAvroSerializer,
 )
 
-__all__ = [
-    "SchemaRef",
-    "ConfluentSchemaRegistry",
-    "RedpandaSchemaRegistry",
-]
-
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class SchemaRef:
-    """Info used to retrieve a schema from a schema registry.
-
-    Specify the `subject` and optionally `version`.
-    If no `version` is specified, it defaults to the latest schema.
-    """
+    """Info used to retrieve a schema from a schema registry."""
 
     # TODO: Only `avro` supported for now, but we might want
     #       to add `protobuf` and others too
     # format: str = "avro"
     subject: str
     version: Optional[int] = None
+    """If not specified, defaults to latest schema."""
 
 
 class ConfluentSchemaRegistry:
@@ -55,8 +47,9 @@ class ConfluentSchemaRegistry:
         """Init.
 
         Args:
-            client:
-                Configured `confluent_kafka.schema_registry.SchemaRegistryClient`
+            client: Configured
+                `confluent_kafka.schema_registry.SchemaRegistryClient`.
+
         """
         self.client = client
 
@@ -102,8 +95,9 @@ class RedpandaSchemaRegistry:
         """Init.
 
         Args:
-            base_url:
-                Base url of redpanda's schema registry instance
+            base_url: Base url of redpanda's schema registry
+                instance.
+
         """
         self._base_url = base_url
 
@@ -129,7 +123,10 @@ class RedpandaSchemaRegistry:
     ) -> SchemaSerializer[Dict, bytes]:
         """Fastavro serializer.
 
-        Specify either the `schema_id` or a `SchemaRef` instance.
+        Args:
+            schema_ref: Specify either the `schema_id` or a
+                `SchemaRef` instance.
+
         """
         schema = self._get_schema(schema_ref)
         return _AvroSerializer(schema)
@@ -139,7 +136,10 @@ class RedpandaSchemaRegistry:
     ) -> SchemaDeserializer[MaybeStrBytes, AvroMessage]:
         """Fastavro deserializer.
 
-        Specify either the `schema_id` or a `SchemaRef` instance.
+        Args:
+            schema_ref: Specify either the `schema_id` or a
+                `SchemaRef` instance.
+
         """
         schema = self._get_schema(schema_ref)
         return _AvroDeserializer(schema)

@@ -49,7 +49,7 @@ add_one_stream = op.map("add_one", stream, lambda x: x + 1)
 op.output("out", add_one_stream, StdOutSink())
 ```
 
-### Kafka/RedPanda Input
+### Kafka/Redpanda Input
 
 [`KafkaSource`](/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSource) has been
 updated. `KafkaSource` now returns a stream of
@@ -85,7 +85,7 @@ from typing import Tuple, Optional
 
 from bytewax import operators as op
 from bytewax.connectors.kafka import operators as kop
-from bytewax.connectors.kafka.message import KafkaSinkMessage
+from bytewax.connectors.kafka import KafkaSinkMessage
 from bytewax.dataflow import Dataflow
 
 flow = Dataflow("kafka_in_out")
