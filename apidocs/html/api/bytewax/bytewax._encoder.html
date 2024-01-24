@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>bytewax._encoder &#8212; Bytewax API Docs  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=c631c1db" />
+    <script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=888ff710"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+
+
+
+
+
+  </head><body>
+
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+
+
+          <div class="body" role="main">
+
+  <section id="module-bytewax._encoder">
+<span id="bytewax-encoder"></span><h1><a class="reference internal" href="#module-bytewax._encoder" title="bytewax._encoder"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax._encoder</span></code></a><a class="headerlink" href="#module-bytewax._encoder" title="Link to this heading">¶</a></h1>
+<p>Serialization of the dataflow data model.</p>
+<section id="classes">
+<h2>Classes<a class="headerlink" href="#classes" title="Link to this heading">¶</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedPort">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">RenderedPort</span></span><a class="headerlink" href="#bytewax._encoder.RenderedPort" title="Link to this definition">¶</a></dt>
+<dd><dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedPort.port_name">
+<span class="sig-name descname"><span class="pre">port_name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a></em><a class="headerlink" href="#bytewax._encoder.RenderedPort.port_name" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedPort.port_id">
+<span class="sig-name descname"><span class="pre">port_id</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a></em><a class="headerlink" href="#bytewax._encoder.RenderedPort.port_id" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedPort.from_port_ids">
+<span class="sig-name descname"><span class="pre">from_port_ids</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax._encoder.RenderedPort.from_port_ids" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedPort.from_stream_ids">
+<span class="sig-name descname"><span class="pre">from_stream_ids</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax._encoder.RenderedPort.from_stream_ids" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedOperator">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">RenderedOperator</span></span><a class="headerlink" href="#bytewax._encoder.RenderedOperator" title="Link to this definition">¶</a></dt>
+<dd><dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedOperator.op_type">
+<span class="sig-name descname"><span class="pre">op_type</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a></em><a class="headerlink" href="#bytewax._encoder.RenderedOperator.op_type" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedOperator.step_name">
+<span class="sig-name descname"><span class="pre">step_name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a></em><a class="headerlink" href="#bytewax._encoder.RenderedOperator.step_name" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedOperator.step_id">
+<span class="sig-name descname"><span class="pre">step_id</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a></em><a class="headerlink" href="#bytewax._encoder.RenderedOperator.step_id" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedOperator.inp_ports">
+<span class="sig-name descname"><span class="pre">inp_ports</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax._encoder.RenderedPort" title="bytewax._encoder.RenderedPort"><span class="pre">RenderedPort</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax._encoder.RenderedOperator.inp_ports" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedOperator.out_ports">
+<span class="sig-name descname"><span class="pre">out_ports</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax._encoder.RenderedPort" title="bytewax._encoder.RenderedPort"><span class="pre">RenderedPort</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax._encoder.RenderedOperator.out_ports" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedOperator.substeps">
+<span class="sig-name descname"><span class="pre">substeps</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax._encoder.RenderedOperator" title="bytewax._encoder.RenderedOperator"><span class="pre">RenderedOperator</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax._encoder.RenderedOperator.substeps" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedDataflow">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">RenderedDataflow</span></span><a class="headerlink" href="#bytewax._encoder.RenderedDataflow" title="Link to this definition">¶</a></dt>
+<dd><dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedDataflow.flow_id">
+<span class="sig-name descname"><span class="pre">flow_id</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a></em><a class="headerlink" href="#bytewax._encoder.RenderedDataflow.flow_id" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax._encoder.RenderedDataflow.substeps">
+<span class="sig-name descname"><span class="pre">substeps</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax._encoder.RenderedOperator" title="bytewax._encoder.RenderedOperator"><span class="pre">RenderedOperator</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax._encoder.RenderedDataflow.substeps" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="functions">
+<h2>Functions<a class="headerlink" href="#functions" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="bytewax._encoder.to_rendered">
+<span class="sig-name descname"><span class="pre">to_rendered</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">flow</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="bytewax.dataflow.html#bytewax.dataflow.Dataflow" title="bytewax.dataflow.Dataflow"><span class="pre">Dataflow</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#bytewax._encoder.RenderedDataflow" title="bytewax._encoder.RenderedDataflow"><span class="pre">RenderedDataflow</span></a></span></span><a class="headerlink" href="#bytewax._encoder.to_rendered" title="Link to this definition">¶</a></dt>
+<dd><p>Convert a dataflow into the “rendered” data model.</p>
+<p>This resolves all port links for you. All you have to do is set up
+the links by connecting <code class="docutils literal notranslate"><span class="pre">RenderedPort.port_id</span></code> to all
+<code class="docutils literal notranslate"><span class="pre">RenderedPort.from_port_ids</span></code>.</p>
+<p>Args:
+flow: Dataflow.</p>
+<p>Returns:
+Rendered dataflow.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bytewax._encoder.json_for">
+<span class="sig-name descname"><span class="pre">json_for</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">obj</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.12)"><span class="pre">Any</span></a></span></span><a class="headerlink" href="#bytewax._encoder.json_for" title="Link to this definition">¶</a></dt>
+<dd><p>Hook to extend the JSON serialization.</p>
+<p>Register new types via <code class="docutils literal notranslate"><span class="pre">&#64;json_for.register</span></code>. See <code class="docutils literal notranslate"><span class="pre">singledispatch</span></code>
+for more info.</p>
+<p>If this contains nested un-serializeable types, this will be
+re-called with them later by <code class="docutils literal notranslate"><span class="pre">json.dumps</span></code>; you don’t have to
+recurse yourself.</p>
+<p>Args:
+obj: Un-handled type to attempt to encode.</p>
+<p>Returns:
+A new value that is JSON serializable.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bytewax._encoder.to_json">
+<span class="sig-name descname"><span class="pre">to_json</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">flow</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="bytewax.dataflow.html#bytewax.dataflow.Dataflow" title="bytewax.dataflow.Dataflow"><span class="pre">Dataflow</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a></span></span><a class="headerlink" href="#bytewax._encoder.to_json" title="Link to this definition">¶</a></dt>
+<dd><p>Encode this dataflow into JSON.</p>
+<p>Args:
+flow: Dataflow.</p>
+<p>Returns:
+JSON string.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bytewax._encoder.to_plantuml">
+<span class="sig-name descname"><span class="pre">to_plantuml</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">flow</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="bytewax.dataflow.html#bytewax.dataflow.Dataflow" title="bytewax.dataflow.Dataflow"><span class="pre">Dataflow</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">recursive</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.12)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a></span></span><a class="headerlink" href="#bytewax._encoder.to_plantuml" title="Link to this definition">¶</a></dt>
+<dd><p>Return a PlantUML diagram of part of a <code class="docutils literal notranslate"><span class="pre">Dataflow</span></code>.</p>
+<p>Args:
+flow: Dataflow.</p>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>recursive: Wheither to show sub-steps.
+</pre></div>
+</div>
+<p>Returns:
+PlantUML diagram string.</p>
+</dd></dl>
+
+</section>
+</section>
+
+
+          </div>
+
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><ul>
+<li class="toctree-l1"><a class="reference internal" href="../index.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+
+
+    </div>
+
+
+
+
+  </body>
+</html>

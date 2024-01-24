@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>bytewax.inputs &#8212; Bytewax API Docs  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=c631c1db" />
+    <script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=888ff710"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="bytewax.operators" href="bytewax.operators.html" />
+    <link rel="prev" title="bytewax.dataflow" href="bytewax.dataflow.html" />
+
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+
+
+
+
+
+  </head><body>
+
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+
+
+          <div class="body" role="main">
+
+  <section id="module-bytewax.inputs">
+<span id="bytewax-inputs"></span><h1><a class="reference internal" href="#module-bytewax.inputs" title="bytewax.inputs"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.inputs</span></code></a><a class="headerlink" href="#module-bytewax.inputs" title="Link to this heading">¶</a></h1>
+<p>Low-level input interfaces and input helpers.</p>
+<p>If you want pre-built connectors for various external systems, see
+<a class="reference internal" href="bytewax.connectors.html#module-bytewax.connectors" title="bytewax.connectors"><code class="xref py py-obj docutils literal notranslate"><span class="pre">bytewax.connectors</span></code></a>.</p>
+<section id="data">
+<h2>Data<a class="headerlink" href="#data" title="Link to this heading">¶</a></h2>
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.inputs.S">
+<span class="sig-name descname"><span class="pre">S</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeVar" title="(in Python v3.12)"><span class="pre">TypeVar</span></a></em><a class="headerlink" href="#bytewax.inputs.S" title="Link to this definition">¶</a></dt>
+<dd><p>Type of state snapshots.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.inputs.X">
+<span class="sig-name descname"><span class="pre">X</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeVar" title="(in Python v3.12)"><span class="pre">TypeVar</span></a></em><a class="headerlink" href="#bytewax.inputs.X" title="Link to this definition">¶</a></dt>
+<dd><p>Type emitted by a <a class="reference internal" href="#bytewax.inputs.Source" title="bytewax.inputs.Source"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Source</span></code></a>.</p>
+</dd></dl>
+
+</section>
+<section id="classes">
+<h2>Classes<a class="headerlink" href="#classes" title="Link to this heading">¶</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.inputs.DynamicSource">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">DynamicSource</span></span><a class="headerlink" href="#bytewax.inputs.DynamicSource" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference internal" href="#bytewax.inputs.Source" title="bytewax.inputs.Source"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Source</span></code></a>[<a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><code class="xref py py-obj docutils literal notranslate"><span class="pre">X</span></code></a>]</p></li>
+</ul>
+</dd>
+</dl>
+<p>An input source where all workers can read distinct items.</p>
+<p>Does not support storing any resume state. Thus these kind of
+sources only naively can support at-most-once processing.</p>
+<p>The source must somehow support supplying disjoint data for each
+worker. If you re-read the same items on multiple workers, the
+dataflow will process these as duplicate items.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.inputs.DynamicSource.build">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">build</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">now</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.12)"><span class="pre">datetime</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">worker_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">worker_count</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#bytewax.inputs.StatelessSourcePartition" title="bytewax.inputs.StatelessSourcePartition"><span class="pre">StatelessSourcePartition</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.inputs.DynamicSource.build" title="Link to this definition">¶</a></dt>
+<dd><p>Build an input source for a worker.</p>
+<p>Will be called once on each worker.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>now</strong> – The current time.</p></li>
+<li><p><strong>worker_index</strong> – Index of this worker. Workers are zero-indexed.</p></li>
+<li><p><strong>worker_count</strong> – Total number of workers.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The built partition.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.inputs.FixedPartitionedSource">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">FixedPartitionedSource</span></span><a class="headerlink" href="#bytewax.inputs.FixedPartitionedSource" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference internal" href="#bytewax.inputs.Source" title="bytewax.inputs.Source"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Source</span></code></a>[<a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><code class="xref py py-obj docutils literal notranslate"><span class="pre">X</span></code></a>]</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Generic</span></code></a>[<a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><code class="xref py py-obj docutils literal notranslate"><span class="pre">X</span></code></a>, <a class="reference internal" href="#bytewax.inputs.S" title="bytewax.inputs.S"><code class="xref py py-obj docutils literal notranslate"><span class="pre">S</span></code></a>]</p></li>
+</ul>
+</dd>
+</dl>
+<p>An input source with a fixed number of independent partitions.</p>
+<p>Will maintain the state of each source and re-build using it
+during resume. If the source supports seeking, this input can
+support exactly-once processing.</p>
+<p>Each partition must contain unique data. If you re-read the same data
+in multiple partitions, the dataflow will process these duplicate
+items.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.inputs.FixedPartitionedSource.list_parts">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">list_parts</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.inputs.FixedPartitionedSource.list_parts" title="Link to this definition">¶</a></dt>
+<dd><p>List all local partitions this worker has access to.</p>
+<p>You do not need to list all partitions globally.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Local partition keys.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.inputs.FixedPartitionedSource.build_part">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">build_part</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">now</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.12)"><span class="pre">datetime</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">for_part</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">resume_state</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.inputs.S" title="bytewax.inputs.S"><span class="pre">S</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#bytewax.inputs.StatefulSourcePartition" title="bytewax.inputs.StatefulSourcePartition"><span class="pre">StatefulSourcePartition</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#bytewax.inputs.S" title="bytewax.inputs.S"><span class="pre">S</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.inputs.FixedPartitionedSource.build_part" title="Link to this definition">¶</a></dt>
+<dd><p>Build anew or resume an input partition.</p>
+<p>Will be called once per execution for each partition key on a
+worker that reported that partition was local in
+<a class="reference internal" href="#bytewax.inputs.FixedPartitionedSource.list_parts" title="bytewax.inputs.FixedPartitionedSource.list_parts"><code class="xref py py-obj docutils literal notranslate"><span class="pre">list_parts</span></code></a>.</p>
+<p>Do not pre-build state about a partition in the
+constructor. All state must be derived from <code class="docutils literal notranslate"><span class="pre">resume_state</span></code> for
+recovery to work properly.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>now</strong> – The current time.</p></li>
+<li><p><strong>for_part</strong> – Which partition to build. Will always be one of
+the keys returned by <a class="reference internal" href="#bytewax.inputs.FixedPartitionedSource.list_parts" title="bytewax.inputs.FixedPartitionedSource.list_parts"><code class="xref py py-obj docutils literal notranslate"><span class="pre">list_parts</span></code></a> on this worker.</p></li>
+<li><p><strong>resume_state</strong> – State data containing where in the input
+stream this partition should be begin reading during this
+execution.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The built partition.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.inputs.SimplePollingSource">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">SimplePollingSource</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">interval</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.timedelta" title="(in Python v3.12)"><span class="pre">timedelta</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">align_to</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.12)"><span class="pre">datetime</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="headerlink" href="#bytewax.inputs.SimplePollingSource" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference internal" href="#bytewax.inputs.FixedPartitionedSource" title="bytewax.inputs.FixedPartitionedSource"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FixedPartitionedSource</span></code></a>[<a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><code class="xref py py-obj docutils literal notranslate"><span class="pre">X</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a>]</p></li>
+</ul>
+</dd>
+</dl>
+<p>Calls a user defined function at a regular interval.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="gp">&gt;&gt;&gt; </span><span class="k">class</span> <span class="nc">URLSource</span><span class="p">(</span><span class="n">SimplePollingSource</span><span class="p">):</span>
+<span class="linenos">2</span><span class="gp">... </span>    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="linenos">3</span><span class="gp">... </span>        <span class="nb">super</span><span class="p">(</span><span class="n">interval</span><span class="o">=</span><span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">10</span><span class="p">))</span>
+<span class="linenos">4</span><span class="gp">...</span>
+<span class="linenos">5</span><span class="gp">... </span>    <span class="k">def</span> <span class="nf">next_item</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="linenos">6</span><span class="gp">... </span>        <span class="n">res</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://example.com&quot;</span><span class="p">)</span>
+<span class="linenos">7</span><span class="gp">... </span>        <span class="k">if</span> <span class="ow">not</span> <span class="n">res</span><span class="o">.</span><span class="n">ok</span><span class="p">:</span>
+<span class="linenos">8</span><span class="gp">... </span>            <span class="k">raise</span> <span class="n">SimplePollingSource</span><span class="o">.</span><span class="n">Retry</span><span class="p">(</span><span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+<span class="linenos">9</span><span class="gp">... </span>        <span class="k">return</span> <span class="n">res</span><span class="o">.</span><span class="n">text</span>
+</pre></div>
+</div>
+<p>There is no parallelism; only one worker will poll this source.</p>
+<p>Does not support storing any resume state. Thus these kind of
+sources only naively can support at-most-once processing.</p>
+<p>This is best for low-throughput polling on the order of seconds to
+hours.</p>
+<p>If you need a high-throughput source, or custom retry or timing,
+avoid this. Instead create a source using one of the other
+<a class="reference internal" href="#bytewax.inputs.Source" title="bytewax.inputs.Source"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Source</span></code></a> subclasses where you can have increased
+paralellism, batching, and finer control over timing.</p>
+<p class="rubric">Initialization</p>
+<p>Init.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>interval</strong> – The interval between calling
+<a class="reference internal" href="#bytewax.inputs.SimplePollingSource.next_item" title="bytewax.inputs.SimplePollingSource.next_item"><code class="xref py py-obj docutils literal notranslate"><span class="pre">next_item</span></code></a>.</p></li>
+<li><p><strong>align_to</strong> – Align awake times to the given datetime. Defaults
+to now.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py exception">
+<dt class="sig sig-object py" id="bytewax.inputs.SimplePollingSource.Retry">
+<em class="property"><span class="pre">exception</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">Retry</span></span><a class="headerlink" href="#bytewax.inputs.SimplePollingSource.Retry" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#Exception" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Exception</span></code></a></p></li>
+</ul>
+</dd>
+</dl>
+<p>Raise this to try to get items before the usual interval.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>timeout</strong> – How long to wait before calling
+<a class="reference internal" href="#bytewax.inputs.SimplePollingSource.next_item" title="bytewax.inputs.SimplePollingSource.next_item"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SimplePollingSource.next_item</span></code></a> again.</p>
+</dd>
+</dl>
+<p class="rubric">Initialization</p>
+<p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.inputs.SimplePollingSource.Retry.timeout">
+<span class="sig-name descname"><span class="pre">timeout</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.timedelta" title="(in Python v3.12)"><span class="pre">timedelta</span></a></em><a class="headerlink" href="#bytewax.inputs.SimplePollingSource.Retry.timeout" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.inputs.SimplePollingSource.list_parts">
+<span class="sig-name descname"><span class="pre">list_parts</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.inputs.SimplePollingSource.list_parts" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.inputs.SimplePollingSource.build_part">
+<span class="sig-name descname"><span class="pre">build_part</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">now</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.12)"><span class="pre">datetime</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">for_part</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">resume_state</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.12)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytewax.inputs._SimplePollingPartition</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.inputs.SimplePollingSource.build_part" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.inputs.SimplePollingSource.next_item">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">next_item</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a></span></span><a class="headerlink" href="#bytewax.inputs.SimplePollingSource.next_item" title="Link to this definition">¶</a></dt>
+<dd><p>Override with custom logic to poll your source.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Next item to emit into the dataflow. If <code class="docutils literal notranslate"><span class="pre">None</span></code>, no
+item is emitted.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#bytewax.inputs.SimplePollingSource.Retry" title="bytewax.inputs.SimplePollingSource.Retry"><strong>Retry</strong></a> – Raise if you can’t fetch items and would like
+to call this function sooner than the usual interval.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.inputs.Source">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">Source</span></span><a class="headerlink" href="#bytewax.inputs.Source" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ABC</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Generic</span></code></a>[<a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><code class="xref py py-obj docutils literal notranslate"><span class="pre">X</span></code></a>]</p></li>
+</ul>
+</dd>
+</dl>
+<p>A location to read input items from.</p>
+<p>Base class for all input sources. Do not subclass this.</p>
+<p>If you want to implement a custom connector, instead subclass one
+of the specific source sub-types below in this module.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.inputs.StatefulSourcePartition">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">StatefulSourcePartition</span></span><a class="headerlink" href="#bytewax.inputs.StatefulSourcePartition" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ABC</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Generic</span></code></a>[<a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><code class="xref py py-obj docutils literal notranslate"><span class="pre">X</span></code></a>, <a class="reference internal" href="#bytewax.inputs.S" title="bytewax.inputs.S"><code class="xref py py-obj docutils literal notranslate"><span class="pre">S</span></code></a>]</p></li>
+</ul>
+</dd>
+</dl>
+<p>Input partition that maintains state of its position.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.inputs.StatefulSourcePartition.next_batch">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">next_batch</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">sched</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.12)"><span class="pre">datetime</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.12)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.inputs.StatefulSourcePartition.next_batch" title="Link to this definition">¶</a></dt>
+<dd><p>Attempt to get the next batch of input items.</p>
+<p>This must participate in a kind of cooperative multi-tasking,
+never blocking but returning an empty list if there are no
+items to emit yet.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>sched</strong> – The scheduled awake time, if one was returned by
+<a class="reference internal" href="#bytewax.inputs.StatefulSourcePartition.next_awake" title="bytewax.inputs.StatefulSourcePartition.next_awake"><code class="xref py py-obj docutils literal notranslate"><span class="pre">next_awake</span></code></a>.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Items immediately ready. May be empty if no new
+items.</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#StopIteration" title="(in Python v3.12)"><strong>StopIteration</strong></a> – When the source is complete.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.inputs.StatefulSourcePartition.next_awake">
+<span class="sig-name descname"><span class="pre">next_awake</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.12)"><span class="pre">datetime</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.inputs.StatefulSourcePartition.next_awake" title="Link to this definition">¶</a></dt>
+<dd><p>When to next attempt to get input items.</p>
+<p><a class="reference internal" href="#bytewax.inputs.StatefulSourcePartition.next_batch" title="bytewax.inputs.StatefulSourcePartition.next_batch"><code class="xref py py-obj docutils literal notranslate"><span class="pre">next_batch</span></code></a> will not be called until the most
+recently returned time has past.</p>
+<p>This will be called upon initialization of the source and
+after <a class="reference internal" href="#bytewax.inputs.StatefulSourcePartition.next_batch" title="bytewax.inputs.StatefulSourcePartition.next_batch"><code class="xref py py-obj docutils literal notranslate"><span class="pre">next_batch</span></code></a>, but also possibly at other times.
+Multiple times are not stored; you must return the next awake
+time on every call, if any.</p>
+<p>If this returns <code class="docutils literal notranslate"><span class="pre">None</span></code>, <a class="reference internal" href="#bytewax.inputs.StatefulSourcePartition.next_batch" title="bytewax.inputs.StatefulSourcePartition.next_batch"><code class="xref py py-obj docutils literal notranslate"><span class="pre">next_batch</span></code></a> will be called
+immediately unless the previous batch had no items, in which
+case there is a 1 millisecond delay.</p>
+<p>Use this instead of <a class="reference external" href="https://docs.python.org/3/library/time.html#time.sleep" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">time.sleep</span></code></a> in
+<a class="reference internal" href="#bytewax.inputs.StatefulSourcePartition.next_batch" title="bytewax.inputs.StatefulSourcePartition.next_batch"><code class="xref py py-obj docutils literal notranslate"><span class="pre">next_batch</span></code></a>.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Next awake time or <code class="docutils literal notranslate"><span class="pre">None</span></code> to indicate automatic
+behavior.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.inputs.StatefulSourcePartition.snapshot">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">snapshot</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#bytewax.inputs.S" title="bytewax.inputs.S"><span class="pre">S</span></a></span></span><a class="headerlink" href="#bytewax.inputs.StatefulSourcePartition.snapshot" title="Link to this definition">¶</a></dt>
+<dd><p>Snapshot the position of the next read of this partition.</p>
+<p>This will be returned to you via the <code class="docutils literal notranslate"><span class="pre">resume_state</span></code> parameter
+of your input builder.</p>
+<p>Be careful of “off by one” errors in resume state. This should
+return a state that, when built into a partition, resumes
+reading <em>after the last read item</em>, not any of the the same
+items that <a class="reference internal" href="#bytewax.inputs.StatefulSourcePartition.next_batch" title="bytewax.inputs.StatefulSourcePartition.next_batch"><code class="xref py py-obj docutils literal notranslate"><span class="pre">next_batch</span></code></a> last returned.</p>
+<p>This is guaranteed to never be called after <a class="reference internal" href="#bytewax.inputs.StatefulSourcePartition.close" title="bytewax.inputs.StatefulSourcePartition.close"><code class="xref py py-obj docutils literal notranslate"><span class="pre">close</span></code></a>.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Resume state.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.inputs.StatefulSourcePartition.close">
+<span class="sig-name descname"><span class="pre">close</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.12)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#bytewax.inputs.StatefulSourcePartition.close" title="Link to this definition">¶</a></dt>
+<dd><p>Cleanup this partition when the dataflow completes.</p>
+<p>This is not guaranteed to be called. It will only be called
+when the dataflow finishes on finite input. It will not be
+called during an abrupt or abort shutdown.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.inputs.StatelessSourcePartition">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">StatelessSourcePartition</span></span><a class="headerlink" href="#bytewax.inputs.StatelessSourcePartition" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ABC</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Generic</span></code></a>[<a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><code class="xref py py-obj docutils literal notranslate"><span class="pre">X</span></code></a>]</p></li>
+</ul>
+</dd>
+</dl>
+<p>Input partition that is stateless.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.inputs.StatelessSourcePartition.next_batch">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">next_batch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sched</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.12)"><span class="pre">datetime</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.12)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.inputs.StatelessSourcePartition.next_batch" title="Link to this definition">¶</a></dt>
+<dd><p>Attempt to get the next batch of input items.</p>
+<p>This must participate in a kind of cooperative multi-tasking,
+never blocking but yielding an empty list if there are no new
+items yet.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>sched</strong> – The scheduled awake time.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Items immediately ready. May be empty if no new
+items.</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#StopIteration" title="(in Python v3.12)"><strong>StopIteration</strong></a> – When the source is complete.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.inputs.StatelessSourcePartition.next_awake">
+<span class="sig-name descname"><span class="pre">next_awake</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.12)"><span class="pre">datetime</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.inputs.StatelessSourcePartition.next_awake" title="Link to this definition">¶</a></dt>
+<dd><p>When to next attempt to get input items.</p>
+<p><a class="reference internal" href="#bytewax.inputs.StatelessSourcePartition.next_batch" title="bytewax.inputs.StatelessSourcePartition.next_batch"><code class="xref py py-obj docutils literal notranslate"><span class="pre">next_batch</span></code></a> will not be called until the most
+recently returned time has past.</p>
+<p>This will be called upon initialization of the source and
+after <a class="reference internal" href="#bytewax.inputs.StatelessSourcePartition.next_batch" title="bytewax.inputs.StatelessSourcePartition.next_batch"><code class="xref py py-obj docutils literal notranslate"><span class="pre">next_batch</span></code></a>, but also possibly at other times.
+Multiple times are not stored; you must return the next awake
+time on every call, if any.</p>
+<p>If this returns <code class="docutils literal notranslate"><span class="pre">None</span></code>, <a class="reference internal" href="#bytewax.inputs.StatelessSourcePartition.next_batch" title="bytewax.inputs.StatelessSourcePartition.next_batch"><code class="xref py py-obj docutils literal notranslate"><span class="pre">next_batch</span></code></a> will be called
+immediately unless the previous batch had no items, in which
+case there is a 1 millisecond delay.</p>
+<p>Use this instead of <a class="reference external" href="https://docs.python.org/3/library/time.html#time.sleep" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">time.sleep</span></code></a> in
+<a class="reference internal" href="#bytewax.inputs.StatelessSourcePartition.next_batch" title="bytewax.inputs.StatelessSourcePartition.next_batch"><code class="xref py py-obj docutils literal notranslate"><span class="pre">next_batch</span></code></a>.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Next awake time or <code class="docutils literal notranslate"><span class="pre">None</span></code> to indicate automatic
+behavior.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.inputs.StatelessSourcePartition.close">
+<span class="sig-name descname"><span class="pre">close</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.12)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#bytewax.inputs.StatelessSourcePartition.close" title="Link to this definition">¶</a></dt>
+<dd><p>Cleanup this partition when the dataflow completes.</p>
+<p>This is not guaranteed to be called. It will only be called
+when the dataflow finishes on finite input. It will not be
+called during an abrupt or abort shutdown.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="functions">
+<h2>Functions<a class="headerlink" href="#functions" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="bytewax.inputs.batch">
+<span class="sig-name descname"><span class="pre">batch</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">ib</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.12)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">batch_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterator" title="(in Python v3.12)"><span class="pre">Iterator</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.inputs.batch" title="Link to this definition">¶</a></dt>
+<dd><p>Batch an iterable.</p>
+<p>Use this to easily generate batches of items for a partitions’s
+<code class="docutils literal notranslate"><span class="pre">next_batch</span></code> method.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ib</strong> – The underlying source iterable of items.</p></li>
+<li><p><strong>batch_size</strong> – Maximum number of items to yield in a batch.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Yields<span class="colon">:</span></dt>
+<dd class="field-even"><p>The next gathered batch of items.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bytewax.inputs.batch_async">
+<span class="sig-name descname"><span class="pre">batch_async</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">aib</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.AsyncIterable" title="(in Python v3.12)"><span class="pre">AsyncIterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.timedelta" title="(in Python v3.12)"><span class="pre">timedelta</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">batch_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">loop</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterator" title="(in Python v3.12)"><span class="pre">Iterator</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.inputs.batch_async" title="Link to this definition">¶</a></dt>
+<dd><p>Batch an async iterable synchronously up to a timeout.</p>
+<p>This allows using an async iterator as an input source. The
+<code class="docutils literal notranslate"><span class="pre">next_batch</span></code> method on a partition must never block, this allows
+running an async iterator up to a timeout so that you correctly
+cooperatively multitask with the rest of the dataflow.</p>
+<dl class="myst field-list">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>aib</strong> – The underlying source async iterable of items.</p></li>
+<li><p><strong>timeout</strong> – Duration of time to repeatedly poll the source async
+iterator for items.</p></li>
+<li><p><strong>batch_size</strong> – Maximum number of items to yield in a batch, even
+if the timeout has not been hit.</p></li>
+<li><p><strong>loop</strong> – Custom <code class="docutils literal notranslate"><span class="pre">asyncio</span></code> run loop to use, if any.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Yields<span class="colon">:</span></dt>
+<dd class="field-even"><p>The next gathered batch of items.</p>
+<p>This function will take up to <code class="docutils literal notranslate"><span class="pre">timeout</span></code> time to yield, or
+will return a list with length up to <code class="docutils literal notranslate"><span class="pre">max_len</span></code>.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bytewax.inputs.batch_getter">
+<span class="sig-name descname"><span class="pre">batch_getter</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">getter</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.12)"><span class="pre">Callable</span></a><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">batch_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">yield_on</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterator" title="(in Python v3.12)"><span class="pre">Iterator</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.inputs.batch_getter" title="Link to this definition">¶</a></dt>
+<dd><p>Batch from a getter function that might not return an item.</p>
+<p>Use this to easily generate batches of items for a partitions’s
+<code class="docutils literal notranslate"><span class="pre">next_batch</span></code> method.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>getter</strong> – Function to call to get the next item. Should raise
+<a class="reference external" href="https://docs.python.org/3/library/exceptions.html#StopIteration" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">StopIteration</span></code></a> on EOF.</p></li>
+<li><p><strong>batch_size</strong> – Maximum number of items to yield in a batch.</p></li>
+<li><p><strong>yield_on</strong> – Sentinel value that indicates that there are no
+more items yet, and to return the current batch. Defaults
+to <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Yields<span class="colon">:</span></dt>
+<dd class="field-even"><p>The next gathered batch of items.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bytewax.inputs.batch_getter_ex">
+<span class="sig-name descname"><span class="pre">batch_getter_ex</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">getter</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.12)"><span class="pre">Callable</span></a><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">batch_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">yield_ex</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Type" title="(in Python v3.12)"><span class="pre">Type</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#Exception" title="(in Python v3.12)"><span class="pre">Exception</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">queue.Empty</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterator" title="(in Python v3.12)"><span class="pre">Iterator</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.inputs.X" title="bytewax.inputs.X"><span class="pre">X</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.inputs.batch_getter_ex" title="Link to this definition">¶</a></dt>
+<dd><p>Batch from a getter function that raises on no items yet.</p>
+<p>Use this to easily generate batches of items for a partitions’s
+<code class="docutils literal notranslate"><span class="pre">next_batch</span></code> method.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>getter</strong> – Function to call to get the next item. Should raise
+<a class="reference external" href="https://docs.python.org/3/library/exceptions.html#StopIteration" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">StopIteration</span></code></a> on EOF.</p></li>
+<li><p><strong>batch_size</strong> – Maximum number of items to return in a batch.</p></li>
+<li><p><strong>yield_ex</strong> – Exception raised by <code class="docutils literal notranslate"><span class="pre">getter</span></code> that indicates that
+there are no more items yet, and to return the current batch.
+Defaults to <a class="reference external" href="https://docs.python.org/3/library/queue.html#queue.Empty" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">queue.Empty</span></code></a>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Yields<span class="colon">:</span></dt>
+<dd class="field-even"><p>The next gathered batch of items.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+</section>
+
+
+          </div>
+
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="bytewax.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax</span></code></a><ul class="current">
+<li class="toctree-l3 current"><a class="reference internal" href="bytewax.html#submodules">Submodules</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="bytewax.connectors.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.dataflow.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.dataflow</span></code></a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.inputs</span></code></a><ul>
+<li class="toctree-l5"><a class="reference internal" href="#data">Data</a><ul>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.inputs.S"><code class="docutils literal notranslate"><span class="pre">S</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.inputs.X"><code class="docutils literal notranslate"><span class="pre">X</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l5"><a class="reference internal" href="#classes">Classes</a><ul>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.inputs.DynamicSource"><code class="docutils literal notranslate"><span class="pre">DynamicSource</span></code></a><ul>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.DynamicSource.build"><code class="docutils literal notranslate"><span class="pre">build()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.inputs.FixedPartitionedSource"><code class="docutils literal notranslate"><span class="pre">FixedPartitionedSource</span></code></a><ul>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.FixedPartitionedSource.list_parts"><code class="docutils literal notranslate"><span class="pre">list_parts()</span></code></a></li>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.FixedPartitionedSource.build_part"><code class="docutils literal notranslate"><span class="pre">build_part()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.inputs.SimplePollingSource"><code class="docutils literal notranslate"><span class="pre">SimplePollingSource</span></code></a><ul>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.SimplePollingSource.Retry"><code class="docutils literal notranslate"><span class="pre">Retry</span></code></a><ul>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.inputs.SimplePollingSource.Retry.timeout"><code class="docutils literal notranslate"><span class="pre">timeout</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.SimplePollingSource.list_parts"><code class="docutils literal notranslate"><span class="pre">list_parts()</span></code></a></li>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.SimplePollingSource.build_part"><code class="docutils literal notranslate"><span class="pre">build_part()</span></code></a></li>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.SimplePollingSource.next_item"><code class="docutils literal notranslate"><span class="pre">next_item()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.inputs.Source"><code class="docutils literal notranslate"><span class="pre">Source</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.inputs.StatefulSourcePartition"><code class="docutils literal notranslate"><span class="pre">StatefulSourcePartition</span></code></a><ul>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.StatefulSourcePartition.next_batch"><code class="docutils literal notranslate"><span class="pre">next_batch()</span></code></a></li>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.StatefulSourcePartition.next_awake"><code class="docutils literal notranslate"><span class="pre">next_awake()</span></code></a></li>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.StatefulSourcePartition.snapshot"><code class="docutils literal notranslate"><span class="pre">snapshot()</span></code></a></li>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.StatefulSourcePartition.close"><code class="docutils literal notranslate"><span class="pre">close()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.inputs.StatelessSourcePartition"><code class="docutils literal notranslate"><span class="pre">StatelessSourcePartition</span></code></a><ul>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.StatelessSourcePartition.next_batch"><code class="docutils literal notranslate"><span class="pre">next_batch()</span></code></a></li>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.StatelessSourcePartition.next_awake"><code class="docutils literal notranslate"><span class="pre">next_awake()</span></code></a></li>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.inputs.StatelessSourcePartition.close"><code class="docutils literal notranslate"><span class="pre">close()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l5"><a class="reference internal" href="#functions">Functions</a><ul>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.inputs.batch"><code class="docutils literal notranslate"><span class="pre">batch()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.inputs.batch_async"><code class="docutils literal notranslate"><span class="pre">batch_async()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.inputs.batch_getter"><code class="docutils literal notranslate"><span class="pre">batch_getter()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.inputs.batch_getter_ex"><code class="docutils literal notranslate"><span class="pre">batch_getter_ex()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.operators.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.operators</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.outputs.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.outputs</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.recovery.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.recovery</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.run.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.run</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.serde.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.serde</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.testing.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.testing</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.tracing.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.tracing</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+
+
+    </div>
+
+
+
+
+  </body>
+</html>

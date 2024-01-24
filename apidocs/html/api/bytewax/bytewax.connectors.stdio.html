@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>bytewax.connectors.stdio &#8212; Bytewax API Docs  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=c631c1db" />
+    <script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=888ff710"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="bytewax.dataflow" href="bytewax.dataflow.html" />
+    <link rel="prev" title="bytewax.connectors.kafka.serde" href="bytewax.connectors.kafka.serde.html" />
+
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+
+
+
+
+
+  </head><body>
+
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+
+
+          <div class="body" role="main">
+
+  <section id="module-bytewax.connectors.stdio">
+<span id="bytewax-connectors-stdio"></span><h1><a class="reference internal" href="#module-bytewax.connectors.stdio" title="bytewax.connectors.stdio"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.stdio</span></code></a><a class="headerlink" href="#module-bytewax.connectors.stdio" title="Link to this heading">¶</a></h1>
+<p>Connectors to console IO.</p>
+<section id="classes">
+<h2>Classes<a class="headerlink" href="#classes" title="Link to this heading">¶</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.connectors.stdio.StdOutSink">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">StdOutSink</span></span><a class="headerlink" href="#bytewax.connectors.stdio.StdOutSink" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference internal" href="bytewax.outputs.html#bytewax.outputs.DynamicSink" title="bytewax.outputs.DynamicSink"><code class="xref py py-obj docutils literal notranslate"><span class="pre">DynamicSink</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Any</span></code></a>]</p></li>
+</ul>
+</dd>
+</dl>
+<p>Write each output item to stdout on that worker.</p>
+<p>Items consumed from the dataflow must look like a string. Use a
+proceeding map step to do custom formatting.</p>
+<p>Workers are the unit of parallelism.</p>
+<p>Can support at-least-once processing. Messages from the resume
+epoch will be duplicated right after resume.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.connectors.stdio.StdOutSink.build">
+<span class="sig-name descname"><span class="pre">build</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">worker_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">worker_count</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytewax.connectors.stdio._PrintSinkPartition</span></span></span><a class="headerlink" href="#bytewax.connectors.stdio.StdOutSink.build" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+
+
+          </div>
+
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="bytewax.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax</span></code></a><ul class="current">
+<li class="toctree-l3 current"><a class="reference internal" href="bytewax.html#submodules">Submodules</a><ul class="current">
+<li class="toctree-l4 current"><a class="reference internal" href="bytewax.connectors.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors</span></code></a><ul class="current">
+<li class="toctree-l5 current"><a class="reference internal" href="bytewax.connectors.html#submodules">Submodules</a><ul class="current">
+<li class="toctree-l6"><a class="reference internal" href="bytewax.connectors.demo.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.demo</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="bytewax.connectors.files.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.files</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="bytewax.connectors.kafka.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.kafka</span></code></a></li>
+<li class="toctree-l6 current"><a class="current reference internal" href="#"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.stdio</span></code></a><ul>
+<li class="toctree-l7"><a class="reference internal" href="#classes">Classes</a><ul>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.stdio.StdOutSink"><code class="docutils literal notranslate"><span class="pre">StdOutSink</span></code></a><ul>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.stdio.StdOutSink.build"><code class="docutils literal notranslate"><span class="pre">build()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.dataflow.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.dataflow</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.inputs.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.inputs</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.operators.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.operators</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.outputs.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.outputs</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.recovery.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.recovery</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.run.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.run</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.serde.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.serde</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.testing.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.testing</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.tracing.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.tracing</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+
+
+    </div>
+
+
+
+
+  </body>
+</html>

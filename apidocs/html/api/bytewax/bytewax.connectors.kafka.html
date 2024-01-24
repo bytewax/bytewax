@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>bytewax.connectors.kafka &#8212; Bytewax API Docs  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=c631c1db" />
+    <script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=888ff710"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="bytewax.connectors.kafka.operators" href="bytewax.connectors.kafka.operators.html" />
+    <link rel="prev" title="bytewax.connectors.files" href="bytewax.connectors.files.html" />
+
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+
+
+
+
+
+  </head><body>
+
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+
+
+          <div class="body" role="main">
+
+  <section id="module-bytewax.connectors.kafka">
+<span id="bytewax-connectors-kafka"></span><h1><a class="reference internal" href="#module-bytewax.connectors.kafka" title="bytewax.connectors.kafka"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.kafka</span></code></a><a class="headerlink" href="#module-bytewax.connectors.kafka" title="Link to this heading">¶</a></h1>
+<p>Connectors for <a class="reference external" href="https://kafka.apache.org">Kafka</a>.</p>
+<p>Importing this module requires the
+<a class="reference external" href="https://github.com/confluentinc/confluent-kafka-python"><code class="docutils literal notranslate"><span class="pre">confluent-kafka</span></code></a>
+package to be installed.</p>
+<p>The input source returns a stream of
+<a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage" title="bytewax.connectors.kafka.KafkaSourceMessage"><code class="xref py py-obj docutils literal notranslate"><span class="pre">KafkaSourceMessage</span></code></a>. See the
+docstring for its use.</p>
+<p>You can use <a class="reference internal" href="#bytewax.connectors.kafka.KafkaSource" title="bytewax.connectors.kafka.KafkaSource"><code class="xref py py-obj docutils literal notranslate"><span class="pre">KafkaSource</span></code></a> and
+<a class="reference internal" href="#bytewax.connectors.kafka.KafkaSink" title="bytewax.connectors.kafka.KafkaSink"><code class="xref py py-obj docutils literal notranslate"><span class="pre">KafkaSink</span></code></a> directly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">bytewax.connectors.kafka</span> <span class="kn">import</span> <span class="n">KafkaSource</span><span class="p">,</span> <span class="n">KafkaSink</span><span class="p">,</span> <span class="n">KafkaSinkMessage</span>
+<span class="linenos">2</span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">bytewax</span> <span class="kn">import</span> <span class="n">operators</span> <span class="k">as</span> <span class="n">op</span>
+<span class="linenos">3</span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">bytewax.dataflow</span> <span class="kn">import</span> <span class="n">Dataflow</span>
+<span class="linenos">4</span><span class="gp">&gt;&gt;&gt;</span>
+<span class="linenos">5</span><span class="gp">&gt;&gt;&gt; </span><span class="n">brokers</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;localhost:19092&quot;</span><span class="p">]</span>
+<span class="linenos">6</span><span class="gp">&gt;&gt;&gt; </span><span class="n">flow</span> <span class="o">=</span> <span class="n">Dataflow</span><span class="p">(</span><span class="s2">&quot;example&quot;</span><span class="p">)</span>
+<span class="linenos">7</span><span class="gp">&gt;&gt;&gt; </span><span class="n">kinp</span> <span class="o">=</span> <span class="n">op</span><span class="o">.</span><span class="n">input</span><span class="p">(</span><span class="s2">&quot;kafka-in&quot;</span><span class="p">,</span> <span class="n">flow</span><span class="p">,</span> <span class="n">KafkaSource</span><span class="p">(</span><span class="n">brokers</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;in-topic&quot;</span><span class="p">]))</span>
+<span class="linenos">8</span><span class="gp">&gt;&gt;&gt; </span><span class="n">processed</span> <span class="o">=</span> <span class="n">op</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="s2">&quot;map&quot;</span><span class="p">,</span> <span class="n">kinp</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">KafkaSinkMessage</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">key</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">value</span><span class="p">))</span>
+<span class="linenos">9</span><span class="gp">&gt;&gt;&gt; </span><span class="n">op</span><span class="o">.</span><span class="n">output</span><span class="p">(</span><span class="s2">&quot;kafka-out&quot;</span><span class="p">,</span> <span class="n">processed</span><span class="p">,</span> <span class="n">KafkaSink</span><span class="p">(</span><span class="n">brokers</span><span class="p">,</span> <span class="s2">&quot;out-topic&quot;</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>Or the custom operators:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos"> 1</span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">bytewax.connectors.kafka</span> <span class="kn">import</span> <span class="n">operators</span> <span class="k">as</span> <span class="n">kop</span><span class="p">,</span> <span class="n">KafkaSinkMessage</span>
+<span class="linenos"> 2</span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">bytewax</span> <span class="kn">import</span> <span class="n">operators</span> <span class="k">as</span> <span class="n">op</span>
+<span class="linenos"> 3</span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">bytewax.dataflow</span> <span class="kn">import</span> <span class="n">Dataflow</span>
+<span class="linenos"> 4</span><span class="gp">&gt;&gt;&gt;</span>
+<span class="linenos"> 5</span><span class="gp">&gt;&gt;&gt; </span><span class="n">brokers</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;localhost:19092&quot;</span><span class="p">]</span>
+<span class="linenos"> 6</span><span class="gp">&gt;&gt;&gt; </span><span class="n">flow</span> <span class="o">=</span> <span class="n">Dataflow</span><span class="p">(</span><span class="s2">&quot;example&quot;</span><span class="p">)</span>
+<span class="linenos"> 7</span><span class="gp">&gt;&gt;&gt; </span><span class="n">kinp</span> <span class="o">=</span> <span class="n">kop</span><span class="o">.</span><span class="n">input</span><span class="p">(</span><span class="s2">&quot;kafka-in&quot;</span><span class="p">,</span> <span class="n">flow</span><span class="p">,</span> <span class="n">brokers</span><span class="o">=</span><span class="n">brokers</span><span class="p">,</span> <span class="n">topics</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;in-topic&quot;</span><span class="p">])</span>
+<span class="linenos"> 8</span><span class="gp">&gt;&gt;&gt; </span><span class="n">errs</span> <span class="o">=</span> <span class="n">op</span><span class="o">.</span><span class="n">inspect</span><span class="p">(</span><span class="s2">&quot;errors&quot;</span><span class="p">,</span> <span class="n">kinp</span><span class="o">.</span><span class="n">errs</span><span class="p">)</span><span class="o">.</span><span class="n">then</span><span class="p">(</span><span class="n">op</span><span class="o">.</span><span class="n">raises</span><span class="p">,</span> <span class="s2">&quot;crash-on-err&quot;</span><span class="p">)</span>
+<span class="linenos"> 9</span><span class="gp">&gt;&gt;&gt; </span><span class="n">processed</span> <span class="o">=</span> <span class="n">op</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="s2">&quot;map&quot;</span><span class="p">,</span> <span class="n">kinp</span><span class="o">.</span><span class="n">oks</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">KafkaSinkMessage</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">key</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">value</span><span class="p">))</span>
+<span class="linenos">10</span><span class="gp">&gt;&gt;&gt; </span><span class="n">kop</span><span class="o">.</span><span class="n">output</span><span class="p">(</span><span class="s2">&quot;kafka-out&quot;</span><span class="p">,</span> <span class="n">processed</span><span class="p">,</span> <span class="n">brokers</span><span class="o">=</span><span class="n">brokers</span><span class="p">,</span> <span class="n">topic</span><span class="o">=</span><span class="s2">&quot;out-topic&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<section id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Link to this heading">¶</a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="bytewax.connectors.kafka.operators.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.kafka.operators</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="bytewax.connectors.kafka.registry.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.kafka.registry</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="bytewax.connectors.kafka.serde.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.kafka.serde</span></code></a></li>
+</ul>
+</div>
+</section>
+<section id="data">
+<h2>Data<a class="headerlink" href="#data" title="Link to this heading">¶</a></h2>
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.K">
+<span class="sig-name descname"><span class="pre">K</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeVar" title="(in Python v3.12)"><span class="pre">TypeVar</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.K" title="Link to this definition">¶</a></dt>
+<dd><p>Type of key in Kafka message.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.V">
+<span class="sig-name descname"><span class="pre">V</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeVar" title="(in Python v3.12)"><span class="pre">TypeVar</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.V" title="Link to this definition">¶</a></dt>
+<dd><p>Type of value in a Kafka message.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.K_co">
+<span class="sig-name descname"><span class="pre">K_co</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeVar" title="(in Python v3.12)"><span class="pre">TypeVar</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.K_co" title="Link to this definition">¶</a></dt>
+<dd><p>Type of key in Kafka message.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.V_co">
+<span class="sig-name descname"><span class="pre">V_co</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeVar" title="(in Python v3.12)"><span class="pre">TypeVar</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.V_co" title="Link to this definition">¶</a></dt>
+<dd><p>Type of value in a Kafka message.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.K2">
+<span class="sig-name descname"><span class="pre">K2</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeVar" title="(in Python v3.12)"><span class="pre">TypeVar</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.K2" title="Link to this definition">¶</a></dt>
+<dd><p>Type of key in a modified Kafka message.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.V2">
+<span class="sig-name descname"><span class="pre">V2</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeVar" title="(in Python v3.12)"><span class="pre">TypeVar</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.V2" title="Link to this definition">¶</a></dt>
+<dd><p>Type of value in a modified Kafka message.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.MaybeStrBytes">
+<span class="sig-name descname"><span class="pre">MaybeStrBytes</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeAlias" title="(in Python v3.12)"><span class="pre">TypeAlias</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.MaybeStrBytes" title="Link to this definition">¶</a></dt>
+<dd><p>Kafka message keys and values are optional.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.SerializedKafkaSourceMessage">
+<span class="sig-name descname"><span class="pre">SerializedKafkaSourceMessage</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeAlias" title="(in Python v3.12)"><span class="pre">TypeAlias</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.SerializedKafkaSourceMessage" title="Link to this definition">¶</a></dt>
+<dd><p>A fully serialized Kafka message from the consumer.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSourceError">
+<span class="sig-name descname"><span class="pre">KafkaSourceError</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeAlias" title="(in Python v3.12)"><span class="pre">TypeAlias</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSourceError" title="Link to this definition">¶</a></dt>
+<dd><p>An error from the Kafka source with original message.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.SerializedKafkaSourceResult">
+<span class="sig-name descname"><span class="pre">SerializedKafkaSourceResult</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeAlias" title="(in Python v3.12)"><span class="pre">TypeAlias</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.SerializedKafkaSourceResult" title="Link to this definition">¶</a></dt>
+<dd><p>Items emitted from the Kafka source.</p>
+<p>Might be either raw serialized messages or an error from the consumer.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.SerializedKafkaSinkMessage">
+<span class="sig-name descname"><span class="pre">SerializedKafkaSinkMessage</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeAlias" title="(in Python v3.12)"><span class="pre">TypeAlias</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.SerializedKafkaSinkMessage" title="Link to this definition">¶</a></dt>
+<dd><p>A fully serialized Kafka message ready for the producer.</p>
+<p>Both key and value are optional.</p>
+</dd></dl>
+
+</section>
+<section id="classes">
+<h2>Classes<a class="headerlink" href="#classes" title="Link to this heading">¶</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSourceMessage">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">KafkaSourceMessage</span></span><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSourceMessage" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Generic</span></code></a>[<a class="reference internal" href="#bytewax.connectors.kafka.K" title="bytewax.connectors.kafka.K"><code class="xref py py-obj docutils literal notranslate"><span class="pre">K</span></code></a>, <a class="reference internal" href="#bytewax.connectors.kafka.V" title="bytewax.connectors.kafka.V"><code class="xref py py-obj docutils literal notranslate"><span class="pre">V</span></code></a>]</p></li>
+</ul>
+</dd>
+</dl>
+<p>Message read from Kafka.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSourceMessage.key">
+<span class="sig-name descname"><span class="pre">key</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#bytewax.connectors.kafka.K" title="bytewax.connectors.kafka.K"><span class="pre">K</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSourceMessage.key" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSourceMessage.value">
+<span class="sig-name descname"><span class="pre">value</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#bytewax.connectors.kafka.V" title="bytewax.connectors.kafka.V"><span class="pre">V</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSourceMessage.value" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSourceMessage.topic">
+<span class="sig-name descname"><span class="pre">topic</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSourceMessage.topic" title="Link to this definition">¶</a></dt>
+<dd><p>‘field(…)’</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSourceMessage.headers">
+<span class="sig-name descname"><span class="pre">headers</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.12)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.12)"><span class="pre">bytes</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSourceMessage.headers" title="Link to this definition">¶</a></dt>
+<dd><p>‘field(…)’</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSourceMessage.latency">
+<span class="sig-name descname"><span class="pre">latency</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSourceMessage.latency" title="Link to this definition">¶</a></dt>
+<dd><p>‘field(…)’</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSourceMessage.offset">
+<span class="sig-name descname"><span class="pre">offset</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSourceMessage.offset" title="Link to this definition">¶</a></dt>
+<dd><p>‘field(…)’</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSourceMessage.partition">
+<span class="sig-name descname"><span class="pre">partition</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSourceMessage.partition" title="Link to this definition">¶</a></dt>
+<dd><p>‘field(…)’</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSourceMessage.timestamp">
+<span class="sig-name descname"><span class="pre">timestamp</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.12)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSourceMessage.timestamp" title="Link to this definition">¶</a></dt>
+<dd><p>‘field(…)’</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSourceMessage.to_sink">
+<span class="sig-name descname"><span class="pre">to_sink</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSinkMessage" title="bytewax.connectors.kafka.KafkaSinkMessage"><span class="pre">KafkaSinkMessage</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.connectors.kafka.K" title="bytewax.connectors.kafka.K"><span class="pre">K</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#bytewax.connectors.kafka.V" title="bytewax.connectors.kafka.V"><span class="pre">V</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSourceMessage.to_sink" title="Link to this definition">¶</a></dt>
+<dd><p>Convert a source message to be used with a sink.</p>
+<p>Only <a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage.key" title="bytewax.connectors.kafka.KafkaSourceMessage.key"><code class="xref py py-obj docutils literal notranslate"><span class="pre">key</span></code></a>, <a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage.value" title="bytewax.connectors.kafka.KafkaSourceMessage.value"><code class="xref py py-obj docutils literal notranslate"><span class="pre">value</span></code></a> and <a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage.timestamp" title="bytewax.connectors.kafka.KafkaSourceMessage.timestamp"><code class="xref py py-obj docutils literal notranslate"><span class="pre">timestamp</span></code></a>
+are used.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaError">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">KafkaError</span></span><a class="headerlink" href="#bytewax.connectors.kafka.KafkaError" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Generic</span></code></a>[<a class="reference internal" href="#bytewax.connectors.kafka.K" title="bytewax.connectors.kafka.K"><code class="xref py py-obj docutils literal notranslate"><span class="pre">K</span></code></a>, <a class="reference internal" href="#bytewax.connectors.kafka.V" title="bytewax.connectors.kafka.V"><code class="xref py py-obj docutils literal notranslate"><span class="pre">V</span></code></a>]</p></li>
+</ul>
+</dd>
+</dl>
+<p>Error from a <a class="reference internal" href="#bytewax.connectors.kafka.KafkaSource" title="bytewax.connectors.kafka.KafkaSource"><code class="xref py py-obj docutils literal notranslate"><span class="pre">KafkaSource</span></code></a>.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaError.err">
+<span class="sig-name descname"><span class="pre">err</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.confluent.io/platform/current/clients/confluent-kafka-python/html/index.html#confluent_kafka.KafkaError" title="(in confluent-kafka v2.3.0)"><span class="pre">KafkaError</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaError.err" title="Link to this definition">¶</a></dt>
+<dd><p>Underlying error from the consumer.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaError.msg">
+<span class="sig-name descname"><span class="pre">msg</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage" title="bytewax.connectors.kafka.KafkaSourceMessage"><span class="pre">KafkaSourceMessage</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#bytewax.connectors.kafka.K" title="bytewax.connectors.kafka.K"><span class="pre">K</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#bytewax.connectors.kafka.V" title="bytewax.connectors.kafka.V"><span class="pre">V</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaError.msg" title="Link to this definition">¶</a></dt>
+<dd><p>Message attached to that error.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSource">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">KafkaSource</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">brokers</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.12)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">topics</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.12)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">tail</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.12)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">starting_offset</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">OFFSET_BEGINNING</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">add_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.12)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">batch_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1000</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">raise_on_errors</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.12)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSource" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference internal" href="bytewax.inputs.html#bytewax.inputs.FixedPartitionedSource" title="bytewax.inputs.FixedPartitionedSource"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FixedPartitionedSource</span></code></a>[<a class="reference internal" href="#bytewax.connectors.kafka.SerializedKafkaSourceResult" title="bytewax.connectors.kafka.SerializedKafkaSourceResult"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SerializedKafkaSourceResult</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int</span></code></a>]]</p></li>
+</ul>
+</dd>
+</dl>
+<p>Use a set of Kafka topics as an input source.</p>
+<p>Partitions are the unit of parallelism.
+Can support exactly-once processing.</p>
+<p>Messages are emitted into the dataflow as
+<a class="reference internal" href="#bytewax.connectors.kafka.SerializedKafkaSourceResult" title="bytewax.connectors.kafka.SerializedKafkaSourceResult"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SerializedKafkaSourceResult</span></code></a> objects.</p>
+<p class="rubric">Initialization</p>
+<p>Init.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>brokers</strong> – List of <code class="docutils literal notranslate"><span class="pre">host:port</span></code> strings of Kafka brokers.</p></li>
+<li><p><strong>topics</strong> – List of topics to consume from.</p></li>
+<li><p><strong>tail</strong> – Whether to wait for new data on this topic when the end
+is initially reached.</p></li>
+<li><p><strong>starting_offset</strong> – Can be either
+<code class="docutils literal notranslate"><span class="pre">confluent_kafka.OFFSET_BEGINNING</span></code> or
+<code class="docutils literal notranslate"><span class="pre">confluent_kafka.OFFSET_END</span></code>. Defaults to beginning of
+topic.</p></li>
+<li><p><strong>add_config</strong> – Any additional configuration properties. See
+<a class="reference external" href="https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md">the <code class="docutils literal notranslate"><span class="pre">rdkafka</span></code>
+documentation</a>
+for options.</p></li>
+<li><p><strong>batch_size</strong> – How many messages to consume at most at each
+poll. This is 1000 by default. The default setting is a
+suitable starting point for higher throughput dataflows,
+but can be tuned lower to potentially decrease individual
+message processing latency.</p></li>
+<li><p><strong>raise_on_errors</strong> – If set to False, errors won’t stop the
+dataflow, and will be emitted into the dataflow.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSource.list_parts">
+<span class="sig-name descname"><span class="pre">list_parts</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSource.list_parts" title="Link to this definition">¶</a></dt>
+<dd><p>Each Kafka partition is an input partition.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSource.build_part">
+<span class="sig-name descname"><span class="pre">build_part</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">now</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.12)"><span class="pre">datetime</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">for_part</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">resume_state</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytewax.connectors.kafka._KafkaSourcePartition</span></span></span><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSource.build_part" title="Link to this definition">¶</a></dt>
+<dd><p>See ABC docstring.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSinkMessage">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">KafkaSinkMessage</span></span><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSinkMessage" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Generic</span></code></a>[<a class="reference internal" href="#bytewax.connectors.kafka.K_co" title="bytewax.connectors.kafka.K_co"><code class="xref py py-obj docutils literal notranslate"><span class="pre">K_co</span></code></a>, <a class="reference internal" href="#bytewax.connectors.kafka.V_co" title="bytewax.connectors.kafka.V_co"><code class="xref py py-obj docutils literal notranslate"><span class="pre">V_co</span></code></a>]</p></li>
+</ul>
+</dd>
+</dl>
+<p>Message to be written to Kafka.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSinkMessage.key">
+<span class="sig-name descname"><span class="pre">key</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#bytewax.connectors.kafka.K_co" title="bytewax.connectors.kafka.K_co"><span class="pre">K_co</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSinkMessage.key" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSinkMessage.value">
+<span class="sig-name descname"><span class="pre">value</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#bytewax.connectors.kafka.V_co" title="bytewax.connectors.kafka.V_co"><span class="pre">V_co</span></a></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSinkMessage.value" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSinkMessage.topic">
+<span class="sig-name descname"><span class="pre">topic</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSinkMessage.topic" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSinkMessage.headers">
+<span class="sig-name descname"><span class="pre">headers</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.12)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.12)"><span class="pre">bytes</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSinkMessage.headers" title="Link to this definition">¶</a></dt>
+<dd><p>‘field(…)’</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSinkMessage.partition">
+<span class="sig-name descname"><span class="pre">partition</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSinkMessage.partition" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSinkMessage.timestamp">
+<span class="sig-name descname"><span class="pre">timestamp</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></em><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSinkMessage.timestamp" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSink">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">KafkaSink</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">brokers</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.12)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">topic</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">add_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.12)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSink" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference internal" href="bytewax.outputs.html#bytewax.outputs.DynamicSink" title="bytewax.outputs.DynamicSink"><code class="xref py py-obj docutils literal notranslate"><span class="pre">DynamicSink</span></code></a>[<a class="reference internal" href="#bytewax.connectors.kafka.SerializedKafkaSinkMessage" title="bytewax.connectors.kafka.SerializedKafkaSinkMessage"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SerializedKafkaSinkMessage</span></code></a>]</p></li>
+</ul>
+</dd>
+</dl>
+<p>Use a single Kafka topic as an output sink.</p>
+<p>Items consumed from the dataflow must be
+<a class="reference internal" href="#bytewax.connectors.kafka.SerializedKafkaSinkMessage" title="bytewax.connectors.kafka.SerializedKafkaSinkMessage"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SerializedKafkaSinkMessage</span></code></a>.</p>
+<p>Workers are the unit of parallelism.</p>
+<p>Can support at-least-once processing. Messages from the resume
+epoch will be duplicated right after resume.</p>
+<p class="rubric">Initialization</p>
+<p>Init.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>brokers</strong> – List of <code class="docutils literal notranslate"><span class="pre">host:port</span></code> strings of Kafka brokers.</p></li>
+<li><p><strong>topic</strong> – Topic to produce to. If it’s <code class="docutils literal notranslate"><span class="pre">None</span></code>, the topic to
+produce to will be read in each
+<a class="reference internal" href="#bytewax.connectors.kafka.KafkaSinkMessage" title="bytewax.connectors.kafka.KafkaSinkMessage"><code class="xref py py-obj docutils literal notranslate"><span class="pre">KafkaSinkMessage</span></code></a>.</p></li>
+<li><p><strong>add_config</strong> – Any additional configuration properties. See
+<a class="reference external" href="https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md">the <code class="docutils literal notranslate"><span class="pre">rdkafka</span></code>
+documentation</a>
+for options.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.connectors.kafka.KafkaSink.build">
+<span class="sig-name descname"><span class="pre">build</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">worker_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">worker_count</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bytewax.connectors.kafka._KafkaSinkPartition</span></span></span><a class="headerlink" href="#bytewax.connectors.kafka.KafkaSink.build" title="Link to this definition">¶</a></dt>
+<dd><p>See ABC docstring.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+
+
+          </div>
+
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="bytewax.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax</span></code></a><ul class="current">
+<li class="toctree-l3 current"><a class="reference internal" href="bytewax.html#submodules">Submodules</a><ul class="current">
+<li class="toctree-l4 current"><a class="reference internal" href="bytewax.connectors.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors</span></code></a><ul class="current">
+<li class="toctree-l5 current"><a class="reference internal" href="bytewax.connectors.html#submodules">Submodules</a><ul class="current">
+<li class="toctree-l6"><a class="reference internal" href="bytewax.connectors.demo.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.demo</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="bytewax.connectors.files.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.files</span></code></a></li>
+<li class="toctree-l6 current"><a class="current reference internal" href="#"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.kafka</span></code></a><ul>
+<li class="toctree-l7"><a class="reference internal" href="#submodules">Submodules</a><ul>
+<li class="toctree-l8"><a class="reference internal" href="bytewax.connectors.kafka.operators.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.kafka.operators</span></code></a></li>
+<li class="toctree-l8"><a class="reference internal" href="bytewax.connectors.kafka.registry.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.kafka.registry</span></code></a></li>
+<li class="toctree-l8"><a class="reference internal" href="bytewax.connectors.kafka.serde.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.kafka.serde</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l7"><a class="reference internal" href="#data">Data</a><ul>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.K"><code class="docutils literal notranslate"><span class="pre">K</span></code></a></li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.V"><code class="docutils literal notranslate"><span class="pre">V</span></code></a></li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.K_co"><code class="docutils literal notranslate"><span class="pre">K_co</span></code></a></li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.V_co"><code class="docutils literal notranslate"><span class="pre">V_co</span></code></a></li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.K2"><code class="docutils literal notranslate"><span class="pre">K2</span></code></a></li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.V2"><code class="docutils literal notranslate"><span class="pre">V2</span></code></a></li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.MaybeStrBytes"><code class="docutils literal notranslate"><span class="pre">MaybeStrBytes</span></code></a></li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.SerializedKafkaSourceMessage"><code class="docutils literal notranslate"><span class="pre">SerializedKafkaSourceMessage</span></code></a></li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceError"><code class="docutils literal notranslate"><span class="pre">KafkaSourceError</span></code></a></li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.SerializedKafkaSourceResult"><code class="docutils literal notranslate"><span class="pre">SerializedKafkaSourceResult</span></code></a></li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.SerializedKafkaSinkMessage"><code class="docutils literal notranslate"><span class="pre">SerializedKafkaSinkMessage</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l7"><a class="reference internal" href="#classes">Classes</a><ul>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage"><code class="docutils literal notranslate"><span class="pre">KafkaSourceMessage</span></code></a><ul>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage.key"><code class="docutils literal notranslate"><span class="pre">key</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage.value"><code class="docutils literal notranslate"><span class="pre">value</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage.topic"><code class="docutils literal notranslate"><span class="pre">topic</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage.headers"><code class="docutils literal notranslate"><span class="pre">headers</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage.latency"><code class="docutils literal notranslate"><span class="pre">latency</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage.offset"><code class="docutils literal notranslate"><span class="pre">offset</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage.partition"><code class="docutils literal notranslate"><span class="pre">partition</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage.timestamp"><code class="docutils literal notranslate"><span class="pre">timestamp</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSourceMessage.to_sink"><code class="docutils literal notranslate"><span class="pre">to_sink()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaError"><code class="docutils literal notranslate"><span class="pre">KafkaError</span></code></a><ul>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaError.err"><code class="docutils literal notranslate"><span class="pre">err</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaError.msg"><code class="docutils literal notranslate"><span class="pre">msg</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSource"><code class="docutils literal notranslate"><span class="pre">KafkaSource</span></code></a><ul>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSource.list_parts"><code class="docutils literal notranslate"><span class="pre">list_parts()</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSource.build_part"><code class="docutils literal notranslate"><span class="pre">build_part()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSinkMessage"><code class="docutils literal notranslate"><span class="pre">KafkaSinkMessage</span></code></a><ul>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSinkMessage.key"><code class="docutils literal notranslate"><span class="pre">key</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSinkMessage.value"><code class="docutils literal notranslate"><span class="pre">value</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSinkMessage.topic"><code class="docutils literal notranslate"><span class="pre">topic</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSinkMessage.headers"><code class="docutils literal notranslate"><span class="pre">headers</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSinkMessage.partition"><code class="docutils literal notranslate"><span class="pre">partition</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSinkMessage.timestamp"><code class="docutils literal notranslate"><span class="pre">timestamp</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSink"><code class="docutils literal notranslate"><span class="pre">KafkaSink</span></code></a><ul>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.kafka.KafkaSink.build"><code class="docutils literal notranslate"><span class="pre">build()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l6"><a class="reference internal" href="bytewax.connectors.stdio.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.stdio</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.dataflow.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.dataflow</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.inputs.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.inputs</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.operators.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.operators</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.outputs.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.outputs</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.recovery.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.recovery</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.run.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.run</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.serde.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.serde</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.testing.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.testing</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.tracing.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.tracing</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+
+
+    </div>
+
+
+
+
+  </body>
+</html>

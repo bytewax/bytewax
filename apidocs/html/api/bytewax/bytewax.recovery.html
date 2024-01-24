@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>bytewax.recovery &#8212; Bytewax API Docs  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=c631c1db" />
+    <script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=888ff710"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="bytewax.run" href="bytewax.run.html" />
+    <link rel="prev" title="bytewax.outputs" href="bytewax.outputs.html" />
+
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+
+
+
+
+
+  </head><body>
+
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+
+
+          <div class="body" role="main">
+
+  <section id="module-bytewax.recovery">
+<span id="bytewax-recovery"></span><h1><a class="reference internal" href="#module-bytewax.recovery" title="bytewax.recovery"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.recovery</span></code></a><a class="headerlink" href="#module-bytewax.recovery" title="Link to this heading">¶</a></h1>
+<p>Failure recovery.</p>
+<section id="classes">
+<h2>Classes<a class="headerlink" href="#classes" title="Link to this heading">¶</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.recovery.RecoveryConfig">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">RecoveryConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">db_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backup_interval</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">snapshot_serde</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bytewax.recovery.RecoveryConfig" title="Link to this definition">¶</a></dt>
+<dd><p>Configuration settings for recovery.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>db_dir</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.12)"><em>Path</em></a>) – Local filesystem directory to search for recovery
+database partitions.</p></li>
+<li><p><strong>backup_interval</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><em>Optional</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.timedelta" title="(in Python v3.12)"><em>timedelta</em></a><em>]</em>) – Amount of system time to wait to permanently
+delete a state snapshot after it is no longer needed. You
+should set this to the interval at which you are backing up
+the recovery partitions off of the workers into archival
+storage (e.g. S3). Defaults to zero duration.</p></li>
+<li><p><strong>snapshot_serde</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><em>Optional</em></a><em>[</em><a class="reference internal" href="bytewax.serde.html#bytewax.serde.Serde" title="bytewax.serde.Serde"><em>Serde</em></a><em>]</em>) – Format to use when encoding state snapshot
+objects in the recovery partitions. Defaults to
+<a class="reference internal" href="bytewax.serde.html#bytewax.serde.JsonPickleSerde" title="bytewax.serde.JsonPickleSerde"><code class="xref py py-obj docutils literal notranslate"><span class="pre">JsonPickleSerde</span></code></a>.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Initialization</p>
+<dl class="py property">
+<dt class="sig sig-object py" id="bytewax.recovery.RecoveryConfig.backup_interval">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">backup_interval</span></span><a class="headerlink" href="#bytewax.recovery.RecoveryConfig.backup_interval" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="bytewax.recovery.RecoveryConfig.snapshot_serde">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">snapshot_serde</span></span><a class="headerlink" href="#bytewax.recovery.RecoveryConfig.snapshot_serde" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="bytewax.recovery.RecoveryConfig.db_dir">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">db_dir</span></span><a class="headerlink" href="#bytewax.recovery.RecoveryConfig.db_dir" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="functions">
+<h2>Functions<a class="headerlink" href="#functions" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="bytewax.recovery.init_db_dir">
+<span class="sig-name descname"><span class="pre">init_db_dir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">db_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">count</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#bytewax.recovery.init_db_dir" title="Link to this definition">¶</a></dt>
+<dd><p>Create and init a set of empty recovery partitions.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>db_dir</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.12)"><em>Path</em></a>) – Local directory to create partitions in.</p></li>
+<li><p><strong>count</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – Number of partitions to create.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+</section>
+
+
+          </div>
+
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="bytewax.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax</span></code></a><ul class="current">
+<li class="toctree-l3 current"><a class="reference internal" href="bytewax.html#submodules">Submodules</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="bytewax.connectors.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.dataflow.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.dataflow</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.inputs.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.inputs</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.operators.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.operators</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.outputs.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.outputs</span></code></a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.recovery</span></code></a><ul>
+<li class="toctree-l5"><a class="reference internal" href="#classes">Classes</a><ul>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.recovery.RecoveryConfig"><code class="docutils literal notranslate"><span class="pre">RecoveryConfig</span></code></a><ul>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.recovery.RecoveryConfig.backup_interval"><code class="docutils literal notranslate"><span class="pre">backup_interval</span></code></a></li>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.recovery.RecoveryConfig.snapshot_serde"><code class="docutils literal notranslate"><span class="pre">snapshot_serde</span></code></a></li>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.recovery.RecoveryConfig.db_dir"><code class="docutils literal notranslate"><span class="pre">db_dir</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l5"><a class="reference internal" href="#functions">Functions</a><ul>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.recovery.init_db_dir"><code class="docutils literal notranslate"><span class="pre">init_db_dir()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.run.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.run</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.serde.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.serde</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.testing.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.testing</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.tracing.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.tracing</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+
+
+    </div>
+
+
+
+
+  </body>
+</html>

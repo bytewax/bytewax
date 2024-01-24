@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>bytewax.run &#8212; Bytewax API Docs  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=c631c1db" />
+    <script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=888ff710"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="bytewax.serde" href="bytewax.serde.html" />
+    <link rel="prev" title="bytewax.recovery" href="bytewax.recovery.html" />
+
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+
+
+
+
+
+  </head><body>
+
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+
+
+          <div class="body" role="main">
+
+  <section id="module-bytewax.run">
+<span id="bytewax-run"></span><h1><a class="reference internal" href="#module-bytewax.run" title="bytewax.run"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.run</span></code></a><a class="headerlink" href="#module-bytewax.run" title="Link to this heading">¶</a></h1>
+<p>Executing dataflows and the Bytewax runtime.</p>
+<p>Dataflows are run for local development or production by executing
+this module as as script with <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">bytewax.run</span></code>.</p>
+<p>See <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">bytewax.run</span> <span class="pre">--help</span></code> for more info.</p>
+<p>If you need to execute a dataflow as part of running unit tests, see
+<code class="docutils literal notranslate"><span class="pre">bytewax.testing</span></code>.</p>
+<section id="functions">
+<h2>Functions<a class="headerlink" href="#functions" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="bytewax.run.cli_main">
+<span class="sig-name descname"><span class="pre">cli_main</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">flow</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="o"><span class="pre">*</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">workers_per_process</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">process_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">addresses</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">epoch_interval</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">recovery_config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="headerlink" href="#bytewax.run.cli_main" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</section>
+</section>
+
+
+          </div>
+
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="bytewax.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax</span></code></a><ul class="current">
+<li class="toctree-l3 current"><a class="reference internal" href="bytewax.html#submodules">Submodules</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="bytewax.connectors.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.dataflow.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.dataflow</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.inputs.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.inputs</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.operators.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.operators</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.outputs.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.outputs</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.recovery.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.recovery</span></code></a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.run</span></code></a><ul>
+<li class="toctree-l5"><a class="reference internal" href="#functions">Functions</a><ul>
+<li class="toctree-l6"><a class="reference internal" href="#bytewax.run.cli_main"><code class="docutils literal notranslate"><span class="pre">cli_main()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.serde.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.serde</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.testing.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.testing</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.tracing.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.tracing</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+
+
+    </div>
+
+
+
+
+  </body>
+</html>

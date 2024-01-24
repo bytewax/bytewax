@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>bytewax.connectors.demo &#8212; Bytewax API Docs  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=c631c1db" />
+    <script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=888ff710"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="bytewax.connectors.files" href="bytewax.connectors.files.html" />
+    <link rel="prev" title="bytewax.connectors" href="bytewax.connectors.html" />
+
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+
+
+
+
+
+  </head><body>
+
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+
+
+          <div class="body" role="main">
+
+  <section id="module-bytewax.connectors.demo">
+<span id="bytewax-connectors-demo"></span><h1><a class="reference internal" href="#module-bytewax.connectors.demo" title="bytewax.connectors.demo"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.demo</span></code></a><a class="headerlink" href="#module-bytewax.connectors.demo" title="Link to this heading">¶</a></h1>
+<p>Connectors for writing local-first demo dataflows.</p>
+<section id="data">
+<h2>Data<a class="headerlink" href="#data" title="Link to this heading">¶</a></h2>
+<dl class="py data">
+<dt class="sig sig-object py" id="bytewax.connectors.demo.X">
+<span class="sig-name descname"><span class="pre">X</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeVar" title="(in Python v3.12)"><span class="pre">TypeVar</span></a></em><a class="headerlink" href="#bytewax.connectors.demo.X" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</section>
+<section id="classes">
+<h2>Classes<a class="headerlink" href="#classes" title="Link to this heading">¶</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="bytewax.connectors.demo.RandomMetricSource">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">RandomMetricSource</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">metric_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">interval</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.timedelta" title="(in Python v3.12)"><span class="pre">timedelta</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">timedelta(seconds=0.7)</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">count</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">sys.maxsize</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">next_random</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.12)"><span class="pre">Callable</span></a><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">lambda</span> <span class="pre">:</span> <span class="pre">...</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="headerlink" href="#bytewax.connectors.demo.RandomMetricSource" title="Link to this definition">¶</a></dt>
+<dd><dl class="myst field-list simple">
+<dt class="field-odd">Bases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference internal" href="bytewax.inputs.html#bytewax.inputs.FixedPartitionedSource" title="bytewax.inputs.FixedPartitionedSource"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FixedPartitionedSource</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Tuple</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">float</span></code></a>], <code class="xref py py-obj docutils literal notranslate"><span class="pre">_RandomMetricState</span></code>]</p></li>
+</ul>
+</dd>
+</dl>
+<p>Demo source that produces an infinite stream of random values.</p>
+<p>Emits downstream <code class="docutils literal notranslate"><span class="pre">(metric_name,</span> <span class="pre">val)</span></code> 2-tuples.</p>
+<p>If you want to emit multiple different metrics, create multiple
+<a class="reference internal" href="bytewax.operators.html#bytewax.operators.input" title="bytewax.operators.input"><code class="xref py py-obj docutils literal notranslate"><span class="pre">input</span></code></a> steps and
+<a class="reference internal" href="bytewax.operators.html#bytewax.operators.merge" title="bytewax.operators.merge"><code class="xref py py-obj docutils literal notranslate"><span class="pre">merge</span></code></a> them.</p>
+<p class="rubric">Initialization</p>
+<p>Init.</p>
+<dl class="myst field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>metric_name</strong> – To attach to each value.</p></li>
+<li><p><strong>interval</strong> – Emit a value on this cadence. Defaults to every
+0.7 seconds.</p></li>
+<li><p><strong>count</strong> – Number of values to generate. Defaults to
+infinite.</p></li>
+<li><p><strong>next_random</strong> – Callable used to generate the next random
+value. Defaults to a random <a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int</span></code></a> between 0 and
+10.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.connectors.demo.RandomMetricSource.list_parts">
+<span class="sig-name descname"><span class="pre">list_parts</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#bytewax.connectors.demo.RandomMetricSource.list_parts" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bytewax.connectors.demo.RandomMetricSource.build_part">
+<span class="sig-name descname"><span class="pre">build_part</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">now</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.12)"><span class="pre">datetime</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">for_part</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.12)"><span class="pre">str</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">resume_state</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.12)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><span class="pre">bytewax.connectors.demo._RandomMetricState</span><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="headerlink" href="#bytewax.connectors.demo.RandomMetricSource.build_part" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+
+
+          </div>
+
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="bytewax.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax</span></code></a><ul class="current">
+<li class="toctree-l3 current"><a class="reference internal" href="bytewax.html#submodules">Submodules</a><ul class="current">
+<li class="toctree-l4 current"><a class="reference internal" href="bytewax.connectors.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors</span></code></a><ul class="current">
+<li class="toctree-l5 current"><a class="reference internal" href="bytewax.connectors.html#submodules">Submodules</a><ul class="current">
+<li class="toctree-l6 current"><a class="current reference internal" href="#"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.demo</span></code></a><ul>
+<li class="toctree-l7"><a class="reference internal" href="#data">Data</a><ul>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.demo.X"><code class="docutils literal notranslate"><span class="pre">X</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l7"><a class="reference internal" href="#classes">Classes</a><ul>
+<li class="toctree-l8"><a class="reference internal" href="#bytewax.connectors.demo.RandomMetricSource"><code class="docutils literal notranslate"><span class="pre">RandomMetricSource</span></code></a><ul>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.demo.RandomMetricSource.list_parts"><code class="docutils literal notranslate"><span class="pre">list_parts()</span></code></a></li>
+<li class="toctree-l9"><a class="reference internal" href="#bytewax.connectors.demo.RandomMetricSource.build_part"><code class="docutils literal notranslate"><span class="pre">build_part()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l6"><a class="reference internal" href="bytewax.connectors.files.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.files</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="bytewax.connectors.kafka.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.kafka</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="bytewax.connectors.stdio.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.connectors.stdio</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.dataflow.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.dataflow</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.inputs.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.inputs</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.operators.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.operators</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.outputs.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.outputs</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.recovery.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.recovery</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.run.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.run</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.serde.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.serde</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.testing.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.testing</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="bytewax.tracing.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bytewax.tracing</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+
+
+    </div>
+
+
+
+
+  </body>
+</html>
