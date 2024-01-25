@@ -65,7 +65,7 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
         self._raise: Optional[Exception] = None
 
     @override
-    def next_batch(self, sched: Optional[datetime]) -> List[X]:
+    def next_batch(self) -> List[X]:
         if self._raise is not None:
             raise self._raise
 
@@ -173,7 +173,7 @@ class TestingSource(FixedPartitionedSource[X, int]):
 
     @override
     def build_part(
-        self, now: datetime, for_part: str, resume_state: Optional[int]
+        self, for_part: str, resume_state: Optional[int]
     ) -> _IterSourcePartition[X]:
         return _IterSourcePartition(self._ib, self._batch_size, resume_state)
 

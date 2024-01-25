@@ -19,7 +19,26 @@ notes on GitHub when we make a new release.__
 
 - *Breaking change* Removes `builder` argument from `stateful_map`.
   Instead, the initial state value is always `None` and you can call
-  your previous builder by hand.
+  your previous builder by hand in the `mapper`.
+
+- *Breaking change* Improves performance by removing the `now:
+  datetime` argument from `FixedPartitionedSource.build_part`,
+  `DynamicSource.build`, and `UnaryLogic.on_item`. If you need the
+  current time, use:
+
+```python
+from datetime import datetime, timezone
+
+now = datetime.now(timezone.utc)
+```
+
+- *Breaking change* Improves performance by removing the `sched:
+  datetime` argument from `StatefulSourcePartition.next_batch`,
+  `StatelessSourcePartition.next_batch`, `UnaryLogic.on_notify`. You
+  should already have the scheduled next awake time in whatever
+  instance variable you returned in
+  `{Stateful,Stateless}SourcePartition.next_awake` or
+  `UnaryLogic.notify_at`.
 
 ## v0.18.1
 

@@ -41,7 +41,7 @@ def test_dynamic_source_next_batch_iterator():
             self._n = 0
 
         @override
-        def next_batch(self, sched: Optional[datetime]) -> Iterable[int]:
+        def next_batch(self) -> Iterable[int]:
             if self._n < 5:
                 n = self._n
                 self._n += 1
@@ -51,9 +51,7 @@ def test_dynamic_source_next_batch_iterator():
 
     class TestSource(DynamicSource[int]):
         @override
-        def build(
-            self, now: datetime, worker_index: int, worker_count: int
-        ) -> TestPartition:
+        def build(self, worker_index: int, worker_count: int) -> TestPartition:
             return TestPartition()
 
     flow = Dataflow("test_df")
@@ -72,7 +70,7 @@ def test_fixed_partitioned_source_next_batch_iterator():
             self._n = 0
 
         @override
-        def next_batch(self, sched: Optional[datetime]) -> Iterable[int]:
+        def next_batch(self) -> Iterable[int]:
             if self._n < 5:
                 n = self._n
                 self._n += 1
@@ -90,9 +88,7 @@ def test_fixed_partitioned_source_next_batch_iterator():
             return ["one"]
 
         @override
-        def build_part(
-            self, now: datetime, for_part: str, resume_state: None
-        ) -> TestPartition:
+        def build_part(self, for_part: str, resume_state: None) -> TestPartition:
             return TestPartition()
 
     flow = Dataflow("test_df")
@@ -119,7 +115,7 @@ class _DynamicMetronomePartition(StatelessSourcePartition[Tuple[datetime, int]])
         self._n = n
 
     @override
-    def next_batch(self, sched: Optional[datetime]) -> List[Tuple[datetime, int]]:
+    def next_batch(self) -> List[Tuple[datetime, int]]:
         now = datetime.now(timezone.utc)
         self._next_awake = now + self._interval
         if self._n < 5:
@@ -140,9 +136,8 @@ class DynamicMetronomeSource(DynamicSource[Tuple[datetime, int]]):
         self._count = count
 
     @override
-    def build(
-        self, now: datetime, worker_index: int, worker_count: int
-    ) -> _DynamicMetronomePartition:
+    def build(self, worker_index: int, worker_count: int) -> _DynamicMetronomePartition:
+        now = datetime.now(timezone.utc)
         return _DynamicMetronomePartition(self._interval, self._count, now, 0)
 
 
@@ -194,7 +189,7 @@ class _MetronomePartition(
         self._n = n
 
     @override
-    def next_batch(self, sched: Optional[datetime]) -> Iterable[Tuple[datetime, int]]:
+    def next_batch(self) -> Iterable[Tuple[datetime, int]]:
         now = datetime.now(timezone.utc)
         self._next_awake = now + self._interval
         if self._n < self._count:
@@ -226,12 +221,12 @@ class MetronomeSource(
 
     @override
     def build_part(
-        self, now: datetime, for_part: str, resume_state: Optional[Tuple[datetime, int]]
+        self, for_part: str, resume_state: Optional[Tuple[datetime, int]]
     ) -> _MetronomePartition:
         if resume_state is not None:
             next_awake, n = resume_state
         else:
-            next_awake = now
+            next_awake = datetime.now(timezone.utc)
             n = 0
         return _MetronomePartition(self._interval, self._count, next_awake, n)
 
@@ -283,7 +278,7 @@ def test_simple_polling_source_interval():
         align_to=now,
         getter=lambda: True,
     )
-    assert part.next_batch(now) == [True]
+    assert part.next_batch() == [True]
     assert part.next_awake() == datetime(2023, 1, 1, 5, 30, tzinfo=timezone.utc)
 
 
@@ -299,7 +294,7 @@ def test_simple_polling_source_retry():
         align_to=now,
         getter=getter,
     )
-    assert part.next_batch(now) == []
+    assert part.next_batch() == []
     assert part.next_awake() == datetime(2023, 1, 1, 5, 0, 5, tzinfo=timezone.utc)
 
 

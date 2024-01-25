@@ -9,7 +9,7 @@ import copy
 import itertools
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import partial
 from itertools import chain
 from typing import (
@@ -372,13 +372,11 @@ class UnaryLogic(ABC, Generic[V, W, S]):
     """This logic should be discarded immediately after this returns."""
 
     @abstractmethod
-    def on_item(self, now: datetime, value: V) -> Tuple[Iterable[W], bool]:
+    def on_item(self, value: V) -> Tuple[Iterable[W], bool]:
         """Called on each new upstream item.
 
         This will be called multiple times in a row if there are
         multiple items from upstream.
-
-        :arg now: The current `datetime`.
 
         :arg value: The value of the upstream `(key, value)`.
 
@@ -390,10 +388,8 @@ class UnaryLogic(ABC, Generic[V, W, S]):
         ...
 
     @abstractmethod
-    def on_notify(self, sched: datetime) -> Tuple[Iterable[W], bool]:
+    def on_notify(self) -> Tuple[Iterable[W], bool]:
         """Called when the scheduled notification time has passed.
-
-        :arg sched: The scheduled notification time.
 
         :returns: A 2-tuple of: any values to emit downstream and
             wheither to discard this logic. Values will be wrapped in
@@ -463,7 +459,7 @@ class UnaryLogic(ABC, Generic[V, W, S]):
 def unary(
     step_id: str,
     up: KeyedStream[V],
-    builder: Callable[[datetime, Optional[S]], UnaryLogic[V, W, S]],
+    builder: Callable[[Optional[S]], UnaryLogic[V, W, S]],
 ) -> KeyedStream[W]:
     """Advanced generic stateful operator.
 
@@ -480,11 +476,10 @@ def unary(
     :arg up: Keyed stream.
 
     :arg builder: Called whenver a new key is encountered with the
-        current {py:obj}`datetime` and the resume state returned from
-        {py:obj}`UnaryLogic.snapshot` for this key, if any. This
-        should close over any non-state configuration and combine it
-        with the resume state to return the prepared
-        {py:obj}`UnaryLogic` for the new key.
+        resume state returned from `UnaryLogic.snapshot` for this
+        key, if any. This should close over any non-state
+        configuration and combine it with the resume state to
+        return the prepared `UnaryLogic` for the new key.
 
     :returns: Keyed stream of all items returned from
         {py:obj}`UnaryLogic.on_item`, {py:obj}`UnaryLogic.on_notify`,
@@ -503,12 +498,13 @@ class _CollectState(Generic[V]):
 @dataclass
 class _CollectLogic(UnaryLogic[V, List[V], _CollectState[V]]):
     step_id: str
+    now_getter: Callable[[], datetime]
     timeout: timedelta
     max_size: int
     state: _CollectState[V]
 
-    def on_item(self, now: datetime, value: V) -> Tuple[Iterable[List[V]], bool]:
-        self.state.timeout_at = now + self.timeout
+    def on_item(self, value: V) -> Tuple[Iterable[List[V]], bool]:
+        self.state.timeout_at = self.now_getter() + self.timeout
 
         self.state.acc.append(value)
         if len(self.state.acc) >= self.max_size:
@@ -518,7 +514,7 @@ class _CollectLogic(UnaryLogic[V, List[V], _CollectState[V]]):
         return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
-    def on_notify(self, sched: datetime) -> Tuple[Iterable[List[V]], bool]:
+    def on_notify(self) -> Tuple[Iterable[List[V]], bool]:
         return ((self.state.acc,), UnaryLogic.DISCARD)
 
     @override
@@ -557,11 +553,10 @@ def collect(
 
     """
 
-    def shim_builder(
-        _now: datetime, resume_state: Optional[_CollectState[V]]
-    ) -> _CollectLogic[V]:
+    def shim_builder(resume_state: Optional[_CollectState[V]]) -> _CollectLogic[V]:
+        now_getter = lambda: datetime.now(timezone.utc)
         state = resume_state if resume_state is not None else _CollectState()
-        return _CollectLogic(step_id, timeout, max_size, state)
+        return _CollectLogic(step_id, now_getter, timeout, max_size, state)
 
     return unary("unary", up, shim_builder)
 
@@ -866,12 +861,12 @@ class _FoldFinalLogic(UnaryLogic[V, S, S]):
     state: S
 
     @override
-    def on_item(self, now: datetime, value: V) -> Tuple[Iterable[S], bool]:
+    def on_item(self, value: V) -> Tuple[Iterable[S], bool]:
         self.state = self.folder(self.state, value)
         return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
-    def on_notify(self, sched: datetime) -> Tuple[Iterable[S], bool]:
+    def on_notify(self) -> Tuple[Iterable[S], bool]:
         return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
@@ -916,9 +911,7 @@ def fold_final(
 
     """
 
-    def shim_builder(
-        _now: datetime, resume_state: Optional[S]
-    ) -> _FoldFinalLogic[V, S]:
+    def shim_builder(resume_state: Optional[S]) -> _FoldFinalLogic[V, S]:
         state = resume_state if resume_state is not None else builder()
         return _FoldFinalLogic(step_id, folder, state)
 
@@ -1010,9 +1003,7 @@ class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
     state: _JoinState
 
     @override
-    def on_item(
-        self, now: datetime, value: Tuple[str, Any]
-    ) -> Tuple[Iterable[_JoinState], bool]:
+    def on_item(self, value: Tuple[str, Any]) -> Tuple[Iterable[_JoinState], bool]:
         name, value = value
 
         self.state.set_val(name, value)
@@ -1027,7 +1018,7 @@ class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
                 return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
-    def on_notify(self, sched: datetime) -> Tuple[Iterable[_JoinState], bool]:
+    def on_notify(self) -> Tuple[Iterable[_JoinState], bool]:
         return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
@@ -1084,7 +1075,7 @@ def join(
     named_sides = dict((str(i), s) for i, s in enumerate(sides))
     names = list(named_sides.keys())
 
-    def shim_builder(_now: datetime, resume_state: Optional[_JoinState]) -> _JoinLogic:
+    def shim_builder(resume_state: Optional[_JoinState]) -> _JoinLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
@@ -1122,7 +1113,7 @@ def join_named(
     """
     names = list(sides.keys())
 
-    def shim_builder(_now: datetime, resume_state: Optional[_JoinState]) -> _JoinLogic:
+    def shim_builder(resume_state: Optional[_JoinState]) -> _JoinLogic:
         state = (
             resume_state if resume_state is not None else _JoinState.for_names(names)
         )
@@ -1409,7 +1400,7 @@ class _StatefulFlatMapLogic(UnaryLogic[V, W, S]):
     state: Optional[S]
 
     @override
-    def on_item(self, now: datetime, value: V) -> Tuple[Iterable[W], bool]:
+    def on_item(self, value: V) -> Tuple[Iterable[W], bool]:
         res = self.mapper(self.state, value)
         try:
             s, ws = res
@@ -1430,7 +1421,7 @@ class _StatefulFlatMapLogic(UnaryLogic[V, W, S]):
             return (ws, UnaryLogic.RETAIN)
 
     @override
-    def on_notify(self, sched: datetime) -> Tuple[Iterable[W], bool]:
+    def on_notify(self) -> Tuple[Iterable[W], bool]:
         return (_EMPTY, UnaryLogic.RETAIN)
 
     @override
@@ -1468,9 +1459,7 @@ def stateful_flat_map(
 
     """
 
-    def shim_builder(
-        _now: datetime, resume_state: Optional[S]
-    ) -> _StatefulFlatMapLogic[V, W, S]:
+    def shim_builder(resume_state: Optional[S]) -> _StatefulFlatMapLogic[V, W, S]:
         return _StatefulFlatMapLogic(step_id, mapper, resume_state)
 
     return unary("unary", up, shim_builder)

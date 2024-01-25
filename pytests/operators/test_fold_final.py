@@ -4,13 +4,13 @@ from bytewax.operators import _FoldFinalLogic
 from bytewax.testing import TestingSink, TestingSource, run_main
 
 
-def test_fold_final_logic_snapshot(now):
+def test_fold_final_logic_snapshot():
     def folder(old_state, value):
         return "new_state"
 
     logic = _FoldFinalLogic("test_step", folder, "old_state")
 
-    logic.on_item(now, 5)
+    logic.on_item(5)
 
     assert logic.snapshot() == "new_state"
 
