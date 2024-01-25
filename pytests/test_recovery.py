@@ -43,6 +43,8 @@ def test_continuation(recovery_config):
 
 
 def keep_max(max_val, new_val):
+    if max_val is None:
+        max_val = 0
     max_val = max(max_val, new_val)
     return (max_val, max_val)
 
@@ -50,7 +52,7 @@ def keep_max(max_val, new_val):
 def build_keep_max_dataflow(inp, out):
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
-    s = op.stateful_map("max", s, lambda: 0, keep_max)
+    s = op.stateful_map("max", s, keep_max)
     op.output("out", s, TestingSink(out))
     return flow
 

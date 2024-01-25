@@ -1403,31 +1403,31 @@ def reduce_final(
 
 
 @dataclass
-class _StatefulMapLogic(UnaryLogic[V, W, S]):
+class _StatefulFlatMapLogic(UnaryLogic[V, W, S]):
     step_id: str
-    mapper: Callable[[S, V], Tuple[Optional[S], W]]
-    state: S
+    mapper: Callable[[Optional[S], V], Tuple[Optional[S], Iterable[W]]]
+    state: Optional[S]
 
     @override
     def on_item(self, now: datetime, value: V) -> Tuple[Iterable[W], bool]:
         res = self.mapper(self.state, value)
         try:
-            s, w = res
+            s, ws = res
         except TypeError as ex:
             msg = (
                 f"return value of `mapper` {f_repr(self.mapper)} "
                 f"in step {self.step_id!r} "
-                "must be a 2-tuple of `(updated_state, emit_item)`; "
+                "must be a 2-tuple of `(updated_state, emit_values)`; "
                 f"got a {type(res)!r} instead"
             )
             raise TypeError(msg) from ex
         if s is None:
             # No need to update state as we're thowing everything
             # away.
-            return ((w,), UnaryLogic.DISCARD)
+            return (ws, UnaryLogic.DISCARD)
         else:
             self.state = s
-            return ((w,), UnaryLogic.RETAIN)
+            return (ws, UnaryLogic.RETAIN)
 
     @override
     def on_notify(self, sched: datetime) -> Tuple[Iterable[W], bool]:
@@ -1443,15 +1443,44 @@ class _StatefulMapLogic(UnaryLogic[V, W, S]):
 
     @override
     def snapshot(self) -> S:
+        assert self.state is not None
         return copy.deepcopy(self.state)
+
+
+@operator
+def stateful_flat_map(
+    step_id: str,
+    up: KeyedStream[V],
+    mapper: Callable[[Optional[S], V], Tuple[Optional[S], Iterable[W]]],
+) -> KeyedStream[W]:
+    """Transform values one-to-many, referencing a persistent state.
+
+    :arg step_id: Unique ID.
+
+    :arg up: Keyed stream.
+
+    :arg mapper: Called whenever a value is encountered from upstream
+        with the last state or `None`, and then the upstream value.
+        Should return a 2-tuple of `(updated_state, emit_values)`. If
+        the updated state is `None`, discard it.
+
+    :returns: A keyed stream.
+
+    """
+
+    def shim_builder(
+        _now: datetime, resume_state: Optional[S]
+    ) -> _StatefulFlatMapLogic[V, W, S]:
+        return _StatefulFlatMapLogic(step_id, mapper, resume_state)
+
+    return unary("unary", up, shim_builder)
 
 
 @operator
 def stateful_map(
     step_id: str,
     up: KeyedStream[V],
-    builder: Callable[[], S],
-    mapper: Callable[[S, V], Tuple[Optional[S], W]],
+    mapper: Callable[[Optional[S], V], Tuple[Optional[S], W]],
 ) -> KeyedStream[W]:
     """Transform values one-to-one, referencing a persistent state.
 
@@ -1475,12 +1504,12 @@ def stateful_map(
     ... ]
     >>> s = op.input("inp", flow, TestingSource(inp))
     >>> s = op.key_on("self_as_key", s, lambda x: x)
-    >>> def build_count():
-    ...     return 0
     >>> def check(running_count, _item):
+    ...     if running_count is None:
+    ...         running_count = 0
     ...     running_count += 1
     ...     return (running_count, running_count)
-    >>> s = op.stateful_map("running_count", s, build_count, check)
+    >>> s = op.stateful_map("running_count", s, check)
     >>> _ = op.inspect("out", s)
     >>> run_main(flow)
     stateful_map_eg.out: ('a', 1)
@@ -1494,22 +1523,28 @@ def stateful_map(
 
     :arg up: Keyed stream.
 
-    :arg builder: Called whenever a new key is encountered and should
-        return the "empty state" for this key.
-
     :arg mapper: Called whenever a value is encountered from upstream
-        with the last state, and then the upstream value. Should
-        return a 2-tuple of `(updated_state, emit_value)`. If the
-        updated state is `None`, discard it.
+        with the last state or `None`, and then the upstream value.
+        Should return a 2-tuple of `(updated_state, emit_value)`. If
+        the updated state is `None`, discard it.
 
     :returns: A keyed stream.
 
     """
 
-    def shim_builder(
-        _now: datetime, resume_state: Optional[S]
-    ) -> _StatefulMapLogic[V, W, S]:
-        state = resume_state if resume_state is not None else builder()
-        return _StatefulMapLogic(step_id, mapper, state)
+    def shim_mapper(state: Optional[S], v: V) -> Tuple[Optional[S], Iterable[W]]:
+        res = mapper(state, v)
+        try:
+            s, w = res
+        except TypeError as ex:
+            msg = (
+                f"return value of `mapper` {f_repr(mapper)} "
+                f"in step {step_id!r} "
+                "must be a 2-tuple of `(updated_state, emit_value)`; "
+                f"got a {type(res)!r} instead"
+            )
+            raise TypeError(msg) from ex
 
-    return unary("unary", up, shim_builder)
+        return (s, (w,))
+
+    return stateful_flat_map("stateful_flat_map", up, shim_mapper)
