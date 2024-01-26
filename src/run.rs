@@ -74,6 +74,7 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 ///
 /// This is only used for unit testing. See `bytewax.run`.
 ///
+/// ```python
 /// >>> from bytewax.dataflow import Dataflow
 /// >>> from bytewax.testing import TestingInput, run_main
 /// >>> from bytewax.connectors.stdio import StdOutput
@@ -84,6 +85,7 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 /// 0
 /// 1
 /// 2
+/// ```
 ///
 /// :arg flow: Dataflow to run.
 ///
@@ -174,6 +176,7 @@ pub(crate) fn run_main(
 ///
 /// Blocks until execution is complete.
 ///
+/// ```python
 /// >>> from bytewax.dataflow import Dataflow
 /// >>> from bytewax.testing import TestingInput
 /// >>> from bytewax.connectors.stdio import StdOutput
@@ -187,6 +190,7 @@ pub(crate) fn run_main(
 /// 0
 /// 1
 /// 2
+/// ```
 ///
 /// :arg flow: Dataflow to run.
 ///

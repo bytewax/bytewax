@@ -12,8 +12,10 @@ use super::TracingConfig;
 /// The endpoint can be configured with the parameter passed to this
 /// config, or with two environment variables:
 ///
-///   OTEL_EXPORTER_JAEGER_AGENT_HOST="127.0.0.1"
-///   OTEL_EXPORTER_JAEGER_AGENT_PORT="6831"
+/// ```sh
+/// OTEL_EXPORTER_JAEGER_AGENT_HOST="127.0.0.1"
+/// OTEL_EXPORTER_JAEGER_AGENT_PORT="6831"
+/// ```
 ///
 /// :arg service_name: Identifies this dataflow in Jaeger.
 ///

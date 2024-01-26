@@ -53,11 +53,11 @@ class RecoveryConfig:
         ...
 
     @property
-    def backup_interval(self): ...
+    def db_dir(self): ...
     @property
     def snapshot_serde(self): ...
     @property
-    def db_dir(self): ...
+    def backup_interval(self): ...
 
 def run_main(flow, *, epoch_interval=None, recovery_config=None):
     """Execute a dataflow in the current thread.
@@ -66,6 +66,7 @@ def run_main(flow, *, epoch_interval=None, recovery_config=None):
 
     This is only used for unit testing. See `bytewax.run`.
 
+    ```python
     >>> from bytewax.dataflow import Dataflow
     >>> from bytewax.testing import TestingInput, run_main
     >>> from bytewax.connectors.stdio import StdOutput
@@ -76,6 +77,7 @@ def run_main(flow, *, epoch_interval=None, recovery_config=None):
     0
     1
     2
+    ```
 
     :arg flow: Dataflow to run.
 
@@ -110,6 +112,7 @@ def cluster_main(
 
     Blocks until execution is complete.
 
+    ```python
     >>> from bytewax.dataflow import Dataflow
     >>> from bytewax.testing import TestingInput
     >>> from bytewax.connectors.stdio import StdOutput
@@ -123,6 +126,7 @@ def cluster_main(
     0
     1
     2
+    ```
 
     :arg flow: Dataflow to run.
 
@@ -381,8 +385,10 @@ class JaegerConfig(TracingConfig):
     The endpoint can be configured with the parameter passed to this
     config, or with two environment variables:
 
-      OTEL_EXPORTER_JAEGER_AGENT_HOST="127.0.0.1"
-      OTEL_EXPORTER_JAEGER_AGENT_PORT="6831"
+    ```sh
+    OTEL_EXPORTER_JAEGER_AGENT_HOST="127.0.0.1"
+    OTEL_EXPORTER_JAEGER_AGENT_PORT="6831"
+    ```
 
     :arg service_name: Identifies this dataflow in Jaeger.
 
@@ -410,9 +416,9 @@ class JaegerConfig(TracingConfig):
     @property
     def endpoint(self): ...
     @property
-    def sampling_ratio(self): ...
-    @property
     def service_name(self): ...
+    @property
+    def sampling_ratio(self): ...
 
 class OtlpTracingConfig(TracingConfig):
     """Send traces to the OpenTelemetry collector.
@@ -449,11 +455,11 @@ class OtlpTracingConfig(TracingConfig):
         ...
 
     @property
+    def service_name(self): ...
+    @property
     def url(self): ...
     @property
     def sampling_ratio(self): ...
-    @property
-    def service_name(self): ...
 
 class EventClockConfig(ClockConfig):
     """Use a getter function to lookup the timestamp for each item.
@@ -539,14 +545,14 @@ class TumblingWindow(WindowConfig):
     ...
 
     def __init__(self, length, align_to): ...
-    def __new__(*args, **kwargs):
+    def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
 
     @property
-    def length(self): ...
-    @property
     def align_to(self): ...
+    @property
+    def length(self): ...
 
 class SlidingWindow(WindowConfig):
     """Sliding windows of fixed duration.
