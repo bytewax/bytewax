@@ -7,10 +7,10 @@ name = "pypi"
 sphinx = "*"
 myst-parser = "*"
 sphinx-autodoc2 = "*"
-sphinx-autobuild = "*"
 sphinxcontrib-mermaid = "*"
 
 [dev-packages]
+sphinx-autobuild = "*"
 
 [requires]
 python_version = "3.10"
