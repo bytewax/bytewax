@@ -1,11 +1,14 @@
 """Renderer for MyST with Bytewax formatting customizations."""
 from __future__ import annotations
 
+import re
 import typing as t
 
 import typing_extensions as te
 from autodoc2.render.myst_ import MystRenderer
 from autodoc2.utils import ItemData
+
+_BASE_SPLIT = re.compile(r"(\s*[\[\]\(\),]+\s*)")
 
 
 class BytewaxRenderer(MystRenderer):
@@ -210,3 +213,19 @@ class BytewaxRenderer(MystRenderer):
     def format_base(self, base: None | str) -> str:
         base = super().format_base(base)
         return f"~{base}"
+
+    @te.override
+    def _reformat_cls_base_myst(self, value: str) -> str:
+        result = ""
+        for sub_target in _BASE_SPLIT.split(value.strip()):
+            # `re.split` will return the delimiters if there is a
+            # capture, and `_BASE_SPLIT` does have one.
+            if _BASE_SPLIT.match(sub_target):
+                # So if it's in `[](), `, then quote that to make it
+                # look like code.
+                result += f"`{sub_target}`"
+            elif sub_target:
+                # Otherwise xref.
+                result += f"{{py:obj}}`{self.format_base(sub_target)}`"
+
+        return result
