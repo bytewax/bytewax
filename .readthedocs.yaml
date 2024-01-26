@@ -7,8 +7,8 @@ build:
 
 python:
   install:
-    - requirements: apidocs/requirements.txt
+    - requirements: docs/requirements.txt
 
 sphinx:
-  configuration: apidocs/conf.py
+  configuration: docs/conf.py
   fail_on_warning: true
