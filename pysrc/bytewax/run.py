@@ -6,7 +6,7 @@ this module as as script with `python -m bytewax.run`.
 See `python -m bytewax.run --help` for more info.
 
 If you need to execute a dataflow as part of running unit tests, see
-`bytewax.testing`.
+{py:obj}`bytewax.testing`.
 
 """
 
