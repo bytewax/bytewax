@@ -1,3 +1,5 @@
+# Workers and Parallelization
+
 ## Execution Model
 
 A **worker** is a thread that is helping execute your dataflow.
@@ -11,8 +13,8 @@ trade data to ensure the semantics of the operators. If a dataflow is
 run on multiple processes, there will be a slight overhead due to
 pickling and network communication whenever items must be moved
 between workers, but it will allow you to paralellize some work for
-higher throughput. See the "Stateful Operators" section of `bytewax`
-and the `bytewax.operators.redistribute` operator for more
+higher throughput. See <project:#stateful-operators> and the
+{py:obj}`~bytewax.operators.redistribute` operator for more
 information.
 
 ## Run Script
@@ -22,26 +24,29 @@ information.
 The first argument passed to the script is a dataflow getter string.
 The string is in the format `<dataflow-module>[:<dataflow-getter>]`.
 
-- `<dataflow-module>` points to the Python module containing the dataflow.
+- `<dataflow-module>` points to the Python module containing the
+  dataflow.
 
 - `<dataflow-getter>` is either the name of a Python variable with a
-  `bytewax.dataflow.Dataflow` instance, or a function call to a
-  function defined in the module. If missing, this defaults to looking
-  for the variable named `flow`.
+  {py:obj}`~bytewax.dataflow.Dataflow` instance, or a function call to
+  a function defined in the module. If missing, this defaults to
+  looking for the variable named `flow`.
 
 ```
 $ python -m bytewax.run examples.simple
 ```
 
-For example, if you are at the root of this repository, you can run the
-"simple.py" example by calling the script with the following argument:
+For example, if you are at the root of this repository, you can run
+the "simple.py" example by calling the script with the following
+argument:
 
 ```
 $ python -m bytewax.run examples.simple:flow
 ```
 
 If instead of a variable, you have a function that returns a dataflow,
-you can use a string after the `:` to call the function, possibly with args:
+you can use a string after the `:` to call the function, possibly with
+args:
 
 
 ```
@@ -52,8 +57,8 @@ By default this script will run a single worker on a single process.
 
 ## Single Worker Run
 
-By default `bytewax.run` will run your dataflow on a single worker in
-the current process. This avoids the overhead of setting up
+By default {py:obj}`bytewax.run` will run your dataflow on a single
+worker in the current process. This avoids the overhead of setting up
 communication between workers/processes, but the dataflow will not
 have any gain from parallelization.
 
@@ -79,11 +84,11 @@ If you want to run multiple processes on a single machine, or
 different machines on the same network, you can use the
 `-i/--process-id`,`-a/--addresses` parameters.
 
-Each invocation of `bytewax.run` with `-i` starts up a single process.
-By executing this command multiple times, you can create a cluster of
-Bytewax processes on one machine or multiple machines. We recommend
-you checkout the documentation for [waxctl](/docs/deployment/waxctl/)
-our command line tool which facilitates running a multiple dataflow
+Each invocation of {py:obj}`bytewax.run` with `-i` starts up a single
+process. By executing this command multiple times, you can create a
+cluster of Bytewax processes on one machine or multiple machines. We
+recommend you checkout the documentation for [`waxctl`](#waxctl) our
+command line tool which facilitates running a multiple dataflow
 processes locally, or on Kubernetes.
 
 The `-a/--addresses` parameter represents a list of addresses for all

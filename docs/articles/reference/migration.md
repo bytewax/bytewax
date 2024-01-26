@@ -1,18 +1,25 @@
+(migration)=
+# Migration Guide
+
 This guide can help you upgrade code through breaking changes from one
 Bytewax version to the next. For a detailed list of all changes, see
-the [CHANGELOG](https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md).
+the
+[CHANGELOG](https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md).
 
 ## From v0.17 to v0.18
 
 ### Non-Linear Dataflows
 
 With the addition of non-linear dataflows, the API for constructing
-dataflows has changed. Operators are now stand-alone functions
-that can take and return streams.
+dataflows has changed. Operators are now stand-alone functions that
+can take and return streams.
 
- All operators, not just stateful ones, now require a `step_id`; it should be a `"snake_case"` description of the semantic purpose of that dataflow step.
+ All operators, not just stateful ones, now require a `step_id`; it
+ should be a `"snake_case"` description of the semantic purpose of
+ that dataflow step.
 
- Also instantiating the dataflow itself now takes a "dataflow ID" so you can disambiguate different dataflows in the metrics.
+ Also instantiating the dataflow itself now takes a "dataflow ID" so
+ you can disambiguate different dataflows in the metrics.
 
 Before:
 
@@ -49,16 +56,17 @@ add_one_stream = op.map("add_one", stream, lambda x: x + 1)
 op.output("out", add_one_stream, StdOutSink())
 ```
 
-### Kafka/Redpanda Input
+### Kafka/RedPanda Input
 
-[`KafkaSource`](/apidocs/bytewax.connectors/kafka#bytewax.connectors.kafka.KafkaSource) has been
-updated. `KafkaSource` now returns a stream of
-[`KafkaSourceMessage`](/apidocs/html/bytewax/connectors/kafka/index.html#bytewax.connectors.kafka.KafkaSourceMessage)
-dataclasses, and a stream of errors rather than a stream of (key, value) tuples.
+{py:obj}`~bytewax.connectors.kafka.KafkaSource` has been updated.
+{py:obj}`~bytewax.connectors.kafka.KafkaSource` now returns a stream
+of {py:obj}`~bytewax.connectors.kafka.KafkaSourceMessage` dataclasses,
+and a stream of errors rather than a stream of (key, value) tuples.
 
-You can use `KafkaSource` and `KafkaSink` directly, or use the custom operators in
-[`bytewax.connectors.kafka`](bytewax/apidocs/html/bytewax/connectors/kafka/) to construct
-an input source.
+You can still use {py:obj}`~bytewax.connectors.kafka.KafkaSource` and
+{py:obj}`~bytewax.connectors.kafka.KafkaSink` directly, or use the
+custom operators in {py:obj}`bytewax.connectors.kafka` to construct an
+input source.
 
 Before:
 
@@ -85,7 +93,7 @@ from typing import Tuple, Optional
 
 from bytewax import operators as op
 from bytewax.connectors.kafka import operators as kop
-from bytewax.connectors.kafka import KafkaSinkMessage
+from bytewax.connectors.kafka.message import KafkaSinkMessage
 from bytewax.dataflow import Dataflow
 
 flow = Dataflow("kafka_in_out")
@@ -102,16 +110,17 @@ out_msgs = op.map("wrap_k_v", in_msgs, wrap_msg)
 kop.output("out1", out_msgs, brokers=["localhost:19092"], topic="out_topic")
 ```
 
-`KafkaSource` can now be configured to use the [Redpanda Schema Registry](https://docs.redpanda.com/current/manage/schema-registry/)
-or the [Confluent Schema Registry](https://docs.confluent.io/platform/current/schema-registry/index.html) to
-deserialize messages.
+{py:obj}`~bytewax.connectors.kafka.KafkaSource` can now be configured
+to use the [Redpanda Schema
+Registry](https://docs.redpanda.com/current/manage/schema-registry/)
+or the [Confluent Schema
+Registry](https://docs.confluent.io/platform/current/schema-registry/index.html)
+to deserialize messages.
 
-For more information, see the [`bytewax.connectors.kafka.registry`](/apidocs/html/bytewax/connectors/kafka/registry.html)
-documentation.
+For more information, see the
+{py:obj}`bytewax.connectors.kafka.registry` documentation.
 
-### Refactored IO Classes
-
-## Renaming
+### Renaming
 
 We have renamed the IO classes to better match their semantics and the
 way they are talked about in the documentation. Their functionality
@@ -148,7 +157,7 @@ this new naming scheme.
 | `TestingInput` | `TestingSource` |
 | `TestingOutput` | `TestingSink` |
 
-## Current Time Convenience
+### Current Time Convenience
 
 In addition to the name changes, we have also added a `datetime` argument to
 `build{_part,}` with the current time to allow you to easily
@@ -161,9 +170,11 @@ guaranteed to fire at the precise time specified, you can use this parameter
 to account for any difference.
 
 
-## `SimplePollingSource` moved
+### `SimplePollingSource` moved
 
-`SimplePollingSource` has been moved from `bytewax.connectors.periodic` to `bytewax.inputs`. You'll need to change your imports if you are using that class.
+{py:obj}`~bytewax.inputs.SimplePollingSource` has been moved from
+`bytewax.connectors.periodic` to {py:obj}`bytewax.inputs`. You'll need
+to change your imports if you are using that class.
 
 Before:
 
@@ -179,10 +190,11 @@ from bytewax.inputs import SimplePollingSource
 
 ### Window Metadata
 
-Window operators now emit `WindowMetadata` objects downstream. These objects can
-be used to introspect the open_time and close_time of windows. This changes the
-output type of windowing operators from a stream of: `(key, values)` to
-a stream of `(key, (metadata, values))`.
+Window operators now emit
+{py:obj}`~bytewax.operators.window.WindowMetadata` objects downstream.
+These objects can be used to introspect the open_time and close_time
+of windows. This changes the output type of windowing operators from a
+stream of: `(key, values)` to a stream of `(key, (metadata, values))`.
 
 ### Recovery flags
 
@@ -193,19 +205,21 @@ Previously, the defaults values were to create a snapshot every 10 seconds and
 keep a day's worth of old snapshots. This means your recovery DB would max out at a size on disk
 theoretically thousands of times bigger than your in-memory state.
 
-See [our documentation on the recovery system](/docs/articles/concepts/recovery.md) for how to
-appropriately pick these values for your deployment.
+See <project:/articles/concepts/recovery.md> for how to appropriately
+pick these values for your deployment.
 
 ### Batch -> Collect
 
-In v0.18, we've renamed the `batch` operator to `collect` so as to not be confused with runtime batching.
-Behavior is unchanged.
+In v0.18, we've renamed the `batch` operator to
+{py:obj}`~bytewax.operators.collect` so as to not be confused with
+runtime batching. Behavior is unchanged.
 
 ## From v0.16 to v0.17
 
 Bytewax v0.17 introduces major changes to the way that recovery works
 in order to support rescaling. In v0.17, the number of workers in a
-cluster can now be changed by stopping the dataflow execution and specifying a different number of workers on resume.
+cluster can now be changed by stopping the dataflow execution and
+specifying a different number of workers on resume.
 
 In addition to rescaling, we've changed the Bytewax inputs and outputs
 API to support batching which has yielded significant performance
@@ -218,7 +232,8 @@ to v0.17.
 ### Recovery changes
 
 In v0.17, recovery has been changed to support rescaling the number of
-workers in a dataflow. You now pre-create a fixed number of SQLite recovery DB files before running the dataflow.
+workers in a dataflow. You now pre-create a fixed number of SQLite
+recovery DB files before running the dataflow.
 
 SQLite recovery DBs created with versions of Bytewax prior to v0.17
 are not compatible with this release.
@@ -291,8 +306,9 @@ is fine.
 ### Epoch interval -> Snapshot interval
 
 We've renamed the cli option of `epoch-interval` to
-`snapshot-interval` to better describe its affect on dataflow execution. The snapshot interval is the system time duration
-(in seconds) to snapshot state for recovery.
+`snapshot-interval` to better describe its affect on dataflow
+execution. The snapshot interval is the system time duration (in
+seconds) to snapshot state for recovery.
 
 Recovering a dataflow can only happen on the boundaries of the most
 recently completed snapshot across all workers, but be aware that
@@ -373,33 +389,51 @@ Bytewax is now available for linux/aarch64 and linux/armv7.
 
 ## From 0.15 to 0.16
 
-Bytewax v0.16 introduces major changes to the way that custom Bytewax inputs are created, as well as improvements to windowing and execution. In this article, we'll cover some of the updates we've made to our API to make upgrading to v0.16 easier.
+Bytewax v0.16 introduces major changes to the way that custom Bytewax
+inputs are created, as well as improvements to windowing and
+execution. In this article, we'll cover some of the updates we've made
+to our API to make upgrading to v0.16 easier.
 
 ### Input changes
 
-In v0.16, we have restructured input to be based around partitions in order to support rescaling stateful dataflows in the future. We have also dropped the `Config` suffix to our input classes. As an example, `KafkaInputConfig` has been renamed to `KafkaInput` and has been moved to `bytewax.connectors.kafka.KafkaInput`.
+In v0.16, we have restructured input to be based around partitions in
+order to support rescaling stateful dataflows in the future. We have
+also dropped the `Config` suffix to our input classes. As an example,
+`KafkaInputConfig` has been renamed to `KafkaInput` and has been moved
+to `bytewax.connectors.kafka.KafkaInput`.
 
-`ManualInputConfig` is now replaced by two base superclasses that can be subclassed to create custom input sources. They are `DynamicInput` and `PartitionedInput`.
+`ManualInputConfig` is now replaced by two base superclasses that can
+be subclassed to create custom input sources. They are `DynamicInput`
+and `PartitionedInput`.
 
 #### `DynamicInput`
 
-`DynamicInput` sources are input sources that support reading distinct items from any number of workers concurrently.
+`DynamicInput` sources are input sources that support reading distinct
+items from any number of workers concurrently.
 
-`DynamicInput` sources do not support resume state and thus generally do not provide delivery guarantees better than at-most-once.
+`DynamicInput` sources do not support resume state and thus generally
+do not provide delivery guarantees better than at-most-once.
 
 ### `PartitionedInput`
 
-`PartitionedInput` sources can keep internal state on the current position of each partition. If a partition can "rewind" and resume reading from a previous position, they can provide delivery guarantees of at-least-once or better.
+`PartitionedInput` sources can keep internal state on the current
+position of each partition. If a partition can "rewind" and resume
+reading from a previous position, they can provide delivery guarantees
+of at-least-once or better.
 
-`PartitionedInput` sources maintain the state of each source and re-build that state during recovery.
+`PartitionedInput` sources maintain the state of each source and
+re-build that state during recovery.
 
 ### Deprecating Kafka Recovery
 
-In order to better support rescaling Dataflows, the Kafka recovery store option is being deprecated and will be removed from a future release in favor of the SQLite recovery store.
+In order to better support rescaling Dataflows, the Kafka recovery
+store option is being deprecated and will be removed from a future
+release in favor of the SQLite recovery store.
 
 ### Capture -> Output
 
-The `capture` operator has been renamed to `output` in v0.16 and is now stateful, so requires a step ID:
+The `capture` operator has been renamed to `output` in v0.16 and is
+now stateful, so requires a step ID:
 
 In v0.15 and before:
 
@@ -417,13 +451,20 @@ flow = Dataflow()
 flow.output("out", StdOutput())
 ```
 
-`ManualOutputConfig` is now replaced by two base superclasses that can be subclassed to create custom output sinks. They are `DynamicOutput` and `PartitionedOutput`.
+`ManualOutputConfig` is now replaced by two base superclasses that can
+be subclassed to create custom output sinks. They are `DynamicOutput`
+and `PartitionedOutput`.
 
 ### New entrypoint
 
-In Bytewax v0.16, the way that Dataflows are run has been simplified, and most execution functions have been removed.
+In Bytewax v0.16, the way that Dataflows are run has been simplified,
+and most execution functions have been removed.
 
-Similar to other Python frameworks like Flask and FastAPI, Dataflows can now be run using a Datfaflow import string in the `<module_name>:<dataflow_variable_name_or_factory_function>` format. As an example, given a file named `dataflow.py` with the following contents:
+Similar to other Python frameworks like Flask and FastAPI, Dataflows
+can now be run using a Datfaflow import string in the
+`<module_name>:<dataflow_variable_name_or_factory_function>` format.
+As an example, given a file named `dataflow.py` with the following
+contents:
 
 ``` python doctest:SKIP
 from bytewax.dataflow import Dataflow
@@ -435,7 +476,8 @@ flow.input("in", TestingInput(range(3)))
 flow.output("out", StdOutput())
 ```
 
-Since a Python file `dataflow.py` defines a module `dataflow`, the Dataflow can be run with the following invocation:
+Since a Python file `dataflow.py` defines a module `dataflow`, the
+Dataflow can be run with the following invocation:
 
 ``` bash
 > python -m bytewax.run dataflow
@@ -444,9 +486,14 @@ Since a Python file `dataflow.py` defines a module `dataflow`, the Dataflow can 
 2
 ```
 
-By default, Bytewax looks for a variable in the given module named `flow`, so we can eliminate the `<dataflow_variable_name_or_factory_function>` part of our import string.
+By default, Bytewax looks for a variable in the given module named
+`flow`, so we can eliminate the
+`<dataflow_variable_name_or_factory_function>` part of our import
+string.
 
-Processes, workers, recovery stores and other options can be configured with command line flags or environment variables. For the full list of options see the `--help` command line flag:
+Processes, workers, recovery stores and other options can be
+configured with command line flags or environment variables. For the
+full list of options see the `--help` command line flag:
 
 ``` bash
 > python -m bytewax.run --help
@@ -532,7 +579,8 @@ flow.capture(StdOutputConfig())
 run_main(flow)
 ```
 
-To port the example to the `0.16` version we need to make a few changes.
+To port the example to the `0.16` version we need to make a few
+changes.
 
 #### Imports
 
@@ -550,15 +598,27 @@ from bytewax.connectors.files import FileInput
 from bytewax.connectors.stdio import StdOutput
 ```
 
-We removed `run_main` as it is now only used for unit testing dataflows. Bytewax now has a built-in FileInput connector, which uses the `PartitionedInput` connector superclass.
+We removed `run_main` as it is now only used for unit testing
+dataflows. Bytewax now has a built-in FileInput connector, which uses
+the `PartitionedInput` connector superclass.
 
-Since we are using a built-in connector to read from this file, we can delete our `input_builder` function above.
+Since we are using a built-in connector to read from this file, we can
+delete our `input_builder` function above.
 
 #### Windowing
 
-Most of the operators from `v0.15` are the same, but the `start_at` parameter of windowing functions has been changed to `align_to`. The `start_at` parameter incorrectly implied that there were no potential windows before that time. What determines if an item is late for a window is not the windowing definition, but the watermark of the clock.
+Most of the operators from `v0.15` are the same, but the `start_at`
+parameter of windowing functions has been changed to `align_to`. The
+`start_at` parameter incorrectly implied that there were no potential
+windows before that time. What determines if an item is late for a
+window is not the windowing definition, but the watermark of the
+clock.
 
-`SlidingWindow` and `TumblingWindow` now require the `align_to` parameter. Previously, this was filled with the timestamp of the start of the Dataflow, but must now be specified. Specifying this parameter ensures that windows are consistent across Dataflow restarts, so make sure that you don't change this parameter between executions.
+`SlidingWindow` and `TumblingWindow` now require the `align_to`
+parameter. Previously, this was filled with the timestamp of the start
+of the Dataflow, but must now be specified. Specifying this parameter
+ensures that windows are consistent across Dataflow restarts, so make
+sure that you don't change this parameter between executions.
 
 
 The old `TumblingWindow` definition:
@@ -579,7 +639,9 @@ window_config = TumblingWindow(
 
 #### Output and execution
 
-Similarly to the `input`, the output configuration is now stateful. `capture` has been renamed to `output`, and now takes a name, as all stateful operators do.
+Similarly to the `input`, the output configuration is now stateful.
+`capture` has been renamed to `output`, and now takes a name, as all
+stateful operators do.
 
 So we move from this:
 
@@ -594,6 +656,7 @@ flow.output("out", StdOutput())
 ```
 
 #### Complete code
+
 The complete code for the new simple example now looks like this:
 
 ```python doctest:SKIP
@@ -638,7 +701,8 @@ flow.reduce_window("sum", clock_config, window_config, add)
 flow.output("out", StdOutput())
 ```
 
-Running our completed Dataflow looks like this, as we've named our Dataflow variable `flow` in a file named `dataflow`:
+Running our completed Dataflow looks like this, as we've named our
+Dataflow variable `flow` in a file named `dataflow`:
 
 ``` bash
 > python -m bytewax.run dataflow:flow
@@ -649,7 +713,8 @@ Running our completed Dataflow looks like this, as we've named our Dataflow vari
 ...
 ```
 
-We can even run our sample Dataflow on multiple workers to process the file in parallel:
+We can even run our sample Dataflow on multiple workers to process the
+file in parallel:
 
 ``` bash
 > python -m bytewax.run dataflow:flow -p2
@@ -660,7 +725,9 @@ We can even run our sample Dataflow on multiple workers to process the file in p
 ...
 ```
 
-In the background, Bytewax has spawned two processes, each of which is processing a part of the file. To see this more clearly, you can start each worker by hand:
+In the background, Bytewax has spawned two processes, each of which is
+processing a part of the file. To see this more clearly, you can start
+each worker by hand:
 
 In one terminal, run:
 
@@ -686,46 +753,82 @@ And in a second terminal, run:
 
 ## From 0.10 to 0.11
 
-Bytewax 0.11 introduces major changes to the way that Bytewax dataflows are structured, as well as improvements to recovery and windowing. This document outlines the major changes between Bytewax 0.10 and 0.11.
+Bytewax 0.11 introduces major changes to the way that Bytewax
+dataflows are structured, as well as improvements to recovery and
+windowing. This document outlines the major changes between Bytewax
+0.10 and 0.11.
 
 ### Input and epochs
 
-Bytewax is built on top of the [Timely Dataflow](https://github.com/TimelyDataflow/timely-dataflow) framework. The idea of timestamps (which we refer to in Bytewax as epochs) is central to Timely Dataflow's progress tracking mechanism.
+Bytewax is built on top of the [Timely
+Dataflow](https://github.com/TimelyDataflow/timely-dataflow)
+framework. The idea of timestamps (which we refer to in Bytewax as
+epochs) is central to Timely Dataflow's progress tracking mechanism.
 
-Bytewax initially adopted an input model that included managing the epochs at which input was introduced. The 0.11 version of Bytewax removes the need to manage epochs directly.
+Bytewax initially adopted an input model that included managing the
+epochs at which input was introduced. The 0.11 version of Bytewax
+removes the need to manage epochs directly.
 
-Epochs continue to exist in Bytewax, but are now managed internally to represent a unit of recovery. Bytewax dataflows that are configured with [recovery](/apidocs/bytewax.recovery) will shapshot their state after processing all items in an epoch. In the event of recovery, Bytewax will resume a dataflow at the last snapshotted state. The frequency of snapshotting can be configured with an [EpochConfig](/apidocs/bytewax.execution#bytewax.execution.EpochConfig).
+Epochs continue to exist in Bytewax, but are now managed internally to
+represent a unit of recovery. Bytewax dataflows that are configured
+with recovery will shapshot their state after processing all items in
+an epoch. In the event of recovery, Bytewax will resume a dataflow at
+the last snapshotted state. The frequency of snapshotting can be
+configured with an `EpochConfig`
 
 ### Recoverable input
 
-Bytewax 0.11 will now allow you to recover the state of the input to your dataflow.
+Bytewax 0.11 will now allow you to recover the state of the input to
+your dataflow.
 
-Manually constructed input functions, like those used with [ManualInputConfig](/apidocs/bytewax.inputs#bytewax.inputs.ManualInputConfig), now take a third argument. If your dataflow is interrupted, the third argument passed to your input function can be used to reconstruct the state of your input at the last recovery snapshot, provided you write your input logic accordingly. The `input_builder` function must return a tuple of (resume_state, datum).
+Manually constructed input functions, like those used with
+`ManualInputConfig` now take a third argument. If your dataflow is
+interrupted, the third argument passed to your input function can be
+used to reconstruct the state of your input at the last recovery
+snapshot, provided you write your input logic accordingly. The
+`input_builder` function must return a tuple of (resume_state, datum).
 
-Bytewax's built-in input handlers, like [KafkaInputConfig](/apidocs/bytewax.inputs#bytewax.inputs.KafkaInputConfig) are also recoverable. `KafkaInputConfig` will store information about consumer offsets in the configured Bytewax recovery store. In the event of recovery, `KafkaInputConfig` will start reading from the offsets that were last committed to the recovery store.
+Bytewax's built-in input handlers, like `KafkaInputConfig` are also
+recoverable. `KafkaInputConfig` will store information about consumer
+offsets in the configured Bytewax recovery store. In the event of
+recovery, `KafkaInputConfig` will start reading from the offsets that
+were last committed to the recovery store.
 
 ### Stateful windowing
 
-Version 0.11 also introduces stateful windowing operators, including a new [fold_window](/apidocs/bytewax.operators/index#bytewax.operators.fold_window) operator.
+Version 0.11 also introduces stateful windowing operators, including a
+new `fold_window` operator.
 
-Previously, Bytewax included helper functions to manage windows in terms of epochs. Now that Bytewax manages epochs internally, windowing functions are now operators that appear as a processing step in a dataflow. Dataflows can now have more than one windowing step.
+Previously, Bytewax included helper functions to manage windows in
+terms of epochs. Now that Bytewax manages epochs internally, windowing
+functions are now operators that appear as a processing step in a
+dataflow. Dataflows can now have more than one windowing step.
 
-Bytewax's stateful windowing operators are now built on top of its recovery system, and their operations can be recovered in the event of a failure. See the documentation on [recovery](/apidocs/bytewax.recovery) for more information.
+Bytewax's stateful windowing operators are now built on top of its
+recovery system, and their operations can be recovered in the event of
+a failure. See the documentation on
+<project:/articles/concepts/recovery.md> for more information.
 
 ### Output configurations
 
-The 0.11 release of Bytewax adds some prepackaged output configuration options for common use-cases:
+The 0.11 release of Bytewax adds some prepackaged output configuration
+options for common use-cases:
 
-[ManualOutputConfig](/apidocs/bytewax.outputs#bytewax.outputs.ManualOutputConfig), which calls a Python callback function for each output item.
+`ManualOutputConfig` which calls a Python callback function for each
+output item.
 
-[StdOutputConfig](/apidocs/bytewax.outputs#bytewax.outputs.StdOutputConfig), which prints each output item to stdout.
+`StdOutputConfig` which prints each output item to stdout.
 
 ### Import path changes and removed entrypoints
 
-In Bytewax 0.11, the overall Python module structure has changed, and some execution entrypoints have been removed.
+In Bytewax 0.11, the overall Python module structure has changed, and
+some execution entrypoints have been removed.
 
-- `cluster_main`, `spawn_cluster`, and `run_main` have moved to `bytewax.execution`
+- `cluster_main`, `spawn_cluster`, and `run_main` have moved to
+  `bytewax.execution`
+
 - `Dataflow` has moved to `bytewax.dataflow`
+
 - `run` and `run_cluster` have been removed
 
 ### Porting the Simple example from 0.10 to 0.11
@@ -771,9 +874,11 @@ for epoch, item in run(flow, file_input()):
     print(item)
 ```
 
-To port the example to the `0.11` version we need to make a few changes.
+To port the example to the `0.11` version we need to make a few
+changes.
 
 #### Imports
+
 Let's start with the existing imports:
 
 ```python doctest:SKIP
@@ -786,13 +891,18 @@ from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 ```
 
-We moved from `run` to `run_main` as the execution API has been simplified, and we can now just use the `run_main` function to execute our dataflow.
+We moved from `run` to `run_main` as the execution API has been
+simplified, and we can now just use the `run_main` function to execute
+our dataflow.
 
 ### Input
 
-The way bytewax handles input changed with `0.11`. `input` is now a proper operator on the Dataflow, and the function now takes 3 parameters: `worker_index`, `worker_count`, `resume_state`.
-This allows us to distribute the input across workers, and to handle recovery if we want to.
-We are not going to do that in this example, so the change is minimal.
+The way bytewax handles input changed with `0.11`. `input` is now a
+proper operator on the Dataflow, and the function now takes 3
+parameters: `worker_index`, `worker_count`, `resume_state`. This
+allows us to distribute the input across workers, and to handle
+recovery if we want to. We are not going to do that in this example,
+so the change is minimal.
 
 The input function goes from:
 
@@ -811,9 +921,14 @@ def input_builder(worker_index, worker_count, resume_state):
         yield state, line
 ```
 
-So instead of manually yielding the `epoch` in the input function, we can either ignore it (passing `None` as state), or handle the value to implement recovery (see the [recovery chapter](/docs/getting-started/recovery)).
+So instead of manually yielding the `epoch` in the input function, we
+can either ignore it (passing `None` as state), or handle the value to
+implement recovery (see our docs on
+<project:/articles/concepts/recovery.md>).
 
-Then we need to wrap the `input_builder` with `ManualInputConfig`, give it a name ("file_input" here) and pass it to the `input` operator (rather than the `run` function):
+Then we need to wrap the `input_builder` with `ManualInputConfig`,
+give it a name ("file_input" here) and pass it to the `input` operator
+(rather than the `run` function):
 
 ```python doctest:SKIP
 from bytewax.inputs import ManualInputConfig
@@ -824,15 +939,24 @@ flow.input("file_input", ManualInputConfig(input_builder))
 
 ### Operators
 
-Most of the operators are the same, but there is a notable change in the flow: where we used `reduce_epoch` we are now using `reduce_window`.
-Since the epochs concept is now considered an internal detail in bytewax, we need to define a way to let the `reduce` operator know when to close a specific window.
-Previously this was done everytime the `epoch` changed, while now it can be configured with a time window.
-We need two config objects to do this:
+Most of the operators are the same, but there is a notable change in
+the flow: where we used `reduce_epoch` we are now using
+`reduce_window`. Since the epochs concept is now considered an
+internal detail in bytewax, we need to define a way to let the
+`reduce` operator know when to close a specific window. Previously
+this was done everytime the `epoch` changed, while now it can be
+configured with a time window. We need two config objects to do this:
+
 - `clock_config`
+
 - `window_config`
 
-The `clock_config` is used to tell the window-based operators what reference clock to use, here we use the `SystemClockConfig` that just uses the system's clock.
-The `window_config` is used to define the time window we want to use. Here we'll use the `TumblingWindow` that allows us to have tumbling windows defined by a length (`timedelta`), and we configure it to have windows of 5 seconds each.
+The `clock_config` is used to tell the window-based operators what
+reference clock to use, here we use the `SystemClockConfig` that just
+uses the system's clock. The `window_config` is used to define the
+time window we want to use. Here we'll use the `TumblingWindow` that
+allows us to have tumbling windows defined by a length (`timedelta`),
+and we configure it to have windows of 5 seconds each.
 
 So the old `reduce_epoch`:
 ```python doctest:SKIP
@@ -852,10 +976,14 @@ flow.reduce_window("sum", clock_config, window_config, add)
 
 ### Output and execution
 
-Similarly to the `input`, the output configuration is now part of an operator, `capture`.
-Rather than collecting the output in a python iterator and then manually printing it, we can now configure the `capture` operator to print to standard output.
+Similarly to the `input`, the output configuration is now part of an
+operator, `capture`. Rather than collecting the output in a python
+iterator and then manually printing it, we can now configure the
+`capture` operator to print to standard output.
 
-Since all the input and output handling is now defined inside the Dataflow, we don't need to pass this information to the execution method.
+Since all the input and output handling is now defined inside the
+Dataflow, we don't need to pass this information to the execution
+method.
 
 So we move from this:
 
@@ -878,6 +1006,7 @@ run_main(flow)
 ```
 
 ### Complete code
+
 The complete code for the new simple example now looks like this:
 
 ```python doctest:SKIP

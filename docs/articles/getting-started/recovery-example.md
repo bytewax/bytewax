@@ -1,16 +1,20 @@
+# Recovery Example
+
 Bytewax allows you to **recover** a stateful dataflow; it will let you
 resume processing and output due to a failure _without_ re-processing
 all initial data to re-calculate all internal state. It does this by
 periodically snapshotting all internal state and having a way to
 resume from a recent snapshot.
 
-Here, we'll walk through a tutorial demonstrating recovery. For more advanced settings
-and important details about recovery, see the [Concepts section for recovery](/docs/articles/concepts/recovery.md).
+Here, we'll walk through a tutorial demonstrating recovery. For more
+advanced settings and important details about recovery, see the
+concepts section article <project:/articles/concepts/recovery.md>.
 
 ## Create Recovery Partitions
 
 Recovery partitions must be pre-initialized before running the
-dataflow. This is done by executing the `bytewax.recovery` module:
+dataflow. This is done by executing the {py:obj}`bytewax.recovery`
+module:
 
 ```shell
 > python -m bytewax.recovery db_dir/ 1
@@ -25,19 +29,23 @@ part-0.sqlite3
 
 ## Executing with Recovery
 
-Let's create an example dataflow that we can use to demonstrate recovery. We're going
-to use the [`stateful_map`](/apidocs/bytewax.operators/index#bytewax.operators.stateful_map) operator
-to keep a running sum of the numbers we receive as input.
+Let's create an example dataflow that we can use to demonstrate
+recovery. We're going to use the
+{py:obj}`~bytewax.operators.stateful_map` operator to keep a running
+sum of the numbers we receive as input.
 
-`stateful_map` is, as the name implies, a stateful operator. `stateful_map` takes four
-parameters: a `step_id`, a [`Stream`](/apidocs/bytewax.dataflow#bytewax.dataflow.Stream)
-of input data, a **builder** function, and a **mapper** function.
+{py:obj}`~bytewax.operators.stateful_map` is, as the name implies, a
+stateful operator. {py:obj}`~bytewax.operators.stateful_map` takes
+four parameters: a `step_id`, a {py:obj}`~bytewax.dataflow.Stream` of
+input data, a **builder** function, and a **mapper** function.
 
-The **mapper** function should return a 2-tuple of `(updated_state, emit_value)`. The `updated_state`
-that is returned from this function is the internal state of this operator, and will be used
-for recovery. The `emit_value` will be passed downstream.
+The **mapper** function should return a 2-tuple of `(updated_state,
+emit_value)`. The `updated_state` that is returned from this function
+is the internal state of this operator, and will be used for recovery.
+The `emit_value` will be passed downstream.
 
-Let's see a concrete example. Add the following code in a new file named `recovery.py`:
+Let's see a concrete example. Add the following code in a new file
+named `recovery.py`:
 
 ```python
 import bytewax.operators as op
@@ -66,17 +74,18 @@ op.output("out", total_sum_stream, StdOutSink())
 ```
 
 To enable recovery when you execute a dataflow, pass the `-r` flag to
-`bytewax.run` and specify the recovery directory. We will also need to set
-two values for recovery, the `snapshot_interval` via the `-s` flag and the
-`backup_interval` via the `-b` flag.
+{py:obj}`bytewax.run` and specify the recovery directory. We will also
+need to set two values for recovery, the `snapshot_interval` via the
+`-s` flag and the `backup_interval` via the `-b` flag.
 
 The `snapshot_interval` specifies the amount of time in seconds to wait
 before creating a snapshot. The `backup_interval` specifies the amount
 of time in seconds to keep older state snapshots around.
 
 For production dataflows, you should set these values carefully for
-each dataflow to match your operational needs. For more information, please
-see the concept section on [recovery](/docs/articles/concepts/recovery.md).
+each dataflow to match your operational needs. For more information,
+please see the concept section on
+<project:/articles/concepts/recovery.md>.
 
 Running the example above, you should see the following output:
 
@@ -87,16 +96,18 @@ Running the example above, you should see the following output:
 ('ALL', 3)
 ```
 
-Our dataflow stopped when it reached the end of our testing input, but importantly,
-Bytewax has saved a snapshot of the state of the dataflow before exiting.
+Our dataflow stopped when it reached the end of our testing input, but
+importantly, Bytewax has saved a snapshot of the state of the dataflow
+before exiting.
 
 ## Resuming
 
 If a dataflow aborts, abruptly shuts down, or gracefully exits due to
-reaching the end of input, you can resume the dataflow by running it again with the
-files stored in the recovery directory.
+reaching the end of input, you can resume the dataflow by running it
+again with the files stored in the recovery directory.
 
-Before we re-run our dataflow, let's change our input data to add some new values:
+Before we re-run our dataflow, let's change our input data to add some
+new values:
 
 
 ```python
@@ -111,6 +122,7 @@ Now we can re-run our dataflow:
 ('ALL', 10)
 ```
 
-You can see that the dataflow has restored the state of the `stateful_map` operator
-from our previous run, started reading input from where it stopped, and then applied
-our new data to that restored state.
+You can see that the dataflow has restored the state of the
+{py:obj}`~bytewax.operators.stateful_map` operator from our previous
+run, started reading input from where it stopped, and then applied our
+new data to that restored state.

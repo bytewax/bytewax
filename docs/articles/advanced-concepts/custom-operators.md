@@ -1,10 +1,16 @@
-Have you ever wanted to implement particular weird semantic with your operators? Or maybe support something tricky? Or you have a fever and the only prescription is more decorators? Well with this guide you can!
+(custom-operators)=
+# Custom Operators
 
-## Custom Operators
+Have you ever wanted to implement particular weird semantic with your
+operators? Or maybe support something tricky? Or you have a fever and
+the only prescription is more decorators? Well with this guide you
+can!
+
+## Operator Definition
 
 You can define new custom operators in terms of already existing
-operators. To do this you define an **operator function** and
-decorate it with `operator`.
+operators. To do this you define an **operator function** and decorate
+it with `operator`.
 
 ```python
 from bytewax.dataflow import Stream, operator
@@ -39,7 +45,7 @@ operators, you must follow a few rules when writing your function:
   directly, or the top-level fields of a dataclass that is the return
   type; nowhere else.
 
-### Docstrings
+## Docstrings
 
 A good docstring for a custom operator has a few things:
 
@@ -52,3 +58,17 @@ A good docstring for a custom operator has a few things:
 
 - The return streams describe the shape of the data that is being sent
   downstream.
+
+## Unary Operators
+
+TODO
+
+* why
+
+* how
+
+* tips
+
+* common problems
+
+* example code/repos

@@ -1,3 +1,5 @@
+# Glossary
+
 ## Cluster
 
 A coordinated collection of worker processes that are collectively
@@ -5,8 +7,7 @@ executing dataflow logic. It is possible that the cluster's processes
 are distributed, or could be a single process with a single thread on
 a single machine, but the concept of "cluster" still applies.
 
-## End of File
-### aka EOF
+## End of File / EOF
 
 The state of an operator's input or a probe meaning that it will see
 no more input in this execution. This manifests as an "empty

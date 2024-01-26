@@ -1,34 +1,49 @@
-Waxctl allows you to deploy dataflows on Google Cloud Platform VM instances.
+# Using `waxctl` to Run your Dataflow on GCP
+
+Waxctl allows you to deploy dataflows on Google Cloud Platform VM
+instances.
 
 ## Installation
 
-To install Waxctl simply download the binary corresponding to your operating system and architecture [here](/downloads/).
+To install Waxctl simply download the binary corresponding to your
+operating system and architecture
+[here](https://bytewax.io/downloads).
 
 ## Dataflow Lifecycle
 
-You can manage the lifecycle of your dataflow with Waxctl across the following phases:
+You can manage the lifecycle of your dataflow with Waxctl across the
+following phases:
 
 - Deployment
+
 - Current Status (Running)
+
 - Restarting
+
 - Deletion
 
 In the following sections we are going to cover each of these phases.
 
 ## Available GCP Sub-commands
 
-When using Waxctl with cloud specific resources, you will add the cloud name in front of the sub-command. The `gcp` command has the following sub-commands:
+When using Waxctl with cloud specific resources, you will add the
+cloud name in front of the sub-command. The `gcp` command has the
+following sub-commands:
 
-- deploy
-- list
-- stop
-- start
-- delete
+- `deploy`
+
+- `list`
+
+- `stop`
+
+- `start`
+
+- `delete`
 
 Running `waxctl gcp --help` will show further details for these.
 
-```bash
-❯ waxctl gcp --help
+```console
+$ waxctl gcp --help
 Manage dataflows running on GCP VM instances.
 
 Prerequisites:
@@ -58,12 +73,15 @@ Use "waxctl gcp [command] --help" for more information about a command.
 
 ## Waxctl and Google Cloud CLI
 
-To use Waxctl on GCP, first, you need to have installed and configured the gcloud CLI. You can follow the instructions [here](https://cloud.google.com/sdk/docs/install-sdk).
+To use Waxctl on GCP, first, you need to have installed and configured
+the gcloud CLI. You can follow the instructions
+[here](https://cloud.google.com/sdk/docs/install-sdk).
 
-After that, you need to set up Application Default Credentials running:
+After that, you need to set up Application Default Credentials
+running:
 
-```bash
-gcloud auth application-default login
+```console
+$ gcloud auth application-default login
 ```
 
 Finally, you must check if these APIs are enabled:
@@ -76,46 +94,57 @@ compute.googleapis.com               Compute Engine API
 
 To know that, you can run this:
 
-```bash
-gcloud services list --enabled
+```console
+$ gcloud services list --enabled
 ```
 
 If you don't have any of them enabled, you will need to run this:
 
-```bash
-gcloud services enable SERVICE_NAME
+```console
+$ gcloud services enable SERVICE_NAME
 ```
 
 For example, to enable Compute Engine API you will run:
 
-```bash
-gcloud services enable compute.googleapis.com
+```console
+$ gcloud services enable compute.googleapis.com
 ```
 
-By default, Waxctl is going to use the project configured in the application default credentials that you defined but you can use another one just by setting the `--project` flag in your Waxctl commands.
+By default, Waxctl is going to use the project configured in the
+application default credentials that you defined but you can use
+another one just by setting the `--project` flag in your Waxctl
+commands.
 
 ## Run a Dataflow in a VM instance
 
-To deploy a dataflow you just need to run `waxctl gcp deploy` passing the path of your python script as an argument and the desired GCP zone using the `--zone` flag. If left unset, Waxctl will use the default name for your dataflow, which is `bytewax`.
+To deploy a dataflow you just need to run `waxctl gcp deploy` passing
+the path of your python script as an argument and the desired GCP zone
+using the `--zone` flag. If left unset, Waxctl will use the default
+name for your dataflow, which is `bytewax`.
 
 In our example we are going to deploy a dataflow called `my-dataflow`:
 
-```bash
-waxctl gcp deploy /var/bytewax/examples/basic.py --name my-dataflow --zone us-central1-a
+```console
+$ waxctl gcp deploy /var/bytewax/examples/basic.py --name my-dataflow --zone us-central1-a
 Created custom role projects/my-project/roles/my_dataflow
 Created service account my-dataflow@my-project.iam.gserviceaccount.com
 Created policy binding service account my-dataflow@my-project.iam.gserviceaccount.com with role projects/my-project/roles/my_dataflow
 Created my-dataflow instance in zone us-central1-a of project my-project running /var/bytewax/examples/basic.py script.
 ```
 
-In the above example, Waxctl used the default values for all of the flags except for `name` and `zone`. Waxctl allows you to configure a wide range of characteristics of your dataflow.
+In the above example, Waxctl used the default values for all of the
+flags except for `name` and `zone`. Waxctl allows you to configure a
+wide range of characteristics of your dataflow.
 
-As you can see in the output above, Waxctl created an IAM role and service account. That will allow the VM instance to store StackDriver logs.
+As you can see in the output above, Waxctl created an IAM role and
+service account. That will allow the VM instance to store StackDriver
+logs.
 
-We can see the complete list of available flags with the `waxctl gcp deploy` help command.
+We can see the complete list of available flags with the `waxctl gcp
+deploy` help command.
 
-```bash
-❯ waxctl gcp deploy --help
+```console
+$ waxctl gcp deploy --help
 Deploy a dataflow to a new GCP VM instance.
 
 The deploy command expects one argument, which is the path of your python dataflow file.
@@ -152,28 +181,37 @@ Global Flags:
       --debug   enable verbose output
 ```
 
-We suggest paying special attention to the `requirements-file-name` flag because normally you will want to specify a `requirements.txt` file with the needed libraries to run your dataflow program.
+We suggest paying special attention to the `requirements-file-name`
+flag because normally you will want to specify a `requirements.txt`
+file with the needed libraries to run your dataflow program.
 
 ## Default IAM Service Account
 
-As we mentioned, Waxctl creates an IAM service account to allow your VM instance to store StackDriver logs. In case you need to use a custom IAM service account, the only permission that you need to assing to your service account is `logging.logEntries.create`
+As we mentioned, Waxctl creates an IAM service account to allow your
+VM instance to store StackDriver logs. In case you need to use a
+custom IAM service account, the only permission that you need to
+assing to your service account is `logging.logEntries.create`
 
-We recommend to create an exclusive role having only that permission and maybe with an explicit name like "Bytewax-Role" or "Waxctl-Role". Then, you need to bind that role to your custom service account.
+We recommend to create an exclusive role having only that permission
+and maybe with an explicit name like "Bytewax-Role" or "Waxctl-Role".
+Then, you need to bind that role to your custom service account.
 
 ## Getting Dataflow Information
 
-You can query which dataflows are deployed on VM instances in your GCP account using the `waxctl gcp list` sub-command. By default the output will be a table with this information:
+You can query which dataflows are deployed on VM instances in your GCP
+account using the `waxctl gcp list` sub-command. By default the output
+will be a table with this information:
 
-```bash
-❯ waxctl gcp ls
+```console
+$ waxctl gcp ls
 Dataflow    Python File Name VM State Zone          Launch Time (UTC)
 my-dataflow basic-py         RUNNING  us-central1-a 2022-10-13T07:01:34.833-07:00
 ```
 
 You can use the `--verbose` flag to get more details of each dataflow:
 
-```bash
-❯ waxctl gcp ls --verbose
+```console
+$ waxctl gcp ls --verbose
 [
   {
     "instanceId": 4460149001200968897,
@@ -222,11 +260,13 @@ You can use the `--verbose` flag to get more details of each dataflow:
 ]
 ```
 
-As you can see, there are a lot of details including links to access instance information and your dataflow logs in the GCP web console.
+As you can see, there are a lot of details including links to access
+instance information and your dataflow logs in the GCP web console.
 
 This is the help text of the `list` command:
-```bash
-❯ waxctl gcp ls --help
+
+```console
+$ waxctl gcp ls --help
 List VM instances created by waxctl.
 
 Examples:
@@ -255,28 +295,31 @@ Global Flags:
 
 ## Stopping and Starting a Dataflow
 
-In case you need to pause your dataflow, there are two commands to manage that: `stop` and `start`. These control the VM instance state where your dataflow is running.
+In case you need to pause your dataflow, there are two commands to
+manage that: `stop` and `start`. These control the VM instance state
+where your dataflow is running.
 
-Following the example, you can stop the dataflow VM instance with this command:
+Following the example, you can stop the dataflow VM instance with this
+command:
 
-```bash
-❯ waxctl gcp stop --name my-dataflow --zone us-central1-a
+```console
+$ waxctl gcp stop --name my-dataflow --zone us-central1-a
 Stopping VM instance my-dataflow in us-central1-a zone in project my-project...
 VM instance my-dataflow with ID 4460149001200968897 stopped.
 ```
 
 So, if you run the `list` command, you will see something like this:
 
-```bash
-❯ waxctl gcp ls
+```console
+$ waxctl gcp ls
 Dataflow    Python File Name VM State   Zone          Launch Time (UTC)
 my-dataflow basic-py         TERMINATED us-central1-a 2022-10-13T07:01:34.833-07:00
 ```
 
 You can use the `start` command to start the VM instance again:
 
-```bash
-❯ waxctl gcp start --name my-dataflow --zone us-central1-a
+```console
+$ waxctl gcp start --name my-dataflow --zone us-central1-a
 Starting VM instance my-dataflow in us-central1-a zone in project my-project...
 VM instance my-dataflow with ID 4460149001200968897 started.
 ```
@@ -285,48 +328,72 @@ You can change any of the flags of your dataflow.
 
 ## Removing a Dataflow
 
-To terminate the VM instance where your dataflow is running you need to run `waxctl gcp delete` while passing the name of the dataflow as a parameter.
+To terminate the VM instance where your dataflow is running you need
+to run `waxctl gcp delete` while passing the name of the dataflow as a
+parameter.
 
 To run a dry-run delete of our dataflow example we can run this:
-```bash
-❯ waxctl gcp delete --name my-dataflow --zone us-central1-a
+
+```console
+$ waxctl gcp delete --name my-dataflow --zone us-central1-a
 VM instance my-dataflow with ID 4460149001200968897 found in us-central1-a zone.
 
  --yes flag is required to delete it.
 ```
 
-And if we want to actually delete the dataflow we must add the `--yes` flag:
-```bash
-❯ waxctl gcp delete --name my-dataflow --zone us-central1-a --yes
+And if we want to actually delete the dataflow we must add the `--yes`
+flag:
+
+```console
+$ waxctl gcp delete --name my-dataflow --zone us-central1-a --yes
 Deleting my-dataflow instance from project my-project. It could take some minutes, please wait...
 Role my_dataflow deleted.
 Service Account my-dataflow@my-project.iam.gserviceaccount.com deleted.
 VM instance my-dataflow with ID 4460149001200968897 has been deleted from project my-project.
 ```
 
-Note that we used `rm` in the last command, which is an alias of `delete`. Many of the Waxctl sub-commands have an alias and you can see them in the help.
+Note that we used `rm` in the last command, which is an alias of
+`delete`. Many of the Waxctl sub-commands have an alias and you can
+see them in the help.
 
 ## How it works internally
 
-As you can imagine, Waxctl uses the GCP API to manage VM instances, IAM roles, and service accounts.
+As you can imagine, Waxctl uses the GCP API to manage VM instances,
+IAM roles, and service accounts.
 
-The operating system of EC2 instances created by Waxctl is Ubuntu 20.04 LTS.
+The operating system of EC2 instances created by Waxctl is Ubuntu
+20.04 LTS.
 
-Waxctl relies on [Cloud-init](https://cloudinit.readthedocs.io/en/latest/), a standard multi-distribution method for cross-platform cloud instance initialization. Using Cloud-init, Waxctl configures a Linux service which is going to run `pip install -r /home/ubuntu/bytewax/requirements.txt` and after that run your python dataflow program.
+Waxctl relies on
+[Cloud-init](https://cloudinit.readthedocs.io/en/latest/), a standard
+multi-distribution method for cross-platform cloud instance
+initialization. Using Cloud-init, Waxctl configures a Linux service
+which is going to run `pip install -r
+/home/ubuntu/bytewax/requirements.txt` and after that run your python
+dataflow program.
 
-As we mentioned before, you can specify your own `requirements.txt` file using the `--requirements-file-name` flag. If you don't, Waxctl is going to put only `bytewax` as a requirement.
+As we mentioned before, you can specify your own `requirements.txt`
+file using the `--requirements-file-name` flag. If you don't, Waxctl
+is going to put only `bytewax` as a requirement.
 
-Besides setting the service that runs your dataflow, Waxctl configures settings to push the syslog logs to StackDriver. With that enabled, you can see your dataflow stdout and stderr in Log Explorer.
+Besides setting the service that runs your dataflow, Waxctl configures
+settings to push the syslog logs to StackDriver. With that enabled,
+you can see your dataflow stdout and stderr in Log Explorer.
 
 ## Troubleshooting
 
-You have two ways to see what's going on with your dataflow program: viewing logs and connect to the VM instance.
+You have two ways to see what's going on with your dataflow program:
+viewing logs and connect to the VM instance.
 
 ### Logs
 
-Since Waxctl runs your dataflow program a Linux service and all syslog logs are sent to StackDriver, you can see your dataflow logs directly in Log Explorer.
+Since Waxctl runs your dataflow program a Linux service and all syslog
+logs are sent to StackDriver, you can see your dataflow logs directly
+in Log Explorer.
 
-When you run `waxctl gcp ls --verbose` you get a link to Log Explorer in GCP web console filtering by your VM instance and your dataflow. Like this:
+When you run `waxctl gcp ls --verbose` you get a link to Log Explorer
+in GCP web console filtering by your VM instance and your dataflow.
+Like this:
 
 ```
 ...
@@ -336,26 +403,42 @@ When you run `waxctl gcp ls --verbose` you get a link to Log Explorer in GCP web
 
 ### Connecting to the VM Instance
 
-If your GCP network configuration allows your VM instance to receive traffic in port 22, you can run this command to connect to the instance:
+If your GCP network configuration allows your VM instance to receive
+traffic in port 22, you can run this command to connect to the
+instance:
 
-```bash
-❯ gcloud compute ssh \
+```console
+$ gcloud compute ssh \
   --zone "us-central1-a" "ubuntu@my-dataflow" \
   --project "my-project"
 ```
 
-About port 22, Waxctl by default uses the default subnet of the default VPC (also called Network) in the zone that you specified in your project. Normally that Network has a firewall rule `default-allow-ssh` which set what its name says: allows ingress traffic in port 22 from everywhere.
+About port 22, Waxctl by default uses the default subnet of the
+default VPC (also called Network) in the zone that you specified in
+your project. Normally that Network has a firewall rule
+`default-allow-ssh` which set what its name says: allows ingress
+traffic in port 22 from everywhere.
 
-So, if you want to use `gcloud compute ssh` to connect to your VM instance and you are going to use a custom subnet, you need to have a similar firewall configuration in that network (maybe without having `0.0.0.0\0` as source CIDR).
+So, if you want to use `gcloud compute ssh` to connect to your VM
+instance and you are going to use a custom subnet, you need to have a
+similar firewall configuration in that network (maybe without having
+`0.0.0.0\0` as source CIDR).
 
 Once you are connected to your instance, you may want to check:
 
-- /home/ubuntu/bytewax - where your requirements and python script are copied.
-- `systemctl status bytewax-dataflow.service` - Linux service that runs your dataflow.
+- `/home/ubuntu/bytewax` - where your requirements and python script
+  are copied.
+
+- `systemctl status bytewax-dataflow.service` - Linux service that
+  runs your dataflow.
+
 - `df -H /` - File system information.
+
 - `top` - Processes information.
 
-You can install any profiling or debugging tool and use it. Also you could modify your script and restart the `bytewax-dataflow.service` running:
+You can install any profiling or debugging tool and use it. Also you
+could modify your script and restart the `bytewax-dataflow.service`
+running:
 
 ```bash
 systemctl restart bytewax-dataflow.service
@@ -363,14 +446,21 @@ systemctl restart bytewax-dataflow.service
 
 ## A Production-like Example
 
-In case your dataflow needs access to other GCP-managed services, like BigQuery, you will probably want to use your network tags, IAM configuration, and custom subnet.
+In case your dataflow needs access to other GCP-managed services, like
+BigQuery, you will probably want to use your network tags, IAM
+configuration, and custom subnet.
 
-In a production environment, the VM instance should be running in a specific subnet, commonly a private one so we are going to instruct Waxctl to not associate a public IP address and to create the VM instance in a concrete subnet. Take note that in that scenario, you will need to set up a Cloud NAT in the VPC of that subnet because the VM needs to access the internet.
+In a production environment, the VM instance should be running in a
+specific subnet, commonly a private one so we are going to instruct
+Waxctl to not associate a public IP address and to create the VM
+instance in a concrete subnet. Take note that in that scenario, you
+will need to set up a Cloud NAT in the VPC of that subnet because the
+VM needs to access the internet.
 
 So, this is an example Waxctl command for the described scenario:
 
-```bash
-❯ waxctl gcp deploy --associate-public-ip-address=false \
+```console
+$ waxctl gcp deploy --associate-public-ip-address=false \
   /var/bytewax/examples/production.py \
   --name "production-dataflow" \
   --zone us-central1-a \

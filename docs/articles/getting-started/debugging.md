@@ -1,17 +1,15 @@
-## Debugging
+# Debugging
 
 Tricks for solving problems in your dataflow.
 
-### Inspecting
+## Inspecting
 
-Bytewax provides the `bytewax.operators.inspect` operator to help you
-visualize what is going on inside your dataflow. It prints out the
-repr of all items that pass through it when you run the dataflow. You
-can attach it to any stream you'd like to see.
+Bytewax provides the {py:obj}`~bytewax.operators.inspect` operator to
+help you visualize what is going on inside your dataflow. It prints
+out the repr of all items that pass through it when you run the
+dataflow. You can attach it to any stream you'd like to see.
 
-TODO Example?
-
-### Step Names and Step IDs
+## Step Names and Step IDs
 
 Operator methods take a string step name as their first argument which
 should represent the semantic purpose of that computational step.

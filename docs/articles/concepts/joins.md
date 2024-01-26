@@ -1,6 +1,8 @@
+# Joins
+
 _Here we're going to give a deep dive on how joins work in Bytewax. If
 you'd like a quick demo of "show me how to do a simple join", see
-[Getting Started: Joins](../getting-started/join-example.md)_
+<project:/articles/getting-started/join-example.md>.
 
 A **join** is a way to combine items in two or more streams into a
 single stream, matching them by a **join key**.
@@ -53,22 +55,19 @@ emails_l = [
 emails = op.input("emails", flow, TestingSource(emails_l))
 ```
 
-Bytewax provides the
-[`join`](/apidocs/bytewax.operators/index#bytewax.operators.join),
-[`join_named`](/apidocs/bytewax.operators/index#bytewax.operators.join_named),
-[`join_window`](/apidocs/bytewax.operators/window#bytewax.operators.window.join_window),
-and
-[`join_window_named`](/apidocs/bytewax.operators/window#bytewax.operators.window.join_window_named)
-operators to provide this functionality.
+Bytewax provides the {py:obj}`~bytewax.operators.join`,
+{py:obj}`~bytewax.operators.join_named`,
+{py:obj}`~bytewax.operators.window.join_window`,
+{py:obj}`~bytewax.operators.window.join_window_named` operators to
+provide this functionality.
 
-### Join Keys
+## Join Keys
 
 All the join operators above are stateful operators and so require all
 of the upstreams to contain 2-tuples with the first element being a
 string called a **key**. A string is required so that the Bytewax
 runtime has a standard type it can use to route data correctly. For
-more information about state keys, see our [dataflow programming
-concept documentation](dataflow-programming.md#state-keys).
+more information about state keys, see our {ref}`state-keys`.
 
 If we wanted to join the data in the above streams, let's key it by
 the `user_id` since that is what we want to bring the data together by.
@@ -82,9 +81,8 @@ keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]
 keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
 ```
 
-Let's
-[`inspect`](/apidocs/bytewax.operators/index#bytewax.operators.inspect)
-our streams to double check we know what they look like:
+Let's {py:obj}`~bytewax.operators.inspect` our streams to double check
+we know what they look like:
 
 ```python
 import bytewax.testing
@@ -108,7 +106,7 @@ We took the input items, removed field names, and converted them to
 `(key, value)` 2-tuples with a distinct string key to put them the
 necessary format to do the join.
 
-### Complete Joins
+## Complete Joins
 
 When doing a join in a SQL database, you look at the keys contained in
 two tables and bring the other columns together. In a streaming
@@ -120,14 +118,13 @@ the join it takes the state of the table when you run the command.
 
 In a streaming system, there is no guaranteed end to the stream, so
 our joins have to have slightly different semantics. The default
-behavior of the
-[`join`](/apidocs/bytewax.operators/index#bytewax.operators.join)
-operator takes any number of upstream sides and waits until we have
-seen a value for a key on all sides of the join, and only then do we
-emit the gathered values downstream as a `tuple` of the values in the
-same order as the sides stream arguments. When we wait for a value
-from all sides, Bytewax calls this a **complete** join. This is
-similar to an _inner join_ in SQL.
+behavior of the {py:obj}`~bytewax.operators.join` operator takes any
+number of upstream sides and waits until we have seen a value for a
+key on all sides of the join, and only then do we emit the gathered
+values downstream as a {py:obj}`tuple` of the values in the same order
+as the sides stream arguments. When we wait for a value from all
+sides, Bytewax calls this a **complete** join. This is similar to an
+_inner join_ in SQL.
 
 Let's see that in action. To recap our example:
 
@@ -168,7 +165,7 @@ join_eg.check_join: ('123', ('Bee', 'bee@bytewax.io'))
 join_eg.check_join: ('456', ('Hive', 'hive@bytewax.io'))
 ```
 
-### Missing Values
+## Missing Values
 
 What happens if we don't have a value for a key? Let's update our
 names input to add a name that won't have an email. Then run the
@@ -236,8 +233,7 @@ Thus when the second "email" value comes in, there's no "name" value
 for the key `"123"`, and the join operator waits until another value
 comes in.
 
-Let's visualize the state of the
-[`join`](/apidocs/bytewax.operators/index#bytewax.operators.join)
+Let's visualize the state of the {py:obj}`~bytewax.operators.join`
 operator evolving as it sees new items as a table. The table starts
 empty.
 
@@ -294,22 +290,20 @@ the Bee, there's no name state. So nothing is emitted!
 | 123 | | `"bee@bytewax.io"` |
 
 Hopefully this helps clarify how basic streaming joins work. Realizing
-that the
-[`join`](/apidocs/bytewax.operators/index#bytewax.operators.join)
-operator only keeps the state around while it is waiting for all sides
-to complete is the trick to remember.
+that the {py:obj}`~bytewax.operators.join` operator only keeps the
+state around while it is waiting for all sides to complete is the
+trick to remember.
 
-### Running Joins
+## Running Joins
 
 Complete join semantics are useful in some cases, but on infinite data
 you could imagine other join semantics. What Bytewax calls a **running
 join** emits downstream the values for all sides of the join whenever
 any value comes in, _and keeps the state around_. This is similar to a
-_full outer join_ in SQL. Set `running=True` to enable a running join
-with the
-[`join`](/apidocs/bytewax.operators/index#bytewax.operators.join). By
-default joins are complete, as described in the previous section, and
-not running.
+_full outer join_ in SQL. Pass `running=True` to
+{py:obj}`~bytewax.operators.join` to enable a running join. By default
+joins are complete, as described in the previous section, and not
+running.
 
 Let's review what the dataflow would look like then:
 
@@ -344,8 +338,8 @@ bytewax.testing.run_main(flow)
 ```
 
 Here's what we get. Let's visualize the progress and outputs of the
-[`join`](/apidocs/bytewax.operators/index#bytewax.operators.join)
-state table again but with `running=True`.
+{py:obj}`~bytewax.operators.join` state table again but with
+`running=True`.
 
 ```{testoutput}
 join_eg.check_join: ('123', ('Bee', None))
@@ -440,16 +434,15 @@ need to know the join values over an infinite stream when you aren't
 sure that you'll see values on all sides of the join.
 
 Bytewax provides the operators
-[`join_window`](/apidocs/bytewax.operators/window#bytewax.operators.window.join_window),
-and
-[`join_window_named`](/apidocs/bytewax.operators/window#bytewax.operators.window.join_window_named)
-to implement this.
+{py:obj}`~bytewax.operators.window.join_window` and
+{py:obj}`~bytewax.operators.window.join_window_named` to implement
+this.
 
 For the details of all the types of windows you can define and
-explanation of the parameters, see our [windowing
-documentation](windowing.md). We're going to use a simple 1 hour
-tumbling window; the previous window closes and the next window starts
-at the top of each hour. We'll be using event time.
+explanation of the parameters, see our
+<project:/articles/concepts/windowing.md>. We're going to use a simple
+1 hour tumbling window; the previous window closes and the next window
+starts at the top of each hour. We'll be using event time.
 
 ```python
 from datetime import timedelta, datetime, timezone
@@ -516,8 +509,8 @@ op.inspect("check_emails", keyed_emails)
 bytewax.testing.run_main(flow)
 ```
 
-The values are entire `dict`s and we'll still access the `"at"` key to
-use the event timestamp.
+The values are entire {py:obj}`dict`s and we'll still access the
+`"at"` key to use the event timestamp.
 
 ```{testoutput}
 join_eg.check_names: ('123', {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'})
@@ -619,7 +612,7 @@ updates, or fill in default values, etc.
 Bytewax currently only supports complete windowed joins and does not
 support running windowed joins.
 
-### Product Joins
+## Product Joins
 
 Window operators, because they have a defined close time, also support
 another join type. The **product join** emits all of the combinations
@@ -699,20 +692,19 @@ join_eg.check_join: ('123', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, 
 ## Named Joins
 
 The two previously described join operators have **named** versions.
-[`join`](/apidocs/bytewax.operators/index#bytewax.operators.join), has
-[`join_named`](/apidocs/bytewax.operators/index#bytewax.operators.join_named)
-and
-[`join_window`](/apidocs/bytewax.operators/window/index#bytewax.operators.window.join_window),
-has
-[`join_window_named`](/apidocs/bytewax.operators/window/index#bytewax.operators.window.join_window).
+{py:obj}`~bytewax.operators.join`, has
+{py:obj}`~bytewax.operators.join_named` and
+{py:obj}`~bytewax.operators.window.join_window` has
+{py:obj}`~bytewax.operators.window.join_window_named`.
+
 The named versions have identical parameters and join semantics, but
-in stead of emitting `tuple`s down stream, they emit `dict`s in which
-the keys are the names of the keyword arguments you use to specify the
-upstream sides. This can help you keep track of the values of the
-joined data more easily in your code. Depending on the kinds of
-transformations you are doing downstream, it might make more sense to
-use named joins so that it makes it easiest to write that downstream
-code.
+in stead of emitting {py:obj}`tuple`s downstream, they emit
+{py:obj}`dict`s in which the keys are the names of the keyword
+arguments you use to specify the upstream sides. This can help you
+keep track of the values of the joined data more easily in your code.
+Depending on the kinds of transformations you are doing downstream, it
+might make more sense to use named joins so that it makes it easiest
+to write that downstream code.
 
 For example, given our original streaming join. If you remember the
 output was 2-tuples because there were two sides to the join.
@@ -749,8 +741,7 @@ join_eg.check_join: ('456', ('Hive', 'hive@bytewax.io'))
 ```
 
 If we change this to use an equivalent
-[`join_named`](/apidocs/bytewax.operators/index#bytewax.operators.join_named)
-instead:
+{py:obj}`~bytewax.operators.join_named` instead:
 
 ```python
 flow = Dataflow("join_eg")
