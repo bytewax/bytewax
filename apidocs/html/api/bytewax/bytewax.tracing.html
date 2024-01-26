@@ -59,8 +59,10 @@ traces to go.</p>
 <p>Configure tracing to send traces to a Jaeger instance.</p>
 <p>The endpoint can be configured with the parameter passed to this
 config, or with two environment variables:</p>
-<p>OTEL_EXPORTER_JAEGER_AGENT_HOST=”127.0.0.1”
-OTEL_EXPORTER_JAEGER_AGENT_PORT=”6831”</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">OTEL_EXPORTER_JAEGER_AGENT_HOST</span><span class="o">=</span><span class="s2">&quot;127.0.0.1&quot;</span>
+<span class="nv">OTEL_EXPORTER_JAEGER_AGENT_PORT</span><span class="o">=</span><span class="s2">&quot;6831&quot;</span>
+</pre></div>
+</div>
 <dl class="myst field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -79,13 +81,13 @@ Defaults to <code class="docutils literal notranslate"><span class="pre">&quot;1
 <dd></dd></dl>
 
 <dl class="py property">
-<dt class="sig sig-object py" id="bytewax.tracing.JaegerConfig.sampling_ratio">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">sampling_ratio</span></span><a class="headerlink" href="#bytewax.tracing.JaegerConfig.sampling_ratio" title="Link to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="bytewax.tracing.JaegerConfig.service_name">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">service_name</span></span><a class="headerlink" href="#bytewax.tracing.JaegerConfig.service_name" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py property">
-<dt class="sig sig-object py" id="bytewax.tracing.JaegerConfig.service_name">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">service_name</span></span><a class="headerlink" href="#bytewax.tracing.JaegerConfig.service_name" title="Link to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="bytewax.tracing.JaegerConfig.sampling_ratio">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">sampling_ratio</span></span><a class="headerlink" href="#bytewax.tracing.JaegerConfig.sampling_ratio" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 </dd></dl>
@@ -119,6 +121,11 @@ flexibility in what to do with all the data bytewax can generate.</p>
 </dl>
 <p class="rubric">Initialization</p>
 <dl class="py property">
+<dt class="sig sig-object py" id="bytewax.tracing.OtlpTracingConfig.service_name">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">service_name</span></span><a class="headerlink" href="#bytewax.tracing.OtlpTracingConfig.service_name" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
 <dt class="sig sig-object py" id="bytewax.tracing.OtlpTracingConfig.url">
 <em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">url</span></span><a class="headerlink" href="#bytewax.tracing.OtlpTracingConfig.url" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
@@ -126,11 +133,6 @@ flexibility in what to do with all the data bytewax can generate.</p>
 <dl class="py property">
 <dt class="sig sig-object py" id="bytewax.tracing.OtlpTracingConfig.sampling_ratio">
 <em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">sampling_ratio</span></span><a class="headerlink" href="#bytewax.tracing.OtlpTracingConfig.sampling_ratio" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="py property">
-<dt class="sig sig-object py" id="bytewax.tracing.OtlpTracingConfig.service_name">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">service_name</span></span><a class="headerlink" href="#bytewax.tracing.OtlpTracingConfig.service_name" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 </dd></dl>
@@ -188,14 +190,14 @@ returned object.</p>
 <li class="toctree-l6"><a class="reference internal" href="#bytewax.tracing.TracingConfig"><code class="docutils literal notranslate"><span class="pre">TracingConfig</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="#bytewax.tracing.JaegerConfig"><code class="docutils literal notranslate"><span class="pre">JaegerConfig</span></code></a><ul>
 <li class="toctree-l7"><a class="reference internal" href="#bytewax.tracing.JaegerConfig.endpoint"><code class="docutils literal notranslate"><span class="pre">endpoint</span></code></a></li>
-<li class="toctree-l7"><a class="reference internal" href="#bytewax.tracing.JaegerConfig.sampling_ratio"><code class="docutils literal notranslate"><span class="pre">sampling_ratio</span></code></a></li>
 <li class="toctree-l7"><a class="reference internal" href="#bytewax.tracing.JaegerConfig.service_name"><code class="docutils literal notranslate"><span class="pre">service_name</span></code></a></li>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.tracing.JaegerConfig.sampling_ratio"><code class="docutils literal notranslate"><span class="pre">sampling_ratio</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l6"><a class="reference internal" href="#bytewax.tracing.OtlpTracingConfig"><code class="docutils literal notranslate"><span class="pre">OtlpTracingConfig</span></code></a><ul>
+<li class="toctree-l7"><a class="reference internal" href="#bytewax.tracing.OtlpTracingConfig.service_name"><code class="docutils literal notranslate"><span class="pre">service_name</span></code></a></li>
 <li class="toctree-l7"><a class="reference internal" href="#bytewax.tracing.OtlpTracingConfig.url"><code class="docutils literal notranslate"><span class="pre">url</span></code></a></li>
 <li class="toctree-l7"><a class="reference internal" href="#bytewax.tracing.OtlpTracingConfig.sampling_ratio"><code class="docutils literal notranslate"><span class="pre">sampling_ratio</span></code></a></li>
-<li class="toctree-l7"><a class="reference internal" href="#bytewax.tracing.OtlpTracingConfig.service_name"><code class="docutils literal notranslate"><span class="pre">service_name</span></code></a></li>
 </ul>
 </li>
 </ul>

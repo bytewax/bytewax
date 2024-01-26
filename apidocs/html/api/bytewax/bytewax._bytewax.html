@@ -59,8 +59,8 @@ objects in the recovery partitions. Defaults to
 </dl>
 <p class="rubric">Initialization</p>
 <dl class="py property">
-<dt class="sig sig-object py" id="bytewax._bytewax.RecoveryConfig.backup_interval">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">backup_interval</span></span><a class="headerlink" href="#bytewax._bytewax.RecoveryConfig.backup_interval" title="Link to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="bytewax._bytewax.RecoveryConfig.db_dir">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">db_dir</span></span><a class="headerlink" href="#bytewax._bytewax.RecoveryConfig.db_dir" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py property">
@@ -69,8 +69,8 @@ objects in the recovery partitions. Defaults to
 <dd></dd></dl>
 
 <dl class="py property">
-<dt class="sig sig-object py" id="bytewax._bytewax.RecoveryConfig.db_dir">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">db_dir</span></span><a class="headerlink" href="#bytewax._bytewax.RecoveryConfig.db_dir" title="Link to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="bytewax._bytewax.RecoveryConfig.backup_interval">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">backup_interval</span></span><a class="headerlink" href="#bytewax._bytewax.RecoveryConfig.backup_interval" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 </dd></dl>
@@ -148,8 +148,10 @@ change as new data is received.</p>
 <p>Configure tracing to send traces to a Jaeger instance.</p>
 <p>The endpoint can be configured with the parameter passed to this
 config, or with two environment variables:</p>
-<p>OTEL_EXPORTER_JAEGER_AGENT_HOST=”127.0.0.1”
-OTEL_EXPORTER_JAEGER_AGENT_PORT=”6831”</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">OTEL_EXPORTER_JAEGER_AGENT_HOST</span><span class="o">=</span><span class="s2">&quot;127.0.0.1&quot;</span>
+<span class="nv">OTEL_EXPORTER_JAEGER_AGENT_PORT</span><span class="o">=</span><span class="s2">&quot;6831&quot;</span>
+</pre></div>
+</div>
 <dl class="myst field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -168,13 +170,13 @@ Defaults to <code class="docutils literal notranslate"><span class="pre">&quot;1
 <dd></dd></dl>
 
 <dl class="py property">
-<dt class="sig sig-object py" id="bytewax._bytewax.JaegerConfig.sampling_ratio">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">sampling_ratio</span></span><a class="headerlink" href="#bytewax._bytewax.JaegerConfig.sampling_ratio" title="Link to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="bytewax._bytewax.JaegerConfig.service_name">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">service_name</span></span><a class="headerlink" href="#bytewax._bytewax.JaegerConfig.service_name" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py property">
-<dt class="sig sig-object py" id="bytewax._bytewax.JaegerConfig.service_name">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">service_name</span></span><a class="headerlink" href="#bytewax._bytewax.JaegerConfig.service_name" title="Link to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="bytewax._bytewax.JaegerConfig.sampling_ratio">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">sampling_ratio</span></span><a class="headerlink" href="#bytewax._bytewax.JaegerConfig.sampling_ratio" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 </dd></dl>
@@ -208,6 +210,11 @@ flexibility in what to do with all the data bytewax can generate.</p>
 </dl>
 <p class="rubric">Initialization</p>
 <dl class="py property">
+<dt class="sig sig-object py" id="bytewax._bytewax.OtlpTracingConfig.service_name">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">service_name</span></span><a class="headerlink" href="#bytewax._bytewax.OtlpTracingConfig.service_name" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
 <dt class="sig sig-object py" id="bytewax._bytewax.OtlpTracingConfig.url">
 <em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">url</span></span><a class="headerlink" href="#bytewax._bytewax.OtlpTracingConfig.url" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
@@ -215,11 +222,6 @@ flexibility in what to do with all the data bytewax can generate.</p>
 <dl class="py property">
 <dt class="sig sig-object py" id="bytewax._bytewax.OtlpTracingConfig.sampling_ratio">
 <em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">sampling_ratio</span></span><a class="headerlink" href="#bytewax._bytewax.OtlpTracingConfig.sampling_ratio" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="py property">
-<dt class="sig sig-object py" id="bytewax._bytewax.OtlpTracingConfig.service_name">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">service_name</span></span><a class="headerlink" href="#bytewax._bytewax.OtlpTracingConfig.service_name" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 </dd></dl>
@@ -317,13 +319,13 @@ parameter to your windowing operator.</p>
 </dl>
 <p class="rubric">Initialization</p>
 <dl class="py property">
-<dt class="sig sig-object py" id="bytewax._bytewax.TumblingWindow.length">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">length</span></span><a class="headerlink" href="#bytewax._bytewax.TumblingWindow.length" title="Link to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="bytewax._bytewax.TumblingWindow.align_to">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">align_to</span></span><a class="headerlink" href="#bytewax._bytewax.TumblingWindow.align_to" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py property">
-<dt class="sig sig-object py" id="bytewax._bytewax.TumblingWindow.align_to">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">align_to</span></span><a class="headerlink" href="#bytewax._bytewax.TumblingWindow.align_to" title="Link to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="bytewax._bytewax.TumblingWindow.length">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">length</span></span><a class="headerlink" href="#bytewax._bytewax.TumblingWindow.length" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 </dd></dl>
@@ -436,22 +438,18 @@ parameter to your windowing operator.</p>
 <dd><p>Execute a dataflow in the current thread.</p>
 <p>Blocks until execution is complete.</p>
 <p>This is only used for unit testing. See <code class="docutils literal notranslate"><span class="pre">bytewax.run</span></code>.</p>
-<blockquote>
-<div><blockquote>
-<div><blockquote>
-<div><p>from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput, run_main
-from bytewax.connectors.stdio import StdOutput
-flow = Dataflow(“my_df”)
-flow.input(“inp”, TestingInput(range(3)))
-flow.capture(StdOutput())
-run_main(flow)
-0
-1
-2</p>
-</div></blockquote>
-</div></blockquote>
-</div></blockquote>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos"> 1</span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">bytewax.dataflow</span> <span class="kn">import</span> <span class="n">Dataflow</span>
+<span class="linenos"> 2</span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">bytewax.testing</span> <span class="kn">import</span> <span class="n">TestingInput</span><span class="p">,</span> <span class="n">run_main</span>
+<span class="linenos"> 3</span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">bytewax.connectors.stdio</span> <span class="kn">import</span> <span class="n">StdOutput</span>
+<span class="linenos"> 4</span><span class="gp">&gt;&gt;&gt; </span><span class="n">flow</span> <span class="o">=</span> <span class="n">Dataflow</span><span class="p">(</span><span class="s2">&quot;my_df&quot;</span><span class="p">)</span>
+<span class="linenos"> 5</span><span class="gp">&gt;&gt;&gt; </span><span class="n">flow</span><span class="o">.</span><span class="n">input</span><span class="p">(</span><span class="s2">&quot;inp&quot;</span><span class="p">,</span> <span class="n">TestingInput</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">)))</span>
+<span class="linenos"> 6</span><span class="gp">&gt;&gt;&gt; </span><span class="n">flow</span><span class="o">.</span><span class="n">capture</span><span class="p">(</span><span class="n">StdOutput</span><span class="p">())</span>
+<span class="linenos"> 7</span><span class="gp">&gt;&gt;&gt; </span><span class="n">run_main</span><span class="p">(</span><span class="n">flow</span><span class="p">)</span>
+<span class="linenos"> 8</span><span class="go">0</span>
+<span class="linenos"> 9</span><span class="go">1</span>
+<span class="linenos">10</span><span class="go">2</span>
+</pre></div>
+</div>
 <dl class="myst field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -483,25 +481,21 @@ not be persisted.</p></li>
 <dd><p>Execute a dataflow in the current process as part of a cluster.</p>
 <p>This is only used for unit testing. See <code class="docutils literal notranslate"><span class="pre">bytewax.run</span></code>.</p>
 <p>Blocks until execution is complete.</p>
-<blockquote>
-<div><blockquote>
-<div><blockquote>
-<div><p>from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingInput
-from bytewax.connectors.stdio import StdOutput
-flow = Dataflow(“my_df”)
-flow.input(“inp”, TestingInput(range(3)))
-flow.capture(StdOutput())</p>
-<h1 class="rubric" id="in-a-real-example-use-host-port-of-all-other-workers">In a real example, use “host:port” of all other workers.</h1>
-<p>addresses = []
-proc_id = 0
-cluster_main(flow, addresses, proc_id)
-0
-1
-2</p>
-</div></blockquote>
-</div></blockquote>
-</div></blockquote>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos"> 1</span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">bytewax.dataflow</span> <span class="kn">import</span> <span class="n">Dataflow</span>
+<span class="linenos"> 2</span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">bytewax.testing</span> <span class="kn">import</span> <span class="n">TestingInput</span>
+<span class="linenos"> 3</span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">bytewax.connectors.stdio</span> <span class="kn">import</span> <span class="n">StdOutput</span>
+<span class="linenos"> 4</span><span class="gp">&gt;&gt;&gt; </span><span class="n">flow</span> <span class="o">=</span> <span class="n">Dataflow</span><span class="p">(</span><span class="s2">&quot;my_df&quot;</span><span class="p">)</span>
+<span class="linenos"> 5</span><span class="gp">&gt;&gt;&gt; </span><span class="n">flow</span><span class="o">.</span><span class="n">input</span><span class="p">(</span><span class="s2">&quot;inp&quot;</span><span class="p">,</span> <span class="n">TestingInput</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">)))</span>
+<span class="linenos"> 6</span><span class="gp">&gt;&gt;&gt; </span><span class="n">flow</span><span class="o">.</span><span class="n">capture</span><span class="p">(</span><span class="n">StdOutput</span><span class="p">())</span>
+<span class="linenos"> 7</span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># In a real example, use &quot;host:port&quot; of all other workers.</span>
+<span class="linenos"> 8</span><span class="gp">&gt;&gt;&gt; </span><span class="n">addresses</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="linenos"> 9</span><span class="gp">&gt;&gt;&gt; </span><span class="n">proc_id</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="linenos">10</span><span class="gp">&gt;&gt;&gt; </span><span class="n">cluster_main</span><span class="p">(</span><span class="n">flow</span><span class="p">,</span> <span class="n">addresses</span><span class="p">,</span> <span class="n">proc_id</span><span class="p">)</span>
+<span class="linenos">11</span><span class="go">0</span>
+<span class="linenos">12</span><span class="go">1</span>
+<span class="linenos">13</span><span class="go">2</span>
+</pre></div>
+</div>
 <dl class="myst field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
