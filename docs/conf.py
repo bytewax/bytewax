@@ -155,7 +155,7 @@ autodoc2_module_all_regexes = [
 # the directives for all the objects. Those Markdown files are in this
 # directory. This should not be committed because it is generated on
 # each build.
-autodoc2_output_dir = "api"
+autodoc2_output_dir = "apidocs"
 # Python package to parse to generate Markdown API docs for in the
 # above directory.
 autodoc2_packages = ["../pysrc/bytewax"]
