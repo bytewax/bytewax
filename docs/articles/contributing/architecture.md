@@ -18,9 +18,27 @@ distributed system to execute dataflow programs that would be
 performant across batch, stream, and graph processing. From the [paper
 abstract](https://dl.acm.org/doi/10.1145/2517349.2522738):
 
-> Naiad is a distributed system for executing data parallel, cyclic dataflow programs. It offers the high throughput of batch processors, the low latency of stream processors, and the ability to perform iterative and incremental computations. Although existing systems offer some of these features, applications that require all three have relied on multiple platforms, at the expense of efficiency, maintainability, and simplicity. Naiad resolves the complexities of combining these features in one framework.
-> A new computational model, timely dataflow, underlies Naiad and captures opportunities for parallelism across a wide class of algorithms. This model enriches dataflow computation with timestamps that represent logical points in the computation and provide the basis for an efficient, lightweight coordination mechanism.
-> We show that many powerful high-level programming models can be built on Naiad's low-level primitives, enabling such diverse tasks as streaming data analysis, iterative machine learning, and interactive graph mining. Naiad outperforms specialized systems in their target application domains, and its unique features enable the development of new high-performance applications.
+> Naiad is a distributed system for executing data parallel, cyclic
+> dataflow programs. It offers the high throughput of batch
+> processors, the low latency of stream processors, and the ability to
+> perform iterative and incremental computations. Although existing
+> systems offer some of these features, applications that require all
+> three have relied on multiple platforms, at the expense of
+> efficiency, maintainability, and simplicity. Naiad resolves the
+> complexities of combining these features in one framework.
+>
+> A new computational model, timely dataflow, underlies Naiad and
+> captures opportunities for parallelism across a wide class of
+> algorithms. This model enriches dataflow computation with timestamps
+> that represent logical points in the computation and provide the
+> basis for an efficient, lightweight coordination mechanism.
+>
+> We show that many powerful high-level programming models can be
+> built on Naiad's low-level primitives, enabling such diverse tasks
+> as streaming data analysis, iterative machine learning, and
+> interactive graph mining. Naiad outperforms specialized systems in
+> their target application domains, and its unique features enable the
+> development of new high-performance applications.
 
 At some point, Microsoft Research changed direction concerning the
 Silicon Valley Lab (I don't know the real story, but some of the prior
@@ -55,7 +73,9 @@ less commonly used pattern used in PyO3.
 
 ### Putting it all together
 
-![Bytewax Arch](https://github.com/bytewax/bytewax/assets/6073079/821c85ca-35a7-4112-9ce9-29dabfe65878)
+![Bytewax architecture diagram.](/assets/arch-diagram.svg)
+
+%https://excalidraw.com/#json=3W3-eMAeFONI_dAvl-yJk,lnjMWljnHtyh9rmCTlHIEg
 
 This is a rough diagram of the Bytewax architecture. The developer
 interacts with the Bytewax API by writing Python code. They describe
@@ -80,9 +100,10 @@ the very least run on one Timely worker, have one input and output
 connector, and most likely, but not strictly necessary, have one
 operator with some transformation code.
 
-![dataflow_diagram](https://github.com/bytewax/developer-relations/assets/6073079/073c14e8-f942-4138-8477-28a76be7f0fa)
+![Diagram of a Timely Worker containing multiple operators and Bytewax
+Python code within those.](/assets/timely-worker.svg)
 
-> https://excalidraw.com/#json=qiQd1RU8tUoA72E5nj76r,uhPLyY6F7i5hIaqDRMi7yg
+%https://excalidraw.com/#json=qiQd1RU8tUoA72E5nj76r,uhPLyY6F7i5hIaqDRMi7yg
 
 There is a lot of coordination going on behind the scenes of what
 seems quite simple when you run `python -m bytewax.run dataflow:flow
