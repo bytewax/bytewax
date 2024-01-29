@@ -79,7 +79,7 @@ html_show_sourcelink = False
 html_static_path = ["_static"]
 
 favicons = [
-    "favicon.png",
+    "https://bytewax.io/favicon.png",
 ]
 
 # -- Options for PyData theme ---------------------------------------------
@@ -105,9 +105,11 @@ html_theme_options = {
         },
     ],
     "logo": {
-        "image_light": "",
-        "image_dark": "",
+        "alt_text": "Bytewax logo",
+        "image_light": "https://user-images.githubusercontent.com/6073079/194626697-425ade3d-3d72-4b4c-928e-47bad174a376.png",
+        "image_dark": "https://user-images.githubusercontent.com/6073079/195393689-7334098b-a8cd-4aaa-8791-e4556c25713e.png",
         "link": "https://bytewax.io",
+        "text": "Docs",
     },
     # On the per-page right hand side TOC, show more depth by default.
     "show_toc_level": 3,
