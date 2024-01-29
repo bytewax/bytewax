@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.abspath("."))
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "Bytewax API Docs"
+project = "Bytewax"
 copyright = "2024, Bytewax, Inc"  # noqa: A001
 author = "Bytewax, Inc."
 
@@ -88,8 +88,22 @@ favicons = [
 html_css_files = ["css/custom.css"]
 html_theme = "pydata_sphinx_theme"
 html_theme_options = {
+    "back_to_top_button": False,
     "footer_start": ["copyright"],
     "footer_end": [],
+    # https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/header-links.html#icon-links
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/bytewax",
+            "icon": "fa-brands fa-github",
+        },
+        {
+            "name": "Slack",
+            "url": "https://join.slack.com/t/bytewaxcommunity/shared_invite/zt-1lhq9bxbr-T3CXxR_9RIUGb4qcBK26Qw",
+            "icon": "fa-brands fa-slack",
+        },
+    ],
     "logo": {
         "image_light": "",
         "image_dark": "",

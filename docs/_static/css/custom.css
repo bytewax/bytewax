@@ -1,7 +1,26 @@
 html[data-theme="light"] {
     --pst-color-primary: #334ac0;
+    --pst-color-secondary: var(--pst-color-primary);
+    --pst-color-inline-code: var(--pst-color-text-base);
+    --pst-color-inline-code-links: var(--pst-color-primary);
 }
 
 html[data-theme="dark"] {
-    --pst-color-primary:; #fab90f
+    --pst-color-primary: #fab90f;
+    --pst-color-secondary: var(--pst-color-primary);
+    --pst-color-inline-code: var(--pst-color-text-base);
+    --pst-color-inline-code-links: var(--pst-color-primary);
+}
+
+a {
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+    text-decoration-thickness: unset;
+}
+
+code.xref, code a {
+    font-weight: unset;
 }
