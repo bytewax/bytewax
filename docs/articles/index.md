@@ -68,8 +68,8 @@
 :caption: Contributing
 :titlesonly:
 
-/articles/contributing/architecture.md
 /articles/contributing/contributing.md
+/articles/contributing/architecture.md
 /articles/contributing/connector-hub.md
 /articles/contributing/writing-docs.md
 ```
