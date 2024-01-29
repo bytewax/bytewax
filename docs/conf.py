@@ -35,9 +35,10 @@ author = "Bytewax, Inc."
 extensions = [
     "autodoc2",
     "myst_parser",
-    "sphinxcontrib.mermaid",
     "sphinx.ext.doctest",
     "sphinx.ext.intersphinx",
+    "sphinx_favicon",
+    "sphinxcontrib.mermaid",
 ]
 
 intersphinx_mapping = {
@@ -76,33 +77,27 @@ nitpick_ignore = [
 html_show_copyright = False
 html_show_sourcelink = False
 html_static_path = ["_static"]
-pygments_style = "default"
 
-# -- Options for Alabaster theme ---------------------------------------------
-# https://alabaster.readthedocs.io/en/latest/customization.html
+favicons = [
+    "favicon.png",
+]
 
-html_sidebars = {
-    "**": [
-        "navigation.html",
-    ]
-}
-html_theme = "alabaster"
+# -- Options for PyData theme ---------------------------------------------
+# https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/index.html
+
+html_css_files = ["css/custom.css"]
+html_theme = "pydata_sphinx_theme"
 html_theme_options = {
-    "code_font_family": (
-        "JetBrains Mono, "
-        "Consolas, "
-        "Monaco, "
-        "Andale Mono, "
-        "Ubuntu Mono, "
-        "monospace"
-    ),
-    "font_family": "Inter, sans-serif",
-    "head_font_family": "Outfit, sans-serif",
-    "link": "#334ac0",
-    "link_hover": "#334ac0",
-    "show_powered_by": False,
-    "pre_bg": "#f5f2f0",
-    "highlight_bg": "#fab90f61",
+    "footer_start": ["copyright"],
+    "footer_end": [],
+    "logo": {
+        "image_light": "",
+        "image_dark": "",
+        "link": "https://bytewax.io",
+    },
+    # On the per-page right hand side TOC, show more depth by default.
+    "show_toc_level": 3,
+    "show_prev_next": False,
 }
 
 # -- Options for MyST --------------------------------------------------------
