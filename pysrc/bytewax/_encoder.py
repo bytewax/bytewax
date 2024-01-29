@@ -145,7 +145,7 @@ def json_for(obj) -> Any:
 
 
 @json_for.register
-def _(df: RenderedDataflow) -> Dict:
+def _json_for_df(df: RenderedDataflow) -> Dict:
     return {
         "typ": "RenderedDataflow",
         "flow_id": df.flow_id,
@@ -154,7 +154,7 @@ def _(df: RenderedDataflow) -> Dict:
 
 
 @json_for.register
-def _(step: RenderedOperator) -> Dict:
+def _json_for_op(step: RenderedOperator) -> Dict:
     return {
         "typ": "RenderedOperator",
         "op_type": step.op_type,
@@ -167,7 +167,7 @@ def _(step: RenderedOperator) -> Dict:
 
 
 @json_for.register
-def _(port: RenderedPort) -> Dict:
+def _json_for_port(port: RenderedPort) -> Dict:
     return {
         "typ": "RenderedPort",
         "port_name": port.port_name,

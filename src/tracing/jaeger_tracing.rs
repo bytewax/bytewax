@@ -12,17 +12,24 @@ use super::TracingConfig;
 /// The endpoint can be configured with the parameter passed to this
 /// config, or with two environment variables:
 ///
-///   OTEL_EXPORTER_JAEGER_AGENT_HOST="127.0.0.1"
-///   OTEL_EXPORTER_JAEGER_AGENT_PORT="6831"
+/// ```sh
+/// OTEL_EXPORTER_JAEGER_AGENT_HOST="127.0.0.1"
+/// OTEL_EXPORTER_JAEGER_AGENT_PORT="6831"
+/// ```
 ///
-/// Args:
-///   service_name (str): Identifies this dataflow in Jaeger.
+/// :arg service_name: Identifies this dataflow in Jaeger.
 ///
-///   endpoint (typing.Optional[str]): Connection info. Takes
-///     precidence over env vars. Defaults to `"127.0.0.1:6831"`.
+/// :type service_name: str
 ///
-///   sampling_ratio (float): Fraction of traces to send between `0.0`
-///     and `1.0`.
+/// :arg endpoint: Connection info. Takes precidence over env vars.
+///     Defaults to `"127.0.0.1:6831"`.
+///
+/// :type endpoint: str
+///
+/// :arg sampling_ratio: Fraction of traces to send between `0.0` and
+///     `1.0`.
+///
+/// :type sampling_ratio: float
 #[pyclass(module="bytewax.tracing", extends=TracingConfig)]
 #[derive(Clone)]
 pub(crate) struct JaegerConfig {

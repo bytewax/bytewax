@@ -1,7 +1,7 @@
 """Low-level output interfaces.
 
 If you want pre-built connectors for various external systems, see
-`bytewax.connectors`. That is also a rich source of examples.
+{py:obj}`bytewax.connectors`. That is also a rich source of examples.
 
 """
 
@@ -9,16 +9,11 @@ from abc import ABC, abstractmethod
 from typing import Generic, List, Optional, Tuple, TypeVar
 from zlib import adler32
 
-__all__ = [
-    "DynamicSink",
-    "FixedPartitionedSink",
-    "Sink",
-    "StatefulSinkPartition",
-    "StatelessSinkPartition",
-]
-
 X = TypeVar("X")
+"""Type consumed by a {py:obj}`Sink`."""
+
 S = TypeVar("S")
+"""Type of state snapshots."""
 
 
 class Sink(ABC, Generic[X]):  # noqa: B024
@@ -44,12 +39,11 @@ class StatefulSinkPartition(ABC, Generic[X, S]):
         Called with a list of `value`s for each `(key, value)` at this
         point in the dataflow.
 
-        See `PartitionedOutput.part_fn` for how the key is mapped to
-        partition.
+        See {py:obj}`FixedPartitionedSink.part_fn` for how the key is
+        mapped to partition.
 
-        Args:
-            values:
-                Values in the dataflow. Non-deterministically batched.
+        :arg values: Values in the dataflow. Non-deterministically
+            batched.
 
         """
         ...
@@ -59,16 +53,15 @@ class StatefulSinkPartition(ABC, Generic[X, S]):
         """Snapshot the position of the next write of this partition.
 
         This will be returned to you via the `resume_state` parameter
-        of your output builder.
+        of {py:obj}`FixedPartitionedSink.build_part`.
 
         Be careful of "off by one" errors in resume state. This should
         return a state that, when built into a partition, resumes writing
         _after the last written item_, not overwriting the same item.
 
-        This is guaranteed to never be called after `close()`.
+        This is guaranteed to never be called after {py:obj}`close`.
 
-        Returns:
-            Resume state.
+        :returns: Resume state.
 
         """
         ...
@@ -99,8 +92,7 @@ class FixedPartitionedSink(Sink[Tuple[str, X]], Generic[X, S]):
 
         You do not need to list all partitions globally.
 
-        Returns:
-            Local partition keys.
+        :returns: Local partition keys.
 
         """
         ...
@@ -108,7 +100,8 @@ class FixedPartitionedSink(Sink[Tuple[str, X]], Generic[X, S]):
     def part_fn(self, item_key: str) -> int:
         """Route incoming `(key, value)` pairs to partitions.
 
-        Defaults to `zlib.adler32` as a simple consistent function.
+        Defaults to {py:obj}`zlib.adler32` as a simple consistent
+        function.
 
         This must be globally consistent across workers and executions
         and return the same hash on every call.
@@ -117,18 +110,18 @@ class FixedPartitionedSink(Sink[Tuple[str, X]], Generic[X, S]):
         into the ordered global set of partitions. (Not just
         partitions local to this worker.)
 
-        .. caution:: Do not use Python's built in `hash` function
-            here! It is [_not consistent between processes by
-            default_](https://docs.python.org/3/using/cmdline.html#cmdoption-R)
-            and using it will cause incorrect partitioning in cluster
-            executions.
+        :::{caution}
 
-        Args:
-            item_key:
-                Key for the value that is about to be written.
+        Do not use Python's built in {py:obj}`hash` function here! It
+        is [_not consistent between processes by
+        default_](inv:python:std:cmdoption#-R) and using it will cause
+        incorrect partitioning in cluster executions.
 
-        Returns:
-            Integer hash value that is used to assign partition.
+        :::
+
+        :arg item_key: Key for the value that is about to be written.
+
+        :returns: Integer hash value that is used to assign partition.
 
         """
         return adler32(item_key.encode())
@@ -142,24 +135,21 @@ class FixedPartitionedSink(Sink[Tuple[str, X]], Generic[X, S]):
         """Build anew or resume an output partition.
 
         Will be called once per execution for each partition key on a
-        worker that reported that partition was local in `list_parts`.
+        worker that reported that partition was local in
+        {py:obj}`list_parts`.
 
         Do not pre-build state about a partition in the
         constructor. All state must be derived from `resume_state` for
         recovery to work properly.
 
-        Args:
-            for_part:
-                Which partition to build. Will always be one of the
-                keys returned by `list_parts` on this worker.
+        :arg for_part: Which partition to build. Will always be one of
+            the keys returned by {py:obj}`list_parts` on this worker.
 
-            resume_state:
-                State data containing where in the output stream this
-                partition should be begin writing during this
-                execution.
+        :arg resume_state: State data containing where in the output
+            stream this partition should be begin writing during this
+            execution.
 
-        Returns:
-            The built partition.
+        :returns: The built partition.
 
         """
         ...
@@ -175,9 +165,8 @@ class StatelessSinkPartition(ABC, Generic[X]):
         Called multiple times whenever new items are seen at this
         point in the dataflow.
 
-        Args:
-            items:
-                Items in the dataflow. Non-deterministically batched.
+        :arg items: Items in the dataflow. Non-deterministically
+            batched.
 
         """
         ...
@@ -207,14 +196,11 @@ class DynamicSink(Sink[X]):
 
         Will be called once on each worker.
 
-        Args:
-            worker_index:
-                Index of this worker.
-            worker_count:
-                Total number of workers.
+        :arg worker_index: Index of this worker.
 
-        Returns:
-            The built partition.
+        :arg worker_count: Total number of workers.
+
+        :returns: The built partition.
 
         """
         ...

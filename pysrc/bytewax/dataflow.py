@@ -1,6 +1,6 @@
 """Data model for dataflows and custom operators.
 
-See `bytewax.operators` for the built-in operators.
+See {py:obj}`bytewax.operators` for the built-in operators.
 
 """
 import dataclasses
@@ -30,23 +30,40 @@ from typing import (
 from typing_extensions import Concatenate, ParamSpec, Self
 
 P = ParamSpec("P")
+"""Signature of an operator function."""
+
 R = TypeVar("R")
-K = TypeVar("K")
+"""Return type of an operator function."""
+
+N = TypeVar("N")
+"""Type of name of each stream.
+
+Usually either {py:obj}`int` if derived from `*args` or {py:obj}`str`
+if derived from `**kwargs`.
+
+"""
+
 X_co = TypeVar("X_co", covariant=True)
+"""Type contained within a {py:obj}`Stream`."""
+
+F = TypeVar("F", bound=Callable[..., Any])
+"""Type of operator builder function."""
 
 
 def f_repr(f: Callable) -> str:
-    """Nicer `repr` for functions with the defining module and line.
+    """Nicer function {py:obj}`repr` showing module and line number.
 
     Use this to help with writing easier to debug exceptions in your
     operators.
 
     The built in repr just shows a memory address.
 
+    ```python
     >>> def my_f(x):
     ...     pass
     >>> f_repr(my_f)
     "<function 'bytewax.dataflow.my_f' line 1>"
+    ```
 
     """
     if isinstance(f, FunctionType):
@@ -61,7 +78,7 @@ def f_repr(f: Callable) -> str:
 class Port(Protocol):
     """Generic interface to a port.
 
-    Either `SinglePort` or `MultiPort`.
+    Either {py:obj}`SinglePort` or {py:obj}`MultiPort`.
 
     """
 
@@ -71,11 +88,11 @@ class Port(Protocol):
 
 @dataclass(frozen=True)
 class SinglePort:
-    """A input or output location on an `Operator`.
+    """A input or output location on an {py:obj}`Operator`.
 
-    You won't be instantiating this manually. The `operator` decorator
-    will create these for you whenever an operator function takes or
-    returns a `Stream`.
+    You won't be instantiating this manually. The {py:obj}`operator`
+    decorator will create these for you whenever an operator function
+    takes or returns a {py:obj}`Stream`.
 
     """
 
@@ -84,31 +101,32 @@ class SinglePort:
 
     @property
     def stream_ids(self) -> Dict[str, str]:
-        """Allow this to conform to the `Port` protocol."""
+        """Allow this to conform to the {py:obj}`Port` protocol."""
         return {"stream": self.stream_id}
 
 
 @dataclass(frozen=True)
-class MultiPort(Generic[K]):
-    """A multi-stream input or output location on an `Operator`.
+class MultiPort(Generic[N]):
+    """A multi-stream input or output location on an {py:obj}`Operator`.
 
-    You won't be instantiating this manually. The `operator` decorator
-    will create these for you whenever an operator function takes or
-    returns a `*args` of `Stream` or `**kwargs` of `Stream`s or a
-    `MultiStream`.
+    You won't be instantiating this manually. The {py:obj}`operator`
+    decorator will create these for you whenever an operator function
+    takes or returns a `*args` of {py:obj}`Stream` or `**kwargs` of
+    {py:obj}`Stream`s.
 
     """
 
     port_id: str
-    stream_ids: Dict[K, str]
+    stream_ids: Dict[N, str]
 
 
 @dataclass(frozen=True)
 class Operator:
     """Base class for an operator type.
 
-    Subclasses of this must be generated via the `operator` builder
-    function decorator. See the `bytewax.dataflow` module docstring
+    Subclasses of this must be generated via the {py:obj}`operator`
+    builder function decorator. See [our custom operators
+    article](https://bytewax.io/docs/advanced-concepts/extending-python-api#custom-operators)
     for a tutorial.
 
     Subclasses will contain the specific configuration fields each
@@ -125,8 +143,8 @@ class Operator:
 
 @dataclass(frozen=True)
 class _CoreOperator(Operator):
-    #: This operator is a core operator.
     core: ClassVar[bool] = True
+    """This operator is a core operator."""
 
 
 @dataclass(frozen=True)
@@ -163,8 +181,9 @@ class DataflowId:
 class Dataflow:
     """Dataflow definition.
 
-    Once you instantiate this, Use the `bytewax.operators` (e.g.
-    `bytewax.operators.input`) to create `Stream`s.
+    Once you instantiate this, Use the {py:obj}`bytewax.operators`
+    (e.g. {py:obj}`~bytewax.operators.input`) to create
+    {py:obj}`Stream`s.
 
     """
 
@@ -199,9 +218,10 @@ class Stream(Generic[X_co]):
     """Handle to a specific stream of items you can add steps to.
 
     You won't be instantiating this manually. Use the
-    `bytewax.operators` (e.g. `bytewax.operators.map`,
-    `bytewax.operators.filter`, `bytewax.operators.key_on`) to create
-    `Stream`s.
+    {py:obj}`bytewax.operators` (e.g.
+    {py:obj}`~bytewax.operators.map`,
+    {py:obj}`~bytewax.operators.filter`,
+    {py:obj}`~bytewax.operators.key_on`) to create streams.
 
     You can reference this stream multiple times to duplicate the data
     within.
@@ -215,10 +235,10 @@ class Stream(Generic[X_co]):
     _scope: _Scope = field(compare=False)
 
     def flow(self) -> Dataflow:
-        """The containing `Dataflow`.
+        """The containing dataflow.
 
         You might want access to this to add "top level" operators
-        like `bytewax.operators.merge_all.merge_all`.
+        like {py:obj}`bytewax.operators.merge`.
 
         """
         return self._scope.flow
@@ -247,57 +267,65 @@ class Stream(Generic[X_co]):
 
         The following two dataflow definitions are equivalent:
 
+        ```python
         >>> import bytewax.operators as op
         >>> from bytewax.testing import run_main, TestingSource
         >>> from bytewax.dataflow import Dataflow
         >>> def add_one(item):
         ...     return item + 1
+        ```
 
+        ```python
         >>> flow = Dataflow("map_eg")
         >>> s = op.input("inp", flow, TestingSource(range(3)))
         >>> s = op.map("add_one", s, add_one)
+        ```
 
         and
 
+        ```python
         >>> flow = Dataflow("map_eg")
         >>> s = op.input("inp", flow, TestingSource(range(3))).then(
         ...     op.map, "add_one", add_one
         ... )
+        ```
 
         This kind of method chaining is called a "fluent style API".
 
-        Because this style requires a single upstream before the `.`,
-        this transformation only works for operators that could be
-        called like `op_fn(step_id, upstream, ...)`, like
-        `bytewax.operators.map`. It will not work for operators like
-        `bytewax.operators.join_named`, since they do not have that
-        shape of function signature.
+        Because this style requires a single upstream before the
+        method calling `.`, this transformation only works for
+        operators that could be called like `op_fn(step_id, upstream,
+        ...)`, like {py:obj}`bytewax.operators.map`. It will not work
+        for operators like {py:obj}`bytewax.operators.join_named`,
+        since they do not have that shape of function signature.
 
-        Args:
-            step_id: Unique ID.
+        :arg step_id: Unique ID.
 
-            op_fn: Operator function. This fluent transformation only
-              works on operators that take a single stream as the
-              second argument.
+        :arg op_fn: Operator function. This fluent transformation only
+          works on operators that take a single stream as the second
+          argument.
 
-            *args: Remaining arguments to pass to `op_fn`.
+        :arg *args: Remaining arguments to pass to `op_fn`.
 
-            **kwargs: Remaining arguments to pass to `op_fn`.
+        :arg **kwargs: Remaining arguments to pass to `op_fn`.
+
+        :returns: `op_fun`'s return value as if called normally.
 
         """
         return op_fn(step_id, self, *args, **kwargs)
 
 
 @dataclass(frozen=True)
-class _MultiStream(Generic[K]):
-    """A bundle of named `Stream`s.
+class _MultiStream(Generic[N]):
+    """A bundle of named streams.
 
     This is also created internally whenever a builder function takes
-    or returns a `*args` of `Stream` or `**kwargs` of `Stream`s.
+    or returns a `*args` of {py:obj}`Stream` or `**kwargs` of
+    {py:obj}`Stream`s.
 
     """
 
-    streams: Dict[K, Stream[Any]]
+    streams: Dict[N, Stream[Any]]
 
     def _get_scopes(self) -> Iterable[_Scope]:
         return (stream._scope for stream in self.streams.values())
@@ -308,7 +336,7 @@ class _MultiStream(Generic[K]):
         }
         return dataclasses.replace(self, streams=streams)
 
-    def _to_ref(self, port_id: str) -> MultiPort[K]:
+    def _to_ref(self, port_id: str) -> MultiPort[N]:
         return MultiPort(
             port_id,
             {name: stream.stream_id for name, stream in self.streams.items()},
@@ -663,9 +691,6 @@ def _gen_op_fn(
     return fn
 
 
-F = TypeVar("F", bound=Callable[..., Any])
-
-
 @overload
 def operator(builder: F) -> F:
     ...
@@ -679,7 +704,9 @@ def operator(*, _core: bool = False) -> Callable[[F], F]:
 def operator(builder=None, *, _core: bool = False) -> Callable:
     """Function decorator to define a new operator.
 
-    See `bytewax.dataflow` module docstring for how to use this.
+    See [our custom operators
+    article](https://bytewax.io/docs/advanced-concepts/extending-python-api#custom-operators)
+    for how to use this.
 
     """
 

@@ -1,4 +1,4 @@
-"""Operators to help with Kafka IO."""
+"""Operators for the kafka source and sink."""
 from dataclasses import dataclass
 from typing import Dict, Generic, List, Optional, TypeVar, Union, cast
 
@@ -87,31 +87,31 @@ def input(  # noqa A001
     Partitions are the unit of parallelism. Can support exactly-once
     processing.
 
-    Args:
-        step_id: Unique Id.
+    :arg step_id: Unique Id.
 
-        flow: Dataflow.
+    :arg flow: Dataflow.
 
-        brokers: List of `host:port` strings of Kafka brokers.
+    :arg brokers: List of `host:port` strings of Kafka brokers.
 
-        topics: List of topics to consume from.
+    :arg topics: List of topics to consume from.
 
-        tail: Whether to wait for new data on this topic when the end
-            is initially reached.
+    :arg tail: Whether to wait for new data on this topic when the end
+        is initially reached.
 
-        starting_offset: Can be either
-            `confluent_kafka.OFFSET_BEGINNING` or
-            `confluent_kafka.OFFSET_END`.
+    :arg starting_offset: Can be either
+        {py:obj}`confluent_kafka.OFFSET_BEGINNING` or
+        {py:obj}`confluent_kafka.OFFSET_END`.
 
-        add_config: Any additional configuration properties. See the
-            `rdkafka`
-            [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
-            for options.
+    :arg add_config: Any additional configuration properties. See the
+        `rdkafka`
+        [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+        for options.
 
-        batch_size: How many messages to consume at most at each poll.
+    :arg batch_size: How many messages to consume at most at each
+        poll.
 
-    Returns:
-        A stream of consumed items and a stream of consumer errors.
+    :returns: A stream of consumed items and a stream of consumer
+        errors.
 
     """
     return op.input(
@@ -149,22 +149,21 @@ def output(
     Can support at-least-once processing. Messages from the resume
     epoch will be duplicated right after resume.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream of fully serialized messages. Key and value must be
-            `bytewax.connectors.kafka.MaybeStrBytes`.
+    :arg up: Stream of fully serialized messages. Key and value must
+        be {py:obj}`~bytewax.connectors.kafka.MaybeStrBytes`.
 
-        brokers: List of `host:port` strings of Kafka brokers.
+    :arg brokers: List of `host:port` strings of Kafka brokers.
 
-        topic: Topic to produce to. If individual items have
-            `bytewax.connectors.kafka.KafkaSinkMessage.topic` set,
-            will override this per-message.
+    :arg topic: Topic to produce to. If individual items have
+        {py:obj}`~bytewax.connectors.kafka.KafkaSinkMessage.topic`
+        set, will override this per-message.
 
-        add_config: Any additional configuration properties. See the
-            `rdkafka`
-            [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
-            for options.
+    :arg add_config: Any additional configuration properties. See the
+        `rdkafka`
+        [docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md)
+        for options.
 
     """
     return _to_sink("to_sink", up).then(
@@ -180,15 +179,13 @@ def deserialize_key(
 ) -> KafkaOpOut[KafkaSourceMessage[K2, V], KafkaError[K, V]]:
     """Deserialize Kafka message keys.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream.
+    :arg up: Stream.
 
-        deserializer: To use.
+    :arg deserializer: To use.
 
-    Returns:
-        Stream of deserialized messages and a stream of
+    :returns: Stream of deserialized messages and a stream of
         deserialization errors.
 
     """
@@ -217,15 +214,13 @@ def deserialize_value(
 ) -> KafkaOpOut[KafkaSourceMessage[K, V2], KafkaError[K, V]]:
     """Deserialize Kafka message values.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream.
+    :arg up: Stream.
 
-        deserializer: To use.
+    :arg deserializer: To use.
 
-    Returns:
-        Stream of deserialized messages and a stream of
+    :returns: Stream of deserialized messages and a stream of
         deserialization errors.
 
     """
@@ -258,17 +253,15 @@ def deserialize(
     If there is an error on deserializing either key or value, the
     original message will be attached to the error.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream.
+    :arg up: Stream.
 
-        key_deserializer: To use.
+    :arg key_deserializer: To use.
 
-        val_deserializer: To use.
+    :arg val_deserializer: To use.
 
-    Returns:
-        Stream of deserialized messages and a stream of
+    :returns: Stream of deserialized messages and a stream of
         deserialization errors.
 
     """
@@ -309,17 +302,15 @@ def serialize_key(
     If there is an error on serializing, this operator will raise an
     exception.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream. Will automatically convert source messages to sink
-            messages via
-            `bytewax.connectors.kafka.KafkaSourceMessage.to_sink`.
+    :arg up: Stream. Will automatically convert source messages to
+        sink messages via
+        {py:obj}`~bytewax.connectors.kafka.KafkaSourceMessage.to_sink`.
 
-        serializer: To use.
+    :arg serializer: To use.
 
-    Returns:
-        Stream of serialized messages.
+    :returns: Stream of serialized messages.
 
     """
 
@@ -341,17 +332,15 @@ def serialize_value(
     If there is an error on serializing, this operator will raise an
     exception.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream. Will automatically convert source messages to sink
-            messages via
-            `bytewax.connectors.kafka.KafkaSourceMessage.to_sink`.
+    :arg up: Stream. Will automatically convert source messages to
+        sink messages via
+        {py:obj}`~bytewax.connectors.kafka.KafkaSourceMessage.to_sink`.
 
-        serializer: To use.
+    :arg serializer: To use.
 
-    Returns:
-        Stream of serialized messages.
+    :returns: Stream of serialized messages.
 
     """
 
@@ -375,19 +364,17 @@ def serialize(
     If there is an error on serializing, this operator will raise an
     exception.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream. Will automatically convert source messages to sink
-            messages via
-            `bytewax.connectors.kafka.KafkaSourceMessage.to_sink`.
+    :arg up: Stream. Will automatically convert source messages to
+        sink messages via
+        {py:obj}`~bytewax.connectors.kafka.KafkaSourceMessage.to_sink`.
 
-        key_serializer: To use.
+    :arg key_serializer: To use.
 
-        val_serializer: To use.
+    :arg val_serializer: To use.
 
-    Returns:
-        Stream of serialized messages.
+    :returns: Stream of serialized messages.
 
     """
 

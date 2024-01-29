@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from itertools import islice
-from typing import Any, Iterable, Iterator, List, Optional, TypeVar, Union
+from typing import Any, Iterable, Iterator, List, Optional, Union
 
 from typing_extensions import override
 
@@ -15,6 +15,7 @@ from bytewax.inputs import (
     AbortExecution,
     FixedPartitionedSource,
     StatefulSourcePartition,
+    X,
 )
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
 from bytewax.recovery import RecoveryConfig
@@ -34,17 +35,13 @@ __all__ = [
     "run_main",
 ]
 
-X = TypeVar("X")
-
 
 def ffwd_iter(it: Iterator[Any], n: int) -> None:
     """Skip an iterator forward some number of items.
 
-    Args:
-        it:
-            A stateful iterator to advance.
-        n:
-            Number of items to skip from the current position.
+    :arg it: A stateful iterator to advance.
+
+    :arg n: Number of items to skip from the current position.
 
     """
     # Taken from `consume`
@@ -161,11 +158,10 @@ class TestingSource(FixedPartitionedSource[X, int]):
     def __init__(self, ib: Iterable[Union[X, EOF, ABORT]], batch_size: int = 1):
         """Init.
 
-        Args:
-            ib: Iterable for input.
+        :arg ib: Iterable for input.
 
-            batch_size: Number of items from the iterable to emit in
-                each batch. Defaults to 1.
+        :arg batch_size: Number of items from the iterable to emit in
+            each batch. Defaults to 1.
 
         """
         self._ib = ib
@@ -206,8 +202,8 @@ class TestingSink(DynamicSink[X]):
     def __init__(self, ls: List[X]):
         """Init.
 
-        Args:
-            ls: List to append to.
+        :arg ls: List to append to.
+
         """
         self._ls = ls
 
@@ -217,23 +213,20 @@ class TestingSink(DynamicSink[X]):
 
 
 def poll_next_batch(part, timeout=timedelta(seconds=5)):
-    """Repeatedly poll an input source until it returns a batch.
+    """Repeatedly poll a partition until it returns a batch.
 
-    You'll want to use this in unit tests of sources when there's some
-    non-determinism in how items are read.
+    You'll want to use this in unit tests of partitions when there's
+    some non-determinism in how items are read.
 
     This is a busy-loop.
 
-    Args:
-        part: To call `next` on.
+    :arg part: To call `next_batch` on.
 
-        timeout: How long to continuously poll for.
+    :arg timeout: How long to continuously poll for.
 
-    Returns:
-        The next batch found.
+    :returns: The next batch found.
 
-    Raises:
-        TimeoutError: If no batch was returned within the timeout.
+    :raises TimeoutError: If no batch was returned within the timeout.
 
     """
     batch = []

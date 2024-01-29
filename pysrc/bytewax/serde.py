@@ -6,11 +6,6 @@ from typing import Any, cast
 import jsonpickle
 from typing_extensions import override
 
-__all__ = [
-    "JsonPickleSerde",
-    "Serde",
-]
-
 
 class Serde(ABC):
     """A serialization format.

@@ -29,10 +29,21 @@ from bytewax.dataflow import (
     Stream,
     operator,
 )
-from bytewax.operators import KeyedStream, _identity, _JoinState, _untyped_none
+from bytewax.operators import (
+    KeyedStream,
+    S,
+    V,
+    X,
+    _identity,
+    _JoinState,
+    _untyped_none,
+)
 
 __all__ = [
+    "C",
     "ClockConfig",
+    "DK",
+    "DV",
     "EventClockConfig",
     "SessionWindow",
     "SlidingWindow",
@@ -50,13 +61,17 @@ __all__ = [
     "reduce_window",
 ]
 
+
 C = TypeVar("C", bound=Iterable)
-K = TypeVar("K")
-X = TypeVar("X")  # Item
-Y = TypeVar("Y")  # Output Item
-V = TypeVar("V")  # Value
-W = TypeVar("W")  # Output Value
-S = TypeVar("S")  # State
+"""Type of downstream containers."""
+
+
+DK = TypeVar("DK")
+"""Type of {py:obj}`dict` keys."""
+
+
+DV = TypeVar("DV")
+"""Type of {py:obj}`dict` values."""
 
 
 def _list_collector(s: List[V], v: V) -> List[V]:
@@ -69,7 +84,7 @@ def _set_collector(s: Set[V], v: V) -> Set[V]:
     return s
 
 
-def _dict_collector(s: Dict[K, V], k_v: Tuple[K, V]) -> Dict[K, V]:
+def _dict_collector(s: Dict[DK, DV], k_v: Tuple[DK, DV]) -> Dict[DK, DV]:
     k, v = k_v
     s[k] = v
     return s
@@ -125,11 +140,11 @@ def collect_window(
 @overload
 def collect_window(
     step_id: str,
-    up: KeyedStream[Tuple[K, V]],
+    up: KeyedStream[Tuple[DK, DV]],
     clock: ClockConfig,
     windower: WindowConfig,
     into: Type[Dict],
-) -> KeyedStream[Tuple[WindowMetadata, Dict[K, V]]]:
+) -> KeyedStream[Tuple[WindowMetadata, Dict[DK, DV]]]:
     ...
 
 
@@ -143,22 +158,21 @@ def collect_window(
 ) -> KeyedStream[Tuple[WindowMetadata, C]]:
     """Collect items in a window into a container.
 
-    See `bytewax.operators.collect` for the ability to set a max size.
+    See {py:obj}`bytewax.operators.collect` for the ability to set a
+    max size.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream of items to count.
+    :arg up: Stream of items to count.
 
-        clock: Clock.
+    :arg clock: Clock.
 
-        windower: Windower.
+    :arg windower: Windower.
 
-        into: Type to collect into. Defaults to `list`.
+    :arg into: Type to collect into. Defaults to {py:obj}`list`.
 
-    Returns:
-        A keyed stream of the collected containers at the end of each
-        window.
+    :returns: A keyed stream of the collected containers at the end of
+        each window.
 
     """
     collector = _get_collector(into)
@@ -176,21 +190,20 @@ def count_window(
 ) -> KeyedStream[Tuple[WindowMetadata, int]]:
     """Count the number of occurrences of items in a window.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Stream of items to count.
+    :arg up: Stream of items to count.
 
-        clock: Clock.
+    :arg clock: Clock.
 
-        windower: Windower.
+    :arg windower: Windower.
 
-        key: Function to convert each item into a string key. The
-            counting machinery does not compare the items directly,
-            instead it groups by this string key.
+    :arg key: Function to convert each item into a string key. The
+        counting machinery does not compare the items directly,
+        instead it groups by this string key.
 
-    Returns:
-        A stream of `(key, count)` per window at the end of each window.
+    :returns: A stream of `(key, count)` per window at the end of each
+        window.
 
     """
 
@@ -215,27 +228,25 @@ def fold_window(
 ) -> KeyedStream[Tuple[WindowMetadata, S]]:
     """Build an empty accumulator, then combine values into it.
 
-    It is like `reduce_window` but uses a function to build the initial
-    value.
+    It is like {py:obj}`reduce_window` but uses a function to build
+    the initial value.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Keyed stream.
+    :arg up: Keyed stream.
 
-        clock: Clock.
+    :arg clock: Clock.
 
-        windower: Windower.
+    :arg windower: Windower.
 
-        builder: Called the first time a key appears and is expected
-            to return the empty accumulator for that key.
+    :arg builder: Called the first time a key appears and is expected
+        to return the empty accumulator for that key.
 
-        folder: Combines a new value into an existing accumulator and
-            returns the updated accumulator. The accumulator is
-            initially the empty accumulator.
+    :arg folder: Combines a new value into an existing accumulator and
+        returns the updated accumulator. The accumulator is initially
+        the empty accumulator.
 
-    Returns:
-        A keyed stream of the accumulators once each window has
+    :returns: A keyed stream of the accumulators once each window has
         closed.
 
     """
@@ -282,23 +293,21 @@ def join_window(
 ) -> KeyedStream[Tuple[WindowMetadata, Tuple]]:
     """Gather together the value for a key on multiple streams.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        clock: Clock.
+    :arg clock: Clock.
 
-        windower: Windower.
+    :arg windower: Windower.
 
-        *sides: Keyed streams.
+    :arg *sides: Keyed streams.
 
-        product: When `True`, emit all combinations of all values seen
-            on all sides. E.g. if side 1 saw `"A"` and `"B"`, and side
-            2 saw `"C"`: emit `("A", "C")`, `("B", "C")` downstream.
-            Defaults to `False`.
+    :arg product: When `True`, emit all combinations of all values
+        seen on all sides. E.g. if side 1 saw `"A"` and `"B"`, and
+        side 2 saw `"C"`: emit `("A", "C")`, `("B", "C")` downstream.
+        Defaults to `False`.
 
-    Returns:
-        Emits tuples with the value from each stream in the order of
-        the argument list once each window has closed.
+    :returns: Emits tuples with the value from each stream in the
+        order of the argument list once each window has closed.
 
     """
     named_sides = dict((str(i), s) for i, s in enumerate(sides))
@@ -349,25 +358,22 @@ def join_window_named(
 ) -> KeyedStream[Tuple[WindowMetadata, Dict[str, Any]]]:
     """Gather together the value for a key on multiple named streams.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        clock: Clock.
+    :arg clock: Clock.
 
-        windower: Windower.
+    :arg windower: Windower.
 
-        product: When `True`, emit all combinations of all values seen
-            on all sides. E.g. if side `right` saw `"A"` and `"B"`,
-            and side `left` saw `"C"`: emit `{"right": "A", "left":
-            "C"}`, `{"right": "B", "left": "C"}` downstream. Defaults
-            to `False`.
+    :arg product: When `True`, emit all combinations of all values
+        seen on all sides. E.g. if side `right` saw `"A"` and `"B"`,
+        and side `left` saw `"C"`: emit `{"right": "A", "left": "C"}`,
+        `{"right": "B", "left": "C"}` downstream. Defaults to `False`.
 
-        **sides: Named keyed streams. The name of each stream will be
-            used in the emitted `dict`s.
+    :arg **sides: Named keyed streams. The name of each stream will be
+        used in the emitted {py:obj}`dict`s.
 
-    Returns:
-        Emits a `dict` mapping the name to the value from each stream
-        once each window has closed.
+    :returns: Emits a {py:obj}`dict` mapping the name to the value
+        from each stream once each window has closed.
 
     """
     names = list(sides.keys())
@@ -435,20 +441,19 @@ def max_window(
 ) -> KeyedStream[Tuple[WindowMetadata, V]]:
     """Find the minumum value for each key.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Keyed stream.
+    :arg up: Keyed stream.
 
-        clock: Clock.
+    :arg clock: Clock.
 
-        windower: Windower.
+    :arg windower: Windower.
 
-        by: A function called on each value that is used to extract
-            what to compare.
+    :arg by: A function called on each value that is used to extract
+        what to compare.
 
-    Returns:
-        A keyed stream of the min values once each window has closed.
+    :returns: A keyed stream of the min values once each window has
+        closed.
 
     """
     return reduce_window("reduce_window", up, clock, windower, partial(max, key=by))
@@ -482,20 +487,19 @@ def min_window(
 ) -> KeyedStream[Tuple[WindowMetadata, V]]:
     """Find the minumum value for each key.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Keyed stream.
+    :arg up: Keyed stream.
 
-        clock: Clock.
+    :arg clock: Clock.
 
-        windower: Windower.
+    :arg windower: Windower.
 
-        by: A function called on each value that is used to extract
-            what to compare.
+    :arg by: A function called on each value that is used to extract
+        what to compare.
 
-    Returns:
-        A keyed stream of the min values once each window has closed.
+    :returns: A keyed stream of the min values once each window has
+        closed.
 
     """
     return reduce_window("reduce_window", up, clock, windower, partial(min, key=by))
@@ -511,24 +515,22 @@ def reduce_window(
 ) -> KeyedStream[Tuple[WindowMetadata, V]]:
     """Distill all values for a key down into a single value.
 
-    It is like `fold_window` but the first value is the initial
-    accumulator.
+    It is like {py:obj}`fold_window` but the first value is the
+    initial accumulator.
 
-    Args:
-        step_id: Unique ID.
+    :arg step_id: Unique ID.
 
-        up: Keyed stream.
+    :arg up: Keyed stream.
 
-        clock: Clock.
+    :arg clock: Clock.
 
-        windower: Windower.
+    :arg windower: Windower.
 
-        reducer: Combines a new value into an old value and returns
-            the combined value.
+    :arg reducer: Combines a new value into an old value and returns
+        the combined value.
 
-    Returns:
-        A keyed stream of the reduced values once each window has
-        closed.
+    :returns: A keyed stream of the reduced values once each window
+        has closed.
 
     """
 

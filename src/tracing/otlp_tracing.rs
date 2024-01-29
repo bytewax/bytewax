@@ -24,14 +24,18 @@ use super::TracingConfig;
 /// This is the recommended approach since it allows the maximum
 /// flexibility in what to do with all the data bytewax can generate.
 ///
-/// Args:
-///   service_name (str): Identifies this dataflow in Otlp.
+/// :arg service_name: Identifies this dataflow in OTLP.
 ///
-///   url (typing.Optional[str]): Connection info. Defaults to
-///     `"grpc:://127.0.0.1:4317"`.
+/// :type service_name: str
 ///
-///   sampling_ratio (float): Fraction of traces to send between `0.0`
-///     and `1.0`.
+/// :arg url: Connection info. Defaults to `"grpc:://127.0.0.1:4317"`.
+///
+/// :type url: str
+///
+/// :arg sampling_ratio: Fraction of traces to send between `0.0` and
+///     `1.0`.
+///
+/// :type sampling_ratio: float
 #[pyclass(module="bytewax.tracing", extends=TracingConfig)]
 #[derive(Clone)]
 pub(crate) struct OtlpTracingConfig {

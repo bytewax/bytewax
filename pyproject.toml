@@ -28,7 +28,6 @@ dependencies = [
 extras = [
     "cbfmt",
     "dev",
-    "docs",
     "kafka",
     "test",
 ]
@@ -37,11 +36,8 @@ extras = [
 cbfmt = [
     "ruff==0.1.8",
 ]
-docs = [
-    "pdoc3==0.10.0",
-]
 dev = [
-    "bytewax[cbfmt,docs,kafka,test]",
+    "bytewax[cbfmt,kafka,test]",
     "astor==0.8.1 ; python_version <= '3.8'",
     "graphlib_backport==1.0.3 ; python_version <= '3.8'",
     "pre-commit==2.19.0",
@@ -72,8 +68,6 @@ long_description_content_type = "text/markdown"
 addopts = "-v --doctest-modules"
 doctest_optionflags = "NORMALIZE_WHITESPACE"
 testpaths = [
-    "docs",
-    "pysrc",
     "pytests",
 ]
 

@@ -12,8 +12,9 @@ use super::*;
 /// Sliding windows of fixed duration.
 ///
 /// If `offset == length`, windows cover all time but do not overlap.
-/// Each item will fall in exactly one window. The `TumblingWindow`
-/// config will do this for you.
+/// Each item will fall in exactly one window. This would be
+/// equivalent to a
+/// {py:obj}`~bytewax.operators.window.TumblingWindow`.
 ///
 /// If `offset < length`, windows overlap. Each item will fall in
 /// multiple windows.
@@ -23,19 +24,22 @@ use super::*;
 ///
 /// Window start times are inclusive, but end times are exclusive.
 ///
-/// Args:
-///   length (datetime.timedelta): Length of windows.
+/// :arg length: Length of windows.
 ///
-///   offset (datetime.timedelta): Duration between start times of
-///     adjacent windows.
+/// :type length: datetime.timedelta
 ///
-///   align_to (datetime.datetime): Align windows so this instant
-///     starts a window. This must be a constant. You can use this to
-///     align all windows to hour boundaries, e.g.
+/// :arg offset: Duration between start times of adjacent windows.
 ///
-/// Returns:
-///   Config object. Pass this as the `window_config` parameter to
-///   your windowing operator.
+/// :type offset: datetime.timedelta
+///
+/// :arg align_to: Align windows so this instant starts a window. This
+///     must be a constant. You can use this to align all windows to
+///     hour boundaries, e.g.
+///
+/// :type align_to: datetime.datetime
+///
+/// :returns: Config object. Pass this as the `window_config`
+///     parameter to your windowing operator.
 #[pyclass(module="bytewax.window", extends=WindowConfig)]
 #[derive(Clone)]
 pub(crate) struct SlidingWindow {

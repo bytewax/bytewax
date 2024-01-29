@@ -11,14 +11,6 @@ from typing_extensions import override
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch
 from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
 
-__all__ = [
-    "CSVSource",
-    "DirSink",
-    "DirSource",
-    "FileSink",
-    "FileSource",
-]
-
 
 def _get_path_dev(path: Path) -> str:
     return hex(path.stat().st_dev)
@@ -71,7 +63,7 @@ class DirSource(FixedPartitionedSource[str, int]):
     have unique files at overlapping paths if each worker mounts a
     distinct filesystem. Tries to read only one instance of each
     unique file in the whole cluster by deduplicating paths by
-    filesystem ID. See `get_fs_id` to adjust this.
+    filesystem ID. See `get_fs_id` argument to adjust this.
 
     Unique files are the unit of parallelism; only one worker will
     read each unique file. Thus, lines from different files are
@@ -90,23 +82,22 @@ class DirSource(FixedPartitionedSource[str, int]):
     ):
         """Init.
 
-        Args:
-            dir_path: Path to directory.
+        :arg dir_path: Path to directory.
 
-            glob_pat: Pattern of files to read from the directory.
-                Defaults to `"*"` or all files.
+        :arg glob_pat: Pattern of files to read from the directory.
+            Defaults to `"*"` or all files.
 
-            batch_size: Number of lines to read per batch. Defaults to
-                1000.
+        :arg batch_size: Number of lines to read per batch. Defaults
+            to 1000.
 
-            get_fs_id: Called with the directory and must return a
-                consistent (across workers and restarts) unique ID for
-                the filesystem of that directory. Defaults to using
-                `os.stat_result.st_dev`.
+        :arg get_fs_id: Called with the directory and must return a
+            consistent (across workers and restarts) unique ID for the
+            filesystem of that directory. Defaults to using
+            {py:obj}`os.stat_result.st_dev`.
 
-                If you know all workers have access to identical
-                files, you can have this return a constant: `lambda
-                _dir: "SHARED"`.
+            If you know all workers have access to identical files,
+            you can have this return a constant: `lambda _dir:
+            "SHARED"`.
 
         """
         if not dir_path.exists():
@@ -150,7 +141,7 @@ class FileSource(FixedPartitionedSource[str, int]):
     unique file at the path if each worker mounts a distinct
     filesystem. Tries to read only one instance of each unique file in
     the whole cluster by deduplicating paths by filesystem ID. See
-    `get_fs_id` to adjust this.
+    `get_fs_id` argument to adjust this.
 
     Unique files are the unit of parallelism; only one worker will
     read each unique file. Thus, lines from different files are
@@ -166,20 +157,19 @@ class FileSource(FixedPartitionedSource[str, int]):
     ):
         """Init.
 
-        Args:
-            path: Path to file.
+        :arg path: Path to file.
 
-            batch_size: Number of lines to read per batch. Defaults to
-                1000.
+        :arg batch_size: Number of lines to read per batch. Defaults
+            to 1000.
 
-            get_fs_id: Called with the parent directory and must
-                return a consistent (across workers and restarts)
-                unique ID for the filesystem of that directory.
-                Defaults to using `os.stat_result.st_dev`.
+        :arg get_fs_id: Called with the parent directory and must
+            return a consistent (across workers and restarts) unique
+            ID for the filesystem of that directory. Defaults to using
+            {py:obj}`os.stat_result.st_dev`.
 
-                If you know all workers have access to identical
-                files, you can have this return a constant: `lambda
-                _dir: "SHARED"`.
+            If you know all workers have access to identical files,
+            you can have this return a constant: `lambda _dir:
+            "SHARED"`.
 
         """
         if not isinstance(path, Path):
@@ -246,7 +236,7 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
     unique file at the path if each worker mounts a distinct
     filesystem. Tries to read only one instance of each unique file in
     the whole cluster by deduplicating paths by filesystem ID. See
-    `get_fs_id` to adjust this.
+    `get_fs_id` argument to adjust this.
 
     Unique files are the unit of parallelism; only one worker will
     read each unique file. Thus, lines from different files are
@@ -263,7 +253,7 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
 
     Sample output:
 
-    ```
+    ```json
     {
         "index": "0",
         "timestamp": "2022-02-24 11:42:08",
@@ -283,7 +273,6 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
         "instance": "ac20cd",
     }
     ```
-
     """
 
     def __init__(
@@ -295,24 +284,22 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
     ):
         """Init.
 
-        Args:
-            path: Path to file.
+        :arg path: Path to file.
 
-            batch_size: Number of lines to read per batch. Defaults to
-                1000.
+        :arg batch_size: Number of lines to read per batch. Defaults
+            to 1000.
 
-            get_fs_id: Called with the parent directory and must
-                return a consistent (across workers and restarts)
-                unique ID for the filesystem of that directory.
-                Defaults to using `os.stat_result.st_dev`.
+        :arg get_fs_id: Called with the parent directory and must
+            return a consistent (across workers and restarts) unique
+            ID for the filesystem of that directory. Defaults to using
+            {py:obj}`os.stat_result.st_dev`.
 
-                If you know all workers have access to identical
-                files, you can have this return a constant: `lambda
-                _dir: "SHARED"`.
+            If you know all workers have access to identical files,
+            you can have this return a constant: `lambda _dir:
+            "SHARED"`.
 
-            **fmtparams: Any custom formatting arguments you can pass
-                to
-                [`csv.reader`](https://docs.python.org/3/library/csv.html?highlight=csv#csv.reader).
+        :arg **fmtparams: Any custom formatting arguments you can pass
+            to {py:obj}`csv.reader`.
 
         """
         self._file_source = FileSource(path, batch_size, get_fs_id)
@@ -389,24 +376,23 @@ class DirSink(FixedPartitionedSink[str, int]):
     ):
         """Init.
 
-        Args:
-            dir_path:
-                Path to directory.
-            file_count:
-                Number of separate partition files to create.
-            file_namer:
-                Will be called with two arguments, the file index and
-                total file count, and must return the file name to use
-                for that file partition. Defaults to naming files like
-                `"part_{i}"`, where `i` is the file index.
-            assign_file:
-                Will be called with the key of each consumed item and
-                must return the file index the value will be written
-                to. Will wrap to the file count if you return a larger
-                value. Defaults to calling `zlib.adler32` as a simple
-                globally-consistent hash.
-            end:
-                String to write after each item. Defaults to newline.
+        :arg dir_path: Path to directory.
+
+        :arg file_count: Number of separate partition files to create.
+
+        :arg file_namer: Will be called with two arguments, the file
+            index and total file count, and must return the file name
+            to use for that file partition. Defaults to naming files
+            like `"part_{i}"`, where `i` is the file index.
+
+        :arg assign_file: Will be called with the key of each consumed
+            item and must return the file index the value will be
+            written to. Will wrap to the file count if you return a
+            larger value. Defaults to calling {py:obj}`zlib.adler32`
+            as a simple globally-consistent hash.
+
+        :arg end: String to write after each item. Defaults to
+            newline.
 
         """
         self._dir_path = dir_path
@@ -451,11 +437,11 @@ class FileSink(FixedPartitionedSink[str, int]):
     def __init__(self, path: Path, end: str = "\n"):
         """Init.
 
-        Args:
-            path:
-                Path to file.
-            end:
-                String to write after each item. Defaults to newline.
+        :arg path: Path to file.
+
+        :arg end: String to write after each item. Defaults to
+            newline.
+
         """
         self._path = path
         self._end = end

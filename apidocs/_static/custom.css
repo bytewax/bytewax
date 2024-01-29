@@ -1,0 +1,44 @@
+a.reference {
+    border: 0px;
+}
+
+a.reference:hover {
+    border: 0px;
+    text-decoration: underline;
+}
+
+a:visited {
+    color: #334ac0;
+}
+
+a:hover code {
+    background: #f5f2f0;
+}
+
+code {
+    color: inherit;
+    background-color: #f5f2f0;
+}
+
+code.xref {
+    background-color: #f5f2f0;
+    border: 0px;
+    font-weight: inherit;
+}
+
+.sig {
+    font-family: JetBrains Mono, Consolas, Monaco, Andale Mono, Ubuntu Mono, monospace;
+    background-color: #f5f2f0;
+}
+
+.sig-name {
+    font-size: inherit;
+}
+
+div.sphinxsidebar a {
+    border: 0px;
+}
+
+div.sphinxsidebar a:hover {
+    border: 0px;
+}
