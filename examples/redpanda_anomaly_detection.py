@@ -54,23 +54,34 @@ class AnomalyDetector(anomaly.HalfSpaceTrees):
 
     def update(self, data):
         self.learn_one({"value": data["value"]})
-        data["score"] = self.score_one({"value": data["value"]})
-        if data["score"] > 0.7:
-            data["anom"] = 1
-        else:
-            data["anom"] = 0
-        return self, (
-            data["index"],
-            data["timestamp"],
-            data["value"],
-            data["score"],
-            data["anom"],
-        )
+
+    def score(self, data):
+        return self.score_one({"value": data["value"]})
 
 
-anomaly_stream = op.stateful_map(
-    "anom", normalized_stream, lambda: AnomalyDetector(), AnomalyDetector.update
-)
+def mapper(state, data):
+    if state is None:
+        state = AnomalyDetector()
+
+    state.update(data)
+
+    data["score"] = state.score(data)
+    if data["score"] > 0.7:
+        data["anom"] = 1
+    else:
+        data["anom"] = 0
+
+    emit = (
+        data["index"],
+        data["timestamp"],
+        data["value"],
+        data["score"],
+        data["anom"],
+    )
+    return (state, emit)
+
+
+anomaly_stream = op.stateful_map("anom", normalized_stream, mapper)
 # (("fe7f93", {"index": "1", "value":0.08, "instance":"fe7f93", "score":0.02}))
 
 

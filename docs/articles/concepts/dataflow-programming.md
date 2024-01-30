@@ -493,11 +493,10 @@ keyed_inp = op.key_on("key", inp, lambda msg: str(msg["user_id"]))
 keyed_amounts = op.map_value("pick_amount", keyed_inp, lambda msg: msg["txn_amount"])
 
 
-def running_builder():
-    return []
-
-
 def calc_running_mean(values, new_value):
+    if values is None:
+        values = []
+
     values.append(new_value)
     while len(values) > 3:
         values.pop(0)
@@ -506,9 +505,7 @@ def calc_running_mean(values, new_value):
     return (values, running_mean)
 
 
-running_means = op.stateful_map(
-    "running_mean", keyed_amounts, running_builder, calc_running_mean
-)
+running_means = op.stateful_map("running_mean", keyed_amounts, calc_running_mean)
 op.inspect("check_running_mean", running_means)
 run_main(flow)
 ```
@@ -547,11 +544,10 @@ keyed_inp = op.key_on("key", inp, lambda msg: str(msg["user_id"]))
 keyed_amounts = op.map_value("pick_amount", keyed_inp, lambda msg: msg["txn_amount"])
 
 
-def running_builder():
-    return []
-
-
 def calc_running_mean(values, new_value):
+    if values is None:
+        values = []
+
     print("Before state:", values)
 
     print("New value:", new_value)
@@ -567,9 +563,7 @@ def calc_running_mean(values, new_value):
     return (values, running_mean)
 
 
-running_means = op.stateful_map(
-    "running_mean", keyed_amounts, running_builder, calc_running_mean
-)
+running_means = op.stateful_map("running_mean", keyed_amounts, calc_running_mean)
 op.inspect("check_running_mean", running_means)
 run_main(flow)
 ```
