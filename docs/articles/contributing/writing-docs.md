@@ -191,6 +191,51 @@ Appears as:
 
 > This operator returns a {py:obj}`~bytewax.dataflow.Stream`.
 
+#### Intersphinx
+
+[Intersphinx](https://www.sphinx-doc.org/en/master/usage/extensions/intersphinx.html)
+is the system for Sphinx to connect different documentation systems
+together. The Sphinx config is already configured to have a few of our
+dependencies including the Python standard library connected.
+
+##### API Docs
+
+For most external Python types, you can use the same xref syntax as
+within Bytewax:
+
+```markdown
+See the standard library function {py:obj}`functools.reduce`.
+```
+
+Appears as:
+
+> See the standard library function {py:obj}`functools.reduce`.
+
+##### Other References
+
+Other references use a more explicit system. You use URIs starting
+with `inv:`, then the name of the inventory in the `/docs/conf.py`
+`intersphinx_mapping`, then the domain, then the item name.
+
+```markdown
+Learn about [lambdas](inv:python:std:label#tut-lambda).
+```
+
+Appears as:
+
+> Learn about [lambdas](inv:python:std:label#tut-lambda).
+
+##### Finding Reference Names
+
+If you don't know the exact xref incantation, you can use the included
+dump tool to fuzzy search with
+[`fzf`](https://github.com/junegunn/fzf) over all the xrefs to find
+the one you want.
+
+```console
+$ PIPENV_IGNORE_VIRTUALENVS=1 pipenv run python ./intersphinxdump.py | fzf
+```
+
 ### Example Code
 
 Use backtick code blocks with the `python` language type.

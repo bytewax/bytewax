@@ -48,7 +48,7 @@ intersphinx_mapping = {
     ),
     "fastavro": ("https://fastavro.readthedocs.io/en/latest/", None),
     "myst": ("https://myst-parser.readthedocs.io/en/latest/", None),
-    "python": ("https://docs.python.org/3", None),
+    "python": ("https://docs.python.org/3/", None),
     "sphinx": ("https://www.sphinx-doc.org/en/master/", None),
     "typing_extensions": ("https://typing-extensions.readthedocs.io/en/latest/", None),
 }

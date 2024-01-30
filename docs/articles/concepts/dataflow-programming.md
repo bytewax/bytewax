@@ -645,17 +645,14 @@ need to do, but any callable value can be used as-is, though!
 This means you can use the following existing callables to help you
 make code more concise:
 
-- [Built-in
-  functions](https://docs.python.org/3/library/functions.html)
+- [Built-in functions](inv:python:std:label#builtin-functions)
 
-- [Constructors or
-  `__init__`](https://docs.python.org/3/tutorial/classes.html#class-objects)
+- [Constructors or `__init__`](inv:python:std:label#tut-classobjects)
 
-- [Methods](https://docs.python.org/3/glossary.html#term-method)
+- [Methods](inv:python:std:term#method)
 
-You can also use
-[lambdas](https://docs.python.org/3/tutorial/controlflow.html#lambda-expressions)
-to quickly define one-off anonymous functions for simple custom logic.
+You can also use [lambdas](inv:python:std:label#tut-lambda) to quickly
+define one-off anonymous functions for simple custom logic.
 
 For example, all of the following dataflows are equivalent.
 
