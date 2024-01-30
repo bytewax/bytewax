@@ -1,3 +1,4 @@
+(getting-started)=
 # Simple Example
 
 Let's write our first Bytewax dataflow. Be sure that you've followed
