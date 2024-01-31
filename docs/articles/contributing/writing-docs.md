@@ -5,6 +5,18 @@ built using [Sphinx](https://www.sphinx-doc.org/en/master/) and
 [MyST](https://myst-parser.readthedocs.io/en/latest/index.html) for
 Markdown parsing.
 
+## Adding Articles
+
+Articles for the user guide live in `/docs/articles` and
+sub-directories within. You can add new Markdown files to add a new
+article, but they must be added to a [Sphinx table of
+contents](https://www.sphinx-doc.org/en/master/usage/restructuredtext/directives.html#toctree-directive)
+to know where to add them in the document hierarchy. (Sphinx does not
+require the directory structure to match the document structure.)
+
+The TOC for the user guide is in `/docs/articles/index.md`. You can
+add a new line with the path of that file the appropriate sub-section.
+
 ## MyST Cheat Sheet
 
 Here's a quick rundown of common things in MyST flavored Markdown.
@@ -218,17 +230,17 @@ with `inv:`, then the name of the inventory in the `/docs/conf.py`
 `intersphinx_mapping`, then the domain, then the item name.
 
 ```markdown
-Learn about [lambdas](inv:python:std:label#tut-lambda).
+Learn about [how to use lambdas](inv:python:std:label#tut-lambda).
 ```
 
 Appears as:
 
-> Learn about [lambdas](inv:python:std:label#tut-lambda).
+> Learn about [how to use lambdas](inv:python:std:label#tut-lambda).
 
 ##### Finding Reference Names
 
 If you don't know the exact xref incantation, you can use the included
-dump tool to fuzzy search with
+dump tool to fuzzy search with `grep` or
 [`fzf`](https://github.com/junegunn/fzf) over all the xrefs to find
 the one you want.
 
@@ -245,6 +257,12 @@ Use backtick code blocks with the `python` language type.
 flow = Dataflow()
 ```
 ````
+
+Appears as:
+
+```python
+flow = Dataflow()
+```
 
 ### Shell Sessions
 
