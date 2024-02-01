@@ -1,36 +1,14 @@
 (custom-connectors)=
 # Custom IO Connectors
 
-* why
-* how
-* tips
-* common issues and performance pitfalls to avoid
-* when to use python and when to go lower to rust
-* how to debug and make sure it's working
-* example code snippets and repos
+More documentation here is forthcoming.
 
-## Partitioned Source
+For now look at {py:obj}`bytewax.inputs.FixedPartitionedSource` and
+{py:obj}`bytewax.inputs.DynamicSource` for inputs and
+{py:obj}`bytewax.outputs.FixedPartitionedSink` and
+{py:obj}`bytewax.outputs.DynamicSink` for outputs for the abstract
+base classes you need to implement.
 
-TODO.
-
-## Dynamic Source
-
-TODO.
-
-## Custom Input Connectors
-
-TODO Subclass the types here to implement input for your own custom
-source.
-
-## Partitioned Sink
-
-TODO.
-
-## Dynamic Sink
-
-TODO.
-
-## Custom Input Connectors
-
-TODO Subclass the types here to implement input for your own custom
-source.
+Also check out some of our built-in custom connectors in
+{py:obj}`bytewax.connectors` and looking at the source for how they
+are implemented.

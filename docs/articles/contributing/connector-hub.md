@@ -65,8 +65,8 @@ concepts:
 ## Advanced Connector Concepts
 
 For more technical details on how to work with custom IO for Bytewax,
-please refer to the [custom connector
-documentation](/articles/advanced-concepts/custom-connectors.md)
+please refer to the
+<project:/articles/advanced-concepts/custom-connectors.md>.
 
 ### Partitions
 
@@ -84,10 +84,6 @@ possible.
 
 - **State Management**: Ensure that each partition maintains its state
   independently.
-
-For more detail on input and output API design and how partitions
-work, check the [detailed
-documentation](/articles/concepts/inputs-outputs.md).
 
 ### Recovery
 

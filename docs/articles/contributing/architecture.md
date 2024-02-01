@@ -1,8 +1,6 @@
-# Architecture
+# Architecture History
 
-## Bytewax from 10,000 feet
-
-### Timely Roots
+## Timely Roots
 
 Bytewax has its roots in the Rust project [Timely
 Dataflow](https://github.com/TimelyDataflow/timely-dataflow) and
@@ -54,7 +52,7 @@ Dataflow](https://github.com/TimelyDataflow/differential-dataflow) and
 Derek went on to bring the core dataflow programming concepts to
 [Tensorflow](https://github.com/tensorflow/tensorflow).
 
-### of Pythons and Crabs
+## Of Pythons and Crabs
 
 Bytewax leverages another open-source project to bring the Python
 Native capabilities on top of a Rust processing engine. This project
@@ -71,7 +69,7 @@ security benefits of Rust. In Bytewax we both call Rust from Python,
 but also embed Python in Rust. This can get a little tricky and is the
 less commonly used pattern used in PyO3.
 
-### Putting it all together
+## Putting It All Together
 
 ![Bytewax architecture diagram.](/assets/arch-diagram.svg)
 
@@ -92,7 +90,7 @@ dataflow. State and progress from the dataflow are persisted from
 memory to SQLite for recovery purposes and this can also be backed up
 in the cloud (S3, Azure Blob etc.) when using the Bytewax platform.
 
-### Bytewax at sea level
+## Bytewax at Sea Level
 
 A user interfaces with the Bytewax API to construct a dataflow program
 in Python that loosely resembles the image below. A dataflow will at
@@ -118,4 +116,4 @@ workers are all highly interconnected between Bytewax code, storage
 infrastructure, and Timely mechanisms. To read more about this, please
 refer to the <project:/articles/concepts/rescaling.md>,
 <project:/articles/concepts/recovery.md> and
-<project:/articles/concepts/inputs-outputs.md> sections.
+<project:/articles/advanced-concepts/custom-connectors.md> sections.

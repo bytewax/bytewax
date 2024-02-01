@@ -20,17 +20,14 @@
 :caption: Concepts
 :titlesonly:
 
-/articles/concepts/streaming-and-batch.md
 /articles/concepts/workers-parallelization.md
 /articles/concepts/dataflow-programming.md
-/articles/concepts/windowing.md
 /articles/concepts/joins.md
 /articles/concepts/kafka.md
+/articles/concepts/windowing.md
 /articles/concepts/recovery.md
-/articles/concepts/inputs-outputs.md
 /articles/concepts/pubsub-polling.md
 /articles/concepts/rescaling.md
-/articles/concepts/analytics-operational.md
 ```
 
 ```{toctree}
