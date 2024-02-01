@@ -12,10 +12,7 @@
 ## Python Stateful Stream Processing Framework
 
 Bytewax is a Python framework that simplifies event and stream processing. Because Bytewax couples the stream and event processing capabilities of Flink, Spark, and Kafka Streams with the friendly and familiar interface of Python, you can re-use the Python libraries you already know and love. Connect data sources, run stateful transformations and write to various different downstream systems with built-in connectors or existing Python libraries.
-
-<img width="1303" alt="Screen Shot 2022-10-07 at 2 22 49 PM" src="https://user-images.githubusercontent.com/6073079/194624582-c16df8d6-d501-46b2-bdbc-78dbed67902e.png">
-
-
+<img width="1303" alt="Bytewax Dataflow Animation" src="https://github.com/bytewax/bytewax/assets/156834296/4e314f17-38ab-4e72-9268-a48ddee7a201">
 ### How it all works
 
 Bytewax is a Python framework and Rust distributed processing engine that uses a dataflow computational model to provide parallelizable stream processing and event processing capabilities similar to Flink, Spark, and Kafka Streams. You can use Bytewax for a variety of workloads from moving data à la Kafka Connect style all the way to advanced online machine learning workloads. Bytewax is not limited to streaming applications but excels anywhere that data can be distributed at the input and output.
