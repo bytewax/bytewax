@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.abspath("."))
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "Bytewax API Docs"
+project = "Bytewax"
 copyright = "2024, Bytewax, Inc"  # noqa: A001
 author = "Bytewax, Inc."
 
@@ -35,9 +35,10 @@ author = "Bytewax, Inc."
 extensions = [
     "autodoc2",
     "myst_parser",
-    "sphinxcontrib.mermaid",
     "sphinx.ext.doctest",
     "sphinx.ext.intersphinx",
+    "sphinx_favicon",
+    "sphinxcontrib.mermaid",
 ]
 
 intersphinx_mapping = {
@@ -47,7 +48,7 @@ intersphinx_mapping = {
     ),
     "fastavro": ("https://fastavro.readthedocs.io/en/latest/", None),
     "myst": ("https://myst-parser.readthedocs.io/en/latest/", None),
-    "python": ("https://docs.python.org/3", None),
+    "python": ("https://docs.python.org/3/", None),
     "sphinx": ("https://www.sphinx-doc.org/en/master/", None),
     "typing_extensions": ("https://typing-extensions.readthedocs.io/en/latest/", None),
 }
@@ -76,33 +77,43 @@ nitpick_ignore = [
 html_show_copyright = False
 html_show_sourcelink = False
 html_static_path = ["_static"]
-pygments_style = "default"
 
-# -- Options for Alabaster theme ---------------------------------------------
-# https://alabaster.readthedocs.io/en/latest/customization.html
+favicons = [
+    "https://bytewax.io/favicon.png",
+]
 
-html_sidebars = {
-    "**": [
-        "navigation.html",
-    ]
-}
-html_theme = "alabaster"
+# -- Options for PyData theme ---------------------------------------------
+# https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/index.html
+
+html_css_files = ["css/custom.css"]
+html_theme = "pydata_sphinx_theme"
 html_theme_options = {
-    "code_font_family": (
-        "JetBrains Mono, "
-        "Consolas, "
-        "Monaco, "
-        "Andale Mono, "
-        "Ubuntu Mono, "
-        "monospace"
-    ),
-    "font_family": "Inter, sans-serif",
-    "head_font_family": "Outfit, sans-serif",
-    "link": "#334ac0",
-    "link_hover": "#334ac0",
-    "show_powered_by": False,
-    "pre_bg": "#f5f2f0",
-    "highlight_bg": "#fab90f61",
+    "back_to_top_button": False,
+    "footer_start": ["copyright"],
+    "footer_end": [],
+    # https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/header-links.html#icon-links
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/bytewax",
+            "icon": "fa-brands fa-github",
+        },
+        {
+            "name": "Slack",
+            "url": "https://join.slack.com/t/bytewaxcommunity/shared_invite/zt-1lhq9bxbr-T3CXxR_9RIUGb4qcBK26Qw",
+            "icon": "fa-brands fa-slack",
+        },
+    ],
+    "logo": {
+        "alt_text": "Bytewax logo",
+        "image_light": "https://user-images.githubusercontent.com/6073079/194626697-425ade3d-3d72-4b4c-928e-47bad174a376.png",
+        "image_dark": "https://user-images.githubusercontent.com/6073079/195393689-7334098b-a8cd-4aaa-8791-e4556c25713e.png",
+        "link": "https://bytewax.io",
+        "text": "Docs",
+    },
+    # On the per-page right hand side TOC, show more depth by default.
+    "show_toc_level": 3,
+    "show_prev_next": False,
 }
 
 # -- Options for MyST --------------------------------------------------------
@@ -155,7 +166,7 @@ autodoc2_module_all_regexes = [
 # the directives for all the objects. Those Markdown files are in this
 # directory. This should not be committed because it is generated on
 # each build.
-autodoc2_output_dir = "api"
+autodoc2_output_dir = "apidocs"
 # Python package to parse to generate Markdown API docs for in the
 # above directory.
 autodoc2_packages = ["../pysrc/bytewax"]

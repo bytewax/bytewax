@@ -1,3 +1,5 @@
+# Rescaling
+
 In this article, we're going to do a deep-dive into Bytewax's
 rescaling functionality. **Rescaling** is the process by which you can
 change the number of workers contributing computational resources to

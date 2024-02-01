@@ -1,3 +1,5 @@
+# Dataflow Programming
+
 Dataflow programming is a programming paradigm where program execution
 is conceptualized as data flowing through a static series of
 operations.
@@ -6,17 +8,17 @@ A Bytewax **dataflow** is a fixed directed acyclic graph of
 computational **steps** which are preformed on a possibly-unbounded
 stream of data. Each step is made up of an **operator** or a specific
 shape of computation (e.g. "transform each item individually" /
-[`map`](/apidocs/bytewax.operators/index#bytewax.operators.map)). You
-define a dataflow via Python code and run the dataflow, and it goes
-out and polls the input for new items and automatically pushes them
-through the steps until they reach an output. An **item** is a single
-Python object that is flowing through the dataflow.
+{py:obj}`~bytewax.operators.map`). You define a dataflow via Python
+code and run the dataflow, and it goes out and polls the input for new
+items and automatically pushes them through the steps until they reach
+an output. An **item** is a single Python object that is flowing
+through the dataflow.
 
 See [our getting started guides](../getting-started/simple-example.md)
 for the most basic examples. In this document, we're going to discuss
 in more detail the conceptual parts of dataflow programming.
 
-### Operators and Logic Functions
+## Operators and Logic Functions
 
 **Operators** are the processing primitives of Bytewax. Each of them
 gives you a "shape" of data transformation, and you give them **logic
@@ -25,29 +27,22 @@ combination of each operator and their custom logic functions we call
 a dataflow **step**. You chain together steps in a dataflow to solve
 your high-level data processing problem.
 
-If you've ever used Python's built-in functions
-[`map`](https://docs.python.org/3/library/functions.html#map) or
-[`filter`](https://docs.python.org/3/library/functions.html#filter) or
-`functool`'s
-[`reduce`](https://docs.python.org/3/library/functools.html#functools.reduce)
-or equivalent in other languages, operators are the same concept. If
-not, no worries, there's an example provided in the documentation for
-each operator in
-[`bytewax.operators`](/apidocs/bytewax.operators/index).
+If you've ever used Python's built-in functions {py:obj}`map` or
+{py:obj}`filter` or {py:obj}`functools.reduce` or equivalent in other
+languages, operators are the same concept. If not, no worries, there's
+an example provided in the documentation for each operator in
+{py:obj}`bytewax.operators`.
 
 To help you understand the concept, let's walk through two basic
-Bytewax operators:
-[`flat_map`](/apidocs/bytewax.operators/index#bytewax.operators.flat_map)
-and
-[`stateful_map`](/apidocs/bytewax.operators/index#bytewax.operators.stateful_map).
+Bytewax operators: {py:obj}`~bytewax.operators.flat_map` and
+{py:obj}`~bytewax.operators.stateful_map`.
 
-#### Flat Map Example
+### Flat Map Example
 
-[`flat_map`](/apidocs/bytewax.operators/index#bytewax.operators.flat_map)
-is an operator that applies a mapper function to each upstream item
-and lets you return a list of items to individually emit into the
-downstream. Here's a quick example that splits a stream of sentences
-into a stream of individual words.
+{py:obj}`~bytewax.operators.flat_map` is an operator that applies a
+mapper function to each upstream item and lets you return a list of
+items to individually emit into the downstream. Here's a quick example
+that splits a stream of sentences into a stream of individual words.
 
 ```python
 import bytewax.operators as op
@@ -94,13 +89,11 @@ print(split_sentence("so many words here"))
 
 The important part of the logic function is that it's signature
 matches what the operator requires. For example, the function
-signature for
-[`flat_map`](/apidocs/bytewax.operators/index#bytewax.operators.flat_map)
-has `mapper: Callable[[~X], Iterable[~Y]]`, which means the `mapper`
-must be a function that takes a single argument and returns an
-iterator.
+signature for {py:obj}`~bytewax.operators.flat_map` has `mapper:
+Callable[[~X], Iterable[~Y]]`, which means the `mapper` must be a
+function that takes a single argument and returns an iterator.
 
-#### Step IDs
+### Step IDs
 
 Each operator function takes as a first argument a **step ID** you
 should set to a dataflow-unique string that represents the purpose of
@@ -120,16 +113,16 @@ logic function or operator there.
 ### Streams and Directed Acyclic Dataflows
 
 Each operator takes and returns one or more
-[`Stream`](/apidocs/bytewax.dataflow/index#bytewax.dataflow.Stream)s.
-Each **stream** is a handle to that specific flow of items. The
-streams that are arguments to operators we call **upstreams** and
-returns some streams we call **downstreams**.
+{py:obj}`~bytewax.dataflow.Stream`s. Each **stream** is a handle to
+that specific flow of items. The streams that are arguments to
+operators we call **upstreams** and returns some streams we call
+**downstreams**.
 
 Each stream can be referenced as many times as you want to process a
 copy of the data in the stream in a different way. Notice below the
 `nums` stream is referenced twice below so it can be both doubled and
-multipled by ten. `bytewax.operators.merge` is an operator that does
-the reverse, and combines together multiple streams.
+multipled by ten. {py:obj}`~bytewax.operators.merge` is an operator
+that does the reverse, and combines together multiple streams.
 
 ```python
 from bytewax.dataflow import Dataflow
@@ -149,10 +142,8 @@ op.inspect("check_merge", all)
 run_main(flow)
 ```
 
-We added a ton of
-[`inspect`](/apidocs/bytewax.operators/index#bytewax.operators.inspect)
-steps so we can see the items flowing through every point in this
-dataflow.
+We added a ton of {py:obj}`~bytewax.operators.inspect` steps so we can
+see the items flowing through every point in this dataflow.
 
 ```{testoutput}
 copied_math.check_nums: 1
@@ -174,9 +165,7 @@ copied_math.check_merge: 30
 
 If you'd like to take a stream and selectively send the items within
 down one of two streams (instead of copying all of them), you can use
-the
-[`branch`](/apidocs/bytewax.operators/index#bytewax.operators.branch)
-operator.
+the {py:obj}`~bytewax.operators.branch` operator.
 
 ```python
 from bytewax.dataflow import Dataflow
@@ -212,13 +201,12 @@ copied_math.check_odds: 3
 copied_math.check_merge: 3
 ```
 
-Because references to
-[`Stream`](/apidocs/bytewax.dataflow/index#bytewax.dataflow.Stream)s
-are only created via operators, that means you can't reference a
-stream before it is created and thus the resulting dataflow is always
-a directed acyclic graph.
+Because references to {py:obj}`~bytewax.dataflow.Stream`s are only
+created via operators, that means you can't reference a stream before
+it is created and thus the resulting dataflow is always a directed
+acyclic graph.
 
-### State
+## State
 
 One of the major selling points of Bytewax and stateful stream
 processing is the ability to incrementally modify persistent state as
@@ -246,7 +234,7 @@ We'll go over the constraints here.
 of doing so required a good understanding of the Bytewax runtime and
 recovery system and is out of the scope of this guide.)
 
-#### Global Static State
+### Global Static State
 
 If you have a dataset that you know is immutable (or are OK with
 ignoring ongoing updates on it), you can reference that state within
@@ -303,10 +291,9 @@ param_eg.check_with_url: {'user_id': '2', 'avatar_icon_url': 'http://domain.inva
 ```
 
 You can also call out to an external service or API or data store in a
-[`map`](/apidocs/bytewax.operators/index#bytewax.operators.map) step
-in the same way. But be careful that you are assuming the external
-data is static and you will not be emitting updates if it changes
-after the call.
+{py:obj}`~bytewax.operators.map` step in the same way. But be careful
+that you are assuming the external data is static and you will not be
+emitting updates if it changes after the call.
 
 ```python
 import bytewax.operators as op
@@ -365,30 +352,29 @@ want to find / make a connector that can introduce its change stream
 into the dataflow and join it. See our [joins concepts
 documentation](joins.md) for more info.
 
-#### Stateful Operators
+(stateful-operators)=
+### Stateful Operators
 
 The most basic Bytewax operators like
-[`map`](/apidocs/bytewax.operators/index#bytewax.operators.map),
-[`filter`](/apidocs/bytewax.operators/index#bytewax.operators.filter),
-[`branch`](/apidocs/bytewax.operators/index#bytewax.operators.branch)
-only operate on individual items at a time and forget all context
-between items. In order to have items interact with each other in a
-structured manner, we introduce the concept of **state** or data that
-persists across multiple items. To do things like "group items into
-time windows", or "join together the email and name for a user", or
-"find me the maximum value", the dataflow has to keep around and
-modify some amount of state so that the correct answer can be
-calculated.
+{py:obj}`~bytewax.operators.map`, {py:obj}`~bytewax.operators.filter`,
+{py:obj}`~bytewax.operators.branch` only operate on individual items
+at a time and forget all context between items. In order to have items
+interact with each other in a structured manner, we introduce the
+concept of **state** or data that persists across multiple items. To
+do things like "group items into time windows", or "join together the
+email and name for a user", or "find me the maximum value", the
+dataflow has to keep around and modify some amount of state so that
+the correct answer can be calculated.
 
 Bytewax provides a suite of built-in **stateful operators** which help
 you manage mutable state and give you some pre-packaged solutions to
 common state-containing problems. E.g.
-[`stateful_map`](/apidocs/bytewax.operators/index#bytewax.operators.stateful_map),
-[`join`](/apidocs/bytewax.operators/index#bytewax.operators.join), all
-the window operators like
-[`collect_window`](/apidocs/bytewax.operators.window/index#bytewax.operators.window.collect_window).
+{py:obj}`~bytewax.operators.stateful_map`,
+{py:obj}`~bytewax.operators.join`, all the window operators like
+{py:obj}`~bytewax.operators.window.collect_window`.
 
-##### State Keys
+(state-keys)=
+#### State Keys
 
 The Bytewax runtime enables parallelization of stateful operators by
 requiring the incoming data to have a state key. A **state key** is a
@@ -408,16 +394,15 @@ worker.
 
 This key must be a string, so if you have a different data type,
 you'll need to convert that type to a string. The
-[`key_on`](/apidocs/bytewax.operators/index#bytewax.operators.key_on)
-and [`map`](/apidocs/bytewax.operators/index#bytewax.operators.map)
-operators can help you with this.
+{py:obj}`~bytewax.operators.key_on` and
+{py:obj}`~bytewax.operators.map` operators can help you with this.
 
-##### Stateful Map Example
+#### Stateful Map Example
 
 Let's demonstrate these concepts with an example using
-[`stateful_map`](/apidocs/bytewax.operators/index#bytewax.operators.stateful_map).
-It performs a transformation on each upstream item, allowing reference
-to a persistent state. That persistent state is passed as the first
+{py:obj}`~bytewax.operators.stateful_map`. It performs a
+transformation on each upstream item, allowing reference to a
+persistent state. That persistent state is passed as the first
 argument to the logic function and the function must return it as the
 first return value.
 
@@ -446,9 +431,8 @@ op.inspect("check_inp", inp)
 
 First, since we're calculating the running mean per-user, we should
 use the user ID as the key because there will be no interaction. Let's
-pluck out the user ID using
-[`key_on`](/apidocs/bytewax.operators/index#bytewax.operators.key_on)
-and use a logic function that picks the user ID field and casts to a
+pluck out the user ID using {py:obj}`~bytewax.operators.key_on` and
+use a logic function that picks the user ID field and casts to a
 string.
 
 ```python
@@ -458,10 +442,9 @@ op.inspect("check_keyed", keyed_inp)
 
 Let's also get rid of the `dict` data structure and unpack the
 transaction amount directly to make downstream steps simpler. The
-[`map_value`](/apidocs/bytewax.operators/index#bytewax.operators.map_value)
-is a convenience function that maps just the `value` part of `(key,
-value)` 2-tuples. Since we just added a key, this makes this function
-less tricky.
+{py:obj}`~bytewax.operators.map_value` is a convenience function that
+maps just the `value` part of `(key, value)` 2-tuples. Since we just
+added a key, this makes this function less tricky.
 
 ```python
 keyed_amounts = op.map_value("pick_amount", keyed_inp, lambda msg: msg["txn_amount"])
@@ -501,8 +484,7 @@ stateful_map_eg.check_keyed_amount: ('1', 99.0)
 
 Now that we've done all the prep work to key the stream and prepare
 the values, let's actually write out the running mean calculating
-operator using
-[`stateful_map`](/apidocs/bytewax.operators/index#bytewax.operators.stateful_map).
+operator using {py:obj}`~bytewax.operators.stateful_map`.
 
 ```python
 flow = Dataflow("stateful_map_eg")
@@ -531,8 +513,7 @@ op.inspect("check_running_mean", running_means)
 run_main(flow)
 ```
 
-[`stateful_map`](/apidocs/bytewax.operators/index#bytewax.operators.stateful_map)
-takes two logic functions:
+{py:obj}`~bytewax.operators.stateful_map` takes two logic functions:
 
 - A builder which builds the initial "empty" state for a key. In our
   case, we want the empty list because we're storing the three most
@@ -656,26 +637,22 @@ Python in order to more concisely write the logic for dataflows. We
 use these frequently in our examples and documentation, and encourage
 you to do so as well.
 
-### Quick Logic Functions
+## Quick Logic Functions
 
 Operator's logic functions can be specified in a few ways. The most
 verbose way would be to `def logic(...)` a function that does what you
 need to do, but any callable value can be used as-is, though!
-
 This means you can use the following existing callables to help you
 make code more concise:
 
-- [Built-in
-  functions](https://docs.python.org/3/library/functions.html)
+- [Built-in functions](inv:python:std:label#builtin-functions)
 
-- [Constructors or
-  `__init__`](https://docs.python.org/3/tutorial/classes.html#class-objects)
+- [Constructors or `__init__`](inv:python:std:label#tut-classobjects)
 
-- [Methods](https://docs.python.org/3/glossary.html#term-method)
+- [Methods](inv:python:std:term#method)
 
-You can also use
-[lambdas](https://docs.python.org/3/tutorial/controlflow.html#lambda-expressions)
-to quickly define one-off anonymous functions for simple custom logic.
+You can also use [lambdas](inv:python:std:label#tut-lambda) to quickly
+define one-off anonymous functions for simple custom logic.
 
 For example, all of the following dataflows are equivalent.
 
@@ -744,8 +721,7 @@ to create functions that change by specific parameters dynamically:
 - Create a builder function that takes the parameter and returns a
   logic function that closes over the parameter
 
-- Use
-  [`functools.partial`](https://docs.python.org/3/library/functools.html#functools.partial)
+- Use {py:obj}`functools.partial`
 
 Let's demonstrate these two techniques. Let's say we want extract a
 specific field from a nested structure in a stream of messages.
@@ -875,13 +851,11 @@ param_eg.check_admin: ('2', False)
 Now `key_pick_setting` builds a function each time you call it that
 plucks out the requested field.
 
-We can also use
-[`functools.partial`](https://docs.python.org/3/library/functools.html#functools.partial)
-to achieve the same kind of behavior.
-[`functools.partial`](https://docs.python.org/3/library/functools.html#functools.partial)
-lets you "pre-set" some arguments on a function and it gives you back
-a function that you can still call to fill in the rest of the
-arguments. The following dataflow is equivalent.
+We can also use {py:obj}`functools.partial` to achieve the same kind
+of behavior. {py:obj}`functools.partial` lets you "pre-set" some
+arguments on a function and it gives you back a function that you can
+still call to fill in the rest of the arguments. The following
+dataflow is equivalent.
 
 ```python
 import functools

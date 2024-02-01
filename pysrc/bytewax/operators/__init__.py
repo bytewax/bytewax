@@ -1,8 +1,7 @@
 """Built-in operators.
 
-See [our getting started
-documentation](https://bytewax.io/docs/getting-started/simple-example)
-for the basics of building and running dataflows.
+See <project:#getting-started> for the basics of building and running
+dataflows.
 
 """
 

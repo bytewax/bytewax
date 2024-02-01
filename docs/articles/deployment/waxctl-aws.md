@@ -1,23 +1,34 @@
-As well as facilitating deployment on Kubernetes, Waxctl provides an easy path to deploy dataflows on AWS EC2 instances.
+# Using `waxctl` to Run your Dataflow on AWS
+
+As well as facilitating deployment on Kubernetes, Waxctl provides an
+easy path to deploy dataflows on AWS EC2 instances.
 
 ## Installation
 
-To install Waxctl simply download the binary corresponding to your operating system and architecture [here](/downloads/).
+To install Waxctl simply download the binary corresponding to your
+operating system and architecture
+[here](https://bytewax.io/downloads).
 
 ## Dataflow Lifecycle
 
-You can manage the lifecycle of your dataflow with Waxctl across the following phases:
+You can manage the lifecycle of your dataflow with Waxctl across the
+following phases:
 
 - Deployment
+
 - Current Status (Running)
+
 - Restarting
+
 - Deletion
 
 In the following sections we are going to cover each of these phases.
 
 ## Available AWS Sub-commands
 
-When using Waxctl with cloud specific resources, you will add the cloud name in front of the sub-command. The `aws` command has the following sub-commands:
+When using Waxctl with cloud specific resources, you will add the
+cloud name in front of the sub-command. The `aws` command has the
+following sub-commands:
 
 - deploy
 - list
@@ -27,8 +38,8 @@ When using Waxctl with cloud specific resources, you will add the cloud name in 
 
 Running `waxctl aws --help` will show further details for these.
 
-```bash
-❯ waxctl aws --help
+```console
+$ waxctl aws --help
 Manage dataflows running on AWS EC2 instances
 
 Usage:
@@ -52,30 +63,40 @@ Use "waxctl aws [command] --help" for more information about a command.
 
 ## Waxctl and AWS CLI
 
-To use Waxctl on AWS you need to have installed and configured the AWS CLI. You can follow the instructions [here](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).
+To use Waxctl on AWS you need to have installed and configured the AWS
+CLI. You can follow the instructions
+[here](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).
 
-By default, Waxctl is going to use the AWS CLI default region but you can use another one just by setting the `--region` flag in your Waxctl commands.
+By default, Waxctl is going to use the AWS CLI default region but you
+can use another one just by setting the `--region` flag in your Waxctl
+commands.
 
 ## Run a Dataflow in an EC2 instance
 
-To deploy a dataflow you just need to run `waxctl aws deploy` passing the path of your python script as an argument. If left unset, Waxctl will use the default name for your dataflow, which is `bytewax`.
+To deploy a dataflow you just need to run `waxctl aws deploy` passing
+the path of your python script as an argument. If left unset, Waxctl
+will use the default name for your dataflow, which is `bytewax`.
 
 In our example we are going to deploy a dataflow called `my-dataflow`:
 
-```bash
-❯ waxctl aws deploy /var/bytewax/examples/basic.py --name my-dataflow
+```console
+$ waxctl aws deploy /var/bytewax/examples/basic.py --name my-dataflow
 Created policy arn:aws:iam::111111111111:policy/Waxctl-EC2-my-dataflow-Policy
 Created role Waxctl-EC2-my-dataflow-Role
 Created my-dataflow instance with ID i-040f98b9160d2d158 running /var/bytewax/examples/basic.py script
 ```
 
-In the above example, Waxctl used the default values for all of the flags except for the `name` flag. Waxctl allows you to configure a wide range of characteristics of your dataflow.
+In the above example, Waxctl used the default values for all of the
+flags except for the `name` flag. Waxctl allows you to configure a
+wide range of characteristics of your dataflow.
 
-As you can see in the output above, Waxctl created an IAM policy and role. That will allow the EC2 instance to store Cloudwatch logs and start sessions through Systems Manager.
+As you can see in the output above, Waxctl created an IAM policy and
+role. That will allow the EC2 instance to store Cloudwatch logs and
+start sessions through Systems Manager.
 
 We can see the complete list of available flags with the `waxctl aws deploy` help command.
-```bash
-❯ waxctl aws deploy -h
+```console
+$ waxctl aws deploy -h
 Deploy a dataflow to a new EC2 instance.
 
 The deploy command expects one argument, which is the path of your python dataflow file.
@@ -114,11 +135,16 @@ Global Flags:
       --debug   enable verbose output
 ```
 
-We suggest paying special attention to the `requirements-file-name` flag because normally you will want to specify a `requirements.txt` file with the needed libraries to run your dataflow program.
+We suggest paying special attention to the `requirements-file-name`
+flag because normally you will want to specify a `requirements.txt`
+file with the needed libraries to run your dataflow program.
 
 ## Default IAM Role
 
-As we mentioned, Waxctl creates an IAM policy and role to allow your EC2 instance to store CloudWatch logs and to start Systems Manager sessions. In case you need to use a custom IAM role, here we show you what are the permissions that the policy created by Waxctl has:
+As we mentioned, Waxctl creates an IAM policy and role to allow your
+EC2 instance to store CloudWatch logs and to start Systems Manager
+sessions. In case you need to use a custom IAM role, here we show you
+what are the permissions that the policy created by Waxctl has:
 
 ```json
 {
@@ -155,23 +181,28 @@ As we mentioned, Waxctl creates an IAM policy and role to allow your EC2 instanc
     ]
 }
 ```
-So, your role must have those permissions to keep both features working.
-We recommend attaching to your Role a Customer managed policy having only those permissions and maybe with an explicit name like "Bytewax-Policy" or "Waxctl-Policy".
+
+So, your role must have those permissions to keep both features
+working. We recommend attaching to your Role a Customer managed policy
+having only those permissions and maybe with an explicit name like
+"Bytewax-Policy" or "Waxctl-Policy".
 
 ## Getting Dataflow Information
 
-You can query which dataflows are deployed on EC2 instances in your AWS account using the `waxctl aws list` sub-command. By default the output will be a table with this information:
+You can query which dataflows are deployed on EC2 instances in your
+AWS account using the `waxctl aws list` sub-command. By default the
+output will be a table with this information:
 
-```bash
-❯ waxctl aws ls
+```console
+$ waxctl aws ls
 Dataflow    Python File Name               VM State Launch Time
 my-dataflow /var/bytewax/examples/basic.py running  2022-10-03 13:34:02 +0000 UTC
 ```
 
 You can use the `--verbose` flag to get more details of each dataflow:
 
-```bash
-❯ waxctl aws ls --verbose
+```console
+$ waxctl aws ls --verbose
 [
   {
     "instanceId": "i-040f98b9160d2d158",
@@ -227,11 +258,13 @@ You can use the `--verbose` flag to get more details of each dataflow:
 ]
 ```
 
-As you can see, there are a lot of details including links to access instance information and your dataflow logs in the AWS web console.
+As you can see, there are a lot of details including links to access
+instance information and your dataflow logs in the AWS web console.
 
 This is the help text of the `list` command:
-```bash
-❯ waxctl aws ls --help
+
+```console
+$ waxctl aws ls --help
 List EC2 instances created by waxctl.
 
 Examples:
@@ -260,35 +293,39 @@ Global Flags:
 
 ## Stopping and Starting a Dataflow
 
-In case you need to pause your dataflow, there are two commands to manage that: `stop` and `start`. These control the EC2 instance state where your dataflow is running.
+In case you need to pause your dataflow, there are two commands to
+manage that: `stop` and `start`. These control the EC2 instance state
+where your dataflow is running.
 
-Following the example, you can stop the dataflow EC2 instance with this command:
+Following the example, you can stop the dataflow EC2 instance with
+this command:
 
-```bash
-❯ waxctl aws stop --name my-dataflow
+```console
+$ waxctl aws stop --name my-dataflow
 EC2 instance my-dataflow with ID i-040f98b9160d2d158 stopped.
 ```
 
 So, if you run the `list` command, you will see something like this:
 
-```bash
-❯ waxctl aws ls
+```console
+$ waxctl aws ls
 Dataflow    Python File Name               VM State Launch Time
 my-dataflow /var/bytewax/examples/basic.py stopping 2022-10-03 13:34:02 +0000 UTC
 ```
 
-And a few seconds later, the `list` command is going to show the state `stopped`:
+And a few seconds later, the `list` command is going to show the state
+`stopped`:
 
-```bash
-❯ waxctl aws ls
+```console
+$ waxctl aws ls
 Dataflow    Python File Name               VM State Launch Time
 my-dataflow /var/bytewax/examples/basic.py stopped  2022-10-03 13:34:02 +0000 UTC
 ```
 
 You can use the `start` command to start the EC2 instance again:
 
-```bash
-❯ waxctl aws start --name my-dataflow
+```console
+$ waxctl aws start --name my-dataflow
 EC2 instance my-dataflow with ID i-040f98b9160d2d158 started.
 ```
 
@@ -296,47 +333,71 @@ You can change any of the flags of your dataflow.
 
 ## Removing a Dataflow
 
-To terminate the EC2 instance where your dataflow is running you need to run `waxctl aws delete` while passing the name of the dataflow as a parameter.
+To terminate the EC2 instance where your dataflow is running you need
+to run `waxctl aws delete` while passing the name of the dataflow as a
+parameter.
 
 To run a dry-run delete of our dataflow example we can run this:
-```bash
-❯ waxctl aws delete --name my-dataflow
+
+```console
+$ waxctl aws delete --name my-dataflow
 EC2 instance my-dataflow with ID i-040f98b9160d2d158 found in us-west-2 region.
 
 --yes flag is required to terminate it.
 ```
 
-And if we want to actually delete the dataflow we must add the `--yes` flag:
-```bash
-❯ waxctl aws rm --name my-dataflow --yes
+And if we want to actually delete the dataflow we must add the `--yes`
+flag:
+
+```console
+$ waxctl aws rm --name my-dataflow --yes
 Role Waxctl-EC2-my-dataflow-Role deleted.
 Policy arn:aws:iam::111111111111:policy/Waxctl-EC2-my-dataflow-Policy deleted.
 EC2 instance my-dataflow with ID i-040f98b9160d2d158 has been terminated.
 ```
 
-Note that we used `rm` in the last command, which is an alias of `delete`. Many of the Waxctl sub-commands have an alias and you can see them in the help.
+Note that we used `rm` in the last command, which is an alias of
+`delete`. Many of the Waxctl sub-commands have an alias and you can
+see them in the help.
 
 ## How it works internally
 
-As you can imagine, Waxctl uses the AWS API to manage EC2 instances, IAM policies, and roles.
+As you can imagine, Waxctl uses the AWS API to manage EC2 instances,
+IAM policies, and roles.
 
-The operating system of EC2 instances created by Waxctl is Ubuntu 20.04 LTS.
+The operating system of EC2 instances created by Waxctl is Ubuntu
+20.04 LTS.
 
-Waxctl relies on [Cloud-init](https://cloudinit.readthedocs.io/en/latest/), a standard multi-distribution method for cross-platform cloud instance initialization. Using Cloud-init, Waxctl configures a Linux service which is going to run `pip install -r /home/ubuntu/bytewax/requirements.txt` and after that run your python dataflow program.
+Waxctl relies on
+[Cloud-init](https://cloudinit.readthedocs.io/en/latest/), a standard
+multi-distribution method for cross-platform cloud instance
+initialization. Using Cloud-init, Waxctl configures a Linux service
+which is going to run `pip install -r
+/home/ubuntu/bytewax/requirements.txt` and after that run your python
+dataflow program.
 
-As we mentioned before, you can specify your own `requirements.txt` file using the `--requirements-file-name` flag. If you don't, Waxctl is going to put only `bytewax` as a requirement.
+As we mentioned before, you can specify your own `requirements.txt`
+file using the `--requirements-file-name` flag. If you don't, Waxctl
+is going to put only `bytewax` as a requirement.
 
-Besides setting the service that runs your dataflow, Waxctl configures settings to push the syslog logs to CloudWatch. With that enabled, you can see your dataflow stdout and stderr in CloudWatch.
+Besides setting the service that runs your dataflow, Waxctl configures
+settings to push the syslog logs to CloudWatch. With that enabled, you
+can see your dataflow stdout and stderr in CloudWatch.
 
 ## Troubleshooting
 
-You have two ways to see what's going on with your dataflow program: viewing logs and connect to the EC2 instance.
+You have two ways to see what's going on with your dataflow program:
+viewing logs and connect to the EC2 instance.
 
 ### Logs
 
-Since Waxctl runs your dataflow program a Linux service and all syslog logs are sent to CloudWatch, you can see your dataflow logs directly in CloudWatch.
+Since Waxctl runs your dataflow program a Linux service and all syslog
+logs are sent to CloudWatch, you can see your dataflow logs directly
+in CloudWatch.
 
-When you run `waxctl aws ls --verbose` you get a link to CloudWatch Logs Viewer in AWS Web Console filtering by your EC2 instance and your dataflow. Like this:
+When you run `waxctl aws ls --verbose` you get a link to CloudWatch
+Logs Viewer in AWS Web Console filtering by your EC2 instance and your
+dataflow. Like this:
 
 ```
 ...
@@ -346,20 +407,30 @@ When you run `waxctl aws ls --verbose` you get a link to CloudWatch Logs Viewer 
 
 ### Connecting to the EC2 Instance
 
-By default Waxctl will create an IAM Policy and a IAM Role to allow you to use AWS Systems Manager to connect to the EC2 instance. To do that, you need to know the instance ID (you can get it running `waxctl aws ls --verbose`) and then run this:
+By default Waxctl will create an IAM Policy and a IAM Role to allow
+you to use AWS Systems Manager to connect to the EC2 instance. To do
+that, you need to know the instance ID (you can get it running `waxctl
+aws ls --verbose`) and then run this:
 
-```bash
-aws ssm start-session --target i-0a04d5e18c1df4c90
+```console
+$ aws ssm start-session --target i-0a04d5e18c1df4c90
 ```
 
 You may want to check:
 
-- /home/ubuntu/bytewax - where your requirements and python script are copied.
-- `systemctl status bytewax-dataflow.service` - Linux service that runs your dataflow.
+- /home/ubuntu/bytewax - where your requirements and python script are
+  copied.
+
+- `systemctl status bytewax-dataflow.service` - Linux service that
+  runs your dataflow.
+
 - `df -H /` - File system information.
+
 - `top` - Processes information.
 
-You can install any profiling or debugging tool and use it. Also you could modify your script and restart the `bytewax-dataflow.service` running:
+You can install any profiling or debugging tool and use it. Also you
+could modify your script and restart the `bytewax-dataflow.service`
+running:
 
 ```bash
 systemctl restart bytewax-dataflow.service
@@ -367,14 +438,19 @@ systemctl restart bytewax-dataflow.service
 
 ## A Production-like Example
 
-In case your dataflow needs access to other AWS managed services, like MKS, you will probably want to use your own Security Group and IAM configuration.
+In case your dataflow needs access to other AWS managed services, like
+MKS, you will probably want to use your own Security Group and IAM
+configuration.
 
-In a production environment, the EC2 instance should be running in a specific Subnet, commonly a private one so we are going to instruct Waxctl to not associate a public IP address and to create the EC2 in a concrete Subnet.
+In a production environment, the EC2 instance should be running in a
+specific Subnet, commonly a private one so we are going to instruct
+Waxctl to not associate a public IP address and to create the EC2 in a
+concrete Subnet.
 
 So, this is an example Waxctl command for the described scenario:
 
-```bash
-waxctl aws deploy my-dataflow.py \
+```console
+$ waxctl aws deploy my-dataflow.py \
   --name=production-dataflow \
   --requirements-file-name=requirements.txt \
   --instance-type=m5.xlarge \

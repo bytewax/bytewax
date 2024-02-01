@@ -1,9 +1,12 @@
-Let's look at an end-to-end example using Bytewax. We'll start by building out a
-simple dataflow that performs a count of words in a file.
+# Wordcount Example
 
-To begin, save a copy of this text in a file called `wordcount.txt`:
+Let's look at an end-to-end example using Bytewax. We'll start by
+building out a simple dataflow that performs a count of words in a
+file.
 
-```
+To begin, save a copy of this text in a file called `wordcount.txt`.
+
+```text
 To be, or not to be, that is the question:
 Whether 'tis nobler in the mind to suffer
 The slings and arrows of outrageous fortune,
@@ -49,7 +52,8 @@ op.output("out", counts, StdOutSink())
 
 ## Running the example
 
-Now that we have our program and our input, we can run our example to see it in action:
+Now that we have our program and our input, we can run our example to
+see it in action:
 
 ```shell
 > python -m bytewax.run wordcount
@@ -87,7 +91,8 @@ Now that we have our program and our input, we can run our example to see it in 
 
 ## Unpacking the program
 
-Now that we've run our dataflow, let's walk through the components that we used.
+Now that we've run our dataflow, let's walk through the components
+that we used.
 
 In a dataflow program, each step added to the flow will occur in the
 order that it is added. For our wordcount dataflow, we'll want the
@@ -105,7 +110,7 @@ We'll start with how to get input we'll push through our dataflow.
 
 Let's define the steps that we want to execute for each line of input
 that we receive. We will add these steps as chains of **operators** on
-a **dataflow object**, `bytewax.dataflow.Dataflow`.
+a **dataflow object**, {py:obj}`~bytewax.dataflow.Dataflow`.
 
 ```python
 flow = Dataflow("wordcount_eg")
@@ -114,17 +119,22 @@ inp = op.input("inp", flow, FileSource("wordcount.txt"))
 
 To emit input into our dataflow, our program needs an **input
 operator** that takes an **source**. To start, we'll use one of our
-prepackaged sources, `bytewax.connectors.files.FileSource`. This will
-read the text file line-by-line and emit each line into the dataflow
-at that point.
+prepackaged sources, {py:obj}`~bytewax.connectors.files.FileSource`.
+This will read the text file line-by-line and emit each line into the
+dataflow at that point.
 
-To read more about other options for sources, see the [module docs for
-`bytewax.connectors`](/apidocs/bytewax.connectors/index) for information on
-how to make your own custom sources, see [the module docs for `bytewax.inputs`](/apidocs/bytewax.inputs).
+To read more about other options for sources, see
+{py:obj}`bytewax.connectors` for our built-in connectors,
+<project:#connector-hub> for other available connectors, or
+<project:#custom-connectors> for information on how to make your own
+custom connectors.
 
 ### Lowercase all characters in the line
 
-If you look closely at our input, we have instances of both `To` and `to`. Let's add a step to our dataflow that transforms each line into lowercase letters. At the same time, we'll introduce the [map](/apidocs/bytewax.operators/index#bytewax.operators.map) operator.
+If you look closely at our input, we have instances of both `To` and
+`to`. Let's add a step to our dataflow that transforms each line into
+lowercase letters. At the same time, we'll introduce the
+{py:obj}`~bytewax.operators.map` operator.
 
 ```python
 def lower(line):
@@ -134,13 +144,19 @@ def lower(line):
 lowers = op.map("lowercase_words", inp, lower)
 ```
 
-For each item that our generator produces, the map operator will use the [built-in string function `lower()`](https://docs.python.org/3/library/stdtypes.html#str.lower) to emit downstream a copy of the string with all characters converted to lowercase.
+For each item that our generator produces, the map operator will use
+the built-in string function {py:obj}`str.lower` to emit
+downstream a copy of the string with all characters converted to
+lowercase.
 
 ### Split the line into words
 
-When our `input_builder()` function is called, it will receive an entire line from our file. In order to count the words in the file, we'll need to break that line up into individual words.
+When our `input_builder()` function is called, it will receive an
+entire line from our file. In order to count the words in the file,
+we'll need to break that line up into individual words.
 
-Enter our `tokenize()` function, which uses a Python regular expression to split the line of input into a list of words:
+Enter our `tokenize()` function, which uses a Python regular
+expression to split the line of input into a list of words:
 
 ```python
 def tokenize(line):
@@ -160,28 +176,36 @@ results in:
 ['To', 'be', 'or', 'not', 'to', 'be', 'that', 'is', 'the', 'question']
 ```
 
-To make use of `tokenize` function, we'll use the [flat map operator](/apidocs/bytewax.operators/index#bytewax.operators.flat_map):
+To make use of `tokenize` function, we'll use the
+{py:obj}`~bytewax.operators.flat_map` operator:
 
 ```python
 tokens = op.flat_map("tokenize_input", lowers, tokenize)
 ```
 
-The flat map operator defines a step which calls a function on each input item. Each word in the list we return from our function will then be emitted downstream individually.
+The flat map operator defines a step which calls a function on each
+input item. Each word in the list we return from our function will
+then be emitted downstream individually.
 
 ### Build up counts
 
-At this point in the dataflow, the items of data are the individual words. In order to tally counts of words, we'll need to be able
-to group words together.
+At this point in the dataflow, the items of data are the individual
+words. In order to tally counts of words, we'll need to be able to
+group words together.
 
-We can use the [`count_final` operator](/apidocs/bytewax.operators/index#bytewax.operators.count_final) to
-produce a count of all items in a dataflow. The `count_final` operator should only be used in a dataflow
-that is run in a batch context, as it waits for all data to be read before producing output. In this
-example, we want to count all of the items in the entire file before returning the result.
+We can use the {py:obj}`~bytewax.operators.count_final` operator to
+produce a count of all items in a dataflow. The
+{py:obj}`~bytewax.operators.count_final` operator should only be used
+in a dataflow that is run in a batch context, as it waits for all data
+to be read before producing output. In this example, we want to count
+all of the items in the entire file before returning the result.
 
-`count_final` takes a function that produces a key for each item in the dataflow. Many operators
-in Bytewax require their input stream to be keyed, to ensure that all items for a given key
-are processed together. In our word count example, we can use the word itself as the key,
-so that each instance of that word is counted together.
+{py:obj}`~bytewax.operators.count_final` takes a function that
+produces a key for each item in the dataflow. Many operators in
+Bytewax require their input stream to be keyed, to ensure that all
+items for a given key are processed together. In our word count
+example, we can use the word itself as the key, so that each instance
+of that word is counted together.
 
 ```python
 counts = op.count_final("count", tokens, lambda word: word)
@@ -189,7 +213,9 @@ counts = op.count_final("count", tokens, lambda word: word)
 
 ### Print out the counts
 
-The last part of our dataflow program will use an [output operator](/apidocs/bytewax.operators/index#bytewax.operators.output) to mark the output of our reduction as the dataflow's final output.
+The last part of our dataflow program will use an
+{py:obj}`~bytewax.operators.output` operator to mark the output of our
+reduction as the dataflow's final output.
 
 ```python
 op.output("out", counts, StdOutSink())
@@ -197,14 +223,17 @@ op.output("out", counts, StdOutSink())
 
 This means that whatever items are flowing through this point in the
 dataflow will be passed on to a **sink**. We use
-[StdOutSink](/apidocs/bytewax.connectors/stdio#bytewax.connectors.stdio.StdOutSink)
-to route our output to the system's standard output.
+{py:obj}`~bytewax.connectors.stdio.StdOutSink` to route our output to
+the system's standard output.
 
 ### Running
 
-To run the example, we just need to call the execution script.
-We will talk in more details about it in the next chapter.
-When we call `bytewax.run`, our dataflow program will begin running, Bytewax will read the input items from our input generator, push the data through each step in the dataflow, and return the captured output. We then print the output of the final step.
+To run the example, we just need to call the execution script. We will
+talk in more details about it in the next chapter. When we execute the
+module {py:obj}`bytewax.run`, our dataflow program will begin running,
+Bytewax will read the input items from our input generator, push the
+data through each step in the dataflow, and return the captured
+output. We then print the output of the final step.
 
 Here is the complete output when running the example:
 
@@ -242,4 +271,5 @@ Here is the complete output when running the example:
 ('fortune', 1)
 ```
 
-To learn more about possible modes of execution, [read our page on execution](docs/getting-started/execution.md)
+To learn more about possible modes of execution, see
+<project:#execution>.

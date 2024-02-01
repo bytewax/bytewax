@@ -1,3 +1,0 @@
-```{toctree}
-api/index.rst
-```

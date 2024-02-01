@@ -1,34 +1,57 @@
+# Helm Chart
+
 <!-- (below is old K8S ecosystem) -->
 
-As we mentioned in our [Execution section](/docs/getting-started/execution#multiple-workers-manual-cluster). Bytewax allows you to run a dataflow program in a coordinated set of processes if you use the `bytewax.cluster_main()` entry point.
+As we mentioned in our <project:#cluster>. Bytewax allows you to run a
+dataflow program in a coordinated set of processes.
 
-That entry point requires the addresses of all the processes and assign them each a unique ID.
+That entry point requires the addresses of all the processes and
+assign them each a unique ID.
 
-Our Kubernetes implementation is coupled with `bytewax.parse.proc_env()` function which looks for some specific environments variables to fill the needed arguments of `bytewax.cluster_main()`.
+Our Kubernetes implementation is coupled with
+`bytewax.parse.proc_env()` function which looks for some specific
+environments variables to fill the needed arguments of
+`bytewax.cluster_main()`.
 
-We modeled the following Kubernetes ecosystem to run a Bytewax dataflow with one or more processes involved.
+We modeled the following Kubernetes ecosystem to run a Bytewax
+dataflow with one or more processes involved.
 
 ## Kubernetes Resources
 
-This diagram shows which Kubernetes resources are included in our stack.
+This diagram shows which Kubernetes resources are included in our
+stack.
 
-![Bytewax on Kubernetes](/assets/img/docs/k8s_ecosystem.png)
+![Bytewax on Kubernetes](/assets/k8s_ecosystem.png)
 
-We are going to cover each resource by explaining how we use them to run a Bytewax dataflow:
+We are going to cover each resource by explaining how we use them to
+run a Bytewax dataflow:
 
 ## Namespace
 
-A Bytewax dataflow stack can be deployed in any namespace but it is recommended that it is installed in a dedicated one to leverage Namespace isolation characteristics about security and resource designation.
+A Bytewax dataflow stack can be deployed in any namespace but it is
+recommended that it is installed in a dedicated one to leverage
+Namespace isolation characteristics about security and resource
+designation.
 
 ## Dataflow StatefulSet
 
-Bytewax uses a StatefulSet object to manage workloads in Kubernetes because a unique and stable network identifier for each Pod is required (stable means that a Pod is going to keep its name across Pod (re)scheduling) and StatefulSets meet this requirement.
+Bytewax uses a StatefulSet object to manage workloads in Kubernetes
+because a unique and stable network identifier for each Pod is
+required (stable means that a Pod is going to keep its name across Pod
+(re)scheduling) and StatefulSets meet this requirement.
 
-Because each Pod in a StatefulSet derives its hostname from the name of the StatefulSet and the ordinal of the Pod, we can have an Init-Container which dynamically generates the needed list of addresses and stores them in a file in a volume which will be mounted by the application container.
+Because each Pod in a StatefulSet derives its hostname from the name
+of the StatefulSet and the ordinal of the Pod, we can have an
+Init-Container which dynamically generates the needed list of
+addresses and stores them in a file in a volume which will be mounted
+by the application container.
 
-Also, we use the ordinal of each Pod as the unique ID needed for each process.
+Also, we use the ordinal of each Pod as the unique ID needed for each
+process.
 
-For example, assuming that we are running a dataflow named `my-dataflow` with three processes in a namespace called `bytewax` we are going to have these pods:
+For example, assuming that we are running a dataflow named
+`my-dataflow` with three processes in a namespace called `bytewax` we
+are going to have these pods:
 
 ```
 my-dataflow-0
@@ -46,21 +69,35 @@ my-dataflow-2.my-dataflow.bytewax.svc.cluster.local:9999
 
 As you can see we use the port 9999 to expose each process.
 
-Leveraging the Kubernetes naming convention for Pods and their DNS we automated the stack configuration.
+Leveraging the Kubernetes naming convention for Pods and their DNS we
+automated the stack configuration.
 
-Another important aspect of each Pod configuration is that the application container also mounts another volume called `working-directory`. This is going to have a ConfigMap that we will cover later, but basically this has the python file and any other files required to run successfully.
+Another important aspect of each Pod configuration is that the
+application container also mounts another volume called
+`working-directory`. This is going to have a ConfigMap that we will
+cover later, but basically this has the python file and any other
+files required to run successfully.
 
-In this image we show how the init-container and the application container of the Pods work together:
+In this image we show how the init-container and the application
+container of the Pods work together:
 
-![Bytewax on Kubernetes](/assets/img/docs/pod_details.png)
+![Bytewax on Kubernetes](/assets/pod_details.png)
 
-The `hostfile` init-container stores a file named `hostfile.txt` with all the addresses of the processes, and the application container `process` reads that file (in fact, `bytewax.parse.proc_env()` does that work).
+The `hostfile` init-container stores a file named `hostfile.txt` with
+all the addresses of the processes, and the application container
+`process` reads that file (in fact, `bytewax.parse.proc_env()` does
+that work).
 
-Also, the image shows that the init-container is reading the content of the ConfigMap mounted in the `python-files` volume and copying that to the `working-directory` volume. In the example the content of the ConfigMap is a file named `basic.py`. In the ConfigMap section we are going to talk more about that.
+Also, the image shows that the init-container is reading the content
+of the ConfigMap mounted in the `python-files` volume and copying that
+to the `working-directory` volume. In the example the content of the
+ConfigMap is a file named `basic.py`. In the ConfigMap section we are
+going to talk more about that.
 
 ### Environment Variables in the Application Container
 
-In the above diagram, the application container has these environment variables:
+In the above diagram, the application container has these environment
+variables:
 
 ```yaml
 - name: BYTEWAX_IMPORT_STR
@@ -84,68 +121,106 @@ In the above diagram, the application container has these environment variables:
   value: my-dataflow
 ```
 
-Some of those were already covered in the [How Bytewax Image Works](/docs/deployment/container/#how-the-bytewax-image-works) section.
+Some of those were already covered in the <project:#container-image>
+section.
 
 The environment variables can be grouped into two groups:
 
 #### Environments Variables used in `entrypoint.sh` script:
 
 - `BYTEWAX_IMPORT_STR`: path of the python script to run.
+
 - `BYTEWAX_WORKDIR`: working directory with all the ConfigMap content.
-- `BYTEWAX_KEEP_CONTAINER_ALIVE`: if is set to `true`, after the dataflow program ends an infinite loop is going to keep the container running.
+
+- `BYTEWAX_KEEP_CONTAINER_ALIVE`: if is set to `true`, after the
+  dataflow program ends an infinite loop is going to keep the
+  container running.
 
 #### Environments Variables internally used by Bytewax when `parse.proc_env()` is called:
 
-- `BYTEWAX_HOSTFILE_PATH`: path of the file that has all the processes addresses.
-- `BYTEWAX_POD_NAME`: name of the current Pod used to get the ordinal of it.
-- `BYTEWAX_REPLICAS`: number of processes running in the Bytewax cluster.
-- `BYTEWAX_STATEFULSET_NAME`: name of the StatefulSet used to get the ordinal of the current Pod.
-- `BYTEWAX_WORKERS_PER_PROCESS`: number of workers triggered by each process.
+- `BYTEWAX_HOSTFILE_PATH`: path of the file that has all the processes
+  addresses.
+
+- `BYTEWAX_POD_NAME`: name of the current Pod used to get the ordinal
+  of it.
+
+- `BYTEWAX_REPLICAS`: number of processes running in the Bytewax
+  cluster.
+
+- `BYTEWAX_STATEFULSET_NAME`: name of the StatefulSet used to get the
+  ordinal of the current Pod.
+
+- `BYTEWAX_WORKERS_PER_PROCESS`: number of workers triggered by each
+  process.
 
 ### Security Configuration
 
-Our StatefulSet Pod template definition has strict Pod and Container security context settings. These are the most important aspects:
+Our StatefulSet Pod template definition has strict Pod and Container
+security context settings. These are the most important aspects:
 
 - The container user is not root and can't escalate.
-- All the filesystems are read-only except the `working-directory` volume.
+
+- All the filesystems are read-only except the `working-directory`
+  volume.
+
 - The only Linux Capability enabled is `NET_BIND_SERVICE`.
 
 ## Headless service
 
-This is a Kubernetes Service without an assigned IP only used to interface with Kubernetes' service discovery mechanisms.
+This is a Kubernetes Service without an assigned IP only used to
+interface with Kubernetes' service discovery mechanisms.
 
-For Bytewax we use the service to instruct Kubernetes to create an endpoint for each Pod in our Statefulset. In this way, there will be a known DNS entry for each process in the Bytewax cluster.
+For Bytewax we use the service to instruct Kubernetes to create an
+endpoint for each Pod in our Statefulset. In this way, there will be a
+known DNS entry for each process in the Bytewax cluster.
 
 ## ConfigMap
 
-We stored the python script file and every needed file in a ConfigMap. The content of that ConfigMap is mounted in the `working-directory` volume in the `BYTEWAX_WORKDIR` path with read-write access. This strategy allows us to:
+We stored the python script file and every needed file in a ConfigMap.
+The content of that ConfigMap is mounted in the `working-directory`
+volume in the `BYTEWAX_WORKDIR` path with read-write access. This
+strategy allows us to:
 
 - Decouple the container image from the Python code to run.
-- Set strong security filesystem configurations setting the filesystems to read-only except for the working directory.
+
+- Set strong security filesystem configurations setting the
+  filesystems to read-only except for the working directory.
 
 ### Storing a tree of files and directories
 
-Sometimes your python script will need some input extra files to work with. In that case, we have implemented an approach that involves creating a tar file including all the files/directories needed and then storing that tarball in the ConfigMap.
+Sometimes your python script will need some input extra files to work
+with. In that case, we have implemented an approach that involves
+creating a tar file including all the files/directories needed and
+then storing that tarball in the ConfigMap.
 
-In that scenario we use some extra steps in our init-container. You can read more about that in our [Helm Chart repository](https://github.com/bytewax/helm-charts/).
+In that scenario we use some extra steps in our init-container. You
+can read more about that in our [Helm Chart
+repository](https://github.com/bytewax/helm-charts/).
 
 ## Registry Credentials Secret
 
-In the case that the container image is stored in a private registry, this secret will contain the credentials needed to pull images from that registry.
+In the case that the container image is stored in a private registry,
+this secret will contain the credentials needed to pull images from
+that registry.
 
 ## Service Account
 
-We use this Kubernetes object to give access to the Registry Credentials Secrets mentioned above to the StatefulSet Pods.
+We use this Kubernetes object to give access to the Registry
+Credentials Secrets mentioned above to the StatefulSet Pods.
 
 ## Next Steps
 
-If you want to deploy this stack in your Kubernetes cluster we invite you to read our [next section](/docs/deployment/waxctl) where we use the Bytewax CLI, Waxctl, to do that.
+If you want to deploy this stack in your Kubernetes cluster we invite
+you to read our section <project:/articles/deployment/waxctl.md> where
+we use the Bytewax CLI, Waxctl, to do that.
 
 ## Example Manifests
 
 _The manifests for the above example_
 
-As you can see, we rely on Helm to generate our manifests. You can read more about our Helm Chart [here](https://github.com/bytewax/helm-charts/).
+As you can see, we rely on Helm to generate our manifests. You can
+read more about our Helm Chart
+[here](https://github.com/bytewax/helm-charts/).
 
 ```yaml
 ---

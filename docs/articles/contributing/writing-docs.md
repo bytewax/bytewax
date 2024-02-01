@@ -1,12 +1,21 @@
----
-orphan: true
----
-# Writing API Documentation
+# Documentation Formatting
 
 API documentation is Markdown files in the `/apidocs` folder. It is
 built using [Sphinx](https://www.sphinx-doc.org/en/master/) and
 [MyST](https://myst-parser.readthedocs.io/en/latest/index.html) for
 Markdown parsing.
+
+## Adding Articles
+
+Articles for the user guide live in `/docs/articles` and
+sub-directories within. You can add new Markdown files to add a new
+article, but they must be added to a [Sphinx table of
+contents](https://www.sphinx-doc.org/en/master/usage/restructuredtext/directives.html#toctree-directive)
+to know where to add them in the document hierarchy. (Sphinx does not
+require the directory structure to match the document structure.)
+
+The TOC for the user guide is in `/docs/articles/index.md`. You can
+add a new line with the path of that file the appropriate sub-section.
 
 ## MyST Cheat Sheet
 
@@ -95,6 +104,80 @@ See [MyST's documentation on cross
 referencing](inv:myst#syntax/cross-referencing) for all the ways this
 can work. I'll give a quick summary here.
 
+#### Other Markdown Files
+
+To link to an entire article you can use normal Markdown link syntax
+with a path to the Markdown file. The path can be relative or
+absolute; if absolute it is rooted in `/docs`.
+
+```markdown
+Read the [article on recovery](/articles/concepts/recovery.md).
+```
+
+Appears as:
+
+> Read the [article on recovery](/articles/concepts/recovery.md).
+
+You can also automatically generate link text by using the Markdown
+autolink syntax with the scheme `project:` and a path.
+
+```markdown
+Read about <project:/articles/concepts/recovery.md>
+```
+
+Appears as:
+
+> Read about <project:/articles/concepts/recovery.md>
+
+(xref-specific-section)=
+#### A Specific Section
+
+The system does not automatically generate xref links for headings.
+You can manually add a reference name to any heading via the
+`(ref-name)=` syntax just before it. In general, just add refs for
+sections you know you want to reference elsewhere.
+
+```markdown
+(xref-specific-section)=
+### A Specific Section
+```
+
+You can then reference it via normal Markdown link syntax with the URI
+being just `#ref-name`.
+
+```markdown
+Read [how to link to a specific section](#xref-specific-section)
+```
+
+Appears as:
+
+> Read [how to link to a specific section](#xref-specific-section)
+
+Or the autolink syntax with the scheme `project:` and then a
+`#ref-name`.
+
+```markdown
+Read about linking to <project:#xref-specific-section>
+```
+
+Appears as:
+
+> Read about linking to <project:#xref-specific-section>
+
+:::{note}
+
+Either the link URI has to either start with a `#` and be a global
+Sphinx reference, or it is a path. You can't mix and match. This will
+not work.
+
+```markdown
+Read [how to link to a specific section](/articles/contributing/writing-docs.md#xref-specific-section)
+```
+
+Instead make an explicit reference target with `(ref-name)=`.
+
+:::
+
 #### API Docs
 
 To link to a symbol in the Bytewax library, use the full dotted path
@@ -120,6 +203,51 @@ Appears as:
 
 > This operator returns a {py:obj}`~bytewax.dataflow.Stream`.
 
+#### Intersphinx
+
+[Intersphinx](https://www.sphinx-doc.org/en/master/usage/extensions/intersphinx.html)
+is the system for Sphinx to connect different documentation systems
+together. The Sphinx config is already configured to have a few of our
+dependencies including the Python standard library connected.
+
+##### API Docs
+
+For most external Python types, you can use the same xref syntax as
+within Bytewax:
+
+```markdown
+See the standard library function {py:obj}`functools.reduce`.
+```
+
+Appears as:
+
+> See the standard library function {py:obj}`functools.reduce`.
+
+##### Other References
+
+Other references use a more explicit system. You use URIs starting
+with `inv:`, then the name of the inventory in the `/docs/conf.py`
+`intersphinx_mapping`, then the domain, then the item name.
+
+```markdown
+Learn about [how to use lambdas](inv:python:std:label#tut-lambda).
+```
+
+Appears as:
+
+> Learn about [how to use lambdas](inv:python:std:label#tut-lambda).
+
+##### Finding Reference Names
+
+If you don't know the exact xref incantation, you can use the included
+dump tool to fuzzy search with `grep` or
+[`fzf`](https://github.com/junegunn/fzf) over all the xrefs to find
+the one you want.
+
+```console
+$ PIPENV_IGNORE_VIRTUALENVS=1 pipenv run python ./intersphinxdump.py | fzf
+```
+
 ### Example Code
 
 Use backtick code blocks with the `python` language type.
@@ -129,6 +257,12 @@ Use backtick code blocks with the `python` language type.
 flow = Dataflow()
 ```
 ````
+
+Appears as:
+
+```python
+flow = Dataflow()
+```
 
 ### Shell Sessions
 

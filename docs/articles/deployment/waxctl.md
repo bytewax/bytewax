@@ -1,37 +1,54 @@
-Waxctl helps you run and manage your Bytewax dataflows in Kubernetes.
-It uses the current `kubectl` context configuration, so you need kubectl configured to access the desired Kubernetes cluster for your dataflows.
+(waxctl)=
+# Using `waxctl` to Run your Dataflow on Kubernetes
 
-Check `kubectl` documentation [here](https://kubernetes.io/docs/tasks/tools/#kubectl) if you don't have it installed yet.
+Waxctl helps you run and manage your Bytewax dataflows in Kubernetes.
+It uses the current `kubectl` context configuration, so you need
+kubectl configured to access the desired Kubernetes cluster for your
+dataflows.
+
+Check `kubectl` documentation
+[here](https://kubernetes.io/docs/tasks/tools/#kubectl) if you don't
+have it installed yet.
 
 ## Installation
 
-Installing Waxctl is very simple. You just need to download the binary corresponding to your operating system and architecture [here](/downloads/).
+Installing Waxctl is very simple. You just need to download the binary
+corresponding to your operating system and architecture
+[here](https://bytewax.io/downloads).
 
 ## Dataflow Lifecycle
 
-Waxctl allows you to manage the entire dataflow program lifecycle which includes these phases:
+Waxctl allows you to manage the entire dataflow program lifecycle
+which includes these phases:
 
 - Deployment
+
 - Getting Status
+
 - Modification
+
 - Deletion
 
 In the following sections we are going to cover each one.
 
 ## Available Commands
 
-For now Waxctl only has one available command and that is `dataflow`. That command is also aliased to `df` so any of them can be used.
+For now Waxctl only has one available command and that is `dataflow`.
+That command is also aliased to `df` so any of them can be used.
 
-You can manage the entire lifecycle of a dataflow in Kubernetes. To do so, the `dataflow` command has the following sub-commands:
+You can manage the entire lifecycle of a dataflow in Kubernetes. To do
+so, the `dataflow` command has the following sub-commands:
 
-- delete
-- deploy
-- list
+- `delete`
+
+- `deploy`
+
+- `list`
 
 Running `dataflow --help` will show further details for these:
 
-```bash
-❯ waxctl dataflow --help
+```console
+$ waxctl dataflow --help
 Manage dataflows in Kubernetes.
 
 Usage:
@@ -56,26 +73,36 @@ Use "waxctl dataflow [command] --help" for more information about a command.
 
 ## Waxctl and Namespaces
 
-Waxctl behavior leverages namespaces similarly to other kubernetes tools like helm. If you don’t specify a namespace, the tool will use the current `kubectl` namespace.
+Waxctl behavior leverages namespaces similarly to other kubernetes
+tools like helm. If you don’t specify a namespace, the tool will use
+the current `kubectl` namespace.
 
-You can specify an explicit namespace in every Waxctl command using the `--namespace` flag.
+You can specify an explicit namespace in every Waxctl command using
+the `--namespace` flag.
 
 ## Deploying a Dataflow
 
-To deploy a dataflow you just need to run `dataflow deploy` passing the path of your python script as an argument. If left unset, Waxctl will use the default name for your dataflow, which is `bytewax`.
+To deploy a dataflow you just need to run `dataflow deploy` passing
+the path of your python script as an argument. If left unset, Waxctl
+will use the default name for your dataflow, which is `bytewax`.
 
-In our example we are going to deploy a dataflow called `my-dataflow` in the current namespace which is `bytewax` in our case:
+In our example we are going to deploy a dataflow called `my-dataflow`
+in the current namespace which is `bytewax` in our case:
 
-```bash
-❯ waxctl df deploy /var/bytewax/examples/basic.py --name my-dataflow
+```console
+$ waxctl df deploy /var/bytewax/examples/basic.py --name my-dataflow
 Dataflow my-dataflow deployed in bytewax namespace.
 ```
 
-In the above example, Waxctl used the default values for all the flags besides `name`. The tool allows you to configure a wide range of characteristics of your dataflow.
+In the above example, Waxctl used the default values for all the flags
+besides `name`. The tool allows you to configure a wide range of
+characteristics of your dataflow.
 
-We can see which flags are available geting the `dataflow deploy` help.
-```bash
-❯ waxctl df deploy --help
+We can see which flags are available geting the `dataflow deploy`
+help.
+
+```console
+$ waxctl df deploy --help
 Deploy a dataflow to Kubernetes using the Bytewax helm chart.
 
 The resources are going to be created if the dataflow doesn't exist or
@@ -118,10 +145,12 @@ Global Flags:
 
 ## Getting Dataflow Information
 
-You can know which dataflows are deployed in your Kubernetes cluster using the `dataflow list` sub-command. In the output we are going to find details about each dataflow as we can see in this example:
+You can know which dataflows are deployed in your Kubernetes cluster
+using the `dataflow list` sub-command. In the output we are going to
+find details about each dataflow as we can see in this example:
 
-```bash
-❯ waxctl df ls
+```console
+$ waxctl df ls
 [
   {
     "name": "my-dataflow",
@@ -138,8 +167,9 @@ You can know which dataflows are deployed in your Kubernetes cluster using the `
 ```
 
 This is the help text of that command:
-```bash
-❯ waxctl df list --help
+
+```console
+$ waxctl df list --help
 List dataflows deployed.
 
 Examples:
@@ -169,19 +199,22 @@ Global Flags:
 
 ## Updating a Dataflow
 
-To modify a dataflow configuration you need to run `dataflow deploy` again setting the new desired flags configutarion.
+To modify a dataflow configuration you need to run `dataflow deploy`
+again setting the new desired flags configuration.
 
-Continuing with our example, we could set three processes instead of one running this:
+Continuing with our example, we could set three processes instead of
+one running this:
 
-```bash
-❯ waxctl df deploy --name my-dataflow /var/bytewax/examples/basic.py -p 3
+```console
+$ waxctl df deploy --name my-dataflow /var/bytewax/examples/basic.py -p 3
 Dataflow my-dataflow deployed in bytewax namespace.
 ```
 
-And if we get the list of dataflows we are going to see the new configuration applied:
+And if we get the list of dataflows we are going to see the new
+configuration applied:
 
-```bash
-❯ waxctl df ls
+```console
+$ waxctl df ls
 [
   {
     "name": "my-dataflow",
@@ -201,27 +234,32 @@ You can change any of the flags of your dataflow.
 
 ## Removing a Dataflow
 
-To remove the Kubernetes resources of a dataflow you need to run `waxctl dataflow delete` passing the name of the dataflow.
+To remove the Kubernetes resources of a dataflow you need to run
+`waxctl dataflow delete` passing the name of the dataflow.
 
 To run a dry-run delete of our dataflow example we can run this:
-```bash
-❯ waxctl df rm --name my-dataflow
+
+```console
+$ waxctl df rm --name my-dataflow
 Dataflow my-dataflow found in bytewax namespace.
 
 Must specify --yes to delete it.
 ```
 
-And if we want to actually delete the dataflow we need add the `--yes` flag:
-```bash
-❯ waxctl df rm --name my-dataflow --yes
+And if we want to actually delete the dataflow we need add the `--yes`
+flag:
+
+```console
+$ waxctl df rm --name my-dataflow --yes
 Dataflow my-dataflow deleted.
 ```
 
 ## Bytewax Helm Chart
 
-Waxctl uses a compiled-in [Bytewax helm chart](https://github.com/bytewax/helm-charts) to generate all the manifests except the Namespace and ConfigMap which are created by making calls to Kubernetes API directly.
-
-You can check the entire architecture that Waxctl deploys in our [Bytewax Ecosystem on Kubernetes](/docs/deployment/k8s-ecosystem/) section.
+Waxctl uses a compiled-in [Bytewax helm
+chart](https://github.com/bytewax/helm-charts) to generate all the
+manifests except the Namespace and ConfigMap which are created by
+making calls to Kubernetes API directly.
 
 ## More Examples
 
@@ -229,77 +267,96 @@ This section covers some of the most common scenarios.
 
 ### Setting Processes and Workers per Process
 
-deploying a dataflow running five processes and two workers per process:
+Deploying a dataflow running five processes and two workers per
+process:
 
-```bash
-❯ waxctl dataflow deploy my-script.py \
+```console
+$ waxctl dataflow deploy my-script.py \
   --name=cluster \
-  --processes=5
+  --processes=5 \
   --workers=2
 ```
 
-Using available alias of commands and flags, you can get the same running:
+Using available alias of commands and flags, you can get the same
+running:
 
-```bash
-❯ waxctl df deploy my-script.py -Ncluster -p5 -w2
+```console
+$ waxctl df deploy my-script.py -Ncluster -p5 -w2
 ```
 
-Note that when you use one-character flags you can ommit the `=` or the space between the flag and the value.
+Note that when you use one-character flags you can ommit the `=` or
+the space between the flag and the value.
 
 ### Using a tar file to work with a tree of directories and files
 
-When your python script needs to read other files you can manage that by creating a tarball file with all the files needed and passing the path of that file as the argument to the `deploy` command. Also, you will need to add the flag `--python-file-name` (or its equivalent alias `-f`) with the relative path of your python script inside the tarball.
+When your python script needs to read other files you can manage that
+by creating a tarball file with all the files needed and passing the
+path of that file as the argument to the `deploy` command. Also, you
+will need to add the flag `--python-file-name` (or its equivalent
+alias `-f`) with the relative path of your python script inside the
+tarball.
 
-```bash
-❯ waxctl df deploy my-tree.tar -f ./my-script.py --name my-dataflow
+```console
+$ waxctl df deploy my-tree.tar -f ./my-script.py --name my-dataflow
 ```
 
 ### Dry-run Flag
 
-running a command with the `--dry-run` flag to get all the manifests without actually deploy them to the Kubernetes cluster:
+Running a command with the `--dry-run` flag to get all the manifests
+without actually deploy them to the Kubernetes cluster:
 
-```bash
-❯ waxctl df deploy ./basic.py -N dataflow -n new-namespace --dry-run
+```console
+$ waxctl df deploy ./basic.py -N dataflow -n new-namespace --dry-run
 ```
-setting the `-n` flag with the name of a non-existing namespace will cause Waxctl to handle creating the resource and because we use the `--dry-run` flag it is going to include the namespace manifest in the output.
+
+Setting the `-n` flag with the name of a non-existing namespace will
+cause Waxctl to handle creating the resource and because we use the
+`--dry-run` flag it is going to include the namespace manifest in the
+output.
 
 You could also get the output in JSON format:
 
-```bash
-❯ waxctl df deploy ./basic.py -N dataflow -n new-namespace --dry-run -ojson
+```console
+$ waxctl df deploy ./basic.py -N dataflow -n new-namespace --dry-run -ojson
 ```
 
-And if you need to apply the output manifests to Kubernetes you could run the following:
-```bash
-❯ waxctl df deploy ./basic.py -N dataflow -n new-namespace --dry-run | kubectl apply -f -
+And if you need to apply the output manifests to Kubernetes you could
+run the following:
+
+```console
+$ waxctl df deploy ./basic.py -N dataflow -n new-namespace --dry-run | kubectl apply -f -
 ```
 
 ### Using a Custom Image from a Private Registry
 
-In our [Including Custom Dependencies in an Image](/docs/deployment/container#including-custom-dependencies-in-an-image) section we describe how to create your own Docker image using a Bytewax image as base.
+In our <project:#container-custom-deps> section we describe how to
+create your own Docker image using a Bytewax image as base.
 
-Let's assume you created a custom image that you pushed to a private image registry in GitLab. In our example the image URL is:
+Let's assume you created a custom image that you pushed to a private
+image registry in GitLab. In our example the image URL is:
 
 ```
 registry.gitlab.com/someuser/somerepo:bytewax-example
 ```
 
-First, we would create a namespace and a Kubernetes `docker-registry` secret with the registry credentials:
+First, we would create a namespace and a Kubernetes `docker-registry`
+secret with the registry credentials:
 
-```bash
-❯ export GITLAB_PAT=your-personal-access-token
-❯ kubectl create ns private
-❯ kubectl create secret docker-registry gitlab-credentials \
+```console
+$ export GITLAB_PAT=your-personal-access-token
+$ kubectl create ns private
+$ kubectl create secret docker-registry gitlab-credentials \
   -n private \
   --docker-server=https://registry.gitlab.com \
   --docker-username=your-email@mail.com \
   --docker-password=$GITLAB_PAT \
   --docker-email=your-email@mail.com
 ```
+
 After that you can deploy your dataflow with these flags:
 
-```bash
-❯ waxctl df deploy ./my-script.py \
+```console
+$ waxctl df deploy ./my-script.py \
   --name df-private \
   --image-repository registry.gitlab.com/someuser/somerepo \
   --image-tag bytewax-example \
