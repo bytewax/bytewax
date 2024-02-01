@@ -11,7 +11,7 @@ from typing_extensions import override
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 
-class _StatelessSQLSinkPartition(StatelessSinkPartition):
+class _StatelessSQLSinkPartition(StatelessSinkPartition[Dict[str, Any]]):
     def __init__(self, engine: Engine, stmt: Executable):
         self._engine = engine
         self._stmt = stmt
