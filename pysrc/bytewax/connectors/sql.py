@@ -32,7 +32,7 @@ class _StatelessSQLSinkPartition(StatelessSinkPartition[Dict[str, Any]]):
         self._conn.close()
 
 
-class DynamicSQLOutput(DynamicSink):
+class DynamicSQLOutput(DynamicSink[Dict[str, Any]]):
     """Write output to a SQL database using SQLAlchemy's core API.
 
     Each worker will construct it's own connection to the supplied Engine.
