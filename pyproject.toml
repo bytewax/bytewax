@@ -52,6 +52,7 @@ kafka = [
 test = [
     "myst-docutils==0.17.0",
     "pytest==7.1.0",
+    "sybil==6.0.3",
 ]
 
 [project.urls]
@@ -65,10 +66,11 @@ long_description = "file: README.md"
 long_description_content_type = "text/markdown"
 
 [tool.pytest.ini_options]
-addopts = "-v --doctest-modules"
-doctest_optionflags = "NORMALIZE_WHITESPACE"
+addopts = "-v -p no:doctest"
 testpaths = [
+    "docs",
     "pytests",
+    "pysrc",
 ]
 
 [tool.maturin]
