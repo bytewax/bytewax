@@ -93,7 +93,7 @@ from typing import Tuple, Optional
 
 from bytewax import operators as op
 from bytewax.connectors.kafka import operators as kop
-from bytewax.connectors.kafka.message import KafkaSinkMessage
+from bytewax.connectors.kafka import KafkaSinkMessage
 from bytewax.dataflow import Dataflow
 
 flow = Dataflow("kafka_in_out")

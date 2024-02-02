@@ -254,14 +254,18 @@ Use backtick code blocks with the `python` language type.
 
 ````markdown
 ```python
-flow = Dataflow()
+from bytewax.dataflow import Dataflow
+
+flow = Dataflow("doc_df")
 ```
 ````
 
 Appears as:
 
 ```python
-flow = Dataflow()
+from bytewax.dataflow import Dataflow
+
+flow = Dataflow("doc_df")
 ```
 
 ### Shell Sessions
@@ -313,6 +317,13 @@ I2[Kafka Consumer `transactions`] --> D2[Transactions Deserializer] --> K2[Key o
 K1 & K2 --> J1[Join on User ID] --> V[Validator] --> S[Enriched Serializer] --> O1[Kafka Producer `enriched_txns`]
 V --> O2[Kafka Producer `enriched_txns_dead_letter_queue`]
 ```
+
+## Doctests
+
+`pytest` is setup to use
+[Sybil](https://sybil.readthedocs.io/en/latest/index.html) to attempt
+to run all Python code blocks in our documentation. This is so we
+catch documentation we forget to update as we advance the API.
 
 ## Build Process
 

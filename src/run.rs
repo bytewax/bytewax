@@ -76,11 +76,12 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 ///
 /// ```python
 /// >>> from bytewax.dataflow import Dataflow
-/// >>> from bytewax.testing import TestingInput, run_main
-/// >>> from bytewax.connectors.stdio import StdOutput
+/// >>> import bytewax.operators as op
+/// >>> from bytewax.testing import TestingSource, run_main
+/// >>> from bytewax.connectors.stdio import StdOutSink
 /// >>> flow = Dataflow("my_df")
-/// >>> flow.input("inp", TestingInput(range(3)))
-/// >>> flow.capture(StdOutput())
+/// >>> s = op.input("inp", flow, TestingSource(range(3)))
+/// >>> op.output("out", s, StdOutSink())
 /// >>> run_main(flow)
 /// 0
 /// 1
@@ -178,11 +179,12 @@ pub(crate) fn run_main(
 ///
 /// ```python
 /// >>> from bytewax.dataflow import Dataflow
-/// >>> from bytewax.testing import TestingInput
-/// >>> from bytewax.connectors.stdio import StdOutput
+/// >>> import bytewax.operators as op
+/// >>> from bytewax.testing import TestingSource, cluster_main
+/// >>> from bytewax.connectors.stdio import StdOutSink
 /// >>> flow = Dataflow("my_df")
-/// >>> flow.input("inp", TestingInput(range(3)))
-/// >>> flow.capture(StdOutput())
+/// >>> s = op.input("inp", flow, TestingSource(range(3)))
+/// >>> op.output("out", s, StdOutSink())
 /// >>> # In a real example, use "host:port" of all other workers.
 /// >>> addresses = []
 /// >>> proc_id = 0

@@ -150,7 +150,11 @@ impl BytewaxTracer {
 /// Note: To make this work, you have to keep a reference of the
 /// returned object.
 ///
+/// % skip: next
+///
 /// ```python
+/// from bytewax.tracing import setup_tracing
+
 /// tracer = setup_tracing()
 /// ```
 ///
