@@ -20,8 +20,30 @@ configure behavior from the code block itself.
 """
 import doctest
 
+from bytewax.tracing import setup_tracing
 from sybil import Sybil
 from sybil.parsers import myst
+
+
+def pytest_addoption(parser):
+    """Add a `--bytewax-log-level` CLI option to pytest.
+
+    This will control the `setup_tracing` log level.
+
+    """
+    parser.addoption(
+        "--bytewax-log-level",
+        action="store",
+        choices=["ERROR", "WARN", "INFO", "DEBUG", "TRACE"],
+    )
+
+
+def pytest_configure(config):
+    """This will run on pytest init."""
+    log_level = config.getoption("--bytewax-log-level")
+    if log_level:
+        setup_tracing(log_level=log_level)
+
 
 doctest_option_flags = doctest.ELLIPSIS | doctest.NORMALIZE_WHITESPACE
 

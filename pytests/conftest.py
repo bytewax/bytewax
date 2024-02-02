@@ -7,28 +7,7 @@ from datetime import datetime, timezone
 
 from bytewax.recovery import RecoveryConfig, init_db_dir
 from bytewax.testing import cluster_main, run_main
-from bytewax.tracing import setup_tracing
 from pytest import fixture
-
-
-def pytest_addoption(parser):
-    """Add a `--bytewax-log-level` CLI option to pytest.
-
-    This will control the `setup_tracing` log level.
-
-    """
-    parser.addoption(
-        "--bytewax-log-level",
-        action="store",
-        choices=["ERROR", "WARN", "INFO", "DEBUG", "TRACE"],
-    )
-
-
-def pytest_configure(config):
-    """This will run on pytest init."""
-    log_level = config.getoption("--bytewax-log-level")
-    if log_level:
-        setup_tracing(log_level=log_level)
 
 
 @fixture(params=["run_main", "cluster_main-2thread"])
