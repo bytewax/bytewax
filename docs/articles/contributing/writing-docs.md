@@ -357,8 +357,8 @@ x = 1 + 1
 ### Doctest Code Blocks
 
 If you want to test the output, make it a doctest-style code block,
-prefixing each line with `>>>` if it is input and output on the
-following lines.
+using the `doctest` directive. You should prefix each line with `>>>`
+if it is input and output on the following lines.
 
 ````markdown
 ```{doctest}
