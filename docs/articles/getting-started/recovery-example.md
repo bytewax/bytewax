@@ -65,8 +65,8 @@ keyed_stream = op.key_on("key_stream", input_stream, lambda _: "ALL")
 
 
 def update_sum(current_sum, new_item):
-    if current_some is None:
-        current_some = 0
+    if current_sum is None:
+        current_sum = 0
 
     updated_sum = current_sum + new_item
     return updated_sum, updated_sum
