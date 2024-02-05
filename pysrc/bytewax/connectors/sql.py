@@ -1,5 +1,5 @@
 """Connectors for SQLAlchemy compatible sinks."""
-from typing import List
+from typing import Any, Dict, List
 
 from sqlalchemy import (
     Engine,
