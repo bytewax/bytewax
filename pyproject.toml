@@ -71,6 +71,7 @@ testpaths = [
     "docs",
     "pytests",
     "pysrc",
+    "README.md",
 ]
 
 [tool.maturin]

@@ -39,10 +39,9 @@ import json
 from bytewax import operators as op
 from bytewax.connectors.kafka import operators as kop
 from bytewax.dataflow import Dataflow
-
-# Bytewax has input and output helpers for common input and output data sources
-# but you can also create your own with the [Sink and Source API](https://github.com/bytewax/bytewax/blob/main/docs/articles/advanced-concepts/custom-io-connectors.md).
 ```
+
+Bytewax has input and output helpers for common input and output data sources but you can also create your own with the [Sink and Source API](https://github.com/bytewax/bytewax/blob/main/docs/articles/advanced-concepts/custom-io-connectors.md).
 
 At a high-level, the dataflow compute model is one in which a program execution is conceptualized as data flowing through a series of operator-based steps. Operators like `map` and `filter` are the processing primitives of Bytewax. Each of them gives you a “shape” of data transformation, and you give them regular Python functions to customize them to a specific task you need. See the documentation for a list of the [available operators](https://bytewax.io/apidocs/bytewax.operators/index)
 
@@ -90,15 +89,19 @@ There are multiple stateful operators available like `reduce`, `stateful_map` an
 from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
-from bytewax.operators import window as window_op
+import bytewax.operators.window as win
 from bytewax.operators.window import EventClockConfig, TumblingWindow
+from bytewax.testing import TestingSource
 
+flow = Dataflow("window_eg")
 
-# This is the accumulator function, and outputs a list of 2-tuples,
-# containing the event's "value" and it's "time" (used later to print info)
-def acc_values(acc, event):
-    acc.append((event["value"], event["time"]))
-    return acc
+src = [
+    {"user_id": "123", "value": 5, "time": "2023-1-1T00:00:00Z"},
+    {"user_id": "123", "value": 7, "time": "2023-1-1T00:00:01Z"},
+    {"user_id": "123", "value": 2, "time": "2023-1-1T00:00:07Z"},
+]
+inp = op.input("inp", flow, TestingSource(src))
+keyed_inp = op.key_on("keyed_inp", inp, lambda x: x["user_id"])
 
 
 # This function instructs the event clock on how to retrieve the
@@ -110,15 +113,24 @@ def get_event_time(event):
 
 
 # Configure the `fold_window` operator to use the event time.
-cc = EventClockConfig(get_event_time, wait_for_system_duration=timedelta(seconds=10))
+clock = EventClockConfig(get_event_time, wait_for_system_duration=timedelta(seconds=10))
 
 # And a 5 seconds tumbling window
 align_to = datetime(2023, 1, 1, tzinfo=timezone.utc)
-wc = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
+windower = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
 
-running_avg_stream = window_op.fold_window(
-    "running_average", keyed_stream, cc, wc, list, acc_values
-)
+five_sec_buckets = win.collect_window("five_sec_buckets", keyed_inp, clock, windower)
+
+
+def calc_avg(bucket):
+    values = [event["value"] for event in bucket]
+    if len(values) > 0:
+        return sum(values) / len(values)
+    else:
+        return None
+
+
+five_sec_avgs = op.map_value("avg_in_bucket", five_sec_buckets, calc_avg)
 ```
 
 #### Merges and Joins
@@ -184,6 +196,8 @@ op.inspect("debug", merged_stream)
 #### Output
 
 Output in Bytewax is described as a sink and these are grouped into [connectors](https://www.bytewax.io/apidocs/bytewax.connectors/index). There are a number of basic connectors in the bytewax repo to help you during development. In addition to the built-in connectors, it is possible to use the input and output API to build a custom sink and source. There is also a hub for connectors built by the community, partners and Bytewax. Below is an example of a custom connector for Postgres using the psycopg2 library.
+
+% skip: next
 
 ```python
 import psycopg2
