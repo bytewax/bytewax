@@ -254,14 +254,21 @@ Use backtick code blocks with the `python` language type.
 
 ````markdown
 ```python
-flow = Dataflow()
+from bytewax.dataflow import Dataflow
+
+flow = Dataflow("doc_df")
 ```
 ````
 
 Appears as:
 
+% cbfmt does not parse Markdown correctly and so this can't be quoted
+% with `>`. It'll not strip those out and pass them to the formatter.
+
 ```python
-flow = Dataflow()
+from bytewax.dataflow import Dataflow
+
+flow = Dataflow("doc_df")
 ```
 
 ### Shell Sessions
@@ -313,6 +320,119 @@ I2[Kafka Consumer `transactions`] --> D2[Transactions Deserializer] --> K2[Key o
 K1 & K2 --> J1[Join on User ID] --> V[Validator] --> S[Enriched Serializer] --> O1[Kafka Producer `enriched_txns`]
 V --> O2[Kafka Producer `enriched_txns_dead_letter_queue`]
 ```
+
+## Doctests
+
+`pytest` is setup to use
+[Sybil](https://sybil.readthedocs.io/en/latest/index.html) to attempt
+to run all Python code blocks in our documentation. This is so we
+catch documentation we forget to update as we advance the API.
+
+Running `pytest` will run over all:
+
+- All documentation examples in Markdown files in `/docs`.
+
+- All examples in docstrings in `/pysrc`.
+
+- Docstrings from PyO3 are tested via the stubs file in
+  `/pysrc/bytewax/_bytewax.pyi`. You must rebuild stubs to test these.
+
+### Plain Code Blocks
+
+If you have a plain Python code block, the code will be run to ensure
+no exceptions, but no output will be checked.
+
+````markdown
+```python
+x = 1 + 1
+```
+````
+
+Appears as:
+
+```python
+x = 1 + 1
+```
+
+### Doctest Code Blocks
+
+If you want to test the output, make it a doctest-style code block,
+using the `doctest` directive. You should prefix each line with `>>>`
+if it is input and output on the following lines.
+
+````markdown
+```{doctest}
+>>> 1 + 1
+2
+```
+````
+
+Appears as:
+
+```{doctest}
+>>> 1 + 1
+2
+```
+
+### Test Code Blocks
+
+:::{note}
+
+Sybil doesn't fully support this yet, but I'm going to write it here
+for when it does. We should still write these style of examples, but
+they will not be automatically tested.
+
+:::
+
+If you'd like to have some commentary between the example code an the
+output, use the `testcode` and `testoutput` directives. The `testcode`
+block will automatically be highlighted as Python code.
+
+````markdown
+Here's some pre-commentary.
+
+```{testcode}
+1 + 1
+```
+
+Here's some middle-commentary.
+
+```{testoutput}
+2
+```
+
+Here's some post-commentary.
+````
+
+Appears as:
+
+> Here's some pre-commentary.
+>
+> ```{testcode}
+> 1 + 1
+> ```
+>
+> Here's some middle-commentary.
+>
+> ```{testoutput}
+> 2
+> ```
+>
+> Here's some post-commentary.
+
+### Skipping
+
+To skip a doctest, use a Sybil skip comment. Add a line with `% skip:
+next` right above the code block. The entire code block will not be
+run.
+
+````markdown
+% skip: next
+
+```python
+invalid code
+```
+````
 
 ## Build Process
 

@@ -53,11 +53,11 @@ class RecoveryConfig:
         ...
 
     @property
-    def db_dir(self): ...
-    @property
     def snapshot_serde(self): ...
     @property
     def backup_interval(self): ...
+    @property
+    def db_dir(self): ...
 
 def run_main(flow, *, epoch_interval=None, recovery_config=None):
     """Execute a dataflow in the current thread.
@@ -68,11 +68,12 @@ def run_main(flow, *, epoch_interval=None, recovery_config=None):
 
     ```python
     >>> from bytewax.dataflow import Dataflow
-    >>> from bytewax.testing import TestingInput, run_main
-    >>> from bytewax.connectors.stdio import StdOutput
+    >>> import bytewax.operators as op
+    >>> from bytewax.testing import TestingSource, run_main
+    >>> from bytewax.connectors.stdio import StdOutSink
     >>> flow = Dataflow("my_df")
-    >>> flow.input("inp", TestingInput(range(3)))
-    >>> flow.capture(StdOutput())
+    >>> s = op.input("inp", flow, TestingSource(range(3)))
+    >>> op.output("out", s, StdOutSink())
     >>> run_main(flow)
     0
     1
@@ -114,11 +115,12 @@ def cluster_main(
 
     ```python
     >>> from bytewax.dataflow import Dataflow
-    >>> from bytewax.testing import TestingInput
-    >>> from bytewax.connectors.stdio import StdOutput
+    >>> import bytewax.operators as op
+    >>> from bytewax.testing import TestingSource, cluster_main
+    >>> from bytewax.connectors.stdio import StdOutSink
     >>> flow = Dataflow("my_df")
-    >>> flow.input("inp", TestingInput(range(3)))
-    >>> flow.capture(StdOutput())
+    >>> s = op.input("inp", flow, TestingSource(range(3)))
+    >>> op.output("out", s, StdOutSink())
     >>> # In a real example, use "host:port" of all other workers.
     >>> addresses = []
     >>> proc_id = 0
@@ -227,7 +229,11 @@ def setup_tracing(tracing_config=None, log_level=None):
     Note: To make this work, you have to keep a reference of the
     returned object.
 
+    % skip: next
+
     ```python
+    from bytewax.tracing import setup_tracing
+
     tracer = setup_tracing()
     ```
 
@@ -330,11 +336,6 @@ class WindowMetadata:
         ...
 
     @property
-    def open_time(self):
-        """The time that the window starts."""
-        ...
-
-    @property
     def close_time(self):
         """The time that the window closes.
 
@@ -342,6 +343,11 @@ class WindowMetadata:
         change as new data is received.
 
         """
+        ...
+
+    @property
+    def open_time(self):
+        """The time that the window starts."""
         ...
 
 class AbortExecution(RuntimeError):
@@ -414,9 +420,9 @@ class JaegerConfig(TracingConfig):
         ...
 
     @property
-    def endpoint(self): ...
-    @property
     def service_name(self): ...
+    @property
+    def endpoint(self): ...
     @property
     def sampling_ratio(self): ...
 
@@ -455,11 +461,11 @@ class OtlpTracingConfig(TracingConfig):
         ...
 
     @property
+    def sampling_ratio(self): ...
+    @property
     def service_name(self): ...
     @property
     def url(self): ...
-    @property
-    def sampling_ratio(self): ...
 
 class EventClockConfig(ClockConfig):
     """Use a getter function to lookup the timestamp for each item.
@@ -496,9 +502,9 @@ class EventClockConfig(ClockConfig):
         ...
 
     @property
-    def wait_for_system_duration(self): ...
-    @property
     def dt_getter(self): ...
+    @property
+    def wait_for_system_duration(self): ...
 
 class SystemClockConfig(ClockConfig):
     """Use the current system time as the timestamp for each item.
@@ -550,9 +556,9 @@ class TumblingWindow(WindowConfig):
         ...
 
     @property
-    def align_to(self): ...
-    @property
     def length(self): ...
+    @property
+    def align_to(self): ...
 
 class SlidingWindow(WindowConfig):
     """Sliding windows of fixed duration.
@@ -599,9 +605,9 @@ class SlidingWindow(WindowConfig):
     @property
     def align_to(self): ...
     @property
-    def offset(self): ...
-    @property
     def length(self): ...
+    @property
+    def offset(self): ...
 
 class SessionWindow(WindowConfig):
     """Session windowing with a fixed inactivity gap.
