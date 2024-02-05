@@ -155,11 +155,14 @@ inp = op.input(
 
 
 def mapper(state, value):
+    if state is None:
+        state = OrderBookState()
+
     state.update(value)
     return (state, state.summarize())
 
 
-stats = op.stateful_map("order_book", inp, OrderBookState, mapper)
+stats = op.stateful_map("order_book", inp, mapper)
 # ('BTC-USD', (36905.39, 0.00334873, 36905.4, 1.6e-05, 0.010000000002037268))
 
 

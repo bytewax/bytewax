@@ -43,7 +43,7 @@ def mapper(old_max_id, new_max_id):
     return (new_max_id, range(old_max_id, new_max_id))
 
 
-ids = op.stateful_map("range", max_id, lambda: None, mapper)
+ids = op.stateful_map("range", max_id, mapper)
 ids = op.flat_map("strip_key_flatten", ids, lambda key_ids: key_ids[1])
 ids = op.redistribute("redist", ids)
 

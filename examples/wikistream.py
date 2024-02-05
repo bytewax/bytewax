@@ -62,7 +62,7 @@ server_counts = win.count_window(
 # ("server.name", count_per_window)
 
 
-def keep_max(max_count: Optional[int], new_count: int) -> Tuple[int, int]:
+def keep_max(max_count: Optional[int], new_count: int) -> Tuple[Optional[int], int]:
     if max_count is None:
         new_max = new_count
     else:
@@ -71,9 +71,7 @@ def keep_max(max_count: Optional[int], new_count: int) -> Tuple[int, int]:
     return (new_max, new_max)
 
 
-max_count_per_window = op.stateful_map(
-    "keep_max", server_counts, lambda: None, keep_max
-)
+max_count_per_window = op.stateful_map("keep_max", server_counts, keep_max)
 # ("server.name", max_per_window)
 
 

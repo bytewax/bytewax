@@ -38,6 +38,9 @@ class DetectorState:
 
 
 def mapper(state, value):
+    if state is None:
+        state = DetectorState()
+
     is_anomalous = state.is_anomalous(value, threshold_z=2.0)
     state.push(value)
     emit = (value, state.mu, state.sigma, is_anomalous)
@@ -45,7 +48,7 @@ def mapper(state, value):
     return (state, emit)
 
 
-labeled_metrics = op.stateful_map("detector", metrics, DetectorState, mapper)
+labeled_metrics = op.stateful_map("detector", metrics, mapper)
 # ("metric", (value, mu, sigma, is_anomalous))
 
 

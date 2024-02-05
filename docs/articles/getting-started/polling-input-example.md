@@ -77,7 +77,7 @@ def mapper(old_max_id, new_max_id):
     return (new_max_id, range(old_max_id, new_max_id))
 
 
-ids = op.stateful_map("range", max_id, lambda: None, mapper)
+ids = op.stateful_map("range", max_id, mapper)
 ```
 
 ### Flat Map and Redistribute

@@ -2,31 +2,8 @@ import re
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.operators import UnaryLogic, _StatefulMapLogic
 from bytewax.testing import TestingSink, TestingSource, run_main
 from pytest import raises
-
-
-def test_stateful_map_logic_discard_on_none(now):
-    def mapper(old_state, value):
-        assert old_state is None
-        return None, None
-
-    logic = _StatefulMapLogic("test_step", mapper, None)
-    (out, discard) = logic.on_item(now, 1)
-
-    assert discard == UnaryLogic.DISCARD
-
-
-def test_stateful_map_logic_snapshot(now):
-    def mapper(old_state, value):
-        assert old_state is None
-        return "new_state", None
-
-    logic = _StatefulMapLogic("test_step", mapper, None)
-    logic.on_item(now, 1)
-
-    assert logic.snapshot() == "new_state"
 
 
 def test_stateful_map():
@@ -34,6 +11,8 @@ def test_stateful_map():
     out = []
 
     def running_mean(last_3, new):
+        if last_3 is None:
+            last_3 = []
         last_3.append(new)
         if len(last_3) > 3:
             last_3 = last_3[:-3]
@@ -43,7 +22,7 @@ def test_stateful_map():
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
     s = op.key_on("key", s, lambda _x: "ALL")
-    s = op.stateful_map("running_mean", s, list, running_mean)
+    s = op.stateful_map("running_mean", s, running_mean)
     op.output("out", s, TestingSink(out))
 
     run_main(flow)
@@ -66,7 +45,7 @@ def test_stateful_map_raises_on_non_tuple():
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
     s = op.key_on("key", s, lambda _x: "ALL")
-    s = op.stateful_map("bad_mapper", s, lambda: None, bad_mapper)
+    s = op.stateful_map("bad_mapper", s, bad_mapper)
     op.output("out", s, TestingSink(out))
 
     expect = "must be a 2-tuple"

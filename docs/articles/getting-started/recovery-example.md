@@ -65,11 +65,14 @@ keyed_stream = op.key_on("key_stream", input_stream, lambda _: "ALL")
 
 
 def update_sum(current_sum, new_item):
+    if current_sum is None:
+        current_sum = 0
+
     updated_sum = current_sum + new_item
     return updated_sum, updated_sum
 
 
-total_sum_stream = op.stateful_map("running_count", keyed_stream, lambda: 0, update_sum)
+total_sum_stream = op.stateful_map("running_count", keyed_stream, update_sum)
 op.output("out", total_sum_stream, StdOutSink())
 ```
 
