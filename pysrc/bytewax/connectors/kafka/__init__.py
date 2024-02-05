@@ -40,7 +40,6 @@ Or the custom operators:
 
 """
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Union
 
 from confluent_kafka import OFFSET_BEGINNING, Consumer, Producer, TopicPartition
@@ -209,9 +208,7 @@ class _KafkaSourcePartition(
         self._eof = False
         self._raise_on_errors = raise_on_errors
 
-    def next_batch(
-        self, sched: Optional[datetime]
-    ) -> List[SerializedKafkaSourceResult]:
+    def next_batch(self) -> List[SerializedKafkaSourceResult]:
         if self._eof:
             raise StopIteration()
 
@@ -341,7 +338,7 @@ class KafkaSource(FixedPartitionedSource[SerializedKafkaSourceResult, Optional[i
         return list(_list_parts(client, self._topics))
 
     def build_part(
-        self, now: datetime, for_part: str, resume_state: Optional[int]
+        self, for_part: str, resume_state: Optional[int]
     ) -> _KafkaSourcePartition:
         """See ABC docstring."""
         idx, topic = for_part.split("-", 1)

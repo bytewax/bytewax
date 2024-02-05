@@ -4,24 +4,24 @@ from bytewax.operators import UnaryLogic, _StatefulFlatMapLogic
 from bytewax.testing import TestingSink, TestingSource, run_main
 
 
-def test_stateful_map_logic_discard_on_none(now):
+def test_stateful_map_logic_discard_on_none():
     def mapper(old_state, value):
         assert old_state is None
         return None, None
 
     logic = _StatefulFlatMapLogic("test_step", mapper, None)
-    (out, discard) = logic.on_item(now, 1)
+    (out, discard) = logic.on_item(1)
 
     assert discard == UnaryLogic.DISCARD
 
 
-def test_stateful_map_logic_snapshot(now):
+def test_stateful_map_logic_snapshot():
     def mapper(old_state, value):
         assert old_state is None
         return "new_state", None
 
     logic = _StatefulFlatMapLogic("test_step", mapper, None)
-    logic.on_item(now, 1)
+    logic.on_item(1)
 
     assert logic.snapshot() == "new_state"
 

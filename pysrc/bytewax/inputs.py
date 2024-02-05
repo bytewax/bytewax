@@ -9,7 +9,7 @@ import asyncio
 import queue
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from itertools import islice
 from typing import (
     Callable,
@@ -67,15 +67,12 @@ class StatefulSourcePartition(ABC, Generic[X, S]):
     """Input partition that maintains state of its position."""
 
     @abstractmethod
-    def next_batch(self, sched: Optional[datetime]) -> Iterable[X]:
+    def next_batch(self) -> Iterable[X]:
         """Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
         never blocking but returning an empty list if there are no
         items to emit yet.
-
-        :arg sched: The scheduled awake time, if one was returned by
-            {py:obj}`next_awake`.
 
         :returns: Items immediately ready. May be empty if no new
             items.
@@ -166,7 +163,6 @@ class FixedPartitionedSource(Source[X], Generic[X, S]):
     @abstractmethod
     def build_part(
         self,
-        now: datetime,
         for_part: str,
         resume_state: Optional[S],
     ) -> StatefulSourcePartition[X, S]:
@@ -179,8 +175,6 @@ class FixedPartitionedSource(Source[X], Generic[X, S]):
         Do not pre-build state about a partition in the
         constructor. All state must be derived from `resume_state` for
         recovery to work properly.
-
-        :arg now: The current time.
 
         :arg for_part: Which partition to build. Will always be one of
             the keys returned by {py:obj}`list_parts` on this worker.
@@ -199,14 +193,12 @@ class StatelessSourcePartition(ABC, Generic[X]):
     """Input partition that is stateless."""
 
     @abstractmethod
-    def next_batch(self, sched: datetime) -> Iterable[X]:
+    def next_batch(self) -> Iterable[X]:
         """Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
         never blocking but yielding an empty list if there are no new
         items yet.
-
-        :arg sched: The scheduled awake time.
 
         :returns: Items immediately ready. May be empty if no new
             items.
@@ -265,13 +257,11 @@ class DynamicSource(Source[X]):
 
     @abstractmethod
     def build(
-        self, now: datetime, worker_index: int, worker_count: int
+        self, worker_index: int, worker_count: int
     ) -> StatelessSourcePartition[X]:
         """Build an input source for a worker.
 
         Will be called once on each worker.
-
-        :arg now: The current time.
 
         :arg worker_index: Index of this worker. Workers are zero-indexed.
 
@@ -309,7 +299,7 @@ class _SimplePollingPartition(StatefulSourcePartition[X, None]):
             self._next_awake = now
 
     @override
-    def next_batch(self, sched: Optional[datetime]) -> List[X]:
+    def next_batch(self) -> List[X]:
         try:
             item = self._getter()
             self._next_awake += self._interval
@@ -389,8 +379,9 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
 
     @override
     def build_part(
-        self, now: datetime, for_part: str, resume_state: Optional[None]
+        self, for_part: str, resume_state: Optional[None]
     ) -> _SimplePollingPartition[X]:
+        now = datetime.now(timezone.utc)
         return _SimplePollingPartition(
             now, self._interval, self._align_to, self.next_item
         )

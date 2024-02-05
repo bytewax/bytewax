@@ -2,7 +2,7 @@
 import random
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Callable, List, Optional, Tuple, TypeVar
 
 from typing_extensions import override
@@ -29,9 +29,8 @@ class _RandomMetricPartition(
     state: _RandomMetricState
 
     @override
-    def next_batch(self, sched: Optional[datetime]) -> List[Tuple[str, float]]:
-        assert sched is not None
-        self.state.awake_at = sched + self.interval
+    def next_batch(self) -> List[Tuple[str, float]]:
+        self.state.awake_at += self.interval
         self.state.count += 1
 
         if self.state.count > self.count:
@@ -93,9 +92,8 @@ class RandomMetricSource(FixedPartitionedSource[Tuple[str, float], _RandomMetric
         return [self._metric_name]
 
     @override
-    def build_part(
-        self, now: datetime, for_part: str, resume_state: Optional[_RandomMetricState]
-    ):
+    def build_part(self, for_part: str, resume_state: Optional[_RandomMetricState]):
+        now = datetime.now(timezone.utc)
         state = resume_state if resume_state is not None else _RandomMetricState(now, 0)
         return _RandomMetricPartition(
             for_part, self._interval, self._count, self._next_random, state

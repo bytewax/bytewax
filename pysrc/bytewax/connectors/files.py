@@ -1,7 +1,6 @@
 """Connectors for local text files."""
 import os
 from csv import DictReader
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 from zlib import adler32
@@ -44,7 +43,7 @@ class _FileSourcePartition(StatefulSourcePartition[str, int]):
         self._batcher = batch(it, batch_size)
 
     @override
-    def next_batch(self, sched: Optional[datetime]) -> List[str]:
+    def next_batch(self) -> List[str]:
         return next(self._batcher)
 
     @override
@@ -127,7 +126,7 @@ class DirSource(FixedPartitionedSource[str, int]):
 
     @override
     def build_part(
-        self, now: datetime, for_part: str, resume_state: Optional[int]
+        self, for_part: str, resume_state: Optional[int]
     ) -> _FileSourcePartition:
         _fs_id, for_path = for_part.split("::", 1)
         path = self._dir_path / for_path
@@ -191,7 +190,7 @@ class FileSource(FixedPartitionedSource[str, int]):
 
     @override
     def build_part(
-        self, now: datetime, for_part: str, resume_state: Optional[int]
+        self, for_part: str, resume_state: Optional[int]
     ) -> _FileSourcePartition:
         _fs_id, path = for_part.split("::", 1)
         # TODO: Warn and return None. Then we could support
@@ -217,7 +216,7 @@ class _CSVPartition(StatefulSourcePartition[Dict[str, str], int]):
         self._batcher = batch(reader, batch_size)
 
     @override
-    def next_batch(self, sched: Optional[datetime]) -> List[Dict[str, str]]:
+    def next_batch(self) -> List[Dict[str, str]]:
         return next(self._batcher)
 
     @override
@@ -310,7 +309,7 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
         return self._file_source.list_parts()
 
     @override
-    def build_part(self, now: datetime, for_part: str, resume_state: Optional[Any]):
+    def build_part(self, for_part: str, resume_state: Optional[Any]):
         _fs_id, path = for_part.split("::", 1)
         assert path == str(
             self._file_source._path

@@ -4,11 +4,11 @@ from bytewax.operators import _JoinLogic, _JoinState
 from bytewax.testing import TestingSink, TestingSource, run_main
 
 
-def test_join_logic_snapshot(now):
+def test_join_logic_snapshot():
     logic = _JoinLogic("test_step", False, _JoinState.for_names(["a", "b", "c"]))
 
-    logic.on_item(now, ("a", 1))
-    logic.on_item(now, ("b", 2))
+    logic.on_item(("a", 1))
+    logic.on_item(("b", 2))
 
     expect = _JoinState({"a": [1], "b": [2], "c": []})
     assert logic.snapshot() == expect

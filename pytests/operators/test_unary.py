@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional, Tuple
 
 import bytewax.operators as op
@@ -26,21 +26,21 @@ class BaseTestLogic(UnaryLogic):
     after_notify = UnaryLogic.RETAIN
     after_eof = UnaryLogic.RETAIN
 
-    def __init__(self, _now: datetime, state: Any):
+    def __init__(self, state: Any):
         self._notify_at: Optional[datetime] = None
         self._state = state if state is not None else "NEW"
 
     @override
-    def on_item(self, now: datetime, value: Any) -> Tuple[List[Any], bool]:
+    def on_item(self, value: Any) -> Tuple[List[Any], bool]:
         if self.item_triggers_notify:
-            self._notify_at = now
+            self._notify_at = datetime.now(timezone.utc)
 
         old_state = self._state
         self._state = "ITEM"
         return ([(old_state, self._state)], self.after_item)
 
     @override
-    def on_notify(self, sched: datetime) -> Tuple[List[Any], bool]:
+    def on_notify(self) -> Tuple[List[Any], bool]:
         self._notify_at = None
 
         old_state = self._state
@@ -191,17 +191,17 @@ def test_unary_on_eof_retain(recovery_config):
 
 
 class KeepLastLogic(UnaryLogic):
-    def __init__(self, _now: datetime, resume_state: Any):
+    def __init__(self, resume_state: Any):
         self._state = resume_state
 
     @override
-    def on_item(self, now: datetime, value: Any) -> Tuple[List[Any], bool]:
+    def on_item(self, value: Any) -> Tuple[List[Any], bool]:
         old_state = self._state
         self._state = value
         return ([(old_state, self._state)], self._state == "DISCARD")
 
     @override
-    def on_notify(self, sched: datetime) -> Tuple[List[Any], bool]:
+    def on_notify(self) -> Tuple[List[Any], bool]:
         return ([], UnaryLogic.RETAIN)
 
     @override

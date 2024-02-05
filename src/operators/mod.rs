@@ -469,25 +469,17 @@ impl UnaryLogic {
     fn on_item<'py>(
         &'py self,
         py: Python<'py>,
-        py_now: PyObject,
         item: PyObject,
     ) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let res = self
             .0
             .as_ref(py)
-            .call_method1(intern!(py, "on_item"), (py_now, item))?;
+            .call_method1(intern!(py, "on_item"), (item,))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
-    fn on_notify<'py>(
-        &'py self,
-        py: Python<'py>,
-        sched: DateTime<Utc>,
-    ) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let res = self
-            .0
-            .as_ref(py)
-            .call_method1(intern!(py, "on_notify"), (sched,))?;
+    fn on_notify<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
+        let res = self.0.as_ref(py).call_method0(intern!(py, "on_notify"))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
@@ -637,9 +629,6 @@ where
                         assert!(output_cap.time() == state_update_cap.time());
 
                         let now = chrono::offset::Utc::now();
-                        // Do this once so we don't pay the conversion
-                        // penalty for every Python method invocation.
-                        let py_now = Python::with_gil(|py| now.into_py(py));
 
                         // Buffer the inputs so we can apply them to
                         // the state cache in epoch order.
@@ -732,7 +721,7 @@ where
                                             logics.entry(key.clone()).or_insert_with(|| {
                                                 unwrap_any!((|| {
                                                     builder
-                                                        .call1((py_now.clone_ref(py), None::<PyObject>))?
+                                                        .call1((None::<PyObject>, ))?
                                                         .extract::<UnaryLogic>()
                                                 })(
                                                 ))
@@ -742,7 +731,7 @@ where
                                             on_item_histogram,
                                             labels,
                                             logic
-                                                .on_item(py, py_now.clone_ref(py), value)
+                                                .on_item(py, value)
                                                 .reraise_with(|| format!(
                                                     "error calling `UnaryLogic.on_item` in step {step_id} for key {key}"
                                                 ))?
@@ -774,7 +763,7 @@ where
                                 .collect();
                             if !notify_keys.is_empty() {
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    for (key, sched) in notify_keys {
+                                    for (key, _sched) in notify_keys {
                                         // We should always have a
                                         // logic for anything in
                                         // `sched_cache`. If not, we
@@ -785,7 +774,7 @@ where
                                         let (output, is_complete) = with_timer!(
                                             on_notify_histogram,
                                             labels,
-                                            logic.on_notify(py, sched).reraise_with(|| format!(
+                                            logic.on_notify(py).reraise_with(|| format!(
                                                 "error calling `UnaryLogic.on_notify` in {step_id} for key {key}"
                                             ))?
                                         );
@@ -938,7 +927,7 @@ where
                                             match change {
                                                 StateChange::Upsert(state) => {
                                                     let logic = builder
-                                                        .call1((py_now.clone_ref(py), Some(state),))?
+                                                        .call1((Some(state),))?
                                                         .extract::<UnaryLogic>()?;
                                                     if let Some(notify_at) = logic.notify_at(py)? {
                                                         sched_cache.insert(key.clone(), notify_at);

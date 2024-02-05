@@ -6,12 +6,12 @@ from bytewax.operators import _CollectLogic, _CollectState
 from bytewax.testing import TestingSink, TestingSource, run_main
 
 
-def test_collect_logic_snapshot(now):
+def test_collect_logic_snapshot():
     now = datetime(2023, 1, 1, tzinfo=timezone.utc)
     timeout = timedelta(seconds=10)
-    logic = _CollectLogic("test_step", timeout, 3, _CollectState())
+    logic = _CollectLogic("test_step", lambda: now, timeout, 3, _CollectState())
 
-    logic.on_item(now, 1)
+    logic.on_item(1)
 
     assert logic.snapshot() == _CollectState([1], now + timeout)
 
