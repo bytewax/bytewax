@@ -66,7 +66,7 @@ def test_parse_backup_interval_zero():
         "--snapshot-interval",
         "30",
         "--backup-interval",
-        "0"
+        "0",
     ]
     # Mock sys.argv to test that the parsing phase works well
     with patch.object(sys, "argv", testargs):
