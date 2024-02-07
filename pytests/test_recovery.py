@@ -1,5 +1,6 @@
 import os
 import shutil
+import sqlite3
 from datetime import timedelta
 
 import bytewax.operators as op
@@ -106,6 +107,47 @@ def test_rescale(tmp_path):
         ("a", 8),
         ("b", 5),
     ]
+
+
+def test_gc_leaves_only_final_snap(tmp_path):
+    init_db_dir(tmp_path, 1)
+    recovery_config = RecoveryConfig(str(tmp_path), backup_interval=ZERO_TD)
+
+    inp = [
+        ("a", 4),
+        ("b", 4),
+        ("a", 1),
+        ("b", 5),
+        ("a", 8),
+        ("b", 1),
+    ]
+    out = []
+
+    flow = build_keep_max_dataflow(inp, out)
+
+    run_main(
+        flow,
+        epoch_interval=ZERO_TD,
+        recovery_config=recovery_config,
+    )
+    assert out == [
+        ("a", 4),
+        ("b", 4),
+        ("a", 4),
+        ("b", 5),
+        ("a", 8),
+        ("b", 5),
+    ]
+
+    conn = sqlite3.connect(tmp_path / "part-0.sqlite3")
+    cur = conn.cursor()
+    res = cur.execute(
+        """SELECT step_id, state_key, COUNT(*) AS num_snaps
+        FROM snaps
+        GROUP BY step_id, state_key
+        HAVING num_snaps > 1"""
+    )
+    assert res.fetchall() == [], "lingering snaps for these keys"
 
 
 def test_no_parts(tmp_path):
