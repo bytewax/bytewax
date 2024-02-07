@@ -45,12 +45,7 @@ def test_parse_args_environ(tmpdir):
             assert parsed.addresses == "localhost:1234;localhost:5678"
 
 def test_parse_backup_interval():
-    testargs = [
-        "fake_command",
-        "examples/basic.py:flow",
-        "--backup-interval",
-        "60"
-    ]
+    testargs = ["fake_command", "examples/basic.py:flow", "--backup-interval", "60"]
     # Mock sys.argv to test that the parsing phase works well
     with patch.object(sys, "argv", testargs):
         parsed = _parse_args()
