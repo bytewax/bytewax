@@ -956,7 +956,7 @@ impl Committer<u64> for RecoveryCommitter {
             "WITH max_epoch_snapshots AS ( \
              SELECT step_id, state_key, MAX(snap_epoch) AS snap_epoch \
              FROM snaps \
-             WHERE snap_epoch <= ?1 \
+             WHERE snap_epoch < ?1 \
              GROUP BY step_id, state_key \
              ), \
              garbage_snapshots AS ( \
