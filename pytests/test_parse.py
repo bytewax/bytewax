@@ -1,6 +1,6 @@
-from datetime import timedelta
 import os
 import sys
+from datetime import timedelta
 from unittest.mock import patch
 
 from bytewax.run import _parse_args
