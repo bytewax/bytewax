@@ -942,23 +942,27 @@ impl Committer<u64> for RecoveryCommitter {
             (self.part_key.0, epoch),
         )
         .unwrap();
-        // We only delete snap_epoch < epoch because we might resume
-        // from epoch. Don't delete the max value for each epoch for
-        // each (step_id, state_key), since that's the resume state.
+        // Find the most recent snapshot including the commited epoch
+        // (since we can GC everything before that epoch). Then find
+        // all less recent snapshots and delete those. So we never
+        // want to delete a snapshot in the commited epoch, but since
+        // the most recent snapshot is not deleted it's ok for this to
+        // be `<=`.
         txn.execute(
             "WITH max_epoch_snapshots AS ( \
              SELECT step_id, state_key, MAX(snap_epoch) AS snap_epoch \
              FROM snaps \
              WHERE snap_epoch <= ?1 \
              GROUP BY step_id, state_key \
+             ), \
+             garbage_snapshots AS ( \
+             SELECT step_id, state_key, snaps.snap_epoch \
+             FROM snaps \
+             JOIN max_epoch_snapshots USING (step_id, state_key) \
+             WHERE snaps.snap_epoch < max_epoch_snapshots.snap_epoch \
              ) \
              DELETE FROM snaps \
-             WHERE snap_epoch < ?1 \
-             AND NOT EXISTS ( \
-             SELECT 1 \
-             FROM snaps \
-             JOIN max_epoch_snapshots USING (step_id, state_key, snap_epoch) \
-             )",
+             WHERE (step_id, state_key, snap_epoch) IN garbage_snapshots",
             (epoch,),
         )
         .unwrap();
