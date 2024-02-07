@@ -56,7 +56,8 @@ def test_parse_backup_interval():
         parsed = _parse_args()
         # Test the custom handling of the import_str
         assert parsed.backup_interval == timedelta(minutes=1)
-        
+
+
 def test_parse_backup_interval_zero():
     testargs = [
         "fake_command",
