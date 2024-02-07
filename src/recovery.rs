@@ -970,6 +970,56 @@ impl Committer<u64> for RecoveryCommitter {
     }
 }
 
+#[test]
+fn gc_leaves_only_final_snap() {
+    pyo3::prepare_freethreaded_python();
+    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    conn.snap_writer().write_batch(vec![
+        SerializedSnapshot(
+            StepId(String::from("step_1")),
+            StateKey(String::from("a")),
+            SnapshotEpoch(1),
+            Some(String::from("PICKLED_DATA1")),
+        ),
+        SerializedSnapshot(
+            StepId(String::from("step_1")),
+            StateKey(String::from("a")),
+            SnapshotEpoch(2),
+            Some(String::from("PICKLED_DATA2")),
+        ),
+        SerializedSnapshot(
+            StepId(String::from("step_1")),
+            StateKey(String::from("a")),
+            SnapshotEpoch(5),
+            Some(String::from("PICKLED_DATA5")),
+        ),
+    ]);
+    conn.committer(PartitionIndex(0)).commit(&5);
+
+    let found = conn
+        .conn
+        .borrow()
+        .prepare(
+            "SELECT step_id, state_key, COUNT(*) AS num_snaps
+            FROM snaps
+            GROUP BY step_id, state_key
+            HAVING num_snaps > 1",
+        )
+        .unwrap()
+        .query_map((), |row| {
+            let step_id = StepId(row.get(0)?);
+            let state_key = StateKey(row.get(1)?);
+            let num_snaps: usize = row.get(2)?;
+
+            Ok((step_id, state_key, num_snaps))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let expected = Vec::new();
+    assert_eq!(found, expected);
+}
+
 create_exception!(
     bytewax.recovery,
     InconsistentPartitionsError,
