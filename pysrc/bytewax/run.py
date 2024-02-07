@@ -311,7 +311,7 @@ def _parse_args():
     # If recovery is configured, make sure that the snapshot_interval and
     # backup_interval are set.
     if args.recovery_directory is not None and (
-        not args.snapshot_interval or args.backup_interval is None
+        args.snapshot_interval is None or args.backup_interval is None
     ):
         arg_parser.error(
             "when running with recovery, the `-s/--snapshot_interval` and "
