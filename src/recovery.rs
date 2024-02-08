@@ -20,6 +20,7 @@ use chrono::Duration;
 use pyo3::create_exception;
 use pyo3::exceptions::PyFileNotFoundError;
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
@@ -126,7 +127,7 @@ pub(crate) struct CommitMeta(PartitionIndex, u64);
 /// can ensure that there's some resume epoch shared by all partitions
 /// we can use when resuming from a backup that might not be the most
 /// recent.
-#[derive(Debug, Copy, Clone, FromPyObject)]
+#[derive(Debug, Copy, Clone)]
 pub(crate) struct BackupInterval(Duration);
 
 impl Default for BackupInterval {
@@ -138,6 +139,18 @@ impl Default for BackupInterval {
 impl IntoPy<Py<PyAny>> for BackupInterval {
     fn into_py(self, py: Python<'_>) -> Py<PyAny> {
         self.0.into_py(py)
+    }
+}
+
+impl<'source> FromPyObject<'source> for BackupInterval {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        if let Ok(duration) = ob.extract::<Duration>() {
+            Ok(Self(duration))
+        } else {
+            Err(PyTypeError::new_err(
+                "backup interval must be a `datetime.timedelta`",
+            ))
+        }
     }
 }
 
@@ -425,20 +438,20 @@ fn get_migrations(py: Python) -> &Migrations<'static> {
     MIGRATIONS.get_or_init(py, || {
         Migrations::new(vec![
             M::up(
-                "CREATE TABLE parts ( \
-                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, \
-                 part_index INTEGER PRIMARY KEY NOT NULL CHECK (part_index >= 0), \
-                 part_count INTEGER NOT NULL CHECK (part_count > 0), \
-                 CHECK (part_index < part_count) \
+                "CREATE TABLE parts (
+                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                 part_index INTEGER PRIMARY KEY NOT NULL CHECK (part_index >= 0),
+                 part_count INTEGER NOT NULL CHECK (part_count > 0),
+                 CHECK (part_index < part_count)
                  ) STRICT",
             ),
             // This is a sharded table.
             M::up(
-                "CREATE TABLE exs ( \
-                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, \
-                 ex_num INTEGER NOT NULL PRIMARY KEY, \
-                 worker_count INTEGER NOT NULL CHECK (worker_count > 0), \
-                 resume_epoch INTEGER NOT NULL \
+                "CREATE TABLE exs (
+                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                 ex_num INTEGER NOT NULL PRIMARY KEY,
+                 worker_count INTEGER NOT NULL CHECK (worker_count > 0),
+                 resume_epoch INTEGER NOT NULL
                  ) STRICT",
             ),
             // This is a sharded table.
@@ -447,12 +460,12 @@ fn get_migrations(py: Python) -> &Migrations<'static> {
             // know what partition the row in `ex` will be in; we'd
             // need a "sharded foreign key" kinda thing.
             M::up(
-                "CREATE TABLE fronts ( \
-                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, \
-                 ex_num INTEGER NOT NULL, \
-                 worker_index INTEGER NOT NULL CHECK (worker_index >= 0), \
-                 worker_frontier INTEGER NOT NULL, \
-                 PRIMARY KEY (ex_num, worker_index) \
+                "CREATE TABLE fronts (
+                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                 ex_num INTEGER NOT NULL,
+                 worker_index INTEGER NOT NULL CHECK (worker_index >= 0),
+                 worker_frontier INTEGER NOT NULL,
+                 PRIMARY KEY (ex_num, worker_index)
                  ) STRICT",
             ),
             // This is _not_ a sharded table. Commits affect a whole
@@ -460,21 +473,21 @@ fn get_migrations(py: Python) -> &Migrations<'static> {
             // shard as partition definitions. We don't use a foreign
             // key here, though so we don't have to deal with flow_id.
             M::up(
-                "CREATE TABLE commits ( \
-                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, \
-                 part_index INTEGER PRIMARY KEY NOT NULL, \
-                 commit_epoch INTEGER NOT NULL \
+                "CREATE TABLE commits (
+                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                 part_index INTEGER PRIMARY KEY NOT NULL,
+                 commit_epoch INTEGER NOT NULL
                  ) STRICT",
             ),
             // This is a sharded table.
             M::up(
-                "CREATE TABLE snaps ( \
-                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, \
-                 step_id TEXT NOT NULL, \
-                 state_key TEXT NOT NULL, \
-                 snap_epoch INTEGER NOT NULL, \
-                 ser_change TEXT, \
-                 PRIMARY KEY (step_id, state_key, snap_epoch) \
+                "CREATE TABLE snaps (
+                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                 step_id TEXT NOT NULL,
+                 state_key TEXT NOT NULL,
+                 snap_epoch INTEGER NOT NULL,
+                 ser_change TEXT,
+                 PRIMARY KEY (step_id, state_key, snap_epoch)
                  ) STRICT",
             ),
         ])
@@ -513,7 +526,7 @@ impl Writer for PartitionMetaWriter {
             tracing::trace!("Writing {part:?}");
             let PartitionMeta(part_index, part_count) = part;
             txn.execute(
-                "INSERT INTO parts (part_index, part_count) \
+                "INSERT INTO parts (part_index, part_count)
                  VALUES (?1, ?2)",
                 (part_index.0, part_count.0),
             )
@@ -539,7 +552,7 @@ impl Writer for ExecutionMetaWriter {
             // Do not upsert because we should never see an execution
             // twice.
             txn.execute(
-                "INSERT INTO exs (ex_num, worker_count, resume_epoch) \
+                "INSERT INTO exs (ex_num, worker_count, resume_epoch)
                  VALUES (?1, ?2, ?3)",
                 (ex_num.0, worker_count.0, resume_epoch.0),
             )
@@ -563,9 +576,9 @@ impl Writer for FrontierWriter {
             tracing::trace!("Writing {front:?}");
             let FrontierMeta(ex, worker_count, wf) = front;
             txn.execute(
-                "INSERT INTO fronts (ex_num, worker_index, worker_frontier) \
-                 VALUES (?1, ?2, ?3) \
-                 ON CONFLICT (ex_num, worker_index) DO UPDATE \
+                "INSERT INTO fronts (ex_num, worker_index, worker_frontier)
+                 VALUES (?1, ?2, ?3)
+                 ON CONFLICT (ex_num, worker_index) DO UPDATE
                  SET worker_frontier = EXCLUDED.worker_frontier",
                 (ex.0, worker_count.0, wf.0),
             )
@@ -589,9 +602,9 @@ impl Writer for SerializedSnapshotWriter {
             tracing::trace!("Writing {snap:?}");
             let SerializedSnapshot(step_id, state_key, snap_epoch, ser_change) = snap;
             txn.execute(
-                "INSERT INTO snaps (step_id, state_key, snap_epoch, ser_change) \
-                 VALUES (?1, ?2, ?3, ?4) \
-                 ON CONFLICT (step_id, state_key, snap_epoch) DO UPDATE \
+                "INSERT INTO snaps (step_id, state_key, snap_epoch, ser_change)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT (step_id, state_key, snap_epoch) DO UPDATE
                  SET ser_change = EXCLUDED.ser_change",
                 (step_id.0, state_key.0, snap_epoch.0, ser_change),
             )
@@ -615,7 +628,7 @@ impl Writer for CommitWriter {
             tracing::trace!("Writing {commit:?}");
             let CommitMeta(part_idx, commit_epoch) = commit;
             txn.execute(
-                "INSERT INTO commits (part_index, commit_epoch) \
+                "INSERT INTO commits (part_index, commit_epoch)
                  VALUES (?1, ?2)",
                 (part_idx.0, commit_epoch),
             )
@@ -645,7 +658,7 @@ impl BatchIterator for PartitionMetaLoader {
                 .conn
                 .borrow_mut()
                 .prepare(
-                    "SELECT part_index, part_count \
+                    "SELECT part_index, part_count
                      FROM parts",
                 )
                 .unwrap()
@@ -691,7 +704,7 @@ impl BatchIterator for ExecutionMetaLoader {
                 .conn
                 .borrow_mut()
                 .prepare(
-                    "SELECT ex_num, worker_count, resume_epoch \
+                    "SELECT ex_num, worker_count, resume_epoch
                      FROM exs",
                 )
                 .unwrap()
@@ -733,7 +746,7 @@ impl BatchIterator for FrontierLoader {
                 .conn
                 .borrow()
                 .prepare(
-                    "SELECT ex_num, worker_index, worker_frontier \
+                    "SELECT ex_num, worker_index, worker_frontier
                      FROM fronts",
                 )
                 .unwrap()
@@ -800,17 +813,17 @@ impl SerializedSnapshotLoader {
             // results by that, and since there is only one row per
             // (step_id, state_key), the LIMIT clause causes it to batch.
             .prepare(
-                "WITH max_epoch_snaps AS ( \
-                 SELECT step_id, state_key, MAX(snap_epoch) AS snap_epoch \
-                 FROM snaps \
-                 WHERE snap_epoch < ?1 \
-                 GROUP BY step_id, state_key \
-                 ) \
-                 SELECT step_id, state_key, snap_epoch, ser_change \
-                 FROM snaps \
-                 JOIN max_epoch_snaps USING (step_id, state_key, snap_epoch) \
-                 WHERE ?2 IS NULL OR ?3 IS NULL OR (step_id, state_key) > (?2, ?3) \
-                 ORDER BY step_id, state_key \
+                "WITH max_epoch_snaps AS (
+                 SELECT step_id, state_key, MAX(snap_epoch) AS snap_epoch
+                 FROM snaps
+                 WHERE snap_epoch < ?1
+                 GROUP BY step_id, state_key
+                 )
+                 SELECT step_id, state_key, snap_epoch, ser_change
+                 FROM snaps
+                 JOIN max_epoch_snaps USING (step_id, state_key, snap_epoch)
+                 WHERE ?2 IS NULL OR ?3 IS NULL OR (step_id, state_key) > (?2, ?3)
+                 ORDER BY step_id, state_key
                  LIMIT ?4",
             )
             .unwrap()
@@ -891,7 +904,7 @@ impl BatchIterator for CommitLoader {
                 .conn
                 .borrow()
                 .prepare(
-                    "SELECT part_index, commit_epoch \
+                    "SELECT part_index, commit_epoch
                      FROM commits",
                 )
                 .unwrap()
@@ -922,35 +935,89 @@ impl Committer<u64> for RecoveryCommitter {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
         txn.execute(
-            "INSERT INTO commits (part_index, commit_epoch) \
-             VALUES (?1, ?2) \
-             ON CONFLICT (part_index) DO UPDATE \
+            "INSERT INTO commits (part_index, commit_epoch)
+             VALUES (?1, ?2)
+             ON CONFLICT (part_index) DO UPDATE
              SET commit_epoch = EXCLUDED.commit_epoch",
             (self.part_key.0, epoch),
         )
         .unwrap();
-        // We only delete snap_epoch < epoch because we might resume
-        // from epoch. Don't delete the max value for each epoch for
-        // each (step_id, state_key), since that's the resume state.
+        // Find the most recent snapshot including the commited epoch
+        // (since we can GC everything before that epoch). Then find
+        // all less recent snapshots and delete those. So we never
+        // want to delete a snapshot in the commited epoch, but since
+        // the most recent snapshot is not deleted it's ok for this to
+        // be `<=`.
         txn.execute(
-            "WITH max_epoch_snapshots AS ( \
-             SELECT step_id, state_key, MAX(snap_epoch) AS snap_epoch \
-             FROM snaps \
-             WHERE snap_epoch < ?1 \
-             GROUP BY step_id, state_key \
-             ) \
-             DELETE FROM snaps \
-             WHERE snap_epoch < ?1 \
-             AND NOT EXISTS ( \
-             SELECT 1 \
-             FROM snaps \
-             JOIN max_epoch_snapshots USING (step_id, state_key, snap_epoch) \
-             )",
+            "WITH max_epoch_snapshots AS (
+             SELECT step_id, state_key, MAX(snap_epoch) AS snap_epoch
+             FROM snaps
+             WHERE snap_epoch <= ?1
+             GROUP BY step_id, state_key
+             ),
+             garbage_snapshots AS (
+             SELECT step_id, state_key, snaps.snap_epoch
+             FROM snaps
+             JOIN max_epoch_snapshots USING (step_id, state_key)
+             WHERE snaps.snap_epoch < max_epoch_snapshots.snap_epoch
+             )
+             DELETE FROM snaps
+             WHERE (step_id, state_key, snap_epoch) IN garbage_snapshots",
             (epoch,),
         )
         .unwrap();
         txn.commit().unwrap();
     }
+}
+
+#[test]
+fn gc_leaves_only_final_snap() {
+    pyo3::prepare_freethreaded_python();
+    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    conn.snap_writer().write_batch(vec![
+        SerializedSnapshot(
+            StepId(String::from("step_1")),
+            StateKey(String::from("a")),
+            SnapshotEpoch(1),
+            Some(String::from("PICKLED_DATA1")),
+        ),
+        SerializedSnapshot(
+            StepId(String::from("step_1")),
+            StateKey(String::from("a")),
+            SnapshotEpoch(2),
+            Some(String::from("PICKLED_DATA2")),
+        ),
+        SerializedSnapshot(
+            StepId(String::from("step_1")),
+            StateKey(String::from("a")),
+            SnapshotEpoch(5),
+            Some(String::from("PICKLED_DATA5")),
+        ),
+    ]);
+    conn.committer(PartitionIndex(0)).commit(&5);
+
+    let found = conn
+        .conn
+        .borrow()
+        .prepare(
+            "SELECT step_id, state_key, COUNT(*) AS num_snaps
+            FROM snaps
+            GROUP BY step_id, state_key
+            HAVING num_snaps > 1",
+        )
+        .unwrap()
+        .query_map((), |row| {
+            let step_id = StepId(row.get(0)?);
+            let state_key = StateKey(row.get(1)?);
+            let num_snaps: usize = row.get(2)?;
+
+            Ok((step_id, state_key, num_snaps))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let expected = Vec::new();
+    assert_eq!(found, expected);
 }
 
 create_exception!(
@@ -1117,27 +1184,27 @@ impl RecoveryPart {
 
         let resume_from = txn
             .query_row(
-                "WITH max_ex AS ( \
-                 SELECT ex_num, worker_count, resume_epoch \
-                 FROM exs \
-                 WHERE ex_num = (SELECT MAX(ex_num) FROM exs) \
-                 ), \
-                 default_progress AS ( \
-                 SELECT ex_num, value AS worker_index, resume_epoch AS worker_frontier \
-                 FROM generate_series(0, (SELECT worker_count - 1 FROM max_ex)) \
-                 CROSS JOIN max_ex \
-                 ), \
-                 explicit_progress AS ( \
-                 SELECT ex_num, worker_index, worker_frontier \
-                 FROM fronts \
-                 WHERE ex_num = (SELECT MAX(ex_num) FROM exs) \
-                 ), \
-                 max_progress AS ( \
-                 SELECT ex_num, worker_index, MAX(worker_frontier) AS worker_frontier \
-                 FROM (SELECT * FROM explicit_progress UNION SELECT * FROM default_progress) \
-                 GROUP BY ex_num, worker_index \
-                 ) \
-                 SELECT ex_num + 1, MIN(worker_frontier) \
+                "WITH max_ex AS (
+                 SELECT ex_num, worker_count, resume_epoch
+                 FROM exs
+                 WHERE ex_num = (SELECT MAX(ex_num) FROM exs)
+                 ),
+                 default_progress AS (
+                 SELECT ex_num, value AS worker_index, resume_epoch AS worker_frontier
+                 FROM generate_series(0, (SELECT worker_count - 1 FROM max_ex))
+                 CROSS JOIN max_ex
+                 ),
+                 explicit_progress AS (
+                 SELECT ex_num, worker_index, worker_frontier
+                 FROM fronts
+                 WHERE ex_num = (SELECT MAX(ex_num) FROM exs)
+                 ),
+                 max_progress AS (
+                 SELECT ex_num, worker_index, MAX(worker_frontier) AS worker_frontier
+                 FROM (SELECT * FROM explicit_progress UNION SELECT * FROM default_progress)
+                 GROUP BY ex_num, worker_index
+                 )
+                 SELECT ex_num + 1, MIN(worker_frontier)
                  FROM max_progress",
                 (),
                 // `MIN(worker_frontier)` always returns a

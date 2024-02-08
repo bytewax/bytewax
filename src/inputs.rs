@@ -46,8 +46,20 @@ const DEFAULT_COOLDOWN: Duration = Duration::milliseconds(1);
 /// The epoch is also used as backpressure within the dataflow; input
 /// sources do not start reading new data until all data in the
 /// previous epoch has been output and recovery data written.
-#[derive(Debug, Copy, Clone, FromPyObject)]
+#[derive(Debug, Copy, Clone)]
 pub(crate) struct EpochInterval(Duration);
+
+impl<'source> FromPyObject<'source> for EpochInterval {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        if let Ok(duration) = ob.extract::<Duration>() {
+            Ok(Self(duration))
+        } else {
+            Err(PyTypeError::new_err(
+                "epoch interval must be a `datetime.timedelta`",
+            ))
+        }
+    }
+}
 
 impl EpochInterval {
     /// Determine how many epochs (rounded up) exist in some other
@@ -418,60 +430,70 @@ impl FixedPartitionedSource {
                             // finished the previous epoch before
                             // emitting more data to have
                             // backpressure.
-                            if !probe.less_than(&epoch) && part_state.awake_due(now) {
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    let batch_res = with_timer!(
-                                        next_batch_histogram,
-                                        labels,
-                                        part_state
-                                            .part
-                                            .next_batch(py, part_state.next_awake)
-                                            .reraise_with(|| format!("error calling `StatefulSourcePartition.next_batch` in step {step_id} for partition {part_key}"))?
-                                    );
-
-                                    let mut eof = false;
-                                    match batch_res {
-                                        BatchResult::Batch(batch) => {
-                                            let batch_len = batch.len();
-
-                                            let mut downstream_session = downstream_handle.session(&part_state.downstream_cap);
-                                            item_out_count.add(batch_len as u64, &labels);
-                                            let mut batch = batch.into_iter().map(TdPyAny::from).collect();
-                                            downstream_session.give_vec(&mut batch);
-
-                                            let next_awake_res = part_state
+                            if !probe.less_than(&epoch) {
+                                let mut eof = false;
+                                // Separately check wheither we should
+                                // call `next_batch` because we need
+                                // to keep advancing the epoch for
+                                // this input, even if it hasn't been
+                                // awoken to prevent dataflow stall.
+                                if part_state.awake_due(now) {
+                                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                        let batch_res = with_timer!(
+                                            next_batch_histogram,
+                                            labels,
+                                            part_state
                                                 .part
-                                                .next_awake(py)
-                                                .reraise_with(|| format!("error calling `StatefulSourcePartition.next_awake` in step {step_id} for partition {part_key}"))?;
+                                                .next_batch(py, part_state.next_awake)
+                                                .reraise_with(|| format!("error calling `StatefulSourcePartition.next_batch` in step {step_id} for partition {part_key}"))?
+                                        );
 
-                                            part_state.next_awake = default_next_awake(next_awake_res, batch_len, now);
-                                        },
-                                        BatchResult::Eof => {
-                                            eof = true;
-                                            eofd_parts_buffer.push(part_key.clone());
-                                            tracing::debug!("EOFd");
-                                        },
-                                        BatchResult::Abort => {
-                                            abort.store(true, atomic::Ordering::Relaxed);
-                                            tracing::debug!("EOFd");
+                                        match batch_res {
+                                            BatchResult::Batch(batch) => {
+                                                let batch_len = batch.len();
+
+                                                let mut downstream_session = downstream_handle.session(&part_state.downstream_cap);
+                                                item_out_count.add(batch_len as u64, &labels);
+                                                let mut batch = batch.into_iter().map(TdPyAny::from).collect();
+                                                downstream_session.give_vec(&mut batch);
+
+                                                let next_awake_res = part_state
+                                                    .part
+                                                    .next_awake(py)
+                                                    .reraise_with(|| format!("error calling `StatefulSourcePartition.next_awake` in step {step_id} for partition {part_key}"))?;
+
+                                                part_state.next_awake = default_next_awake(next_awake_res, batch_len, now);
+                                            },
+                                            BatchResult::Eof => {
+                                                eof = true;
+                                                eofd_parts_buffer.push(part_key.clone());
+                                                tracing::debug!("EOFd");
+                                            },
+                                            BatchResult::Abort => {
+                                                abort.store(true, atomic::Ordering::Relaxed);
+                                                tracing::debug!("EOFd");
+                                            }
                                         }
-                                    }
 
-                                    // Increment the epoch for this
-                                    // partition when the interval
-                                    // elapses or the input is EOF. We
-                                    // increment and snapshot on EOF
-                                    // so that we capture the offsets
-                                    // for this partition to resume
-                                    // from; we produce the same
-                                    // behavior as if this partition
-                                    // would have lived to the next
-                                    // epoch interval. Only increment
-                                    // once we've caught up (in this
-                                    // if-block) otherwise you can get
-                                    // cascading advancement and never
-                                    // poll input.
-                                    if now - part_state.epoch_started >= epoch_interval.0 || eof {
+                                        Ok(())
+                                    }));
+                                }
+
+                                // Increment the epoch for this
+                                // partition when the interval elapses
+                                // or the input is EOF. We increment
+                                // and snapshot on EOF so that we
+                                // capture the offsets for this
+                                // partition to resume from; we
+                                // produce the same behavior as if
+                                // this partition would have lived to
+                                // the next epoch interval. Only
+                                // increment once we've caught up (in
+                                // this if-block) otherwise you can
+                                // get cascading advancement and never
+                                // poll input.
+                                if now - part_state.epoch_started >= epoch_interval.0 || eof {
+                                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                         let state = with_timer!(
                                             snapshot_histogram,
                                             labels,
@@ -494,10 +516,10 @@ impl FixedPartitionedSource {
                                         part_state.snap_cap.downgrade(&next_epoch);
                                         part_state.epoch_started = now;
                                         tracing::debug!("Advanced to epoch {next_epoch}");
-                                    }
 
-                                    Ok(())
-                                }));
+                                        Ok(())
+                                    }));
+                                }
                             }
                         });
                     }
@@ -736,46 +758,53 @@ impl DynamicSource {
                         // partition, wait until all ouputs have
                         // finished the previous epoch before emitting
                         // more data to have backpressure.
-                        if !probe.less_than(epoch) && part_state.awake_due(now) {
-                            unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                let res = with_timer!(
-                                    next_batch_histogram,
-                                    labels,
-                                    part_state
-                                        .part
-                                        .next_batch(py, part_state.next_awake)
-                                        .reraise_with(|| format!("error calling `StatelessSourcePartition.next_batch` in step {step_id}"))?
-                                );
-
-                                match res {
-                                    BatchResult::Batch(batch) => {
-                                        let batch_len = batch.len();
-
-                                        let mut downstream_session = downstream_handle.session(&part_state.output_cap);
-                                        item_out_count.add(batch_len as u64, &labels);
-                                        let mut batch = batch.into_iter().map(TdPyAny::from).collect();
-                                        downstream_session.give_vec(&mut batch);
-
-                                        let next_awake_res = part_state
+                        if !probe.less_than(epoch) {
+                            // Separately check wheither we should
+                            // call `next_batch` because we need to
+                            // keep advancing the epoch for this
+                            // input, even if it hasn't been awoken to
+                            // prevent dataflow stall.
+                            if part_state.awake_due(now) {
+                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    let res = with_timer!(
+                                        next_batch_histogram,
+                                        labels,
+                                        part_state
                                             .part
-                                            .next_awake(py)
-                                            .reraise_with(|| format!("error calling `StatelessSourcePartition.next_awake` in step {step_id}"))?;
+                                            .next_batch(py, part_state.next_awake)
+                                            .reraise_with(|| format!("error calling `StatelessSourcePartition.next_batch` in step {step_id}"))?
+                                    );
 
-                                        part_state.next_awake =
-                                            default_next_awake(next_awake_res, batch_len, now);
-                                    }
-                                    BatchResult::Eof => {
-                                        eof = true;
-                                        tracing::trace!("EOFd");
-                                    }
-                                    BatchResult::Abort => {
-                                        abort.store(true, atomic::Ordering::Relaxed);
-                                        tracing::error!("Aborted");
-                                    }
-                                }
+                                    match res {
+                                        BatchResult::Batch(batch) => {
+                                            let batch_len = batch.len();
 
-                                Ok(())
-                            }));
+                                            let mut downstream_session = downstream_handle.session(&part_state.output_cap);
+                                            item_out_count.add(batch_len as u64, &labels);
+                                            let mut batch = batch.into_iter().map(TdPyAny::from).collect();
+                                            downstream_session.give_vec(&mut batch);
+
+                                            let next_awake_res = part_state
+                                                .part
+                                                .next_awake(py)
+                                                .reraise_with(|| format!("error calling `StatelessSourcePartition.next_awake` in step {step_id}"))?;
+
+                                            part_state.next_awake =
+                                                default_next_awake(next_awake_res, batch_len, now);
+                                        }
+                                        BatchResult::Eof => {
+                                            eof = true;
+                                            tracing::trace!("EOFd");
+                                        }
+                                        BatchResult::Abort => {
+                                            abort.store(true, atomic::Ordering::Relaxed);
+                                            tracing::error!("Aborted");
+                                        }
+                                    }
+
+                                    Ok(())
+                                }));
+                            }
 
                             // Only increment once we've caught up (in
                             // this if-block) otherwise you can get
