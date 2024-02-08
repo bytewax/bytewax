@@ -90,14 +90,17 @@ class ConfluentSchemaRegistry:
 class RedpandaSchemaRegistry:
     """Redpanda's schema registry client."""
 
-    def __init__(self, base_url: str = "http://localhost:8081"):
+    def __init__(self, base_url: str = "http://localhost:8081", headers=None):
         """Init.
 
         :arg base_url: Base url of redpanda's schema registry
             instance.
+        :arg headers: Optional headers to add to each request.
+            Can be used for basic auth.
 
         """
         self._base_url = base_url
+        self._headers = headers if headers is not None else {}
 
     def _get_schema(self, schema_ref: Union[int, SchemaRef]) -> bytes:
         # Schema can bew retrieved by `schema_id`, or by
@@ -112,7 +115,7 @@ class RedpandaSchemaRegistry:
                 f"{schema_ref.subject}/versions/"
                 f"{version}/schema"
             )
-        resp = requests.get(url)
+        resp = requests.get(url, headers=self._headers)
         resp.raise_for_status()
         return resp.content
 
