@@ -231,7 +231,7 @@ jobs:
   upload:
     name: Store wheels in S3
     runs-on: ubuntu-20.04
-    if: "github.ref == 'refs/heads/main'"
+    if: "github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release')"
     needs: [ linux, macos, windows ]
     steps:
       - uses: actions/download-artifact@v3
