@@ -112,6 +112,10 @@ html[data-theme="dark"] .bd-header .bd-navbar-elements > .current > .nav-link {
 html[data-theme="dark"] .bd-header .bd-navbar-elements li:not(.current) a.nav-link:hover {
   background: #404040;
 }
+.theme-switch-button span:hover,
+.navbar-icon-links li.nav-item a.nav-link:hover {
+  box-shadow: none;
+}
 
 /** Primary sidebar */
 nav.bd-links .navbar-nav > ul {
