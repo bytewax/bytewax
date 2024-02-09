@@ -142,6 +142,34 @@ nav.bd-links p.caption {
   color: var(--pst-heading-color);
 }
 
+/** Secondary sidebar */
+.onthispage {
+  font-weight: 600;
+  color: var(--pst-heading-color);
+  margin-bottom: 0.5rem;
+  svg {
+    display: none;
+  }
+}
+.page-toc .toc-entry a.nav-link {
+  border-left: 1px solid transparent;
+  color: var(--pst-color-text-base);
+}
+.page-toc .toc-entry a > code {
+  color: var(--pst-color-text-base);
+}
+.page-toc .toc-entry a.nav-link:hover {
+  border-left-color: var(--pst-color-primary);
+  text-decoration: none;
+  color: var(--pst-heading-color);
+}
+.toc-entry a.nav-link.active {
+  border-left-color: var(--pst-color-primary);
+}
+.page-toc ul > li > a.nav-link {
+  margin-left: calc(-1rem - 1px);
+}
+
 /** Typography */
 h3,
 h4,
@@ -267,6 +295,7 @@ html[data-theme="dark"] .highlight pre {
   width: 3rem;
   height: 3rem;
   display: block;
+  background: transparent !important;
 }
 .bd-slack-title {
   margin: 0 0 0.5rem 0;
