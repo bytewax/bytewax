@@ -50,7 +50,7 @@ import bytewax.operators as op
 import bytewax.operators.window as wop
 from bytewax.connectors.kafka import KafkaSinkMessage, KafkaSourceMessage
 from bytewax.connectors.kafka import operators as kop
-from bytewax.connectors.kafka.registry import ConfluentSchemaRegistry
+from bytewax.connectors.kafka.registry import SchemaRegistry
 from bytewax.dataflow import Dataflow
 from bytewax.operators.window import SystemClockConfig, TumblingWindow
 from confluent_kafka.schema_registry import SchemaRegistryClient
@@ -85,7 +85,7 @@ op.inspect("inspect-kafka-errors", kinp.errs).then(op.raises, "kafka-error")
 
 # ConfluentSchemaRegistry config:
 sr_conf = {"url": CONFLUENT_URL, "basic.auth.user.info": CONFLUENT_USERINFO}
-registry = ConfluentSchemaRegistry(SchemaRegistryClient(sr_conf))
+registry = SchemaRegistry(SchemaRegistryClient(sr_conf))
 
 # Confluent's deserializer doesn't need a schema, it automatically fetches it.
 key_de = registry.deserializer()

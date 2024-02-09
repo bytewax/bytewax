@@ -1,4 +1,12 @@
-"""Operators for the kafka source and sink."""
+"""Operators for the kafka source and sink.
+
+It's suggested to import operators like this:
+>>> from bytewax.connectors.kafka import operators as kop
+
+And then you can use the operators like this:
+>>> kafka_input = kop.input("kafka_inp", flow, brokers=[...], topics=[...])
+>>> kop.output("kafka-out", kafka_input.oks, brokers=[...], topic="...")
+"""
 from dataclasses import dataclass
 from typing import Dict, Generic, List, Optional, TypeVar, Union, cast
 

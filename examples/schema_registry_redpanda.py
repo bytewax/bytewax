@@ -50,9 +50,10 @@ import bytewax.operators as op
 import bytewax.operators.window as wop
 from bytewax.connectors.kafka import KafkaSinkMessage, KafkaSourceMessage
 from bytewax.connectors.kafka import operators as kop
-from bytewax.connectors.kafka.registry import RedpandaSchemaRegistry, SchemaRef
+from bytewax.connectors.kafka.registry import SchemaRef, SchemaRegistry
 from bytewax.dataflow import Dataflow
 from bytewax.operators.window import SystemClockConfig, TumblingWindow
+from confluent_kafka.schema_registry import SchemaRegistryClient
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(format=logging.BASIC_FORMAT, level=logging.WARNING)
@@ -70,11 +71,12 @@ kinp = kop.input("kafka-in", flow, brokers=KAFKA_BROKERS, topics=IN_TOPICS)
 op.inspect("inspect-kafka-errors", kinp.errs).then(op.raises, "kafka-error")
 
 # Redpanda's schema registry configuration
-registry = RedpandaSchemaRegistry(REDPANDA_REGISTRY_URL)
+sr_conf = {"url": REDPANDA_REGISTRY_URL}
+registry = SchemaRegistry(SchemaRegistryClient(sr_conf))
 
 # Deserialize both key and value
-key_de = registry.deserializer(SchemaRef("sensor-key"))
-val_de = registry.deserializer(SchemaRef("sensor-value"))
+key_de = registry.deserializer(SchemaRef("sensor-key"), serde_format="plain-avro")
+val_de = registry.deserializer(SchemaRef("sensor-value"), serde_format="plain-avro")
 msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer=val_de)
 
 # Inspect errors and crash
