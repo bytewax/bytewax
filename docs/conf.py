@@ -99,6 +99,7 @@ html_theme_options = {
     "back_to_top_button": False,
     "footer_start": ["copyright"],
     "footer_end": [],
+    "article_footer_items": ["slack-footer.html"],
     # https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/header-links.html#icon-links
     "external_links": [
         {"name": "Platform Docs", "url": "https://platform.bytewax.io"},

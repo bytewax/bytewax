@@ -1,12 +1,3 @@
-/* a {
-  text-decoration: none;
-}
-
-a:hover {
-  text-decoration: underline;
-  text-decoration-thickness: unset;
-} */
-/* 
 code.xref,
 code a {
   font-weight: unset;
@@ -17,6 +8,12 @@ code a {
   /* max-width: 18rem; */
   padding-right: 2rem;
   padding-top: 1.5rem;
+}
+.bd-sidebar-secondary {
+  margin-left: auto;
+}
+.bd-main .bd-content .bd-article-container .bd-article {
+  padding-left: 0;
 }
 @media (min-width: 576px) {
   .bd-main .bd-content .bd-article-container {
@@ -29,12 +26,9 @@ code a {
     margin: 0 auto;
     padding: 2.5rem;
   }
-}
-.bd-sidebar-secondary {
-  margin-left: auto;
-}
-.bd-main .bd-content .bd-article-container .bd-article {
-  padding-left: 0;
+  .bd-main .bd-content .bd-article-container .bd-article {
+    padding-top: 0.5rem;
+  }
 }
 @media (min-width: 1536px) {
   .bd-page-width {
@@ -46,30 +40,37 @@ code a {
   }
 }
 
-/** Navbar **/
+/** Navbar */
 .navbar-brand {
   padding: 0;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 .navbar-brand img {
   max-height: 2.625rem;
   width: auto;
 }
-@media (min-width: 576px) {
-  .navbar-brand img {
-    max-height: 3rem;
-  }
-}
 .navbar-brand .title {
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.025rem;
   font-weight: 500;
   text-decoration: none;
-  padding-left: 0.75rem;
+  padding-left: 0.5rem;
   display: inline-block;
   border-left: 1px solid var(--pst-color-border);
   margin-top: 0.25rem;
+}
+@media (min-width: 576px) {
+  .navbar-brand {
+    gap: 1rem;
+  }
+  .navbar-brand img {
+    max-height: 3rem;
+  }
+  .navbar-brand .title {
+    font-size: 0.875rem;
+    padding-left: 0.75rem;
+  }
 }
 .navbar-brand:hover {
   text-decoration: none !important;
@@ -112,7 +113,7 @@ html[data-theme="dark"] .bd-header .bd-navbar-elements li:not(.current) a.nav-li
   background: #404040;
 }
 
-/** Primary sidebar **/
+/** Primary sidebar */
 nav.bd-links .navbar-nav > ul {
   border-left: 1px solid var(--pst-color-border);
 }
@@ -124,13 +125,16 @@ nav.bd-links .navbar-nav > ul > li > a {
   border-left: 1px solid transparent;
   padding-left: 1rem;
 }
-nav.bd-links .navbar-nav > ul > li:not(.current) > a:hover {
+nav.bd-links .navbar-nav > ul > li > a:hover {
   border-left-color: var(--pst-color-primary);
   text-decoration: none;
+}
+nav.bd-links .navbar-nav > ul > li:not(.current) > a:hover {
   color: var(--pst-heading-color);
 }
 nav.bd-links .navbar-nav > ul > li.current > a {
   font-weight: 700;
+  color: var(--pst-color-primary);
   border-left-color: var(--pst-color-primary);
 }
 nav.bd-links p.bd-links__title,
@@ -149,8 +153,27 @@ h6 {
 .bd-main .bd-content .bd-article-container .bd-article span.pre {
   font-weight: 600;
 }
+.bd-main .bd-content .bd-article-container .bd-article a {
+  text-decoration: none;
+}
+.bd-main .bd-content .bd-article-container .bd-article a:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.25rem;
+}
 
-/** Customize code highlighting **/
+/** Breadcrumbs */
+ul.bd-breadcrumbs li.breadcrumb-item:not(.breadcrumb-home) a {
+  font-weight: 400;
+  color: var(--pst-color-text-base);
+  text-decoration-thickness: auto;
+  text-underline-offset: 0.25rem;
+}
+ul.bd-breadcrumbs li.breadcrumb-item:not(.breadcrumb-home):before {
+  color: #a3a3a3;
+  padding: 0.25rem 0.75rem 0 0.75rem;
+}
+
+/** Customize code highlighting */
 .highlight span.linenos,
 html[data-theme="light"] .highlight span.linenos,
 html[data-theme="dark"] .highlight span.linenos {
@@ -162,4 +185,123 @@ html[data-theme="dark"] .highlight span.linenos {
 html[data-theme="light"] .highlight pre,
 html[data-theme="dark"] .highlight pre {
   line-height: 150%;
+}
+
+/** User Guide */
+#user-guide {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem 2rem;
+  h1 {
+    grid-column: span 2;
+    margin-bottom: 0.5rem;
+  }
+  .toctree-wrapper p.caption {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--pst-color-text-muted);
+    margin-bottom: 0.5rem;
+  }
+  .toctree-wrapper ul {
+    border-left: 1px solid var(--pst-color-border);
+  }
+  .toctree-wrapper ul > li {
+    margin-left: -1px;
+    font-size: 1rem;
+  }
+  .toctree-wrapper ul > li > a {
+    font-size: 1rem;
+    font-weight: 500;
+    padding: 0.125rem 0.75rem;
+    display: inline-block;
+    color: var(--pst-color-text-base);
+    border-left: 1px solid transparent;
+  }
+  .toctree-wrapper ul > li > a:hover {
+    border-color: var(--pst-color-primary);
+    color: var(--pst-heading-color);
+  }
+}
+
+/** Prev-next footer */
+.prev-next-footer {
+  margin-top: 2rem;
+}
+.prev-next-area p.prev-next-subtitle {
+  font-size: 0.875rem;
+  margin: 0 0 0.25rem 0;
+}
+.prev-next-area a p.prev-next-title,
+.prev-next-area a:visited p.prev-next-title {
+  margin: 0;
+  font-size: 1rem;
+  text-decoration: none;
+  color: var(--pst-color-text-base);
+}
+.prev-next-area a .prev-next-info {
+  margin: 0 1rem;
+}
+
+/** Slack footer (_templates/slack-footer.html) */
+.bd-slack {
+  display: flex;
+  align-items: flex-start;
+  border: 1px solid var(--pst-color-border);
+  border-radius: 0.5rem;
+  padding: 1.5rem 1.5rem 1.75rem 1.5rem;
+  gap: 1.25rem;
+  margin-top: 2rem;
+}
+@media (min-width: 576px) {
+  .bd-slack {
+    gap: 1.5rem;
+    margin-top: 2.25rem;
+  }
+}
+.bd-slack-icon {
+  flex-shrink: 0;
+  padding: 0;
+  margin: 0;
+}
+.bd-slack-img {
+  width: 3rem;
+  height: 3rem;
+  display: block;
+}
+.bd-slack-title {
+  margin: 0 0 0.5rem 0;
+  line-height: 150%;
+}
+.bd-slack-title strong {
+  font-weight: 700;
+}
+.bd-slack-desc {
+  margin-bottom: 1.25rem;
+}
+.bd-slack-btn,
+.bd-slack-btn:active,
+.bd-slack-btn:visited {
+  display: inline-flex;
+  align-items: center;
+  text-transform: uppercase;
+  font-weight: 600;
+  text-decoration: none;
+  background-color: #fab90f;
+  color: #000;
+  padding: 0.75rem 1.25rem;
+  border: 1px solid #fab90f;
+  border-radius: 0.375rem;
+  line-height: 1.25rem;
+  letter-spacing: 0.025rem;
+  transition: 0.25s ease-in-out;
+}
+.bd-slack-btn:hover,
+.bd-slack-btn:visited:hover,
+.bd-slack-btn:focus {
+  background-color: #334ac0;
+  border-color: #334ac0;
+  color: #fff;
+}
+.bd-slack-btn-icon {
+  margin-left: 0.5rem;
 }
