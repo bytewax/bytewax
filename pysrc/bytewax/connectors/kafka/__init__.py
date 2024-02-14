@@ -39,6 +39,7 @@ Or the custom operators:
 ```
 
 """
+import json
 from dataclasses import dataclass, field
 from typing import Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Union
 
@@ -48,6 +49,7 @@ from confluent_kafka.admin import AdminClient
 from typing_extensions import TypeAlias
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+from bytewax.metrics import Gauge
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 K = TypeVar("K")
@@ -191,22 +193,57 @@ class _KafkaSourcePartition(
 ):
     def __init__(
         self,
-        consumer,
-        topic,
-        part_idx,
-        starting_offset,
-        resume_state,
-        batch_size,
-        raise_on_errors,
+        config: dict,
+        topic: str,
+        part_idx: int,
+        starting_offset: int,
+        resume_state: Optional[int],
+        batch_size: int,
+        raise_on_errors: bool,
     ):
         self._offset = starting_offset if resume_state is None else resume_state
+        print(f"starting offset: {starting_offset}")
+        # Collect metrics from Kafka every 1s
+        config.update({"stats_cb": self._process_stats})
+        consumer = Consumer(config)
         # Assign does not activate consumer grouping.
         consumer.assign([TopicPartition(topic, part_idx, self._offset)])
         self._consumer = consumer
         self._topic = topic
+        self._part_idx = part_idx
         self._batch_size = batch_size
         self._eof = False
         self._raise_on_errors = raise_on_errors
+
+        # Set up metrics for Kafka
+        self._consumer_lag = Gauge(
+            "kafka_consumer_lag",
+            "Difference between last offset on the broker"
+            "and the currently consumed offset.",
+            ["topic", "partition"],
+        )
+        # Labels to use when recording metrics
+        # TODO: It would be nice to have the step_id available here
+        self._metrics_labels = {"topic": self._topic, "partition": str(self._part_idx)}
+
+    def _process_stats(self, json_stats: str):
+        """Process stats collected by librdkafka.
+
+        This function is called by librdkafka based on the
+        `statistics.interval.ms` config setting.
+
+        For more information about the `json_stats` payload, see
+        https://github.com/confluentinc/librdkafka/blob/master/STATISTICS.md
+        """
+        partition_stats = json.loads(json_stats)["topics"][self._topic]["partitions"][
+            str(self._part_idx)
+        ]
+        # The lag value here would be calculated incorrectly when using values
+        # like OFFSET_STORED, or OFFSET_BEGINNING
+        if self._offset > 0:
+            self._consumer_lag.set_val(
+                partition_stats["ls_offset"] - self._offset, self._metrics_labels
+            )
 
     def next_batch(self) -> List[SerializedKafkaSourceResult]:
         if self._eof:
@@ -349,17 +386,17 @@ class KafkaSource(FixedPartitionedSource[SerializedKafkaSourceResult, Optional[i
         assert topic in self._topics, "Can't resume from different set of Kafka topics"
 
         config = {
-            # We'll manage our own "consumer group" via recovery
+            # We'll manage our own "consumer group" via the recovery
             # system.
             "group.id": "BYTEWAX_IGNORED",
             "enable.auto.commit": "false",
             "bootstrap.servers": ",".join(self._brokers),
             "enable.partition.eof": str(not self._tail),
+            "statistics.interval.ms": 1000,
         }
         config.update(self._add_config)
-        consumer = Consumer(config)
         return _KafkaSourcePartition(
-            consumer,
+            config,
             topic,
             part_idx,
             self._starting_offset,

@@ -281,6 +281,10 @@ impl FixedPartitionedSource {
             .f64_histogram("inp_part_next_batch_duration_seconds")
             .with_description("`next_batch` duration in seconds")
             .init();
+        let batch_size_histogram = meter
+            .u64_histogram("inp_part_next_batch_size")
+            .with_description("`next_batch` batch size")
+            .init();
         let snapshot_histogram = meter
             .f64_histogram("snapshot_duration_seconds")
             .with_description("`snapshot` duration in seconds")
@@ -450,6 +454,7 @@ impl FixedPartitionedSource {
                                         match batch_res {
                                             BatchResult::Batch(batch) => {
                                                 let batch_len = batch.len();
+                                                batch_size_histogram.record(batch_len as u64, &labels);
 
                                                 let mut downstream_session = downstream_handle.session(&part_state.downstream_cap);
                                                 item_out_count.add(batch_len as u64, &labels);

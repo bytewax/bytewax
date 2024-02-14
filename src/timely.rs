@@ -878,7 +878,7 @@ where
 
         let meter = global::meter("dataflow");
         let histogram = meter
-            .f64_histogram("bytewax_partd_write_duration_seconds")
+            .f64_histogram("partd_write_duration_seconds")
             .with_description("partitioned state write duration in seconds")
             .init();
         let worker_label = KeyValue::new("worker_id", this_worker.0.to_string());
@@ -1109,7 +1109,7 @@ where
 
         let meter = global::meter("dataflow");
         let histogram = meter
-            .f64_histogram("bytewax_partd_load_builder_duration_seconds")
+            .f64_histogram("partd_load_builder_duration_seconds")
             .with_description("partitioned state load duration in seconds")
             .init();
         let worker_label = KeyValue::new("worker_id", this_worker.0.to_string());
