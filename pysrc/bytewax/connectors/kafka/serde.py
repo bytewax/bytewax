@@ -65,7 +65,7 @@ class ConfluentAvroSerializer(SchemaSerializer[Dict, bytes]):
     def ser(self, obj: Dict) -> bytes:
         if not isinstance(obj, Dict):
             msg = f"Serializer needs a dict as input, received: {obj}"
-            raise ValueError(msg)
+            raise TypeError(msg)
 
         # Here we can assume the output will be bytes (or fail), since we made
         # sure to pass a dict to the serializer.
