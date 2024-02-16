@@ -97,6 +97,7 @@ html_css_files = ["css/variables.css", "css/custom.css"]
 html_theme = "pydata_sphinx_theme"
 html_theme_options = {
     "back_to_top_button": False,
+    "use_edit_page_button": True,
     "footer_start": ["copyright"],
     "footer_end": [],
     "article_footer_items": ["slack-footer.html"],
@@ -126,6 +127,15 @@ html_theme_options = {
     # On the per-page right hand side TOC, show more depth by default.
     "show_toc_level": 3,
     "show_prev_next": True,
+}
+
+# Set context for 'Edit this page' buttons
+# https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/source-buttons.html
+html_context = {
+    "github_user": "bytewax",
+    "github_repo": "bytewax",
+    "github_version": "main",
+    "doc_path": "docs",
 }
 
 # -- Options for MyST --------------------------------------------------------

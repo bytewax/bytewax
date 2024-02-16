@@ -173,6 +173,15 @@ nav.bd-links p.caption {
 .page-toc ul > li > a.nav-link {
   margin-left: calc(-1rem - 1px);
 }
+.editthispage a {
+  text-decoration: none;
+}
+.editthispage a > svg {
+  margin-right: 0.125rem;
+}
+.editthispage a:hover {
+  text-decoration: underline;
+}
 
 /** Typography */
 h3,
@@ -310,6 +319,13 @@ html[data-theme="dark"] .highlight pre {
 }
 .bd-slack-desc {
   margin-bottom: 1.25rem;
+}
+.bd-slack-desc a {
+  font-weight: 600;
+  text-decoration: none;
+}
+.bd-slack-desc a:hover {
+  text-decoration: underline;
 }
 .bd-slack-btn,
 .bd-slack-btn:active,
