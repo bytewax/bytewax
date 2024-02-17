@@ -127,6 +127,11 @@ html_theme_options = {
     # On the per-page right hand side TOC, show more depth by default.
     "show_toc_level": 3,
     "show_prev_next": True,
+    # Set Google Analytics integration
+    # https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/analytics.html
+    "analytics": {
+        "google_analytics_id": "G-06HTJPTC44"
+    }
 }
 
 # Set context for 'Edit this page' buttons
