@@ -79,19 +79,32 @@ html_show_sourcelink = False
 html_static_path = ["_static"]
 
 favicons = [
-    "https://bytewax.io/favicon.png",
+    {
+        "rel": "icon",
+        "href": "img/favicon.ico",
+    },
+    {
+        "rel": "apple-touch-icon",
+        "sizes": "192x192",
+        "href": "img/apple.png",
+        "color": "#fab90f",
+    },
 ]
 
 # -- Options for PyData theme ---------------------------------------------
 # https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/index.html
-
-html_css_files = ["css/custom.css"]
+html_css_files = ["css/variables.css", "css/custom.css"]
 html_theme = "pydata_sphinx_theme"
 html_theme_options = {
     "back_to_top_button": False,
+    "use_edit_page_button": True,
     "footer_start": ["copyright"],
     "footer_end": [],
+    "article_footer_items": ["slack-footer.html"],
     # https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/header-links.html#icon-links
+    "external_links": [
+        {"name": "Platform Docs", "url": "https://platform.bytewax.io"},
+    ],
     "icon_links": [
         {
             "name": "GitHub",
@@ -105,15 +118,28 @@ html_theme_options = {
         },
     ],
     "logo": {
-        "alt_text": "Bytewax logo",
-        "image_light": "https://user-images.githubusercontent.com/6073079/194626697-425ade3d-3d72-4b4c-928e-47bad174a376.png",
-        "image_dark": "https://user-images.githubusercontent.com/6073079/195393689-7334098b-a8cd-4aaa-8791-e4556c25713e.png",
+        "alt_text": "Bytewax",
+        "image_light": "_static/img/logo.svg",
+        "image_dark": "_static/img/logo_dark.svg",
         "link": "https://bytewax.io",
         "text": "Docs",
     },
     # On the per-page right hand side TOC, show more depth by default.
     "show_toc_level": 3,
-    "show_prev_next": False,
+    "show_prev_next": True,
+    "secondary_sidebar_items": {
+        "apidocs/**": ["page-toc"],
+        "articles/**": ["page-toc", "edit-this-page"],
+    },
+}
+
+# Set context for 'Edit this page' buttons
+# https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/source-buttons.html
+html_context = {
+    "github_user": "bytewax",
+    "github_repo": "bytewax",
+    "github_version": "main",
+    "doc_path": "docs",
 }
 
 # -- Options for MyST --------------------------------------------------------

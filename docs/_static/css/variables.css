@@ -1,0 +1,70 @@
+/**
+* Override default pydata-sphinx-theme variables
+* Source: https://github.com/pydata/pydata-sphinx-theme/tree/main/src/pydata_sphinx_theme/assets/styles/variables
+*/
+html {
+  /** Layout */
+  --pst-header-height: 4.125rem;
+  --pst-header-article-height: auto;
+  --pst-sidebar-secondary: 17rem;
+
+  /** Fonts - Font family */
+  --pst-font-family-base-system: "Inter", sans-serif;
+  --pst-font-family-monospace-system: "JetBrains Mono", monospace;
+
+  /** Fonts - Font sizes */
+  --pst-font-size-h1: 1.85rem;
+  --pst-font-size-h2: 1.5rem;
+  --pst-font-size-h3: 1.25rem;
+  --pst-font-size-h4: 1.125rem;
+  --pst-font-size-h5: 1rem;
+  --pst-font-size-h6: 1rem;
+  --pst-sidebar-font-size: 0.875rem;
+  --pst-font-weight-heading: 700;
+  --pst-font-weight-caption: 600;
+}
+
+/** Breakpoint >sm */
+@media (min-width: 576px) {
+  html {
+    --pst-header-height: 4.5rem;
+    --pst-font-size-h1: 2.25rem;
+  }
+}
+
+/** Breakpoint >lg */
+@media (min-width: 992px) {
+  html {
+    --pst-header-height: 5rem;
+  }
+}
+
+/** Colors **/
+html[data-theme="light"] {
+  --pst-color-primary: #334ac0;
+  --pst-color-secondary: var(--pst-color-primary);
+  --pst-heading-color: #171717;
+  --pst-color-text-base: #404040;
+  --pst-color-text-muted: #737373;
+  --pst-color-inline-code: #171717;
+  --pst-color-inline-code-links: #171717;
+  --pst-color-border: #d4d4d4;
+  --bs-border-color: #d4d4d4;
+  --pst-color-surface: #f5f5f5;
+  --pst-color-on-surface: #171717;
+}
+html[data-theme="dark"] {
+  --pst-color-primary: #fab90f;
+  --pst-color-secondary: var(--pst-color-primary);
+  --pst-heading-color: #fff;
+  --pst-color-text-base: #d4d4d4;
+  --pst-color-text-muted: #a3a3a3;
+  --pst-color-background: #171717;
+  --pst-color-on-background: #262626;
+  --pst-color-inline-code: #fff;
+  --pst-color-inline-code-links: #fff;
+  --pst-color-border: #525252;
+  --bs-border-color: #525252;
+  --pst-color-surface: #262626;
+  --pst-color-on-surface: #fff;
+}
