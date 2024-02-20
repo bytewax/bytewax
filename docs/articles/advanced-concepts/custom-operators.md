@@ -64,17 +64,3 @@ A good docstring for a custom operator has a few things:
 
 - The return streams describe the shape of the data that is being sent
   downstream.
-
-## Unary Operators
-
-TODO
-
-* why
-
-* how
-
-* tips
-
-* common problems
-
-* example code/repos
