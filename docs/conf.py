@@ -131,7 +131,7 @@ html_theme_options = {
     # https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/analytics.html
     "analytics": {
         "google_analytics_id": "G-06HTJPTC44",
-    }
+    },
 }
 
 # Set context for 'Edit this page' buttons
