@@ -130,7 +130,7 @@ html_theme_options = {
     # Set Google Analytics integration
     # https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/analytics.html
     "analytics": {
-        "google_analytics_id": "G-06HTJPTC44"
+        "google_analytics_id": "G-06HTJPTC44",
     }
 }
 
