@@ -33,7 +33,7 @@ Or the custom operators:
 >>> kop.output("kafka-out", processed, brokers=brokers, topic="out-topic")
 
 """
-from . import operators, registry, serde
+from . import _types, error, operators, registry, serde
 from .message import KafkaSinkMessage, KafkaSourceMessage
 from .sink import KafkaSink
 from .source import KafkaSource
@@ -43,7 +43,9 @@ __all__ = [
     "KafkaSink",
     "KafkaSinkMessage",
     "KafkaSourceMessage",
+    "error",
     "operators",
     "registry",
     "serde",
+    "_types",
 ]

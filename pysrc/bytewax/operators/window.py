@@ -33,14 +33,21 @@ from ..bytewax import (  # type: ignore[import]
 )
 
 __all__ = [
+    "C",
     "ClockConfig",
     "EventClockConfig",
+    "K",
+    "S",
     "SessionWindow",
     "SlidingWindow",
     "SystemClockConfig",
     "TumblingWindow",
+    "V",
+    "W",
     "WindowConfig",
     "WindowMetadata",
+    "X",
+    "Y",
     "collect_window",
     "count_window",
     "fold_window",

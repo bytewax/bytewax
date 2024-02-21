@@ -70,6 +70,11 @@ nitpick_ignore = [
     ("py:obj", "confluent_kafka.OFFSET_END"),
 ]
 
+exclude_patterns = [
+    "apidocs/bytewax/bytewax.connectors.kafka.message.md",
+    "apidocs/bytewax/bytewax.connectors.kafka.sink.md",
+    "apidocs/bytewax/bytewax.connectors.kafka.source.md",
+]
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
@@ -180,6 +185,7 @@ autodoc2_hidden_objects = [
 # matches the regexp and doesn't fallback to public names. So we have
 # to list the modules with `__all__` explicitly.
 autodoc2_module_all_regexes = [
+    re.escape("bytewax.connectors.kafka"),
     re.escape("bytewax.inputs"),
     re.escape("bytewax.operators.window"),
     re.escape("bytewax.recovery"),

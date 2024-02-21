@@ -27,6 +27,7 @@ from .bytewax import (  # type: ignore[import]
 __all__ = [
     "TestingSink",
     "TestingSource",
+    "X",
     "cluster_main",
     "ffwd_iter",
     "poll_next_batch",

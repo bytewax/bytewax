@@ -52,15 +52,14 @@ By default, {py:obj}`~bytewax.connectors.kafka.KafkaSource` will raise
 an exception whenever an error is encountered when consuming from
 Kafka. This behavior can be configured with the `raise_on_errors`
 parameter, which will yield
-{py:obj}`~bytewax.connectors.kafka.KafkaError` items. Those
+{py:obj}`~bytewax.connectors.kafka.error.KafkaError` items. Those
 errors can be handled downstream individually.
 
 The {py:obj}`bytewax.connectors.kafka.operators.input` operator
 returns a dataclass containing two output streams. The `.oks` field is
-a stream of
-{py:obj}`~bytewax.connectors.kafka.KafkaSourceMessage` that
-were successfully processed. The `.errs` field is a stream of
-{py:obj}`~bytewax.connectors.kafka.KafkaError` messages where an
+a stream of {py:obj}`~bytewax.connectors.kafka.KafkaSourceMessage`
+that were successfully processed. The `.errs` field is a stream of
+{py:obj}`~bytewax.connectors.kafka.error.KafkaError` messages where an
 error was encountered. Items that encountered an error have their
 `.err` field set with more details about the error.
 

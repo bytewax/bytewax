@@ -6,8 +6,8 @@ from confluent_kafka import OFFSET_BEGINNING
 from confluent_kafka import KafkaError as ConfluentKafkaError
 
 import bytewax.operators as op
-from bytewax.dataflow import Dataflow
-from bytewax.operators import Stream, operator
+from bytewax.dataflow import Dataflow, Stream
+from bytewax.operators import operator
 
 from ._types import K2, V2, K, MaybeStrBytes, V
 from .error import KafkaError

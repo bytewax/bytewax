@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Generic, List, Optional, Tuple
 
+from . import _types
 from ._types import K2, V2, K, K_co, V, V_co
 
 
@@ -26,7 +27,7 @@ class KafkaSourceMessage(Generic[K, V]):
     partition: Optional[int] = field(default=None)
     timestamp: Optional[Tuple[int, int]] = field(default=None)
 
-    def to_sink(self) -> "KafkaSinkMessage[K, V]":
+    def to_sink(self) -> "KafkaSinkMessage[_types.K, _types.V]":
         """Safely convert KafkaSourceMessage to KafkaSinkMessage.
 
         Only `key`, `value` and `timestamp` are used.
