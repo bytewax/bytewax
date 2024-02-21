@@ -22,25 +22,10 @@ Make a PR which commits the following:
    ```
 
    If there was no change to any of our PyO3 Rust API, there might be
-   no changes to commit here.
+   no changes to commit here. People also should be committing these
+   changes in the actual feature PRs.
 
-3. Commits updated API docs
-
-   ```sh
-   (.venv) bytewax/ $ maturin develop -E dev
-   (.venv) bytewax/ $ cd apidocs
-   (.venv) bytewax/apidocs $ rm -rf html/
-   (.venv) bytewax/apidocs $ ./build.sh
-   ```
-
-   You'll get a warning about `Couldn't read PEP-224 variable
-   docstrings`, but ignore that as our PyO3 Rust pyclasses don't have
-   Python source `pdoc` can read.
-
-   If we've been committing these as we go, there might not be any
-   changes to commit here. That's fine.
-
-4. Labels the latest changelog entries with the version number
+3. Labels the latest changelog entries with the version number
 
    Look in `CHANGELOG.md` for the latest batch of hand-written
    changelog notes and add a new headings with the version number.
@@ -59,13 +44,54 @@ Make a PR which commits the following:
       automatically.
    ```
 
-   Approve and merge that PR.
+4. Write migration guide entry
 
-5. Check that the CI run completed for the just updated `main` branch
-   on [our CI actions
-   page](https://github.com/bytewax/bytewax/actions/workflows/CI.yml).
+   Add a section to `docs/articles/reference/migration.md` like
 
-## 2. Create Release on GitHub
+   ````markdown
+   ## From v1.2.2 to v1.2.3
+
+   ### Breaking change to Cow API
+
+   The `Cow` API is now named `Bear`.
+
+   If you had code that looked like this
+
+   ```python
+   from bytewax.foobar import Cow
+
+   c = Cow()
+   ```
+
+   It now is should be written as
+
+   ```python
+   from bytewax.foobar import Bear
+
+   b = Bear()
+   ```
+   ````
+
+   Then add sub-sections for each of the breaking changes with before
+   and after example code.
+
+Then check before merging:
+
+1. Confirm CI tests pass.
+
+2. Confirm that the documentation for this build renders correctly: go
+    to the list of actions at the bottom of the PR, and click on the
+    `Details` link next to the last `docs/readthedocs.org:bytewax`
+    entry.
+
+Approve and merge that PR.
+
+Check that the CI run completed for the just updated `main` branch on
+our CI actions
+page](https://github.com/bytewax/bytewax/actions/workflows/CI.yml)
+after merging the PR.
+
+## 3. Create Release on GitHub
 
 Go to the [create a new GitHub release page for our
 repo](https://github.com/bytewax/bytewax/releases/new).
@@ -107,5 +133,19 @@ repo](https://github.com/bytewax/bytewax/releases/new).
 Double check our [Bytewax PyPI
 page](https://pypi.org/project/bytewax/) to make sure that the new
 version of the package is there.
+
+## 4. Double check ReadTheDocs
+
+We host our docs at <https://docs.bytewax.io> which are hosted by
+[Read The Docs](https://docs.readthedocs.io/en/stable/index.html). The
+RTD project should automatically detect that a new tag was created and
+build the documentation from that tag, through the [automation rules
+setup here](https://readthedocs.org/dashboard/bytewax/rules/).
+
+Double check that the build for this new version completed at the
+[builds page for our
+project](https://readthedocs.org/projects/bytewax/builds/). Then go to
+our [live production docs](https://docs.bytewax.io) and ensure that
+the new release docs are being shown for the `stable` version.
 
 I think we're done! Update this if we're not!
