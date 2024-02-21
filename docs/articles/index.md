@@ -6,7 +6,6 @@
 
 /articles/getting-started/installing.md
 /articles/getting-started/simple-example.md
-/articles/getting-started/streaming-example.md
 /articles/getting-started/collecting-windowing-example.md
 /articles/getting-started/join-example.md
 /articles/getting-started/wordcount-example.md
@@ -56,8 +55,6 @@
 
 /articles/reference/glossary.md
 /articles/reference/migration.md
-/articles/reference/support.md
-/articles/reference/testing.md
 ```
 
 
