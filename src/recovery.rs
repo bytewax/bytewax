@@ -74,6 +74,12 @@ impl PartitionCount {
     }
 }
 
+impl fmt::Display for PartitionCount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Metadata about a recovery partition.
 ///
 /// This represents a row in the `parts` table.
@@ -90,12 +96,24 @@ pub(crate) struct PartitionMeta(PartitionIndex, PartitionCount);
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ExecutionNumber(u64);
 
+impl fmt::Display for ExecutionNumber {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// The epoch a new dataflow execution should resume from the
 /// beginning of.
 ///
 /// This will be the dataflow frontier of the last execution.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ResumeEpoch(pub(crate) u64);
+
+impl fmt::Display for ResumeEpoch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 /// Metadata about an execution.
 ///
@@ -106,6 +124,12 @@ pub(crate) struct ExecutionMeta(ExecutionNumber, WorkerCount, ResumeEpoch);
 /// The oldest epoch for which work is still outstanding on a worker.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct WorkerFrontier(u64);
+
+impl fmt::Display for WorkerFrontier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 /// Metadata about the current frontier of a worker.
 ///
@@ -1194,7 +1218,7 @@ impl RecoveryPart {
         let missing_parts = &expected_parts - &found_parts;
         if !missing_parts.is_empty() {
             let msg = format!(
-                "Missing recovery partitions {missing_parts:?} of {part_count:?}; can't resume"
+                "Missing recovery partitions {missing_parts:?} of {part_count}; can't resume"
             );
             return Err(MissingPartitionsError::new_err(msg));
         }
@@ -1251,7 +1275,7 @@ impl RecoveryPart {
         if !state_missing_parts.is_empty() {
             let delayed_parts = &expected_parts - &state_missing_parts;
             let msg = format!(
-                "Recovery partitions {delayed_parts:?} of {part_count:?} are too old to resume without data loss; \
+                "Recovery partitions {delayed_parts:?} of {part_count} are too old to resume from epoch {resume_epoch} without data loss; \
                  do you have a newer backup of these partitions?"
             );
             return Err(InconsistentPartitionsError::new_err(msg));

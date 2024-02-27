@@ -9,12 +9,6 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
-- Better error messages on invalid epoch and backup interval
-  parameters.
-
-- Fixes bug where dataflow will hang if a source's `next_awake` is set
-  far in the future.
-
 - Adds `stateful_flat_map` operator.
 
 - *Breaking change* Removes `builder` argument from `stateful_map`.
