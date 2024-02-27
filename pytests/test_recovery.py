@@ -18,6 +18,44 @@ ZERO_TD = timedelta(seconds=0)
 FIVE_TD = timedelta(seconds=5)
 
 
+def test_abort_no_snapshots(recovery_config):
+    inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp))
+    op.output("out", s, TestingSink(out))
+
+    # Setting the epoch interval to 5 sec means we shouldn't have a
+    # snapshot when the abort happens.
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == [0, 1, 2]
+
+    # So resume should re-play all input.
+    out.clear()
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == [0, 1, 2, 3, 4]
+
+
+def test_abort_with_snapshots(recovery_config):
+    inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp))
+    op.output("out", s, TestingSink(out))
+
+    # Setting the epoch interval to 0 sec means we will have a
+    # snapshot after each item.
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    assert out == [0, 1, 2]
+
+    # We should resume as if it was an EOF.
+    out.clear()
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    assert out == [3, 4]
+
+
 def test_continuation(recovery_config):
     inp = [0, 1, 2, TestingSource.EOF(), 3, 4]
     out = []
@@ -26,9 +64,12 @@ def test_continuation(recovery_config):
     s = op.input("inp", flow, TestingSource(inp))
     op.output("out", s, TestingSink(out))
 
+    # Setting the epoch interval to 5 sec means we should only
+    # snapshot on EOF.
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
     assert out == [0, 1, 2]
 
+    # Each continuation should resume at the last snapshot.
     out.clear()
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
     assert out == [3, 4]
@@ -36,6 +77,56 @@ def test_continuation(recovery_config):
     out.clear()
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
     assert out == []
+
+    out.clear()
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == []
+
+
+def test_continuation_with_delayed_backup(tmp_path):
+    init_db_dir(tmp_path, 1)
+    print(tmp_path)
+    recovery_config = RecoveryConfig(str(tmp_path), backup_interval=FIVE_TD * 2)
+
+    inp = [
+        0,
+        TestingSource.EOF(),
+        1,
+        TestingSource.EOF(),
+        2,
+        TestingSource.EOF(),
+        3,
+        TestingSource.EOF(),
+        4,
+    ]
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp))
+    op.output("out", s, TestingSink(out))
+
+    # Setting the epoch interval to 5 sec means we should only
+    # snapshot on EOF. But we have set the backup interval to
+    # effectively -2 epochs so we should get delayed backup after a
+    # few executions.
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == [0]
+
+    out.clear()
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == [1]
+
+    out.clear()
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == [2]
+
+    out.clear()
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == [3]
+
+    out.clear()
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == [4]
 
     out.clear()
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
