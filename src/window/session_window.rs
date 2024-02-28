@@ -21,6 +21,22 @@ use super::Windower;
 /// if the time since the latest event is < `gap`. Otherwise a new
 /// window is created that starts at current clock's time.
 ///
+/// :::{warning}
+///
+/// Currently, session windows do not support out-of-order data. Out
+/// of order data will be placed in their own sessions rather than
+/// merging adjacent sessions.
+///
+/// Ensure that your data source is always in order if using an
+/// {py:obj}`~bytewax.operators.window.EventClockConfig`. Even if it
+/// is in-order, you cannot use event time session windows with any
+/// windowing join operator.
+///
+/// {py:obj}`~bytewax.operators.window.SystemClockConfig` is always in
+/// order, so should be fine to use with any operator.
+///
+/// :::
+///
 /// :arg gap: Gap of inactivity before considering a session closed.
 ///     The gap should not be negative.
 ///

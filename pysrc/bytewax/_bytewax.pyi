@@ -53,11 +53,11 @@ class RecoveryConfig:
         ...
 
     @property
+    def db_dir(self): ...
+    @property
     def snapshot_serde(self): ...
     @property
     def backup_interval(self): ...
-    @property
-    def db_dir(self): ...
 
 def run_main(flow, *, epoch_interval=None, recovery_config=None):
     """Execute a dataflow in the current thread.
@@ -420,11 +420,11 @@ class JaegerConfig(TracingConfig):
         ...
 
     @property
+    def sampling_ratio(self): ...
+    @property
     def service_name(self): ...
     @property
     def endpoint(self): ...
-    @property
-    def sampling_ratio(self): ...
 
 class OtlpTracingConfig(TracingConfig):
     """Send traces to the OpenTelemetry collector.
@@ -603,9 +603,9 @@ class SlidingWindow(WindowConfig):
         ...
 
     @property
-    def align_to(self): ...
-    @property
     def length(self): ...
+    @property
+    def align_to(self): ...
     @property
     def offset(self): ...
 
@@ -615,6 +615,22 @@ class SessionWindow(WindowConfig):
     Each time a new item is received, it is added to the latest window
     if the time since the latest event is < `gap`. Otherwise a new
     window is created that starts at current clock's time.
+
+    :::{warning}
+
+    Currently, session windows do not support out-of-order data. Out
+    of order data will be placed in their own sessions rather than
+    merging adjacent sessions.
+
+    Ensure that your data source is always in order if using an
+    {py:obj}`~bytewax.operators.window.EventClockConfig`. Even if it
+    is in-order, you cannot use event time session windows with any
+    windowing join operator.
+
+    {py:obj}`~bytewax.operators.window.SystemClockConfig` is always in
+    order, so should be fine to use with any operator.
+
+    :::
 
     :arg gap: Gap of inactivity before considering a session closed.
         The gap should not be negative.
