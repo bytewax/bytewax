@@ -293,6 +293,15 @@ def join_window(
 ) -> KeyedStream[Tuple[WindowMetadata, Tuple]]:
     """Gather together the value for a key on multiple streams.
 
+    :::{warning}
+
+    Currently this operator does not work correctly with the
+    combination of
+    {py:obj}`~bytewax.operators.window.EventClockConfig` and
+    {py:obj}`~bytewax.operators.window.SessionWindow`.
+
+    :::
+
     :arg step_id: Unique ID.
 
     :arg clock: Clock.
@@ -357,6 +366,15 @@ def join_window_named(
     **sides: KeyedStream[Any],
 ) -> KeyedStream[Tuple[WindowMetadata, Dict[str, Any]]]:
     """Gather together the value for a key on multiple named streams.
+
+    :::{warning}
+
+    Currently this operator does not work correctly with the
+    combination of
+    {py:obj}`~bytewax.operators.window.EventClockConfig` and
+    {py:obj}`~bytewax.operators.window.SessionWindow`.
+
+    :::
 
     :arg step_id: Unique ID.
 
