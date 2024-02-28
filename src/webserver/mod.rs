@@ -52,9 +52,22 @@ async fn get_dataflow(Extension(state): Extension<Arc<State>>) -> impl IntoRespo
 }
 
 async fn get_metrics() -> impl IntoResponse {
+    let py_metrics: String = Python::with_gil(|py| -> PyResult<String> {
+        let metrics_mod = PyModule::import(py, "bytewax._metrics")?;
+        let metrics = metrics_mod
+            .getattr("generate_python_metrics")?
+            .call0()?
+            .extract()?;
+        Ok(metrics)
+    })
+    .unwrap();
     let metric_families = default_registry().gather();
     let encoder = TextEncoder::new();
-    encoder
+    let mut rust_metrics = encoder
         .encode_to_string(&metric_families)
-        .expect("Unable to encode metrics values")
+        .expect("Unable to encode metrics values");
+    // Remove trailing newline
+    rust_metrics.pop();
+
+    format!("{rust_metrics}{py_metrics}")
 }

@@ -31,7 +31,5 @@ fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
     run::register(py, m)?;
     tracing::register(py, m)?;
     window::register(py, m)?;
-    metrics::register(py, m)?;
-
     Ok(())
 }

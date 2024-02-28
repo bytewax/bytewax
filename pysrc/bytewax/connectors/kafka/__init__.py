@@ -46,10 +46,10 @@ from typing import Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Unio
 from confluent_kafka import OFFSET_BEGINNING, Consumer, Producer, TopicPartition
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.admin import AdminClient
+from prometheus_client import Gauge
 from typing_extensions import TypeAlias
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
-from bytewax.metrics import Gauge
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 K = TypeVar("K")
@@ -217,8 +217,8 @@ class _KafkaSourcePartition(
 
         # Set up metrics for Kafka
         self._consumer_lag = Gauge(
-            "kafka_consumer_lag",
-            "Difference between last offset on the broker"
+            "bytewax_kafka_consumer_lag",
+            "Difference between last offset on the broker "
             "and the currently consumed offset.",
             ["topic", "partition"],
         )
@@ -241,8 +241,8 @@ class _KafkaSourcePartition(
         # The lag value here would be calculated incorrectly when using values
         # like OFFSET_STORED, or OFFSET_BEGINNING
         if self._offset > 0:
-            self._consumer_lag.set_val(
-                partition_stats["ls_offset"] - self._offset, self._metrics_labels
+            self._consumer_lag.labels(**self._metrics_labels).set(
+                partition_stats["ls_offset"] - self._offset
             )
 
     def next_batch(self) -> List[SerializedKafkaSourceResult]:
