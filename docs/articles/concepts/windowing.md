@@ -238,7 +238,7 @@ closed.
 ## Recovery
 
 Recovery happens on the granularity of snapshots, not windows. The
-snapshot interval has no affect on windowing operator behavior when
+snapshot interval has no effect on windowing operator behavior when
 there are no failures; it is solely an implementation detail of the
 recovery system. (See {ref}`recovery` for more info) Failure and
 recovery in the middle of a window will be handled as gracefully as
