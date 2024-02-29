@@ -1,9 +1,6 @@
 """
-Schema registry complete example.
-
-The Kafka input connector has support for schema registries.
-We support Redpanda and Confluent registries.
-This example shows how to use the clients in the kafka connector.
+Serialization and deserialization using confluent's schema registry
+and confluent's wire avro format.
 
 The schems used for this example are the following:
 
@@ -50,10 +47,10 @@ import bytewax.operators as op
 import bytewax.operators.window as wop
 from bytewax.connectors.kafka import KafkaSinkMessage, KafkaSourceMessage
 from bytewax.connectors.kafka import operators as kop
-from bytewax.connectors.kafka.registry import SchemaRegistry
 from bytewax.dataflow import Dataflow
 from bytewax.operators.window import SystemClockConfig, TumblingWindow
 from confluent_kafka.schema_registry import SchemaRegistryClient
+from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(format=logging.BASIC_FORMAT, level=logging.WARNING)
@@ -84,12 +81,13 @@ kinp = kop.input(
 op.inspect("inspect-kafka-errors", kinp.errs).then(op.raises, "kafka-error")
 
 # ConfluentSchemaRegistry config:
-sr_conf = {"url": CONFLUENT_URL, "basic.auth.user.info": CONFLUENT_USERINFO}
-registry = SchemaRegistry(SchemaRegistryClient(sr_conf))
+client = SchemaRegistryClient(
+    {"url": CONFLUENT_URL, "basic.auth.user.info": CONFLUENT_USERINFO}
+)
 
 # Confluent's deserializer doesn't need a schema, it automatically fetches it.
-key_de = registry.deserializer()
-val_de = registry.deserializer()
+key_de = AvroDeserializer(client)
+val_de = AvroDeserializer(client)
 msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer=val_de)
 # Inspect errors and crash
 op.inspect("inspect-deser", msgs.errs).then(op.raises, "deser-error")
@@ -124,8 +122,8 @@ def calc_avg(key__wm__batch) -> KafkaSinkMessage[Dict, Dict]:
         value={
             "identifier": key,
             "avg": sum(batch) / len(batch),
-            "window_open": wm.open_time.isoformat(),
-            "window_start": wm.close_time.isoformat(),
+            "window_start": wm.open_time.isoformat(),
+            "window_end": wm.close_time.isoformat(),
         },
     )
 
@@ -133,9 +131,11 @@ def calc_avg(key__wm__batch) -> KafkaSinkMessage[Dict, Dict]:
 avgs = op.map("avg", windows, calc_avg)
 op.inspect("inspect-out-data", avgs)
 
-# The serializers require a specific schema instead. You can use SchemaRef too.
-key_ser = registry.serializer(100002)
-val_ser = registry.serializer(100003)
+# The serializers require a specific schema instead. Get it from the client.
+key_schema = client.get_schema(100002)
+val_schema = client.get_schema(100003)
+key_ser = AvroSerializer(client, key_schema.schema_str)
+val_ser = AvroSerializer(client, val_schema.schema_str)
 # Serialize
 serialized = kop.serialize("ser", avgs, key_serializer=key_ser, val_serializer=val_ser)
 

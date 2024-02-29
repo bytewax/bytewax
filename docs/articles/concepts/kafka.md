@@ -210,50 +210,55 @@ some workers will handle more than one partition.
 If the number of partitions changes, Dataflows will need to be
 restarted in order to rebalance new partition assignments to workers.
 
-## Schema registry
+## Serialization and deserialization
+Bytewax supports (de)serialization of messages using serializers that conforms to
+`confluent_kafka.serialization.{Deserializer, Serializer}` interface.
 
-Bytewax supports integrating with the [Redpanda Schema
-Registry](https://docs.redpanda.com/current/manage/schema-reg/) as
-well as the [Confluent Schema
-Registry](https://docs.confluent.io/platform/current/schema-registry/index.html).
-
-The following is an example of integrating with the Redpanda Schema
-Registry:
+The `kafka` connector offers some custom operators to help with that.
+If you are working with confluent's python libraries, you can use confluent's
+schema registry client and (de)serializers directly:
 
 ```python doctest:SKIP
-import bytewax.operators as op
-
 from bytewax.dataflow import Dataflow
-from bytewax.connectors.kafka import KafkaSinkMessage, KafkaSourceMessage
 from bytewax.connectors.kafka import operators as kop
-from bytewax.connectors.kafka.registry import RedpandaSchemaRegistry, SchemaRef
+from confluent_kafka.schema_registry import SchemaRegistryClient
+from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
 
-BROKERS = ["localhost:19092"]
-IN_TOPICS = ["in_topic"]
-REDPANDA_REGISTRY_URL = "http://localhost:8080/schema-registry"
+client = SchemaRegistryClient(...)
+# We don't need to specify the schema, as the client handles that on its own
+# if you are serializing messages with confluent's library, that uses
+# a custom wire format that includes schema_id in each message.
+key_de = AvroDeserializer(client)
+val_de = AvroDeserializer(client)
 
-registry = RedpandaSchemaRegistry(REDPANDA_REGISTRY_URL)
-
+# Initialize the flow, read from kafka, and deserialize messages
 flow = Dataflow("schema_registry")
-kinp = kop.input("kafka-in", flow, brokers=BROKERS, topics=IN_TOPICS)
-op.inspect("inspect-kafka-errors", kinp.errs).then(op.raises, "kafka-error")
-key_de = registry.deserializer(SchemaRef("sensor-key"))
-val_de = registry.deserializer(SchemaRef("sensor-value"))
+kinp = kop.input("kafka-in", flow, ...)
 msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer=val_de)
-op.inspect("inspect-deser", msgs.errs).then(op.raises, "deser-error")
 ```
 
-The {py:obj}`bytewax.connectors.kafka.operators.deserialize` operator
-accepts a {py:obj}`~bytewax.connectors.kafka.serde.SchemaDeserializer`
-for both the key and value of the Kafka message.
+This works with `Redpanda`'s schema registry too.
 
-If the deserialization step encounters an error, a separate stream of
-`.errs` is returned that can be used for error handling.
+If you are serializing messages with other libraries that do not use confluent's wire format,
+you'll need to use a different deserializer. The connector offers (de)serializers for plain avro
+format:
 
-When integrating with the Confluent schema registry, new schema
-versions will attempt to be fetched when a message with a new schema
-id is encountered. When using the Redpanda schema registry, dataflows
-will need to be restarted in order to fetch new versions of a schema.
+```python doctest:SKIP
+client = SchemaRegistryClient(...)
+
+# Here we do need to specify the schema we want to use, as the schema_id
+# is not included in plain avro messages. We can use the client to retrieve
+# the schema and pass it to the deserializers:
+key_schema = client.get_latest_version("sensor_key").schema
+key_de = PlainAvroDeserializer(schema=key_schema.schema_str)
+val_schema = client.get_latest_version("sensor_value").schema
+val_de = PlainAvroDeserializer(schema=val_schema.schema_str)
+
+# Same as before...
+flow = Dataflow("schema_registry")
+kinp = kop.input("kafka-in", flow, ...)
+msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer=val_de)
+```
 
 ## Implementing custom ser/de classes
 

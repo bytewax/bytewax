@@ -1,9 +1,6 @@
 """
-Schema registry complete example.
-
-The Kafka input connector has support for schema registries.
-We support Redpanda and Confluent registries.
-This example shows how to use Redpanda client in the kafka connector.
+Serialization and deserialization using redpanda's schema registry
+and plain avro format.
 
 The schems used for this example are the following:
 
@@ -50,7 +47,7 @@ import bytewax.operators as op
 import bytewax.operators.window as wop
 from bytewax.connectors.kafka import KafkaSinkMessage, KafkaSourceMessage
 from bytewax.connectors.kafka import operators as kop
-from bytewax.connectors.kafka.registry import SchemaRef, SchemaRegistry
+from bytewax.connectors.kafka.serde import PlainAvroDeserializer, PlainAvroSerializer
 from bytewax.dataflow import Dataflow
 from bytewax.operators.window import SystemClockConfig, TumblingWindow
 from confluent_kafka.schema_registry import SchemaRegistryClient
@@ -59,7 +56,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(format=logging.BASIC_FORMAT, level=logging.WARNING)
 
 KAFKA_BROKERS = os.environ.get("KAFKA_SERVER", "localhost:19092").split(";")
-IN_TOPICS = os.environ.get("KAFKA_IN_TOPIC", "in_topic").split(";")
+IN_TOPICS = os.environ.get("KAFKA_IN_TOPIC", "in-topic").split(";")
 OUT_TOPIC = os.environ.get("KAFKA_OUT_TOPIC", "out_topic")
 REDPANDA_REGISTRY_URL = os.environ["REDPANDA_REGISTRY_URL"]
 
@@ -71,12 +68,17 @@ kinp = kop.input("kafka-in", flow, brokers=KAFKA_BROKERS, topics=IN_TOPICS)
 op.inspect("inspect-kafka-errors", kinp.errs).then(op.raises, "kafka-error")
 
 # Redpanda's schema registry configuration
-sr_conf = {"url": REDPANDA_REGISTRY_URL}
-registry = SchemaRegistry(SchemaRegistryClient(sr_conf))
+client = SchemaRegistryClient({"url": REDPANDA_REGISTRY_URL})
+
+# Use plain avro instead of confluent's wire format.
+# We need to specify the schema in the deserializer too here.
+key_schema = client.get_latest_version("sensor-key").schema
+key_de = PlainAvroDeserializer(schema_str=key_schema.schema_str)
+
+val_schema = client.get_latest_version("sensor-value").schema
+val_de = PlainAvroDeserializer(schema_str=val_schema.schema_str)
 
 # Deserialize both key and value
-key_de = registry.deserializer(SchemaRef("sensor-key"), serde_format="plain-avro")
-val_de = registry.deserializer(SchemaRef("sensor-value"), serde_format="plain-avro")
 msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer=val_de)
 
 # Inspect errors and crash
@@ -112,8 +114,8 @@ def calc_avg(key__wm__batch) -> KafkaSinkMessage[Dict, Dict]:
         value={
             "identifier": key,
             "avg": sum(batch) / len(batch),
-            "window_open": wm.open_time.isoformat(),
-            "window_start": wm.close_time.isoformat(),
+            "window_start": wm.open_time.isoformat(),
+            "window_end": wm.close_time.isoformat(),
         },
     )
 
@@ -122,9 +124,10 @@ avgs = op.map("avg", windows, calc_avg)
 
 op.inspect("inspect-out-data", avgs)
 
-# Instantiate deserializers
-key_ser = registry.serializer(SchemaRef("sensor-key"))
-val_ser = registry.serializer(SchemaRef("aggregated-value"))
+key_ser = PlainAvroSerializer(schema_str=key_schema.schema_str)
+out_val_schema = client.get_latest_version("aggregated-value").schema
+val_ser = PlainAvroSerializer(schema_str=out_val_schema.schema_str)
+
 # Serialize
 serialized = kop.serialize("ser", avgs, key_serializer=key_ser, val_serializer=val_ser)
 
