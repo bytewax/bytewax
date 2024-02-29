@@ -51,6 +51,17 @@ system time in your windowing definition.
 Because there can never be out-of-order or late data all window
 processing happens ASAP.
 
+:::{warning}
+
+Note that using system time results in non-determinism over resumes.
+Because resuming happens on snapshot boundaries, the window that was
+assigned to a value in one execution just after a snapshot will not be
+the window it is assigned to after resume.
+
+If you need determinism for some reason (e.g. tests), use event time.
+
+:::
+
 ### Event Time
 
 By instantiating a
