@@ -457,7 +457,7 @@ def max_window(
     windower: WindowConfig,
     by=_identity,
 ) -> KeyedStream[Tuple[WindowMetadata, V]]:
-    """Find the minumum value for each key.
+    """Find the maximum value for each key.
 
     :arg step_id: Unique ID.
 
@@ -470,7 +470,7 @@ def max_window(
     :arg by: A function called on each value that is used to extract
         what to compare.
 
-    :returns: A keyed stream of the min values once each window has
+    :returns: A keyed stream of the max values once each window has
         closed.
 
     """
