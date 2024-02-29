@@ -73,8 +73,8 @@ that is being generated "physically": that timestamps generally come
 in order and that a system can only introduce delays, and never
 transport items into the future.
 
-Let's analyze the streaming case where we are processing in real-time
-new data and waiting for data to arrive. Let's say
+Let's analyze the streaming case where we are processing data in real-time
+and waiting for new data to arrive. Let's say
 `wait_for_system_duration = timedelta(minutes=5)`. In the following
 table, we show the state of the clock as a few different values are
 processed. The watermark is always advancing by the system time, the
