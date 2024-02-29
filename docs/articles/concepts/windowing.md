@@ -59,17 +59,6 @@ system time in your windowing definition.
 Because there can never be out-of-order or late data all window
 processing happens ASAP.
 
-:::{warning}
-
-Note that using system time results in non-determinism over resumes.
-Because resuming happens on snapshot boundaries, the window that was
-assigned to a value in one execution just after a snapshot will not be
-the window it is assigned to after resume.
-
-If you need determinism for some reason (e.g. tests), use event time.
-
-:::
-
 ### Event Time
 
 By instantiating a
@@ -267,7 +256,16 @@ Some clocks don't have a single correct answer on what to do during
 resume. E.g. if you use
 {py:obj}`~bytewax.operators.window.SystemClockConfig` with 10 minute
 windows, but then resume on a 15 minute mark, the system will
-immediately close out the half-completed window stored during
-recovery. See the docs for each
-{py:obj}`~bytewax.operators.window.ClockConfig` subclass for specific
-notes on recovery.
+immediately close out the half-completed window started in the
+previous execution when the next execution resumes.
+
+:::{warning}
+
+This means that using system time results in non-determinism over
+resumes. Because resuming happens on snapshot boundaries, the window
+that was assigned to a value in one execution just after a snapshot
+will not be the window it is assigned to after resume.
+
+If you need determinism for some reason (e.g. tests), use event time.
+
+:::
