@@ -9,6 +9,11 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- *Breaking change* `FixedPartitionedSource.build_part`,
+  `DynamicSource.build`, `FixedPartitionedSink.build_part` and `DynamicSink.build`
+  now take an additional `step_id` argument. This argument can be used when
+  labeling custom Python metrics.
+
 - Custom Python metrics can now be collected using the `prometheus-client`
   library.
 

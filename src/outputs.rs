@@ -101,11 +101,16 @@ impl FixedPartitionedSink {
     fn build_part(
         &self,
         py: Python,
+        step_id: &StepId,
         for_part: &StateKey,
         resume_state: Option<TdPyAny>,
     ) -> PyResult<StatefulPartition> {
         self.0
-            .call_method1(py, "build_part", (for_part.clone(), resume_state))?
+            .call_method1(
+                py,
+                "build_part",
+                (step_id.clone(), for_part.clone(), resume_state),
+            )?
             .extract(py)
     }
 
@@ -313,7 +318,7 @@ where
                                             // it.
                                             .or_insert_with_key(|part_key| {
                                                 unwrap_any!(sink
-                                                    .build_part(py, part_key, None)
+                                                    .build_part(py, &step_id, part_key, None)
                                                     .reraise("error init StatefulSink"))
                                             });
 
@@ -375,8 +380,13 @@ where
                                         match change {
                                             StateChange::Upsert(state) => {
                                                 let part = unwrap_any!(Python::with_gil(|py| {
-                                                    sink.build_part(py, &part_key, Some(state))
-                                                        .reraise("error resuming StatefulSink")
+                                                    sink.build_part(
+                                                        py,
+                                                        &step_id,
+                                                        &part_key,
+                                                        Some(state),
+                                                    )
+                                                    .reraise("error resuming StatefulSink")
                                                 }));
                                                 parts.insert(part_key, part);
                                             }
@@ -425,11 +435,12 @@ impl DynamicSink {
     fn build(
         self,
         py: Python,
+        step_id: &StepId,
         index: WorkerIndex,
         count: WorkerCount,
     ) -> PyResult<StatelessPartition> {
         self.0
-            .call_method1(py, "build", (index.0, count.0))?
+            .call_method1(py, "build", (step_id.clone(), index.0, count.0))?
             .extract(py)
     }
 }
@@ -505,7 +516,7 @@ where
     ) -> PyResult<ClockStream<S>> {
         let worker_index = self.scope().w_index();
         let worker_count = self.scope().w_count();
-        let mut part = Some(sink.build(py, worker_index, worker_count)?);
+        let mut part = Some(sink.build(py, &step_id, worker_index, worker_count)?);
 
         let meter = opentelemetry::global::meter("bytewax");
         let item_inp_count = meter

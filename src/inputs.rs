@@ -216,11 +216,16 @@ impl FixedPartitionedSource {
     fn build_part(
         &self,
         py: Python,
+        step_id: &StepId,
         for_part: &StateKey,
         resume_state: Option<TdPyAny>,
     ) -> PyResult<StatefulPartition> {
         self.0
-            .call_method1(py, "build_part", (for_part.clone(), resume_state))?
+            .call_method1(
+                py,
+                "build_part",
+                (step_id.clone(), for_part.clone(), resume_state),
+            )?
             .extract(py)
     }
 
@@ -335,6 +340,7 @@ impl FixedPartitionedSource {
                                     tracing::info!("Resuming {part_key:?} at epoch {emit_epoch} with state {state:?}");
                                     let part = self.build_part(
                                         py,
+                                        &step_id,
                                         &part_key,
                                         Some(state)
                                     ).reraise_with(|| format!("error calling `FixedPartitionSource.build_part` in step {step_id} for partition {part_key}"))?;
@@ -396,7 +402,7 @@ impl FixedPartitionedSource {
                                 for part_key in &primary_parts {
                                     if !parts.contains_key(part_key) {
                                         tracing::info!("Init-ing {part_key:?} at epoch {epoch:?}");
-                                        let part = self.build_part(py, part_key, None)
+                                        let part = self.build_part(py, &step_id, part_key, None)
                                             .reraise_with(|| format!("error calling `FixedPartitionSource.build_part` in step {step_id} for partition {part_key}"))?;
                                         let next_awake = part.next_awake(py)
                                             .reraise_with(|| format!("error calling `StatefulSourcePartition.next_awake` in step {step_id} for partition {part_key}"))?;
@@ -669,11 +675,12 @@ impl DynamicSource {
     fn build(
         &self,
         py: Python,
+        step_id: &StepId,
         index: WorkerIndex,
         count: WorkerCount,
     ) -> PyResult<StatelessPartition> {
         self.0
-            .call_method1(py, "build", (index.0, count.0))?
+            .call_method1(py, "build", (step_id.0.clone(), index.0, count.0))?
             .extract(py)
     }
 
@@ -698,7 +705,7 @@ impl DynamicSource {
         let worker_index = scope.w_index();
         let worker_count = scope.w_count();
         let part = self
-            .build(py, worker_index, worker_count)
+            .build(py, &step_id, worker_index, worker_count)
             .reraise_with(|| format!("error calling `DynamicSource.build` in step {step_id}"))?;
 
         let op_name = format!("{step_id}.dynamic_input");

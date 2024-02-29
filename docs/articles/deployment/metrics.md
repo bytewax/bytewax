@@ -97,3 +97,15 @@ python -m bytewax.run dataflow
 
 Open your browser at [http://127.0.0.1:16686](http://127.0.0.1:16686)
 and take a look at traces coming into Jaeger's UI.
+
+## Adding custom metrics to your dataflow
+
+Bytewax integrates with the [Prometheus Python Client](https://github.com/prometheus/client_python)
+to provide the ability to define custom metrics in your Python code.
+
+Metrics that are created in your dataflow will be included in the Prometheus compatible
+endpoint (by default: [http://localhost:3030/metrics](http://localhost:3030/metrics)) that is
+exposed when the `BYTEWAX_DATAFLOW_API_ENABLED=1` environment variable is set.
+
+For more information on creating and configuring custom metrics, see the documentation for the
+[Prometheus Python Client](https://prometheus.github.io/client_python/).

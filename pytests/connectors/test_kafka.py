@@ -68,7 +68,7 @@ def test_input(tmp_topic1, tmp_topic2):
     assert sorted(out) == sorted(inp)
 
 
-def test_input_resume_state(tmp_topic, now):
+def test_input_resume_state(tmp_topic):
     config = {
         "bootstrap.servers": KAFKA_BROKER,
     }
@@ -85,7 +85,7 @@ def test_input_resume_state(tmp_topic, now):
     producer.flush()
 
     inp = KafkaSource([KAFKA_BROKER], topics, tail=False)
-    part = inp.build_part(now, f"{partition}-{tmp_topic}", None)
+    part = inp.build_part("test", f"{partition}-{tmp_topic}", None)
     assert poll_next_batch(part) == [(b"key-0-0", b"value-0-0")]
     assert poll_next_batch(part) == [(b"key-0-1", b"value-0-1")]
     resume_state = part.snapshot()
@@ -93,7 +93,7 @@ def test_input_resume_state(tmp_topic, now):
     part.close()
 
     inp = KafkaSource([KAFKA_BROKER], topics, tail=False)
-    part = inp.build_part(now, f"{partition}-{tmp_topic}", resume_state)
+    part = inp.build_part("test", f"{partition}-{tmp_topic}", resume_state)
     assert part.snapshot() == resume_state
     assert poll_next_batch(part) == [(b"key-0-2", b"value-0-2")]
     with raises(StopIteration):

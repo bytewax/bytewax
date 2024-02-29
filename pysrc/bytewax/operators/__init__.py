@@ -1326,7 +1326,9 @@ class _RaiseSink(DynamicSink[Any]):
     step_id: str
 
     @override
-    def build(self, worker_index: int, worker_count: int) -> _RaisePartition:
+    def build(
+        self, _step_id: str, worker_index: int, worker_count: int
+    ) -> _RaisePartition:
         return _RaisePartition(self.step_id)
 
 

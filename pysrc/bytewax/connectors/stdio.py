@@ -31,5 +31,7 @@ class StdOutSink(DynamicSink[Any]):
     """
 
     @override
-    def build(self, worker_index: int, worker_count: int) -> _PrintSinkPartition:
+    def build(
+        self, _step_id: str, _worker_index: int, _worker_count: int
+    ) -> _PrintSinkPartition:
         return _PrintSinkPartition()

@@ -25,7 +25,7 @@ class WikiPartition(StatefulSourcePartition[str, None]):
         # Gather up to 0.25 sec of or 1000 items.
         self._batcher = batch_async(agen, timedelta(seconds=0.25), 1000)
 
-    def next_batch(self, _sched: datetime) -> List[str]:
+    def next_batch(self) -> List[str]:
         return next(self._batcher)
 
     def snapshot(self) -> None:
@@ -36,7 +36,7 @@ class WikiSource(FixedPartitionedSource[str, None]):
     def list_parts(self):
         return ["single-part"]
 
-    def build_part(self, _now, _for_key, _resume_state):
+    def build_part(self, _step_id, _for_key, _resume_state):
         return WikiPartition()
 
 

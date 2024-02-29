@@ -17,7 +17,7 @@ class SimulatedPartition(StatefulSourcePartition):
             duration_seconds=10
         )
 
-    def next_batch(self, sched: datetime) -> List[Any]:
+    def next_batch(self) -> List[Any]:
         return [json.dumps(next(self.events))]
 
     def snapshot(self) -> Any:
@@ -29,7 +29,7 @@ class FakeWebEventsSource(FixedPartitionedSource):
         return ["singleton"]
 
     def build_part(
-        self, now: datetime, for_part: str, resume_state: Optional[int]
+        self, _step_id: str, for_part: str, resume_state: Optional[int]
     ) -> SimulatedPartition:
         assert for_part == "singleton"
         assert resume_state is None
@@ -56,7 +56,9 @@ class ParquetSink(FixedPartitionedSink):
     def assign_part(self, item_key: str) -> str:
         return "singleton"
 
-    def build_part(self, for_part: str, resume_state: Any) -> ParquetPartition:
+    def build_part(
+        self, _step_id: str, for_part: str, resume_state: Any
+    ) -> ParquetPartition:
         return ParquetPartition()
 
 
@@ -79,7 +81,7 @@ keyed_stream = op.key_on(
 )
 # ("/path", {"page_url_path": "/path", "year": 2022, "month": 1, ...})
 batched_stream = op.collect(
-    "batch_records", keyed_stream, batch_size=50, timeout=timedelta(seconds=2)
+    "batch_records", keyed_stream, max_size=50, timeout=timedelta(seconds=2)
 )
 # ("/path", [{"page_url_path": "/path",...}, ...])
 arrow_stream = op.map(

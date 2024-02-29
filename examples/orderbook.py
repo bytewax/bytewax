@@ -50,7 +50,7 @@ class CoinbaseSource(FixedPartitionedSource):
     def list_parts(self):
         return self.product_ids
 
-    def build_part(self, _sched, for_key, _resume_state):
+    def build_part(self, _step_id, for_key, _resume_state):
         return CoinbasePartition(for_key)
 
 

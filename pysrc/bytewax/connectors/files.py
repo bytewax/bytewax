@@ -126,7 +126,7 @@ class DirSource(FixedPartitionedSource[str, int]):
 
     @override
     def build_part(
-        self, for_part: str, resume_state: Optional[int]
+        self, _step_id: str, for_part: str, resume_state: Optional[int]
     ) -> _FileSourcePartition:
         _fs_id, for_path = for_part.split("::", 1)
         path = self._dir_path / for_path
@@ -190,7 +190,7 @@ class FileSource(FixedPartitionedSource[str, int]):
 
     @override
     def build_part(
-        self, for_part: str, resume_state: Optional[int]
+        self, step_id: str, for_part: str, resume_state: Optional[int]
     ) -> _FileSourcePartition:
         _fs_id, path = for_part.split("::", 1)
         # TODO: Warn and return None. Then we could support
@@ -309,7 +309,7 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
         return self._file_source.list_parts()
 
     @override
-    def build_part(self, for_part: str, resume_state: Optional[Any]):
+    def build_part(self, step_id: str, for_part: str, resume_state: Optional[Any]):
         _fs_id, path = for_part.split("::", 1)
         assert path == str(
             self._file_source._path
@@ -410,7 +410,7 @@ class DirSink(FixedPartitionedSink[str, int]):
 
     @override
     def build_part(
-        self, for_part: str, resume_state: Optional[int]
+        self, step_id: str, for_part: str, resume_state: Optional[int]
     ) -> _FileSinkPartition:
         path = self._dir_path / for_part
         return _FileSinkPartition(path, resume_state, self._end)
@@ -455,7 +455,7 @@ class FileSink(FixedPartitionedSink[str, int]):
 
     @override
     def build_part(
-        self, for_part: str, resume_state: Optional[int]
+        self, step_id: str, for_part: str, resume_state: Optional[int]
     ) -> _FileSinkPartition:
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.

@@ -193,6 +193,7 @@ class _KafkaSourcePartition(
 ):
     def __init__(
         self,
+        step_id: str,
         config: dict,
         topic: str,
         part_idx: int,
@@ -220,11 +221,14 @@ class _KafkaSourcePartition(
             "bytewax_kafka_consumer_lag",
             "Difference between last offset on the broker "
             "and the currently consumed offset.",
-            ["topic", "partition"],
+            ["step_id", "topic", "partition"],
         )
         # Labels to use when recording metrics
-        # TODO: It would be nice to have the step_id available here
-        self._metrics_labels = {"topic": self._topic, "partition": str(self._part_idx)}
+        self._metrics_labels = {
+            "step_id": step_id,
+            "topic": self._topic,
+            "partition": str(self._part_idx),
+        }
 
     def _process_stats(self, json_stats: str):
         """Process stats collected by librdkafka.
@@ -375,7 +379,7 @@ class KafkaSource(FixedPartitionedSource[SerializedKafkaSourceResult, Optional[i
         return list(_list_parts(client, self._topics))
 
     def build_part(
-        self, for_part: str, resume_state: Optional[int]
+        self, step_id: str, for_part: str, resume_state: Optional[int]
     ) -> _KafkaSourcePartition:
         """See ABC docstring."""
         idx, topic = for_part.split("-", 1)
@@ -396,6 +400,7 @@ class KafkaSource(FixedPartitionedSource[SerializedKafkaSourceResult, Optional[i
         }
         config.update(self._add_config)
         return _KafkaSourcePartition(
+            step_id,
             config,
             topic,
             part_idx,

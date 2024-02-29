@@ -20,8 +20,7 @@ class PeriodicPartition(StatelessSourcePartition):
     def next_awake(self):
         return self._next_awake
 
-    def next_batch(self, sched):
-        assert sched == self._next_awake
+    def next_batch(self):
         self._counter += 1
         if self._counter >= 10:
             raise StopIteration()
@@ -36,7 +35,7 @@ class PeriodicSource(DynamicSource):
     def __init__(self, frequency):
         self.frequency = frequency
 
-    def build(self, _now, worker_index, worker_count):
+    def build(self, _step_id, worker_index, worker_count):
         return PeriodicPartition(frequency=self.frequency)
 
 
@@ -51,14 +50,13 @@ class ResumablePeriodicPartition(StatefulSourcePartition):
         self._next_awake = next_awake
         self._counter = counter
 
-    def next_batch(self, sched):
-        assert sched == self._next_awake
+    def next_batch(self):
         self._counter += 1
         if self._counter >= 10:
             raise StopIteration()
         # Calculate the delay between when this was supposed
         # to be called, and when it is actually called
-        delay = datetime.now(timezone.utc) - sched
+        delay = datetime.now(timezone.utc) - self._next_awake
         self._next_awake += self.frequency
         return [f"delay (ms): {delay.total_seconds() * 1000:.3f}"]
 
@@ -79,12 +77,11 @@ class ResumablePeriodicSource(FixedPartitionedSource):
     def list_parts(self):
         return ["singleton"]
 
-    def build_part(self, now, for_part, resume_state):
+    def build_part(self, step_id, for_part, resume_state):
         assert for_part == "singleton"
         resume_state = resume_state or {}
-        next_awake = datetime.fromisoformat(
-            resume_state.get("next_awake", now.isoformat())
-        )
+        now = datetime.now(timezone.utc).isoformat()
+        next_awake = datetime.fromisoformat(resume_state.get("next_awake", now))
         counter = resume_state.get("counter", 0)
         return ResumablePeriodicPartition(self.frequency, next_awake, counter)
 
