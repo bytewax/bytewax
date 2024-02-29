@@ -1,3 +1,4 @@
+(metrics)=
 # Metrics
 
 Bytewax is instrumented to offer observability of your dataflow.

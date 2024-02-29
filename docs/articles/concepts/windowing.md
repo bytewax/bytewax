@@ -25,6 +25,14 @@ downstream.
 Values that arrive with timestamps before the current watermark are
 considered **late** and are not assigned to any window.
 
+:::{note}
+
+Currently Bytewax logs and discards all late values. See
+<project:#metrics> for how to enable `TRACE` level logging, which will
+show late data for debugging purposes.
+
+:::
+
 ## Clocks
 
 A **clock** defines the sense of time within the windowing operator. A
