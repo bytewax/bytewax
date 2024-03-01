@@ -44,7 +44,7 @@ pub(crate) struct SystemClock {
 }
 
 impl<V> Clock<V> for SystemClock {
-    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> DateTime<Utc> {
+    fn watermark(&mut self, next_value: &Poll<Option<DateTime<Utc>>>) -> DateTime<Utc> {
         if let Poll::Ready(None) = next_value {
             self.eof = true;
         }
@@ -56,8 +56,8 @@ impl<V> Clock<V> for SystemClock {
         }
     }
 
-    fn time_for(&mut self, _item: &V) -> DateTime<Utc> {
-        Utc::now()
+    fn time_for(&mut self, _item: &Poll<std::option::Option<V>>) -> Poll<Option<DateTime<Utc>>> {
+        Poll::Ready(Some(Utc::now()))
     }
 
     fn snapshot(&self) -> TdPyAny {

@@ -115,12 +115,12 @@ impl<S> Clock<TdPyAny> for EventClock<S>
 where
     S: TimeSource,
 {
-    fn watermark(&mut self, next_value: &Poll<Option<TdPyAny>>) -> DateTime<Utc> {
+    fn watermark(&mut self, next_value: &Poll<Option<DateTime<Utc>>>) -> DateTime<Utc> {
         let now = self.source.now();
 
         // Incoming event time and system time it was ingested.
         let next_event_time_system_time = match next_value {
-            Poll::Ready(Some(event)) => Some((self.time_for(event), now)),
+            Poll::Ready(Some(event_time)) => Some((*event_time, now)),
             Poll::Ready(None) => Some((DateTime::<Utc>::MAX_UTC, now)),
             Poll::Pending => None,
         };
@@ -164,16 +164,23 @@ where
         watermark.unwrap_or(DateTime::<Utc>::MIN_UTC)
     }
 
-    fn time_for(&mut self, event: &TdPyAny) -> DateTime<Utc> {
-        Python::with_gil(|py| {
-            self.dt_getter
-                // Call the event time getter function with the event as parameter
-                .call1(py, (event.clone_ref(py),))
-                .unwrap()
-                // Convert to DateTime<Utc>
-                .extract(py)
-                .unwrap()
-        })
+    fn time_for(&mut self, event: &Poll<Option<TdPyAny>>) -> Poll<Option<DateTime<Utc>>> {
+        match event {
+            Poll::Ready(Some(event)) => {
+                let event_time = Python::with_gil(|py| {
+                    self.dt_getter
+                        // Call the event time getter function with the event as parameter
+                        .call1(py, (event.clone_ref(py),))
+                        .unwrap()
+                        // Convert to DateTime<Utc>
+                        .extract(py)
+                        .unwrap()
+                });
+                Poll::Ready(Some(event_time))
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
     }
 
     fn snapshot(&self) -> TdPyAny {
@@ -213,13 +220,8 @@ mod tests {
             "watermark should start at the beginning of time before any items"
         );
 
-        let item1 = Python::with_gil(|py| {
-            Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0)
-                .unwrap()
-                .into_py(py)
-                .into()
-        });
-        let found = clock.watermark(&Poll::Ready(Some(item1)));
+        let time1 = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+        let found = clock.watermark(&Poll::Ready(Some(time1)));
         assert_eq!(
             found,
             Utc.with_ymd_and_hms(2023, 3, 16, 8, 59, 50).unwrap(),
@@ -235,13 +237,8 @@ mod tests {
         );
 
         clock.source.now = Utc.with_ymd_and_hms(2023, 5, 10, 9, 0, 4).unwrap();
-        let item2 = Python::with_gil(|py| {
-            Utc.with_ymd_and_hms(2023, 3, 16, 9, 1, 0)
-                .unwrap()
-                .into_py(py)
-                .into()
-        });
-        let found = clock.watermark(&Poll::Ready(Some(item2)));
+        let time2 = Utc.with_ymd_and_hms(2023, 3, 16, 9, 1, 0).unwrap();
+        let found = clock.watermark(&Poll::Ready(Some(time2)));
         assert_eq!(
             found,
             Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 50).unwrap(),
@@ -249,13 +246,8 @@ mod tests {
         );
 
         clock.source.now = Utc.with_ymd_and_hms(2023, 5, 10, 9, 0, 6).unwrap();
-        let item3 = Python::with_gil(|py| {
-            Utc.with_ymd_and_hms(2023, 3, 16, 9, 1, 1)
-                .unwrap()
-                .into_py(py)
-                .into()
-        });
-        let found = clock.watermark(&Poll::Ready(Some(item3)));
+        let time3 = Utc.with_ymd_and_hms(2023, 3, 16, 9, 1, 1).unwrap();
+        let found = clock.watermark(&Poll::Ready(Some(time3)));
         assert_eq!(
             found,
             Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 52).unwrap(),
