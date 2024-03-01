@@ -211,6 +211,22 @@ gantt
     Two: w2, 2023-12-14T01:30, 0m
 ```
 
+:::{warning}
+
+Currently, session windows do not support out-of-order data. Out
+of order data will be placed in their own sessions rather than
+merging adjacent sessions.
+
+Ensure that your data source is always in order if using an
+{py:obj}`~bytewax.operators.window.EventClockConfig`. Even if it
+is in-order, you cannot use event time session windows with any
+windowing join operator.
+
+{py:obj}`~bytewax.operators.window.SystemClockConfig` is always in
+order, so should be fine to use with any operator.
+
+:::
+
 ## Operators
 
 Now that we have a definition of time, a definition for which values
