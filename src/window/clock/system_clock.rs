@@ -56,8 +56,8 @@ impl<V> Clock<V> for SystemClock {
         }
     }
 
-    fn time_for(&mut self, _item: &Poll<std::option::Option<V>>) -> Poll<Option<DateTime<Utc>>> {
-        Poll::Ready(Some(Utc::now()))
+    fn time_for(&mut self, _item: &V) -> DateTime<Utc> {
+        Utc::now()
     }
 
     fn snapshot(&self) -> TdPyAny {
