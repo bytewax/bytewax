@@ -44,7 +44,7 @@ pub(crate) struct SystemClock {
 }
 
 impl<V> Clock<V> for SystemClock {
-    fn watermark(&mut self, next_value: &Poll<Option<V>>) -> DateTime<Utc> {
+    fn watermark(&mut self, next_value: &Poll<Option<DateTime<Utc>>>) -> DateTime<Utc> {
         if let Poll::Ready(None) = next_value {
             self.eof = true;
         }
