@@ -78,11 +78,32 @@ impl WindowBuilder for SlidingWindow {
 pub(crate) struct SlidingWindower {
     length: Duration,
     offset: Duration,
+    overlap_factor: i32,
     align_to: DateTime<Utc>,
     close_times: BTreeMap<WindowKey, (DateTime<Utc>, DateTime<Utc>)>,
 }
 
 impl SlidingWindower {
+    fn new(
+        length: Duration,
+        offset: Duration,
+        align_to: DateTime<Utc>,
+        close_times: BTreeMap<WindowKey, (DateTime<Utc>, DateTime<Utc>)>,
+    ) -> Self {
+        let overlap_factor: i32 =
+            Integer::div_ceil(&length.num_milliseconds(), &offset.num_milliseconds())
+                .try_into()
+                .expect("window overlap overflow; decrease window length or increase window gap");
+
+        Self {
+            length,
+            offset,
+            overlap_factor,
+            align_to,
+            close_times,
+        }
+    }
+
     pub(crate) fn builder(
         length: Duration,
         offset: Duration,
@@ -92,12 +113,8 @@ impl SlidingWindower {
             let close_times = resume_snapshot
                 .map(|snap| unwrap_any!(Python::with_gil(|py| snap.extract(py))))
                 .unwrap_or_default();
-            Box::new(Self {
-                length,
-                offset,
-                align_to,
-                close_times,
-            })
+
+            Box::new(Self::new(length, offset, align_to, close_times))
         }
     }
 
@@ -107,25 +124,56 @@ impl SlidingWindower {
         &self,
         time: &DateTime<Utc>,
     ) -> impl Iterator<Item = (WindowKey, DateTime<Utc>, DateTime<Utc>)> {
-        let since_close_of_first_window = *time - (self.align_to + self.length);
-        let first_window_idx = Integer::div_floor(
-            &since_close_of_first_window.num_milliseconds(),
-            &self.offset.num_milliseconds(),
-        ) + 1;
+        // You need to measure from the end of windows since the tail
+        // end is what defines the first window index, not the
+        // beginning (because there might be overlap). The origin
+        // window is the window with the index 0.
+        let since_close_of_origin_window = *time - (self.align_to + self.length);
+        // First window is the window with the lowest index which
+        // intersects the given time. The remainder is used to
+        // calcuate the first window start time; the zeroth window is
+        // the last window just missed by the current time.
+        let (first_window_idx, since_close_of_zeroth_window) = {
+            let (quo, rem) = Integer::div_mod_floor(
+                &since_close_of_origin_window.num_milliseconds(),
+                &self.offset.num_milliseconds(),
+            );
 
-        let num_windows = Integer::div_ceil(
-            &self.length.num_milliseconds(),
-            &self.offset.num_milliseconds(),
-        );
+            (quo + 1, Duration::milliseconds(rem))
+        };
+        // Go back to the end of the zeroth window, then twiddle to
+        // get the start of the first window.
+        let first_open_time = *time - since_close_of_zeroth_window - self.length + self.offset;
+
+        // length
+        // {         }
+        //
+        // offset
+        // {    }
+        //
+        // align_to          time
+        // V                 V
+        //
+        //           since_close_of_origin_window
+        //           {       }
+        //
+        //                since_close_of_zeroth_window
+        //                {  }
+        //
+        // [0--------)
+        //      [1--------)
+        //           [2--------)
+        //                [3--------)
+        //                     [4--------)
 
         // Clone to not retain ownership of self in the closure.
         let time = *time;
-        let align_to = self.align_to;
         let offset = self.offset;
         let length = self.length;
-        (0..num_windows).flat_map(move |i| {
-            let window_idx = first_window_idx + i;
-            let open_time = align_to + offset * window_idx as i32;
+
+        (0..self.overlap_factor).flat_map(move |i| {
+            let window_idx = first_window_idx + i as i64;
+            let open_time = first_open_time + offset * i;
             if time < open_time {
                 None
             } else {
@@ -221,12 +269,11 @@ impl Windower for SlidingWindower {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_bulk_positive() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(5),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(5);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //              9:00:13
     //              I
@@ -254,12 +301,11 @@ fn test_intersect_overlap_offset_divisible_by_length_bulk_positive() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_bulk_negative() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(5),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(5);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //             8:59:57
     //             I
@@ -287,12 +333,11 @@ fn test_intersect_overlap_offset_divisible_by_length_bulk_negative() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_bulk_zero_negative() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(5),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(5);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //              9:00:03
     //              I
@@ -320,12 +365,11 @@ fn test_intersect_overlap_offset_divisible_by_length_bulk_zero_negative() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_bulk_zero_positive() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(5),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(5);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //             9:00:07
     //             I
@@ -353,12 +397,11 @@ fn test_intersect_overlap_offset_divisible_by_length_bulk_zero_positive() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_edge_positive() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(5),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(5);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                9:00:15
     //                I
@@ -387,12 +430,11 @@ fn test_intersect_overlap_offset_divisible_by_length_edge_positive() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_edge_negative() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(5),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(5);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //           8:59:55
     //           I
@@ -420,12 +462,11 @@ fn test_intersect_overlap_offset_divisible_by_length_edge_negative() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_edge_start_zero() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(5),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(5);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //           9:00:00
     //           I
@@ -453,12 +494,11 @@ fn test_intersect_overlap_offset_divisible_by_length_edge_start_zero() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_edge_end_zero() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(5),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(5);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //           9:00:10
     //           I
@@ -486,12 +526,11 @@ fn test_intersect_overlap_offset_divisible_by_length_edge_end_zero() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_bulk_positive() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(3),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(3);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //            9:00:11
     //            I
@@ -525,12 +564,11 @@ fn test_intersect_overlap_offset_indivisible_by_length_bulk_positive() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_bulk_negative() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(3),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(3);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //            8:59:59
     //            I
@@ -564,12 +602,11 @@ fn test_intersect_overlap_offset_indivisible_by_length_bulk_negative() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_bulk_zero() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(3),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(3);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //            9:00:05
     //            I
@@ -603,12 +640,11 @@ fn test_intersect_overlap_offset_indivisible_by_length_bulk_zero() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_edge_start_positive() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(7),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(7);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //               9:00:14
     //               I
@@ -635,12 +671,11 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_start_positive() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_edge_start_negative() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(7),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(7);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //        8:59:53
     //        I
@@ -667,12 +702,11 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_start_negative() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_edge_start_zero() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(7),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(7);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //        9:00:00
     //        I
@@ -699,12 +733,11 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_start_zero() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_edge_end_positive() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(7),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(7);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                  9:00:17
     //                  I
@@ -724,12 +757,11 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_end_positive() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_edge_end_negative() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(7),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(7);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //           8:59:56
     //           I
@@ -749,12 +781,11 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_end_negative() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_edge_end_zero() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(7),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(7);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                  9:00:10
     //                  I
@@ -774,12 +805,11 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_end_zero() {
 
 #[test]
 fn test_intersect_tumble_bulk_positive() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(10),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(10);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                9:00:15
     //                I
@@ -799,12 +829,11 @@ fn test_intersect_tumble_bulk_positive() {
 
 #[test]
 fn test_intersect_tumble_bulk_negative() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(10),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(10);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                8:59:55
     //                I
@@ -824,12 +853,11 @@ fn test_intersect_tumble_bulk_negative() {
 
 #[test]
 fn test_intersect_tumble_bulk_zero() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(10),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(10);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                9:00:05
     //                I
@@ -849,12 +877,11 @@ fn test_intersect_tumble_bulk_zero() {
 
 #[test]
 fn test_intersect_tumble_edge_positive() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(10),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(10);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                     9:00:20
     //                     I
@@ -875,12 +902,11 @@ fn test_intersect_tumble_edge_positive() {
 
 #[test]
 fn test_intersect_tumble_edge_negative() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(10),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(10);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                     8:59:50
     //                     I
@@ -901,12 +927,11 @@ fn test_intersect_tumble_edge_negative() {
 
 #[test]
 fn test_intersect_tumble_edge_zero_start() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(10),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(10);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //           9:00:00
     //           I
@@ -926,12 +951,11 @@ fn test_intersect_tumble_edge_zero_start() {
 
 #[test]
 fn test_intersect_tumble_edge_zero_end() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(10),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(10);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                     9:00:10
     //                     I
@@ -952,12 +976,11 @@ fn test_intersect_tumble_edge_zero_end() {
 
 #[test]
 fn test_intersect_gap_bulk_positive() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(13),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(13);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                   9:00:18
     //                   I
@@ -977,12 +1000,11 @@ fn test_intersect_gap_bulk_positive() {
 
 #[test]
 fn test_intersect_gap_bulk_negative() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(13),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(13);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                   8:59:48
     //                   I
@@ -1002,12 +1024,11 @@ fn test_intersect_gap_bulk_negative() {
 
 #[test]
 fn test_intersect_gap_bulk_zero() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(13),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(13);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                   9:00:03
     //                   I
@@ -1027,12 +1048,11 @@ fn test_intersect_gap_bulk_zero() {
 
 #[test]
 fn test_intersect_gap_gap_positive() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(13),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(13);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //             9:00:20
     //             I
@@ -1044,12 +1064,11 @@ fn test_intersect_gap_gap_positive() {
 
 #[test]
 fn test_intersect_gap_gap_negative() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(13),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(13);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //             8:59:59
     //             I
@@ -1061,13 +1080,11 @@ fn test_intersect_gap_gap_negative() {
 
 #[test]
 fn test_intersect_gap_edge_start_positive() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(13),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
-
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(13);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
     //              9:00:13
     //              I
     // [0--------)
@@ -1086,12 +1103,11 @@ fn test_intersect_gap_edge_start_positive() {
 
 #[test]
 fn test_intersect_gap_edge_start_negative() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(13),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(13);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //              8:59:47
     //              I
@@ -1111,12 +1127,11 @@ fn test_intersect_gap_edge_start_negative() {
 
 #[test]
 fn test_intersect_gap_edge_start_zero() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(13),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(13);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //              9:00:00
     //              I
@@ -1136,12 +1151,11 @@ fn test_intersect_gap_edge_start_zero() {
 
 #[test]
 fn test_intersect_gap_edge_end_positive() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(13),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(13);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                        9:00:23
     //                        I
@@ -1154,12 +1168,11 @@ fn test_intersect_gap_edge_end_positive() {
 
 #[test]
 fn test_intersect_gap_edge_end_negative() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(13),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(13);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                        8:59:57
     //                        I
@@ -1172,12 +1185,11 @@ fn test_intersect_gap_edge_end_negative() {
 
 #[test]
 fn test_intersect_gap_edge_end_zero() {
-    let windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(13),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(13);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                        9:00:10
     //                        I
@@ -1190,12 +1202,11 @@ fn test_intersect_gap_edge_end_zero() {
 
 #[test]
 fn test_insert() {
-    let mut windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(5),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(5);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let mut windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //                  9:00:17
     //                  W
@@ -1214,13 +1225,39 @@ fn test_insert() {
 }
 
 #[test]
+fn test_insert_far_from_align_to() {
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(5);
+    let align_to = Utc.with_ymd_and_hms(1970, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let mut windower = SlidingWindower::new(length, offset, align_to, close_times);
+
+    //                  9:00:17
+    //                  W
+    //              9:00:13
+    //              I
+    // [0--------)
+    //      [1--------)
+    //           [2--------)
+    //                [3--------)
+    let watermark = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 17).unwrap();
+    let item_time = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 13).unwrap();
+    assert_eq!(
+        windower.insert(&watermark, &item_time),
+        vec![
+            Err(InsertError::Late(WindowKey(334506241))),
+            Ok(WindowKey(334506242))
+        ]
+    );
+}
+
+#[test]
 fn test_drain_closed() {
-    let mut windower = SlidingWindower {
-        length: Duration::seconds(10),
-        offset: Duration::seconds(5),
-        align_to: Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap(),
-        close_times: BTreeMap::new(),
-    };
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(5);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let mut windower = SlidingWindower::new(length, offset, align_to, close_times);
 
     //     9:00:04      9:00:17
     //     W1           W2
