@@ -212,9 +212,9 @@ restarted in order to rebalance new partition assignments to workers.
 
 ## Serialization and deserialization
 Bytewax supports (de)serialization of messages using serializers that conforms to
-`confluent_kafka.serialization.{Deserializer, Serializer}` interface.
+{py:obj}`confluent_kafka.serialization.Serializer` and {py:obj}`confluent_kafka.serialization.Deserializer` interface.
 
-The `kafka` connector offers some custom operators to help with that.
+The {py:obj}`bytewax.connectors.kafka.operators` module offers some custom operators to help with that.
 If you are working with confluent's python libraries, you can use confluent's
 schema registry client and (de)serializers directly:
 

@@ -13,7 +13,9 @@ from bytewax.connectors.kafka import MaybeStrBytes
 _logger = logging.getLogger(__name__)
 
 
-class PlainAvroSerializer:
+from confluent_kafka.serialization import Serializer
+
+class PlainAvroSerializer(Serializer):
     """Bytewax serializer that uses fastavro's serializer.
 
     Beware that using plain avro serializers means you can't
@@ -29,13 +31,14 @@ class PlainAvroSerializer:
         self.schema = parse_schema(json.loads(schema_str))
 
     def __call__(self, obj: Dict, ctx: Optional[SerializationContext] = None) -> bytes:
-        """TODO."""
         bytes_writer = io.BytesIO()
         schemaless_writer(bytes_writer, self.schema, obj)
         return bytes_writer.getvalue()
 
 
-class PlainAvroDeserializer:
+from confluent_kafka.serialization import Deserializer
+
+class PlainAvroDeserializer(Deserializer):
     """Bytewax deserializer that uses fastavro's deserializer.
 
     Beware that this can't deserialize messages serialized with
@@ -52,7 +55,6 @@ class PlainAvroDeserializer:
     def __call__(
         self, data: MaybeStrBytes, ctx: Optional[SerializationContext] = None
     ) -> AvroMessage:
-        """TODO."""
         if data is None:
             msg = "Can't deserialize None data"
             raise ValueError(msg)
