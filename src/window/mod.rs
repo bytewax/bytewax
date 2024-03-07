@@ -130,7 +130,7 @@ pub(crate) trait Clock<V> {
     ///
     /// This can mutate the [`ClockState`] if noting that an item has
     /// arrived should advance the clock or something.
-    fn time_for(&mut self, event: &V) -> DateTime<Utc>;
+    fn time_for(&mut self, py: Python, event: &V) -> DateTime<Utc>;
 
     /// Snapshot the internal state of this clock.
     ///
@@ -416,12 +416,13 @@ where
 {
     fn on_awake(
         &mut self,
+        py: Python,
         next_value: Poll<Option<V>>,
     ) -> Vec<Result<(WindowMetadata, R), WindowError<V>>> {
         let mut output = Vec::new();
 
         let item_time = match &next_value {
-            Poll::Ready(Some(value)) => Poll::Ready(Some(self.clock.time_for(value))),
+            Poll::Ready(Some(value)) => Poll::Ready(Some(self.clock.time_for(py, value))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         };

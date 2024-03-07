@@ -304,32 +304,32 @@ where
                             // need to ensure that writes happen in epoch
                             // order.
                             if let Some(part_to_items) = items_inbuf.remove(epoch) {
-                                for (part_key, items) in part_to_items {
-                                    let part = parts
-                                        .entry(part_key.clone())
-                                        // If there's no resume data for
-                                        // this partition, lazily create
-                                        // it.
-                                        .or_insert_with_key(|part_key| {
-                                            unwrap_any!(Python::with_gil(|py| sink
-                                                .build_part(py, part_key, None)
-                                                .reraise("error init StatefulSink")))
-                                        });
+                                Python::with_gil(|py| {
+                                    for (part_key, items) in part_to_items {
+                                        let part = parts
+                                            .entry(part_key.clone())
+                                            // If there's no resume data for
+                                            // this partition, lazily create
+                                            // it.
+                                            .or_insert_with_key(|part_key| {
+                                                unwrap_any!(sink
+                                                    .build_part(py, part_key, None)
+                                                    .reraise("error init StatefulSink"))
+                                            });
 
-                                    let batch: Vec<_> =
-                                        items.into_iter().map(|(_k, v)| v).collect();
-                                    item_inp_count.add(batch.len() as u64, &labels);
-                                    with_timer!(
-                                        write_batch_histogram,
-                                        labels,
-                                        unwrap_any!(Python::with_gil(
-                                            |py| part.write_batch(py, batch)
-                                        ))
-                                    );
+                                        let batch: Vec<_> =
+                                            items.into_iter().map(|(_k, v)| v).collect();
+                                        item_inp_count.add(batch.len() as u64, &labels);
+                                        with_timer!(
+                                            write_batch_histogram,
+                                            labels,
+                                            unwrap_any!(part.write_batch(py, batch))
+                                        );
 
-                                    awoken.insert(part_key);
-                                }
-                            }
+                                        awoken.insert(part_key);
+                                    }
+                                });
+                            };
                         },
                         |caps, (parts, awoken)| {
                             let clock_cap = &caps[0];

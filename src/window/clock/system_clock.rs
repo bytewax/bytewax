@@ -56,7 +56,7 @@ impl<V> Clock<V> for SystemClock {
         }
     }
 
-    fn time_for(&mut self, _item: &V) -> DateTime<Utc> {
+    fn time_for(&mut self, _py: Python, _item: &V) -> DateTime<Utc> {
         Utc::now()
     }
 

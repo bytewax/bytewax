@@ -1546,31 +1546,32 @@ where
                     incoming.swap(&mut inbuf);
 
                     let epoch = cap.time();
-                    let ser_snaps =
-                        inbuf
-                            .drain(..)
-                            .map(|Snapshot(step_id, state_key, snap_change)| {
-                                let ser_change = match snap_change {
-                                    StateChange::Upsert(snap) => {
-                                        let ser_snap =
-                                            unwrap_any!(Python::with_gil(|py| serde.ser(py, snap)));
-                                        Some(ser_snap)
-                                    }
-                                    StateChange::Discard => None,
-                                };
+                    Python::with_gil(|py| {
+                        let ser_snaps =
+                            inbuf
+                                .drain(..)
+                                .map(|Snapshot(step_id, state_key, snap_change)| {
+                                    let ser_change = match snap_change {
+                                        StateChange::Upsert(snap) => {
+                                            let ser_snap = unwrap_any!(serde.ser(py, snap));
+                                            Some(ser_snap)
+                                        }
+                                        StateChange::Discard => None,
+                                    };
 
-                                let snap_epoch = SnapshotEpoch(*epoch);
-                                let ser_snap = SerializedSnapshot(
-                                    step_id.clone(),
-                                    state_key.clone(),
-                                    snap_epoch,
-                                    ser_change,
-                                );
-                                let key = (step_id, state_key);
+                                    let snap_epoch = SnapshotEpoch(*epoch);
+                                    let ser_snap = SerializedSnapshot(
+                                        step_id.clone(),
+                                        state_key.clone(),
+                                        snap_epoch,
+                                        ser_change,
+                                    );
+                                    let key = (step_id, state_key);
 
-                                (key, ser_snap)
-                            });
-                    ser_snaps_output.session(&cap).give_iterator(ser_snaps);
+                                    (key, ser_snap)
+                                });
+                        ser_snaps_output.session(&cap).give_iterator(ser_snaps);
+                    });
                 });
             }
         })
