@@ -1,9 +1,6 @@
 """
-Schema registry complete example.
-
-The Kafka input connector has support for schema registries.
-We support Redpanda and Confluent registries.
-This example shows how to use Redpanda client in the kafka connector.
+Serialization and deserialization using confluent's schema registry
+and confluent's wire avro format.
 
 The schems used for this example are the following:
 
@@ -50,33 +47,48 @@ import bytewax.operators as op
 import bytewax.operators.window as wop
 from bytewax.connectors.kafka import KafkaSinkMessage, KafkaSourceMessage
 from bytewax.connectors.kafka import operators as kop
-from bytewax.connectors.kafka.registry import RedpandaSchemaRegistry, SchemaRef
 from bytewax.dataflow import Dataflow
 from bytewax.operators.window import SystemClockConfig, TumblingWindow
+from confluent_kafka.schema_registry import SchemaRegistryClient
+from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(format=logging.BASIC_FORMAT, level=logging.WARNING)
 
+
+# Setup some more env vars first:
 KAFKA_BROKERS = os.environ.get("KAFKA_SERVER", "localhost:19092").split(";")
 IN_TOPICS = os.environ.get("KAFKA_IN_TOPIC", "in_topic").split(";")
 OUT_TOPIC = os.environ.get("KAFKA_OUT_TOPIC", "out_topic")
-REDPANDA_REGISTRY_URL = os.environ["REDPANDA_REGISTRY_URL"]
+CONFLUENT_URL = os.environ["CONFLUENT_URL"]
+CONFLUENT_USERINFO = os.environ["CONFLUENT_USERINFO"]
+CONFLUENT_USERNAME = os.environ["CONFLUENT_USERNAME"]
+CONFLUENT_PASSWORD = os.environ["CONFLUENT_PASSWORD"]
 
+# Pass this to both kafka_in and kafka_out
+add_config = {
+    "security.protocol": "SASL_SSL",
+    "sasl.mechanism": "PLAIN",
+    "sasl.username": CONFLUENT_USERNAME,
+    "sasl.password": CONFLUENT_PASSWORD,
+}
 
 flow = Dataflow("schema_registry")
-kinp = kop.input("kafka-in", flow, brokers=KAFKA_BROKERS, topics=IN_TOPICS)
-
+kinp = kop.input(
+    "kafka-in", flow, brokers=KAFKA_BROKERS, topics=IN_TOPICS, add_config=add_config
+)
 # Inspect errors and crash
 op.inspect("inspect-kafka-errors", kinp.errs).then(op.raises, "kafka-error")
 
-# Redpanda's schema registry configuration
-registry = RedpandaSchemaRegistry(REDPANDA_REGISTRY_URL)
+# ConfluentSchemaRegistry config:
+client = SchemaRegistryClient(
+    {"url": CONFLUENT_URL, "basic.auth.user.info": CONFLUENT_USERINFO}
+)
 
-# Deserialize both key and value
-key_de = registry.deserializer(SchemaRef("sensor-key"))
-val_de = registry.deserializer(SchemaRef("sensor-value"))
+# Confluent's deserializer doesn't need a schema, it automatically fetches it.
+key_de = AvroDeserializer(client)
+val_de = AvroDeserializer(client)
 msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer=val_de)
-
 # Inspect errors and crash
 op.inspect("inspect-deser", msgs.errs).then(op.raises, "deser-error")
 
@@ -110,21 +122,28 @@ def calc_avg(key__wm__batch) -> KafkaSinkMessage[Dict, Dict]:
         value={
             "identifier": key,
             "avg": sum(batch) / len(batch),
-            "window_open": wm.open_time.isoformat(),
-            "window_start": wm.close_time.isoformat(),
+            "window_start": wm.open_time.isoformat(),
+            "window_end": wm.close_time.isoformat(),
         },
     )
 
 
 avgs = op.map("avg", windows, calc_avg)
-
 op.inspect("inspect-out-data", avgs)
 
-# Instantiate deserializers
-key_ser = registry.serializer(SchemaRef("sensor-key"))
-val_ser = registry.serializer(SchemaRef("aggregated-value"))
+# The serializers require a specific schema instead. Get it from the client.
+key_schema = client.get_schema(100002)
+val_schema = client.get_schema(100003)
+key_ser = AvroSerializer(client, key_schema.schema_str)
+val_ser = AvroSerializer(client, val_schema.schema_str)
 # Serialize
 serialized = kop.serialize("ser", avgs, key_serializer=key_ser, val_serializer=val_ser)
 
 op.inspect("inspect-serialized", serialized)
-kop.output("kafka-out", serialized, brokers=KAFKA_BROKERS, topic=OUT_TOPIC)
+kop.output(
+    "kafka-out",
+    serialized,
+    brokers=KAFKA_BROKERS,
+    topic=OUT_TOPIC,
+    add_config=add_config,
+)

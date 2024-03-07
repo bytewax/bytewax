@@ -1,91 +1,100 @@
-"""Serializers and deserializers for kafka messages."""
+"""Serializers and deserializers for Kafka messages."""
 import io
 import json
 import logging
-from abc import ABC, abstractmethod
-from typing import Dict, Generic, TypeVar
+from typing import Dict, Optional, Union
 
-from confluent_kafka.schema_registry import record_subject_name_strategy
-from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
+from confluent_kafka.schema_registry import Schema
+from confluent_kafka.serialization import Deserializer, SerializationContext, Serializer
 from fastavro import parse_schema, schemaless_reader, schemaless_writer
 from fastavro.types import AvroMessage
+from typing_extensions import override
 
 from bytewax.connectors.kafka import MaybeStrBytes
 
 _logger = logging.getLogger(__name__)
 
-SerdeOut = TypeVar("SerdeOut")
-SerdeIn = TypeVar("SerdeIn")
 
+class PlainAvroSerializer(Serializer):
+    """Unframed Avro serializer. Encodes into raw Avro.
 
-class SchemaSerializer(ABC, Generic[SerdeIn, SerdeOut]):
-    """A serializer for a specific schema."""
+    This is in comparison to
+    {py:obj}`confluent_kafka.schema_registry.avro.AvroSerializer`
+    which prepends magic bytes to the Avro payload which specify the
+    schema ID. This serializer will not prepend those magic bytes. If
+    downstream deserializers expect those magic bytes, use
+    {py:obj}`~confluent_kafka.schema_registry.avro.AvroSerializer`
+    instead.
 
-    @abstractmethod
-    def ser(self, obj: SerdeIn) -> SerdeOut:
-        """Serialize an object."""
-        ...
+    """
 
+    def __init__(
+        self, schema: Union[str, Schema], named_schemas: Optional[Dict] = None
+    ):
+        """Init.
 
-class SchemaDeserializer(ABC, Generic[SerdeIn, SerdeOut]):
-    """A deserializer for a specific schema."""
+        :arg schema: Selected schema to use.
 
-    @abstractmethod
-    def de(self, data: SerdeIn) -> SerdeOut:
-        """Deserialize data."""
-        ...
+        :arg named_schemas: Other schemas the selected schema
+            references. See documentation for
+            {py:obj}`fastavro._schema_py.parse_schema`.
 
+        """
+        if isinstance(schema, Schema):
+            schema_str = schema.schema_str
+        else:
+            schema_str = schema
+        self.schema = parse_schema(json.loads(schema_str), named_schemas=named_schemas)
 
-class _ConfluentAvroSerializer(SchemaSerializer[Dict, bytes]):
-    def __init__(self, client, schema_str):
-        # Use a different "subject.name.strategy" than the default. See:
-        # https://docs.confluent.io/platform/current/schema-registry/fundamentals/serdes-develop/index.html#subject-name-strategy
-        self.serializer = AvroSerializer(
-            client,
-            schema_str,
-            conf={"subject.name.strategy": record_subject_name_strategy},
-        )
-
-    def ser(self, obj: Dict) -> bytes:
-        return self.serializer(obj, ctx=None)
-
-
-class _ConfluentAvroDeserializer(SchemaDeserializer[MaybeStrBytes, AvroMessage]):
-    def __init__(self, client):
-        self.deserializer = AvroDeserializer(client)
-
-    def de(self, data: MaybeStrBytes) -> Dict:
-        if data is None:
-            msg = "Can't deserialize None data"
-            raise ValueError(msg)
-        if isinstance(data, str):
-            data = data.encode()
-        # Here the ctx is only used if a custom `from_dict`
-        # function is passed to the deserializer, but we
-        # initialize it ourselves and don't pass that,
-        # so we can set `ctx` to None
-        return self.deserializer(data, ctx=None)
-
-
-class _AvroSerializer(SchemaSerializer[Dict, bytes]):
-    def __init__(self, schema):
-        self.schema = parse_schema(json.loads(schema))
-
-    def ser(self, obj: Dict) -> bytes:
+    @override
+    def __call__(self, obj: Dict, ctx: Optional[SerializationContext] = None) -> bytes:
         bytes_writer = io.BytesIO()
         schemaless_writer(bytes_writer, self.schema, obj)
         return bytes_writer.getvalue()
 
 
-class _AvroDeserializer(SchemaDeserializer[MaybeStrBytes, AvroMessage]):
-    def __init__(self, schema):
-        self.schema = parse_schema(json.loads(schema))
+class PlainAvroDeserializer(Deserializer):
+    """Unframed Avro deserializer. Decodes from raw Avro.
 
-    def de(self, data: MaybeStrBytes) -> AvroMessage:
-        if data is None:
+    Requires you to manually specify the schema to use.
+
+    This is in comparison to
+    {py:obj}`confluent_kafka.schema_registry.avro.AvroDeserializer`
+    which expects magic bytes in the output proceeding the actual Avro
+    payload. This deserializer _can not_ handle those bytes and will
+    throw an exception. If upstream serializers are including magic
+    bytes, use
+    {py:obj}`~confluent_kafka.schema_registry.avro.AvroDeserializer`
+    instead.
+
+    """
+
+    def __init__(
+        self, schema: Union[str, Schema], named_schemas: Optional[Dict] = None
+    ):
+        """Init.
+
+        :arg schema: Selected schema to use.
+
+        :arg named_schemas: Other schemas the selected schema
+            references. See documentation for
+            {py:obj}`fastavro._schema_py.parse_schema`.
+
+        """
+        if isinstance(schema, Schema):
+            schema_str = schema.schema_str
+        else:
+            schema_str = schema
+        self.schema = parse_schema(json.loads(schema_str), named_schemas=named_schemas)
+
+    @override
+    def __call__(
+        self, obj: MaybeStrBytes, ctx: Optional[SerializationContext] = None
+    ) -> AvroMessage:
+        if obj is None:
             msg = "Can't deserialize None data"
             raise ValueError(msg)
-        if isinstance(data, str):
-            data = data.encode()
-        payload = io.BytesIO(data)
+        if isinstance(obj, str):
+            obj = obj.encode()
+        payload = io.BytesIO(obj)
         return schemaless_reader(payload, self.schema, None)

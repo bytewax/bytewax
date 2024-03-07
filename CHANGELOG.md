@@ -9,6 +9,12 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- *Breaking change* The schema registry interface has been removed.
+  You can still use schema registries, but you need to instantiate
+  the (de)serializers on your own. This allows for more flexibility.
+  See the `confluent_serde` and `redpanda_serde` examples for how
+  to use the new interface.
+
 - Fixes bug where items would be incorrectly marked as late in sliding
   and tumbling windows in cases where the timestamps are very far from
   the `align_to` parameter of the windower.

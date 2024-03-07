@@ -110,16 +110,6 @@ out_msgs = op.map("wrap_k_v", in_msgs, wrap_msg)
 kop.output("out1", out_msgs, brokers=["localhost:19092"], topic="out_topic")
 ```
 
-{py:obj}`~bytewax.connectors.kafka.KafkaSource` can now be configured
-to use the [Redpanda Schema
-Registry](https://docs.redpanda.com/current/manage/schema-registry/)
-or the [Confluent Schema
-Registry](https://docs.confluent.io/platform/current/schema-registry/index.html)
-to deserialize messages.
-
-For more information, see the
-{py:obj}`bytewax.connectors.kafka.registry` documentation.
-
 ### Renaming
 
 We have renamed the IO classes to better match their semantics and the
