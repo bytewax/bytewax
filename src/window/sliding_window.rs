@@ -1252,6 +1252,38 @@ fn test_insert_far_from_align_to() {
 }
 
 #[test]
+fn test_insert_microsecond_consistent() {
+    let length = Duration::seconds(10);
+    let offset = Duration::seconds(5);
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let mut windower = SlidingWindower::new(length, offset, align_to, close_times);
+
+    let watermark = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 17).unwrap();
+    let item_time = Utc
+        .with_ymd_and_hms(2023, 3, 16, 9, 0, 13)
+        .unwrap()
+        .with_nanosecond(500_000)
+        .unwrap();
+    assert_eq!(
+        windower.insert(&watermark, &item_time),
+        vec![Err(InsertError::Late(WindowKey(1))), Ok(WindowKey(2))]
+    );
+
+    // Insert another item, which should be in the same windows but
+    // only the microseconds differ.
+    let item_time = Utc
+        .with_ymd_and_hms(2023, 3, 16, 9, 0, 13)
+        .unwrap()
+        .with_nanosecond(400_000)
+        .unwrap();
+    assert_eq!(
+        windower.insert(&watermark, &item_time),
+        vec![Err(InsertError::Late(WindowKey(1))), Ok(WindowKey(2))]
+    );
+}
+
+#[test]
 fn test_drain_closed() {
     let length = Duration::seconds(10);
     let offset = Duration::seconds(5);
