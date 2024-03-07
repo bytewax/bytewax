@@ -73,10 +73,10 @@ client = SchemaRegistryClient({"url": REDPANDA_REGISTRY_URL})
 # Use plain avro instead of confluent's wire format.
 # We need to specify the schema in the deserializer too here.
 key_schema = client.get_latest_version("sensor-key").schema
-key_de = PlainAvroDeserializer(schema_str=key_schema.schema_str)
+key_de = PlainAvroDeserializer(schema=key_schema)
 
 val_schema = client.get_latest_version("sensor-value").schema
-val_de = PlainAvroDeserializer(schema_str=val_schema.schema_str)
+val_de = PlainAvroDeserializer(schema=val_schema)
 
 # Deserialize both key and value
 msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer=val_de)
@@ -124,9 +124,9 @@ avgs = op.map("avg", windows, calc_avg)
 
 op.inspect("inspect-out-data", avgs)
 
-key_ser = PlainAvroSerializer(schema_str=key_schema.schema_str)
+key_ser = PlainAvroSerializer(schema=key_schema)
 out_val_schema = client.get_latest_version("aggregated-value").schema
-val_ser = PlainAvroSerializer(schema_str=out_val_schema.schema_str)
+val_ser = PlainAvroSerializer(schema=out_val_schema)
 
 # Serialize
 serialized = kop.serialize("ser", avgs, key_serializer=key_ser, val_serializer=val_ser)
