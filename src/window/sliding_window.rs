@@ -134,12 +134,21 @@ impl SlidingWindower {
         // calcuate the first window start time; the zeroth window is
         // the last window just missed by the current time.
         let (first_window_idx, since_close_of_zeroth_window) = {
+            // [`TimeDelta::num_microseconds`] maxes out at 2^63 which
+            // is ~200,000 years so we'll probably be fine. Python
+            // datetimes do not support nanoseconds so we can ignore
+            // those.
             let (quo, rem) = Integer::div_mod_floor(
-                &since_close_of_origin_window.num_milliseconds(),
-                &self.offset.num_milliseconds(),
+                &since_close_of_origin_window.num_microseconds().expect(
+                    "window assignment overflow; move `align_to` closer to data timestamps",
+                ),
+                &self
+                    .offset
+                    .num_microseconds()
+                    .expect("offset overflow; decrease offset"),
             );
 
-            (quo + 1, TimeDelta::try_milliseconds(rem).unwrap())
+            (quo + 1, TimeDelta::microseconds(rem))
         };
         // Go back to the end of the zeroth window, then twiddle to
         // get the start of the first window.
