@@ -72,6 +72,7 @@ def _raise_deps(children: List[Tuple[_Meta, _N]]) -> List[str]:
 
 
 def _sort_children(children: List[Tuple[_Meta, _N]]) -> List[_N]:
+    children.sort(key=lambda m_n: m_n[0].path)
     qualname_to_node = {m.path: node for m, node in children}
     body_order = graphlib.TopologicalSorter(
         {m.path: m.deps for m, _ in children}
