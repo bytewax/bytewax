@@ -1,5 +1,5 @@
 use chrono::prelude::*;
-use chrono::Duration;
+use chrono::TimeDelta;
 use pyo3::prelude::*;
 
 use super::sliding_window::SlidingWindower;
@@ -27,7 +27,7 @@ use super::*;
 #[derive(Clone)]
 pub(crate) struct TumblingWindow {
     #[pyo3(get)]
-    pub(crate) length: Duration,
+    pub(crate) length: TimeDelta,
     #[pyo3(get)]
     pub(crate) align_to: DateTime<Utc>,
 }
@@ -35,7 +35,7 @@ pub(crate) struct TumblingWindow {
 #[pymethods]
 impl TumblingWindow {
     #[new]
-    fn new(length: Duration, align_to: DateTime<Utc>) -> (Self, WindowConfig) {
+    fn new(length: TimeDelta, align_to: DateTime<Utc>) -> (Self, WindowConfig) {
         let self_ = Self { length, align_to };
         let super_ = WindowConfig::new();
         (self_, super_)

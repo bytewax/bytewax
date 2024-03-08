@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use chrono::DateTime;
-use chrono::Duration;
+use chrono::TimeDelta;
 use chrono::Utc;
 use opentelemetry::KeyValue;
 use pyo3::create_exception;
@@ -35,7 +35,7 @@ use crate::timely::*;
 use crate::unwrap_any;
 use crate::with_timer;
 
-const DEFAULT_COOLDOWN: Duration = Duration::milliseconds(1);
+const DEFAULT_COOLDOWN: TimeDelta = TimeDelta::microseconds(1000);
 
 /// Length of epoch.
 ///
@@ -47,11 +47,11 @@ const DEFAULT_COOLDOWN: Duration = Duration::milliseconds(1);
 /// sources do not start reading new data until all data in the
 /// previous epoch has been output and recovery data written.
 #[derive(Debug, Copy, Clone)]
-pub(crate) struct EpochInterval(Duration);
+pub(crate) struct EpochInterval(TimeDelta);
 
 impl<'source> FromPyObject<'source> for EpochInterval {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        if let Ok(duration) = ob.extract::<Duration>() {
+        if let Ok(duration) = ob.extract::<TimeDelta>() {
             Ok(Self(duration))
         } else {
             Err(PyTypeError::new_err(
@@ -66,7 +66,7 @@ impl EpochInterval {
     /// duration.
     ///
     /// Useful for calculating GC commit epochs.
-    pub(crate) fn epochs_per(&self, other: Duration) -> u64 {
+    pub(crate) fn epochs_per(&self, other: TimeDelta) -> u64 {
         (other.num_milliseconds() as f64 / self.0.num_milliseconds() as f64)
             // Round up so we always have at least the backup interval
             // time. Unless it's 0, then it's ok. The integer part of
@@ -78,20 +78,21 @@ impl EpochInterval {
 
 #[test]
 fn test_epochs_per() {
-    let found =
-        EpochInterval(Duration::milliseconds(5000)).epochs_per(Duration::milliseconds(12000));
+    let found = EpochInterval(TimeDelta::try_milliseconds(5000).unwrap())
+        .epochs_per(TimeDelta::try_milliseconds(12000).unwrap());
     assert_eq!(found, 3);
 }
 
 #[test]
 fn test_epochs_per_zero() {
-    let found = EpochInterval(Duration::milliseconds(5000)).epochs_per(Duration::milliseconds(0));
+    let found = EpochInterval(TimeDelta::try_milliseconds(5000).unwrap())
+        .epochs_per(TimeDelta::try_milliseconds(0).unwrap());
     assert_eq!(found, 0);
 }
 
 impl Default for EpochInterval {
     fn default() -> Self {
-        Self(Duration::seconds(10))
+        Self(TimeDelta::try_seconds(10).unwrap())
     }
 }
 
