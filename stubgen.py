@@ -72,6 +72,7 @@ def _raise_deps(children: List[Tuple[_Meta, _N]]) -> List[str]:
 
 
 def _sort_children(children: List[Tuple[_Meta, _N]]) -> List[_N]:
+    children.sort(key=lambda m_n: m_n[0].path)
     qualname_to_node = {m.path: node for m, node in children}
     body_order = graphlib.TopologicalSorter(
         {m.path: m.deps for m, _ in children}
@@ -86,7 +87,7 @@ def _stub_args(params: Mapping[str, Parameter]) -> ast.arguments:
     args = []
     defaults = []
     kwonly_args = []
-    kwonly_defaults = []
+    kwonly_defaults: List[Optional[ast.Constant]] = []
     vararg = None
     kwarg = None
     for pname, param in params.items():
@@ -164,17 +165,16 @@ def _stub_func(
 def _stub_init(
     ctx: _Ctx,
     cls: type,
-) -> Optional[Tuple[_Meta, ast.FunctionDef]]:
+) -> Tuple[_Meta, ast.FunctionDef]:
     try:
         sig = inspect.signature(cls)
     except ValueError as ex:
         raise NotImplementedError() from ex
 
-    params = list(sig.parameters.items())
-    params.insert(
-        0, ("self", Parameter(name="self", kind=Parameter.POSITIONAL_OR_KEYWORD))
+    params = dict(
+        [("self", Parameter(name="self", kind=Parameter.POSITIONAL_OR_KEYWORD))]
+        + list(sig.parameters.items())
     )
-    params = dict(params)
 
     body = [ast.Expr(ast.Constant(...))]
 
@@ -201,12 +201,12 @@ def _stub_new(
 ) -> Tuple[_Meta, ast.FunctionDef]:
     sig = inspect.signature(f)
 
+    params: Mapping[str, Parameter]
     if "cls" not in sig.parameters:
-        params = list(sig.parameters.items())
-        params.insert(
-            0, ("cls", Parameter(name="cls", kind=Parameter.POSITIONAL_OR_KEYWORD))
+        params = dict(
+            [("cls", Parameter(name="cls", kind=Parameter.POSITIONAL_OR_KEYWORD))]
+            + list(sig.parameters.items())
         )
-        params = dict(params)
     else:
         params = sig.parameters
 
@@ -249,13 +249,13 @@ def _stub_cls(ctx: _Ctx, cls: type) -> Tuple[_Meta, ast.ClassDef]:
             bases.append(ast.Name(base.__qualname__))
             deps.append(base.__module__ + base.__qualname__)
 
-    body = []
+    body: List[ast.AST] = []
     docstring = inspect.getdoc(cls)
     if docstring:
         body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.col_offset))]
     body += [ast.Expr(ast.Constant(...))]
 
-    children = []
+    children: List[Tuple[_Meta, ast.AST]] = []
     if "__init__" not in cls.__dict__:
         # If there is no explicit `__init__`, try to derive it from
         # the class signature. The stub class's signature is derived
@@ -382,12 +382,12 @@ MOD_IGNORE = [
 def _stub_mod(mod: ModuleType) -> ast.Module:
     ctx = _Ctx(mod.__name__)
 
-    body = []
+    body: List[ast.AST] = []
     docstring = inspect.getdoc(mod)
     if docstring:
         body += [ast.Expr(ast.Constant(docstring, col_offset=ctx.col_offset))]
 
-    children = [
+    children: List[Tuple[_Meta, ast.AST]] = [
         _stub_obj(ctx.new_scope(n), obj)
         for n, obj in mod.__dict__.items()
         if n not in MOD_IGNORE
@@ -398,7 +398,7 @@ def _stub_mod(mod: ModuleType) -> ast.Module:
     # imported or functions have type hints that are imported.
     # Fortunately PyO3 doesn't support any of this yet so this won't
     # be needed.
-    imports = []
+    imports: List[ast.Import] = []
 
     return ast.Module(body=imports + body, type_ignores=[])
 
