@@ -1,7 +1,7 @@
 use std::task::Poll;
 
 use chrono::prelude::*;
-use chrono::Duration;
+use chrono::TimeDelta;
 use pyo3::prelude::*;
 
 use crate::pyo3_extensions::TdPyAny;
@@ -40,13 +40,13 @@ pub(crate) struct EventClockConfig {
     #[pyo3(get)]
     pub(crate) dt_getter: TdPyCallable,
     #[pyo3(get)]
-    pub(crate) wait_for_system_duration: Duration,
+    pub(crate) wait_for_system_duration: TimeDelta,
 }
 
 #[pymethods]
 impl EventClockConfig {
     #[new]
-    fn new(dt_getter: TdPyCallable, wait_for_system_duration: Duration) -> (Self, ClockConfig) {
+    fn new(dt_getter: TdPyCallable, wait_for_system_duration: TimeDelta) -> (Self, ClockConfig) {
         let self_ = Self {
             dt_getter,
             wait_for_system_duration,
@@ -105,7 +105,7 @@ impl TimeSource for TestTimeSource {
 pub(crate) struct EventClock<S> {
     source: S,
     dt_getter: TdPyCallable,
-    wait_for_system_duration: Duration,
+    wait_for_system_duration: TimeDelta,
     /// The largest event time we've seen and the system time we saw
     /// that event at.
     max_event_time_system_time: Option<(DateTime<Utc>, DateTime<Utc>)>,
@@ -202,7 +202,7 @@ mod tests {
                 now: Utc.with_ymd_and_hms(2023, 5, 10, 9, 0, 0).unwrap(),
             },
             dt_getter: identity,
-            wait_for_system_duration: Duration::seconds(10),
+            wait_for_system_duration: TimeDelta::try_seconds(10).unwrap(),
             max_event_time_system_time: None,
         };
 

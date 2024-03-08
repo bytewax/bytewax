@@ -16,7 +16,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use chrono::Duration;
+use chrono::TimeDelta;
 use pyo3::create_exception;
 use pyo3::exceptions::PyFileNotFoundError;
 use pyo3::exceptions::PyRuntimeError;
@@ -152,11 +152,11 @@ pub(crate) struct CommitMeta(PartitionIndex, u64);
 /// we can use when resuming from a backup that might not be the most
 /// recent.
 #[derive(Debug, Copy, Clone)]
-pub(crate) struct BackupInterval(Duration);
+pub(crate) struct BackupInterval(TimeDelta);
 
 impl Default for BackupInterval {
     fn default() -> Self {
-        Self(Duration::zero())
+        Self(TimeDelta::zero())
     }
 }
 
@@ -168,7 +168,7 @@ impl IntoPy<Py<PyAny>> for BackupInterval {
 
 impl<'source> FromPyObject<'source> for BackupInterval {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        if let Ok(duration) = ob.extract::<Duration>() {
+        if let Ok(duration) = ob.extract::<TimeDelta>() {
             Ok(Self(duration))
         } else {
             Err(PyTypeError::new_err(

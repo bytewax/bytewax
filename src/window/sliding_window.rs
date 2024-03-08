@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use chrono::prelude::*;
-use chrono::Duration;
+use chrono::TimeDelta;
 use num::integer::Integer;
 use pyo3::prelude::*;
 
@@ -44,9 +44,9 @@ use super::*;
 #[derive(Clone)]
 pub(crate) struct SlidingWindow {
     #[pyo3(get)]
-    pub(crate) length: Duration,
+    pub(crate) length: TimeDelta,
     #[pyo3(get)]
-    pub(crate) offset: Duration,
+    pub(crate) offset: TimeDelta,
     #[pyo3(get)]
     pub(crate) align_to: DateTime<Utc>,
 }
@@ -54,7 +54,7 @@ pub(crate) struct SlidingWindow {
 #[pymethods]
 impl SlidingWindow {
     #[new]
-    fn new(length: Duration, offset: Duration, align_to: DateTime<Utc>) -> (Self, WindowConfig) {
+    fn new(length: TimeDelta, offset: TimeDelta, align_to: DateTime<Utc>) -> (Self, WindowConfig) {
         let self_ = Self {
             length,
             offset,
@@ -76,8 +76,8 @@ impl WindowBuilder for SlidingWindow {
 }
 
 pub(crate) struct SlidingWindower {
-    length: Duration,
-    offset: Duration,
+    length: TimeDelta,
+    offset: TimeDelta,
     overlap_factor: i32,
     align_to: DateTime<Utc>,
     close_times: BTreeMap<WindowKey, (DateTime<Utc>, DateTime<Utc>)>,
@@ -85,8 +85,8 @@ pub(crate) struct SlidingWindower {
 
 impl SlidingWindower {
     fn new(
-        length: Duration,
-        offset: Duration,
+        length: TimeDelta,
+        offset: TimeDelta,
         align_to: DateTime<Utc>,
         close_times: BTreeMap<WindowKey, (DateTime<Utc>, DateTime<Utc>)>,
     ) -> Self {
@@ -105,8 +105,8 @@ impl SlidingWindower {
     }
 
     pub(crate) fn builder(
-        length: Duration,
-        offset: Duration,
+        length: TimeDelta,
+        offset: TimeDelta,
         align_to: DateTime<Utc>,
     ) -> impl Fn(Option<TdPyAny>) -> Box<dyn Windower> {
         move |resume_snapshot| {
@@ -134,12 +134,21 @@ impl SlidingWindower {
         // calcuate the first window start time; the zeroth window is
         // the last window just missed by the current time.
         let (first_window_idx, since_close_of_zeroth_window) = {
+            // [`TimeDelta::num_microseconds`] maxes out at 2^63 which
+            // is ~200,000 years so we'll probably be fine. Python
+            // datetimes do not support nanoseconds so we can ignore
+            // those.
             let (quo, rem) = Integer::div_mod_floor(
-                &since_close_of_origin_window.num_milliseconds(),
-                &self.offset.num_milliseconds(),
+                &since_close_of_origin_window.num_microseconds().expect(
+                    "window assignment overflow; move `align_to` closer to data timestamps",
+                ),
+                &self
+                    .offset
+                    .num_microseconds()
+                    .expect("offset overflow; decrease offset"),
             );
 
-            (quo + 1, Duration::milliseconds(rem))
+            (quo + 1, TimeDelta::microseconds(rem))
         };
         // Go back to the end of the zeroth window, then twiddle to
         // get the start of the first window.
@@ -269,8 +278,8 @@ impl Windower for SlidingWindower {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_bulk_positive() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(5);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(5).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -301,8 +310,8 @@ fn test_intersect_overlap_offset_divisible_by_length_bulk_positive() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_bulk_negative() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(5);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(5).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -333,8 +342,8 @@ fn test_intersect_overlap_offset_divisible_by_length_bulk_negative() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_bulk_zero_negative() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(5);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(5).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -365,8 +374,8 @@ fn test_intersect_overlap_offset_divisible_by_length_bulk_zero_negative() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_bulk_zero_positive() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(5);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(5).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -397,8 +406,8 @@ fn test_intersect_overlap_offset_divisible_by_length_bulk_zero_positive() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_edge_positive() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(5);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(5).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -430,8 +439,8 @@ fn test_intersect_overlap_offset_divisible_by_length_edge_positive() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_edge_negative() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(5);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(5).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -462,8 +471,8 @@ fn test_intersect_overlap_offset_divisible_by_length_edge_negative() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_edge_start_zero() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(5);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(5).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -494,8 +503,8 @@ fn test_intersect_overlap_offset_divisible_by_length_edge_start_zero() {
 
 #[test]
 fn test_intersect_overlap_offset_divisible_by_length_edge_end_zero() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(5);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(5).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -526,8 +535,8 @@ fn test_intersect_overlap_offset_divisible_by_length_edge_end_zero() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_bulk_positive() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(3);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(3).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -564,8 +573,8 @@ fn test_intersect_overlap_offset_indivisible_by_length_bulk_positive() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_bulk_negative() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(3);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(3).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -602,8 +611,8 @@ fn test_intersect_overlap_offset_indivisible_by_length_bulk_negative() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_bulk_zero() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(3);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(3).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -640,8 +649,8 @@ fn test_intersect_overlap_offset_indivisible_by_length_bulk_zero() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_edge_start_positive() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(7);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(7).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -671,8 +680,8 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_start_positive() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_edge_start_negative() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(7);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(7).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -702,8 +711,8 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_start_negative() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_edge_start_zero() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(7);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(7).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -733,8 +742,8 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_start_zero() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_edge_end_positive() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(7);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(7).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -757,8 +766,8 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_end_positive() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_edge_end_negative() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(7);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(7).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -781,8 +790,8 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_end_negative() {
 
 #[test]
 fn test_intersect_overlap_offset_indivisible_by_length_edge_end_zero() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(7);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(7).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -805,8 +814,8 @@ fn test_intersect_overlap_offset_indivisible_by_length_edge_end_zero() {
 
 #[test]
 fn test_intersect_tumble_bulk_positive() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(10);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(10).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -829,8 +838,8 @@ fn test_intersect_tumble_bulk_positive() {
 
 #[test]
 fn test_intersect_tumble_bulk_negative() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(10);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(10).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -853,8 +862,8 @@ fn test_intersect_tumble_bulk_negative() {
 
 #[test]
 fn test_intersect_tumble_bulk_zero() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(10);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(10).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -877,8 +886,8 @@ fn test_intersect_tumble_bulk_zero() {
 
 #[test]
 fn test_intersect_tumble_edge_positive() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(10);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(10).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -902,8 +911,8 @@ fn test_intersect_tumble_edge_positive() {
 
 #[test]
 fn test_intersect_tumble_edge_negative() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(10);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(10).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -927,8 +936,8 @@ fn test_intersect_tumble_edge_negative() {
 
 #[test]
 fn test_intersect_tumble_edge_zero_start() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(10);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(10).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -951,8 +960,8 @@ fn test_intersect_tumble_edge_zero_start() {
 
 #[test]
 fn test_intersect_tumble_edge_zero_end() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(10);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(10).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -976,8 +985,8 @@ fn test_intersect_tumble_edge_zero_end() {
 
 #[test]
 fn test_intersect_gap_bulk_positive() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(13);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(13).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -1000,8 +1009,8 @@ fn test_intersect_gap_bulk_positive() {
 
 #[test]
 fn test_intersect_gap_bulk_negative() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(13);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(13).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -1024,8 +1033,8 @@ fn test_intersect_gap_bulk_negative() {
 
 #[test]
 fn test_intersect_gap_bulk_zero() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(13);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(13).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -1048,8 +1057,8 @@ fn test_intersect_gap_bulk_zero() {
 
 #[test]
 fn test_intersect_gap_gap_positive() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(13);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(13).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -1064,8 +1073,8 @@ fn test_intersect_gap_gap_positive() {
 
 #[test]
 fn test_intersect_gap_gap_negative() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(13);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(13).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -1080,8 +1089,8 @@ fn test_intersect_gap_gap_negative() {
 
 #[test]
 fn test_intersect_gap_edge_start_positive() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(13);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(13).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -1103,8 +1112,8 @@ fn test_intersect_gap_edge_start_positive() {
 
 #[test]
 fn test_intersect_gap_edge_start_negative() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(13);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(13).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -1127,8 +1136,8 @@ fn test_intersect_gap_edge_start_negative() {
 
 #[test]
 fn test_intersect_gap_edge_start_zero() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(13);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(13).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -1151,8 +1160,8 @@ fn test_intersect_gap_edge_start_zero() {
 
 #[test]
 fn test_intersect_gap_edge_end_positive() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(13);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(13).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -1168,8 +1177,8 @@ fn test_intersect_gap_edge_end_positive() {
 
 #[test]
 fn test_intersect_gap_edge_end_negative() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(13);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(13).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -1185,8 +1194,8 @@ fn test_intersect_gap_edge_end_negative() {
 
 #[test]
 fn test_intersect_gap_edge_end_zero() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(13);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(13).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -1202,8 +1211,8 @@ fn test_intersect_gap_edge_end_zero() {
 
 #[test]
 fn test_insert() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(5);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(5).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let mut windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -1226,8 +1235,8 @@ fn test_insert() {
 
 #[test]
 fn test_insert_far_from_align_to() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(5);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(5).unwrap();
     let align_to = Utc.with_ymd_and_hms(1970, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let mut windower = SlidingWindower::new(length, offset, align_to, close_times);
@@ -1252,9 +1261,41 @@ fn test_insert_far_from_align_to() {
 }
 
 #[test]
+fn test_insert_microsecond_consistent() {
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(5).unwrap();
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let mut windower = SlidingWindower::new(length, offset, align_to, close_times);
+
+    let watermark = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 17).unwrap();
+    let item_time = Utc
+        .with_ymd_and_hms(2023, 3, 16, 9, 0, 13)
+        .unwrap()
+        .with_nanosecond(500_000)
+        .unwrap();
+    assert_eq!(
+        windower.insert(&watermark, &item_time),
+        vec![Err(InsertError::Late(WindowKey(1))), Ok(WindowKey(2))]
+    );
+
+    // Insert another item, which should be in the same windows but
+    // only the microseconds differ.
+    let item_time = Utc
+        .with_ymd_and_hms(2023, 3, 16, 9, 0, 13)
+        .unwrap()
+        .with_nanosecond(400_000)
+        .unwrap();
+    assert_eq!(
+        windower.insert(&watermark, &item_time),
+        vec![Err(InsertError::Late(WindowKey(1))), Ok(WindowKey(2))]
+    );
+}
+
+#[test]
 fn test_drain_closed() {
-    let length = Duration::seconds(10);
-    let offset = Duration::seconds(5);
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(5).unwrap();
     let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
     let close_times = BTreeMap::new();
     let mut windower = SlidingWindower::new(length, offset, align_to, close_times);

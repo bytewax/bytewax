@@ -1,5 +1,5 @@
 use chrono::DateTime;
-use chrono::Duration;
+use chrono::TimeDelta;
 use chrono::Utc;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -48,13 +48,13 @@ use super::Windower;
 #[derive(Clone)]
 pub(crate) struct SessionWindow {
     #[pyo3(get)]
-    pub(crate) gap: Duration,
+    pub(crate) gap: TimeDelta,
 }
 
 #[pymethods]
 impl SessionWindow {
     #[new]
-    fn new(gap: Duration) -> (Self, WindowConfig) {
+    fn new(gap: TimeDelta) -> (Self, WindowConfig) {
         let self_ = Self { gap };
         let super_ = WindowConfig::new();
         (self_, super_)
@@ -70,7 +70,7 @@ impl WindowBuilder for SessionWindow {
 pub(crate) struct SessionWindower {
     /// How long to wait before considering
     /// the session closed.
-    gap: Duration,
+    gap: TimeDelta,
 
     /// State.
     /// A list of sessions that should always be ordered
@@ -83,7 +83,7 @@ pub(crate) struct SessionWindower {
 }
 
 impl SessionWindower {
-    pub(crate) fn builder(gap: Duration) -> impl Fn(Option<TdPyAny>) -> Box<dyn Windower> {
+    pub(crate) fn builder(gap: TimeDelta) -> impl Fn(Option<TdPyAny>) -> Box<dyn Windower> {
         move |resume_snapshot| {
             assert!(
                 gap.num_milliseconds() > 0,
@@ -163,7 +163,7 @@ impl SessionWindower {
 #[test]
 fn test_merge_sessions() {
     let mut windower = SessionWindower {
-        gap: Duration::seconds(5),
+        gap: TimeDelta::try_seconds(5).unwrap(),
         sessions: vec![],
         max_key: WindowKey(0),
     };
@@ -171,18 +171,18 @@ fn test_merge_sessions() {
     let start_time = Utc::now();
     windower.add_session(&start_time);
     // Then add a session at time +6
-    windower.add_session(&(start_time + Duration::seconds(6)));
+    windower.add_session(&(start_time + TimeDelta::try_seconds(6).unwrap()));
     // Now add a session at time +1, which
     // should be merged with the first one.
-    windower.add_session(&(start_time + Duration::seconds(1)));
+    windower.add_session(&(start_time + TimeDelta::try_seconds(1).unwrap()));
     assert_eq!(windower.sessions.len(), 3);
     windower.merge_sessions();
     // Now we should only have 2 sessions.
     assert_eq!(windower.sessions.len(), 2);
     // The first one should have been merged with the one we added last.
     assert_eq!(
-        windower.sessions[0].current_close_time(&Duration::zero()),
-        start_time + Duration::seconds(1)
+        windower.sessions[0].current_close_time(&TimeDelta::zero()),
+        start_time + TimeDelta::try_seconds(1).unwrap()
     );
 }
 
@@ -275,7 +275,7 @@ impl Windower for SessionWindower {
 #[test]
 fn test_insert() {
     let mut windower = SessionWindower {
-        gap: Duration::seconds(5),
+        gap: TimeDelta::try_seconds(5).unwrap(),
         sessions: vec![],
         max_key: WindowKey(0),
     };
@@ -290,12 +290,18 @@ fn test_insert() {
     let first_window = res[0].unwrap();
 
     // Now we try to insert a late item
-    let res = windower.insert(&watermark, &(watermark - Duration::seconds(1)));
+    let res = windower.insert(
+        &watermark,
+        &(watermark - TimeDelta::try_seconds(1).unwrap()),
+    );
     assert_eq!(res.len(), 1);
     assert!(res[0].is_err());
 
     // Now we insert an item that is out of the previous session
-    let res = windower.insert(&watermark, &(start_time + Duration::seconds(6)));
+    let res = windower.insert(
+        &watermark,
+        &(start_time + TimeDelta::try_seconds(6).unwrap()),
+    );
     assert_eq!(res.len(), 1);
     assert!(res[0].is_ok());
     let second_window = res[0].unwrap();
@@ -303,7 +309,10 @@ fn test_insert() {
     assert_ne!(first_window, second_window);
 
     // Finally insert an item that should be included in the latest window
-    let res = windower.insert(&watermark, &(start_time + Duration::seconds(7)));
+    let res = windower.insert(
+        &watermark,
+        &(start_time + TimeDelta::try_seconds(7).unwrap()),
+    );
     assert_eq!(res.len(), 1);
     assert!(res[0].is_ok());
     let third_window = res[0].unwrap();
@@ -316,7 +325,7 @@ fn test_insert() {
 /// - self.start_time can never change
 /// - self.latest_event_time has to be valid, which is done through Session::try_insert
 mod session {
-    use chrono::{DateTime, Duration, Utc};
+    use chrono::{DateTime, TimeDelta, Utc};
     use pyo3::{prelude::*, types::PyDict};
 
     use crate::{
@@ -373,17 +382,17 @@ mod session {
 
         /// Returns the current close time. This changes
         /// when a more recent event is added to the session.
-        pub fn current_close_time(&self, gap: &Duration) -> DateTime<Utc> {
+        pub fn current_close_time(&self, gap: &TimeDelta) -> DateTime<Utc> {
             self.latest_event_time + *gap
         }
 
         /// Check if this session is currently open at the given time.
-        pub fn is_open_at(&self, time: &DateTime<Utc>, gap: &Duration) -> bool {
+        pub fn is_open_at(&self, time: &DateTime<Utc>, gap: &TimeDelta) -> bool {
             self.current_close_time(gap) > *time
         }
 
         /// Given an item_time, check if the item belongs to this session.
-        pub fn contains(&self, item_time: &DateTime<Utc>, gap: &Duration) -> bool {
+        pub fn contains(&self, item_time: &DateTime<Utc>, gap: &TimeDelta) -> bool {
             *item_time >= self.start && self.is_open_at(item_time, gap)
         }
 
@@ -391,7 +400,7 @@ mod session {
         /// check if the item is in the current session, and
         /// update self.latest_event_time if needed.
         /// Returns true if the item was added and false otherwise.
-        pub fn try_insert(&mut self, item_time: &DateTime<Utc>, gap: &Duration) -> bool {
+        pub fn try_insert(&mut self, item_time: &DateTime<Utc>, gap: &TimeDelta) -> bool {
             if self.contains(item_time, gap) {
                 self.latest_event_time = self.latest_event_time.max(*item_time);
                 true
