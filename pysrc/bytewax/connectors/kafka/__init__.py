@@ -73,6 +73,17 @@ V2 = TypeVar("V2")
 MaybeStrBytes: TypeAlias = Union[str, bytes, None]
 """Kafka message keys and values are optional."""
 
+# Set up metrics for Kafka
+#
+# This is a global var, since the Prometheus REGISTRY
+# is also global.
+BYTEWAX_CONSUMER_LAG_GAUGE = Gauge(
+    "bytewax_kafka_consumer_lag",
+    "Difference between last offset on the broker "
+    "and the currently consumed offset.",
+    ["step_id", "topic", "partition"],
+)
+
 
 @dataclass(frozen=True)
 class KafkaSourceMessage(Generic[K, V]):
@@ -201,7 +212,6 @@ class _KafkaSourcePartition(
         resume_state: Optional[int],
         batch_size: int,
         raise_on_errors: bool,
-        gauge: Gauge,
     ):
         self._offset = starting_offset if resume_state is None else resume_state
         print(f"starting offset: {starting_offset}")
@@ -222,7 +232,6 @@ class _KafkaSourcePartition(
             "topic": topic,
             "partition": part_idx,
         }
-        self._consumer_lag_gauge = gauge
 
     def _process_stats(self, json_stats: str):
         """Process stats collected by librdkafka.
@@ -239,7 +248,7 @@ class _KafkaSourcePartition(
         # The lag value here would be calculated incorrectly when using values
         # like OFFSET_STORED, or OFFSET_BEGINNING
         if self._offset > 0:
-            self._consumer_lag_gauge.labels(**self._metrics_labels).set(
+            BYTEWAX_CONSUMER_LAG_GAUGE.labels(**self._metrics_labels).set(
                 partition_stats["ls_offset"] - self._offset
             )
 
@@ -361,13 +370,6 @@ class KafkaSource(FixedPartitionedSource[SerializedKafkaSourceResult, Optional[i
         self._add_config = {} if add_config is None else add_config
         self._batch_size = batch_size
         self._raise_on_errors = raise_on_errors
-        # Set up metrics for Kafka
-        self._consumer_lag_gauge = Gauge(
-            "bytewax_kafka_consumer_lag",
-            "Difference between last offset on the broker "
-            "and the currently consumed offset.",
-            ["step_id", "topic", "partition"],
-        )
 
     def list_parts(self) -> List[str]:
         """Each Kafka partition is an input partition."""
@@ -409,7 +411,6 @@ class KafkaSource(FixedPartitionedSource[SerializedKafkaSourceResult, Optional[i
             resume_state,
             self._batch_size,
             self._raise_on_errors,
-            self._consumer_lag_gauge,
         )
 
 
