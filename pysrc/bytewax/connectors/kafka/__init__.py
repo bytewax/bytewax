@@ -201,6 +201,7 @@ class _KafkaSourcePartition(
         resume_state: Optional[int],
         batch_size: int,
         raise_on_errors: bool,
+        gauge: Gauge,
     ):
         self._offset = starting_offset if resume_state is None else resume_state
         print(f"starting offset: {starting_offset}")
@@ -215,20 +216,13 @@ class _KafkaSourcePartition(
         self._batch_size = batch_size
         self._eof = False
         self._raise_on_errors = raise_on_errors
-
-        # Set up metrics for Kafka
-        self._consumer_lag = Gauge(
-            "bytewax_kafka_consumer_lag",
-            "Difference between last offset on the broker "
-            "and the currently consumed offset.",
-            ["step_id", "topic", "partition"],
-        )
         # Labels to use when recording metrics
         self._metrics_labels = {
             "step_id": step_id,
-            "topic": self._topic,
-            "partition": str(self._part_idx),
+            "topic": topic,
+            "partition": part_idx,
         }
+        self._consumer_lag_gauge = gauge
 
     def _process_stats(self, json_stats: str):
         """Process stats collected by librdkafka.
@@ -245,7 +239,7 @@ class _KafkaSourcePartition(
         # The lag value here would be calculated incorrectly when using values
         # like OFFSET_STORED, or OFFSET_BEGINNING
         if self._offset > 0:
-            self._consumer_lag.labels(**self._metrics_labels).set(
+            self._consumer_lag_gauge.labels(**self._metrics_labels).set(
                 partition_stats["ls_offset"] - self._offset
             )
 
@@ -367,6 +361,13 @@ class KafkaSource(FixedPartitionedSource[SerializedKafkaSourceResult, Optional[i
         self._add_config = {} if add_config is None else add_config
         self._batch_size = batch_size
         self._raise_on_errors = raise_on_errors
+        # Set up metrics for Kafka
+        self._consumer_lag_gauge = Gauge(
+            "bytewax_kafka_consumer_lag",
+            "Difference between last offset on the broker "
+            "and the currently consumed offset.",
+            ["step_id", "topic", "partition"],
+        )
 
     def list_parts(self) -> List[str]:
         """Each Kafka partition is an input partition."""
@@ -408,6 +409,7 @@ class KafkaSource(FixedPartitionedSource[SerializedKafkaSourceResult, Optional[i
             resume_state,
             self._batch_size,
             self._raise_on_errors,
+            self._consumer_lag_gauge,
         )
 
 
@@ -532,7 +534,9 @@ class KafkaSink(DynamicSink[SerializedKafkaSinkMessage]):
         self._topic = topic
         self._add_config = {} if add_config is None else add_config
 
-    def build(self, worker_index: int, worker_count: int) -> _KafkaSinkPartition:
+    def build(
+        self, _step_id: str, worker_index: int, worker_count: int
+    ) -> _KafkaSinkPartition:
         """See ABC docstring."""
         config = {
             "bootstrap.servers": ",".join(self._brokers),
