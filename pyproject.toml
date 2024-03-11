@@ -52,6 +52,7 @@ kafka = [
 test = [
     "myst-docutils==0.17.0",
     "pytest==7.1.0",
+    "pytest-benchmark>=3.4",
     "sybil==6.0.3",
 ]
 
@@ -66,7 +67,7 @@ long_description = "file: README.md"
 long_description_content_type = "text/markdown"
 
 [tool.pytest.ini_options]
-addopts = "-v -p no:doctest"
+addopts = "-v -p no:doctest --benchmark-skip"
 testpaths = [
     "docs",
     "pytests",
