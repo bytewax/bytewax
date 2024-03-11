@@ -164,16 +164,14 @@ where
         watermark.unwrap_or(DateTime::<Utc>::MIN_UTC)
     }
 
-    fn time_for(&mut self, event: &TdPyAny) -> DateTime<Utc> {
-        Python::with_gil(|py| {
-            self.dt_getter
-                // Call the event time getter function with the event as parameter
-                .call1(py, (event.clone_ref(py),))
-                .unwrap()
-                // Convert to DateTime<Utc>
-                .extract(py)
-                .unwrap()
-        })
+    fn time_for(&mut self, py: Python, event: &TdPyAny) -> DateTime<Utc> {
+        self.dt_getter
+            // Call the event time getter function with the event as parameter
+            .call1(py, (event.clone_ref(py),))
+            .unwrap()
+            // Convert to DateTime<Utc>
+            .extract(py)
+            .unwrap()
     }
 
     fn snapshot(&self) -> TdPyAny {

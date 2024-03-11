@@ -81,7 +81,7 @@ where
     ///   logic will not be called again.
     ///
     /// This must return values to be emitted downstream.
-    fn on_awake(&mut self, next_value: Poll<Option<V>>) -> I;
+    fn on_awake(&mut self, py: Python, next_value: Poll<Option<V>>) -> I;
 
     /// Called when [`StatefulUnary::stateful_unary`] is deciding if
     /// the logic for this key is still relevant.
@@ -426,46 +426,48 @@ where
                             let mut output_handle = output_wrapper.activate();
                             let mut output_session = output_handle.session(&output_cap);
 
-                            // Drain to re-use allocation.
-                            for (key, next_value) in tmp_awake_logic_with.drain(..) {
-                                // Ok, let's actually run the logic code!
-                                // Pull out or build the logic for the
-                                // current key.
-                                let mut logic = current_logic
-                                    .remove(&key)
-                                    .unwrap_or_else(|| logic_builder(None));
-                                let output = with_timer!(logic_histogram, labels, logic.on_awake(next_value));
-                                output_session.give_iterator(
-                                    output.into_iter().map(|item| (key.clone(), item)),
-                                );
+                            Python::with_gil(|py| {
+                                // Drain to re-use allocation.
+                                for (key, next_value) in tmp_awake_logic_with.drain(..) {
+                                    // Ok, let's actually run the logic code!
+                                    // Pull out or build the logic for the
+                                    // current key.
+                                    let mut logic = current_logic
+                                        .remove(&key)
+                                        .unwrap_or_else(|| logic_builder(None));
+                                    let output = with_timer!(logic_histogram, labels, logic.on_awake(py, next_value));
+                                    output_session.give_iterator(
+                                        output.into_iter().map(|item| (key.clone(), item)),
+                                    );
 
-                                // Figure out if we should discard it.
-                                let fate = logic.fate();
-                                match fate {
-                                    LogicFate::Discard => {
-                                        // Remove any pending awake times,
-                                        // since that's part of the state.
-                                        current_next_awake.remove(&key);
-
-                                        // Do not re-insert the
-                                        // logic. It'll be dropped.
-                                    }
-                                    LogicFate::Retain => {
-                                        // If we don't discard it, ask
-                                        // when to wake up next and
-                                        // overwrite that.
-                                        if let Some(next_awake) = logic.next_awake() {
-                                            current_next_awake.insert(key.clone(), next_awake);
-                                        } else {
+                                    // Figure out if we should discard it.
+                                    let fate = logic.fate();
+                                    match fate {
+                                        LogicFate::Discard => {
+                                            // Remove any pending awake times,
+                                            // since that's part of the state.
                                             current_next_awake.remove(&key);
+
+                                            // Do not re-insert the
+                                            // logic. It'll be dropped.
                                         }
+                                        LogicFate::Retain => {
+                                            // If we don't discard it, ask
+                                            // when to wake up next and
+                                            // overwrite that.
+                                            if let Some(next_awake) = logic.next_awake() {
+                                                current_next_awake.insert(key.clone(), next_awake);
+                                            } else {
+                                                current_next_awake.remove(&key);
+                                            }
 
-                                        current_logic.insert(key.clone(), logic);
-                                    }
-                                };
+                                            current_logic.insert(key.clone(), logic);
+                                        }
+                                    };
 
-                                awoken_keys_buffer.insert(key);
-                            }
+                                    awoken_keys_buffer.insert(key);
+                                }
+                            });
 
                             // Determine the fate of each key's logic at
                             // the end of each epoch. If a key wasn't
@@ -485,34 +487,35 @@ where
                                 // Go through all keys awoken in this
                                 // epoch. This might involve keys from the
                                 // previous activation.
-                                for state_key in std::mem::take(&mut awoken_keys_buffer) {
-                                    // Now snapshot the logic and next
-                                    // awake at value, if any.
-                                    let change = if let Some(logic) = current_logic.get(&state_key)
-                                    {
-                                        let logic_state = with_timer!(snapshot_histogram, labels, logic.snapshot());
-                                        let next_awake =
-                                            current_next_awake.get(&state_key).cloned();
-                                        let state = unwrap_any!(Python::with_gil(
-                                            |py| -> PyResult<PyObject> {
-                                                let state = PyDict::new(py);
-                                                state.set_item("logic", logic_state)?;
-                                                state.set_item("next_awake", next_awake)?;
-                                                Ok(state.into())
-                                            }
-                                        ));
-                                        StateChange::Upsert(state.into())
-                                    } else {
-                                        // It's ok if there's no logic,
-                                        // because on that logic's last
-                                        // awake it might have had a
-                                        // LogicFate::Discard and been
-                                        // dropped.
-                                        StateChange::Discard
-                                    };
-                                    let snap = Snapshot(step_id.clone(), state_key, change);
-                                    change_session.give(snap);
-                                }
+                                Python::with_gil(|py| {
+                                    for state_key in std::mem::take(&mut awoken_keys_buffer) {
+                                        // Now snapshot the logic and next
+                                        // awake at value, if any.
+                                        let change = if let Some(logic) = current_logic.get(&state_key)
+                                        {
+                                            let logic_state = with_timer!(snapshot_histogram, labels, logic.snapshot());
+                                            let next_awake =
+                                                current_next_awake.get(&state_key).cloned();
+                                            let state = unwrap_any!(|| -> PyResult<PyObject> {
+                                                    let state = PyDict::new(py);
+                                                    state.set_item("logic", logic_state)?;
+                                                    state.set_item("next_awake", next_awake)?;
+                                                    Ok(state.into())
+                                                }()
+                                            );
+                                            StateChange::Upsert(state.into())
+                                        } else {
+                                            // It's ok if there's no logic,
+                                            // because on that logic's last
+                                            // awake it might have had a
+                                            // LogicFate::Discard and been
+                                            // dropped.
+                                            StateChange::Discard
+                                        };
+                                        let snap = Snapshot(step_id.clone(), state_key, change);
+                                        change_session.give(snap);
+                                    }
+                                });
 
                                 if let Some(loads) = loads_inbuf.remove(&epoch) {
                                     for (worker, (key, change)) in loads {
