@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Generator, List
+from typing import Generator, List, Optional
 
 import bytewax.operators as op
 import bytewax.operators.window as w
@@ -20,7 +20,7 @@ class _NumberSource(StatefulSourcePartition):
     def close(self) -> None:
         pass
 
-    def next_awake(self) -> datetime | None:
+    def next_awake(self) -> Optional[datetime]:
         return None
 
     def _record_gen(self) -> Generator[List[datetime], None, None]:
