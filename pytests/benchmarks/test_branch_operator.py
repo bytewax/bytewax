@@ -12,7 +12,7 @@ BATCH_SIZE = 100_000
 BATCH_COUNT = 10
 
 
-class _BatchDateTimeSource(StatefulSourcePartition):
+class _BatchNumberSource(StatefulSourcePartition):
     def __init__(self, i: int) -> None:
         self.i = i
         self.records = self._record_gen()
@@ -23,24 +23,22 @@ class _BatchDateTimeSource(StatefulSourcePartition):
     def next_awake(self) -> Optional[datetime]:
         return None
 
-    def _record_gen(self) -> Generator[List[datetime], None, None]:
-        yield [
-            datetime.now(tz=timezone.utc) + timedelta(seconds=i) for i in range(self.i)
-        ]
+    def _record_gen(self) -> Generator[List[int], None, None]:
+        yield list(range(0, self.i))
 
-    def next_batch(self, *args, **kwargs) -> List[datetime]:
+    def next_batch(self, *args, **kwargs) -> List[int]:
         return next(self.records)
 
     def snapshot(self) -> None:
         return None
 
 
-class BatchDatetimeInput(FixedPartitionedSource):
+class BatchNumbersInput(FixedPartitionedSource):
     def __init__(self, i: int) -> None:
         self.i = i
 
-    def build_part(self, *args, **kwargs) -> _BatchDateTimeSource:
-        return _BatchDateTimeSource(self.i)
+    def build_part(self, *args, **kwargs) -> _BatchNumberSource:
+        return _BatchNumberSource(self.i)
 
     def list_parts(self) -> List[str]:
         return ["single"]
@@ -55,28 +53,18 @@ window = w.TumblingWindow(
 )
 
 flow = Dataflow("bench")
-(
-    op.input("in", flow, BatchDatetimeInput(BATCH_SIZE))
-    .then(op.flat_map, "flat-map", lambda x: (x for _ in range(BATCH_COUNT)))
-    .then(op.key_on, "key-on", lambda _: "x")
-    .then(
-        w.fold_window,
-        "fold-window",
-        clock_config,
-        window,
-        lambda: None,
-        lambda s, _: s,
-    )
-    .then(op.filter, "filter_all", lambda _: False)
-    .then(op.output, "stdout", StdOutSink())
-)
+inp = op.input("in", flow, BatchNumbersInput(BATCH_SIZE))
+batches = op.flat_map("flat-map", inp, lambda x: (x for _ in range(BATCH_COUNT)))
+branch_out = op.branch("evens_and_odds", batches, lambda x: x / 2 == 0)
+merged = op.merge("merge_streams", branch_out.trues, branch_out.falses)
+op.output("stdout", merged, StdOutSink())
 
 
-def test_fold_window_run_main(benchmark):
+def test_branch_run_main(benchmark):
     benchmark.pedantic(run_main, args=(flow,))
 
 
-def test_fold_window_cluster_main(benchmark):
+def test_branch_cluster_main(benchmark):
     benchmark.pedantic(
         cluster_main,
         args=(flow,),
