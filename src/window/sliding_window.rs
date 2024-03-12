@@ -134,21 +134,15 @@ impl SlidingWindower {
         // calcuate the first window start time; the zeroth window is
         // the last window just missed by the current time.
         let (first_window_idx, since_close_of_zeroth_window) = {
-            // [`TimeDelta::num_microseconds`] maxes out at 2^63 which
-            // is ~200,000 years so we'll probably be fine. Python
-            // datetimes do not support nanoseconds so we can ignore
-            // those.
             let (quo, rem) = Integer::div_mod_floor(
-                &since_close_of_origin_window.num_microseconds().expect(
-                    "window assignment overflow; move `align_to` closer to data timestamps",
-                ),
-                &self
-                    .offset
-                    .num_microseconds()
-                    .expect("offset overflow; decrease offset"),
+                &since_close_of_origin_window.num_nanoseconds_full(),
+                &self.offset.num_nanoseconds_full(),
             );
 
-            (quo + 1, TimeDelta::microseconds(rem))
+            (
+                TryInto::<i64>::try_into(quo).expect("window overflow; timestamp too large") + 1,
+                TimeDelta::nanoseconds_full(rem).unwrap(),
+            )
         };
         // Go back to the end of the zeroth window, then twiddle to
         // get the start of the first window.
@@ -1285,6 +1279,38 @@ fn test_insert_microsecond_consistent() {
         .with_ymd_and_hms(2023, 3, 16, 9, 0, 13)
         .unwrap()
         .with_nanosecond(400_000)
+        .unwrap();
+    assert_eq!(
+        windower.insert(&watermark, &item_time),
+        vec![Err(InsertError::Late(WindowKey(1))), Ok(WindowKey(2))]
+    );
+}
+
+#[test]
+fn test_insert_nanosecond_consistent() {
+    let length = TimeDelta::try_seconds(10).unwrap();
+    let offset = TimeDelta::try_seconds(5).unwrap();
+    let align_to = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 0).unwrap();
+    let close_times = BTreeMap::new();
+    let mut windower = SlidingWindower::new(length, offset, align_to, close_times);
+
+    let watermark = Utc.with_ymd_and_hms(2023, 3, 16, 9, 0, 17).unwrap();
+    let item_time = Utc
+        .with_ymd_and_hms(2023, 3, 16, 9, 0, 13)
+        .unwrap()
+        .with_nanosecond(500)
+        .unwrap();
+    assert_eq!(
+        windower.insert(&watermark, &item_time),
+        vec![Err(InsertError::Late(WindowKey(1))), Ok(WindowKey(2))]
+    );
+
+    // Insert another item, which should be in the same windows but
+    // only the microseconds differ.
+    let item_time = Utc
+        .with_ymd_and_hms(2023, 3, 16, 9, 0, 13)
+        .unwrap()
+        .with_nanosecond(400)
         .unwrap();
     assert_eq!(
         windower.insert(&watermark, &item_time),

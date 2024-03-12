@@ -33,10 +33,12 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::ops::Neg;
 use std::rc::Rc;
 use std::task::Poll;
 
 use chrono::prelude::*;
+use chrono::TimeDelta;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyclass::CompareOp;
@@ -63,6 +65,62 @@ use self::session_window::SessionWindow;
 use self::sliding_window::SlidingWindow;
 use self::tumbling_window::TumblingWindow;
 use clock::{event_time_clock::EventClockConfig, system_clock::SystemClockConfig, ClockConfig};
+
+/// Extentions to [`TimeDelta`] to support getting [`i128`] values.
+///
+/// Copied from
+/// https://github.com/danwilliams/rubedo/blob/6134645e603a6a3ffde71d31f9c9a2d16700581a/crates/rubedo/src/chrono.rs
+/// which according to
+/// https://github.com/chronotope/chrono/issues/1392 should eventually
+/// be merged, but isn't yet.
+pub(crate) trait TimeDeltaExt {
+    const MAX_NANOSECONDS: i64 = i64::MAX;
+    const MAX_NANOSECONDS_FULL: i128 = i64::MAX as i128 * 1_000 * 1_000;
+    const MIN_NANOSECONDS: i64 = i64::MIN;
+    const MIN_NANOSECONDS_FULL: i128 = -i64::MAX as i128 * 1_000 * 1_000;
+
+    /// Create a new time delta with this number of nanoseconds.
+    ///
+    /// This might not succeed if overflow.
+    fn nanoseconds_full(nanoseconds: i128) -> Option<Self>
+    where
+        Self: Sized;
+
+    /// Return the total number of nanoseconds in this time delta.
+    ///
+    /// This will always succeed because the internal data model
+    /// results in a smaller range than an [`i128`].
+    fn num_nanoseconds_full(&self) -> i128;
+}
+
+impl TimeDeltaExt for TimeDelta {
+    fn nanoseconds_full(nanoseconds: i128) -> Option<Self> {
+        if !(Self::MIN_NANOSECONDS_FULL..=Self::MAX_NANOSECONDS_FULL).contains(&nanoseconds) {
+            None
+        } else if (i128::from(Self::MIN_NANOSECONDS)..=i128::from(Self::MAX_NANOSECONDS))
+            .contains(&nanoseconds)
+        {
+            Some(Self::nanoseconds(nanoseconds as i64))
+        } else if nanoseconds < 0 {
+            Self::try_seconds(nanoseconds.abs().div_euclid(1_000_000_000_i128).neg() as i64)?
+                .checked_sub(&Self::nanoseconds(
+                    nanoseconds.abs().rem_euclid(1_000_000_000_i128) as i64,
+                ))
+        } else {
+            Self::try_seconds(nanoseconds.div_euclid(1_000_000_000_i128) as i64)?.checked_add(
+                &Self::nanoseconds(nanoseconds.rem_euclid(1_000_000_000_i128) as i64),
+            )
+        }
+    }
+
+    fn num_nanoseconds_full(&self) -> i128 {
+        // This will actually never saturate, as Chrono uses i64
+        // internally.
+        i128::from(self.num_seconds())
+            .saturating_mul(1_000_000_000)
+            .saturating_add(i128::from(self.subsec_nanos()))
+    }
+}
 
 /// Base class for a windower config.
 ///
