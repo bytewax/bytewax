@@ -244,7 +244,9 @@ class BatchInput(DynamicSource[X]):
         self.records = records
 
     @override
-    def build(self, worker_index: int, worker_count: int) -> _BatchSource[X]:
+    def build(
+        self, step_id: str, worker_index: int, worker_count: int
+    ) -> _BatchSource[X]:
         return _BatchSource(self.batch_count, self.records)
 
 
