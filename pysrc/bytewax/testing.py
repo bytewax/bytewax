@@ -235,11 +235,11 @@ class BatchInput(DynamicSource[X]):
 
     :arg batch_count: How many batches to generate for each worker.
 
-    :arg records: A batch of records to be returned in each call to `next_batch`.
+    :arg records: A batch of records to be returned in every call to `next_batch`.
 
     """
 
-    def __init__(self, batch_count, records: Iterable[X]) -> None:
+    def __init__(self, batch_count: int, records: Iterable[X]) -> None:
         self.batch_count = batch_count
         self.records = records
 
