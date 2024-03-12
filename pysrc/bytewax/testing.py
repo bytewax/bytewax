@@ -1,7 +1,7 @@
 """Helper tools for testing dataflows."""
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from itertools import islice
+from itertools import islice, repeat
 from typing import Any, Iterable, Iterator, List, Optional, Union
 
 from typing_extensions import override
@@ -13,8 +13,10 @@ from bytewax._bytewax import (
 )
 from bytewax.inputs import (
     AbortExecution,
+    DynamicSource,
     FixedPartitionedSource,
     StatefulSourcePartition,
+    StatelessSourcePartition,
     X,
 )
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
@@ -212,6 +214,38 @@ class TestingSink(DynamicSink[X]):
         self, step_id: str, worker_index: int, worker_count: int
     ) -> _ListSinkPartition[X]:
         return _ListSinkPartition(self._ls)
+
+
+class _BatchSource(StatelessSourcePartition[X]):
+    def __init__(self, batch_count: int, records: Iterable[X]) -> None:
+        self.batch_count = batch_count
+        self.records = repeat(records, batch_count)
+
+    @override
+    def next_awake(self) -> Optional[datetime]:
+        return None
+
+    @override
+    def next_batch(self, *args, **kwargs) -> Iterable[X]:
+        return next(self.records)
+
+
+class BatchInput(DynamicSource[X]):
+    """Create batches of items for testing.
+
+    :arg batch_count: How many batches to generate for each worker.
+
+    :arg records: A batch of records to be returned in each call to `next_batch`.
+
+    """
+
+    def __init__(self, batch_count, records: Iterable[X]) -> None:
+        self.batch_count = batch_count
+        self.records = records
+
+    @override
+    def build(self, worker_index: int, worker_count: int) -> _BatchSource[X]:
+        return _BatchSource(self.batch_count, self.records)
 
 
 def poll_next_batch(part, timeout=timedelta(seconds=5)):

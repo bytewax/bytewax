@@ -1,50 +1,13 @@
 from datetime import datetime, timedelta, timezone
-from typing import Generator, List, Optional
 
 import bytewax.operators as op
 import bytewax.operators.window as w
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
-from bytewax.testing import cluster_main, run_main
+from bytewax.testing import BatchInput, cluster_main, run_main
 
 BATCH_SIZE = 100_000
 BATCH_COUNT = 10
-
-
-class _BatchDateTimeSource(StatefulSourcePartition):
-    def __init__(self, i: int) -> None:
-        self.i = i
-        self.records = self._record_gen()
-
-    def close(self) -> None:
-        pass
-
-    def next_awake(self) -> Optional[datetime]:
-        return None
-
-    def _record_gen(self) -> Generator[List[datetime], None, None]:
-        yield [
-            datetime.now(tz=timezone.utc) + timedelta(seconds=i) for i in range(self.i)
-        ]
-
-    def next_batch(self, *args, **kwargs) -> List[datetime]:
-        return next(self.records)
-
-    def snapshot(self) -> None:
-        return None
-
-
-class BatchDatetimeInput(FixedPartitionedSource):
-    def __init__(self, i: int) -> None:
-        self.i = i
-
-    def build_part(self, *args, **kwargs) -> _BatchDateTimeSource:
-        return _BatchDateTimeSource(self.i)
-
-    def list_parts(self) -> List[str]:
-        return ["single"]
-
 
 clock_config = w.EventClockConfig(
     dt_getter=lambda x: x,
@@ -54,10 +17,12 @@ window = w.TumblingWindow(
     align_to=datetime(2022, 1, 1, tzinfo=timezone.utc), length=timedelta(minutes=1)
 )
 
+records = [
+    datetime.now(tz=timezone.utc) + timedelta(seconds=i) for i in range(BATCH_SIZE)
+]
 flow = Dataflow("bench")
 (
-    op.input("in", flow, BatchDatetimeInput(BATCH_SIZE))
-    .then(op.flat_map, "flat-map", lambda x: (x for _ in range(BATCH_COUNT)))
+    op.input("in", flow, BatchInput(BATCH_COUNT, records))
     .then(op.key_on, "key-on", lambda _: "x")
     .then(
         w.fold_window,
