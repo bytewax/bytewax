@@ -173,7 +173,7 @@ class TestingSource(FixedPartitionedSource[X, int]):
 
     @override
     def build_part(
-        self, for_part: str, resume_state: Optional[int]
+        self, step_id: str, for_part: str, resume_state: Optional[int]
     ) -> _IterSourcePartition[X]:
         return _IterSourcePartition(self._ib, self._batch_size, resume_state)
 
@@ -208,7 +208,9 @@ class TestingSink(DynamicSink[X]):
         self._ls = ls
 
     @override
-    def build(self, worker_index: int, worker_count: int) -> _ListSinkPartition[X]:
+    def build(
+        self, step_id: str, worker_index: int, worker_count: int
+    ) -> _ListSinkPartition[X]:
         return _ListSinkPartition(self._ls)
 
 

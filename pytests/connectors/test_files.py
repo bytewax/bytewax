@@ -98,7 +98,7 @@ def test_file_input_supports_blank_lines():
 def test_file_input_resume_state():
     file_path = Path("pytests/fixtures/dir_input/partition-1.txt")
     inp = FileSource(file_path, batch_size=1, get_fs_id=lambda _dir: "SHARED")
-    part = inp.build_part(f"SHARED::{file_path}", None)
+    part = inp.build_part("test", f"SHARED::{file_path}", None)
     assert part.next_batch() == ["one1"]
     assert part.next_batch() == ["one2"]
     resume_state = part.snapshot()
@@ -107,7 +107,7 @@ def test_file_input_resume_state():
     part.close()
 
     inp = FileSource(file_path, batch_size=1, get_fs_id=lambda _dir: "SHARED")
-    part = inp.build_part(f"SHARED::{file_path}", resume_state)
+    part = inp.build_part("test", f"SHARED::{file_path}", resume_state)
     assert part.snapshot() == resume_state
     assert part.next_batch() == ["one3"]
     assert part.next_batch() == ["one4"]
@@ -235,7 +235,7 @@ def test_file_output_resume_state(tmp_path):
     file_path = tmp_path / "out.txt"
 
     out = FileSink(file_path)
-    part = out.build_part(str(file_path), None)
+    part = out.build_part("test", str(file_path), None)
     part.write_batch(["one1"])
     part.write_batch(["one2"])
     part.write_batch(["one3"])
@@ -244,7 +244,7 @@ def test_file_output_resume_state(tmp_path):
     part.close()
 
     out = FileSink(file_path)
-    part = out.build_part(str(file_path), resume_state)
+    part = out.build_part("test", str(file_path), resume_state)
     assert part.snapshot() == resume_state
     part.write_batch(["two4"])
     part.write_batch(["two5"])

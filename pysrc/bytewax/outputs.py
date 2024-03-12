@@ -129,6 +129,7 @@ class FixedPartitionedSink(Sink[Tuple[str, X]], Generic[X, S]):
     @abstractmethod
     def build_part(
         self,
+        step_id: str,
         for_part: str,
         resume_state: Optional[S],
     ) -> StatefulSinkPartition[X, S]:
@@ -141,6 +142,8 @@ class FixedPartitionedSink(Sink[Tuple[str, X]], Generic[X, S]):
         Do not pre-build state about a partition in the
         constructor. All state must be derived from `resume_state` for
         recovery to work properly.
+
+        :arg step_id: The step_id of the output operator.
 
         :arg for_part: Which partition to build. Will always be one of
             the keys returned by {py:obj}`list_parts` on this worker.
@@ -191,10 +194,14 @@ class DynamicSink(Sink[X]):
     """
 
     @abstractmethod
-    def build(self, worker_index: int, worker_count: int) -> StatelessSinkPartition[X]:
+    def build(
+        self, step_id: str, worker_index: int, worker_count: int
+    ) -> StatelessSinkPartition[X]:
         """Build an output partition for a worker.
 
         Will be called once on each worker.
+
+        :arg step_id: The step_id of the output operator.
 
         :arg worker_index: Index of this worker.
 

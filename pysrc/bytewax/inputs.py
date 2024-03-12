@@ -163,6 +163,7 @@ class FixedPartitionedSource(Source[X], Generic[X, S]):
     @abstractmethod
     def build_part(
         self,
+        step_id: str,
         for_part: str,
         resume_state: Optional[S],
     ) -> StatefulSourcePartition[X, S]:
@@ -175,6 +176,9 @@ class FixedPartitionedSource(Source[X], Generic[X, S]):
         Do not pre-build state about a partition in the
         constructor. All state must be derived from `resume_state` for
         recovery to work properly.
+
+
+        :arg step_id: The step_id of the input operator.
 
         :arg for_part: Which partition to build. Will always be one of
             the keys returned by {py:obj}`list_parts` on this worker.
@@ -257,11 +261,13 @@ class DynamicSource(Source[X]):
 
     @abstractmethod
     def build(
-        self, worker_index: int, worker_count: int
+        self, step_id: str, worker_index: int, worker_count: int
     ) -> StatelessSourcePartition[X]:
         """Build an input source for a worker.
 
         Will be called once on each worker.
+
+        :arg step_id: The step_id of the input operator.
 
         :arg worker_index: Index of this worker. Workers are zero-indexed.
 
@@ -379,7 +385,7 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
 
     @override
     def build_part(
-        self, for_part: str, resume_state: Optional[None]
+        self, _step_id: str, for_part: str, resume_state: Optional[None]
     ) -> _SimplePollingPartition[X]:
         now = datetime.now(timezone.utc)
         return _SimplePollingPartition(

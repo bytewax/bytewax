@@ -51,7 +51,9 @@ def test_dynamic_source_next_batch_iterator():
 
     class TestSource(DynamicSource[int]):
         @override
-        def build(self, worker_index: int, worker_count: int) -> TestPartition:
+        def build(
+            self, _step_id: str, _worker_index: int, _worker_count: int
+        ) -> TestPartition:
             return TestPartition()
 
     flow = Dataflow("test_df")
@@ -88,7 +90,9 @@ def test_fixed_partitioned_source_next_batch_iterator():
             return ["one"]
 
         @override
-        def build_part(self, for_part: str, resume_state: None) -> TestPartition:
+        def build_part(
+            self, step_id: str, for_part: str, resume_state: None
+        ) -> TestPartition:
             return TestPartition()
 
     flow = Dataflow("test_df")
@@ -136,7 +140,9 @@ class DynamicMetronomeSource(DynamicSource[Tuple[datetime, int]]):
         self._count = count
 
     @override
-    def build(self, worker_index: int, worker_count: int) -> _DynamicMetronomePartition:
+    def build(
+        self, _step_id: str, worker_index: int, worker_count: int
+    ) -> _DynamicMetronomePartition:
         now = datetime.now(timezone.utc)
         return _DynamicMetronomePartition(self._interval, self._count, now, 0)
 
@@ -221,7 +227,7 @@ class MetronomeSource(
 
     @override
     def build_part(
-        self, for_part: str, resume_state: Optional[Tuple[datetime, int]]
+        self, step_id: str, for_part: str, resume_state: Optional[Tuple[datetime, int]]
     ) -> _MetronomePartition:
         if resume_state is not None:
             next_awake, n = resume_state

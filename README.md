@@ -232,7 +232,7 @@ class PsqlOutput(FixedPartitionedSink):
     def list_parts(self):
         return ["single"]
 
-    def build_part(for_part, resume_state):
+    def build_part(step_id, for_part, resume_state):
         return PsqlSink()
 ```
 

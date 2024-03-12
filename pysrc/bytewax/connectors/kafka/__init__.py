@@ -39,12 +39,14 @@ Or the custom operators:
 ```
 
 """
+import json
 from dataclasses import dataclass, field
 from typing import Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Union
 
 from confluent_kafka import OFFSET_BEGINNING, Consumer, Producer, TopicPartition
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.admin import AdminClient
+from prometheus_client import Gauge
 from typing_extensions import TypeAlias
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
@@ -70,6 +72,17 @@ V2 = TypeVar("V2")
 
 MaybeStrBytes: TypeAlias = Union[str, bytes, None]
 """Kafka message keys and values are optional."""
+
+# Set up metrics for Kafka
+#
+# This is a global var, since the Prometheus REGISTRY
+# is also global.
+BYTEWAX_CONSUMER_LAG_GAUGE = Gauge(
+    "bytewax_kafka_consumer_lag",
+    "Difference between last offset on the broker "
+    "and the currently consumed offset.",
+    ["step_id", "topic", "partition"],
+)
 
 
 @dataclass(frozen=True)
@@ -191,22 +204,52 @@ class _KafkaSourcePartition(
 ):
     def __init__(
         self,
-        consumer,
-        topic,
-        part_idx,
-        starting_offset,
-        resume_state,
-        batch_size,
-        raise_on_errors,
+        step_id: str,
+        config: dict,
+        topic: str,
+        part_idx: int,
+        starting_offset: int,
+        resume_state: Optional[int],
+        batch_size: int,
+        raise_on_errors: bool,
     ):
         self._offset = starting_offset if resume_state is None else resume_state
+        # Collect metrics from Kafka every 1s
+        config.update({"stats_cb": self._process_stats})
+        consumer = Consumer(config)
         # Assign does not activate consumer grouping.
         consumer.assign([TopicPartition(topic, part_idx, self._offset)])
         self._consumer = consumer
         self._topic = topic
+        self._part_idx = part_idx
         self._batch_size = batch_size
         self._eof = False
         self._raise_on_errors = raise_on_errors
+        # Labels to use when recording metrics
+        self._metrics_labels = {
+            "step_id": step_id,
+            "topic": topic,
+            "partition": part_idx,
+        }
+
+    def _process_stats(self, json_stats: str):
+        """Process stats collected by librdkafka.
+
+        This function is called by librdkafka based on the
+        `statistics.interval.ms` config setting.
+
+        For more information about the `json_stats` payload, see
+        https://github.com/confluentinc/librdkafka/blob/master/STATISTICS.md
+        """
+        partition_stats = json.loads(json_stats)["topics"][self._topic]["partitions"][
+            str(self._part_idx)
+        ]
+        # The lag value here would be calculated incorrectly when using values
+        # like OFFSET_STORED, or OFFSET_BEGINNING
+        if self._offset > 0:
+            BYTEWAX_CONSUMER_LAG_GAUGE.labels(**self._metrics_labels).set(
+                partition_stats["ls_offset"] - self._offset
+            )
 
     def next_batch(self) -> List[SerializedKafkaSourceResult]:
         if self._eof:
@@ -338,7 +381,7 @@ class KafkaSource(FixedPartitionedSource[SerializedKafkaSourceResult, Optional[i
         return list(_list_parts(client, self._topics))
 
     def build_part(
-        self, for_part: str, resume_state: Optional[int]
+        self, step_id: str, for_part: str, resume_state: Optional[int]
     ) -> _KafkaSourcePartition:
         """See ABC docstring."""
         idx, topic = for_part.split("-", 1)
@@ -349,17 +392,18 @@ class KafkaSource(FixedPartitionedSource[SerializedKafkaSourceResult, Optional[i
         assert topic in self._topics, "Can't resume from different set of Kafka topics"
 
         config = {
-            # We'll manage our own "consumer group" via recovery
+            # We'll manage our own "consumer group" via the recovery
             # system.
             "group.id": "BYTEWAX_IGNORED",
             "enable.auto.commit": "false",
             "bootstrap.servers": ",".join(self._brokers),
             "enable.partition.eof": str(not self._tail),
+            "statistics.interval.ms": 1000,
         }
         config.update(self._add_config)
-        consumer = Consumer(config)
         return _KafkaSourcePartition(
-            consumer,
+            step_id,
+            config,
             topic,
             part_idx,
             self._starting_offset,
@@ -490,7 +534,9 @@ class KafkaSink(DynamicSink[SerializedKafkaSinkMessage]):
         self._topic = topic
         self._add_config = {} if add_config is None else add_config
 
-    def build(self, worker_index: int, worker_count: int) -> _KafkaSinkPartition:
+    def build(
+        self, _step_id: str, worker_index: int, worker_count: int
+    ) -> _KafkaSinkPartition:
         """See ABC docstring."""
         config = {
             "bootstrap.servers": ",".join(self._brokers),

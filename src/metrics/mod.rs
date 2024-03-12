@@ -23,6 +23,7 @@ pub(crate) fn initialize_metrics() -> PyResult<()> {
     let registry = default_registry();
     let exporter = opentelemetry_prometheus::exporter()
         .with_registry(registry.clone())
+        .with_namespace("bytewax")
         .build()
         .map_err(|err| PyErr::new::<PyRuntimeError, _>(err.to_string()))?;
 

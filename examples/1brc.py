@@ -7,7 +7,6 @@
 # machine and this custom input source here will divvy up the work of
 # reading.
 import os
-from datetime import datetime
 from pathlib import Path
 from typing import Tuple
 
@@ -27,7 +26,7 @@ class FilePartition(StatelessSourcePartition):
         self._end_offset = end_offset
         self._batch_bytes = batch_bytes
 
-    def next_batch(self, sched: datetime):
+    def next_batch(self):
         at = self._f.tell()
         if at >= self._end_offset:
             raise StopIteration()
@@ -41,7 +40,7 @@ class CoopFileSource(DynamicSource):
         self._batch_bytes = batch_bytes
 
     def build(
-        self, now: datetime, worker_index: int, worker_count: int
+        self, step_id: str, worker_index: int, worker_count: int
     ) -> FilePartition:
         file_size = self._path.stat().st_size
         chunk_size = file_size // worker_count
