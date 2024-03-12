@@ -21,6 +21,7 @@ jobs:
         with:
           command: build
           args: --release -o dist -i python-3.11
+          sccache: true
       - name: Install dependencies
         run: |
           WHEEL_FILE=$(ls ./dist/*.whl)
