@@ -214,7 +214,6 @@ class _KafkaSourcePartition(
         raise_on_errors: bool,
     ):
         self._offset = starting_offset if resume_state is None else resume_state
-        print(f"starting offset: {starting_offset}")
         # Collect metrics from Kafka every 1s
         config.update({"stats_cb": self._process_stats})
         consumer = Consumer(config)

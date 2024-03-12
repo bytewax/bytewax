@@ -36,7 +36,7 @@ class WikiSource(FixedPartitionedSource[str, None]):
     def list_parts(self):
         return ["single-part"]
 
-    def build_part(self, _step_id, _for_key, _resume_state):
+    def build_part(self, step_id, for_key, _resume_state):
         return WikiPartition()
 
 

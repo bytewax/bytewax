@@ -93,7 +93,7 @@ class RandomMetricSource(FixedPartitionedSource[Tuple[str, float], _RandomMetric
 
     @override
     def build_part(
-        self, _step_id: str, for_part: str, resume_state: Optional[_RandomMetricState]
+        self, step_id: str, for_part: str, resume_state: Optional[_RandomMetricState]
     ):
         now = datetime.now(timezone.utc)
         state = resume_state if resume_state is not None else _RandomMetricState(now, 0)

@@ -126,7 +126,7 @@ class DirSource(FixedPartitionedSource[str, int]):
 
     @override
     def build_part(
-        self, _step_id: str, for_part: str, resume_state: Optional[int]
+        self, step_id: str, for_part: str, resume_state: Optional[int]
     ) -> _FileSourcePartition:
         _fs_id, for_path = for_part.split("::", 1)
         path = self._dir_path / for_path

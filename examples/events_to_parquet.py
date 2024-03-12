@@ -29,7 +29,7 @@ class FakeWebEventsSource(FixedPartitionedSource):
         return ["singleton"]
 
     def build_part(
-        self, _step_id: str, for_part: str, resume_state: Optional[int]
+        self, step_id: str, for_part: str, resume_state: Optional[int]
     ) -> SimulatedPartition:
         assert for_part == "singleton"
         assert resume_state is None
@@ -57,7 +57,7 @@ class ParquetSink(FixedPartitionedSink):
         return "singleton"
 
     def build_part(
-        self, _step_id: str, for_part: str, resume_state: Any
+        self, step_id: str, for_part: str, resume_state: Any
     ) -> ParquetPartition:
         return ParquetPartition()
 
