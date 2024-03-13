@@ -54,7 +54,7 @@ where
         step_id: StepId,
         predicate: TdPyCallable,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, TdPyAny>)> {
-        let mut op_builder = OperatorBuilder::new("Branch".to_owned(), self.scope());
+        let mut op_builder = OperatorBuilder::new(format!("{step_id}.branch"), self.scope());
 
         let mut input = op_builder.new_input(self, Pipeline);
         let (mut output1, falses) = op_builder.new_output();
@@ -369,31 +369,42 @@ where
     S: Scope,
 {
     fn extract_key(&self, for_step_id: StepId) -> Stream<S, (StateKey, TdPyAny)> {
-        self.map(move |item| {
-            let item = PyObject::from(item);
+        let mut op_builder = OperatorBuilder::new("extract_key".to_string(), self.scope());
+        let mut input = op_builder.new_input(self, Pipeline);
 
-            let (key, value) = unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
-                let item = item.as_ref(py);
+        let (mut output, keyed_stream) = op_builder.new_output();
 
-                let (key, value) = item
-                    .extract::<(&PyAny, PyObject)>()
-                    .raise_with::<PyTypeError>(|| {
-                        format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
-                            unwrap_any!(item.get_type().name()),
-                        )
-                    })?;
+        op_builder.build(move |_| {
+            let mut vector = Vec::new();
+            move |_frontiers| {
+                let mut output_handle = output.activate();
 
-                let key = key.extract::<StateKey>().raise_with::<PyTypeError>(|| {
-                    format!("step {for_step_id} requires `str` keys in `(key, value)` from upstream; got a `{}` instead",
-                        unwrap_any!(key.get_type().name()),
-                    )
-                })?;
+                input.for_each(|time, data| {
+                    data.swap(&mut vector);
+                    let mut out1 = output_handle.session(&time);
+                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                        for item in vector.drain(..) {
+                            let (key, value) = item
+                                .extract::<(&PyAny, PyObject)>(py)
+                                .raise_with::<PyTypeError>(|| {
+                                    format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
+                                        unwrap_any!(item.as_ref(py).get_type().name()),
+                                    )
+                                })?;
 
-                Ok((key, value))
-            }));
-
-            (key, TdPyAny::from(value))
-        })
+                            let key = key.extract::<StateKey>().raise_with::<PyTypeError>(|| {
+                                format!("step {for_step_id} requires `str` keys in `(key, value)` from upstream; got a `{}` instead",
+                                    unwrap_any!(key.get_type().name()),
+                                )
+                            })?;
+                            out1.give((key, TdPyAny::from(value)));
+                        }
+                        Ok(())
+                    }));
+                });
+            }
+        });
+        keyed_stream
     }
 }
 
