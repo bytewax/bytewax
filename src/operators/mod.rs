@@ -13,7 +13,6 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::Branch;
 use timely::dataflow::operators::Concatenate;
 use timely::dataflow::operators::Exchange;
 use timely::dataflow::operators::Map;
@@ -41,7 +40,6 @@ where
 {
     fn branch(
         &self,
-        py: Python,
         step_id: StepId,
         predicate: TdPyCallable,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, TdPyAny>)>;
@@ -53,21 +51,49 @@ where
 {
     fn branch(
         &self,
-        _py: Python,
         step_id: StepId,
         predicate: TdPyCallable,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, TdPyAny>)> {
-        let (falses, trues) = Branch::branch(self, move |_epoch, item| {
-            let item = <&PyObject>::from(item);
+        let mut op_builder = OperatorBuilder::new("Branch".to_owned(), self.scope());
 
-            unwrap_any!(Python::with_gil(|py| predicate
-                .as_ref(py)
-                .call1((item,))
-                .reraise_with(|| format!("error calling predicate in step {step_id}"))?
-                .extract::<bool>()
-                .reraise_with(|| format!(
-                    "return value of `predicate` in step {step_id} must be a `bool`"
-                ))))
+        let mut input = op_builder.new_input(self, Pipeline);
+        let (mut output1, falses) = op_builder.new_output();
+        let (mut output2, trues) = op_builder.new_output();
+
+        op_builder.build(move |_| {
+            let mut vector = Vec::new();
+            move |_frontiers| {
+                let mut output1_handle = output1.activate();
+                let mut output2_handle = output2.activate();
+
+                input.for_each(|time, data| {
+                    data.swap(&mut vector);
+                    let mut out1 = output1_handle.session(&time);
+                    let mut out2 = output2_handle.session(&time);
+                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                        let pred = predicate.as_ref(py);
+                        for item in vector.drain(..) {
+                            let res = pred
+                                .call1((item.clone_ref(py),))
+                                .reraise_with(|| {
+                                    format!("error calling predicate in step {step_id}")
+                                })?
+                                .extract::<bool>()
+                                .reraise_with(|| {
+                                    format!(
+                                    "return value of `predicate` in step {step_id} must be a `bool`"
+                                )
+                                })?;
+                            if res {
+                                out2.give(item)
+                            } else {
+                                out1.give(item)
+                            }
+                        }
+                        Ok(())
+                    }));
+                });
+            }
         });
 
         Ok((trues, falses))

@@ -322,7 +322,7 @@ where
                             .get_upstream(py, &step, "up")
                             .reraise("core operator `branch` missing port")?;
 
-                        let (trues, falses) = up.branch(py, step_id, predicate)?;
+                        let (trues, falses) = up.branch(step_id, predicate)?;
 
                         streams
                             .insert_downstream(py, &step, "trues", trues)
