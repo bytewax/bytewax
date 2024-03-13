@@ -28,6 +28,11 @@ def _wrapped_cluster_main1x2(*args, **kwargs):
     return cluster_main(*args, [], 0, worker_count_per_proc=2, **kwargs)
 
 
+def _wrapped_cluster_main1x1(*args, **kwargs):
+    """Used in benchmarking tests."""
+    return cluster_main(*args, [], 0, **kwargs)
+
+
 @fixture
 def entry_point(entry_point_name):
     """Run a version of this test for each execution point.
@@ -37,6 +42,8 @@ def entry_point(entry_point_name):
     """
     if entry_point_name == "run_main":
         return run_main
+    elif entry_point_name == "cluster_main_one_worker":
+        return _wrapped_cluster_main1x1
     elif entry_point_name == "cluster_main-2thread":
         return _wrapped_cluster_main1x2
     else:
