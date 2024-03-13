@@ -24,12 +24,8 @@ op.output("stdout", batch_out, StdOutSink())
 
 
 def test_flat_map_batch_run_main(benchmark):
-    benchmark.pedantic(run_main, args=(flow,))
+    benchmark(lambda: run_main(flow))
 
 
 def test_flat_map_batch_cluster_main(benchmark):
-    benchmark.pedantic(
-        cluster_main,
-        args=(flow,),
-        kwargs={"addresses": ["localhost:9999"], "proc_id": 0},
-    )
+    benchmark(lambda: cluster_main(flow, addresses=["localhost:9999"], proc_id=0))
