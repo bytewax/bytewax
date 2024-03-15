@@ -42,7 +42,7 @@ def entry_point(entry_point_name):
     """
     if entry_point_name == "run_main":
         return run_main
-    elif entry_point_name == "cluster_main_one_worker":
+    elif entry_point_name == "cluster_main-1thread":
         return _wrapped_cluster_main1x1
     elif entry_point_name == "cluster_main-2thread":
         return _wrapped_cluster_main1x2
