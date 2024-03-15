@@ -29,7 +29,6 @@ def _wrapped_cluster_main1x2(*args, **kwargs):
 
 
 def _wrapped_cluster_main1x1(*args, **kwargs):
-    """Used in benchmarking tests."""
     return cluster_main(*args, [], 0, **kwargs)
 
 
