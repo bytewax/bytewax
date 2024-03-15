@@ -92,7 +92,6 @@ def run_branch_dataflow(entry_point, flow, out_odds, out_evens):
     out_evens.clear()
 
 
-@mark.parametrize("entry_point_name", ["run_main", "cluster_main_one_worker"])
 def test_branch_benchmark(benchmark, entry_point):
     out_odds = []
     out_evens = []
