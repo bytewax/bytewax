@@ -497,7 +497,7 @@ where
                                             let next_awake =
                                                 current_next_awake.get(&state_key).cloned();
                                             let state = unwrap_any!(|| -> PyResult<PyObject> {
-                                                    let state = PyDict::new(py);
+                                                    let state = PyDict::new_bound(py);
                                                     state.set_item("logic", logic_state)?;
                                                     state.set_item("next_awake", next_awake)?;
                                                     Ok(state.into())
@@ -527,7 +527,7 @@ where
                                             StateChange::Upsert(state) => {
                                                 let (logic_state, next_awake) =
                                                     unwrap_any!(Python::with_gil(|py| -> PyResult<(TdPyAny, Option<DateTime<Utc>>)> {
-                                                        let state = state.as_ref(py);
+                                                        let state = state.bind(py);
                                                         let logic_state = state.get_item("logic")?;
                                                         let next_awake = state.get_item("next_awake")?
                                                                 .extract()?;

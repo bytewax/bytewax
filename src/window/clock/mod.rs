@@ -47,7 +47,7 @@ impl PyConfigClass<Box<dyn ClockBuilder<TdPyAny>>> for Py<ClockConfig> {
         } else if let Ok(conf) = self.extract::<EventClockConfig>(py) {
             Ok(Box::new(conf))
         } else {
-            let pytype = self.as_ref(py).get_type();
+            let pytype = self.bind(py).get_type();
             Err(tracked_err::<PyTypeError>(&format!(
                 "Unknown clock_config type: {pytype}"
             )))

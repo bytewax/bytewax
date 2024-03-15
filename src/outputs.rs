@@ -37,7 +37,7 @@ impl<'source> FromPyObject<'source> for Sink {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
-            .import("bytewax.outputs")?
+            .import_bound("bytewax.outputs")?
             .getattr("Sink")?
             .extract()?;
         if !ob.is_instance(abc)? {
@@ -80,7 +80,7 @@ impl<'source> FromPyObject<'source> for FixedPartitionedSink {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
-            .import("bytewax.outputs")?
+            .import_bound("bytewax.outputs")?
             .getattr("FixedPartitionedSink")?
             .extract()?;
         if !ob.is_instance(abc)? {
@@ -129,7 +129,7 @@ impl<'source> FromPyObject<'source> for StatefulPartition {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
-            .import("bytewax.outputs")?
+            .import_bound("bytewax.outputs")?
             .getattr("StatefulSinkPartition")?
             .extract()?;
         if !ob.is_instance(abc)? {
@@ -418,7 +418,7 @@ impl<'source> FromPyObject<'source> for DynamicSink {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
-            .import("bytewax.outputs")?
+            .import_bound("bytewax.outputs")?
             .getattr("DynamicSink")?
             .extract()?;
         if !ob.is_instance(abc)? {
@@ -453,7 +453,7 @@ impl<'source> FromPyObject<'source> for StatelessPartition {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
-            .import("bytewax.outputs")?
+            .import_bound("bytewax.outputs")?
             .getattr("StatelessSinkPartition")?
             .extract()?;
         if !ob.is_instance(abc)? {

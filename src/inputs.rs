@@ -112,7 +112,7 @@ impl<'source> FromPyObject<'source> for Source {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
-            .import("bytewax.inputs")?
+            .import_bound("bytewax.inputs")?
             .getattr("Source")?
             .extract()?;
         if !ob.is_instance(abc)? {
@@ -155,7 +155,7 @@ impl<'source> FromPyObject<'source> for FixedPartitionedSource {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
-            .import("bytewax.inputs")?
+            .import_bound("bytewax.inputs")?
             .getattr("FixedPartitionedSource")?
             .extract()?;
         if !ob.is_instance(abc)? {
@@ -568,7 +568,7 @@ impl<'source> FromPyObject<'source> for StatefulPartition {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
-            .import("bytewax.inputs")?
+            .import_bound("bytewax.inputs")?
             .getattr("StatefulSourcePartition")?
             .extract()?;
         if !ob.is_instance(abc)? {
@@ -589,7 +589,7 @@ enum BatchResult {
 
 impl StatefulPartition {
     fn next_batch(&self, py: Python) -> PyResult<BatchResult> {
-        match self.0.as_ref(py).call_method0(intern!(py, "next_batch")) {
+        match self.0.bind(py).call_method0(intern!(py, "next_batch")) {
             Err(err) if err.is_instance_of::<PyStopIteration>(py) => Ok(BatchResult::Eof),
             Err(err) if err.is_instance_of::<AbortExecution>(py) => Ok(BatchResult::Abort),
             Err(err) => Err(err),
@@ -642,7 +642,7 @@ impl<'source> FromPyObject<'source> for DynamicSource {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
-            .import("bytewax.inputs")?
+            .import_bound("bytewax.inputs")?
             .getattr("DynamicSource")?
             .extract()?;
         if !ob.is_instance(abc)? {
@@ -855,7 +855,7 @@ impl<'source> FromPyObject<'source> for StatelessPartition {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
-            .import("bytewax.inputs")?
+            .import_bound("bytewax.inputs")?
             .getattr("StatelessSourcePartition")?
             .extract()?;
         if !ob.is_instance(abc)? {
@@ -870,7 +870,7 @@ impl<'source> FromPyObject<'source> for StatelessPartition {
 
 impl StatelessPartition {
     fn next_batch(&self, py: Python) -> PyResult<BatchResult> {
-        match self.0.as_ref(py).call_method0(intern!(py, "next_batch")) {
+        match self.0.bind(py).call_method0(intern!(py, "next_batch")) {
             Err(err) if err.is_instance_of::<PyStopIteration>(py) => Ok(BatchResult::Eof),
             Err(err) if err.is_instance_of::<AbortExecution>(py) => Ok(BatchResult::Abort),
             Err(err) => Err(err),
@@ -910,7 +910,7 @@ impl Drop for StatelessPartition {
     }
 }
 
-pub(crate) fn register(py: Python, m: &PyModule) -> PyResult<()> {
-    m.add("AbortExecution", py.get_type::<AbortExecution>())?;
+pub(crate) fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("AbortExecution", py.get_type_bound::<AbortExecution>())?;
     Ok(())
 }

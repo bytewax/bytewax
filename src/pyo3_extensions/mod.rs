@@ -2,7 +2,6 @@
 //! Timely or other Rust libraries we use.
 use crate::operators::stateful_unary::StateKey;
 use crate::try_unwrap;
-use crate::unwrap_any;
 use crate::window::WindowMetadata;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
@@ -85,12 +84,19 @@ impl From<Py<PyAny>> for TdPyAny {
     }
 }
 
+impl From<Bound<'_, PyAny>> for TdPyAny {
+    fn from(x: Bound<'_, PyAny>) -> Self {
+        Self(x.unbind())
+    }
+}
+
 /// Allows you to debug print Python objects using their repr.
 impl std::fmt::Debug for TdPyAny {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let s: PyResult<String> = Python::with_gil(|py| {
-            let self_ = self.as_ref(py);
-            let repr = self_.repr()?.to_str()?;
+            let self_ = self.bind(py);
+            let binding = self_.repr()?;
+            let repr = binding.to_str()?;
             Ok(String::from(repr))
         });
         f.write_str(&s.map_err(|_| std::fmt::Error {})?)
@@ -100,7 +106,7 @@ impl std::fmt::Debug for TdPyAny {
 impl fmt::Debug for TdPyCallable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let s: PyResult<String> = Python::with_gil(|py| {
-            let self_ = self.0.as_ref(py);
+            let self_ = self.0.bind(py);
             let name: String = self_.getattr("__name__")?.extract()?;
             Ok(name)
         });
@@ -132,13 +138,12 @@ impl serde::Serialize for TdPyAny {
         S: serde::Serializer,
     {
         Python::with_gil(|py| {
-            let x = self.as_ref(py);
-            let pickle = py.import("pickle").map_err(S::Error::custom)?;
-            let bytes = pickle
+            let x = self.bind(py);
+            let pickle = py.import_bound("pickle").map_err(S::Error::custom)?;
+            let binding = pickle
                 .call_method1("dumps", (x,))
-                .map_err(S::Error::custom)?
-                .downcast::<PyBytes>()
                 .map_err(S::Error::custom)?;
+            let bytes = binding.downcast::<PyBytes>().map_err(S::Error::custom)?;
             serializer
                 .serialize_bytes(bytes.as_bytes())
                 .map_err(S::Error::custom)
@@ -155,13 +160,13 @@ impl<'de> serde::de::Visitor<'de> for PickleVisitor {
         formatter.write_str("a pickled byte array")
     }
 
-    fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+    fn visit_bytes<'py, E>(self, bytes: &[u8]) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
         let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
-            let pickle = py.import("pickle")?;
-            let x = pickle.call_method1("loads", (bytes,))?.into();
+            let pickle = py.import_bound("pickle")?;
+            let x = pickle.call_method1("loads", (bytes,))?.as_gil_ref().into();
             Ok(x)
         });
         x.map_err(E::custom)
@@ -188,12 +193,13 @@ fn test_serde() {
 
     pyo3::prepare_freethreaded_python();
 
-    let pyobj: TdPyAny = Python::with_gil(|py| PyString::new(py, "hello").into());
+    let pyobj: TdPyAny =
+        Python::with_gil(|py| PyString::new_bound(py, "hello").as_gil_ref().into());
 
     // Python < 3.8 serializes strings differently than python >= 3.8.
     // We get the current python version here so we can assert based on that.
     let (major, minor) = Python::with_gil(|py| {
-        let sys = PyModule::import(py, "sys").unwrap();
+        let sys = PyModule::import_bound(py, "sys").unwrap();
         let version = sys.getattr("version_info").unwrap();
         let major: i32 = version.getattr("major").unwrap().extract().unwrap();
         let minor: i32 = version.getattr("minor").unwrap().extract().unwrap();
@@ -220,9 +226,12 @@ impl PartialEq for TdPyAny {
         Python::with_gil(|py| {
             // Don't use Py.eq or PyAny.eq since it only checks
             // pointer identity.
-            let self_ = self.as_ref(py);
-            let other = other.as_ref(py);
-            try_unwrap!(self_.rich_compare(other, CompareOp::Eq)?.is_true())
+            let self_ = self.bind(py);
+            let other = other.bind(py);
+            try_unwrap!(self_
+                .rich_compare(other, CompareOp::Eq)?
+                .as_gil_ref()
+                .is_truthy())
         })
     }
 }
@@ -233,32 +242,6 @@ pub(crate) fn wrap_window_state_pair(key_value: (StateKey, (WindowMetadata, TdPy
         let key_value_pytuple: Py<PyAny> = key_value.into_py(py);
         key_value_pytuple.into()
     })
-}
-
-/// A Python iterator that only gets the GIL when calling [`next`] and
-/// automatically wraps in [`TdPyAny`].
-///
-/// Otherwise the GIL would be held for the entire life of the iterator.
-#[derive(Clone)]
-pub(crate) struct TdPyIterator(Py<PyIterator>);
-
-/// Have PyO3 do type checking to ensure we only make from iterable
-/// objects.
-impl<'source> FromPyObject<'source> for TdPyIterator {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        Ok(Self(ob.iter()?.into()))
-    }
-}
-
-impl Iterator for TdPyIterator {
-    type Item = TdPyAny;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        Python::with_gil(|py| {
-            let mut iter = self.0.as_ref(py);
-            iter.next().map(|r| unwrap_any!(r).into())
-        })
-    }
 }
 
 /// A Python object that is callable.
@@ -302,11 +285,11 @@ impl TdPyCallable {
     /// Create an "empty" [`Self`] just for use in `__getnewargs__`.
     #[allow(dead_code)]
     pub(crate) fn pickle_new(py: Python) -> Self {
-        Self(py.eval("print", None, None).unwrap().into())
+        Self(py.eval_bound("print", None, None).unwrap().into())
     }
 
     pub(crate) fn as_ref<'py>(&'py self, py: Python<'py>) -> &'py PyAny {
-        self.0.as_ref(py)
+        self.0.bind(py).as_gil_ref()
     }
 
     pub(crate) fn clone_ref(&self, py: Python) -> Self {

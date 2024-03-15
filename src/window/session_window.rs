@@ -93,7 +93,7 @@ impl SessionWindower {
                 .map(|state| -> (Vec<Session>, WindowKey) {
                     unwrap_any!(Python::with_gil(
                         |py| -> PyResult<(Vec<Session>, WindowKey)> {
-                            let state = state.as_ref(py);
+                            let state = state.bind(py);
                             let session_snaps: Vec<TdPyAny> =
                                 state.get_item("sessions")?.extract()?;
                             let max_key = state.get_item("max_key")?.extract()?;
@@ -258,7 +258,7 @@ impl Windower for SessionWindower {
 
     fn snapshot(&self) -> TdPyAny {
         unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
-            let state = PyDict::new(py);
+            let state = PyDict::new_bound(py);
             let sessions = self
                 .sessions
                 .iter()
@@ -360,7 +360,7 @@ mod session {
         }
 
         pub fn from_snap(py: Python, state: TdPyAny) -> PyResult<Self> {
-            let state = state.as_ref(py);
+            let state = state.bind(py);
             let key = state.get_item("key")?.extract()?;
             let start = state.get_item("start")?.extract()?;
             let latest_event_time = state.get_item("latest_event_time")?.extract()?;
@@ -423,7 +423,7 @@ mod session {
         }
 
         pub fn snapshot(&self, py: Python) -> PyResult<TdPyAny> {
-            let state = PyDict::new(py);
+            let state = PyDict::new_bound(py);
             state.set_item("key", self.key.into_py(py))?;
             state.set_item("start", self.start.into_py(py))?;
             state.set_item("latest_event_time", self.latest_event_time.into_py(py))?;

@@ -12,7 +12,7 @@ impl<'source> FromPyObject<'source> for Dataflow {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
-            .import("bytewax.dataflow")?
+            .import_bound("bytewax.dataflow")?
             .getattr("Dataflow")?
             .extract()?;
         if !ob.is_instance(abc)? {
@@ -48,7 +48,7 @@ impl<'source> FromPyObject<'source> for Operator {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
-            .import("bytewax.dataflow")?
+            .import_bound("bytewax.dataflow")?
             .getattr("Operator")?
             .extract()?;
         if !ob.is_instance(abc)? {
@@ -76,7 +76,7 @@ impl Operator {
     }
 
     pub(crate) fn name(&self, py: Python) -> PyResult<String> {
-        Ok(self.0.as_ref(py).get_type().name()?.to_owned())
+        Ok(self.0.bind(py).get_type().name()?.to_string())
     }
 
     pub(crate) fn step_id(&self, py: Python) -> PyResult<StepId> {
@@ -89,15 +89,14 @@ impl Operator {
 
     pub(crate) fn is_core(&self, py: Python) -> PyResult<bool> {
         let core_cls = py
-            .import("bytewax.dataflow")?
-            .getattr("_CoreOperator")?
-            .extract()?;
-        self.0.as_ref(py).is_instance(core_cls)
+            .import_bound("bytewax.dataflow")?
+            .getattr("_CoreOperator")?;
+        self.0.bind(py).is_instance(&core_cls)
     }
 
     pub(crate) fn get_port_stream(&self, py: Python, port_name: &str) -> PyResult<StreamId> {
         self.0
-            .as_ref(py)
+            .bind(py)
             .getattr(port_name)
             .reraise_with(|| format!("operator did not have Port {port_name:?}"))?
             .getattr("stream_id")?
@@ -111,7 +110,7 @@ impl Operator {
     ) -> PyResult<Vec<StreamId>> {
         let stream_ids = self
             .0
-            .as_ref(py)
+            .bind(py)
             .getattr(port_name)
             .reraise_with(|| format!("operator did not have MultiPort {port_name:?}"))?
             .getattr("stream_ids")?

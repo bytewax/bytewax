@@ -154,7 +154,7 @@ impl PyConfigClass<Box<dyn WindowBuilder>> for Py<WindowConfig> {
         } else if let Ok(conf) = self.extract::<SessionWindow>(py) {
             Ok(Box::new(conf))
         } else {
-            let pytype = self.as_ref(py).get_type();
+            let pytype = self.bind(py).get_type();
             Err(tracked_err::<PyTypeError>(&format!(
                 "Unknown window_config type: {pytype}"
             )))
@@ -428,7 +428,7 @@ where
         move |resume_state| {
             let (clock_state, windower_state, logic_states) = if let Some(state) = resume_state {
                 unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
-                    let state = state.as_ref(py);
+                    let state = state.bind(py);
                     let clock_state = state.get_item("clock")?.into();
                     let windower_state = state.get_item("windower")?.into();
                     let logic_states: BTreeMap<WindowKey, TdPyAny> =
@@ -550,7 +550,7 @@ where
 
     fn snapshot(&self) -> TdPyAny {
         unwrap_any!(Python::with_gil(|py| -> PyResult<TdPyAny> {
-            let state = PyDict::new(py);
+            let state = PyDict::new_bound(py);
             state.set_item("clock", self.clock.snapshot())?;
             state.set_item("windower", self.windower.snapshot())?;
             let logic_states: BTreeMap<WindowKey, TdPyAny> = self
@@ -664,7 +664,7 @@ where
     }
 }
 
-pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
+pub(crate) fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ClockConfig>()?;
     m.add_class::<EventClockConfig>()?;
     m.add_class::<SystemClockConfig>()?;

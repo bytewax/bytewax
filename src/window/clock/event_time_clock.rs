@@ -167,7 +167,7 @@ where
     fn time_for(&mut self, py: Python, event: &TdPyAny) -> DateTime<Utc> {
         self.dt_getter
             // Call the event time getter function with the event as parameter
-            .call1(py, (event.clone_ref(py),))
+            .call1(py, (event,))
             .unwrap()
             // Convert to DateTime<Utc>
             .extract(py)
@@ -189,7 +189,7 @@ mod tests {
 
         // We're going to pass in datetimes as the items themselves.
         let identity = Python::with_gil(|py| {
-            py.eval("lambda x: x", None, None)
+            py.eval_bound("lambda x: x", None, None)
                 .unwrap()
                 .extract()
                 .unwrap()
