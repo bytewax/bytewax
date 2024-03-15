@@ -22,6 +22,8 @@ jobs:
           command: build
           args: --release -o dist -i python-3.11
           sccache: true
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
       - name: Install dependencies
         run: |
           WHEEL_FILE=$(ls ./dist/*.whl)
