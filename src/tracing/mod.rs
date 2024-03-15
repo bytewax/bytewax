@@ -57,7 +57,7 @@ impl PyConfigClass<Box<dyn TracerBuilder + Send>> for Py<TracingConfig> {
         } else if let Ok(jaeger_conf) = self.extract::<JaegerConfig>(py) {
             Ok(Box::new(jaeger_conf))
         } else {
-            let pytype = self.as_ref(py).get_type();
+            let pytype = self.bind(py).get_type();
             Err(tracked_err::<PyTypeError>(&format!(
                 "Unknown tracing_config type: {pytype}"
             )))
@@ -172,18 +172,18 @@ fn setup_tracing(
     py: Python,
     tracing_config: Option<Py<TracingConfig>>,
     log_level: Option<String>,
-) -> PyResult<&PyCell<BytewaxTracer>> {
+) -> PyResult<Bound<'_, BytewaxTracer>> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap();
-    let tracer = PyCell::new(py, BytewaxTracer { rt })?;
+    let tracer = Bound::new(py, BytewaxTracer { rt })?;
     let builder = tracing_config.map(|conf| conf.downcast(py).unwrap());
     tracer.borrow().setup(builder, log_level)?;
     Ok(tracer)
 }
 
-pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
+pub(crate) fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TracingConfig>()?;
     m.add_class::<JaegerConfig>()?;
     m.add_class::<OtlpTracingConfig>()?;

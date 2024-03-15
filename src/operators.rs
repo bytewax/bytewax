@@ -391,7 +391,7 @@ where
                                     .extract::<(&PyAny, PyObject)>(py)
                                     .raise_with::<PyTypeError>(|| {
                                         format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
-                                            unwrap_any!(item.as_ref(py).get_type().name()),
+                                            unwrap_any!(item.bind(py).get_type().name()),
                                         )
                                     })?;
 
@@ -455,8 +455,8 @@ impl<'source> FromPyObject<'source> for StatefulBatchLogic {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
-            .import("bytewax.operators")?
-            .getattr("StatefulBatchLogic")?
+            .import_bound("bytewax.operators")?
+            .getattr("UnaryLogic")?
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(PyTypeError::new_err(
@@ -489,7 +489,7 @@ impl<'source> FromPyObject<'source> for IsComplete {
 }
 
 impl StatefulBatchLogic {
-    fn extract_ret(res: &PyAny) -> PyResult<(Vec<PyObject>, IsComplete)> {
+    fn extract_ret(res: Bound<'_, PyAny>) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let (iter, is_complete) = res.extract::<(&PyAny, &PyAny)>().reraise_with(|| {
             format!(
                 "did not return a 2-tuple of `(emit, is_complete)`; got a `{}` instead",
@@ -514,23 +514,23 @@ impl StatefulBatchLogic {
     ) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let res = self
             .0
-            .as_ref(py)
+            .bind(py)
             .call_method1(intern!(py, "on_batch"), (items,))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
     fn on_notify<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let res = self.0.as_ref(py).call_method0(intern!(py, "on_notify"))?;
+        let res = self.0.bind(py).call_method0(intern!(py, "on_notify"))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
     fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let res = self.0.as_ref(py).call_method0("on_eof")?;
+        let res = self.0.bind(py).call_method0("on_eof")?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
     fn notify_at(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
-        let res = self.0.as_ref(py).call_method0(intern!(py, "notify_at"))?;
+        let res = self.0.bind(py).call_method0(intern!(py, "notify_at"))?;
         res.extract().reraise_with(|| {
             format!(
                 "did not return a `datetime`; got a `{}` instead",

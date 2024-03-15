@@ -15,22 +15,22 @@ pub(crate) struct Serde(Py<PyAny>);
 
 static SERDE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
-fn get_serde_module(py: Python) -> PyResult<&PyModule> {
+fn get_serde_module(py: Python) -> PyResult<&Bound<'_, PyModule>> {
     Ok(SERDE_MODULE
         .get_or_try_init(py, || -> PyResult<Py<PyModule>> {
-            Ok(py.import("bytewax.serde")?.into())
+            Ok(py.import_bound("bytewax.serde")?.into())
         })?
-        .as_ref(py))
+        .bind(py))
 }
 
 static SERDE_ABC: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
 
-fn get_serde_abc(py: Python) -> PyResult<&PyAny> {
+fn get_serde_abc(py: Python) -> PyResult<&Bound<'_, PyAny>> {
     Ok(SERDE_ABC
         .get_or_try_init(py, || -> PyResult<Py<PyAny>> {
             Ok(get_serde_module(py)?.getattr("Serde")?.into())
         })?
-        .as_ref(py))
+        .bind(py))
 }
 
 static SERDE_JP: GILOnceCell<Serde> = GILOnceCell::new();
@@ -52,7 +52,7 @@ impl<'source> FromPyObject<'source> for Serde {
         // [`PyAny::is_instance`] because all the ABC methods are
         // `@staticmethod` so we call them on the class itself rather
         // than an instance.
-        if !ob.is_subclass(get_serde_abc(py)?)? {
+        if !ob.is_subclass(get_serde_abc(py)?.as_gil_ref())? {
             Err(PyTypeError::new_err(
                 "serialization must subclass `bytewax.serde.Serde`",
             ))

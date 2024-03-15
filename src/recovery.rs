@@ -1926,17 +1926,20 @@ where
     }
 }
 
-pub(crate) fn register(py: Python, m: &PyModule) -> PyResult<()> {
+pub(crate) fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_db_dir, m)?)?;
     m.add_class::<RecoveryConfig>()?;
     m.add(
         "InconsistentPartitionsError",
-        py.get_type::<InconsistentPartitionsError>(),
+        py.get_type_bound::<InconsistentPartitionsError>(),
     )?;
     m.add(
         "MissingPartitionsError",
-        py.get_type::<MissingPartitionsError>(),
+        py.get_type_bound::<MissingPartitionsError>(),
     )?;
-    m.add("NoPartitionsError", py.get_type::<NoPartitionsError>())?;
+    m.add(
+        "NoPartitionsError",
+        py.get_type_bound::<NoPartitionsError>(),
+    )?;
     Ok(())
 }

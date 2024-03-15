@@ -24,7 +24,7 @@ pub(crate) mod macros;
 /// use.
 #[pymodule]
 #[pyo3(name = "_bytewax")]
-fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
+fn mod_bytewax(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     inputs::register(py, m)?;
     recovery::register(py, m)?;
     run::register(py, m)?;

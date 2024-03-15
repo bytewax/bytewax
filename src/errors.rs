@@ -3,6 +3,8 @@ use std::panic::Location;
 
 use pyo3::exceptions::PyException;
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::types::PyAnyMethods;
+use pyo3::types::PyTracebackMethods;
 use pyo3::PyDowncastError;
 use pyo3::PyErr;
 use pyo3::PyResult;
@@ -82,13 +84,16 @@ pub(crate) trait PythonException<T> {
                 //
                 // This means that our message will be quoted if we reraise
                 // it as it is. So in this case we raise a RuntimeError instead.
-                if err
-                    .get_type(py)
-                    .is(pyo3::types::PyType::new::<pyo3::exceptions::PyKeyError>(py))
+                if err.get_type_bound(py).is(&pyo3::types::PyType::new_bound::<
+                    pyo3::exceptions::PyKeyError,
+                >(py))
                 {
                     PyRuntimeError::new_err(build_message(py, caller, &err, msg))
                 } else {
-                    PyErr::from_type(err.get_type(py), build_message(py, caller, &err, msg))
+                    PyErr::from_type_bound(
+                        err.get_type_bound(py),
+                        build_message(py, caller, &err, msg),
+                    )
                 }
             })
         })
@@ -123,13 +128,16 @@ pub(crate) trait PythonException<T> {
                 //
                 // This means that our message will be quoted if we reraise
                 // it as it is. So in this case we raise a RuntimeError instead.
-                if err
-                    .get_type(py)
-                    .is(pyo3::types::PyType::new::<pyo3::exceptions::PyKeyError>(py))
+                if err.get_type_bound(py).is(&pyo3::types::PyType::new_bound::<
+                    pyo3::exceptions::PyKeyError,
+                >(py))
                 {
                     PyRuntimeError::new_err(build_message(py, caller, &err, &msg))
                 } else {
-                    PyErr::from_type(err.get_type(py), build_message(py, caller, &err, &msg))
+                    PyErr::from_type_bound(
+                        err.get_type_bound(py),
+                        build_message(py, caller, &err, &msg),
+                    )
                 }
             })
         })
@@ -198,7 +206,7 @@ fn build_message(py: Python, caller: &Location, err: &PyErr, msg: &str) -> Strin
 }
 
 fn get_traceback(py: Python, err: &PyErr) -> Option<String> {
-    err.traceback(py).map(|tb| {
+    err.traceback_bound(py).map(|tb| {
         tb.format()
             .unwrap_or_else(|_| "Unable to print traceback".to_string())
     })
