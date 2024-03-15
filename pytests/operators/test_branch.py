@@ -4,7 +4,7 @@ from typing import List, Union
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource, run_main
-from pytest import mark, raises
+from pytest import raises
 from typing_extensions import TypeGuard
 
 

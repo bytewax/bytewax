@@ -12,7 +12,6 @@ from bytewax.operators.window import (
     WindowMetadata,
 )
 from bytewax.testing import TestingSink, TestingSource, run_main
-from pytest import mark
 
 ZERO_TD = timedelta(seconds=0)
 
@@ -284,7 +283,6 @@ def run_fold_window_dataflow(entry_point, flow, out, expected):
     out.clear()
 
 
-@mark.parametrize("entry_point_name", ["run_main", "cluster_main_one_worker"])
 def test_fold_window_benchmark(benchmark, entry_point):
     out = []
     expected = [

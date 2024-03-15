@@ -10,7 +10,7 @@ from bytewax.testing import cluster_main, run_main
 from pytest import fixture
 
 
-@fixture(params=["run_main", "cluster_main-2thread"])
+@fixture(params=["run_main", "cluster_main-1thread", "cluster_main-2thread"])
 def entry_point_name(request):
     """Run a version of the test for each execution point.
 

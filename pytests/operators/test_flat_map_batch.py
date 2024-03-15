@@ -3,7 +3,6 @@ from typing import Iterable, List
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource, run_main
-from pytest import mark
 
 
 def test_flat_map_batch():
@@ -38,7 +37,6 @@ def run_flat_map_batch_dataflow(entry_point, flow, out, expected):
     out.clear()
 
 
-@mark.parametrize("entry_point_name", ["run_main", "cluster_main_one_worker"])
 def test_flat_map_batch_benchmark(benchmark, entry_point):
     out = []
     flow = build_flat_map_batch_dataflow(out)
