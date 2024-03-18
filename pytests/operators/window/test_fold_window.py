@@ -12,6 +12,7 @@ from bytewax.operators.window import (
     WindowMetadata,
 )
 from bytewax.testing import TestingSink, TestingSource, run_main
+from pytest import mark
 
 ZERO_TD = timedelta(seconds=0)
 
@@ -244,3 +245,62 @@ def test_fold_window_sliding():
             ),
         ),
     ]
+
+
+def build_fold_window_dataflow(out) -> Dataflow:
+    clock_config = win.EventClockConfig(
+        dt_getter=lambda x: x,
+        wait_for_system_duration=timedelta(seconds=0),
+    )
+    window = win.TumblingWindow(
+        align_to=datetime(2022, 1, 1, tzinfo=timezone.utc), length=timedelta(minutes=1)
+    )
+
+    records = [
+        datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=i)
+        for i in range(100_000)
+    ]
+    flow = Dataflow("bench")
+    (
+        op.input("in", flow, TestingSource(records, 10))
+        .then(op.key_on, "key-on", lambda _: "x")
+        .then(
+            win.fold_window,
+            "fold-window",
+            clock_config,
+            window,
+            lambda: None,
+            lambda s, _: s,
+        )
+        .then(op.output, "stdout", TestingSink(out))
+    )
+
+    return flow
+
+
+def run_fold_window_dataflow(entry_point, flow, out, expected):
+    entry_point(flow)
+    assert out == expected
+    out.clear()
+
+
+@mark.parametrize("entry_point_name", ["run_main", "cluster_main-1thread"])
+def test_fold_window_benchmark(benchmark, entry_point):
+    out = []
+    expected = [
+        (
+            "x",
+            (
+                WindowMetadata(
+                    open_time=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                    + timedelta(minutes=i),
+                    close_time=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                    + timedelta(minutes=i + 1),
+                ),
+                None,
+            ),
+        )
+        for i in range(1667)
+    ]
+    flow = build_fold_window_dataflow(out)
+    benchmark(lambda: run_fold_window_dataflow(entry_point, flow, out, expected))

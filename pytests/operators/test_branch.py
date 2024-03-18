@@ -4,7 +4,7 @@ from typing import List, Union
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource, run_main
-from pytest import raises
+from pytest import mark, raises
 from typing_extensions import TypeGuard
 
 
@@ -71,3 +71,31 @@ def test_branch_raises_on_non_bool_key():
     expect = "must be a `bool`"
     with raises(TypeError, match=re.escape(expect)):
         run_main(flow)
+
+
+def build_branch_dataflow(
+    inp: TestingSource, out_evens: List, out_odds: List
+) -> Dataflow:
+    flow = Dataflow("branch")
+    s = op.input("inp", flow, inp)
+    branch_out = op.branch("evens_and_odds", s, lambda x: x % 2 == 0)
+    op.output("out_evens", branch_out.trues, TestingSink(out_evens))
+    op.output("out_odds", branch_out.falses, TestingSink(out_odds))
+    return flow
+
+
+def run_branch_dataflow(entry_point, flow, out_odds, out_evens):
+    entry_point(flow)
+    assert out_odds == list(range(1, 100_000, 2))
+    assert out_evens == list(range(0, 100_000, 2))
+    out_odds.clear()
+    out_evens.clear()
+
+
+@mark.parametrize("entry_point_name", ["run_main", "cluster_main-1thread"])
+def test_branch_benchmark(benchmark, entry_point):
+    out_odds = []
+    out_evens = []
+    inp = TestingSource(range(100_000), 10)
+    flow = build_branch_dataflow(inp, out_evens, out_odds)
+    benchmark(lambda: run_branch_dataflow(entry_point, flow, out_odds, out_evens))
