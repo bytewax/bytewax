@@ -370,9 +370,9 @@ where
 {
     fn extract_key(&self, for_step_id: StepId) -> Stream<S, (StateKey, TdPyAny)> {
         let mut op_builder = OperatorBuilder::new(format!("{for_step_id}.extract_key"), self.scope());
-        let mut input = op_builder.new_input(self, Pipeline);
+        let mut self_handle = op_builder.new_input(self, Pipeline);
 
-        let (mut output, keyed_stream) = op_builder.new_output();
+        let (mut downstream_output, downstream) = op_builder.new_output();
 
         op_builder.build(move |_| {
             let mut vector = Vec::new();
