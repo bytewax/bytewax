@@ -378,7 +378,7 @@ where
         op_builder.build(move |_| {
             let mut inbuf = Vec::new();
             move |_frontiers| {
-                let mut output_handle = output.activate();
+                let mut downstream_handle = downstream_output.activate();
 
                 input.for_each(|time, data| {
                     data.swap(&mut vector);
