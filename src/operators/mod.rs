@@ -73,6 +73,7 @@ where
                     unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                         let pred = predicate.as_ref(py);
                         for item in vector.drain(..) {
+                            let item = PyObject::from(item);
                             let res = pred
                                 .call1((item.clone_ref(py),))
                                 .reraise_with(|| {
