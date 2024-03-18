@@ -382,7 +382,7 @@ where
 
                 input.for_each(|time, data| {
                     data.swap(&mut vector);
-                    let mut out1 = output_handle.session(&time);
+                    let mut downstream_session = downstream_handle.session(&time);
                     unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                         for item in vector.drain(..) {
                             let item = PyObject::from(item);
