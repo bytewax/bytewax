@@ -375,7 +375,7 @@ where
         let (mut downstream_output, downstream) = op_builder.new_output();
 
         op_builder.build(move |_| {
-            let mut vector = Vec::new();
+            let mut inbuf = Vec::new();
             move |_frontiers| {
                 let mut output_handle = output.activate();
 
