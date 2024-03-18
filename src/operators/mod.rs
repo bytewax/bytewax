@@ -369,7 +369,7 @@ where
     S: Scope,
 {
     fn extract_key(&self, for_step_id: StepId) -> Stream<S, (StateKey, TdPyAny)> {
-        let mut op_builder = OperatorBuilder::new("extract_key".to_string(), self.scope());
+        let mut op_builder = OperatorBuilder::new(format!("{for_step_id}.extract_key"), self.scope());
         let mut input = op_builder.new_input(self, Pipeline);
 
         let (mut output, keyed_stream) = op_builder.new_output();
