@@ -385,6 +385,7 @@ where
                     let mut out1 = output_handle.session(&time);
                     unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                         for item in vector.drain(..) {
+                            let item = PyObject::from(item);
                             let (key, value) = item
                                 .extract::<(&PyAny, PyObject)>(py)
                                 .raise_with::<PyTypeError>(|| {
