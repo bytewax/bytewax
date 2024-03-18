@@ -56,7 +56,7 @@ where
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, TdPyAny>)> {
         let mut op_builder = OperatorBuilder::new(format!("{step_id}.branch"), self.scope());
 
-        let mut input = op_builder.new_input(self, Pipeline);
+        let mut self_handle = op_builder.new_input(self, Pipeline);
         let (mut output1, falses) = op_builder.new_output();
         let (mut output2, trues) = op_builder.new_output();
 
