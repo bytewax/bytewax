@@ -61,7 +61,7 @@ where
         let (mut output2, trues) = op_builder.new_output();
 
         op_builder.build(move |_| {
-            let mut vector = Vec::new();
+            let mut inbuf = Vec::new();
             move |_frontiers| {
                 let mut output1_handle = output1.activate();
                 let mut output2_handle = output2.activate();
