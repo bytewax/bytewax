@@ -39,8 +39,10 @@ After:
 
 ```python doctest:SKIP
 def calc_running_mean(values, new_value):
+    # On the initial value for this key, instead of the operator calling the builder for you, you can call it yourself when the state is un-initalized.
     if values is None:
         values = []
+
     values.append(new_value)
     while len(values) > 3:
         values.pop(0)
