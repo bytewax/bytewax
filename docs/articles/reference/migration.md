@@ -81,7 +81,7 @@ class PeriodicSource(DynamicSource):
         pass
 ```
 
-### Removal of the schema registry interface.
+### Standardization on Confluent's Kafka Serialization Interface
 
 The schema registry interface has been removed.
 
