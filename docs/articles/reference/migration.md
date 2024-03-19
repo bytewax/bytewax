@@ -95,12 +95,18 @@ class PeriodicSource(DynamicSource):
 
 ### Standardization on Confluent's Kafka Serialization Interface
 
-The schema registry interface has been removed.
+Bytewax's bespoke Kafka schema registry and serialization interface has been removed in favor of using {py:obj}`confluent_kafka.schema_registry.SchemaRegistryClient` and {py:obj}`confluent_kafka.serialization.Deserializer`s and {py:obj}`confluent_kafka.serialization.Serializer`s directly. This now gives you direct control over all of the configuration options for serialization and supports the full range of use cases. Bytewax's Kafka serialization operators in {py:obj}`bytewax.connectors.kafka.operators` now take these Confluent types.
 
-You can still use schema registries, but you need to instantiate
-the (de)serializers on your own. This allows for more flexibility.
-See the `confluent_serde` and `redpanda_serde` examples for how
-to use the new interface.
+#### With Confluent Schema Registry
+
+If you are using Confluent's schema registry (with it's magic byte prefix), you can pass serializers like {py:obj}`confluent_kafka.schema_registry.avro.AvroDeserializer` directly to our operators. See Confluent's documentation for all the options here.
+
+ADD A BEFORE AND AFTER WITH THE OTHER SERIALIZERS?
+
+#### With Redpanda Schema Registry
+
+If you are using Redpanda's schema registry or another setup for which the serialized form does not have any magic bytes and is the payload directly, we provide compatible serializer classes in {py:obj}`bytewax.connectors.kafka.serde`.
+
 
 Before:
 
