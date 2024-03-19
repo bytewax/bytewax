@@ -60,8 +60,18 @@ running_means = op.stateful_map("running_mean", keyed_amounts, calc_running_mean
 and `DynamicSink.build` now take an additional `step_id` argument.
 This argument can be used as a label when creating custom Python metrics.
 
-Additionally, `FixedPartitionedSource.build_part`, `DynamicSource.build` and `UnaryLogic.on_item`
-no longer take a `now: datetime` argument.
+{py:obj}`bytewax.inputs.FixedPartitionedSource.build_part`, {py:obj}`bytewax.inputs.DynamicSource.build` and {py:obj}`bytewax.operators.UnaryLogic.on_item`
+no longer take a `now: datetime` argument. {py:obj}`bytewax.inputs.StatefulSourcePartition.next_batch`, {py:obj}`bytewax.inputs.StatelessSourcePartition.next_batch`, and {py:obj}`bytewax.operators.UnaryLogic.on_notify` no longer take a `sched: datetime` argument. Generating these values resulted in significant overhead, even for the majority of sources and stateful operators that never used them.
+
+If you need the current time, you still can manually get the current time:
+
+```python
+from datetime import datetime, timezone
+
+now = datetime.now(timezone.utc)
+```
+
+If you need the previously scheduled awake time, store it in an instance variable before returning it from {py:obj}`~bytewax.operators.UnaryLogic.notify_at`. Your design probably already has that stored in an instance variable.
 
 Before:
 
