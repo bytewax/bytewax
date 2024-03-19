@@ -54,7 +54,7 @@ def calc_running_mean(values, new_value):
 running_means = op.stateful_map("running_mean", keyed_amounts, calc_running_mean)
 ```
 
-### Changes to the Source and Sink APIs
+### Connector API Now Contains Step ID
 
 `FixedPartitionedSource.build_part`, `DynamicSource.build`, `FixedPartitionedSink.build_part`
 and `DynamicSink.build` now take an additional `step_id` argument.
