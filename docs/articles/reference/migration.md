@@ -56,8 +56,8 @@ running_means = op.stateful_map("running_mean", keyed_amounts, calc_running_mean
 
 ### Connector API Now Contains Step ID
 
-`FixedPartitionedSource.build_part`, `DynamicSource.build`, `FixedPartitionedSink.build_part`
-and `DynamicSink.build` now take an additional `step_id` argument.
+{py:obj}`bytewax.inputs.FixedPartitionedSource.build_part`, {py:obj}`bytewax.inputs.DynamicSource.build`, {py:obj}`bytewax.outputs.FixedPartitionedSink.build_part`
+and {py:obj}`bytewax.outputs.DynamicSink.build` now take an additional `step_id` argument.
 This argument can be used as a label when creating custom Python metrics.
 
 ### `datetime` Arguments Removed for Performance
@@ -103,7 +103,40 @@ Bytewax's bespoke Kafka schema registry and serialization interface has been rem
 
 If you are using Confluent's schema registry (with it's magic byte prefix), you can pass serializers like {py:obj}`confluent_kafka.schema_registry.avro.AvroDeserializer` directly to our operators. See Confluent's documentation for all the options here.
 
-ADD A BEFORE AND AFTER WITH THE OTHER SERIALIZERS?
+Before:
+
+```python doctest:SKIP
+from bytewax.connectors.kafka import operators as kop
+from bytewax.connectors.kafka.registry import ConfluentSchemaRegistry
+
+sr_conf = {"url": CONFLUENT_URL, "basic.auth.user.info": CONFLUENT_USERINFO}
+registry = ConfluentSchemaRegistry(SchemaRegistryClient(sr_conf))
+
+key_de = AvroDeserializer(client)
+val_de = AvroDeserializer(client)
+
+# Deserialize both key and value
+msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer=val_de)
+```
+
+After:
+
+```python doctest:SKIP
+from bytewax.connectors.kafka import operators as kop
+from confluent_kafka.schema_registry import SchemaRegistryClient
+from confluent_kafka.schema_registry.avro import AvroDeserializer
+
+# Confluent's SchemaRegistryClient
+client = SchemaRegistryClient(
+    {"url": CONFLUENT_URL, "basic.auth.user.info": CONFLUENT_USERINFO}
+)
+key_de = AvroDeserializer(client)
+val_de = AvroDeserializer(client)
+
+# Deserialize both key and value
+msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer=val_de)
+```
+
 
 #### With Redpanda Schema Registry
 
