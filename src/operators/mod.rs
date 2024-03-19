@@ -57,42 +57,44 @@ where
         let mut op_builder = OperatorBuilder::new(format!("{step_id}.branch"), self.scope());
 
         let mut self_handle = op_builder.new_input(self, Pipeline);
-        let (mut output1, falses) = op_builder.new_output();
-        let (mut output2, trues) = op_builder.new_output();
+        let (mut trues_output, trues) = op_builder.new_output();
+        let (mut falses_output, falses) = op_builder.new_output();
 
         op_builder.build(move |_| {
             let mut inbuf = Vec::new();
             move |_frontiers| {
-                let mut output1_handle = output1.activate();
-                let mut output2_handle = output2.activate();
+                let mut trues_handle = trues_output.activate();
+                let mut falses_handle = falses_output.activate();
 
-                input.for_each(|time, data| {
-                    data.swap(&mut vector);
-                    let mut out1 = output1_handle.session(&time);
-                    let mut out2 = output2_handle.session(&time);
-                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                Python::with_gil(|py| {
+                    self_handle.for_each(|time, data| {
+                        data.swap(&mut inbuf);
+                        let mut trues_session = trues_handle.session(&time);
+                        let mut falses_session = falses_handle.session(&time);
                         let pred = predicate.as_ref(py);
-                        for item in vector.drain(..) {
-                            let item = PyObject::from(item);
-                            let res = pred
-                                .call1((item.clone_ref(py),))
-                                .reraise_with(|| {
-                                    format!("error calling predicate in step {step_id}")
-                                })?
-                                .extract::<bool>()
-                                .reraise_with(|| {
-                                    format!(
-                                    "return value of `predicate` in step {step_id} must be a `bool`"
-                                )
-                                })?;
-                            if res {
-                                out2.give(item)
-                            } else {
-                                out1.give(item)
+                        unwrap_any!(|| -> PyResult<()> {
+                            for item in inbuf.drain(..) {
+                                let item = PyObject::from(item);
+                                let res = pred
+                                    .call1((item.clone_ref(py),))
+                                    .reraise_with(|| {
+                                        format!("error calling predicate in step {step_id}")
+                                    })?
+                                    .extract::<bool>()
+                                    .reraise_with(|| {
+                                        format!(
+                                        "return value of `predicate` in step {step_id} must be a `bool`"
+                                    )
+                                    })?;
+                                if res {
+                                    trues_session.give(TdPyAny::from(item));
+                                } else {
+                                    falses_session.give(TdPyAny::from(item));
+                                }
                             }
-                        }
-                        Ok(())
-                    }));
+                            Ok(())
+                        }());
+                    })
                 });
             }
         });
@@ -370,7 +372,8 @@ where
     S: Scope,
 {
     fn extract_key(&self, for_step_id: StepId) -> Stream<S, (StateKey, TdPyAny)> {
-        let mut op_builder = OperatorBuilder::new(format!("{for_step_id}.extract_key"), self.scope());
+        let mut op_builder =
+            OperatorBuilder::new(format!("{for_step_id}.extract_key"), self.scope());
         let mut self_handle = op_builder.new_input(self, Pipeline);
 
         let (mut downstream_output, downstream) = op_builder.new_output();
@@ -380,33 +383,35 @@ where
             move |_frontiers| {
                 let mut downstream_handle = downstream_output.activate();
 
-                input.for_each(|time, data| {
-                    data.swap(&mut vector);
-                    let mut downstream_session = downstream_handle.session(&time);
-                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                        for item in vector.drain(..) {
-                            let item = PyObject::from(item);
-                            let (key, value) = item
-                                .extract::<(&PyAny, PyObject)>(py)
-                                .raise_with::<PyTypeError>(|| {
-                                    format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
-                                        unwrap_any!(item.as_ref(py).get_type().name()),
+                Python::with_gil(|py| {
+                    self_handle.for_each(|time, data| {
+                        data.swap(&mut inbuf);
+                        let mut downstream_session = downstream_handle.session(&time);
+                        unwrap_any!(|| -> PyResult<()> {
+                            for item in inbuf.drain(..) {
+                                let item = PyObject::from(item);
+                                let (key, value) = item
+                                    .extract::<(&PyAny, PyObject)>(py)
+                                    .raise_with::<PyTypeError>(|| {
+                                        format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
+                                            unwrap_any!(item.as_ref(py).get_type().name()),
+                                        )
+                                    })?;
+
+                                let key = key.extract::<StateKey>().raise_with::<PyTypeError>(|| {
+                                    format!("step {for_step_id} requires `str` keys in `(key, value)` from upstream; got a `{}` instead",
+                                        unwrap_any!(key.get_type().name()),
                                     )
                                 })?;
-
-                            let key = key.extract::<StateKey>().raise_with::<PyTypeError>(|| {
-                                format!("step {for_step_id} requires `str` keys in `(key, value)` from upstream; got a `{}` instead",
-                                    unwrap_any!(key.get_type().name()),
-                                )
-                            })?;
-                            out1.give((key, TdPyAny::from(value)));
-                        }
-                        Ok(())
-                    }));
+                                downstream_session.give((key, TdPyAny::from(value)));
+                            }
+                            Ok(())
+                        }());
+                    });
                 });
             }
         });
-        keyed_stream
+        downstream
     }
 }
 
