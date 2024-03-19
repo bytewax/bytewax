@@ -13,7 +13,6 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::Branch;
 use timely::dataflow::operators::Concatenate;
 use timely::dataflow::operators::Exchange;
 use timely::dataflow::operators::Map;
@@ -41,7 +40,6 @@ where
 {
     fn branch(
         &self,
-        py: Python,
         step_id: StepId,
         predicate: TdPyCallable,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, TdPyAny>)>;
@@ -53,21 +51,52 @@ where
 {
     fn branch(
         &self,
-        _py: Python,
         step_id: StepId,
         predicate: TdPyCallable,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, TdPyAny>)> {
-        let (falses, trues) = Branch::branch(self, move |_epoch, item| {
-            let item = <&PyObject>::from(item);
+        let mut op_builder = OperatorBuilder::new(format!("{step_id}.branch"), self.scope());
 
-            unwrap_any!(Python::with_gil(|py| predicate
-                .as_ref(py)
-                .call1((item,))
-                .reraise_with(|| format!("error calling predicate in step {step_id}"))?
-                .extract::<bool>()
-                .reraise_with(|| format!(
-                    "return value of `predicate` in step {step_id} must be a `bool`"
-                ))))
+        let mut self_handle = op_builder.new_input(self, Pipeline);
+        let (mut trues_output, trues) = op_builder.new_output();
+        let (mut falses_output, falses) = op_builder.new_output();
+
+        op_builder.build(move |_| {
+            let mut inbuf = Vec::new();
+            move |_frontiers| {
+                let mut trues_handle = trues_output.activate();
+                let mut falses_handle = falses_output.activate();
+
+                Python::with_gil(|py| {
+                    self_handle.for_each(|time, data| {
+                        data.swap(&mut inbuf);
+                        let mut trues_session = trues_handle.session(&time);
+                        let mut falses_session = falses_handle.session(&time);
+                        let pred = predicate.as_ref(py);
+                        unwrap_any!(|| -> PyResult<()> {
+                            for item in inbuf.drain(..) {
+                                let item = PyObject::from(item);
+                                let res = pred
+                                    .call1((item.clone_ref(py),))
+                                    .reraise_with(|| {
+                                        format!("error calling predicate in step {step_id}")
+                                    })?
+                                    .extract::<bool>()
+                                    .reraise_with(|| {
+                                        format!(
+                                        "return value of `predicate` in step {step_id} must be a `bool`"
+                                    )
+                                    })?;
+                                if res {
+                                    trues_session.give(TdPyAny::from(item));
+                                } else {
+                                    falses_session.give(TdPyAny::from(item));
+                                }
+                            }
+                            Ok(())
+                        }());
+                    })
+                });
+            }
         });
 
         Ok((trues, falses))
@@ -343,31 +372,46 @@ where
     S: Scope,
 {
     fn extract_key(&self, for_step_id: StepId) -> Stream<S, (StateKey, TdPyAny)> {
-        self.map(move |item| {
-            let item = PyObject::from(item);
+        let mut op_builder =
+            OperatorBuilder::new(format!("{for_step_id}.extract_key"), self.scope());
+        let mut self_handle = op_builder.new_input(self, Pipeline);
 
-            let (key, value) = unwrap_any!(Python::with_gil(|py| -> PyResult<_> {
-                let item = item.as_ref(py);
+        let (mut downstream_output, downstream) = op_builder.new_output();
 
-                let (key, value) = item
-                    .extract::<(&PyAny, PyObject)>()
-                    .raise_with::<PyTypeError>(|| {
-                        format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
-                            unwrap_any!(item.get_type().name()),
-                        )
-                    })?;
+        op_builder.build(move |_| {
+            let mut inbuf = Vec::new();
+            move |_frontiers| {
+                let mut downstream_handle = downstream_output.activate();
 
-                let key = key.extract::<StateKey>().raise_with::<PyTypeError>(|| {
-                    format!("step {for_step_id} requires `str` keys in `(key, value)` from upstream; got a `{}` instead",
-                        unwrap_any!(key.get_type().name()),
-                    )
-                })?;
+                Python::with_gil(|py| {
+                    self_handle.for_each(|time, data| {
+                        data.swap(&mut inbuf);
+                        let mut downstream_session = downstream_handle.session(&time);
+                        unwrap_any!(|| -> PyResult<()> {
+                            for item in inbuf.drain(..) {
+                                let item = PyObject::from(item);
+                                let (key, value) = item
+                                    .extract::<(&PyAny, PyObject)>(py)
+                                    .raise_with::<PyTypeError>(|| {
+                                        format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
+                                            unwrap_any!(item.as_ref(py).get_type().name()),
+                                        )
+                                    })?;
 
-                Ok((key, value))
-            }));
-
-            (key, TdPyAny::from(value))
-        })
+                                let key = key.extract::<StateKey>().raise_with::<PyTypeError>(|| {
+                                    format!("step {for_step_id} requires `str` keys in `(key, value)` from upstream; got a `{}` instead",
+                                        unwrap_any!(key.get_type().name()),
+                                    )
+                                })?;
+                                downstream_session.give((key, TdPyAny::from(value)));
+                            }
+                            Ok(())
+                        }());
+                    });
+                });
+            }
+        });
+        downstream
     }
 }
 
