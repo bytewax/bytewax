@@ -6,6 +6,128 @@ Bytewax version to the next. For a detailed list of all changes, see
 the
 [CHANGELOG](https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md).
 
+## From v0.18 to v0.19
+
+### Removal of the `builder` argument from `stateful_map`
+
+The `builder` argument has been removed from `stateful_map`.
+The initial state value is always `None` and you can call
+your previous builder by hand in the `mapper` function.
+
+Before:
+
+```python doctest:SKIP
+def running_builder():
+    return []
+
+
+def calc_running_mean(values, new_value):
+    values.append(new_value)
+    while len(values) > 3:
+        values.pop(0)
+
+    running_mean = sum(values) / len(values)
+    return (values, running_mean)
+
+
+running_means = op.stateful_map(
+    "running_mean", keyed_amounts, running_builder, calc_running_mean
+)
+```
+
+After:
+
+```python doctest:SKIP
+def calc_running_mean(values, new_value):
+    if values is None:
+        values = []
+    values.append(new_value)
+    while len(values) > 3:
+        values.pop(0)
+
+    running_mean = sum(values) / len(values)
+    return (values, running_mean)
+
+
+running_means = op.stateful_map("running_mean", keyed_amounts, calc_running_mean)
+```
+
+### Changes to the Source and Sink APIs
+
+`FixedPartitionedSource.build_part`, `DynamicSource.build`, `FixedPartitionedSink.build_part`
+and `DynamicSink.build` now take an additional `step_id` argument.
+This argument can be used as a label when creating custom Python metrics.
+
+Additionally, `FixedPartitionedSource.build_part`, `DynamicSource.build` and `UnaryLogic.on_item`
+no longer take a `now: datetime` argument.
+
+Before:
+
+```python doctest:SKIP
+from bytewax.inputs import DynamicSource
+
+
+class PeriodicSource(DynamicSource):
+    def build(self, now: datetime, worker_index: int, worker_count: int):
+        pass
+```
+
+```python doctest:SKIP
+from bytewax.inputs import DynamicSource
+
+
+class PeriodicSource(DynamicSource):
+    def build(self, step_id: str, worker_index: int, worker_count: int):
+        pass
+```
+
+### Removal of the schema registry interface.
+
+The schema registry interface has been removed.
+
+You can still use schema registries, but you need to instantiate
+the (de)serializers on your own. This allows for more flexibility.
+See the `confluent_serde` and `redpanda_serde` examples for how
+to use the new interface.
+
+Before:
+
+```python doctest:SKIP
+from bytewax.connectors.kafka import operators as kop
+from bytewax.connectors.kafka.registry import RedpandaSchemaRegistry, SchemaRef
+
+REDPANDA_REGISTRY_URL = "http://localhost:8080/schema-registry"
+
+registry = RedpandaSchemaRegistry(REDPANDA_REGISTRY_URL)
+key_de = registry.deserializer(SchemaRef("sensor-key"))
+val_de = registry.deserializer(SchemaRef("sensor-value"))
+
+msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer=val_de)
+```
+
+After:
+
+```python doctest:SKIP
+from bytewax.connectors.kafka import operators as kop
+from confluent_kafka.schema_registry import SchemaRegistryClient
+
+REDPANDA_REGISTRY_URL = os.environ["REDPANDA_REGISTRY_URL"]
+# Redpanda's schema registry configuration
+client = SchemaRegistryClient({"url": REDPANDA_REGISTRY_URL})
+
+# Use plain avro instead of confluent's wire format.
+# We need to specify the schema in the deserializer too here.
+key_schema = client.get_latest_version("sensor-key").schema
+key_de = PlainAvroDeserializer(schema=key_schema)
+
+val_schema = client.get_latest_version("sensor-value").schema
+val_de = PlainAvroDeserializer(schema=val_schema)
+
+# Deserialize both key and value
+msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer=val_de)
+```
+
+
 ## From v0.17 to v0.18
 
 ### Non-Linear Dataflows

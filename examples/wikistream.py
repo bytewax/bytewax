@@ -10,7 +10,7 @@ from aiohttp_sse_client.client import EventSource
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch_async
-from bytewax.operators.window import SystemClockConfig, TumblingWindow
+from bytewax.operators.window import SystemClockConfig, TumblingWindow, WindowMetadata
 
 
 async def _sse_agen(url):
@@ -62,7 +62,10 @@ server_counts = win.count_window(
 # ("server.name", count_per_window)
 
 
-def keep_max(max_count: Optional[int], new_count: int) -> Tuple[Optional[int], int]:
+def keep_max(
+    max_count: Optional[int], new_window_count: Tuple[WindowMetadata, int]
+) -> Tuple[Optional[int], int]:
+    _metadata, new_count = new_window_count
     if max_count is None:
         new_max = new_count
     else:
