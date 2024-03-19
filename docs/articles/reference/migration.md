@@ -10,7 +10,7 @@ the
 
 ### Removal of the `builder` argument from `stateful_map`
 
-The `builder` argument has been removed from `stateful_map`.
+The `builder` argument has been removed from {py:obj}`~bytewax.operators.stateful_map`.
 The initial state value is always `None` and you can call
 your previous builder by hand in the `mapper` function.
 
