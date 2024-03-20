@@ -64,6 +64,7 @@
 
 /articles/contributing/contributing.md
 /articles/contributing/architecture.md
+/articles/contributing/profiling.md
 /articles/contributing/connector-hub.md
 /articles/contributing/writing-docs.md
 ```
