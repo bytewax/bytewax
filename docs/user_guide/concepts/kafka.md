@@ -153,10 +153,10 @@ https://developer.confluent.io/learn/apache-kafka-on-the-go/consumer-groups/)
 in order to manage partition assignment and the storing of Kafka
 offsets.
 
-Bytewax does **not** use consumer groups to store offsets or asssign
+Bytewax does **not** use consumer groups to store offsets or assign
 Kafka topic partitions to consumers. In order to correctly support
-[recovery](/articles/concepts/recovery), Bytewax must manage and store
-the consumer offsets in Bytewax recovery partitions.
+[recovery](/user_guide/concepts/recovery), Bytewax must manage and
+store the consumer offsets in Bytewax recovery partitions.
 
 When recovery is not enabled, Bytewax will start consuming from each
 partition using the earliest available offset. This setting can be

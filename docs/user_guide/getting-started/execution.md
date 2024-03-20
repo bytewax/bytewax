@@ -39,7 +39,7 @@ The string is in the format `<dataflow-module>` where:
    definition.
 
 Let's work through two examples. Make sure you have [installed
-Bytewax](/articles/getting-started/installing.md) before you begin.
+Bytewax](/user_guide/getting-started/installing.md) before you begin.
 
 Create a new file named `./simple.py` with the following contents:
 

@@ -66,7 +66,7 @@ concepts:
 
 For more technical details on how to work with custom IO for Bytewax,
 please refer to the
-<project:/articles/advanced-concepts/custom-connectors.md>.
+<project:/user_guide/advanced-concepts/custom-connectors.md>.
 
 ### Partitions
 
@@ -100,7 +100,7 @@ gracefully.
   from the last checkpoint after a failure.
 
 For more detail on how recovery works, check the [detailed
-documentation](/articles/concepts/recovery.md).
+documentation](/user_guide/concepts/recovery.md).
 
 ### Contributing
 

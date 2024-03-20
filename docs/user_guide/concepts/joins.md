@@ -2,7 +2,7 @@
 
 _Here we're going to give a deep dive on how joins work in Bytewax. If
 you'd like a quick demo of "show me how to do a simple join", see
-<project:/articles/getting-started/join-example.md>.
+<project:/user_guide/getting-started/join-example.md>.
 
 A **join** is a way to combine items in two or more streams into a
 single stream, matching them by a **join key**.
@@ -440,9 +440,9 @@ this.
 
 For the details of all the types of windows you can define and
 explanation of the parameters, see our
-<project:/articles/concepts/windowing.md>. We're going to use a simple
-1 hour tumbling window; the previous window closes and the next window
-starts at the top of each hour. We'll be using event time.
+<project:/user_guide/concepts/windowing.md>. We're going to use a
+simple 1 hour tumbling window; the previous window closes and the next
+window starts at the top of each hour. We'll be using event time.
 
 ```python
 from datetime import timedelta, datetime, timezone

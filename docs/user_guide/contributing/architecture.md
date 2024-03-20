@@ -114,6 +114,6 @@ lands on the right worker.
 The connectors, progress tracking, recovery mechanisms, and scaling of
 workers are all highly interconnected between Bytewax code, storage
 infrastructure, and Timely mechanisms. To read more about this, please
-refer to the <project:/articles/concepts/rescaling.md>,
-<project:/articles/concepts/recovery.md> and
-<project:/articles/advanced-concepts/custom-connectors.md> sections.
+refer to the <project:/user_guide/concepts/rescaling.md>,
+<project:/user_guide/concepts/recovery.md> and
+<project:/user_guide/advanced-concepts/custom-connectors.md> sections.

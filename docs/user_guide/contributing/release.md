@@ -51,7 +51,7 @@ Make a PR which commits the following:
 
 4. Write migration guide entry
 
-   Add a section to `docs/articles/reference/migration.md` like
+   Add a section to `docs/user_guide/reference/migration.md` like
 
    ````markdown
    ## From v1.2.2 to v1.2.3

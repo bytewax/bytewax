@@ -3,7 +3,7 @@
 ```{toctree}
 :titlesonly:
 
-/articles/index.md
+/user_guide/index.md
 ```
 
 ```{toctree}

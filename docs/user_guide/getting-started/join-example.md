@@ -109,5 +109,4 @@ receive any input for that key from `inp2`, we won't see any output
 for that user until we do.
 
 For more details about the behavior of the join operator, see the
-<project:/articles/concepts/joins.md> section of the
-documentation.
+<project:/user_guide/concepts/joins.md> section of the documentation.

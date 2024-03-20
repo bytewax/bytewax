@@ -41,7 +41,7 @@ from bytewax.connectors.kafka import operators as kop
 from bytewax.dataflow import Dataflow
 ```
 
-Bytewax has input and output helpers for common input and output data sources but you can also create your own with the [Sink and Source API](https://github.com/bytewax/bytewax/blob/main/docs/articles/advanced-concepts/custom-io-connectors.md).
+Bytewax has input and output helpers for common input and output data sources but you can also create your own with the [Sink and Source API](https://github.com/bytewax/bytewax/blob/main/docs/user_guide/advanced-concepts/custom-io-connectors.md).
 
 At a high-level, the dataflow compute model is one in which a program execution is conceptualized as data flowing through a series of operator-based steps. Operators like `map` and `filter` are the processing primitives of Bytewax. Each of them gives you a “shape” of data transformation, and you give them regular Python functions to customize them to a specific task you need. See the documentation for a list of the [available operators](https://bytewax.io/apidocs/bytewax.operators/index)
 

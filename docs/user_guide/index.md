@@ -4,57 +4,57 @@
 :caption: Getting Started
 :titlesonly:
 
-/articles/getting-started/installing.md
-/articles/getting-started/simple-example.md
-/articles/getting-started/collecting-windowing-example.md
-/articles/getting-started/join-example.md
-/articles/getting-started/wordcount-example.md
-/articles/getting-started/polling-input-example.md
-/articles/getting-started/recovery-example.md
-/articles/getting-started/execution.md
-/articles/getting-started/debugging.md
+/user_guide/getting-started/installing.md
+/user_guide/getting-started/simple-example.md
+/user_guide/getting-started/collecting-windowing-example.md
+/user_guide/getting-started/join-example.md
+/user_guide/getting-started/wordcount-example.md
+/user_guide/getting-started/polling-input-example.md
+/user_guide/getting-started/recovery-example.md
+/user_guide/getting-started/execution.md
+/user_guide/getting-started/debugging.md
 ```
 
 ```{toctree}
 :caption: Concepts
 :titlesonly:
 
-/articles/concepts/workers-parallelization.md
-/articles/concepts/dataflow-programming.md
-/articles/concepts/joins.md
-/articles/concepts/kafka.md
-/articles/concepts/windowing.md
-/articles/concepts/recovery.md
-/articles/concepts/pubsub-polling.md
-/articles/concepts/rescaling.md
+/user_guide/concepts/workers-parallelization.md
+/user_guide/concepts/dataflow-programming.md
+/user_guide/concepts/joins.md
+/user_guide/concepts/kafka.md
+/user_guide/concepts/windowing.md
+/user_guide/concepts/recovery.md
+/user_guide/concepts/pubsub-polling.md
+/user_guide/concepts/rescaling.md
 ```
 
 ```{toctree}
 :caption: Advanced Concepts
 :titlesonly:
 
-/articles/advanced-concepts/custom-operators.md
-/articles/advanced-concepts/custom-connectors.md
+/user_guide/advanced-concepts/custom-operators.md
+/user_guide/advanced-concepts/custom-connectors.md
 ```
 
 ```{toctree}
 :caption: Deployment
 :titlesonly:
 
-/articles/deployment/container.md
-/articles/deployment/waxctl.md
-/articles/deployment/waxctl-aws.md
-/articles/deployment/waxctl-gcp.md
-/articles/deployment/helm-chart.md
-/articles/deployment/metrics.md
+/user_guide/deployment/container.md
+/user_guide/deployment/waxctl.md
+/user_guide/deployment/waxctl-aws.md
+/user_guide/deployment/waxctl-gcp.md
+/user_guide/deployment/helm-chart.md
+/user_guide/deployment/metrics.md
 ```
 
 ```{toctree}
 :caption: Reference
 :titlesonly:
 
-/articles/reference/glossary.md
-/articles/reference/migration.md
+/user_guide/reference/glossary.md
+/user_guide/reference/migration.md
 ```
 
 
@@ -62,10 +62,10 @@
 :caption: Contributing
 :titlesonly:
 
-/articles/contributing/contributing.md
-/articles/contributing/architecture.md
-/articles/contributing/profiling.md
-/articles/contributing/release.md
-/articles/contributing/connector-hub.md
-/articles/contributing/writing-docs.md
+/user_guide/contributing/contributing.md
+/user_guide/contributing/architecture.md
+/user_guide/contributing/profiling.md
+/user_guide/contributing/release.md
+/user_guide/contributing/connector-hub.md
+/user_guide/contributing/writing-docs.md
 ```

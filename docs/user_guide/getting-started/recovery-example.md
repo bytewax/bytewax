@@ -8,7 +8,7 @@ resume from a recent snapshot.
 
 Here, we'll walk through a tutorial demonstrating recovery. For more
 advanced settings and important details about recovery, see the
-concepts section article <project:/articles/concepts/recovery.md>.
+concepts section article <project:/user_guide/concepts/recovery.md>.
 
 ## Create Recovery Partitions
 
@@ -88,7 +88,7 @@ of time in seconds to keep older state snapshots around.
 For production dataflows, you should set these values carefully for
 each dataflow to match your operational needs. For more information,
 please see the concept section on
-<project:/articles/concepts/recovery.md>.
+<project:/user_guide/concepts/recovery.md>.
 
 Running the example above, you should see the following output:
 

@@ -211,8 +211,8 @@ Credentials Secrets mentioned above to the StatefulSet Pods.
 ## Next Steps
 
 If you want to deploy this stack in your Kubernetes cluster we invite
-you to read our section <project:/articles/deployment/waxctl.md> where
-we use the Bytewax CLI, Waxctl, to do that.
+you to read our section <project:/user_guide/deployment/waxctl.md>
+where we use the Bytewax CLI, Waxctl, to do that.
 
 ## Example Manifests
 

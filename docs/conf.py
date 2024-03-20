@@ -129,7 +129,7 @@ html_theme_options = {
     "show_prev_next": True,
     "secondary_sidebar_items": {
         "apidocs/**": ["page-toc"],
-        "articles/**": ["page-toc", "edit-this-page"],
+        "user_guide/**": ["page-toc", "edit-this-page"],
     },
 }
 

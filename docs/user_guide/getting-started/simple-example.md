@@ -3,7 +3,7 @@
 
 Let's write our first Bytewax dataflow. Be sure that you've followed
 the instructions for installing Bytewax in
-<project:/articles/getting-started/installing.md>.
+<project:/user_guide/getting-started/installing.md>.
 
 ## Imports
 
