@@ -62,18 +62,20 @@ Make a PR which commits the following:
 
    If you had code that looked like this
 
-   ```python
-   from bytewax.foobar import Cow
+   % skip: next
 
-   c = Cow()
+   ```python
+   from bytewax.dataflow import OldFlow
+
+   flow = OldFlow()
    ```
 
    It now is should be written as
 
    ```python
-   from bytewax.foobar import Bear
+   from bytewax.dataflow import Dataflow
 
-   b = Bear()
+   flow = Dataflow("flow_id")
    ```
    ````
 
