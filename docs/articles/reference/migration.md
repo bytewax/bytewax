@@ -60,6 +60,28 @@ running_means = op.stateful_map("running_mean", keyed_amounts, calc_running_mean
 and {py:obj}`bytewax.outputs.DynamicSink.build` now take an additional `step_id` argument.
 This argument can be used as a label when creating custom Python metrics.
 
+Before:
+
+```python doctest:SKIP
+from bytewax.inputs import DynamicSource
+
+
+class PeriodicSource(DynamicSource):
+    def build(self, now: datetime, worker_index: int, worker_count: int):
+        pass
+```
+
+After:
+
+```python doctest:SKIP
+from bytewax.inputs import DynamicSource
+
+
+class PeriodicSource(DynamicSource):
+    def build(self, step_id: str, worker_index: int, worker_count: int):
+        pass
+```
+
 ### `datetime` Arguments Removed for Performance
 
 {py:obj}`bytewax.inputs.FixedPartitionedSource.build_part`, {py:obj}`bytewax.inputs.DynamicSource.build` and {py:obj}`bytewax.operators.UnaryLogic.on_item`
@@ -74,26 +96,6 @@ now = datetime.now(timezone.utc)
 ```
 
 If you need the previously scheduled awake time, store it in an instance variable before returning it from {py:obj}`~bytewax.operators.UnaryLogic.notify_at`. Your design probably already has that stored in an instance variable.
-
-Before:
-
-```python doctest:SKIP
-from bytewax.inputs import DynamicSource
-
-
-class PeriodicSource(DynamicSource):
-    def build(self, now: datetime, worker_index: int, worker_count: int):
-        pass
-```
-
-```python doctest:SKIP
-from bytewax.inputs import DynamicSource
-
-
-class PeriodicSource(DynamicSource):
-    def build(self, step_id: str, worker_index: int, worker_count: int):
-        pass
-```
 
 ### Standardization on Confluent's Kafka Serialization Interface
 
@@ -140,8 +142,10 @@ msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer
 
 #### With Redpanda Schema Registry
 
-If you are using Redpanda's schema registry or another setup for which the serialized form does not have any magic bytes and is the payload directly, we provide compatible serializer classes in {py:obj}`bytewax.connectors.kafka.serde`.
-
+If you are using Redpanda's schema registry or another setup for
+which the serialized form does not use Confluent's wire format,
+we provide compatible (de)serializer classes in
+{py:obj}`bytewax.connectors.kafka.serde`.
 
 Before:
 
@@ -163,6 +167,7 @@ After:
 ```python doctest:SKIP
 from bytewax.connectors.kafka import operators as kop
 from confluent_kafka.schema_registry import SchemaRegistryClient
+from bytewax.connectors.kafka.serde import PlainAvroDeserializer
 
 REDPANDA_REGISTRY_URL = os.environ["REDPANDA_REGISTRY_URL"]
 # Redpanda's schema registry configuration
