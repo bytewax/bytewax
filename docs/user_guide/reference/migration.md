@@ -10,9 +10,10 @@ the
 
 ### Removal of the `builder` argument from `stateful_map`
 
-The `builder` argument has been removed from {py:obj}`~bytewax.operators.stateful_map`.
-The initial state value is always `None` and you can call
-your previous builder by hand in the `mapper` function.
+The `builder` argument has been removed from
+{py:obj}`~bytewax.operators.stateful_map`. The initial state value is
+always `None` and you can call your previous builder by hand in the
+`mapper` function.
 
 Before:
 
@@ -39,7 +40,9 @@ After:
 
 ```python doctest:SKIP
 def calc_running_mean(values, new_value):
-    # On the initial value for this key, instead of the operator calling the builder for you, you can call it yourself when the state is un-initalized.
+    # On the initial value for this key, instead of the operator calling the
+    # builder for you, you can call it yourself when the state is un-initalized.
+
     if values is None:
         values = []
 
@@ -56,9 +59,12 @@ running_means = op.stateful_map("running_mean", keyed_amounts, calc_running_mean
 
 ### Connector API Now Contains Step ID
 
-{py:obj}`bytewax.inputs.FixedPartitionedSource.build_part`, {py:obj}`bytewax.inputs.DynamicSource.build`, {py:obj}`bytewax.outputs.FixedPartitionedSink.build_part`
-and {py:obj}`bytewax.outputs.DynamicSink.build` now take an additional `step_id` argument.
-This argument can be used as a label when creating custom Python metrics.
+{py:obj}`bytewax.inputs.FixedPartitionedSource.build_part`,
+{py:obj}`bytewax.inputs.DynamicSource.build`,
+{py:obj}`bytewax.outputs.FixedPartitionedSink.build_part` and
+{py:obj}`bytewax.outputs.DynamicSink.build` now take an additional
+`step_id` argument. This argument can be used as a label when creating
+custom Python metrics.
 
 Before:
 
@@ -84,10 +90,19 @@ class PeriodicSource(DynamicSource):
 
 ### `datetime` Arguments Removed for Performance
 
-{py:obj}`bytewax.inputs.FixedPartitionedSource.build_part`, {py:obj}`bytewax.inputs.DynamicSource.build` and {py:obj}`bytewax.operators.UnaryLogic.on_item`
-no longer take a `now: datetime` argument. {py:obj}`bytewax.inputs.StatefulSourcePartition.next_batch`, {py:obj}`bytewax.inputs.StatelessSourcePartition.next_batch`, and {py:obj}`bytewax.operators.UnaryLogic.on_notify` no longer take a `sched: datetime` argument. Generating these values resulted in significant overhead, even for the majority of sources and stateful operators that never used them.
+{py:obj}`bytewax.inputs.FixedPartitionedSource.build_part`,
+{py:obj}`bytewax.inputs.DynamicSource.build` and
+{py:obj}`bytewax.operators.UnaryLogic.on_item` no longer take a `now:
+datetime` argument.
+{py:obj}`bytewax.inputs.StatefulSourcePartition.next_batch`,
+{py:obj}`bytewax.inputs.StatelessSourcePartition.next_batch`, and
+{py:obj}`bytewax.operators.UnaryLogic.on_notify` no longer take a
+`sched: datetime` argument. Generating these values resulted in
+significant overhead, even for the majority of sources and stateful
+operators that never used them.
 
-If you need the current time, you still can manually get the current time:
+If you need the current time, you still can manually get the current
+time:
 
 ```python
 from datetime import datetime, timezone
@@ -95,15 +110,31 @@ from datetime import datetime, timezone
 now = datetime.now(timezone.utc)
 ```
 
-If you need the previously scheduled awake time, store it in an instance variable before returning it from {py:obj}`~bytewax.operators.UnaryLogic.notify_at`. Your design probably already has that stored in an instance variable.
+If you need the previously scheduled awake time, store it in an
+instance variable before returning it from
+{py:obj}`~bytewax.operators.UnaryLogic.notify_at`. Your design
+probably already has that stored in an instance variable.
 
 ### Standardization on Confluent's Kafka Serialization Interface
 
-Bytewax's bespoke Kafka schema registry and serialization interface has been removed in favor of using {py:obj}`confluent_kafka.schema_registry.SchemaRegistryClient` and {py:obj}`confluent_kafka.serialization.Deserializer`s and {py:obj}`confluent_kafka.serialization.Serializer`s directly. This now gives you direct control over all of the configuration options for serialization and supports the full range of use cases. Bytewax's Kafka serialization operators in {py:obj}`bytewax.connectors.kafka.operators` now take these Confluent types.
+Bytewax's bespoke Kafka schema registry and serialization interface
+has been removed in favor of using
+{py:obj}`confluent_kafka.schema_registry.SchemaRegistryClient` and
+{py:obj}`confluent_kafka.serialization.Deserializer`s and
+{py:obj}`confluent_kafka.serialization.Serializer`s directly. This now
+gives you direct control over all of the configuration options for
+serialization and supports the full range of use cases. Bytewax's
+Kafka serialization operators in
+{py:obj}`bytewax.connectors.kafka.operators` now take these Confluent
+types.
 
 #### With Confluent Schema Registry
 
-If you are using Confluent's schema registry (with it's magic byte prefix), you can pass serializers like {py:obj}`confluent_kafka.schema_registry.avro.AvroDeserializer` directly to our operators. See Confluent's documentation for all the options here.
+If you are using Confluent's schema registry (with it's magic byte
+prefix), you can pass serializers like
+{py:obj}`confluent_kafka.schema_registry.avro.AvroDeserializer`
+directly to our operators. See Confluent's documentation for all the
+options here.
 
 Before:
 
@@ -142,9 +173,9 @@ msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer
 
 #### With Redpanda Schema Registry
 
-If you are using Redpanda's schema registry or another setup for
-which the serialized form does not use Confluent's wire format,
-we provide compatible (de)serializer classes in
+If you are using Redpanda's schema registry or another setup for which
+the serialized form does not use Confluent's wire format, we provide
+compatible (de)serializer classes in
 {py:obj}`bytewax.connectors.kafka.serde`.
 
 Before:
