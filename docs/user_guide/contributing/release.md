@@ -1,4 +1,9 @@
-# Steps to Release Bytewax
+# Library Release Checklist
+
+Here is a process checklist for Bytewax employees to release a new
+version of the Python library. Contributors do not need to follow the
+steps within and instead should follow the instructions in
+<project:/user_guide/contributing/contributing.md>.
 
 ## 1. One Final PR
 
