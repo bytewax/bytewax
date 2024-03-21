@@ -69,6 +69,10 @@ jobs:
           sccache: true
       - name: Run tests
         shell: bash
+        env:
+          TEST_KAFKA_BROKER : ${{ secrets.TEST_KAFKA_BROKER }}
+          CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
+          CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
           WHEEL_FILE=$(ls ./dist/*.whl)
           pip install $WHEEL_FILE'[dev]' -v --force-reinstall
