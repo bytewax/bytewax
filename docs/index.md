@@ -9,5 +9,5 @@
 ```{toctree}
 :titlesonly:
 
-/apidocs/index.rst
+/api/index.rst
 ```

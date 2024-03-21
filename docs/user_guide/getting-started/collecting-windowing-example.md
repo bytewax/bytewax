@@ -187,5 +187,5 @@ Bytewax created.
 
 Bytewax offers multiple processing shapes, window assignment types and
 other configuration options. For more information, please see the
-<project:/user_guide/concepts/windowing.md> section, and the
-<project:/apidocs/index.md>.
+<project:/user_guide/concepts/windowing.md> section, and the windowing
+API documentation in {py:obj}`bytewax.operators.window`.
