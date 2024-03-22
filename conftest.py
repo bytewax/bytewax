@@ -57,7 +57,7 @@ pytest_collect_file = Sybil(
     # complicated Markdown that `autodoc2` generates. Ignore these
     # files. No big deal because they don't include tests anyway.
     excludes=[
-        "docs/apidocs/bytewax/*.md",
-        "docs/user_guide/contributing/writing-docs.md",
+        "docs/api/bytewax/*.md",
+        "docs/guide/contributing/writing-docs.md",
     ],
 ).pytest()
