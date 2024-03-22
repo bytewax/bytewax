@@ -129,7 +129,7 @@ html_theme_options = {
     "show_prev_next": True,
     "secondary_sidebar_items": {
         "apidocs/**": ["page-toc"],
-        "articles/**": ["page-toc", "edit-this-page"],
+        "user_guide/**": ["page-toc", "edit-this-page"],
     },
 }
 
@@ -192,7 +192,7 @@ autodoc2_module_all_regexes = [
 # the directives for all the objects. Those Markdown files are in this
 # directory. This should not be committed because it is generated on
 # each build.
-autodoc2_output_dir = "apidocs"
+autodoc2_output_dir = "api"
 # Python package to parse to generate Markdown API docs for in the
 # above directory.
 autodoc2_packages = ["../pysrc/bytewax"]

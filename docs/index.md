@@ -3,11 +3,11 @@
 ```{toctree}
 :titlesonly:
 
-/articles/index.md
+/guide/index.md
 ```
 
 ```{toctree}
 :titlesonly:
 
-/apidocs/index.rst
+/api/index.rst
 ```
