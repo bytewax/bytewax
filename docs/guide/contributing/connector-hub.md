@@ -1,4 +1,4 @@
-(connector-hub)=
+(xref-connector-hub)=
 # Connector Hub
 
 Connectors play a crucial role for Bytewax workloads as they define
@@ -65,8 +65,7 @@ concepts:
 ## Advanced Connector Concepts
 
 For more technical details on how to work with custom IO for Bytewax,
-please refer to the
-<project:/user_guide/advanced-concepts/custom-connectors.md>.
+please refer to the <project:#xref-custom-connectors>.
 
 ### Partitions
 
@@ -99,8 +98,7 @@ gracefully.
 - **State Restoration**: Ensure the connector can restore its state
   from the last checkpoint after a failure.
 
-For more detail on how recovery works, check the [detailed
-documentation](/user_guide/concepts/recovery.md).
+For more detail on how recovery works, see <project:#xref-recovery>.
 
 ### Contributing
 

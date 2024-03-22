@@ -125,8 +125,8 @@ class Operator:
     """Base class for an operator type.
 
     Subclasses of this must be generated via the {py:obj}`operator`
-    builder function decorator. See <project:#custom-operators> for a
-    tutorial.
+    builder function decorator. See <project:#xref-custom-operators>
+    for a tutorial.
 
     Subclasses will contain the specific configuration fields each
     operator needs.
@@ -703,7 +703,7 @@ def operator(*, _core: bool = False) -> Callable[[F], F]:
 def operator(builder=None, *, _core: bool = False) -> Callable:
     """Function decorator to define a new operator.
 
-    See <project:#custom-operators> for how to use this.
+    See <project:#xref-custom-operators> for how to use this.
 
     """
 

@@ -2,8 +2,8 @@
 
 <!-- (below is old K8S ecosystem) -->
 
-As we mentioned in our <project:#cluster>. Bytewax allows you to run a
-dataflow program in a coordinated set of processes.
+As we mentioned in our <project:#xref-cluster>. Bytewax allows you to
+run a dataflow program in a coordinated set of processes.
 
 That entry point requires the addresses of all the processes and
 assign them each a unique ID.
@@ -121,8 +121,8 @@ variables:
   value: my-dataflow
 ```
 
-Some of those were already covered in the <project:#container-image>
-section.
+Some of those were already covered in the
+<project:#xref-container-image> section.
 
 The environment variables can be grouped into two groups:
 
@@ -211,8 +211,8 @@ Credentials Secrets mentioned above to the StatefulSet Pods.
 ## Next Steps
 
 If you want to deploy this stack in your Kubernetes cluster we invite
-you to read our section <project:/user_guide/deployment/waxctl.md>
-where we use the Bytewax CLI, Waxctl, to do that.
+you to read our section <project:#xref-waxctl> where we use the
+Bytewax CLI, Waxctl, to do that.
 
 ## Example Manifests
 

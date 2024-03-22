@@ -1,3 +1,4 @@
+(xref-execution)=
 # Execution
 
 Bytewax allows a dataflow to be run using multiple processes and/or
@@ -39,7 +40,7 @@ The string is in the format `<dataflow-module>` where:
    definition.
 
 Let's work through two examples. Make sure you have [installed
-Bytewax](/user_guide/getting-started/installing.md) before you begin.
+Bytewax](#xref-installing) before you begin.
 
 Create a new file named `./simple.py` with the following contents:
 
@@ -81,7 +82,7 @@ workers using the same file, changing only the command:
 > python -m bytewax.run -w3 simple
 ```
 
-(cluster)=
+(xref-cluster)=
 ## Starting a Cluster of Processes
 
 If you want to run Bytewax processes on one or more machines on the
@@ -131,5 +132,5 @@ And on the `cluster_two` machine as:
 ```
 
 For more information about deployment options for Bytewax dataflows,
-please see the documentation for [waxctl](#waxctl) our command line
-tool which facilitates deploying a dataflow.
+please see the documentation for [`waxctl`](#xref-waxctl) our command
+line tool which facilitates deploying a dataflow.

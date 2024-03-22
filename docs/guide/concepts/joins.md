@@ -1,8 +1,9 @@
+(xref-joins)=
 # Joins
 
 _Here we're going to give a deep dive on how joins work in Bytewax. If
 you'd like a quick demo of "show me how to do a simple join", see
-<project:/user_guide/getting-started/join-example.md>.
+<project:#xref-join-eg>.
 
 A **join** is a way to combine items in two or more streams into a
 single stream, matching them by a **join key**.
@@ -67,7 +68,7 @@ All the join operators above are stateful operators and so require all
 of the upstreams to contain 2-tuples with the first element being a
 string called a **key**. A string is required so that the Bytewax
 runtime has a standard type it can use to route data correctly. For
-more information about state keys, see our {ref}`state-keys`.
+more information about state keys, see our <project:#xref-state-keys>.
 
 If we wanted to join the data in the above streams, let's key it by
 the `user_id` since that is what we want to bring the data together by.
@@ -439,10 +440,10 @@ Bytewax provides the operators
 this.
 
 For the details of all the types of windows you can define and
-explanation of the parameters, see our
-<project:/user_guide/concepts/windowing.md>. We're going to use a
-simple 1 hour tumbling window; the previous window closes and the next
-window starts at the top of each hour. We'll be using event time.
+explanation of the parameters, see <project:#xref-windowing>. We're
+going to use a simple 1 hour tumbling window; the previous window
+closes and the next window starts at the top of each hour. We'll be
+using event time.
 
 ```python
 from datetime import timedelta, datetime, timezone

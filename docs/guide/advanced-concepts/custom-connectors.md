@@ -1,4 +1,4 @@
-(custom-connectors)=
+(xref-custom-connectors)=
 # Custom IO Connectors
 
 More documentation here is forthcoming.

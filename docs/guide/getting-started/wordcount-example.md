@@ -125,9 +125,9 @@ dataflow at that point.
 
 To read more about other options for sources, see
 {py:obj}`bytewax.connectors` for our built-in connectors,
-<project:#connector-hub> for other available connectors, or
-<project:#custom-connectors> for information on how to make your own
-custom connectors.
+<project:#xref-connector-hub> for other available connectors, or
+<project:#xref-custom-connectors> for information on how to make your
+own custom connectors.
 
 ### Lowercase all characters in the line
 
@@ -272,4 +272,4 @@ Here is the complete output when running the example:
 ```
 
 To learn more about possible modes of execution, see
-<project:#execution>.
+<project:#xref-execution>.

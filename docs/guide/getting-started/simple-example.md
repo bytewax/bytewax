@@ -1,9 +1,8 @@
-(getting-started)=
+(xref-getting-started)=
 # Simple Example
 
 Let's write our first Bytewax dataflow. Be sure that you've followed
-the instructions for installing Bytewax in
-<project:/user_guide/getting-started/installing.md>.
+the instructions for installing Bytewax in <project:#xref-installing>.
 
 ## Imports
 
@@ -40,8 +39,8 @@ stream = op.input("input", flow, TestingSource(range(10)))
 
 The {py:obj}`~bytewax.operators.input` operator returns a
 {py:obj}`~bytewax.dataflow.Stream` of values. If you are using an
-editor with a [language server setup](#lsp) with type hints, you can
-see that the return type is a `Stream[int]` containing integers.
+editor with a [language server setup](#xref-lsp) with type hints, you
+can see that the return type is a `Stream[int]` containing integers.
 
 ## Operators
 

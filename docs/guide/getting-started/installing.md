@@ -1,4 +1,4 @@
-(installing)=
+(xref-installing)=
 # Installing
 
 Bytewax currently supports the following versions of Python: 3.8, 3.9,
@@ -31,9 +31,9 @@ $ pip install bytewax==0.18
 
 When upgrading between versions of Bytewax, be sure to review the
 [Changelog](https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md)
-and our <project:#migration> before updating.
+and our <project:#xref-migration> before updating.
 
-(lsp)=
+(xref-lsp)=
 ## Support for Type Checking and LSPs
 
 Bytewax includes support for type hints. You can use your editor or

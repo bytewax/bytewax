@@ -1,4 +1,4 @@
-(recovery)=
+(xref-recovery)=
 # Recovery
 
 Bytewax allows you to **recover** a stateful dataflow; it will let you

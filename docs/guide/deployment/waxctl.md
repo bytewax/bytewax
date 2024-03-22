@@ -1,4 +1,4 @@
-(waxctl)=
+(xref-waxctl)=
 # Using `waxctl` to Run your Dataflow on Kubernetes
 
 Waxctl helps you run and manage your Bytewax dataflows in Kubernetes.
@@ -329,8 +329,8 @@ $ waxctl df deploy ./basic.py -N dataflow -n new-namespace --dry-run | kubectl a
 
 ### Using a Custom Image from a Private Registry
 
-In our <project:#container-custom-deps> section we describe how to
-create your own Docker image using a Bytewax image as base.
+In our <project:#xref-container-custom-deps> section we describe how
+to create your own Docker image using a Bytewax image as base.
 
 Let's assume you created a custom image that you pushed to a private
 image registry in GitLab. In our example the image URL is:

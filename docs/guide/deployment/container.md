@@ -242,7 +242,7 @@ And after the image is pulled, you'll see the output of the dataflow:
 Process ended.
 ```
 
-(container-custom-deps)=
+(xref-container-custom-deps)=
 ## Including Custom Dependencies in an Image
 
 Bytewax's image includes a small number of modules: `bytewax` itself,
@@ -309,7 +309,7 @@ sr.wikipedia.org, (WindowMetadata(open_time: 2023-12-15 14:34:52 UTC, close_time
 ...
 ```
 
-(container-image)=
+(xref-container-image)=
 ## How The Bytewax Image works
 
 Bytewax images are structured in this way:

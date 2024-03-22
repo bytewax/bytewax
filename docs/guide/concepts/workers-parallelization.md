@@ -13,7 +13,7 @@ trade data to ensure the semantics of the operators. If a dataflow is
 run on multiple processes, there will be a slight overhead due to
 pickling and network communication whenever items must be moved
 between workers, but it will allow you to paralellize some work for
-higher throughput. See <project:#stateful-operators> and the
+higher throughput. See <project:#xref-stateful-operators> and the
 {py:obj}`~bytewax.operators.redistribute` operator for more
 information.
 
@@ -87,8 +87,8 @@ different machines on the same network, you can use the
 Each invocation of {py:obj}`bytewax.run` with `-i` starts up a single
 process. By executing this command multiple times, you can create a
 cluster of Bytewax processes on one machine or multiple machines. We
-recommend you checkout the documentation for [`waxctl`](#waxctl) our
-command line tool which facilitates running a multiple dataflow
+recommend you checkout the documentation for [`waxctl`](#xref-waxctl)
+our command line tool which facilitates running a multiple dataflow
 processes locally, or on Kubernetes.
 
 The `-a/--addresses` parameter represents a list of addresses for all

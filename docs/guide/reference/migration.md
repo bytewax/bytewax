@@ -1,4 +1,4 @@
-(migration)=
+(xref-migration)=
 # Migration Guide
 
 This guide can help you upgrade code through breaking changes from one
@@ -406,8 +406,8 @@ Previously, the defaults values were to create a snapshot every 10 seconds and
 keep a day's worth of old snapshots. This means your recovery DB would max out at a size on disk
 theoretically thousands of times bigger than your in-memory state.
 
-See <project:/user_guide/concepts/recovery.md> for how to appropriately
-pick these values for your deployment.
+See <project:#xref-recovery> for how to appropriately pick these
+values for your deployment.
 
 ### Batch -> Collect
 
@@ -1007,8 +1007,8 @@ dataflow. Dataflows can now have more than one windowing step.
 
 Bytewax's stateful windowing operators are now built on top of its
 recovery system, and their operations can be recovered in the event of
-a failure. See the documentation on
-<project:/user_guide/concepts/recovery.md> for more information.
+a failure. See the documentation on <project:#xref-recovery> for more
+information.
 
 ### Output configurations
 
@@ -1124,8 +1124,7 @@ def input_builder(worker_index, worker_count, resume_state):
 
 So instead of manually yielding the `epoch` in the input function, we
 can either ignore it (passing `None` as state), or handle the value to
-implement recovery (see our docs on
-<project:/user_guide/concepts/recovery.md>).
+implement recovery (see our docs on <project:#xref-recovery>).
 
 Then we need to wrap the `input_builder` with `ManualInputConfig`,
 give it a name ("file_input" here) and pass it to the `input` operator

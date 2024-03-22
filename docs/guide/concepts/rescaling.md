@@ -1,3 +1,4 @@
+(xref-rescaling)=
 # Rescaling
 
 In this article, we're going to do a deep-dive into Bytewax's

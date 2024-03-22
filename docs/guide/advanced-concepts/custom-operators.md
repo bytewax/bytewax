@@ -1,4 +1,4 @@
-(custom-operators)=
+(xref-custom-operators)=
 # Custom Operators
 
 Have you ever wanted to implement particular weird semantic with your

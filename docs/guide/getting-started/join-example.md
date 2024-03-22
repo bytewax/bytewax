@@ -1,3 +1,4 @@
+(xref-join-eg)=
 # Join Example
 
 This section will introduce some of the basic concepts of merging and
@@ -6,8 +7,9 @@ joining streams of data.
 ## Multiple input sources
 
 Bytewax dataflows can receive input from multiple sources. In the
-following example, we create two <project:#TestingSource> sources and
-add them to our <project:#Dataflow> as input.
+following example, we create two
+{py:obj}`~bytewax.testing.TestingSource` sources and add them to our
+{py:obj}`~bytewax.dataflow.Dataflow` as input.
 
 ```python
 from bytewax import operators as op
@@ -31,8 +33,9 @@ inp2 = op.input("inp2", flow, TestingSource(src_2))
 ```
 
 In order for our dataflow to process input from either of these
-sources, we'll need to create a <project:#Stream> that combines input
-from both of them, we can use the <project:#merge> operator to do so:
+sources, we'll need to create a {py:obj}`~bytewax.dataflow.Stream`
+that combines input from both of them, we can use the
+{py:obj}`~bytewax.operators.merge` operator to do so:
 
 ```python
 merged_stream = op.merge("merge", inp1, inp2)
@@ -84,10 +87,11 @@ keyed_inp_2 = op.key_on("key_stream_2", inp2, lambda x: x["user_id"])
 ```
 
 Now that we have our two keyed streams of data, we can join them
-together with the <project:#join> operator.
+together with the {py:obj}`~bytewax.operators.join` operator.
 
-When creating a dataflow, you can use the <project:#inspect> operator
-to view the data in a stream. The <project:#inspect> operator can be used
+When creating a dataflow, you can use the
+{py:obj}`~bytewax.operators.inspect` operator to view the data in a
+stream. The {py:obj}`~bytewax.operators.inspect` operator can be used
 multiple times and counts as an output (recall that every dataflow
 requires an output).
 
@@ -109,4 +113,4 @@ receive any input for that key from `inp2`, we won't see any output
 for that user until we do.
 
 For more details about the behavior of the join operator, see the
-<project:/user_guide/concepts/joins.md> section of the documentation.
+<project:#xref-joins> section of the documentation.

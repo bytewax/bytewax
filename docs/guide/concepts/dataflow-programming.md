@@ -352,7 +352,7 @@ want to find / make a connector that can introduce its change stream
 into the dataflow and join it. See our [joins concepts
 documentation](joins.md) for more info.
 
-(stateful-operators)=
+(xref-stateful-operators)=
 ### Stateful Operators
 
 The most basic Bytewax operators like
@@ -373,7 +373,7 @@ common state-containing problems. E.g.
 {py:obj}`~bytewax.operators.join`, all the window operators like
 {py:obj}`~bytewax.operators.window.collect_window`.
 
-(state-keys)=
+(xref-state-keys)=
 #### State Keys
 
 The Bytewax runtime enables parallelization of stateful operators by

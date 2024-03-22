@@ -1,3 +1,4 @@
+(xref-windowing)=
 # Windowing
 
 Bytewax provides some operators and pre-built configurations for
@@ -28,8 +29,8 @@ considered **late** and are not assigned to any window.
 :::{note}
 
 Currently Bytewax logs and discards all late values. See
-<project:#metrics> for how to enable `TRACE` level logging, which will
-show late data for debugging purposes.
+<project:#xref-metrics> for how to enable `TRACE` level logging, which
+will show late data for debugging purposes.
 
 :::
 
@@ -264,9 +265,9 @@ closed.
 Recovery happens on the granularity of snapshots, not windows. The
 snapshot interval has no effect on windowing operator behavior when
 there are no failures; it is solely an implementation detail of the
-recovery system. (See {ref}`recovery` for more info) Failure and
-recovery in the middle of a window will be handled as gracefully as
-possible.
+recovery system. (See <project:#xref-recovery> for more info) Failure
+and recovery in the middle of a window will be handled as gracefully
+as possible.
 
 Some clocks don't have a single correct answer on what to do during
 resume. E.g. if you use
