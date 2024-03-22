@@ -176,37 +176,12 @@ See [MyST's documentation on cross
 referencing](inv:myst#syntax/cross-referencing) for all the ways this
 can work. I'll give a quick summary here.
 
-#### Other Markdown Files
-
-To link to an entire article you can use normal Markdown link syntax
-with a path to the Markdown file. The path can be relative or
-absolute; if absolute it is rooted in `/docs`.
-
-```markdown
-Read the [article on recovery](/user_guide/concepts/recovery.md).
-```
-
-Appears as:
-
-> Read the [article on recovery](/user_guide/concepts/recovery.md).
-
-You can also automatically generate link text by using the Markdown
-autolink syntax with the scheme `project:` and a path.
-
-```markdown
-Read about <project:/user_guide/concepts/recovery.md>
-```
-
-Appears as:
-
-> Read about <project:/user_guide/concepts/recovery.md>
-
 (xref-specific-section)=
 #### A Specific Section
 
 The system does not automatically generate xref links for headings.
 You can manually add a reference name to any heading via the
-`(ref-name)=` syntax just before it. In general, just add refs for
+`(xref-name)=` syntax just before it. In general, just add refs for
 sections you know you want to reference elsewhere.
 
 ```markdown
@@ -215,7 +190,7 @@ sections you know you want to reference elsewhere.
 ```
 
 You can then reference it via normal Markdown link syntax with the URI
-being just `#ref-name`.
+being just `#xref-name`.
 
 ```markdown
 Read [how to link to a specific section](#xref-specific-section)
@@ -226,7 +201,7 @@ Appears as:
 > Read [how to link to a specific section](#xref-specific-section)
 
 Or the autolink syntax with the scheme `project:` and then a
-`#ref-name`.
+`#xref-name`.
 
 ```markdown
 Read about linking to <project:#xref-specific-section>
@@ -235,6 +210,23 @@ Read about linking to <project:#xref-specific-section>
 Appears as:
 
 > Read about linking to <project:#xref-specific-section>
+
+:::{warning}
+
+All of your reference names must start with `xref` by convention to
+ensure that they are globally unique across all Sphinx domains.
+Unfortunately, MyST's Markdown link xref resolver does not let you
+specify Sphinx domains and tries to resolve everything using the `all`
+directive, so it's possible that the name you pick would clash with
+the name of a file (clashing with the `doc` domain) or a Python module
+(clashing with the `py` domain) and you get multiple targets.
+Prefixing them with `xref` means that we are less likely to clash.
+
+Perhaps one day MyST will provide a syntax for unambiguously
+specifying an xref when they fix [this
+issue](https://github.com/executablebooks/MyST-Parser/issues/548).
+
+:::
 
 :::{note}
 
@@ -246,9 +238,14 @@ not work.
 Read [how to link to a specific section](/user_guide/contributing/writing-docs.md#xref-specific-section)
 ```
 
-Instead make an explicit reference target with `(ref-name)=`.
+Instead make an explicit reference target with `(xref-name)=`.
 
 :::
+
+#### Other Markdown Files
+
+To link to an entire article, add an xref to the main header in the
+file and link to that. Use the steps and syntax above.
 
 #### API Docs
 
