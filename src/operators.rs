@@ -68,12 +68,11 @@ where
                         data.swap(&mut inbuf);
                         let mut trues_session = trues_handle.session(&time);
                         let mut falses_session = falses_handle.session(&time);
-                        let pred = predicate.as_ref(py);
+                        let pred = predicate.bind(py);
                         unwrap_any!(|| -> PyResult<()> {
                             for item in inbuf.drain(..) {
-                                let item = PyObject::from(item);
                                 let res = pred
-                                    .call1((item.clone_ref(py),))
+                                    .call1((item.bind(py),))
                                     .reraise_with(|| {
                                         format!("error calling predicate in step {step_id}")
                                     })?
@@ -84,9 +83,9 @@ where
                                     )
                                     })?;
                                 if res {
-                                    trues_session.give(TdPyAny::from(item));
+                                    trues_session.give(item);
                                 } else {
-                                    falses_session.give(TdPyAny::from(item));
+                                    falses_session.give(item);
                                 }
                             }
                             Ok(())
@@ -100,7 +99,11 @@ where
     }
 }
 
-fn next_batch(outbuf: &mut Vec<TdPyAny>, mapper: &PyAny, in_batch: Vec<PyObject>) -> PyResult<()> {
+fn next_batch(
+    outbuf: &mut Vec<TdPyAny>,
+    mapper: &Bound<'_, PyAny>,
+    in_batch: Vec<PyObject>,
+) -> PyResult<()> {
     let res = mapper.call1((in_batch,)).reraise("error calling mapper")?;
     let iter = res.iter().reraise_with(|| {
         format!(
@@ -195,7 +198,7 @@ where
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     let batch: Vec<_> =
                                         batch.into_iter().map(PyObject::from).collect();
-                                    let mapper = mapper.as_ref(py);
+                                    let mapper = mapper.bind(py);
 
                                     with_timer!(
                                         mapper_histogram,
@@ -279,11 +282,9 @@ where
                                 let mut clock_session = clock_handle.session(clock_cap);
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    let inspector = inspector.as_ref(py);
+                                    let inspector = inspector.bind(py);
 
                                     for item in items.iter() {
-                                        let item = <&PyObject>::from(item);
-
                                         inspector
                                             .call1((
                                                 step_id.clone(),
@@ -755,7 +756,7 @@ where
                                 }
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    let builder = builder.as_ref(py);
+                                    let builder = builder.bind(py);
 
                                     for (key, values) in keyed_items {
                                         // Ok, let's actually run the logic code!
@@ -961,7 +962,7 @@ where
 
                                 if let Some(loads) = loads_inbuf.remove(&epoch) {
                                     unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                        let builder = builder.as_ref(py);
+                                        let builder = builder.bind(py);
 
                                         for (worker, (key, change)) in loads {
                                             tracing::trace!(
