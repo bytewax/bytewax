@@ -288,8 +288,8 @@ impl TdPyCallable {
         Self(py.eval_bound("print", None, None).unwrap().into())
     }
 
-    pub(crate) fn as_ref<'py>(&'py self, py: Python<'py>) -> &'py PyAny {
-        self.0.bind(py).as_gil_ref()
+    pub(crate) fn bind<'py>(&'py self, py: Python<'py>) -> &Bound<'py, PyAny> {
+        self.0.bind(py)
     }
 
     pub(crate) fn clone_ref(&self, py: Python) -> Self {
