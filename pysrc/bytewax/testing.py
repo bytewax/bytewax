@@ -1,4 +1,5 @@
 """Helper tools for testing dataflows."""
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from itertools import islice
@@ -237,7 +238,7 @@ def poll_next_batch(part, timeout=timedelta(seconds=5)):
         now = datetime.now(timezone.utc)
         if now - start > timeout:
             raise TimeoutError()
-        batch = part.next_batch(now)
+        batch = part.next_batch()
     return batch
 
 
