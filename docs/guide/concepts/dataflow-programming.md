@@ -1,5 +1,7 @@
 # Dataflow Programming
 
+## Overview
+
 Dataflow programming is a programming paradigm where program execution
 is conceptualized as data flowing through a static series of
 operations.
@@ -631,7 +633,7 @@ Python in order to more concisely write the logic for dataflows. We
 use these frequently in our examples and documentation, and encourage
 you to do so as well.
 
-## Quick Logic Functions
+### Quick Logic Functions
 
 Operator's logic functions can be specified in a few ways. The most
 verbose way would be to `def logic(...)` a function that does what you
