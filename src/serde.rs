@@ -44,10 +44,10 @@ fn get_serde_jp(py: Python) -> PyResult<Serde> {
 }
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for Serde {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        let py = ob.py();
-        let ob: &PyType = ob.extract()?;
+impl<'py> FromPyObject<'py> for Serde {
+    fn extract_bound(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let py = obj.py();
+        let ob: &PyType = obj.extract()?;
         // We use [`PyType::is_subclass`] rather than
         // [`PyAny::is_instance`] because all the ABC methods are
         // `@staticmethod` so we call them on the class itself rather

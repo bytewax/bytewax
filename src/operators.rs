@@ -452,19 +452,18 @@ where
 struct StatefulBatchLogic(PyObject);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for StatefulBatchLogic {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        let abc = ob
-            .py()
+impl<'py> FromPyObject<'py> for StatefulBatchLogic {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let py = ob.py();
+        let abc = py
             .import_bound("bytewax.operators")?
-            .getattr("UnaryLogic")?
-            .extract()?;
-        if !ob.is_instance(abc)? {
+            .getattr("UnaryLogic")?;
+        if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "logic must subclass `bytewax.operators.StatefulBatchLogic`",
             ))
         } else {
-            Ok(Self(ob.into()))
+            Ok(Self(ob.to_object(py)))
         }
     }
 }
@@ -474,8 +473,8 @@ enum IsComplete {
     Discard,
 }
 
-impl<'source> FromPyObject<'source> for IsComplete {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+impl<'py> FromPyObject<'py> for IsComplete {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         if ob.extract::<bool>().reraise_with(|| {
             format!(
                 "`is_complete` was not a `bool`; got a `{}` instead",

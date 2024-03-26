@@ -166,9 +166,9 @@ impl IntoPy<Py<PyAny>> for BackupInterval {
     }
 }
 
-impl<'source> FromPyObject<'source> for BackupInterval {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        if let Ok(duration) = ob.extract::<TimeDelta>() {
+impl<'py> FromPyObject<'py> for BackupInterval {
+    fn extract_bound(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if let Ok(duration) = obj.extract::<TimeDelta>() {
             Ok(Self(duration))
         } else {
             Err(PyTypeError::new_err(

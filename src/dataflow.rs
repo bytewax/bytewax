@@ -8,19 +8,16 @@ use crate::recovery::StepId;
 pub(crate) struct Dataflow(PyObject);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for Dataflow {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        let abc = ob
-            .py()
-            .import_bound("bytewax.dataflow")?
-            .getattr("Dataflow")?
-            .extract()?;
-        if !ob.is_instance(abc)? {
+impl<'py> FromPyObject<'py> for Dataflow {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let py = ob.py();
+        let abc = py.import_bound("bytewax.dataflow")?.getattr("Dataflow")?;
+        if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "dataflow must subclass `bytewax.dataflow.Dataflow`",
             ))
         } else {
-            Ok(Self(ob.into()))
+            Ok(Self(ob.to_object(py)))
         }
     }
 }
@@ -44,19 +41,16 @@ impl Dataflow {
 pub(crate) struct Operator(PyObject);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for Operator {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        let abc = ob
-            .py()
-            .import_bound("bytewax.dataflow")?
-            .getattr("Operator")?
-            .extract()?;
-        if !ob.is_instance(abc)? {
+impl<'py> FromPyObject<'py> for Operator {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let py = ob.py();
+        let abc = py.import_bound("bytewax.dataflow")?.getattr("Operator")?;
+        if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "operator must subclass `bytewax.dataflow.Operator`",
             ))
         } else {
-            Ok(Self(ob.into()))
+            Ok(Self(ob.to_object(py)))
         }
     }
 }
@@ -64,8 +58,8 @@ impl<'source> FromPyObject<'source> for Operator {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct StreamId(String);
 
-impl<'source> FromPyObject<'source> for StreamId {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+impl<'py> FromPyObject<'py> for StreamId {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         Ok(Self(ob.extract()?))
     }
 }

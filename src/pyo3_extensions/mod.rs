@@ -250,10 +250,11 @@ pub(crate) struct TdPyCallable(Py<PyAny>);
 
 /// Have PyO3 do type checking to ensure we only make from callable
 /// objects.
-impl<'source> FromPyObject<'source> for TdPyCallable {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+impl<'py> FromPyObject<'py> for TdPyCallable {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let py = ob.py();
         if ob.is_callable() {
-            Ok(Self(ob.into()))
+            Ok(Self(ob.to_object(py)))
         } else {
             let msg = if let Ok(type_name) = ob.get_type().name() {
                 format!("'{type_name}' object is not callable")
