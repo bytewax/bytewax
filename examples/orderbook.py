@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Dict, List, Optional
 
-
 import websockets
 from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
@@ -85,7 +84,8 @@ class OrderBookState:
 
             target_dict = self.asks if side == "sell" else self.bids
 
-            # If size is zero, remove the price level; otherwise, update/add the price level
+            # If size is zero, remove the price level; otherwise,
+            # update/add the price level
             if size == 0.0:
                 target_dict.pop(price, None)
             else:
@@ -96,7 +96,6 @@ class OrderBookState:
                 self.ask_price = min(self.asks.keys(), default=None)
             else:
                 self.bid_price = max(self.bids.keys(), default=None)
-
 
     def spread(self) -> float:
         return self.ask_price - self.bid_price  # type: ignore
