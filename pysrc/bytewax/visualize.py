@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Literal
 from typing_extensions import Self
 
 from bytewax.dataflow import Dataflow, Operator
-from bytewax.run import _locate_dataflow, _prepare_import
+from bytewax.run import _locate_subclass, _prepare_import
 
 
 @dataclass(frozen=True)
@@ -378,7 +378,7 @@ def _parse_args() -> argparse.Namespace:
 
 def _visualize_main(import_str: str, output_format: _Formats, recursive: bool) -> None:
     mod_str, attr_str = _prepare_import(import_str)
-    flow = _locate_dataflow(mod_str, attr_str)
+    flow = _locate_subclass(mod_str, attr_str, Dataflow)
 
     if output_format == "json":
         out = to_json(flow)

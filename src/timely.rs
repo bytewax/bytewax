@@ -305,6 +305,12 @@ where
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub(crate) struct WorkerIndex(pub(crate) usize);
 
+impl Display for WorkerIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, f)
+    }
+}
+
 /// Integer representing the number of workers in a cluster.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct WorkerCount(pub(crate) usize);
@@ -533,7 +539,8 @@ where
                             let epoch = cap.time();
 
                             if let Some(items) = items_inbuf.remove(epoch) {
-                                assert!(!known.is_empty(), "Known partitions in {name} is empty; did you forget to broadcast initial partitions in the 0th epoch?");
+                                assert!(!known.is_empty(), "Known partitions in {name} is empty; \
+                                    did you forget to broadcast initial partitions in the 0th epoch?");
 
                                 let mut handle = partd_output.activate();
                                 let mut session = handle.session(cap);
@@ -541,7 +548,8 @@ where
                                 for (key, value) in items {
                                     let idx = pf.assign(&key);
                                     let wrapped_idx = idx % len;
-                                    tracing::trace!("Assigner gave value {idx} % {len}; wrapped to {wrapped_idx}");
+                                    tracing::trace!("Assigner gave value {idx} % {len}; \
+                                        wrapped to {wrapped_idx}");
                                     let part = known
                                         .iter()
                                         .nth(wrapped_idx)
@@ -682,7 +690,10 @@ where
 
                             let new_primaries = calc_primaries(known);
                             if new_primaries.is_empty() {
-                                panic!("No partitions found on any worker; did you forget to init them?");
+                                panic!(
+                                    "No partitions found on any worker; \
+                                    did you forget to init them?"
+                                );
                             }
 
                             let mut handle = routing_output.activate();
@@ -762,40 +773,48 @@ where
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = name).in_scope(|| {
-                items_input.buffer_notify(&mut items_inbuf, &mut ncater);
-                routing_input.buffer_notify(&mut routing_inbuf, &mut ncater);
+                    items_input.buffer_notify(&mut items_inbuf, &mut ncater);
+                    routing_input.buffer_notify(&mut routing_inbuf, &mut ncater);
 
-                ncater.for_each(
-                    input_frontiers,
-                    |caps, routing_map| {
-                        let cap = &caps[0];
-                        let epoch = cap.time();
+                    ncater.for_each(
+                        input_frontiers,
+                        |caps, routing_map| {
+                            let cap = &caps[0];
+                            let epoch = cap.time();
 
-                        if let Some(items) = items_inbuf.remove(epoch) {
-                            assert!(!routing_map.is_empty(), "Routing map is empty; did you forget to broadcast initial routes in the 0th epoch?");
+                            if let Some(items) = items_inbuf.remove(epoch) {
+                                assert!(
+                                    !routing_map.is_empty(),
+                                    "Routing map is empty; did you forget to \
+                                    broadcast initial routes in the 0th epoch?"
+                                );
 
-                            let mut handle = routed_output.activate();
-                            let mut session = handle.session(cap);
-                            for key_value in items {
-                                let (key, _value) = &key_value;
-                                let worker = *routing_map.get(key).unwrap_or_else(|| {
-                                    panic!("Key {key:?} is not in this worker's routing map; known keys are {:?}", routing_map.keys());
-                                });
-                                session.give((worker, key_value));
+                                let mut handle = routed_output.activate();
+                                let mut session = handle.session(cap);
+                                for key_value in items {
+                                    let (key, _value) = &key_value;
+                                    let worker = *routing_map.get(key).unwrap_or_else(|| {
+                                        panic!(
+                                            "Key {key:?} is not in this worker's routing map; \
+                                            known keys are {:?}",
+                                            routing_map.keys()
+                                        );
+                                    });
+                                    session.give((worker, key_value));
+                                }
                             }
-                        }
-                    },
-                    |caps, routing_map| {
-                        let cap = &caps[0];
-                        let epoch = cap.time();
+                        },
+                        |caps, routing_map| {
+                            let cap = &caps[0];
+                            let epoch = cap.time();
 
-                        if let Some(routes) = routing_inbuf.remove(epoch) {
-                            for (part, worker) in routes {
-                                routing_map.insert(part, worker);
+                            if let Some(routes) = routing_inbuf.remove(epoch) {
+                                for (part, worker) in routes {
+                                    routing_map.insert(part, worker);
+                                }
                             }
-                        }
-                    },
-                );
+                        },
+                    );
                 });
             }
         });
@@ -925,69 +944,71 @@ where
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = op_name).in_scope(|| {
-                routed_input.for_each(|cap, incoming| {
-                    let epoch = cap.time();
-                    assert!(routed_tmp.is_empty());
-                    incoming.swap(&mut routed_tmp);
-                    for (_worker, (part, (_key, value))) in routed_tmp.drain(..) {
-                        items_inbuf.entry(epoch.clone())
-                            .or_insert_with(BTreeMap::new)
-                            .entry(part)
-                            .or_insert_with(Vec::new)
-                            .push(value);
-                    }
-
-                    ncater.notify_at(epoch.clone());
-                });
-                primaries_input.buffer_notify(&mut primaries_inbuf, &mut ncater);
-
-                ncater.for_each(
-                    input_frontiers,
-                    |caps, parts| {
-                        let cap = &caps[0];
+                    routed_input.for_each(|cap, incoming| {
                         let epoch = cap.time();
+                        assert!(routed_tmp.is_empty());
+                        incoming.swap(&mut routed_tmp);
+                        for (_worker, (part, (_key, value))) in routed_tmp.drain(..) {
+                            items_inbuf
+                                .entry(epoch.clone())
+                                .or_insert_with(BTreeMap::new)
+                                .entry(part)
+                                .or_insert_with(Vec::new)
+                                .push(value);
+                        }
 
-                        // Writing happens eagerly in each epoch. We
-                        // still use a notificator at all because we
-                        // need to ensure that writes happen in epoch
-                        // order.
-                        if let Some(part_to_items) = items_inbuf.remove(epoch) {
-                            let known_parts: Vec<_> = parts.keys().cloned().collect();
-                            for (part_key, items) in part_to_items {
-                                let part = parts
-                                    .get_mut(&part_key)
-                                    .unwrap_or_else(|| {
-                                        panic!("Items routed to partition {part_key} but this worker only has {known_parts:?}");
+                        ncater.notify_at(epoch.clone());
+                    });
+                    primaries_input.buffer_notify(&mut primaries_inbuf, &mut ncater);
+
+                    ncater.for_each(
+                        input_frontiers,
+                        |caps, parts| {
+                            let cap = &caps[0];
+                            let epoch = cap.time();
+
+                            // Writing happens eagerly in each epoch. We
+                            // still use a notificator at all because we
+                            // need to ensure that writes happen in epoch
+                            // order.
+                            if let Some(part_to_items) = items_inbuf.remove(epoch) {
+                                let known_parts: Vec<_> = parts.keys().cloned().collect();
+                                for (part_key, items) in part_to_items {
+                                    let part = parts.get_mut(&part_key).unwrap_or_else(|| {
+                                        panic!(
+                                            "Items routed to partition {part_key} \
+                                            but this worker only has {known_parts:?}"
+                                        );
                                     });
 
-                                let labels = part_label_map
-                                    .get(&part_key)
-                                    .expect("No metric labels found for part key {part_key}");
-                                with_timer!(histogram, labels, part.write_batch(items));
-                            }
-                        }
-                    },
-                    |caps, parts| {
-                        let cap = &caps[0];
-                        let epoch = cap.time();
-
-                        if let Some(primaries) = primaries_inbuf.remove(epoch) {
-                            // If this worker was assigned to be
-                            // primary for a partition, build it.
-                            for (part_key, worker) in primaries {
-                                if worker == this_worker && !parts.contains_key(&part_key) {
-                                    let part = builder(&part_key);
-                                    parts.insert(part_key, part);
-                                } else {
-                                    parts.remove(&part_key);
+                                    let labels = part_label_map
+                                        .get(&part_key)
+                                        .expect("No metric labels found for part key {part_key}");
+                                    with_timer!(histogram, labels, part.write_batch(items));
                                 }
                             }
-                        }
+                        },
+                        |caps, parts| {
+                            let cap = &caps[0];
+                            let epoch = cap.time();
 
-                        // Emit our progress clock.
-                        clock_output.activate().session(cap).give(());
-                    },
-                );
+                            if let Some(primaries) = primaries_inbuf.remove(epoch) {
+                                // If this worker was assigned to be
+                                // primary for a partition, build it.
+                                for (part_key, worker) in primaries {
+                                    if worker == this_worker && !parts.contains_key(&part_key) {
+                                        let part = builder(&part_key);
+                                        parts.insert(part_key, part);
+                                    } else {
+                                        parts.remove(&part_key);
+                                    }
+                                }
+                            }
+
+                            // Emit our progress clock.
+                            clock_output.activate().session(cap).give(());
+                        },
+                    );
                 });
             }
         });

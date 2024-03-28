@@ -12,6 +12,7 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
+use timely::dataflow::operators::Concatenate;
 use timely::dataflow::operators::Map;
 use timely::dataflow::operators::Operator;
 use timely::dataflow::Scope;
@@ -90,11 +91,11 @@ impl<'py> FromPyObject<'py> for FixedPartitionedSink {
 }
 
 impl FixedPartitionedSink {
-    fn list_parts(&self, py: Python) -> PyResult<Vec<StateKey>> {
+    pub(crate) fn list_parts(&self, py: Python) -> PyResult<Vec<StateKey>> {
         self.0.call_method0(py, "list_parts")?.extract(py)
     }
 
-    fn build_part(
+    pub(crate) fn build_part(
         &self,
         py: Python,
         step_id: &StepId,
@@ -118,7 +119,7 @@ impl FixedPartitionedSink {
 }
 
 /// Represents a `bytewax.outputs.StatefulSinkPartition` in Python.
-struct StatefulPartition(Py<PyAny>);
+pub(crate) struct StatefulPartition(Py<PyAny>);
 
 /// Do some eager type checking.
 impl<'py> FromPyObject<'py> for StatefulPartition {
@@ -138,18 +139,18 @@ impl<'py> FromPyObject<'py> for StatefulPartition {
 }
 
 impl StatefulPartition {
-    fn write_batch(&self, py: Python, values: Vec<PyObject>) -> PyResult<()> {
+    pub(crate) fn write_batch(&self, py: Python, values: Vec<PyObject>) -> PyResult<()> {
         let _ = self
             .0
             .call_method1(py, intern!(py, "write_batch"), (values,))?;
         Ok(())
     }
 
-    fn snapshot(&self, py: Python) -> PyResult<TdPyAny> {
+    pub(crate) fn snapshot(&self, py: Python) -> PyResult<TdPyAny> {
         Ok(self.0.call_method0(py, intern!(py, "snapshot"))?.into())
     }
 
-    fn close(&self, py: Python) -> PyResult<()> {
+    pub(crate) fn close(&self, py: Python) -> PyResult<()> {
         let _ = self.0.call_method0(py, "close")?;
         Ok(())
     }
@@ -202,8 +203,8 @@ where
         py: Python,
         step_id: StepId,
         sink: FixedPartitionedSink,
-        loads: &Stream<S, Snapshot>,
-    ) -> PyResult<(ClockStream<S>, Stream<S, Snapshot>)>;
+        state: OutputState,
+    ) -> PyResult<(ClockStream<S>, Stream<S, SerializedSnapshot>)>;
 }
 
 impl<S> PartitionedOutputOp<S> for Stream<S, TdPyAny>
@@ -215,9 +216,11 @@ where
         py: Python,
         step_id: StepId,
         sink: FixedPartitionedSink,
-        loads: &Stream<S, Snapshot>,
-    ) -> PyResult<(ClockStream<S>, Stream<S, Snapshot>)> {
+        state: OutputState,
+    ) -> PyResult<(ClockStream<S>, Stream<S, SerializedSnapshot>)> {
         let this_worker = self.scope().w_index();
+        let recovery_on = state.recovery_on();
+        let immediate_snapshot = state.immediate_snapshot();
 
         let local_parts = sink.list_parts(py).reraise("error listing partitions")?;
         let all_parts = local_parts.into_broadcast(&self.scope(), S::Timestamp::minimum());
@@ -232,20 +235,19 @@ where
                 pf,
             )
             .route(format!("{step_id}.self_route"), &primary_updates);
-        // This has all the actual loads and must come after the
-        // routing info in the 0th epoch for deterministic building.
-        let routed_loads = loads
-            .filter_snaps(step_id.clone())
-            .route(format!("{step_id}.loads_route"), &primary_updates);
 
         let op_name = format!("{step_id}.partitioned_output");
         let mut op_builder = OperatorBuilder::new(op_name.clone(), self.scope());
 
         let mut routed_input = op_builder.new_input(&routed_self, routed_exchange());
-        let mut loads_input = op_builder.new_input(&routed_loads, routed_exchange());
 
         let (mut clock_output, clock) = op_builder.new_output();
-        let (mut snaps_output, snaps) = op_builder.new_output();
+        // Create 2 separate outputs so that we can activate the session
+        // both in eager and closing logics.
+        let (mut immediate_snaps_output, immediate_snaps) = op_builder.new_output();
+        let (mut batch_snaps_output, batch_snaps) = op_builder.new_output();
+        // Then concatenate the two outputs
+        let snaps = immediate_snaps.concatenate([batch_snaps]);
 
         let meter = opentelemetry::global::meter("bytewax");
         let item_inp_count = meter
@@ -266,143 +268,133 @@ where
         ];
 
         op_builder.build(move |init_caps| {
-            let parts: BTreeMap<StateKey, StatefulPartition> = BTreeMap::new();
-            // Which partitions were written to in this epoch. We only
-            // snapshot those.
+            // Which partitions were written to in this epoch.
+            // We only snapshot those.
             let awoken: BTreeSet<StateKey> = BTreeSet::new();
 
             let mut routed_tmp = Vec::new();
-            // First `StateKey` is partition, second is data
-            // routing.
+            // First `StateKey` is partition, second is data routing.
             type PartToInBufferMap = BTreeMap<StateKey, Vec<(StateKey, TdPyAny)>>;
             let mut items_inbuf: BTreeMap<S::Timestamp, PartToInBufferMap> = BTreeMap::new();
-            let mut loads_inbuf = InBuffer::new();
-            let mut ncater = EagerNotificator::new(init_caps, (parts, awoken));
+            let mut ncater = EagerNotificator::new(init_caps, (state, awoken));
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = op_name).in_scope(|| {
-                    routed_input.for_each(|cap, incoming| {
-                        let epoch = cap.time();
-                        assert!(routed_tmp.is_empty());
-                        incoming.swap(&mut routed_tmp);
-                        for (worker, (part, (key, value))) in routed_tmp.drain(..) {
-                            assert!(worker == this_worker);
-                            items_inbuf
-                                .entry(*epoch)
-                                .or_insert_with(BTreeMap::new)
-                                .entry(part)
-                                .or_insert_with(Vec::new)
-                                .push((key, value));
-                        }
+                let _guard = tracing::debug_span!("operator", operator = op_name).entered();
+                routed_input.for_each(|cap, incoming| {
+                    let epoch = cap.time();
+                    assert!(routed_tmp.is_empty());
+                    incoming.swap(&mut routed_tmp);
+                    for (worker, (part, (key, value))) in routed_tmp.drain(..) {
+                        assert!(worker == this_worker);
+                        items_inbuf
+                            .entry(*epoch)
+                            .or_insert_with(BTreeMap::new)
+                            .entry(part)
+                            .or_insert_with(Vec::new)
+                            .push((key, value));
+                    }
 
-                        ncater.notify_at(*epoch);
-                    });
-                    loads_input.buffer_notify(&mut loads_inbuf, &mut ncater);
+                    ncater.notify_at(*epoch);
+                });
 
-                    ncater.for_each(
-                        input_frontiers,
-                        |caps, (parts, awoken)| {
-                            let clock_cap = &caps[0];
-                            let epoch = clock_cap.time();
+                ncater.for_each(
+                    input_frontiers,
+                    |caps, (state, awoken)| {
+                        let clock_cap = &caps[0];
+                        let snaps_cap = &caps[1];
+                        let epoch = clock_cap.time();
 
-                            // Writing happens eagerly in each epoch. We
-                            // still use a notificator at all because we
-                            // need to ensure that writes happen in epoch
-                            // order.
-                            if let Some(part_to_items) = items_inbuf.remove(epoch) {
-                                Python::with_gil(|py| {
-                                    for (part_key, items) in part_to_items {
-                                        let part = parts
-                                            .entry(part_key.clone())
-                                            // If there's no resume data for
-                                            // this partition, lazily create
-                                            // it.
-                                            .or_insert_with_key(|part_key| {
-                                                unwrap_any!(sink
-                                                    .build_part(py, &step_id, part_key, None)
-                                                    .reraise("error init StatefulSink"))
-                                            });
-
-                                        let batch: Vec<_> =
-                                            items.into_iter().map(|(_k, v)| v.into()).collect();
-                                        item_inp_count.add(batch.len() as u64, &labels);
-                                        with_timer!(
-                                            write_batch_histogram,
-                                            labels,
-                                            unwrap_any!(part.write_batch(py, batch))
+                        // Writing happens eagerly in each epoch. We
+                        // still use a notificator at all because we
+                        // need to ensure that writes happen in epoch
+                        // order.
+                        if let Some(part_to_items) = items_inbuf.remove(epoch) {
+                            Python::with_gil(|py| {
+                                for (part_key, items) in part_to_items {
+                                    if !state.contains_key(&part_key) {
+                                        state.insert(
+                                            part_key.clone(),
+                                            unwrap_any!(sink
+                                                .build_part(py, &step_id, &part_key, None)
+                                                .reraise("error init StatefulSink")),
                                         );
-
-                                        awoken.insert(part_key);
                                     }
-                                });
-                            };
-                        },
-                        |caps, (parts, awoken)| {
-                            let clock_cap = &caps[0];
-                            let snaps_cap = &caps[1];
-                            let epoch = clock_cap.time();
 
-                            clock_output.activate().session(clock_cap).give(());
+                                    let batch: Vec<_> =
+                                        items.into_iter().map(|(_k, v)| v.into()).collect();
+                                    item_inp_count.add(batch.len() as u64, &labels);
+                                    with_timer!(
+                                        write_batch_histogram,
+                                        labels,
+                                        unwrap_any!(state.write_batch(py, &part_key, batch))
+                                    );
 
-                            // Always snapshot before building. If we have
-                            // an incoming load, it means we have recovery
-                            // state already at the end of the epoch, so
-                            // it would be wasted to snap it again. Also
-                            // this handles the "don't snapshot a
-                            // just-made-`None`-state partition" problem.
+                                    awoken.insert(part_key);
+                                }
+                                if recovery_on && immediate_snapshot {
+                                    let mut snaps = vec![];
+                                    awoken.retain(|key| {
+                                        snaps.push(unwrap_any!(Python::with_gil(
+                                            |py| with_timer!(
+                                                snapshot_histogram,
+                                                labels,
+                                                state
+                                                    .snap(py, key, epoch)
+                                                    .reraise("error snapshotting StatefulSink")
+                                            )
+                                        )));
+                                        false
+                                    });
+                                    state.write_snapshots(snaps.clone());
+                                    immediate_snaps_output
+                                        .activate()
+                                        .session(snaps_cap)
+                                        .give_vec(&mut snaps);
+                                }
+                            });
+                        };
+                    },
+                    |caps, (state, awoken)| {
+                        let clock_cap = &caps[0];
+                        let snaps_cap = &caps[2];
+                        let epoch = clock_cap.time();
 
-                            let mut handle = snaps_output.activate();
-                            let mut session = handle.session(snaps_cap);
+                        clock_output.activate().session(clock_cap).give(());
+
+                        // Always snapshot before building. If we have
+                        // an incoming load, it means we have recovery
+                        // state already at the end of the epoch, so
+                        // it would be wasted to snap it again. Also
+                        // this handles the "don't snapshot a
+                        // just-made-`None`-state partition" problem.
+
+                        if recovery_on {
                             // Make sure to only snapshot partitions
                             // that had data, otherwise we'll snapshot
                             // as loads are happening.
-                            while let Some(part_key) = awoken.pop_first() {
-                                let part = parts.get(&part_key).unwrap();
-                                let state = with_timer!(
+                            let mut snaps = vec![];
+                            awoken.retain(|key| {
+                                snaps.push(unwrap_any!(Python::with_gil(|py| with_timer!(
                                     snapshot_histogram,
                                     labels,
-                                    unwrap_any!(Python::with_gil(|py| part
-                                        .snapshot(py)
-                                        .reraise("error snapshotting StatefulSink")))
-                                );
-                                let snap =
-                                    Snapshot(step_id.clone(), part_key, StateChange::Upsert(state));
-                                session.give(snap);
-                            }
-
-                            // We must reset `awake` on each epoch.
-                            assert!(awoken.is_empty());
-
-                            if let Some(loads) = loads_inbuf.remove(epoch) {
-                                // If this worker was assigned to be
-                                // primary for a partition, build it.
-                                for (worker, (part_key, change)) in loads {
-                                    if worker == this_worker {
-                                        match change {
-                                            StateChange::Upsert(state) => {
-                                                let part = unwrap_any!(Python::with_gil(|py| {
-                                                    sink.build_part(
-                                                        py,
-                                                        &step_id,
-                                                        &part_key,
-                                                        Some(state.into()),
-                                                    )
-                                                    .reraise("error resuming StatefulSink")
-                                                }));
-                                                parts.insert(part_key, part);
-                                            }
-                                            StateChange::Discard => {
-                                                parts.remove(&part_key);
-                                            }
-                                        }
-                                    } else {
-                                        parts.remove(&part_key);
-                                    }
-                                }
-                            }
-                        },
-                    );
-                });
+                                    state
+                                        .snap(py, key, epoch)
+                                        .reraise("error snapshotting StatefulSink")
+                                ))));
+                                false
+                            });
+                            state.write_snapshots(snaps.clone());
+                            batch_snaps_output
+                                .activate()
+                                .session(snaps_cap)
+                                .give_vec(&mut snaps);
+                        } else {
+                            awoken.clear();
+                        }
+                        // We must reset `awake` on each epoch.
+                        assert!(awoken.is_empty());
+                    },
+                );
             }
         });
 

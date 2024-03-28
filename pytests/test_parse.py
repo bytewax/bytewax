@@ -1,6 +1,5 @@
 import os
 import sys
-from datetime import timedelta
 from unittest.mock import patch
 
 from bytewax.run import _parse_args, _prepare_import
@@ -30,32 +29,6 @@ def test_parse_args_environ(tmpdir):
             parsed = _parse_args()
             assert parsed.process_id == 0
             assert parsed.addresses == "localhost:1234;localhost:5678"
-
-
-def test_parse_backup_interval():
-    testargs = ["fake_command", "examples/basic.py:flow", "--backup-interval", "60"]
-    # Mock sys.argv to test that the parsing phase works well
-    with patch.object(sys, "argv", testargs):
-        parsed = _parse_args()
-        # Test the custom handling of the import_str
-        assert parsed.backup_interval == timedelta(minutes=1)
-
-
-def test_parse_backup_interval_zero():
-    testargs = [
-        "fake_command",
-        "examples/basic.py:flow",
-        "--recovery-directory",
-        "/fake/directory",
-        "--snapshot-interval",
-        "30",
-        "--backup-interval",
-        "0",
-    ]
-    # Mock sys.argv to test that the parsing phase works well
-    with patch.object(sys, "argv", testargs):
-        parsed = _parse_args()
-        assert parsed.backup_interval == timedelta(seconds=0)
 
 
 def test_prepare_import_file():

@@ -15,7 +15,6 @@ class BytewaxTracer:
     This should only be built via `setup_tracing`.
 
     """
-
     ...
 
     def __new__(cls, *args, **kwargs):
@@ -25,32 +24,53 @@ class BytewaxTracer:
 class RecoveryConfig:
     """Configuration settings for recovery.
 
-    :arg db_dir: Local filesystem directory to search for recovery
+    :arg db_dir: Local filesystem directory to use for recovery
         database partitions.
 
     :type db_dir: pathlib.Path
 
-    :arg backup_interval: Amount of system time to wait to permanently
-        delete a state snapshot after it is no longer needed. You
-        should set this to the interval at which you are backing up
-        the recovery partitions off of the workers into archival
-        storage (e.g. S3). Defaults to zero duration.
+    :arg snapshot_serde: Format to use when encoding state snapshot
+        objects in the recovery partitions. Defaults to
+        {py:obj}`~bytewax.serde.JsonPickleSerde`.
 
-    :type backup_interval: typing.Optional[datetime.timedelta]
+    :type snapshot_serde: typing.Optional[bytewax.serde.Serde]
+
+    :arg backup: Class to use to save recovery files to a durable
+        storage like amazon's S3.
+
+    :type backup: typing.Optional[bytewax.backup.Backup]
+
+    :arg batch_backup: Whether to take state snapshots at the end
+        of the epoch, rather than at every state change. Defaults
+        to False.
+
+    :type batch_backup: bool
 
     """
-
     ...
 
-    def __init__(self, db_dir, backup_interval=None): ...
+    def __init__(self, db_dir, snapshot_serde=None, backup=None, batch_backup=None):
+        ...
+
     def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
 
     @property
-    def backup_interval(self): ...
+    def backup(self):
+        ...
+
     @property
-    def db_dir(self): ...
+    def batch_backup(self):
+        ...
+
+    @property
+    def db_dir(self):
+        ...
+
+    @property
+    def snapshot_serde(self):
+        ...
 
 class TracingConfig:
     """Base class for tracing/logging configuration.
@@ -61,55 +81,37 @@ class TracingConfig:
     traces to go.
 
     """
-
     ...
 
-    def __init__(self): ...
+    def __init__(self):
+        ...
+
     def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
 
-def cli_main(
-    flow,
-    *,
-    workers_per_process=1,
-    process_id=None,
-    addresses=None,
-    epoch_interval=None,
-    recovery_config=None,
-): ...
-def cluster_main(
-    flow,
-    addresses,
-    proc_id,
-    *,
-    epoch_interval=None,
-    recovery_config=None,
-    worker_count_per_proc=1,
-):
+def cli_main(flow, *, workers_per_process=1, process_id=None, addresses=None, epoch_interval=None, recovery_config=None):
+    ...
+
+def cluster_main(flow, addresses, proc_id, *, epoch_interval=None, recovery_config=None, worker_count_per_proc=1):
     """Execute a dataflow in the current process as part of a cluster.
 
     This is only used for unit testing. See `bytewax.run`.
 
     Blocks until execution is complete.
 
-    ```{testcode}
-    from bytewax.dataflow import Dataflow
-    import bytewax.operators as op
-    from bytewax.testing import TestingSource, cluster_main
-    from bytewax.connectors.stdio import StdOutSink
-
-    flow = Dataflow("my_df")
-    s = op.input("inp", flow, TestingSource(range(3)))
-    op.output("out", s, StdOutSink())
-
-    # In a real example, use "host:port" of all other workers.
-    addresses = []
-    proc_id = 0
-    cluster_main(flow, addresses, proc_id)
-    ```
-
-    ```{testoutput}
+    ```python
+    >>> from bytewax.dataflow import Dataflow
+    >>> import bytewax.operators as op
+    >>> from bytewax.testing import TestingSource, cluster_main
+    >>> from bytewax.connectors.stdio import StdOutSink
+    >>> flow = Dataflow("my_df")
+    >>> s = op.input("inp", flow, TestingSource(range(3)))
+    >>> op.output("out", s, StdOutSink())
+    >>> # In a real example, use "host:port" of all other workers.
+    >>> addresses = []
+    >>> proc_id = 0
+    >>> cluster_main(flow, addresses, proc_id)
     0
     1
     2
@@ -147,20 +149,6 @@ def cluster_main(
     """
     ...
 
-def init_db_dir(db_dir, count):
-    """Create and init a set of empty recovery partitions.
-
-    :arg db_dir: Local directory to create partitions in.
-
-    :type db_dir: pathlib.Path
-
-    :arg count: Number of partitions to create.
-
-    :type count: int
-
-    """
-    ...
-
 def run_main(flow, *, epoch_interval=None, recovery_config=None):
     """Execute a dataflow in the current thread.
 
@@ -168,19 +156,15 @@ def run_main(flow, *, epoch_interval=None, recovery_config=None):
 
     This is only used for unit testing. See `bytewax.run`.
 
-    ```{testcode}
-    from bytewax.dataflow import Dataflow
-    import bytewax.operators as op
-    from bytewax.testing import TestingSource, run_main
-    from bytewax.connectors.stdio import StdOutSink
-    flow = Dataflow("my_df")
-    s = op.input("inp", flow, TestingSource(range(3)))
-    op.output("out", s, StdOutSink())
-
-    run_main(flow)
-    ```
-
-    ```{testoutput}
+    ```python
+    >>> from bytewax.dataflow import Dataflow
+    >>> import bytewax.operators as op
+    >>> from bytewax.testing import TestingSource, run_main
+    >>> from bytewax.connectors.stdio import StdOutSink
+    >>> flow = Dataflow("my_df")
+    >>> s = op.input("inp", flow, TestingSource(range(3)))
+    >>> op.output("out", s, StdOutSink())
+    >>> run_main(flow)
     0
     1
     2
@@ -213,11 +197,10 @@ def setup_tracing(tracing_config=None, log_level=None):
     Note: To make this work, you have to keep a reference of the
     returned object.
 
-    % Skip this doctest because it requires starting the webserver.
+    % skip: next
 
     ```python
     from bytewax.tracing import setup_tracing
-
     tracer = setup_tracing()
     ```
 
@@ -234,25 +217,18 @@ def setup_tracing(tracing_config=None, log_level=None):
     """
     ...
 
-class AbortExecution(RuntimeError):
-    """Raise this from `next_batch` to abort for testing purposes."""
+def test_cluster(flow, *, epoch_interval=None, recovery_config=None, processes=1, workers_per_process=1):
+    """Execute a Dataflow by spawning multiple Python processes.
 
-    ...
+    Blocks until execution is complete.
 
-class InconsistentPartitionsError(ValueError):
-    """Raised when two recovery partitions are from very different times.
-
-    Bytewax only keeps around state snapshots for the backup interval.
-    This means that if you are resuming a dataflow with one recovery
-    partition much newer than another, it's not possible to find a
-    consistent set of snapshots between them.
-
-    This is probably due to not restoring a consistent set of recovery
-    partition backups onto all workers or the backup process has been
-    continously failing on only some workers.
+    This function should only be used for testing purposes.
 
     """
+    ...
 
+class AbortExecution(RuntimeError):
+    """Raise this from `next_batch` to abort for testing purposes."""
     ...
 
 class JaegerConfig(TracingConfig):
@@ -281,20 +257,26 @@ class JaegerConfig(TracingConfig):
     :type sampling_ratio: float
 
     """
-
     ...
 
-    def __init__(self, service_name, endpoint=None, sampling_ratio=1.0): ...
+    def __init__(self, service_name, endpoint=None, sampling_ratio=1.0):
+        ...
+
     def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
 
     @property
-    def endpoint(self): ...
+    def endpoint(self):
+        ...
+
     @property
-    def sampling_ratio(self): ...
+    def sampling_ratio(self):
+        ...
+
     @property
-    def service_name(self): ...
+    def service_name(self):
+        ...
 
 class OtlpTracingConfig(TracingConfig):
     """Send traces to the OpenTelemetry collector.
@@ -322,31 +304,23 @@ class OtlpTracingConfig(TracingConfig):
     :type sampling_ratio: float
 
     """
-
     ...
 
-    def __init__(self, service_name, url=None, sampling_ratio=1.0): ...
+    def __init__(self, service_name, url=None, sampling_ratio=1.0):
+        ...
+
     def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
 
     @property
-    def sampling_ratio(self): ...
+    def sampling_ratio(self):
+        ...
+
     @property
-    def service_name(self): ...
+    def service_name(self):
+        ...
+
     @property
-    def url(self): ...
-
-class MissingPartitionsError(FileNotFoundError):
-    """Raised when an incomplete set of recovery partitions is detected."""
-
-    ...
-
-class NoPartitionsError(FileNotFoundError):
-    """Raised when no recovery partitions are found on any worker.
-
-    This is probably due to the wrong recovery directory being specified.
-
-    """
-
-    ...
+    def url(self):
+        ...

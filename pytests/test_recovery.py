@@ -1,24 +1,21 @@
-import os
-import shutil
 from datetime import timedelta
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.recovery import (
-    InconsistentPartitionsError,
-    MissingPartitionsError,
-    NoPartitionsError,
-    RecoveryConfig,
-    init_db_dir,
-)
+from bytewax.recovery import RecoveryConfig
 from bytewax.testing import TestingSink, TestingSource, cluster_main, run_main
-from pytest import raises
 
 ZERO_TD = timedelta(seconds=0)
 FIVE_TD = timedelta(seconds=5)
 
 
-def test_abort_no_snapshots(recovery_config):
+def test_input_recovery(tmp_path):
+    recovery_config = RecoveryConfig(str(tmp_path))
+    inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
+    out = []
+
+
+def test_abort_no_snapshots(tmp_path):
     inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
     out = []
 
@@ -26,8 +23,9 @@ def test_abort_no_snapshots(recovery_config):
     s = op.input("inp", flow, TestingSource(inp))
     op.output("out", s, TestingSink(out))
 
-    # Setting the epoch interval to 5 sec means we shouldn't have a
-    # snapshot when the abort happens.
+    # Setting batch_backup to True and epoch interval to 5 sec
+    # means we shouldn't have a snapshot when the abort happens.
+    recovery_config = RecoveryConfig(str(tmp_path), batch_backup=True)
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
     assert out == [0, 1, 2]
 
@@ -37,7 +35,7 @@ def test_abort_no_snapshots(recovery_config):
     assert out == [0, 1, 2, 3, 4]
 
 
-def test_abort_with_snapshots(recovery_config):
+def test_abort_with_snapshots(tmp_path):
     inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
     out = []
 
@@ -45,9 +43,9 @@ def test_abort_with_snapshots(recovery_config):
     s = op.input("inp", flow, TestingSource(inp))
     op.output("out", s, TestingSink(out))
 
-    # Setting the epoch interval to 0 sec means we will have a
-    # snapshot after each item.
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    # Setting immediate mode snapshot means we will have a snapshot after each item.
+    recovery_config = RecoveryConfig(str(tmp_path), batch_backup=False)
+    run_main(flow, recovery_config=recovery_config)
     assert out == [0, 1, 2]
 
     # We should resume as if it was an EOF.
@@ -56,7 +54,7 @@ def test_abort_with_snapshots(recovery_config):
     assert out == [3, 4]
 
 
-def test_continuation(recovery_config):
+def test_continuation(tmp_path):
     inp = [0, 1, 2, TestingSource.EOF(), 3, 4]
     out = []
 
@@ -64,8 +62,9 @@ def test_continuation(recovery_config):
     s = op.input("inp", flow, TestingSource(inp))
     op.output("out", s, TestingSink(out))
 
-    # Setting the epoch interval to 5 sec means we should only
+    # Setting batch_backup to True and epoch interval to 5 sec means we should only
     # snapshot on EOF.
+    recovery_config = RecoveryConfig(str(tmp_path), batch_backup=True)
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
     assert out == [0, 1, 2]
 
@@ -77,56 +76,6 @@ def test_continuation(recovery_config):
     out.clear()
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
     assert out == []
-
-    out.clear()
-    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
-    assert out == []
-
-
-def test_continuation_with_delayed_backup(tmp_path):
-    init_db_dir(tmp_path, 1)
-    print(tmp_path)
-    recovery_config = RecoveryConfig(str(tmp_path), backup_interval=FIVE_TD * 2)
-
-    inp = [
-        0,
-        TestingSource.EOF(),
-        1,
-        TestingSource.EOF(),
-        2,
-        TestingSource.EOF(),
-        3,
-        TestingSource.EOF(),
-        4,
-    ]
-    out = []
-
-    flow = Dataflow("test_df")
-    s = op.input("inp", flow, TestingSource(inp))
-    op.output("out", s, TestingSink(out))
-
-    # Setting the epoch interval to 5 sec means we should only
-    # snapshot on EOF. But we have set the backup interval to
-    # effectively -2 epochs so we should get delayed backup after a
-    # few executions.
-    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
-    assert out == [0]
-
-    out.clear()
-    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
-    assert out == [1]
-
-    out.clear()
-    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
-    assert out == [2]
-
-    out.clear()
-    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
-    assert out == [3]
-
-    out.clear()
-    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
-    assert out == [4]
 
     out.clear()
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
@@ -148,8 +97,43 @@ def build_keep_max_dataflow(inp, out):
     return flow
 
 
+def test_stateful_batch_recovery(tmp_path):
+    recovery_config = RecoveryConfig(str(tmp_path))
+    inp = [
+        ("a", 4),
+        ("b", 4),
+        TestingSource.EOF(),
+        ("a", 1),
+        ("b", 5),
+        TestingSource.EOF(),
+        ("a", 8),
+        ("b", 1),
+    ]
+    out = []
+
+    flow = build_keep_max_dataflow(inp, out)
+    run_main(flow, recovery_config=recovery_config)
+    assert out == [
+        ("a", 4),
+        ("b", 4),
+    ]
+
+    out.clear()
+    run_main(flow, recovery_config=recovery_config)
+    assert out == [
+        ("a", 4),
+        ("b", 5),
+    ]
+
+    out.clear()
+    run_main(flow, recovery_config=recovery_config)
+    assert out == [
+        ("a", 8),
+        ("b", 5),
+    ]
+
+
 def test_rescale(tmp_path):
-    init_db_dir(tmp_path, 3)
     recovery_config = RecoveryConfig(str(tmp_path))
 
     inp = [
@@ -199,73 +183,3 @@ def test_rescale(tmp_path):
         ("a", 8),
         ("b", 5),
     ]
-
-
-def test_no_parts(tmp_path):
-    # Don't init_db_dir.
-    recovery_config = RecoveryConfig(str(tmp_path))
-
-    inp = []
-    out = []
-
-    flow = build_keep_max_dataflow(inp, out)
-
-    with raises(NoPartitionsError):
-        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
-
-
-def test_missing_parts(tmp_path):
-    init_db_dir(tmp_path, 3)
-    recovery_config = RecoveryConfig(str(tmp_path))
-
-    os.remove(tmp_path / "part-0.sqlite3")
-
-    inp = []
-    out = []
-
-    flow = build_keep_max_dataflow(inp, out)
-
-    with raises(MissingPartitionsError):
-        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
-
-
-def test_inconsistent_parts(tmp_path):
-    part_count = 3
-
-    init_db_dir(tmp_path, part_count)
-    recovery_config = RecoveryConfig(str(tmp_path), backup_interval=ZERO_TD)
-
-    # Take an snapshot of all the initial partitions. Snapshot
-    # everything just to help with debugging this test.
-    for i in range(part_count):
-        shutil.copy(tmp_path / f"part-{i}.sqlite3", tmp_path / f"part-{i}.run0")
-
-    inp = [
-        ("a", 4),
-        ("b", 4),
-        TestingSource.ABORT(),
-        ("a", 1),
-        ("b", 5),
-    ]
-    out = []
-
-    flow = build_keep_max_dataflow(inp, out)
-
-    # Run the dataflow initially to completion.
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
-    assert out == [
-        ("a", 4),
-        ("b", 4),
-    ]
-
-    # Take an snapshot of all the partitions after the first run.
-    for i in range(part_count):
-        shutil.copy(tmp_path / f"part-{i}.sqlite3", tmp_path / f"part-{i}.run1")
-
-    # Continue but overwrite partition 0 with initial version. Because
-    # the backup interval is 0, we should have already thrown away
-    # state to resume at the initial epoch 1.
-    out.clear()
-    shutil.copy(tmp_path / "part-0.run0", tmp_path / "part-0.sqlite3")
-    with raises(InconsistentPartitionsError):
-        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)

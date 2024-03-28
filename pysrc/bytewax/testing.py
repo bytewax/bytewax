@@ -13,6 +13,8 @@ from bytewax._bytewax import (
     cluster_main,
     run_main,
 )
+from bytewax.backup import Backup
+from bytewax.dataflow import Dataflow
 from bytewax.inputs import (
     AbortExecution,
     FixedPartitionedSource,
@@ -23,6 +25,8 @@ from bytewax.outputs import DynamicSink, StatelessSinkPartition
 from bytewax.run import (
     _create_arg_parser,
     _EnvDefault,
+    _locate_subclass,
+    _prepare_import,
 )
 
 __all__ = [

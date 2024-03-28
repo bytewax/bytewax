@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Tuple
 
 from bytewax._bytewax import cli_main
+from bytewax.backup import Backup
+from bytewax.dataflow import Dataflow
 from bytewax.recovery import RecoveryConfig
 
 __all__ = [
@@ -27,7 +29,7 @@ __all__ = [
 ]
 
 
-def _locate_dataflow(module_name, dataflow_name):
+def _locate_subclass(module_name: str, object_name: str, superclass: type):
     """Import a module and try to find a Dataflow within it.
 
     Check if the given string is a variable name or a function.
@@ -36,8 +38,6 @@ def _locate_dataflow(module_name, dataflow_name):
 
     This is adapted from Flask's codebase.
     """
-    from bytewax.dataflow import Dataflow
-
     try:
         __import__(module_name)
     except ImportError as ex:
@@ -54,9 +54,9 @@ def _locate_dataflow(module_name, dataflow_name):
     # Parse dataflow_name as a single expression to determine if it's a valid
     # attribute name or function call.
     try:
-        expr = ast.parse(dataflow_name.strip(), mode="eval").body
+        expr = ast.parse(object_name.strip(), mode="eval").body
     except SyntaxError:
-        msg = f"Failed to parse {dataflow_name!r} as an attribute name or function call"
+        msg = f"Failed to parse {object_name!r} as an attribute name or function call"
         raise SyntaxError(msg) from None
 
     if isinstance(expr, ast.Name):
@@ -66,7 +66,7 @@ def _locate_dataflow(module_name, dataflow_name):
     elif isinstance(expr, ast.Call):
         # Ensure the function name is an attribute name only.
         if not isinstance(expr.func, ast.Name):
-            msg = f"Function reference must be a simple name: {dataflow_name!r}."
+            msg = f"Function reference must be a simple name: {object_name!r}."
             raise TypeError(msg)
 
         name = expr.func.id
@@ -78,10 +78,10 @@ def _locate_dataflow(module_name, dataflow_name):
         except ValueError:
             # literal_eval gives cryptic error messages, show a generic
             # message with the full expression instead.
-            msg = f"Failed to parse arguments as literal values: {dataflow_name!r}"
+            msg = f"Failed to parse arguments as literal values: {object_name!r}"
             raise ValueError(msg) from None
     else:
-        msg = f"Failed to parse {dataflow_name!r} as an attribute name or function call"
+        msg = f"Failed to parse {object_name!r} as an attribute name or function call"
         raise ValueError(msg)
 
     try:
@@ -94,26 +94,23 @@ def _locate_dataflow(module_name, dataflow_name):
     # to get the real application.
     if inspect.isfunction(attr):
         try:
-            dataflow = attr(*args, **kwargs)
+            instance = attr(*args, **kwargs)
         except TypeError as e:
             if not _called_with_wrong_args(attr):
                 raise
 
             msg = (
-                f"The factory {dataflow_name!r} in module {module.__name__!r} "
+                f"The factory {object_name!r} in module {module.__name__!r} "
                 "could not be called with the specified arguments"
             )
             raise TypeError(msg) from e
     else:
-        dataflow = attr
+        instance = attr
 
-    if isinstance(dataflow, Dataflow):
-        return dataflow
+    if isinstance(instance, superclass):
+        return instance
 
-    msg = (
-        "A valid Bytewax dataflow was not obtained from "
-        f"'{module.__name__}:{dataflow_name}'"
-    )
+    msg = "A valid object was not obtained from " f"'{module.__name__}:{object_name}'"
     raise RuntimeError(msg)
 
 
@@ -150,7 +147,7 @@ class _EnvDefault(argparse.Action):
         setattr(namespace, self.dest, values)
 
 
-def _prepare_import(import_str: str) -> Tuple[str, str]:
+def _prepare_import(import_str: str, default_name: str = "flow") -> Tuple[str, str]:
     """Given a filename this will try to calculate the python path.
 
     Add it to the search path and return the actual module name that
@@ -159,9 +156,9 @@ def _prepare_import(import_str: str) -> Tuple[str, str]:
     This is adapted from Flask's codebase.
 
     """
-    path, _, flow_name = import_str.partition(":")
-    if not flow_name:
-        flow_name = "flow"
+    path, _, object_name = import_str.partition(":")
+    if not object_name:
+        object_name = default_name
     path = os.path.realpath(path)
 
     fname, ext = os.path.splitext(path)
@@ -185,7 +182,7 @@ def _prepare_import(import_str: str) -> Tuple[str, str]:
         sys.path.insert(0, path)
 
     mod_str = ".".join(module_name[::-1])
-    attr_str = flow_name
+    attr_str = object_name
 
     return (mod_str, attr_str)
 
@@ -220,12 +217,28 @@ def _create_arg_parser():
         "-r",
         "--recovery-directory",
         type=Path,
-        help="""Local file system directory to look for pre-initialized recovery
-        partitions; see `python -m bytewax.recovery` for how to init partitions""",
+        help="""Local file system directory to use to save recovery partitions""",
         action=_EnvDefault,
         envvar="BYTEWAX_RECOVERY_DIRECTORY",
     )
-    parser.add_argument(
+    recovery.add_argument(
+        "--snapshot-mode",
+        choices=["immediate", "batch"],
+        default="immediate",
+        help="Whether to take snapshots at every state change or "
+        "in batch at the end of each epoch.",
+        action=_EnvDefault,
+        envvar="BYTEWAX_SNAPSHOT_MODE",
+    )
+    recovery.add_argument(
+        "--backup",
+        type=str,
+        help="Backup import string in the format "
+        "<module_name>[:<backup_variable_or_factory>] "
+        "Example: src.dataflow or src.dataflow:backup_object or "
+        "src.dataflow:get_backup('string_argument')",
+    )
+    recovery.add_argument(
         "-s",
         "--snapshot-interval",
         type=_parse_timedelta,
@@ -234,15 +247,6 @@ def _create_arg_parser():
         in one of these intervals""",
         action=_EnvDefault,
         envvar="BYTEWAX_SNAPSHOT_INTERVAL",
-    )
-    recovery.add_argument(
-        "-b",
-        "--backup-interval",
-        type=_parse_timedelta,
-        help="""System time duration in seconds to keep extra state snapshots around;
-        set this to the interval at which you are backing up recovery partitions""",
-        action=_EnvDefault,
-        envvar="BYTEWAX_RECOVERY_BACKUP_INTERVAL",
     )
     return parser
 
@@ -312,13 +316,10 @@ def _parse_args():
 
     # If recovery is configured, make sure that the snapshot_interval and
     # backup_interval are set.
-    if args.recovery_directory is not None and (
-        args.snapshot_interval is None or args.backup_interval is None
-    ):
+    if args.recovery_directory is not None and args.snapshot_interval is None:
         arg_parser.error(
-            "when running with recovery, the `-s/--snapshot_interval` and "
-            "`-b/--backup_interval` values must be set. For more information "
-            "about setting these values, please see "
+            "when running with recovery, the `-s/--snapshot_interval` "
+            "value must be set. For more information please see "
             "https://bytewax.io/docs/concepts/recovery."
         )
 
@@ -327,16 +328,25 @@ def _parse_args():
 
 if __name__ == "__main__":
     kwargs = vars(_parse_args())
-    snapshot_interval = kwargs.pop("snapshot_interval")
 
-    recovery_directory, backup_interval = (
-        kwargs.pop("recovery_directory"),
-        kwargs.pop("backup_interval"),
-    )
+    snapshot_interval = kwargs.pop("snapshot_interval")
+    recovery_directory = kwargs.pop("recovery_directory")
+    backup_import_str = kwargs.pop("backup")
+    snapshot_mode = kwargs.pop("snapshot_mode")
+
+    # Recovery config
     kwargs["recovery_config"] = None
     if recovery_directory is not None:
+        backup = None
+        if backup_import_str is not None:
+            mod_str, attrs_str = _prepare_import(backup_import_str, "backup")
+            backup = _locate_subclass(mod_str, attrs_str, Backup)
         kwargs["epoch_interval"] = snapshot_interval
-        kwargs["recovery_config"] = RecoveryConfig(recovery_directory, backup_interval)
+        kwargs["recovery_config"] = RecoveryConfig(
+            recovery_directory,
+            backup=backup,
+            batch_backup=snapshot_mode == "batch",
+        )
     else:
         # Default epoch interval if there is no recovery setup. Since
         # there's no recovery, this needs not be coordinated with
@@ -349,7 +359,7 @@ if __name__ == "__main__":
         kwargs["addresses"] = addresses.split(";")
 
     # Import the dataflow
-    mod_str, attr_str = _prepare_import(kwargs.pop("import_str"))
-    kwargs["flow"] = _locate_dataflow(mod_str, attr_str)
+    mod_str, attrs_str = _prepare_import(kwargs.pop("import_str"))
+    kwargs["flow"] = _locate_subclass(mod_str, attrs_str, Dataflow)
 
     cli_main(**kwargs)

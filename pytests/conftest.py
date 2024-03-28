@@ -6,7 +6,7 @@ This sets up our fixtures and logging.
 
 from datetime import datetime, timezone
 
-from bytewax.recovery import RecoveryConfig, init_db_dir
+from bytewax.recovery import RecoveryConfig
 from bytewax.testing import cluster_main, run_main
 from bytewax.tracing import setup_tracing
 from pytest import fixture
@@ -59,8 +59,7 @@ def recovery_config(tmp_path):
     It will point to a single partition recovery store.
 
     """
-    init_db_dir(tmp_path, 1)
-    yield RecoveryConfig(str(tmp_path))
+    yield RecoveryConfig(str(tmp_path), batch_backup=True)
 
 
 @fixture
