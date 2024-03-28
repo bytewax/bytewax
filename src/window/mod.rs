@@ -182,7 +182,7 @@ pub(crate) trait Clock<V> {
     ///
     /// This can mutate the [`ClockState`] on every call to ensure
     /// future calls are accurate.
-    fn watermark(&mut self, next_value: &Poll<Option<DateTime<Utc>>>) -> DateTime<Utc>;
+    fn watermark(&mut self, py: Python, next_value: &Poll<Option<V>>) -> DateTime<Utc>;
 
     /// Get the time for an item.
     ///
@@ -479,16 +479,13 @@ where
     ) -> Vec<Result<(WindowMetadata, R), WindowError<V>>> {
         let mut output = Vec::new();
 
-        let item_time = match &next_value {
-            Poll::Ready(Some(value)) => Poll::Ready(Some(self.clock.time_for(py, value))),
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        };
-        let watermark = self.clock.watermark(&item_time);
+        let watermark = self.clock.watermark(py, &next_value);
 
         tracing::trace!("Watermark at {watermark:?}");
 
-        if let (Poll::Ready(Some(value)), Poll::Ready(Some(item_time))) = (next_value, item_time) {
+        if let Poll::Ready(Some(value)) = next_value {
+            let item_time = self.clock.time_for(py, &value);
+
             tracing::trace!("{value:?} has time {item_time:?}");
             for window_result in self.windower.insert(&watermark, &item_time) {
                 let value = value.clone();
