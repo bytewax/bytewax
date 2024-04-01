@@ -181,7 +181,6 @@ autodoc2_hidden_objects = [
 # to list the modules with `__all__` explicitly.
 autodoc2_module_all_regexes = [
     re.escape("bytewax.inputs"),
-    re.escape("bytewax.operators.window"),
     re.escape("bytewax.recovery"),
     re.escape("bytewax.run"),
     re.escape("bytewax.testing"),
