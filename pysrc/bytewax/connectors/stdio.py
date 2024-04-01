@@ -1,4 +1,5 @@
 """Connectors to console IO."""
+
 import sys
 from typing import Any, List
 

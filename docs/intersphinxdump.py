@@ -8,6 +8,7 @@ So you might need to munge the output if you want to use it with rST
 role syntax.
 
 """
+
 import warnings
 from typing import Dict
 

@@ -1,4 +1,5 @@
 """Connectors for writing local-first demo dataflows."""
+
 import random
 import sys
 from dataclasses import dataclass

@@ -18,6 +18,7 @@ See the "Writing Docs" article about all the ways to do that and
 configure behavior from the code block itself.
 
 """
+
 import doctest
 
 from bytewax.tracing import setup_tracing

@@ -10,11 +10,13 @@ And then you can use the operators like this:
 
 ```python
 from bytewax.dataflow import Dataflow
+
 flow = Dataflow("kafka-in-out")
 kafka_input = kop.input("kafka_inp", flow, brokers=[...], topics=[...])
 kop.output("kafka-out", kafka_input.oks, brokers=[...], topic="...")
 ```
 """
+
 from dataclasses import dataclass
 from typing import Dict, Generic, List, Optional, TypeVar, Union, cast
 

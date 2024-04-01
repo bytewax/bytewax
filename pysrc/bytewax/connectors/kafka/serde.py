@@ -1,4 +1,5 @@
 """Serializers and deserializers for Kafka messages."""
+
 import io
 import json
 import logging

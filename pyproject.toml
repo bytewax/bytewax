@@ -35,14 +35,14 @@ extras = [
 
 [project.optional-dependencies]
 cbfmt = [
-    "ruff==0.1.8",
+    "ruff==0.3.2",
 ]
 dev = [
     "bytewax[cbfmt,kafka,test]",
     "astor==0.8.1 ; python_version <= '3.8'",
     "graphlib_backport==1.0.3 ; python_version <= '3.8'",
     "pre-commit==2.19.0",
-    "ruff==0.1.8",
+    "ruff==0.3.2",
     "vermin==1.5.2",
 ]
 kafka = [
