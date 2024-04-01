@@ -8,6 +8,7 @@ from bytewax.operators.window import (
     EventClockConfig,
     SessionWindow,
     SlidingWindow,
+    SystemClockConfig,
     TumblingWindow,
     WindowMetadata,
 )
@@ -245,6 +246,34 @@ def test_fold_window_sliding():
             ),
         ),
     ]
+
+
+def test_session_window_with_system_clock():
+    def add_record(acc, msg):
+        acc.append(msg)
+        return acc
+
+    flow = Dataflow("window_bug")
+    stream = op.input("input", flow, TestingSource(range(10))).then(
+        op.key_on, "key_static", lambda x: "x"
+    )
+
+    collected = stream.then(
+        win.fold_window,
+        "collect_records",
+        SystemClockConfig(),
+        SessionWindow(gap=timedelta(seconds=10)),
+        list,
+        add_record,
+    )
+
+    out = []
+    op.output("out", collected, TestingSink(out))
+    run_main(flow)
+    assert out, "Output should not be empty"
+    key, (_metdata, vals) = out[0]
+    assert key == "x"
+    assert vals == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
 
 def build_fold_window_dataflow(out) -> Dataflow:
