@@ -86,10 +86,14 @@ Let's {py:obj}`~bytewax.operators.inspect` our streams to double check
 we know what they look like:
 
 ```python
-import bytewax.testing
-
 op.inspect("check_names", keyed_names)
 op.inspect("check_emails", keyed_emails)
+```
+
+```{testcode}
+:hide:
+
+import bytewax.testing
 
 bytewax.testing.run_main(flow)
 ```
@@ -155,6 +159,10 @@ side and `keyed_emails` stream as the other and view the output:
 joined = op.join("join", keyed_names, keyed_emails)
 
 op.inspect("check_join", joined)
+```
+
+```{testcode}
+:hide:
 
 bytewax.testing.run_main(flow)
 ```
@@ -181,6 +189,10 @@ names_l.extend(
         {"user_id": 789, "name": "Pooh Bear"},
     ]
 )
+```
+
+```{testcode}
+:hide:
 
 bytewax.testing.run_main(flow)
 ```
@@ -217,6 +229,10 @@ emails_l.extend(
         {"user_id": 123, "email": "queen@bytewax.io"},
     ]
 )
+```
+
+```{testcode}
+:hide:
 
 bytewax.testing.run_main(flow)
 ```
@@ -334,6 +350,10 @@ Now let's run the dataflow again an inspect the output.
 
 ```python
 op.inspect("check_join", joined)
+```
+
+```{testcode}
+:hide:
 
 bytewax.testing.run_main(flow)
 ```
@@ -447,12 +467,10 @@ using event time.
 
 ```python
 from datetime import timedelta, datetime, timezone
-from bytewax.operators.window import EventClockConfig, TumblingWindow
+from bytewax.operators.window import EventClock, TumblingWindower
 
-clock = EventClockConfig(
-    dt_getter=lambda x: x["at"], wait_for_system_duration=timedelta(0)
-)
-windower = TumblingWindow(
+clock = EventClock(ts_getter=lambda x: x["at"], wait_for_system_duration=timedelta(0))
+windower = TumblingWindower(
     length=timedelta(hours=1),
     align_to=datetime(2023, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
 )
@@ -506,6 +524,10 @@ Let's inspect this just to double check we understand the shape.
 ```python
 op.inspect("check_names", keyed_names)
 op.inspect("check_emails", keyed_emails)
+```
+
+```{testcode}
+:hide:
 
 bytewax.testing.run_main(flow)
 ```
@@ -588,9 +610,13 @@ emails = op.input("emails", flow, TestingSource(emails_l))
 keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x))
 keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x))
 
-joined = op_w.join_window("join", clock, windower, keyed_names, keyed_emails)
+joined_out = op_w.join_window("join", clock, windower, keyed_names, keyed_emails)
 
-op.inspect("check_join", joined)
+op.inspect("check_join", joined_out.down)
+```
+
+```{testcode}
+:hide:
 
 bytewax.testing.run_main(flow)
 ```
@@ -650,6 +676,10 @@ emails_l.extend(
         },
     ]
 )
+```
+
+```{testcode}
+:hide:
 
 bytewax.testing.run_main(flow)
 ```
@@ -674,11 +704,15 @@ emails = op.input("emails", flow, TestingSource(emails_l))
 keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x))
 keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x))
 
-joined = op_w.join_window(
+joined_out = op_w.join_window(
     "join", clock, windower, keyed_names, keyed_emails, product=True
 )
 
-op.inspect("check_join", joined)
+op.inspect("check_join", joined_out.down)
+```
+
+```{testcode}
+:hide:
 
 bytewax.testing.run_main(flow)
 ```
@@ -732,6 +766,10 @@ keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["ema
 joined = op.join("join", keyed_names, keyed_emails)
 
 op.inspect("check_join", joined)
+```
+
+```{testcode}
+:hide:
 
 bytewax.testing.run_main(flow)
 ```
@@ -766,6 +804,10 @@ keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["ema
 joined = op.join_named("join", name=keyed_names, email=keyed_emails)
 
 op.inspect("check_join", joined)
+```
+
+```{testcode}
+:hide:
 
 bytewax.testing.run_main(flow)
 ```
