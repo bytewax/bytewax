@@ -59,7 +59,7 @@ S = TypeVar("S")
 KeyedStream: TypeAlias = Stream[Tuple[str, V]]
 """A {py:obj}`~bytewax.dataflow.Stream` of `(key, value)` 2-tuples."""
 
-_EMPTY = tuple()
+_EMPTY: Tuple = tuple()
 
 
 def _identity(x: X) -> X:
@@ -501,6 +501,7 @@ class _CollectLogic(UnaryLogic[V, List[V], _CollectState[V]]):
     max_size: int
     state: _CollectState[V]
 
+    @override
     def on_item(self, value: V) -> Tuple[Iterable[List[V]], bool]:
         self.state.timeout_at = self.now_getter() + self.timeout
 
@@ -1366,7 +1367,7 @@ def reduce_final(
     """
 
     def pre_reducer(mixed_batch: List[Tuple[str, V]]) -> Iterable[Tuple[str, V]]:
-        states = {}
+        states: Dict[str, V] = {}
         for k, v in mixed_batch:
             try:
                 s = states[k]
