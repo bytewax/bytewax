@@ -11,7 +11,7 @@ notes on GitHub when we make a new release.__
 
 ## v0.19.1
 
-- Fixes a bug with SystemClock and watermark generation.
+- Fixes a bug where using a system clock on certain architectures causes items to be dropped from windows.
 
 ## v0.19.0
 
