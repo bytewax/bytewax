@@ -126,7 +126,7 @@ def json_for(obj) -> Any:
     """Hook to extend the JSON serialization.
 
     Register new types via `@json_for.register`. See
-    {py:obj}`singledispatch` for more info.
+    {py:obj}`functools.singledispatch` for more info.
 
     If this contains nested un-serializeable types, this will be
     re-called with them later by {py:obj}`json.dumps`; you don't have
