@@ -31,9 +31,6 @@ use crate::timely::*;
 use crate::unwrap_any;
 use crate::with_timer;
 
-pub(crate) mod fold_window;
-pub(crate) mod stateful_unary;
-
 pub(crate) trait BranchOp<S>
 where
     S: Scope,
