@@ -853,6 +853,39 @@ def filter_map(
     return flat_map("flat_map", up, shim_mapper)
 
 
+@operator
+def filter_map_value(
+    step_id: str,
+    up: KeyedStream[V],
+    mapper: Callable[[V], Optional[W]],
+) -> KeyedStream[W]:
+    """Transform values one-to-maybe-one.
+
+    This is like a combination of {py:obj}`map_value` and then
+    {py:obj}`filter_value` with a predicate removing `None` values.
+
+    :arg step_id: Unique ID.
+
+    :arg up: Stream.
+
+    :arg mapper: Called on each value. Each return value is emitted
+        downstream, unless it is `None`.
+
+    :returns: A keyed stream of values returned from the mapper,
+        unless the value is `None`. The key is unchanged.
+
+    """
+
+    def shim_mapper(v: V) -> Iterable[W]:
+        w = mapper(v)
+        if w is not None:
+            return (w,)
+
+        return _EMPTY
+
+    return flat_map_value("flat_map_value", up, shim_mapper)
+
+
 @dataclass
 class _FoldFinalLogic(UnaryLogic[V, S, S]):
     step_id: str
