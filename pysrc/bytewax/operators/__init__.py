@@ -1027,6 +1027,25 @@ class _JoinState:
             for t in self.astuples(empty)
         ]
 
+    def __add__(self, other: Self) -> "_JoinState":
+        seen = {name: list(values) for name, values in self.seen.items()}
+        for name, values in other.seen.items():
+            if name in seen:
+                seen[name].extend(values)
+            else:
+                seen[name] = list(values)
+
+        return _JoinState(seen)
+
+    def __iadd__(self, other: Self) -> Self:
+        for name, values in other.seen.items():
+            if name in self.seen:
+                self.seen[name].extend(values)
+            else:
+                self.seen[name] = values
+
+        return self
+
 
 @dataclass
 class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
