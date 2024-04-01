@@ -103,14 +103,12 @@ def to_rendered(flow: Dataflow) -> RenderedDataflow:
     """Convert a dataflow into the "rendered" data model.
 
     This resolves all port links for you. All you have to do is set up
-    the links by connecting `RenderedPort.port_id` to all
-    `RenderedPort.from_port_ids`.
+    the links by connecting {py:obj}`RenderedPort.port_id` to all
+    {py:obj}`RenderedPort.from_port_ids`.
 
-    Args:
-        flow: Dataflow.
+    :arg flow: Dataflow.
 
-    Returns:
-        Rendered dataflow.
+    :returns: Rendered dataflow.
 
     """
     stream_to_orig_port_id: ChainMap = ChainMap()
@@ -127,18 +125,16 @@ def to_rendered(flow: Dataflow) -> RenderedDataflow:
 def json_for(obj) -> Any:
     """Hook to extend the JSON serialization.
 
-    Register new types via `@json_for.register`. See `singledispatch`
-    for more info.
+    Register new types via `@json_for.register`. See
+    {py:obj}`singledispatch` for more info.
 
     If this contains nested un-serializeable types, this will be
-    re-called with them later by `json.dumps`; you don't have to
-    recurse yourself.
+    re-called with them later by {py:obj}`json.dumps`; you don't have
+    to recurse yourself.
 
-    Args:
-        obj: Un-handled type to attempt to encode.
+    :arg obj: Un-handled type to attempt to encode.
 
-    Returns:
-        A new value that is JSON serializable.
+    :returns: A new value that is JSON serializable.
 
     """
     raise TypeError()
@@ -188,11 +184,10 @@ class _Encoder(json.JSONEncoder):
 def to_json(flow: Dataflow) -> str:
     """Encode this dataflow into JSON.
 
-    Args:
-        flow: Dataflow.
+    :arg flow: Dataflow.
 
-    Returns:
-        JSON string.
+    :returns: JSON string.
+
     """
     return json.dumps(to_rendered(flow), cls=_Encoder, indent=2)
 
@@ -238,15 +233,17 @@ def _to_plantuml_step(
 
 
 def to_plantuml(flow: Dataflow, recursive: bool = False) -> str:
-    """Return a PlantUML diagram of part of a `Dataflow`.
+    """Generate a PlantUML diagram of a dataflow.
 
-    Args:
-        flow: Dataflow.
+    See [the PlantUML website](https://plantuml.com/) for more
+    info on PlantUML.
 
-        recursive: Wheither to show sub-steps.
+    :arg flow: Dataflow.
 
-    Returns:
-        PlantUML diagram string.
+    :arg recursive: Wheither to show sub-steps. Defaults to `False`.
+
+    :returns: PlantUML diagram string.
+
     """
     rflow = to_rendered(flow)
     lines = [
