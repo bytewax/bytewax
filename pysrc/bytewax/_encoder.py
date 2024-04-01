@@ -253,3 +253,61 @@ def to_plantuml(flow: Dataflow, recursive: bool = False) -> str:
         lines += _to_plantuml_step(substep, recursive)
     lines.append("@enduml")
     return "\n".join(lines)
+
+
+def _to_mermaid_step(
+    step: RenderedOperator,
+    port_id_to_port: Dict[str, RenderedPort],
+    port_id_to_step: Dict[str, RenderedOperator],
+) -> List[str]:
+    lines = [
+        f'{step.step_id}["{step.step_name} ({step.op_type})"]',
+    ]
+
+    for port in step.inp_ports:
+        for from_port_id in port.from_port_ids:
+            from_step_id = port_id_to_step[from_port_id].step_id
+            from_port_name = port_id_to_port[from_port_id].port_name
+            lines.append(
+                f"{from_step_id} -- "
+                f'"{from_port_name} → {port.port_name}" '
+                f"--> {step.step_id}"
+            )
+
+    return lines
+
+
+def to_mermaid(flow: Dataflow) -> str:
+    """Generate a Mermaid diagram of a dataflow.
+
+    See [the Mermaid docs](https://mermaid.js.org/intro/) for more
+    info on Mermaid.
+
+    Does not show any sub-steps.
+
+    :arg flow: Dataflow.
+
+    :returns: Mermaid diagram string.
+
+    """
+    rflow = to_rendered(flow)
+    lines = [
+        "flowchart TD",
+        f'subgraph "{flow.flow_id} (Dataflow)"',
+    ]
+
+    port_id_to_port = {
+        port.port_id: port
+        for step in rflow.substeps
+        for port in step.inp_ports + step.out_ports
+    }
+    port_id_to_step = {
+        port.port_id: step
+        for step in rflow.substeps
+        for port in step.inp_ports + step.out_ports
+    }
+
+    for substep in rflow.substeps:
+        lines += _to_mermaid_step(substep, port_id_to_port, port_id_to_step)
+    lines.append("end")
+    return "\n".join(lines)
