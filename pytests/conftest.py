@@ -3,6 +3,7 @@
 This sets up our fixtures and logging.
 
 """
+
 from datetime import datetime, timezone
 
 from bytewax.recovery import RecoveryConfig, init_db_dir

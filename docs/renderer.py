@@ -1,4 +1,5 @@
 """Renderer for MyST with Bytewax formatting customizations."""
+
 from __future__ import annotations
 
 import re

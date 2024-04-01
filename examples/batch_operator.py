@@ -10,6 +10,7 @@ To show its abilities, we use an input that simulates a periodic source,
 with events coming in at regular intervals, and see how batches work
 with both the size and time limits.
 """
+
 from datetime import timedelta
 
 import bytewax.operators as op

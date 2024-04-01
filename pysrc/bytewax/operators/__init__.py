@@ -83,8 +83,7 @@ def branch(
     step_id: str,
     up: Stream[X],
     predicate: Callable[[X], TypeGuard[Y]],
-) -> BranchOut[Y, X]:
-    ...
+) -> BranchOut[Y, X]: ...
 
 
 @overload
@@ -92,8 +91,7 @@ def branch(
     step_id: str,
     up: Stream[X],
     predicate: Callable[[X], bool],
-) -> BranchOut[X, X]:
-    ...
+) -> BranchOut[X, X]: ...
 
 
 @operator(_core=True)
@@ -1236,8 +1234,7 @@ def map_value(
 def max_final(
     step_id: str,
     up: KeyedStream[V],
-) -> KeyedStream[V]:
-    ...
+) -> KeyedStream[V]: ...
 
 
 @overload
@@ -1245,8 +1242,7 @@ def max_final(
     step_id: str,
     up: KeyedStream[V],
     by: Callable[[V], Any],
-) -> KeyedStream[V]:
-    ...
+) -> KeyedStream[V]: ...
 
 
 @operator
@@ -1275,8 +1271,7 @@ def max_final(
 def min_final(
     step_id: str,
     up: KeyedStream[V],
-) -> KeyedStream[V]:
-    ...
+) -> KeyedStream[V]: ...
 
 
 @overload
@@ -1284,8 +1279,7 @@ def min_final(
     step_id: str,
     up: KeyedStream[V],
     by: Callable[[V], Any],
-) -> KeyedStream[V]:
-    ...
+) -> KeyedStream[V]: ...
 
 
 @operator

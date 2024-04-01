@@ -1,4 +1,5 @@
 """Serialization of the dataflow data model."""
+
 import json
 from collections import ChainMap
 from dataclasses import dataclass

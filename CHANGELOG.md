@@ -9,6 +9,10 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## v0.19.1
+
+- Fixes a bug where using a system clock on certain architectures causes items to be dropped from windows.
+
 ## v0.19.0
 
 - Multiple operators have been reworked to avoid taking and releasing

@@ -111,8 +111,7 @@ def collect_window(
     up: KeyedStream[V],
     clock: ClockConfig,
     windower: WindowConfig,
-) -> KeyedStream[Tuple[WindowMetadata, List[V]]]:
-    ...
+) -> KeyedStream[Tuple[WindowMetadata, List[V]]]: ...
 
 
 @overload
@@ -122,8 +121,7 @@ def collect_window(
     clock: ClockConfig,
     windower: WindowConfig,
     into: Type[List],
-) -> KeyedStream[Tuple[WindowMetadata, List[V]]]:
-    ...
+) -> KeyedStream[Tuple[WindowMetadata, List[V]]]: ...
 
 
 @overload
@@ -133,8 +131,7 @@ def collect_window(
     clock: ClockConfig,
     windower: WindowConfig,
     into: Type[Set],
-) -> KeyedStream[Tuple[WindowMetadata, Set[V]]]:
-    ...
+) -> KeyedStream[Tuple[WindowMetadata, Set[V]]]: ...
 
 
 @overload
@@ -144,8 +141,7 @@ def collect_window(
     clock: ClockConfig,
     windower: WindowConfig,
     into: Type[Dict],
-) -> KeyedStream[Tuple[WindowMetadata, Dict[DK, DV]]]:
-    ...
+) -> KeyedStream[Tuple[WindowMetadata, Dict[DK, DV]]]: ...
 
 
 @operator
@@ -434,8 +430,7 @@ def join_window_named(
 @overload
 def max_window(
     step_id: str, up: KeyedStream[V], clock: ClockConfig, windower: WindowConfig
-) -> KeyedStream[Tuple[WindowMetadata, V]]:
-    ...
+) -> KeyedStream[Tuple[WindowMetadata, V]]: ...
 
 
 @overload
@@ -445,8 +440,7 @@ def max_window(
     clock: ClockConfig,
     windower: WindowConfig,
     by: Callable[[V], Any],
-) -> KeyedStream[Tuple[WindowMetadata, V]]:
-    ...
+) -> KeyedStream[Tuple[WindowMetadata, V]]: ...
 
 
 @operator
@@ -480,8 +474,7 @@ def max_window(
 @overload
 def min_window(
     step_id: str, up: KeyedStream[V], clock: ClockConfig, windower: WindowConfig
-) -> KeyedStream[Tuple[WindowMetadata, V]]:
-    ...
+) -> KeyedStream[Tuple[WindowMetadata, V]]: ...
 
 
 @overload
@@ -491,8 +484,7 @@ def min_window(
     clock: ClockConfig,
     windower: WindowConfig,
     by: Callable[[V], Any],
-) -> KeyedStream[Tuple[WindowMetadata, V]]:
-    ...
+) -> KeyedStream[Tuple[WindowMetadata, V]]: ...
 
 
 @operator

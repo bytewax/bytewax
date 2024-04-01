@@ -1,4 +1,5 @@
 """Connectors for local text files."""
+
 import os
 from csv import DictReader
 from pathlib import Path
