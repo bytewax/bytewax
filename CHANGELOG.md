@@ -9,9 +9,46 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- *Breaking change* `ClockConfig`s have had `Config` dropped from
+  their name and are just `Clock`s. E.g. If you previously `from
+  bytewax.operators.window import SystemClockConfig` now `from
+  bytewax.operators.window import SystemClock`.
+
+- *Breaking change* `WindowConfig`s have been renamed to `Windower`s.
+  E.g. If you previously `from bytewax.operators.window import
+  SessionWindow` now `from bytewax.operators.window import
+  SessionWindower`.
+
+- *Breaking change* All windowing operators now return a set of
+  streams {py:obj}`~bytewax.operators.window.WindowOut`.
+  {py:obj}`~bytewax.operators.window.WindowMetadata` now is branched
+  into its own stream and is no longer part of the single downstream.
+  All window operator emitted items are labeled with the unique window
+  ID they came from to facilitate joining the data later.
+
+- *Breaking change* {py:obj}`~bytewax.operators.window.fold_window`
+  now requires a `merge` argument. This handles whenever the session
+  windower determines that two windows must be merged because a new
+  item bridged a gap.
+
+- Python interfaces are now provided for custom clocks and windowers.
+  Subclass {py:obj}`~bytewax.operators.window.Clock` (and a
+  corresponding {py:obj}`~bytewax.operators.window.ClockLogic`) or
+  {py:obj}`~bytewax.operators.window.Windower` (and a corresponding
+  {py:obj}`~bytewax.operators.window.WindowerLogic`) to define your
+  own senses of time and window definitions.
+
+- Adds a {py:obj}`~bytewax.operators.window.generic_window` operator
+  to allow you to write more flexible custom windowing operators.
+
+- Session windows now work correctly with out-of-order data and joins.
+
+- Adds a {py:obj}`~bytewax.operators.filter_map_value` operator.
+
 ## v0.19.1
 
-- Fixes a bug where using a system clock on certain architectures causes items to be dropped from windows.
+- Fixes a bug where using a system clock on certain architectures
+  causes items to be dropped from windows.
 
 ## v0.19.0
 
