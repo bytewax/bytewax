@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from typing import Dict
 
 import bytewax.operators as op
 import bytewax.operators.window as win
@@ -16,6 +17,14 @@ from pytest import mark
 
 # TODO: Test snapshotting logic so we're sure a recovery roundtrip
 # would work.
+
+
+def _merge_defaultdict(
+    a: Dict[str, int],
+    b: Dict[str, int],
+) -> Dict[str, int]:
+    a.update(b)
+    return a
 
 
 def test_fold_window_tumbling():
@@ -49,7 +58,13 @@ def test_fold_window_tumbling():
     s = op.input("inp", flow, TestingSource(inp))
     s = op.key_on("key_on_user", s, lambda e: e["user"])
     wo = win.fold_window(
-        "count", s, clock, windower, lambda: defaultdict(int), count, defaultdict.__or__
+        "count",
+        s,
+        clock,
+        windower,
+        lambda: defaultdict(int),
+        count,
+        _merge_defaultdict,
     )
     s = op.map_value("normal_dict", wo.down, map_dict)
     op.output("out", s, TestingSink(out))

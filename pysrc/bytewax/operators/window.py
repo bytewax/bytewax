@@ -1135,6 +1135,11 @@ def _collect_set_folder(s: Set[V], v: V) -> Set[V]:
     return s
 
 
+def _collect_dict_merger(a: Dict[DK, DV], b: Dict[DK, DV]) -> Dict[DK, DV]:
+    a.update(b)
+    return a
+
+
 def _collect_get_callbacks(
     step_id: str, t: Type
 ) -> Tuple[Callable, Callable, Callable]:
@@ -1157,7 +1162,7 @@ def _collect_get_callbacks(
                 )
                 raise TypeError(msg) from ex
 
-        return (dict, dict_folder, dict.__or__)
+        return (dict, dict_folder, _collect_dict_merger)
     else:
         msg = (
             f"`collect_window` doesn't support `{t:!}`; "
