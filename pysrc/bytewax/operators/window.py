@@ -181,6 +181,7 @@ class _SystemClockLogic(ClockLogic[V, None]):
 class _EventClockState:
     max_event_timestamp: datetime
     system_time_of_max_event: datetime
+    watermark_base: datetime
 
 
 @dataclass
@@ -190,33 +191,35 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
     wait_for_system_duration: timedelta
     state: Optional[_EventClockState]
 
-    def _watermark(self, system_now: datetime) -> datetime:
-        if self.state is None:
-            return UTC_MIN
-        else:
-            return (
-                self.state.max_event_timestamp
-                - self.wait_for_system_duration
-                + (system_now - self.state.system_time_of_max_event)
-            )
-
     @override
     def on_item(self, value: V) -> Tuple[datetime, datetime]:
         system_now = self.now_getter()
         value_event_timestamp = self.timestamp_getter(value)
 
         if self.state is None:
-            self.state = _EventClockState(value_event_timestamp, system_now)
+            self.state = _EventClockState(
+                max_event_timestamp=value_event_timestamp,
+                system_time_of_max_event=system_now,
+                watermark_base=value_event_timestamp - self.wait_for_system_duration,
+            )
         elif value_event_timestamp > self.state.max_event_timestamp:
             self.state.max_event_timestamp = value_event_timestamp
             self.state.system_time_of_max_event = system_now
+            self.state.watermark_base = (
+                value_event_timestamp - self.wait_for_system_duration
+            )
 
-        return value_event_timestamp, self._watermark(system_now)
+        return value_event_timestamp, self.state.watermark_base
 
     @override
     def on_notify(self) -> datetime:
-        system_now = self.now_getter()
-        return self._watermark(system_now)
+        if self.state is None:
+            return UTC_MIN
+        else:
+            system_now = self.now_getter()
+            return self.state.watermark_base + (
+                system_now - self.state.system_time_of_max_event
+            )
 
     @override
     def on_eof(self) -> datetime:
