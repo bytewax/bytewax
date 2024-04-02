@@ -32,7 +32,7 @@ from bytewax.operators import (
     _EMPTY,
     KeyedStream,
     S,
-    UnaryLogic,
+    StatefulBatchLogic,
     V,
     W,
     X,
@@ -87,6 +87,18 @@ class ClockLogic(ABC, Generic[V, S]):
     This is instantiated for each key which is encountered.
 
     """
+
+    @abstractmethod
+    def on_batch(self) -> None:
+        """Prepare to process items incoming simultaneously.
+
+        Called once before a series of {py:obj}`on_item` calls.
+
+        You can use this to cache a "current time" or prepare other
+        state.
+
+        """
+        ...
 
     @abstractmethod
     def on_item(self, value: V) -> Tuple[datetime, datetime]:
@@ -158,19 +170,30 @@ class ClockLogic(ABC, Generic[V, S]):
         ...
 
 
+@dataclass
 class _SystemClockLogic(ClockLogic[V, None]):
+    _now: datetime = field(init=False)
+
+    def __post_init__(self) -> None:
+        self._now = datetime.now(tz=timezone.utc)
+
+    @override
+    def on_batch(self) -> None:
+        self._now = datetime.now(tz=timezone.utc)
+
     @override
     def on_item(self, value: V) -> Tuple[datetime, datetime]:
-        now = datetime.now(tz=timezone.utc)
-        return (now, now)
+        return (self._now, self._now)
 
     @override
     def on_notify(self) -> datetime:
-        return datetime.now(tz=timezone.utc)
+        self._now = datetime.now(tz=timezone.utc)
+        return self._now
 
     @override
     def on_eof(self) -> datetime:
-        return datetime.now(tz=timezone.utc)
+        self._now = datetime.now(tz=timezone.utc)
+        return self._now
 
     @override
     def snapshot(self) -> None:
@@ -190,21 +213,28 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
     timestamp_getter: Callable[[V], datetime]
     wait_for_system_duration: timedelta
     state: Optional[_EventClockState]
+    _system_now: datetime = field(init=False)
+
+    def __post_init__(self) -> None:
+        self._system_now = self.now_getter()
+
+    @override
+    def on_batch(self) -> None:
+        self._system_now = self.now_getter()
 
     @override
     def on_item(self, value: V) -> Tuple[datetime, datetime]:
-        system_now = self.now_getter()
         value_event_timestamp = self.timestamp_getter(value)
 
         if self.state is None:
             self.state = _EventClockState(
                 max_event_timestamp=value_event_timestamp,
-                system_time_of_max_event=system_now,
+                system_time_of_max_event=self._system_now,
                 watermark_base=value_event_timestamp - self.wait_for_system_duration,
             )
         elif value_event_timestamp > self.state.max_event_timestamp:
             self.state.max_event_timestamp = value_event_timestamp
-            self.state.system_time_of_max_event = system_now
+            self.state.system_time_of_max_event = self._system_now
             self.state.watermark_base = (
                 value_event_timestamp - self.wait_for_system_duration
             )
@@ -216,9 +246,9 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
         if self.state is None:
             return UTC_MIN
         else:
-            system_now = self.now_getter()
+            self._system_now = self.now_getter()
             return self.state.watermark_base + (
-                system_now - self.state.system_time_of_max_event
+                self._system_now - self.state.system_time_of_max_event
             )
 
     @override
@@ -846,8 +876,8 @@ class SessionWindower(Windower[_SessionWindowerState]):
 
 
 @dataclass
-class GenericWindowLogic(ABC, Generic[V, W, S]):
-    """Abstract class to define a {py:obj}`generic_window` operator.
+class WindowLogic(ABC, Generic[V, W, S]):
+    """Abstract class to define a {py:obj}`window` operator.
 
     That operator will call these methods for you.
 
@@ -920,7 +950,7 @@ class GenericWindowLogic(ABC, Generic[V, W, S]):
 
 
 @dataclass(frozen=True)
-class _GenericWindowSnapshot(Generic[SC, SW, S]):
+class _WindowSnapshot(Generic[SC, SW, S]):
     clock_state: SC
     windower_state: SW
     logic_states: Dict[int, S]
@@ -945,13 +975,13 @@ _WindowEvent: TypeAlias = Tuple[int, Union[_Late[V], _Emit[W], _Meta]]
 
 
 @dataclass
-class _GenericWindowLogic(
-    UnaryLogic[V, _WindowEvent[V, W], _GenericWindowSnapshot[SC, SW, S]],
+class _WindowLogic(
+    StatefulBatchLogic[V, _WindowEvent[V, W], _WindowSnapshot[SC, SW, S]],
 ):
     clock: ClockLogic[V, SC]
     windower: WindowerLogic[SW]
-    builder: Callable[[Optional[S]], GenericWindowLogic[V, W, S]]
-    logics: Dict[int, GenericWindowLogic[V, W, S]]
+    builder: Callable[[Optional[S]], WindowLogic[V, W, S]]
+    logics: Dict[int, WindowLogic[V, W, S]]
 
     def _handle_merged(self) -> Iterable[_WindowEvent[V, W]]:
         for orig_window_id, targ_window_id in self.windower.merged():
@@ -970,27 +1000,34 @@ class _GenericWindowLogic(
             yield from ((window_id, _Emit(w)) for w in logic.on_close())
 
     @override
-    def on_item(self, value: V) -> Tuple[Iterable[_WindowEvent[V, W]], bool]:
-        value_timestamp, watermark = self.clock.on_item(value)
-
+    def on_batch(self, values: List[V]) -> Tuple[Iterable[_WindowEvent[V, W]], bool]:
+        self.clock.on_batch()
         events: List[_WindowEvent[V, W]] = []
-        # Attempt to insert into relevant windows.
-        in_windows, late_windows = self.windower.open_for(value_timestamp, watermark)
 
-        for window_id in in_windows:
-            if window_id in self.logics:
-                logic = self.logics[window_id]
-            else:
-                logic = self.builder(None)
-                self.logics[window_id] = logic
-                events.append((window_id, _Meta(self.windower.metadata_for(window_id))))
+        for value in values:
+            value_timestamp, watermark = self.clock.on_item(value)
 
-            events.extend((window_id, _Emit(w)) for w in logic.on_value(value))
+            # Attempt to insert into relevant windows.
+            in_windows, late_windows = self.windower.open_for(
+                value_timestamp, watermark
+            )
 
-        for window_id in late_windows:
-            events.append((window_id, _Late(value)))
+            for window_id in in_windows:
+                if window_id in self.logics:
+                    logic = self.logics[window_id]
+                else:
+                    logic = self.builder(None)
+                    self.logics[window_id] = logic
+                    events.append(
+                        (window_id, _Meta(self.windower.metadata_for(window_id)))
+                    )
 
-        # Handle merges.
+                events.extend((window_id, _Emit(w)) for w in logic.on_value(value))
+
+            for window_id in late_windows:
+                events.append((window_id, _Late(value)))
+
+        # Handle merges. Only need to do once per batch.
         events.extend(self._handle_merged())
         # Handle closes since we're awake.
         events.extend(self._handle_closed(watermark))
@@ -1014,8 +1051,8 @@ class _GenericWindowLogic(
         return self.windower.notify_at()
 
     @override
-    def snapshot(self) -> _GenericWindowSnapshot[SC, SW, S]:
-        return _GenericWindowSnapshot(
+    def snapshot(self) -> _WindowSnapshot[SC, SW, S]:
+        return _WindowSnapshot(
             self.clock.snapshot(),
             self.windower.snapshot(),
             {window_id: logic.snapshot() for window_id, logic in self.logics.items()},
@@ -1068,20 +1105,20 @@ def _unwrap_meta(id_event: _WindowEvent[V, W]) -> Optional[Tuple[int, WindowMeta
 
 
 @operator
-def generic_window(
+def window(
     step_id: str,
     up: KeyedStream[V],
     clock: Clock,
     windower: Windower,
-    builder: Callable[[Optional[S]], GenericWindowLogic[V, W, S]],
+    builder: Callable[[Optional[S]], WindowLogic[V, W, S]],
 ) -> WindowOut[V, W]:
     """Advanced generic windowing operator.
 
     This is a lower-level operator Bytewax provideds and gives you
     control over when a windowing operator emits items.
-    {py:obj}`GenericWindowLogic` works in tandem with
-    {py:obj}`ClockLogic` and {py:obj}`WindowerLogic` to implement its
-    behavior. See documentation of those interfaces.
+    {py:obj}`WindowLogic` works in tandem with {py:obj}`ClockLogic`
+    and {py:obj}`WindowerLogic` to implement its behavior. See
+    documentation of those interfaces.
 
     :arg step_id: Unique ID.
 
@@ -1092,19 +1129,18 @@ def generic_window(
     :arg windower: Window definition.
 
     :arg builder: Called whenever a new window is opened with the
-        resume state returned from
-        {py:obj}`GenericWindowLogic.snapshot` for that window, if any.
-        This should close over any non-state configuration and combine
-        it with the resume state to return a prepared
-        {py:obj}`GenericWindowLogic` for this window.
+        resume state returned from {py:obj}`WindowLogic.snapshot` for
+        that window, if any. This should close over any non-state
+        configuration and combine it with the resume state to return a
+        prepared {py:obj}`WindowLogic` for this window.
 
     :returns: Window result streams.
 
     """
 
     def shim_builder(
-        resume_state: Optional[_GenericWindowSnapshot],
-    ) -> _GenericWindowLogic[V, W, SC, SW, S]:
+        resume_state: Optional[_WindowSnapshot],
+    ) -> _WindowLogic[V, W, SC, SW, S]:
         if resume_state is not None:
             clock_logic = clock.build(resume_state.clock_state)
             windower_logic = windower.build(resume_state.windower_state)
@@ -1116,9 +1152,9 @@ def generic_window(
             clock_logic = clock.build(None)
             windower_logic = windower.build(None)
             logics = {}
-        return _GenericWindowLogic(clock_logic, windower_logic, builder, logics)
+        return _WindowLogic(clock_logic, windower_logic, builder, logics)
 
-    events = op.unary("unary", up, shim_builder)
+    events = op.stateful_batch("stateful_batch", up, shim_builder)
     return WindowOut(
         events.then(op.filter_map_value, "unwrap_down", _unwrap_emit),
         events.then(op.filter_map_value, "unwrap_late", _unwrap_late),
@@ -1284,7 +1320,7 @@ def count_window(
 
 
 @dataclass
-class _FoldWindowLogic(GenericWindowLogic[V, S, S]):
+class _FoldWindowLogic(WindowLogic[V, S, S]):
     folder: Callable[[S, V], S]
     merger: Callable[[S, S], S]
     state: S
@@ -1349,7 +1385,7 @@ def fold_window(
         state = resume_state if resume_state is not None else builder()
         return _FoldWindowLogic(folder, merger, state)
 
-    return generic_window("generic_window", up, clock, windower, shim_builder)
+    return window("generic_window", up, clock, windower, shim_builder)
 
 
 def _join_window_folder(state: _JoinState, name_value: Tuple[str, Any]) -> _JoinState:

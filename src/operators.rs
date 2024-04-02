@@ -434,11 +434,11 @@ where
     }
 }
 
-pub(crate) trait UnaryOp<S>
+pub(crate) trait StatefulBatchOp<S>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn unary(
+    fn stateful_batch(
         &self,
         py: Python,
         step_id: StepId,
@@ -448,19 +448,19 @@ where
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)>;
 }
 
-struct UnaryLogic(PyObject);
+struct StatefulBatchLogic(PyObject);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for UnaryLogic {
+impl<'source> FromPyObject<'source> for StatefulBatchLogic {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let abc = ob
             .py()
             .import("bytewax.operators")?
-            .getattr("UnaryLogic")?
+            .getattr("StatefulBatchLogic")?
             .extract()?;
         if !ob.is_instance(abc)? {
             Err(PyTypeError::new_err(
-                "logic must subclass `bytewax.operators.UnaryLogic`",
+                "logic must subclass `bytewax.operators.StatefulBatchLogic`",
             ))
         } else {
             Ok(Self(ob.into()))
@@ -488,7 +488,7 @@ impl<'source> FromPyObject<'source> for IsComplete {
     }
 }
 
-impl UnaryLogic {
+impl StatefulBatchLogic {
     fn extract_ret(res: &PyAny) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let (iter, is_complete) = res.extract::<(&PyAny, &PyAny)>().reraise_with(|| {
             format!(
@@ -507,15 +507,15 @@ impl UnaryLogic {
         Ok((emit, is_complete))
     }
 
-    fn on_item<'py>(
+    fn on_batch<'py>(
         &'py self,
         py: Python<'py>,
-        item: PyObject,
+        items: Vec<PyObject>,
     ) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let res = self
             .0
             .as_ref(py)
-            .call_method1(intern!(py, "on_item"), (item,))?;
+            .call_method1(intern!(py, "on_batch"), (items,))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
@@ -544,11 +544,11 @@ impl UnaryLogic {
     }
 }
 
-impl<S> UnaryOp<S> for Stream<S, TdPyAny>
+impl<S> StatefulBatchOp<S> for Stream<S, TdPyAny>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn unary(
+    fn stateful_batch(
         &self,
         _py: Python,
         step_id: StepId,
@@ -571,7 +571,7 @@ where
         );
         let partd_loads = loads.partition(format!("{step_id}.load_partition"), &workers, loads_pf);
 
-        let op_name = format!("{step_id}.stateful_unary");
+        let op_name = format!("{step_id}.stateful_batch");
         let mut op_builder = OperatorBuilder::new(op_name.clone(), self.scope());
 
         let (mut kv_downstream_output, kv_downstream) = op_builder.new_output();
@@ -600,21 +600,21 @@ where
             .u64_counter("item_out_count")
             .with_description("number of items this step has emitted")
             .init();
-        let on_item_histogram = meter
-            .f64_histogram("unary_on_item_duration_seconds")
-            .with_description("`UnaryLogic.on_item` duration in seconds")
+        let on_batch_histogram = meter
+            .f64_histogram("stateful_batch_on_batch_duration_seconds")
+            .with_description("`StatefulBatchLogic.on_batch` duration in seconds")
             .init();
         let on_notify_histogram = meter
-            .f64_histogram("unary_on_notify_duration_seconds")
-            .with_description("`UnaryLogic.on_notify` duration in seconds")
+            .f64_histogram("stateful_batch_on_notify_duration_seconds")
+            .with_description("`StatefulBatchLogic.on_notify` duration in seconds")
             .init();
         let on_eof_histogram = meter
-            .f64_histogram("unary_on_eof_duration_seconds")
-            .with_description("`UnaryLogic.on_eof` duration in seconds")
+            .f64_histogram("stateful_batch_on_eof_duration_seconds")
+            .with_description("`StatefulBatchLogic.on_eof` duration in seconds")
             .init();
         let notify_at_histogram = meter
-            .f64_histogram("unary_notify_at_duration_seconds")
-            .with_description("`UnaryLogic.notify_at` duration in seconds")
+            .f64_histogram("stateful_batch_notify_at_duration_seconds")
+            .with_description("`StatefulBatchLogic.notify_at` duration in seconds")
             .init();
         let snapshot_histogram = meter
             .f64_histogram("snapshot_duration_seconds")
@@ -638,7 +638,7 @@ where
             // each key representing the state at the frontier epoch;
             // we only modify state carefully in epoch order once we
             // know we won't be getting any input on closed epochs.
-            let mut logics: BTreeMap<StateKey, UnaryLogic> = BTreeMap::new();
+            let mut logics: BTreeMap<StateKey, StatefulBatchLogic> = BTreeMap::new();
             // Contains the last known return value for
             // `logic.notify_at` for each key (if any). We don't
             // snapshot this because the logic itself should contain
@@ -743,18 +743,21 @@ where
                             let mut kv_downstream_session =
                                 kv_downstream_handle.session(&output_cap);
 
-                            // First, call `on_item` for all the input
+                            // First, call `on_batch` for all the input
                             // items.
                             if let Some(items) = inbuf.remove(&epoch) {
                                 item_inp_count.add(items.len() as u64, &labels);
 
+                                let mut keyed_items: BTreeMap<StateKey, Vec<PyObject>> = BTreeMap::new();
+                                for (worker, (key, value)) in items {
+                                    assert!(worker == this_worker);
+                                    keyed_items.entry(key).or_default().push(PyObject::from(value));
+                                }
+
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     let builder = builder.as_ref(py);
 
-                                    for (worker, (key, value)) in items {
-                                        let value = PyObject::from(value);
-
-                                        assert!(worker == this_worker);
+                                    for (key, values) in keyed_items {
                                         // Ok, let's actually run the logic code!
                                         // Pull out or build the logic for the
                                         // current key.
@@ -763,18 +766,18 @@ where
                                                 unwrap_any!((|| {
                                                     builder
                                                         .call1((None::<PyObject>, ))?
-                                                        .extract::<UnaryLogic>()
+                                                        .extract::<StatefulBatchLogic>()
                                                 })(
                                                 ))
                                             });
 
                                         let (output, is_complete) = with_timer!(
-                                            on_item_histogram,
+                                            on_batch_histogram,
                                             labels,
                                             logic
-                                                .on_item(py, value)
+                                                .on_batch(py, values)
                                                 .reraise_with(|| format!(
-                                                    "error calling `UnaryLogic.on_item` in step {step_id} for key {key}"
+                                                    "error calling `StatefulBatchLogic.on_batch` in step {step_id} for key {key}"
                                                 ))?
                                         );
 
@@ -816,7 +819,7 @@ where
                                             on_notify_histogram,
                                             labels,
                                             logic.on_notify(py).reraise_with(|| format!(
-                                                "error calling `UnaryLogic.on_notify` in {step_id} for key {key}"
+                                                "error calling `StatefulBatchLogic.on_notify` in {step_id} for key {key}"
                                             ))?
                                         );
 
@@ -858,7 +861,7 @@ where
                                             on_eof_histogram,
                                             labels,
                                             logic.on_eof(py).reraise_with(|| format!(
-                                                "error calling `UnaryLogic.on_eof` in {step_id} for key {key}"
+                                                "error calling `StatefulBatchLogic.on_eof` in {step_id} for key {key}"
                                             ))?
                                         );
 
@@ -900,7 +903,7 @@ where
                                                 notify_at_histogram,
                                                 labels,
                                                 logic.notify_at(py).reraise_with(|| {
-                                                    format!("error calling `UnaryLogic.notify_at` in {step_id} for key {key}")
+                                                    format!("error calling `StatefulBatchLogic.notify_at` in {step_id} for key {key}")
                                                 })?
                                             );
                                             if let Some(sched) = sched {
@@ -935,7 +938,7 @@ where
                                                 snapshot_histogram,
                                                 labels,
                                                 logic.snapshot(py).reraise_with(|| {
-                                                    format!("error calling `UnaryLogic.snapshot` in {step_id} for key {key}")
+                                                    format!("error calling `StatefulBatchLogic.snapshot` in {step_id} for key {key}")
                                                 })?
                                             );
                                             StateChange::Upsert(TdPyAny::from(state))
@@ -969,7 +972,7 @@ where
                                                 StateChange::Upsert(state) => {
                                                     let logic = builder
                                                         .call1((Some(state),))?
-                                                        .extract::<UnaryLogic>()?;
+                                                        .extract::<StatefulBatchLogic>()?;
                                                     if let Some(notify_at) = logic.notify_at(py)? {
                                                         sched_cache.insert(key.clone(), notify_at);
                                                     }

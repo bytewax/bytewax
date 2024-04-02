@@ -3,14 +3,14 @@ from typing import Any, List, Optional, Tuple
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.operators import UnaryLogic
+from bytewax.operators import StatefulLogic
 from bytewax.testing import TestingSink, TestingSource, run_main
 from typing_extensions import override
 
 ZERO_TD = timedelta(seconds=0)
 
 
-class BaseTestLogic(UnaryLogic):
+class BaseTestLogic(StatefulLogic):
     """Testing logic.
 
     Every time there is an event, emit the state transition. Then use
@@ -22,9 +22,9 @@ class BaseTestLogic(UnaryLogic):
     """
 
     item_triggers_notify = False
-    after_item = UnaryLogic.RETAIN
-    after_notify = UnaryLogic.RETAIN
-    after_eof = UnaryLogic.RETAIN
+    after_item = StatefulLogic.RETAIN
+    after_notify = StatefulLogic.RETAIN
+    after_eof = StatefulLogic.RETAIN
 
     def __init__(self, state: Any):
         self._notify_at: Optional[datetime] = None
@@ -62,17 +62,17 @@ class BaseTestLogic(UnaryLogic):
         return self._state
 
 
-def test_unary_on_item_discard():
+def test_stateful_on_item_discard():
     inp = [1, 2, TestingSource.ABORT()]
     out = []
 
     class TestLogic(BaseTestLogic):
-        after_item = UnaryLogic.DISCARD
+        after_item = StatefulLogic.DISCARD
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
     s = op.key_on("key", s, lambda _x: "ALL")
-    s = op.unary("unary", s, TestLogic)
+    s = op.stateful("stateful", s, TestLogic)
     op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD)
@@ -82,17 +82,17 @@ def test_unary_on_item_discard():
     ]
 
 
-def test_unary_on_item_retain():
+def test_stateful_on_item_retain():
     inp = [1, 2, TestingSource.ABORT()]
     out = []
 
     class TestLogic(BaseTestLogic):
-        after_item = UnaryLogic.RETAIN
+        after_item = StatefulLogic.RETAIN
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
     s = op.key_on("key", s, lambda _x: "ALL")
-    s = op.unary("unary", s, TestLogic)
+    s = op.stateful("stateful", s, TestLogic)
     op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD)
@@ -102,18 +102,18 @@ def test_unary_on_item_retain():
     ]
 
 
-def test_unary_on_notify_discard():
+def test_stateful_on_notify_discard():
     inp = [1, 2, TestingSource.ABORT()]
     out = []
 
     class TestLogic(BaseTestLogic):
         item_triggers_notify = True
-        after_notify = UnaryLogic.DISCARD
+        after_notify = StatefulLogic.DISCARD
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
     s = op.key_on("key", s, lambda _x: "ALL")
-    s = op.unary("unary", s, TestLogic)
+    s = op.stateful("stateful", s, TestLogic)
     op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD)
@@ -125,18 +125,18 @@ def test_unary_on_notify_discard():
     ]
 
 
-def test_unary_on_notify_retain():
+def test_stateful_on_notify_retain():
     inp = [1, 2, TestingSource.ABORT()]
     out = []
 
     class TestLogic(BaseTestLogic):
         item_triggers_notify = True
-        after_notify = UnaryLogic.RETAIN
+        after_notify = StatefulLogic.RETAIN
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
     s = op.key_on("key", s, lambda _x: "ALL")
-    s = op.unary("unary", s, TestLogic)
+    s = op.stateful("stateful", s, TestLogic)
     op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD)
@@ -148,17 +148,17 @@ def test_unary_on_notify_retain():
     ]
 
 
-def test_unary_on_eof_discard(recovery_config):
+def test_stateful_on_eof_discard(recovery_config):
     inp = [1, TestingSource.EOF(), 2, TestingSource.ABORT()]
     out = []
 
     class TestLogic(BaseTestLogic):
-        after_eof = UnaryLogic.DISCARD
+        after_eof = StatefulLogic.DISCARD
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
     s = op.key_on("key", s, lambda _x: "ALL")
-    s = op.unary("unary", s, TestLogic)
+    s = op.stateful("stateful", s, TestLogic)
     op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -169,17 +169,17 @@ def test_unary_on_eof_discard(recovery_config):
     assert out == [("ALL", ("NEW", "ITEM"))]
 
 
-def test_unary_on_eof_retain(recovery_config):
+def test_stateful_on_eof_retain(recovery_config):
     inp = [1, TestingSource.EOF(), 2, TestingSource.ABORT()]
     out = []
 
     class TestLogic(BaseTestLogic):
-        after_eof = UnaryLogic.RETAIN
+        after_eof = StatefulLogic.RETAIN
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
     s = op.key_on("key", s, lambda _x: "ALL")
-    s = op.unary("unary", s, TestLogic)
+    s = op.stateful("stateful", s, TestLogic)
     op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -190,7 +190,7 @@ def test_unary_on_eof_retain(recovery_config):
     assert out == [("ALL", ("EOF", "ITEM"))]
 
 
-class KeepLastLogic(UnaryLogic):
+class KeepLastLogic(StatefulLogic):
     def __init__(self, resume_state: Any):
         self._state = resume_state
 
@@ -202,11 +202,11 @@ class KeepLastLogic(UnaryLogic):
 
     @override
     def on_notify(self) -> Tuple[List[Any], bool]:
-        return ([], UnaryLogic.RETAIN)
+        return ([], StatefulLogic.RETAIN)
 
     @override
     def on_eof(self) -> Tuple[List[Any], bool]:
-        return ([], UnaryLogic.RETAIN)
+        return ([], StatefulLogic.RETAIN)
 
     @override
     def notify_at(self) -> Optional[datetime]:
@@ -217,13 +217,13 @@ class KeepLastLogic(UnaryLogic):
         return self._state
 
 
-def test_unary_keeps_logic_per_key():
+def test_stateful_keeps_logic_per_key():
     inp = [("a", "a1"), ("b", "b1"), ("a", "a2"), ("b", "b2")]
     out = []
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
-    s = op.unary("unary", s, KeepLastLogic)
+    s = op.stateful("stateful", s, KeepLastLogic)
     op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD)
@@ -235,13 +235,13 @@ def test_unary_keeps_logic_per_key():
     ]
 
 
-def test_unary_snapshots_logic_per_key(recovery_config):
+def test_stateful_snapshots_logic_per_key(recovery_config):
     inp = [("a", "a1"), ("b", "b1"), TestingSource.ABORT(), ("a", "a2"), ("b", "b2")]
     out = []
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
-    s = op.unary("unary", s, KeepLastLogic)
+    s = op.stateful("stateful", s, KeepLastLogic)
     op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
@@ -258,7 +258,7 @@ def test_unary_snapshots_logic_per_key(recovery_config):
     ]
 
 
-def test_unary_snapshots_discard_per_key(recovery_config):
+def test_stateful_snapshots_discard_per_key(recovery_config):
     inp = [
         ("a", "a1"),
         ("b", "b1"),
@@ -272,7 +272,7 @@ def test_unary_snapshots_discard_per_key(recovery_config):
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
-    s = op.unary("unary", s, KeepLastLogic)
+    s = op.stateful("stateful", s, KeepLastLogic)
     op.output("out", s, TestingSink(out))
 
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)

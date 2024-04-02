@@ -9,6 +9,16 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- *Breaking change* The `unary` operator and `UnaryLogic` have been
+  renamed to `stateful` and `StatefulLogic` respectively.
+
+- Adds a `stateful_batch` operator to allow for lower-level batch
+  control while managing state.
+
+- `StatefulLogic.on_notify`, `StatefulLogic.on_eof`, and
+  `StatefulLogic.notify_at` are now optional overrides. The defaults
+  retain the state and emit nothing.
+
 - *Breaking change* `ClockConfig`s have had `Config` dropped from
   their name and are just `Clock`s. E.g. If you previously `from
   bytewax.operators.window import SystemClockConfig` now `from
@@ -38,8 +48,8 @@ notes on GitHub when we make a new release.__
   {py:obj}`~bytewax.operators.window.WindowerLogic`) to define your
   own senses of time and window definitions.
 
-- Adds a {py:obj}`~bytewax.operators.window.generic_window` operator
-  to allow you to write more flexible custom windowing operators.
+- Adds a {py:obj}`~bytewax.operators.window.window` operator to allow
+  you to write more flexible custom windowing operators.
 
 - Session windows now work correctly with out-of-order data and joins.
 
