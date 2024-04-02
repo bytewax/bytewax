@@ -526,6 +526,11 @@ class _SlidingWindowerLogic(WindowerLogic[_SlidingWindowerState]):
             first_window_idx + i for i in range(self._overlap_factor - factor_reduction)
         ]
 
+    def _metadata_for(self, window_id: int) -> WindowMetadata:
+        open_time = self.align_to + self.offset * window_id
+        close_time = open_time + self.length
+        return WindowMetadata(open_time, close_time)
+
     @override
     def open_for(
         self,
@@ -535,12 +540,11 @@ class _SlidingWindowerLogic(WindowerLogic[_SlidingWindowerState]):
         in_windows = []
         late_windows = []
         for window_id in self.intersects(timestamp):
-            meta = self.metadata_for(window_id)
+            meta = self.state.opened.get(window_id) or self._metadata_for(window_id)
             if meta.close_time <= watermark:
                 late_windows.append(window_id)
             else:
-                if window_id not in self.state.opened:
-                    self.state.opened[window_id] = meta
+                self.state.opened.setdefault(window_id, meta)
                 in_windows.append(window_id)
 
         return (in_windows, late_windows)
@@ -552,9 +556,7 @@ class _SlidingWindowerLogic(WindowerLogic[_SlidingWindowerState]):
 
     @override
     def metadata_for(self, window_id: int) -> WindowMetadata:
-        open_time = self.align_to + self.offset * window_id
-        close_time = open_time + self.length
-        return WindowMetadata(open_time, close_time)
+        return self.state.opened[window_id]
 
     @override
     def close_for(self, watermark: datetime) -> Iterable[int]:
