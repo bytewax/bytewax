@@ -717,10 +717,11 @@ class _SessionWindowerLogic(WindowerLogic[_SessionWindowerState]):
 
     @override
     def close_for(self, watermark: datetime) -> Iterable[int]:
+        close_after = watermark - self.gap
         closed = [
             window_id
             for window_id, meta in self.state.sessions.items()
-            if meta.close_time + self.gap < watermark
+            if meta.close_time < close_after
         ]
         for window_id in closed:
             del self.state.sessions[window_id]
@@ -729,10 +730,11 @@ class _SessionWindowerLogic(WindowerLogic[_SessionWindowerState]):
 
     @override
     def notify_at(self) -> Optional[datetime]:
-        return min(
-            (meta.close_time + self.gap for meta in self.state.sessions.values()),
+        min_close = min(
+            (meta.close_time for meta in self.state.sessions.values()),
             default=None,
         )
+        return min_close + self.gap if min_close is not None else None
 
     @override
     def is_empty(self) -> bool:
