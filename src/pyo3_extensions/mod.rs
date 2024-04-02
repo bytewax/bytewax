@@ -1,7 +1,6 @@
 //! Newtypes around PyO3 types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
 use crate::try_unwrap;
-use crate::unwrap_any;
 
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;

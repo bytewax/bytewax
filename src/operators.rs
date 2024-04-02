@@ -457,7 +457,7 @@ impl<'py> FromPyObject<'py> for StatefulBatchLogic {
         let py = ob.py();
         let abc = py
             .import_bound("bytewax.operators")?
-            .getattr("UnaryLogic")?;
+            .getattr("StatefulBatchLogic")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "logic must subclass `bytewax.operators.StatefulBatchLogic`",
