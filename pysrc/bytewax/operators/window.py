@@ -1,7 +1,6 @@
 """Time-based windowing operators."""
 
 import copy
-import dataclasses
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -178,7 +177,7 @@ class _SystemClockLogic(ClockLogic[V, None]):
         return None
 
 
-@dataclass(frozen=True)
+@dataclass
 class _EventClockState:
     max_event_timestamp: datetime
     system_time_of_max_event: datetime
@@ -209,11 +208,8 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
         if self.state is None:
             self.state = _EventClockState(value_event_timestamp, system_now)
         elif value_event_timestamp > self.state.max_event_timestamp:
-            self.state = dataclasses.replace(
-                self.state,
-                max_event_timestamp=value_event_timestamp,
-                system_time_of_max_event=system_now,
-            )
+            self.state.max_event_timestamp = value_event_timestamp
+            self.state.system_time_of_max_event = system_now
 
         return value_event_timestamp, self._watermark(system_now)
 
@@ -228,7 +224,7 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
 
     @override
     def snapshot(self) -> Optional[_EventClockState]:
-        return self.state
+        return copy.deepcopy(self.state)
 
 
 class Clock(ABC, Generic[V, S]):
