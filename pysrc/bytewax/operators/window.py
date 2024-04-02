@@ -544,20 +544,24 @@ class _SlidingWindowerLogic(WindowerLogic[_SlidingWindowerState]):
         # Pre-calc constants for performance.
         self._origin_close = self.align_to + self.length
         # Hell yes: "upside-down floor division" to get ceil.
-        self._overlap_factor = -(self.length // -self.offset)
+        self._overlap_factor = -(self.length // -self.offset) + 1
         self._overlap_remainder = self.length % self.offset
 
     def intersects(self, timestamp: datetime) -> List[int]:
         since_close_origin_window = timestamp - self._origin_close
-        first_window_idx = since_close_origin_window // self.offset + 1
+        first_window_idx, close_remainder = divmod(
+            since_close_origin_window, self.offset
+        )
         if self._overlap_remainder == ZERO_TD:
             factor_reduction = 0
         else:
-            close_remainder = since_close_origin_window % self.offset
             factor_reduction = 0 if close_remainder > self._overlap_remainder else 1
-        return [
-            first_window_idx + i for i in range(self._overlap_factor - factor_reduction)
-        ]
+        return list(
+            range(
+                first_window_idx + 1,
+                first_window_idx + self._overlap_factor - factor_reduction,
+            )
+        )
 
     def _metadata_for(self, window_id: int) -> WindowMetadata:
         open_time = self.align_to + self.offset * window_id
