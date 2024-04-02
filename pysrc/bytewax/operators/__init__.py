@@ -486,7 +486,7 @@ def stateful_batch(
         {py:obj}`StatefulBatchLogic` for the new key.
 
     :returns: Keyed stream of all items returned from
-        {py:obj}`StatefulBatchLogic.on_item`,
+        {py:obj}`StatefulBatchLogic.on_batch`,
         {py:obj}`StatefulBatchLogic.on_notify`, and
         {py:obj}`StatefulBatchLogic.on_eof`.
 

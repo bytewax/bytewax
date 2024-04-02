@@ -932,7 +932,7 @@ class WindowLogic(ABC, Generic[V, W, S]):
         This will be called periodically by the runtime.
 
         The value returned here will be passed back to the `builder`
-        function of {py:obj}`generic_window` when resuming.
+        function of {py:obj}`window` when resuming.
 
         The state must be {py:obj}`pickle`-able.
 
