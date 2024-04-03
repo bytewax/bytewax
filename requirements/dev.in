@@ -1,7 +1,6 @@
 # Dependencies for local development.
 
 -r test.txt
-maturin
 ruff
 vermin
 sphinx-autobuild
