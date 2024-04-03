@@ -128,8 +128,8 @@ html_theme_options = {
     "show_toc_level": 3,
     "show_prev_next": True,
     "secondary_sidebar_items": {
-        "apidocs/**": ["page-toc"],
-        "user_guide/**": ["page-toc", "edit-this-page"],
+        "api/**": ["page-toc"],
+        "guide/**": ["page-toc", "edit-this-page"],
     },
 }
 
