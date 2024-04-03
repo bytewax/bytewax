@@ -1,0 +1,7 @@
+# Dependencies to run tests in CI.
+
+-r library.txt
+pytest
+pytest-codspeed
+pytest-benchmark
+sybil

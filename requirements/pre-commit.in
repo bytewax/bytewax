@@ -1,0 +1,3 @@
+# Dependencies for the pre-commit CI step.
+
+ruff
