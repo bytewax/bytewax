@@ -1,8 +1,8 @@
 # Dependencies to run tests in CI.
 
+-r docs.txt
 -r library.txt
 pytest
-pytest-codspeed
 pytest-benchmark
+pytest-codspeed
 sybil
--r docs.txt

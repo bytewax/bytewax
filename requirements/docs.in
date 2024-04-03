@@ -1,8 +1,8 @@
 # Dependencies to build documentation.
 
-sphinx
 myst-parser
-sphinx-autodoc2
-sphinxcontrib-mermaid
 pydata-sphinx-theme
+sphinx
+sphinx-autodoc2
 sphinx-favicon
+sphinxcontrib-mermaid
