@@ -1,7 +1,6 @@
 [![Actions Status](https://github.com/bytewax/bytewax/workflows/CI/badge.svg)](https://github.com/bytewax/bytewax/actions)
 [![PyPI](https://img.shields.io/pypi/v/bytewax.svg?style=flat-square)](https://pypi.org/project/bytewax/)
-[![Bytewax User Guide](https://img.shields.io/badge/user-guide-brightgreen?style=flat-square)](https://bytewax.io/docs)
-
+[![Bytewax User Guide](https://img.shields.io/badge/user-guide-brightgreen?style=flat-square)](https://docs.bytewax.io/stable/guide/index.html)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/bytewax/bytewax/assets/53014647/cd47293b-72c9-423c-b010-2c4990206c60" width="350">
@@ -13,13 +12,14 @@
 
 Bytewax is a Python framework that simplifies event and stream processing. Because Bytewax couples the stream and event processing capabilities of Flink, Spark, and Kafka Streams with the friendly and familiar interface of Python, you can re-use the Python libraries you already know and love. Connect data sources, run stateful transformations and write to various different downstream systems with built-in connectors or existing Python libraries.
 <img width="1303" alt="Bytewax Dataflow Animation" src="https://github.com/bytewax/bytewax/assets/156834296/4e314f17-38ab-4e72-9268-a48ddee7a201">
+
 ### How it all works
 
 Bytewax is a Python framework and Rust distributed processing engine that uses a dataflow computational model to provide parallelizable stream processing and event processing capabilities similar to Flink, Spark, and Kafka Streams. You can use Bytewax for a variety of workloads from moving data à la Kafka Connect style all the way to advanced online machine learning workloads. Bytewax is not limited to streaming applications but excels anywhere that data can be distributed at the input and output.
 
-Bytewax has an accompanying command line interface, [waxctl](https://bytewax.io/docs/deployment/waxctl/), which supports the deployment of dataflows on cloud servers or Kubernetes. You can download it [here](https://bytewax.io/downloads/).
+Bytewax has an accompanying command line interface, [waxctl](https://docs.bytewax.io/stable/guide/deployment/waxctl.html), which supports the deployment of dataflows on cloud servers or Kubernetes. You can download it [here](https://bytewax.io/waxctl).
 
-_____________
+---
 
 ### Getting Started with Bytewax
 
@@ -27,7 +27,7 @@ _____________
 pip install bytewax
 ```
 
-[_Install waxctl_](https://bytewax.io/downloads/)
+[_Install waxctl_](https://bytewax.io/waxctl)
 
 #### Dataflow, Input and Operators
 
@@ -41,9 +41,9 @@ from bytewax.connectors.kafka import operators as kop
 from bytewax.dataflow import Dataflow
 ```
 
-Bytewax has input and output helpers for common input and output data sources but you can also create your own with the [Sink and Source API](https://github.com/bytewax/bytewax/blob/main/docs/user_guide/advanced-concepts/custom-io-connectors.md).
+Bytewax has input and output helpers for common input and output data sources but you can also create your own with the [Sink and Source API](https://docs.bytewax.io/stable/guide/advanced-concepts/custom-connectors.html).
 
-At a high-level, the dataflow compute model is one in which a program execution is conceptualized as data flowing through a series of operator-based steps. Operators like `map` and `filter` are the processing primitives of Bytewax. Each of them gives you a “shape” of data transformation, and you give them regular Python functions to customize them to a specific task you need. See the documentation for a list of the [available operators](https://bytewax.io/apidocs/bytewax.operators/index)
+At a high-level, the dataflow compute model is one in which a program execution is conceptualized as data flowing through a series of operator-based steps. Operators like `map` and `filter` are the processing primitives of Bytewax. Each of them gives you a “shape” of data transformation, and you give them regular Python functions to customize them to a specific task you need. See the documentation for a list of the [available operators](https://docs.bytewax.io/stable/api/bytewax/bytewax.operators.html)
 
 ```python
 BROKERS = ["localhost:19092"]
@@ -81,9 +81,9 @@ kop.output("out1", processed, brokers=BROKERS, topic=OUT_TOPIC)
 
 #### Windowing, Reducing and Aggregating
 
-Bytewax is a stateful stream processing framework, which means that some operations remember information across multiple events.  Windows and aggregations are also stateful, and can be reconstructed in the event of failure. Bytewax can be configured with different [state recovery mechanisms](https://bytewax.io/apidocs/bytewax.recovery) to durably persist state in order to recover from failure.
+Bytewax is a stateful stream processing framework, which means that some operations remember information across multiple events. Windows and aggregations are also stateful, and can be reconstructed in the event of failure. Bytewax can be configured with different [state recovery mechanisms](https://docs.bytewax.io/stable/api/bytewax/bytewax.recovery.html) to durably persist state in order to recover from failure.
 
-There are multiple stateful operators available like `reduce`, `stateful_map` and `fold_window`. The complete list can be found in the [API documentation for all operators](https://www.bytewax.io/apidocs/bytewax.operators/index). Below we use the `fold_window` operator with a tumbling window based on system time to gather events and calculate the number of times events have occurred on a per-user basis.
+There are multiple stateful operators available like `reduce`, `stateful_map` and `fold_window`. The complete list can be found in the [API documentation for all operators](https://docs.bytewax.io/stable/api/bytewax/bytewax.operators.html). Below we use the `fold_window` operator with a tumbling window based on system time to gather events and calculate the number of times events have occurred on a per-user basis.
 
 ```python
 from datetime import datetime, timedelta, timezone
@@ -195,7 +195,7 @@ op.inspect("debug", merged_stream)
 
 #### Output
 
-Output in Bytewax is described as a sink and these are grouped into [connectors](https://www.bytewax.io/apidocs/bytewax.connectors/index). There are a number of basic connectors in the bytewax repo to help you during development. In addition to the built-in connectors, it is possible to use the input and output API to build a custom sink and source. There is also a hub for connectors built by the community, partners and Bytewax. Below is an example of a custom connector for Postgres using the psycopg2 library.
+Output in Bytewax is described as a sink and these are grouped into [connectors](https://docs.bytewax.io/stable/api/bytewax/bytewax.connectors.html). There are a number of basic connectors in the bytewax repo to help you during development. In addition to the built-in connectors, it is possible to use the input and output API to build a custom sink and source. There is also a hub for connectors built by the community, partners and Bytewax. Below is an example of a custom connector for Postgres using the psycopg2 library.
 
 % skip: next
 
@@ -255,11 +255,11 @@ machine_one$ python -m bytewax.run my_dataflow -w 2 -i0 -a "machine_one:2101;mac
 machine_two$ python -m bytewax.run my_dataflow -w 3 -i1 -a "machine_one:2101;machine_two:2101"
 ```
 
-It can also be run in a Docker container as described further in the [documentation](https://bytewax.io/docs/deployment/container).
+It can also be run in a Docker container as described further in the [documentation](https://docs.bytewax.io/stable/guide/deployment/container.html).
 
 #### Kubernetes
 
-The recommended way to run dataflows at scale is to leverage the [kubernetes ecosystem](https://bytewax.io/docs/deployment/k8s-ecosystem). To help manage deployment, we built [waxctl](https://bytewax.io/docs/deployment/waxctl), which allows you to easily deploy dataflows that will run at huge scale across multiple compute nodes.
+The recommended way to run dataflows at scale is to leverage the [kubernetes ecosystem](https://docs.bytewax.io/stable/guide/deployment/waxctl.html). To help manage deployment, we built [waxctl](https://docs.bytewax.io/stable/guide/deployment/waxctl.html), which allows you to easily deploy dataflows that will run at huge scale across multiple compute nodes.
 
 ```sh
 waxctl df deploy my_dataflow.py --name my-dataflow
@@ -269,11 +269,11 @@ waxctl df deploy my_dataflow.py --name my-dataflow
 
 At a high level, Bytewax provides a few major benefits:
 
-* The operators in Bytewax are largely “data-parallel”, meaning they can operate on independent parts of the data concurrently.
-* Bytewax offers the ability to express higher-level control constructs, like iteration.
-* Bytewax allows you to develop and run your code locally, and then easily scale that code to multiple workers or processes without changes.
-* Bytewax can be used in both a streaming and batch context
-* Ability to leverage the Python ecosystem directly
+- The operators in Bytewax are largely “data-parallel”, meaning they can operate on independent parts of the data concurrently.
+- Bytewax offers the ability to express higher-level control constructs, like iteration.
+- Bytewax allows you to develop and run your code locally, and then easily scale that code to multiple workers or processes without changes.
+- Bytewax can be used in both a streaming and batch context
+- Ability to leverage the Python ecosystem directly
 
 ## Community
 
@@ -299,11 +299,11 @@ To build a specific branch, you will need to use Maturin and have Rust installed
 maturin develop -E dev
 ```
 
-*Important*: If you are testing with a maturin built version from source, you should use `maturin build --release` since `maturin develop` will be slower.
+_Important_: If you are testing with a maturin built version from source, you should use `maturin build --release` since `maturin develop` will be slower.
 
 ## More Examples
 
-For a more complete example, and documentation on the available operators, check out the [User Guide](https://bytewax.io/docs) and the [/examples](/examples) folder.
+For a more complete example, and documentation on the available operators, check out the [User Guide](https://docs.bytewax.io/stable/guide/index.html) and the [/examples](examples) folder.
 
 ## License
 
