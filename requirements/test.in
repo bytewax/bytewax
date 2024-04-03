@@ -5,3 +5,4 @@ pytest
 pytest-codspeed
 pytest-benchmark
 sybil
+-r docs.txt
