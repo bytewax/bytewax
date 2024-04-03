@@ -379,7 +379,7 @@ class WindowerLogic(ABC, Generic[S]):
     This type is instantiated within Bytewax's windowing operators and
     has methods called by the runtime. A new subclass of this will
     need to be paired with a new subclass of {py:obj}`Windower`, which
-    is holds the configuration data for this type.
+    holds the configuration data for this type.
 
     This is instantiated for each key which is encountered.
 
