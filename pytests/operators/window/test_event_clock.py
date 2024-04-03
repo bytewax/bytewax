@@ -31,6 +31,7 @@ def test_watermark_is_item_timestamp_minus_wait():
 
     logic = _EventClockLogic(source.get, lambda x: x, timedelta(seconds=5), None)
     item_timestamp = datetime(2024, 1, 1, 0, 0, 7, tzinfo=timezone.utc)
+    logic.on_batch()
     _, found_watermark = logic.on_item(item_timestamp)
     assert found_watermark == datetime(2024, 1, 1, 0, 0, 2, tzinfo=timezone.utc)
 
@@ -40,15 +41,17 @@ def test_watermark_forwards_by_system_time():
 
     logic = _EventClockLogic(source.get, lambda x: x, timedelta(seconds=5), None)
     item_timestamp = datetime(2024, 1, 1, 0, 0, 7, tzinfo=timezone.utc)
+    logic.on_batch()
     logic.on_item(item_timestamp)
     source.advance(timedelta(seconds=2))
     assert logic.on_notify() == datetime(2024, 1, 1, 0, 0, 4, tzinfo=timezone.utc)
 
 
-def test_watermark_advances_with_later_item_timestamp():
+def test_watermark_advances_in_batch():
     source = TimeTestSource(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(source.get, lambda x: x, timedelta(seconds=5), None)
+    logic.on_batch()
     logic.on_item(datetime(2024, 1, 1, 0, 0, 7, tzinfo=timezone.utc))
     _, found_watermark = logic.on_item(
         datetime(2024, 1, 1, 0, 0, 10, tzinfo=timezone.utc)
@@ -56,15 +59,30 @@ def test_watermark_advances_with_later_item_timestamp():
     assert found_watermark == datetime(2024, 1, 1, 0, 0, 5, tzinfo=timezone.utc)
 
 
-def test_watermark_does_not_reverse():
+def test_watermark_does_not_reverse_in_batch():
     source = TimeTestSource(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(source.get, lambda x: x, timedelta(seconds=5), None)
+    logic.on_batch()
     logic.on_item(datetime(2024, 1, 1, 0, 0, 7, tzinfo=timezone.utc))
     _, found_watermark = logic.on_item(
         datetime(2024, 1, 1, 0, 0, 3, tzinfo=timezone.utc)
     )
     assert found_watermark == datetime(2024, 1, 1, 0, 0, 2, tzinfo=timezone.utc)
+
+
+def test_watermark_does_not_reverse_and_forwards_by_system_time_next_batch():
+    source = TimeTestSource(datetime(2024, 1, 1, tzinfo=timezone.utc))
+
+    logic = _EventClockLogic(source.get, lambda x: x, timedelta(seconds=5), None)
+    logic.on_batch()
+    logic.on_item(datetime(2024, 1, 1, 0, 0, 7, tzinfo=timezone.utc))
+    source.advance(timedelta(seconds=2))
+    logic.on_batch()
+    _, found_watermark = logic.on_item(
+        datetime(2024, 1, 1, 0, 0, 3, tzinfo=timezone.utc)
+    )
+    assert found_watermark == datetime(2024, 1, 1, 0, 0, 4, tzinfo=timezone.utc)
 
 
 def test_watermark_is_end_of_time_on_eof():

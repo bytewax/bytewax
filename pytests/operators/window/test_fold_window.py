@@ -142,7 +142,9 @@ def test_fold_window_sliding():
 
     clock = EventClock(lambda e: e["time"], wait_for_system_duration=ZERO_TD)
     windower = SlidingWindower(
-        length=timedelta(seconds=10), align_to=align_to, offset=timedelta(seconds=5)
+        length=timedelta(seconds=10),
+        offset=timedelta(seconds=5),
+        align_to=align_to,
     )
 
     def add(acc, x):

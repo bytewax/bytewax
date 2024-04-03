@@ -227,10 +227,11 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
         value_event_timestamp = self.timestamp_getter(value)
 
         if self.state is None:
+            watermark = value_event_timestamp - self.wait_for_system_duration
             self.state = _EventClockState(
                 max_event_timestamp=value_event_timestamp,
                 system_time_of_max_event=self._system_now,
-                watermark_base=value_event_timestamp - self.wait_for_system_duration,
+                watermark_base=watermark,
             )
         elif value_event_timestamp > self.state.max_event_timestamp:
             self.state.max_event_timestamp = value_event_timestamp
@@ -238,8 +239,12 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
             self.state.watermark_base = (
                 value_event_timestamp - self.wait_for_system_duration
             )
-
-        return value_event_timestamp, self.state.watermark_base
+            watermark = self.state.watermark_base
+        else:
+            watermark = self.state.watermark_base + (
+                self._system_now - self.state.system_time_of_max_event
+            )
+        return value_event_timestamp, watermark
 
     @override
     def on_notify(self) -> datetime:
@@ -247,9 +252,10 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
             return UTC_MIN
         else:
             self._system_now = self.now_getter()
-            return self.state.watermark_base + (
+            watermark = self.state.watermark_base + (
                 self._system_now - self.state.system_time_of_max_event
             )
+            return watermark
 
     @override
     def on_eof(self) -> datetime:
@@ -1002,6 +1008,7 @@ class _WindowLogic(
     windower: WindowerLogic[SW]
     builder: Callable[[Optional[S]], WindowLogic[V, W, S]]
     logics: Dict[int, WindowLogic[V, W, S]]
+    _last_watermark: datetime = UTC_MIN
 
     def _handle_merged(self) -> Iterable[_WindowEvent[V, W]]:
         for orig_window_id, targ_window_id in self.windower.merged():
@@ -1026,6 +1033,9 @@ class _WindowLogic(
 
         for value in values:
             value_timestamp, watermark = self.clock.on_item(value)
+            print(self._last_watermark, watermark)
+            assert watermark >= self._last_watermark
+            self._last_watermark = watermark
 
             # Attempt to insert into relevant windows.
             in_windows, late_windows = self.windower.open_for(
@@ -1057,12 +1067,18 @@ class _WindowLogic(
     @override
     def on_notify(self) -> Tuple[Iterable[_WindowEvent[V, W]], bool]:
         watermark = self.clock.on_notify()
+        assert watermark >= self._last_watermark
+        self._last_watermark = watermark
+
         events = list(self._handle_closed(watermark))
         return (events, self.windower.is_empty())
 
     @override
     def on_eof(self) -> Tuple[Iterable[_WindowEvent[V, W]], bool]:
         watermark = self.clock.on_eof()
+        assert watermark >= self._last_watermark
+        self._last_watermark = watermark
+
         events = list(self._handle_closed(watermark))
         return (events, self.windower.is_empty())
 
