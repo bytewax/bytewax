@@ -644,6 +644,35 @@ def _open_sort(id_meta: Tuple[int, WindowMetadata]) -> datetime:
     return meta.open_time
 
 
+def _session_find_merges(
+    sessions: Dict[int, WindowMetadata],
+    gap: timedelta,
+) -> List[Tuple[int, int]]:
+    """Mutates sessions in place."""
+    merge_queue = []
+
+    sorted_id_sessions = sorted(sessions.items(), key=_open_sort)
+    last_window_id, last_meta = sorted_id_sessions.pop(0)
+    for this_id, this_meta in sorted_id_sessions:
+        # See if this next window is within the gap from the
+        # last close. Since we sorted by open time, this is
+        # always the correct direction.
+        if this_meta.open_time - last_meta.close_time <= gap:
+            # If so, it's a merge. Extend the close time (if
+            # it actually expands it; the merged window might
+            # be fully within the last window).
+            last_meta.close_time = max(last_meta.close_time, this_meta.close_time)
+            merge_queue.append((this_id, last_window_id))
+            del sessions[this_id]
+        else:
+            # If they don't merge, this current window is now
+            # the new last window to attempt to merge with in
+            # the next iteration.
+            last_window_id, last_meta = (this_id, this_meta)
+
+    return merge_queue
+
+
 @dataclass
 class _SessionWindowerLogic(WindowerLogic[_SessionWindowerState]):
     gap: timedelta
@@ -651,29 +680,11 @@ class _SessionWindowerLogic(WindowerLogic[_SessionWindowerState]):
 
     def _find_merges(self) -> None:
         if len(self.state.sessions) >= 2:
-            sorted_id_sessions = sorted(self.state.sessions.items(), key=_open_sort)
-            merged_id_sessions = [sorted_id_sessions.pop(0)]
-            for this_id, this_meta in sorted_id_sessions:
-                last_window_id, last_meta = merged_id_sessions[-1]
-                # See if this next window is within the gap from the
-                # last close. Since we sorted by open time, this is
-                # always the correct direction.
-                if this_meta.open_time - last_meta.close_time <= self.gap:
-                    # If so, it's a merge. Extend the close time (if
-                    # it actually expands it; the merged window might
-                    # be fully within the last window).
-                    last_meta.close_time = max(
-                        last_meta.close_time, this_meta.close_time
-                    )
-                    self.state.merge_queue.append((this_id, last_window_id))
-                else:
-                    # If they don't merge, this current window is now
-                    # the new last window to attempt to merge with in
-                    # the next iteration.
-                    merged_id_sessions.append((this_id, this_meta))
-
-            # Now save the new sessions.
-            self.state.sessions = dict(merged_id_sessions)
+            new_merges = _session_find_merges(
+                self.state.sessions,
+                self.gap,
+            )
+            self.state.merge_queue.extend(new_merges)
 
     @override
     def open_for(
@@ -693,14 +704,14 @@ class _SessionWindowerLogic(WindowerLogic[_SessionWindowerState]):
                 # re-use that session. No merges possible because no
                 # session boundaries changed.
                 return ((window_id,), _EMPTY)
-            elif until_open > ZERO_TD and until_open < self.gap:
+            elif until_open > ZERO_TD and until_open <= self.gap:
                 # If we're within the gap before an existing session,
                 # re-use the session ID, but also see if any merges
                 # occured.
                 meta.open_time = timestamp
                 self._find_merges()
                 return ((window_id,), _EMPTY)
-            elif since_close > ZERO_TD and since_close < self.gap:
+            elif since_close > ZERO_TD and since_close <= self.gap:
                 # Same if after an existing session.
                 meta.close_time = timestamp
                 self._find_merges()
