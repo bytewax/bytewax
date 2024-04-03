@@ -870,7 +870,7 @@ class SessionWindower(Windower[_SessionWindowerState]):
 
     def __post_init__(self):
         if self.gap < ZERO_TD:
-            msg = "session window `gap` must be positive"
+            msg = "session window `gap` must not be negative"
             raise ValueError(msg)
 
     @override
