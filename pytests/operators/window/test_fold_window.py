@@ -1,29 +1,30 @@
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from typing import Dict
 
 import bytewax.operators as op
 import bytewax.operators.window as win
 from bytewax.dataflow import Dataflow
 from bytewax.operators.window import (
-    EventClockConfig,
-    SessionWindow,
-    SlidingWindow,
-    SystemClockConfig,
-    TumblingWindow,
-    WindowMetadata,
+    ZERO_TD,
+    EventClock,
+    SessionWindower,
+    SlidingWindower,
+    TumblingWindower,
 )
 from bytewax.testing import TestingSink, TestingSource, run_main
 from pytest import mark
-
-ZERO_TD = timedelta(seconds=0)
 
 # TODO: Test snapshotting logic so we're sure a recovery roundtrip
 # would work.
 
 
-# TODO: When we have a "window unary" operator, move tests of the
-# actual windowing semantics to that. For now, since `fold_window` is
-# the base of the window operators, test here.
+def _merge_defaultdict(
+    a: Dict[str, int],
+    b: Dict[str, int],
+) -> Dict[str, int]:
+    a.update(b)
+    return a
 
 
 def test_fold_window_tumbling():
@@ -41,8 +42,8 @@ def test_fold_window_tumbling():
     ]
     out = []
 
-    clock = EventClockConfig(lambda e: e["time"], wait_for_system_duration=ZERO_TD)
-    windower = TumblingWindow(length=timedelta(seconds=10), align_to=align_to)
+    clock = EventClock(lambda e: e["time"], wait_for_system_duration=ZERO_TD)
+    windower = TumblingWindower(length=timedelta(seconds=10), align_to=align_to)
 
     def count(counts, event):
         typ = event["type"]
@@ -56,46 +57,24 @@ def test_fold_window_tumbling():
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
     s = op.key_on("key_on_user", s, lambda e: e["user"])
-    s = win.fold_window("count", s, clock, windower, lambda: defaultdict(int), count)
-    s = op.map_value("normal_dict", s, map_dict)
+    wo = win.fold_window(
+        "count",
+        s,
+        clock,
+        windower,
+        lambda: defaultdict(int),
+        count,
+        _merge_defaultdict,
+    )
+    s = op.map_value("normal_dict", wo.down, map_dict)
     op.output("out", s, TestingSink(out))
 
     run_main(flow)
     assert out == [
-        (
-            "a",
-            (
-                WindowMetadata(align_to, align_to + timedelta(seconds=10)),
-                {"login": 1, "post": 2},
-            ),
-        ),
-        (
-            "b",
-            (
-                WindowMetadata(
-                    align_to + timedelta(seconds=10), align_to + timedelta(seconds=20)
-                ),
-                {"login": 1},
-            ),
-        ),
-        (
-            "a",
-            (
-                WindowMetadata(
-                    align_to + timedelta(seconds=10), align_to + timedelta(seconds=20)
-                ),
-                {"post": 1},
-            ),
-        ),
-        (
-            "b",
-            (
-                WindowMetadata(
-                    align_to + timedelta(seconds=20), align_to + timedelta(seconds=30)
-                ),
-                {"post": 2},
-            ),
-        ),
+        ("a", (0, {"login": 1, "post": 2})),
+        ("b", (1, {"login": 1})),
+        ("a", (1, {"post": 1})),
+        ("b", (2, {"post": 2})),
     ]
 
 
@@ -117,8 +96,8 @@ def test_fold_window_session():
     ]
     out = []
 
-    clock = EventClockConfig(lambda e: e["time"], wait_for_system_duration=ZERO_TD)
-    windower = SessionWindow(gap=timedelta(seconds=5))
+    clock = EventClock(lambda e: e["time"], wait_for_system_duration=ZERO_TD)
+    windower = SessionWindower(gap=timedelta(seconds=5))
 
     def add(acc, x):
         acc.append(x["val"])
@@ -127,38 +106,14 @@ def test_fold_window_session():
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
     s = op.key_on("key_on_user", s, lambda e: e["user"])
-    s = win.fold_window("sum", s, clock, windower, list, add)
-    op.output("out", s, TestingSink(out))
+    wo = win.fold_window("sum", s, clock, windower, list, add, list.__add__)
+    op.output("out", wo.down, TestingSink(out))
 
     run_main(flow)
     assert out == [
-        (
-            "a",
-            (
-                WindowMetadata(
-                    align_to + timedelta(seconds=1), align_to + timedelta(seconds=5)
-                ),
-                ["a", "b"],
-            ),
-        ),
-        (
-            "a",
-            (
-                WindowMetadata(
-                    align_to + timedelta(seconds=11), align_to + timedelta(seconds=14)
-                ),
-                ["c", "d", "e", "f"],
-            ),
-        ),
-        (
-            "a",
-            (
-                WindowMetadata(
-                    align_to + timedelta(seconds=20), align_to + timedelta(seconds=20)
-                ),
-                ["g"],
-            ),
-        ),
+        ("a", (0, ["a", "b"])),
+        ("a", (1, ["c", "d", "e", "f"])),
+        ("a", (2, ["g"])),
     ]
 
 
@@ -185,9 +140,11 @@ def test_fold_window_sliding():
     ]
     out = []
 
-    clock = EventClockConfig(lambda e: e["time"], wait_for_system_duration=ZERO_TD)
-    windower = SlidingWindow(
-        length=timedelta(seconds=10), align_to=align_to, offset=timedelta(seconds=5)
+    clock = EventClock(lambda e: e["time"], wait_for_system_duration=ZERO_TD)
+    windower = SlidingWindower(
+        length=timedelta(seconds=10),
+        offset=timedelta(seconds=5),
+        align_to=align_to,
     )
 
     def add(acc, x):
@@ -197,139 +154,50 @@ def test_fold_window_sliding():
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
     s = op.key_on("key_on_user", s, lambda e: e["user"])
-    s = win.fold_window("sum", s, clock, windower, list, add)
-    op.output("out", s, TestingSink(out))
+    wo = win.fold_window("sum", s, clock, windower, list, add, list.__add__)
+    op.output("out", wo.down, TestingSink(out))
 
     run_main(flow)
     assert out == [
-        (
-            "a",
-            (
-                WindowMetadata(
-                    align_to - timedelta(seconds=5), align_to + timedelta(seconds=5)
-                ),
-                ["a", "b"],
-            ),
-        ),
-        (
-            "a",
-            (
-                WindowMetadata(align_to, align_to + timedelta(seconds=10)),
-                ["a", "b", "c"],
-            ),
-        ),
-        (
-            "a",
-            (
-                WindowMetadata(
-                    align_to + timedelta(seconds=5), align_to + timedelta(seconds=15)
-                ),
-                ["c", "d", "e", "f"],
-            ),
-        ),
-        (
-            "a",
-            (
-                WindowMetadata(
-                    align_to + timedelta(seconds=10), align_to + timedelta(seconds=20)
-                ),
-                ["d", "e", "f", "g"],
-            ),
-        ),
-        (
-            "a",
-            (
-                WindowMetadata(
-                    align_to + timedelta(seconds=15), align_to + timedelta(seconds=25)
-                ),
-                ["g"],
-            ),
-        ),
+        ("a", (-1, ["a", "b"])),
+        ("a", (0, ["a", "b", "c"])),
+        ("a", (1, ["c", "d", "e", "f"])),
+        ("a", (2, ["d", "e", "f", "g"])),
+        ("a", (3, ["g"])),
     ]
-
-
-def test_session_window_with_system_clock():
-    def add_record(acc, msg):
-        acc.append(msg)
-        return acc
-
-    flow = Dataflow("window_bug")
-    stream = op.input("input", flow, TestingSource(range(10))).then(
-        op.key_on, "key_static", lambda x: "x"
-    )
-
-    collected = stream.then(
-        win.fold_window,
-        "collect_records",
-        SystemClockConfig(),
-        SessionWindow(gap=timedelta(seconds=10)),
-        list,
-        add_record,
-    )
-
-    out = []
-    op.output("out", collected, TestingSink(out))
-    run_main(flow)
-    assert out, "Output should not be empty"
-    key, (_metdata, vals) = out[0]
-    assert key == "x"
-    assert vals == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-
-
-def build_fold_window_dataflow(out) -> Dataflow:
-    clock_config = win.EventClockConfig(
-        dt_getter=lambda x: x,
-        wait_for_system_duration=timedelta(seconds=0),
-    )
-    window = win.TumblingWindow(
-        align_to=datetime(2022, 1, 1, tzinfo=timezone.utc), length=timedelta(minutes=1)
-    )
-
-    records = [
-        datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=i)
-        for i in range(100_000)
-    ]
-    flow = Dataflow("bench")
-    (
-        op.input("in", flow, TestingSource(records, 10))
-        .then(op.key_on, "key-on", lambda _: "x")
-        .then(
-            win.fold_window,
-            "fold-window",
-            clock_config,
-            window,
-            lambda: None,
-            lambda s, _: s,
-        )
-        .then(op.output, "stdout", TestingSink(out))
-    )
-
-    return flow
-
-
-def run_fold_window_dataflow(entry_point, flow, out, expected):
-    entry_point(flow)
-    assert out == expected
-    out.clear()
 
 
 @mark.parametrize("entry_point_name", ["run_main", "cluster_main-1thread"])
 def test_fold_window_benchmark(benchmark, entry_point):
+    align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    inp = [align_to + timedelta(seconds=i) for i in range(100_000)]
     out = []
-    expected = [
-        (
-            "x",
-            (
-                WindowMetadata(
-                    open_time=datetime(2024, 1, 1, tzinfo=timezone.utc)
-                    + timedelta(minutes=i),
-                    close_time=datetime(2024, 1, 1, tzinfo=timezone.utc)
-                    + timedelta(minutes=i + 1),
-                ),
-                None,
-            ),
-        )
-        for i in range(1667)
-    ]
-    flow = build_fold_window_dataflow(out)
-    benchmark(lambda: run_fold_window_dataflow(entry_point, flow, out, expected))
+
+    flow = Dataflow("bench")
+    times = op.input("in", flow, TestingSource(inp, 10))
+    keyed_times = op.key_on("keyed", times, lambda _: "ALL")
+
+    clock = EventClock(lambda x: x, wait_for_system_duration=ZERO_TD)
+    windower = TumblingWindower(timedelta(minutes=1), align_to)
+
+    wo = win.fold_window(
+        "fold_window",
+        keyed_times,
+        clock,
+        windower,
+        lambda: None,
+        lambda s, _: s,
+        lambda s, _: s,
+    )
+
+    op.output("out", wo.down, TestingSink(out))
+
+    expected = [("ALL", (i, None)) for i in range(1667)]
+
+    def run():
+        entry_point(flow)
+        assert out == expected
+        out.clear()
+
+    benchmark(run)

@@ -59,7 +59,7 @@ S = TypeVar("S")
 KeyedStream: TypeAlias = Stream[Tuple[str, V]]
 """A {py:obj}`~bytewax.dataflow.Stream` of `(key, value)` 2-tuples."""
 
-_EMPTY = tuple()
+_EMPTY: Tuple = tuple()
 
 
 def _identity(x: X) -> X:
@@ -344,8 +344,158 @@ def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
     return Stream(f"{up._scope.parent_id}.down", up._scope)
 
 
-class UnaryLogic(ABC, Generic[V, W, S]):
-    """Abstract class to define a {py:obj}`unary` operator.
+class StatefulBatchLogic(ABC, Generic[V, W, S]):
+    """Abstract class to define a {py:obj}`stateful` operator.
+
+    The operator will call these methods in order: {py:obj}`on_batch`
+    once with all items queued, then {py:obj}`on_notify` if the
+    notification time has passed, then {py:obj}`on_eof` if the
+    upstream is EOF and no new items will be received this execution.
+    If the logic is retained after all the above calls then
+    {py:obj}`notify_at` will be called. {py:obj}`snapshot` is
+    periodically called.
+
+    """
+
+    RETAIN: bool = False
+    """This logic should be retained after this returns.
+
+    If you always return this, this state will never be deleted and if
+    your key-space grows without bound, your memory usage will also
+    grow without bound.
+
+    """
+
+    DISCARD: bool = True
+    """This logic should be discarded immediately after this returns."""
+
+    @abstractmethod
+    def on_batch(self, values: List[V]) -> Tuple[Iterable[W], bool]:
+        """Called on each new upstream item.
+
+        This will be called multiple times in a row if there are
+        multiple items from upstream.
+
+        :arg value: The value of the upstream `(key, value)`.
+
+        :returns: A 2-tuple of: any values to emit downstream and
+            wheither to discard this logic. Values will be wrapped in
+            `(key, value)` automatically.
+
+        """
+        ...
+
+    def on_notify(self) -> Tuple[Iterable[W], bool]:
+        """Called when the scheduled notification time has passed.
+
+        Defaults to emitting nothing and retaining the logic.
+
+        :returns: A 2-tuple of: any values to emit downstream and
+            wheither to discard this logic. Values will be wrapped in
+            `(key, value)` automatically.
+
+        """
+        return (_EMPTY, StatefulBatchLogic.RETAIN)
+
+    def on_eof(self) -> Tuple[Iterable[W], bool]:
+        """The upstream has no more items on this execution.
+
+        This will only be called once per awake after
+        {py:obj}`on_batch` is called.
+
+        Defaults to emitting nothing and retaining the logic.
+
+        :returns: 2-tuple of: any values to emit downstream and
+            wheither to discard this logic. Values will be wrapped in
+            `(key, value)` automatically.
+
+        """
+        return (_EMPTY, StatefulBatchLogic.RETAIN)
+
+    def notify_at(self) -> Optional[datetime]:
+        """Return the next notification time.
+
+        This will be called once right after the logic is built, and
+        if any of the `on_*` methods were called if the logic was
+        retained.
+
+        This must always return the next notification time. The
+        operator only stores a single next time, so if there are a
+        series of times you would like to notify at, store all of them
+        but only return the soonest.
+
+        Defaults to returning `None`.
+
+        :returns: Scheduled time. If `None`, no {py:obj}`on_notify`
+            callback will occur.
+
+        """
+        return None
+
+    @abstractmethod
+    def snapshot(self) -> S:
+        """Return a immutable copy of the state for recovery.
+
+        This will be called periodically by the runtime.
+
+        The value returned here will be passed back to the `builder`
+        function of {py:obj}`stateful` when resuming.
+
+        The state must be {py:obj}`pickle`-able.
+
+        :::{danger}
+
+        **The state must be effectively immutable!** If any of the
+        other functions in this class might be able to mutate the
+        state, you must {py:obj}`copy.deepcopy` or something
+        equivalent before returning it here.
+
+        :::
+
+        :returns: The immutable state to be {py:obj}`pickle`d.
+
+        """
+        ...
+
+
+@operator(_core=True)
+def stateful_batch(
+    step_id: str,
+    up: KeyedStream[V],
+    builder: Callable[[Optional[S]], StatefulBatchLogic[V, W, S]],
+) -> KeyedStream[W]:
+    """Advanced generic stateful operator.
+
+    This is the lowest-level operator Bytewax provides and gives you
+    full control over all aspects of the operator processing and
+    lifecycle. Usualy you will want to use a higher-level operator
+    than this.
+
+    Subclass {py:obj}`StatefulBatchLogic` to define its behavior. See
+    documentation there.
+
+    :arg step_id: Unique ID.
+
+    :arg up: Keyed stream.
+
+    :arg builder: Called whenver a new key is encountered with the
+        resume state returned from
+        {py:obj}`StatefulBatchLogic.snapshot` for this key, if any.
+        This should close over any non-state configuration and combine
+        it with the resume state to return the prepared
+        {py:obj}`StatefulBatchLogic` for the new key.
+
+    :returns: Keyed stream of all items returned from
+        {py:obj}`StatefulBatchLogic.on_batch`,
+        {py:obj}`StatefulBatchLogic.on_notify`, and
+        {py:obj}`StatefulBatchLogic.on_eof`.
+
+    """
+    return Stream(f"{up._scope.parent_id}.down", up._scope)
+
+
+class StatefulLogic(ABC, Generic[V, W, S]):
+    """Abstract class to define a {py:obj}`stateful` operator.
 
     The operator will call these methods in order: {py:obj}`on_item`
     once for any items queued, then {py:obj}`on_notify` if the
@@ -385,7 +535,6 @@ class UnaryLogic(ABC, Generic[V, W, S]):
         """
         ...
 
-    @abstractmethod
     def on_notify(self) -> Tuple[Iterable[W], bool]:
         """Called when the scheduled notification time has passed.
 
@@ -394,9 +543,8 @@ class UnaryLogic(ABC, Generic[V, W, S]):
             `(key, value)` automatically.
 
         """
-        ...
+        return (_EMPTY, StatefulLogic.RETAIN)
 
-    @abstractmethod
     def on_eof(self) -> Tuple[Iterable[W], bool]:
         """The upstream has no more items on this execution.
 
@@ -408,9 +556,8 @@ class UnaryLogic(ABC, Generic[V, W, S]):
             `(key, value)` automatically.
 
         """
-        ...
+        return (_EMPTY, StatefulLogic.RETAIN)
 
-    @abstractmethod
     def notify_at(self) -> Optional[datetime]:
         """Return the next notification time.
 
@@ -425,7 +572,7 @@ class UnaryLogic(ABC, Generic[V, W, S]):
             callback will occur.
 
         """
-        ...
+        return None
 
     @abstractmethod
     def snapshot(self) -> S:
@@ -434,7 +581,7 @@ class UnaryLogic(ABC, Generic[V, W, S]):
         This will be called periodically by the runtime.
 
         The value returned here will be passed back to the `builder`
-        function of {py:obj}`unary` when resuming.
+        function of {py:obj}`stateful` when resuming.
 
         The state must be {py:obj}`pickle`-able.
 
@@ -453,20 +600,62 @@ class UnaryLogic(ABC, Generic[V, W, S]):
         ...
 
 
-@operator(_core=True)
-def unary(
+@dataclass
+class _StatefulLogic(StatefulBatchLogic[V, W, S]):
+    logic: Optional[StatefulLogic[V, W, S]]
+    builder: Callable[[Optional[S]], StatefulLogic[V, W, S]]
+
+    @override
+    def on_batch(self, values: List[V]) -> Tuple[Iterable[W], bool]:
+        ws: List[W] = []
+        for v in values:
+            if self.logic is None:
+                self.logic = self.builder(None)
+
+            new_ws, discard = self.logic.on_item(v)
+
+            ws.extend(new_ws)
+            if discard:
+                self.logic = None
+
+        return (ws, self.logic is None)
+
+    @override
+    def on_notify(self) -> Tuple[Iterable[W], bool]:
+        assert self.logic is not None
+        return self.logic.on_notify()
+
+    @override
+    def on_eof(self) -> Tuple[Iterable[W], bool]:
+        assert self.logic is not None
+        return self.logic.on_eof()
+
+    @override
+    def notify_at(self) -> Optional[datetime]:
+        assert self.logic is not None
+        return self.logic.notify_at()
+
+    @override
+    def snapshot(self) -> S:
+        assert self.logic is not None
+        return self.logic.snapshot()
+
+
+@operator
+def stateful(
     step_id: str,
     up: KeyedStream[V],
-    builder: Callable[[Optional[S]], UnaryLogic[V, W, S]],
+    builder: Callable[[Optional[S]], StatefulLogic[V, W, S]],
 ) -> KeyedStream[W]:
     """Advanced generic stateful operator.
 
-    This is the lowest-level operator Bytewax provides and gives you
-    full control over all aspects of the operator processing and
+    This is a low-level operator Bytewax provides and gives you
+    control over most aspects of the operator processing and
     lifecycle. Usualy you will want to use a higher-level operator
-    than this.
+    than this. Also see {py:obj}`stateful_batch` for even more
+    control.
 
-    Subclass {py:obj}`UnaryLogic` to define its behavior. See
+    Subclass {py:obj}`StatefulLogic` to define its behavior. See
     documentation there.
 
     :arg step_id: Unique ID.
@@ -474,17 +663,23 @@ def unary(
     :arg up: Keyed stream.
 
     :arg builder: Called whenver a new key is encountered with the
-        resume state returned from `UnaryLogic.snapshot` for this
-        key, if any. This should close over any non-state
-        configuration and combine it with the resume state to
-        return the prepared `UnaryLogic` for the new key.
+        resume state returned from {py:obj}`StatefulLogic.snapshot`
+        for this key, if any. This should close over any non-state
+        configuration and combine it with the resume state to return
+        the prepared {py:obj}`StatefulLogic` for the new key.
 
     :returns: Keyed stream of all items returned from
-        {py:obj}`UnaryLogic.on_item`, {py:obj}`UnaryLogic.on_notify`,
-        and {py:obj}`UnaryLogic.on_eof`.
+        {py:obj}`StatefulLogic.on_item`,
+        {py:obj}`StatefulLogic.on_notify`, and
+        {py:obj}`StatefulLogic.on_eof`.
 
     """
-    return Stream(f"{up._scope.parent_id}.down", up._scope)
+
+    def shim_builder(resume_state: Optional[S]) -> _StatefulLogic[V, W, S]:
+        inner_logic = builder(resume_state)
+        return _StatefulLogic(inner_logic, builder)
+
+    return stateful_batch("stateful_batch", up, shim_builder)
 
 
 @dataclass
@@ -494,30 +689,31 @@ class _CollectState(Generic[V]):
 
 
 @dataclass
-class _CollectLogic(UnaryLogic[V, List[V], _CollectState[V]]):
+class _CollectLogic(StatefulLogic[V, List[V], _CollectState[V]]):
     step_id: str
     now_getter: Callable[[], datetime]
     timeout: timedelta
     max_size: int
     state: _CollectState[V]
 
+    @override
     def on_item(self, value: V) -> Tuple[Iterable[List[V]], bool]:
         self.state.timeout_at = self.now_getter() + self.timeout
 
         self.state.acc.append(value)
         if len(self.state.acc) >= self.max_size:
             # No need to deepcopy because we are discarding the state.
-            return ((self.state.acc,), UnaryLogic.DISCARD)
+            return ((self.state.acc,), StatefulLogic.DISCARD)
 
-        return (_EMPTY, UnaryLogic.RETAIN)
+        return (_EMPTY, StatefulLogic.RETAIN)
 
     @override
     def on_notify(self) -> Tuple[Iterable[List[V]], bool]:
-        return ((self.state.acc,), UnaryLogic.DISCARD)
+        return ((self.state.acc,), StatefulLogic.DISCARD)
 
     @override
     def on_eof(self) -> Tuple[Iterable[List[V]], bool]:
-        return ((self.state.acc,), UnaryLogic.DISCARD)
+        return ((self.state.acc,), StatefulLogic.DISCARD)
 
     @override
     def notify_at(self) -> Optional[datetime]:
@@ -556,7 +752,7 @@ def collect(
         state = resume_state if resume_state is not None else _CollectState()
         return _CollectLogic(step_id, now_getter, timeout, max_size, state)
 
-    return unary("unary", up, shim_builder)
+    return stateful("stateful", up, shim_builder)
 
 
 @operator
@@ -852,8 +1048,41 @@ def filter_map(
     return flat_map("flat_map", up, shim_mapper)
 
 
+@operator
+def filter_map_value(
+    step_id: str,
+    up: KeyedStream[V],
+    mapper: Callable[[V], Optional[W]],
+) -> KeyedStream[W]:
+    """Transform values one-to-maybe-one.
+
+    This is like a combination of {py:obj}`map_value` and then
+    {py:obj}`filter_value` with a predicate removing `None` values.
+
+    :arg step_id: Unique ID.
+
+    :arg up: Stream.
+
+    :arg mapper: Called on each value. Each return value is emitted
+        downstream, unless it is `None`.
+
+    :returns: A keyed stream of values returned from the mapper,
+        unless the value is `None`. The key is unchanged.
+
+    """
+
+    def shim_mapper(v: V) -> Iterable[W]:
+        w = mapper(v)
+        if w is not None:
+            return (w,)
+
+        return _EMPTY
+
+    return flat_map_value("flat_map_value", up, shim_mapper)
+
+
 @dataclass
-class _FoldFinalLogic(UnaryLogic[V, S, S]):
+class _FoldFinalLogic(StatefulLogic[V, S, S]):
     step_id: str
     folder: Callable[[S, V], S]
     state: S
@@ -861,20 +1090,12 @@ class _FoldFinalLogic(UnaryLogic[V, S, S]):
     @override
     def on_item(self, value: V) -> Tuple[Iterable[S], bool]:
         self.state = self.folder(self.state, value)
-        return (_EMPTY, UnaryLogic.RETAIN)
-
-    @override
-    def on_notify(self) -> Tuple[Iterable[S], bool]:
-        return (_EMPTY, UnaryLogic.RETAIN)
+        return (_EMPTY, StatefulLogic.RETAIN)
 
     @override
     def on_eof(self) -> Tuple[Iterable[S], bool]:
         # No need to deepcopy because we are discarding the state.
-        return ((self.state,), UnaryLogic.DISCARD)
-
-    @override
-    def notify_at(self) -> Optional[datetime]:
-        return None
+        return ((self.state,), StatefulLogic.DISCARD)
 
     @override
     def snapshot(self) -> S:
@@ -913,7 +1134,7 @@ def fold_final(
         state = resume_state if resume_state is not None else builder()
         return _FoldFinalLogic(step_id, folder, state)
 
-    return unary("unary", up, shim_builder)
+    return stateful("stateful", up, shim_builder)
 
 
 def _default_inspector(step_id: str, item: Any) -> None:
@@ -993,9 +1214,28 @@ class _JoinState:
             for t in self.astuples(empty)
         ]
 
+    def __add__(self, other: Self) -> "_JoinState":
+        seen = {name: list(values) for name, values in self.seen.items()}
+        for name, values in other.seen.items():
+            if name in seen:
+                seen[name].extend(values)
+            else:
+                seen[name] = list(values)
+
+        return _JoinState(seen)
+
+    def __iadd__(self, other: Self) -> Self:
+        for name, values in other.seen.items():
+            if name in self.seen:
+                self.seen[name].extend(values)
+            else:
+                self.seen[name] = values
+
+        return self
+
 
 @dataclass
-class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
+class _JoinLogic(StatefulLogic[Tuple[str, Any], _JoinState, _JoinState]):
     step_id: str
     running: bool
     state: _JoinState
@@ -1007,25 +1247,13 @@ class _JoinLogic(UnaryLogic[Tuple[str, Any], _JoinState, _JoinState]):
         self.state.set_val(name, value)
 
         if self.running:
-            return ((copy.deepcopy(self.state),), UnaryLogic.RETAIN)
+            return ((copy.deepcopy(self.state),), StatefulLogic.RETAIN)
         else:
             if self.state.all_set():
                 # No need to deepcopy because we are discarding the state.
-                return ((self.state,), UnaryLogic.DISCARD)
+                return ((self.state,), StatefulLogic.DISCARD)
             else:
-                return (_EMPTY, UnaryLogic.RETAIN)
-
-    @override
-    def on_notify(self) -> Tuple[Iterable[_JoinState], bool]:
-        return (_EMPTY, UnaryLogic.RETAIN)
-
-    @override
-    def on_eof(self) -> Tuple[Iterable[_JoinState], bool]:
-        return (_EMPTY, UnaryLogic.RETAIN)
-
-    @override
-    def notify_at(self) -> Optional[datetime]:
-        return None
+                return (_EMPTY, StatefulLogic.RETAIN)
 
     @override
     def snapshot(self) -> _JoinState:
@@ -1080,7 +1308,7 @@ def join(
         return _JoinLogic(step_id, running, state)
 
     merged = _join_name_merge("add_names", **named_sides)
-    joined = unary("join", merged, shim_builder)
+    joined = stateful("join", merged, shim_builder)
     return flat_map_value("astuple", joined, _JoinState.astuples)
 
 
@@ -1118,7 +1346,7 @@ def join_named(
         return _JoinLogic(step_id, running, state)
 
     merged = _join_name_merge("add_names", **sides)
-    joined = unary("join", merged, shim_builder)
+    joined = stateful("join", merged, shim_builder)
     return flat_map_value("asdict", joined, _JoinState.asdicts)
 
 
@@ -1366,7 +1594,7 @@ def reduce_final(
     """
 
     def pre_reducer(mixed_batch: List[Tuple[str, V]]) -> Iterable[Tuple[str, V]]:
-        states = {}
+        states: Dict[str, V] = {}
         for k, v in mixed_batch:
             try:
                 s = states[k]
@@ -1390,7 +1618,7 @@ def reduce_final(
 
 
 @dataclass
-class _StatefulFlatMapLogic(UnaryLogic[V, W, S]):
+class _StatefulFlatMapLogic(StatefulLogic[V, W, S]):
     step_id: str
     mapper: Callable[[Optional[S], V], Tuple[Optional[S], Iterable[W]]]
     state: Optional[S]
@@ -1411,22 +1639,10 @@ class _StatefulFlatMapLogic(UnaryLogic[V, W, S]):
         if s is None:
             # No need to update state as we're thowing everything
             # away.
-            return (ws, UnaryLogic.DISCARD)
+            return (ws, StatefulLogic.DISCARD)
         else:
             self.state = s
-            return (ws, UnaryLogic.RETAIN)
-
-    @override
-    def on_notify(self) -> Tuple[Iterable[W], bool]:
-        return (_EMPTY, UnaryLogic.RETAIN)
-
-    @override
-    def on_eof(self) -> Tuple[Iterable[W], bool]:
-        return (_EMPTY, UnaryLogic.RETAIN)
-
-    @override
-    def notify_at(self) -> Optional[datetime]:
-        return None
+            return (ws, StatefulLogic.RETAIN)
 
     @override
     def snapshot(self) -> S:
@@ -1458,7 +1674,7 @@ def stateful_flat_map(
     def shim_builder(resume_state: Optional[S]) -> _StatefulFlatMapLogic[V, W, S]:
         return _StatefulFlatMapLogic(step_id, mapper, resume_state)
 
-    return unary("unary", up, shim_builder)
+    return stateful("stateful", up, shim_builder)
 
 
 @operator

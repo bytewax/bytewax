@@ -16,7 +16,6 @@ use timely::dataflow::operators::generic::operator::empty;
 use timely::dataflow::operators::Broadcast;
 use timely::dataflow::operators::Concatenate;
 use timely::dataflow::operators::Probe;
-use timely::dataflow::operators::ResultStream;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
@@ -30,17 +29,10 @@ use crate::dataflow::StreamId;
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::inputs::*;
-use crate::operators::fold_window::FoldWindowLogic;
 use crate::operators::*;
 use crate::outputs::*;
-use crate::pyo3_extensions::wrap_window_state_pair;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
-use crate::window::clock::ClockBuilder;
-use crate::window::clock::ClockConfig;
-use crate::window::StatefulWindowUnary;
-use crate::window::WindowBuilder;
-use crate::window::WindowConfig;
 
 /// Bytewax worker.
 ///
@@ -344,47 +336,6 @@ where
                             .insert_downstream(py, &step, "down", down)
                             .reraise("core operator `flat_map_batch` missing port")?;
                     }
-                    // TODO: Rewrite windowing logic in Python.
-                    "fold_window" => {
-                        let clock = step.get_arg(py, "clock")?.extract::<Py<ClockConfig>>(py)?;
-                        let windower = step
-                            .get_arg(py, "windower")?
-                            .extract::<Py<WindowConfig>>(py)?;
-                        let builder = step.get_arg(py, "builder")?.extract(py)?;
-                        let folder = step.get_arg(py, "folder")?.extract(py)?;
-
-                        let up = streams.get_upstream(py, &step, "up")?;
-
-                        let clock_builder =
-                            clock.build(py).reraise("error building FoldWindow clock")?;
-                        let windower_builder = windower
-                            .build(py)
-                            .reraise("error building FoldWindow windower")?;
-
-                        let (output, snap) = up.extract_key(step_id.clone()).stateful_window_unary(
-                            step_id,
-                            clock_builder,
-                            windower_builder,
-                            FoldWindowLogic::new(builder, folder),
-                            resume_epoch,
-                            &loads,
-                        );
-
-                        let down = timely::dataflow::operators::Map::map(
-                            &timely::dataflow::operators::Map::map(&output, |(key, result)| {
-                                result
-                                    .map(|value| (key.clone(), value))
-                                    .map_err(|err| (key.clone(), err))
-                            })
-                            // For now, filter to just reductions and
-                            // ignore late values.
-                            .ok(),
-                            wrap_window_state_pair,
-                        );
-                        snaps.push(snap);
-
-                        streams.insert_downstream(py, &step, "down", down)?;
-                    }
                     "input" => {
                         let source = step.get_arg(py, "source")?.extract::<Source>(py)?;
 
@@ -493,20 +444,20 @@ where
                             .insert_downstream(py, &step, "down", down)
                             .reraise("core operator `redistribute` missing port")?;
                     }
-                    "unary" => {
+                    "stateful_batch" => {
                         let builder = step.get_arg(py, "builder")?.extract(py)?;
 
                         let up = streams
                             .get_upstream(py, &step, "up")
-                            .reraise("core operator `unary` missing port")?;
+                            .reraise("core operator `stateful_batch` missing port")?;
 
-                        let (down, snap) = up.unary(py, step_id, builder, resume_epoch, &loads)?;
+                        let (down, snap) = up.stateful_batch(py, step_id, builder, resume_epoch, &loads)?;
 
                         snaps.push(snap);
 
                         streams
                             .insert_downstream(py, &step, "down", down)
-                            .reraise("core operator `unary` missing port")?;
+                            .reraise("core operator `stateful_batch` missing port")?;
                     }
                     name => {
                         let msg = format!("Unknown core operator {name:?}");

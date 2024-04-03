@@ -44,27 +44,26 @@ specific instance of a clock must be able to answer two questions:
 2. What is the current watermark?
 
 All clocks are an instance of
-{py:obj}`~bytewax.operators.window.ClockConfig`. Let's discuss how
-each of the built-in clocks answers these two questions.
+{py:obj}`~bytewax.operators.window.Clock`. Let's discuss how each of
+the built-in clocks answers these two questions.
 
 ### System Time
 
 By instantiating a
-{py:obj}`~bytewax.operators.window.SystemClockConfig` you can use
-system time in your windowing definition.
+{py:obj}`~bytewax.operators.window.SystemClock` you can use system
+time in your windowing definition.
 
 1. The current system time is assigned to each value.
 
 2. The watermark is always the current system time.
 
-Because there can never be out-of-order or late data all window
+Because there can never be out-of-order or late data, all window
 processing happens ASAP.
 
 ### Event Time
 
-By instantiating a
-{py:obj}`~bytewax.operators.window.EventClockConfig` you can use event
-time in your windowing definition. This is more nuanced.
+By instantiating a {py:obj}`~bytewax.operators.window.EventClock` you
+can use event time in your windowing definition. This is more nuanced.
 
 1. The callback function `dt_getter` is used to extract and assign the
    timestamp within each value. If this timestamp is the largest ever
@@ -82,8 +81,8 @@ that is being generated "physically": that timestamps generally come
 in order and that a system can only introduce delays, and never
 transport items into the future.
 
-Let's analyze the streaming case where we are processing data in real-time
-and waiting for new data to arrive. Let's say
+Let's analyze the streaming case where we are processing data in
+real-time and waiting for new data to arrive. Let's say
 `wait_for_system_duration = timedelta(minutes=5)`. In the following
 table, we show the state of the clock as a few different values are
 processed. The watermark is always advancing by the system time, the
@@ -119,7 +118,7 @@ exhausted. In this case setting `wait_for_system_duration = `
 Now that we have a definition of time due to the clock, we separately
 pick a **windower** which defines how items are grouped together in
 time. All clocks are an instance of
-{py:obj}`~bytewax.operators.window.WindowConfig`.
+{py:obj}`~bytewax.operators.window.Windower`.
 
 Windows are **closed** once the watermark passes their close time.
 This means no more data should arrive that could modify the window
@@ -129,7 +128,7 @@ state, so correct output can be emitted downstream.
 
 **Sliding windows** are windows which have a fixed length, origin time
 (the `align_to` argument), and spacing between starts of the windows.
-Create them with {py:obj}`~bytewax.operators.window.SlidingWindow`.
+Create them with {py:obj}`~bytewax.operators.window.SlidingWindower`.
 
 Windows must be aligned to a fixed and known origin time so that they
 are consistent across failures and restarts.
@@ -169,7 +168,7 @@ gantt
 
 **Tumbling windows** are sliding windows where `offset == length` so
 they are not overlapping and also contain no gaps. Create them with
-{py:obj}`~bytewax.operators.window.TumblingWindow`.
+{py:obj}`~bytewax.operators.window.TumblingWindower`.
 
 The following are 1 hour windows, aligned to a specific midnight.
 
@@ -188,7 +187,7 @@ gantt
 
 **Session windows** are windows that are dynamically created whenever
 there is a big enough gap in timestamps. Create them with
-{py:obj}`~bytewax.operators.window.SessionWindow`.
+{py:obj}`~bytewax.operators.window.SessionWindower`.
 
 The following are the session windows resulting from these values with
 a 30 minute gap.
@@ -211,22 +210,6 @@ gantt
     One: w1, 2023-12-14T00:50, 10m
     Two: w2, 2023-12-14T01:30, 0m
 ```
-
-:::{warning}
-
-Currently, session windows do not support out-of-order data. Out
-of order data will be placed in their own sessions rather than
-merging adjacent sessions.
-
-Ensure that your data source is always in order if using an
-{py:obj}`~bytewax.operators.window.EventClockConfig`. Even if it
-is in-order, you cannot use event time session windows with any
-windowing join operator.
-
-{py:obj}`~bytewax.operators.window.SystemClockConfig` is always in
-order, so should be fine to use with any operator.
-
-:::
 
 ## Operators
 
@@ -271,7 +254,7 @@ as possible.
 
 Some clocks don't have a single correct answer on what to do during
 resume. E.g. if you use
-{py:obj}`~bytewax.operators.window.SystemClockConfig` with 10 minute
+{py:obj}`~bytewax.operators.window.SystemClock` with 10 minute
 windows, but then resume on a 15 minute mark, the system will
 immediately close out the half-completed window started in the
 previous execution when the next execution resumes.

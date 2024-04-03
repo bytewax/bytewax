@@ -3,38 +3,33 @@ from datetime import datetime, timedelta, timezone
 import bytewax.operators as op
 import bytewax.operators.window as win
 from bytewax.dataflow import Dataflow
-from bytewax.operators.window import EventClockConfig, TumblingWindow, WindowMetadata
+from bytewax.operators.window import ZERO_TD, EventClock, TumblingWindower
 from bytewax.testing import TestingSink, TestingSource, run_main
-
-ZERO_TD = timedelta(seconds=0)
-ALIGN_TO = datetime(2022, 1, 1, tzinfo=timezone.utc)
-
-
-def after(seconds):
-    return ALIGN_TO + timedelta(seconds=seconds)
 
 
 def test_count_window():
+    align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
     inp = [
-        {"time": after(seconds=0), "user": "a", "val": 1},
-        {"time": after(seconds=4), "user": "a", "val": 1},
-        {"time": after(seconds=8), "user": "b", "val": 1},
-        {"time": after(seconds=12), "user": "a", "val": 1},
-        {"time": after(seconds=13), "user": "a", "val": 1},
+        {"time": align_to + timedelta(seconds=0), "user": "a", "val": 1},
+        {"time": align_to + timedelta(seconds=4), "user": "a", "val": 1},
+        {"time": align_to + timedelta(seconds=8), "user": "b", "val": 1},
+        # First 10 sec window closes during processing this input.
+        {"time": align_to + timedelta(seconds=12), "user": "a", "val": 1},
+        {"time": align_to + timedelta(seconds=13), "user": "a", "val": 1},
     ]
     out = []
 
-    clock = EventClockConfig(lambda e: e["time"], wait_for_system_duration=ZERO_TD)
-    windower = TumblingWindow(length=timedelta(seconds=10), align_to=ALIGN_TO)
+    clock = EventClock(lambda e: e["time"], wait_for_system_duration=ZERO_TD)
+    windower = TumblingWindower(length=timedelta(seconds=10), align_to=align_to)
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
-    s = win.count_window("add", s, clock, windower, lambda e: e["user"])
-    op.output("out", s, TestingSink(out))
+    wo = win.count_window("add", s, clock, windower, lambda e: e["user"])
+    op.output("out", wo.down, TestingSink(out))
 
     run_main(flow)
-    assert sorted(out) == [
-        ("a", (WindowMetadata(ALIGN_TO, after(10)), 2)),
-        ("a", (WindowMetadata(after(10), after(20)), 2)),
-        ("b", (WindowMetadata(ALIGN_TO, after(10)), 1)),
+    assert out == [
+        ("a", (0, 2)),
+        ("a", (1, 2)),
+        ("b", (0, 1)),
     ]

@@ -1,9 +1,7 @@
 //! Newtypes around PyO3 types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
-use crate::operators::stateful_unary::StateKey;
 use crate::try_unwrap;
 use crate::unwrap_any;
-use crate::window::WindowMetadata;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -20,13 +18,6 @@ use std::ops::Deref;
 /// newtype and what they are.
 #[derive(Clone, FromPyObject)]
 pub(crate) struct TdPyAny(Py<PyAny>);
-
-/// Rewrite some [`Py`] methods to automatically re-wrap as [`TdPyAny`].
-impl TdPyAny {
-    pub(crate) fn clone_ref(&self, py: Python) -> Self {
-        self.0.clone_ref(py).into()
-    }
-}
 
 /// Have access to all [`Py`] methods.
 impl Deref for TdPyAny {
@@ -225,14 +216,6 @@ impl PartialEq for TdPyAny {
             try_unwrap!(self_.rich_compare(other, CompareOp::Eq)?.is_true())
         })
     }
-}
-
-/// Turn a Rust 2-tuple of `(key, (WindowMetadata, value))` into a Python tuple.
-pub(crate) fn wrap_window_state_pair(key_value: (StateKey, (WindowMetadata, TdPyAny))) -> TdPyAny {
-    Python::with_gil(|py| {
-        let key_value_pytuple: Py<PyAny> = key_value.into_py(py);
-        key_value_pytuple.into()
-    })
 }
 
 /// A Python iterator that only gets the GIL when calling [`next`] and

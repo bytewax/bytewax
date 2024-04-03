@@ -1,6 +1,6 @@
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.operators import UnaryLogic, _StatefulFlatMapLogic
+from bytewax.operators import StatefulLogic, _StatefulFlatMapLogic
 from bytewax.testing import TestingSink, TestingSource, run_main
 
 
@@ -12,7 +12,7 @@ def test_stateful_map_logic_discard_on_none():
     logic = _StatefulFlatMapLogic("test_step", mapper, None)
     (out, discard) = logic.on_item(1)
 
-    assert discard == UnaryLogic.DISCARD
+    assert discard == StatefulLogic.DISCARD
 
 
 def test_stateful_map_logic_snapshot():

@@ -90,7 +90,7 @@ from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
 import bytewax.operators.window as win
-from bytewax.operators.window import EventClockConfig, TumblingWindow
+from bytewax.operators.window import EventClock, TumblingWindower
 from bytewax.testing import TestingSource
 
 flow = Dataflow("window_eg")
@@ -113,13 +113,15 @@ def get_event_time(event):
 
 
 # Configure the `fold_window` operator to use the event time.
-clock = EventClockConfig(get_event_time, wait_for_system_duration=timedelta(seconds=10))
+clock = EventClock(get_event_time, wait_for_system_duration=timedelta(seconds=10))
 
 # And a 5 seconds tumbling window
 align_to = datetime(2023, 1, 1, tzinfo=timezone.utc)
-windower = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
+windower = TumblingWindower(align_to=align_to, length=timedelta(seconds=5))
 
-five_sec_buckets = win.collect_window("five_sec_buckets", keyed_inp, clock, windower)
+five_sec_buckets_win_out = win.collect_window(
+    "five_sec_buckets", keyed_inp, clock, windower
+)
 
 
 def calc_avg(bucket):
@@ -130,7 +132,7 @@ def calc_avg(bucket):
         return None
 
 
-five_sec_avgs = op.map_value("avg_in_bucket", five_sec_buckets, calc_avg)
+five_sec_avgs = op.map_value("avg_in_bucket", five_sec_buckets_win_out.down, calc_avg)
 ```
 
 #### Merges and Joins
@@ -139,7 +141,7 @@ Merging or Joining multiple input streams is a common task for stream processing
 
 ##### Merging Streams
 
-Merging streams is like concatenating, there is no logic and the resulting stream will potentially include heterogenous records.
+Merging streams is like concatenating, there is no logic and the resulting stream will potentially include heterogeneous records.
 
 ```python
 from bytewax import operators as op

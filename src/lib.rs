@@ -13,7 +13,6 @@ pub(crate) mod serde;
 pub(crate) mod timely;
 pub(crate) mod tracing;
 pub(crate) mod webserver;
-pub(crate) mod window;
 pub(crate) mod worker;
 
 #[macro_use]
@@ -30,6 +29,5 @@ fn mod_bytewax(py: Python, m: &PyModule) -> PyResult<()> {
     recovery::register(py, m)?;
     run::register(py, m)?;
     tracing::register(py, m)?;
-    window::register(py, m)?;
     Ok(())
 }
