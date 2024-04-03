@@ -145,6 +145,21 @@ class ClockLogic(ABC, Generic[V, S]):
         ...
 
     @abstractmethod
+    def to_system_utc(self, timestamp: datetime) -> Optional[datetime]:
+        """Convert a timestamp to a UTC system time.
+
+        This is used to determine when the runtime should wake up to
+        check for closed windows.
+
+        :arg timestamp: Previously returned by `on_item`.
+
+        :returns: A system time in UTC. If `None`, signal that there
+            is no relevant system time to wake at.
+
+        """
+        ...
+
+    @abstractmethod
     def snapshot(self) -> S:
         """Return a immutable copy of the state for recovery.
 
@@ -196,6 +211,10 @@ class _SystemClockLogic(ClockLogic[V, None]):
         return self._now
 
     @override
+    def to_system_utc(self, timestamp: datetime) -> Optional[datetime]:
+        return timestamp
+
+    @override
     def snapshot(self) -> None:
         return None
 
@@ -211,6 +230,7 @@ class _EventClockState:
 class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
     now_getter: Callable[[], datetime]
     timestamp_getter: Callable[[V], datetime]
+    to_system: Callable[[datetime], Optional[datetime]]
     wait_for_system_duration: timedelta
     state: Optional[_EventClockState]
     _system_now: datetime = field(init=False)
@@ -260,6 +280,10 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
     @override
     def on_eof(self) -> datetime:
         return UTC_MAX
+
+    @override
+    def to_system_utc(self, timestamp: datetime) -> Optional[datetime]:
+        return self.to_system(timestamp)
 
     @override
     def snapshot(self) -> Optional[_EventClockState]:
@@ -328,13 +352,17 @@ class EventClock(Clock[V, Optional[_EventClockState]]):
 
     :::{note}
 
-    Because `now_getter` defaults to returning the current system time
-    as [aware datetimes](inv:python:term#aware-and-naive-objects) in
-    UTC, all timestamps returned by `ts_getter` also need to be [aware
-    datetimes](inv:python:term#aware-and-naive-objects) in UTC.
+    By default, all timestamps returned by `ts_getter` also need to be
+    [aware datetimes](inv:python:term#aware-and-naive-objects) in UTC.
 
-    It's easiest to convert your timestamps to UTC, but you can also
-    override `now_getter` to support other sense of time.
+    This is because `now_getter` defaults to returning the current
+    system time as [aware
+    datetimes](inv:python:term#aware-and-naive-objects) in UTC, and
+    comparisons are made to that.
+
+    It's easiest to convert your timestamps to UTC in `ts_getter`, but
+    you can also specify a custom `now_getter` and `to_system_utc` to
+    support other sense of time.
 
     :::
 
@@ -347,16 +375,28 @@ class EventClock(Clock[V, Optional[_EventClockState]]):
         advance the watermark. Defaults to the current system time in
         UTC.
 
+    :arg to_system_utc: For a given window close timestamp, return the
+        corresponding UTC system time that the runtime should use to
+        know when to wake up to run window close logic. If `None` is
+        returned, the runtime will not wake up to close windows and
+        will depend on new items or EOF to trigger any closes.
+        Defaults to passing through the timestamp.
+
     """
 
     ts_getter: Callable[[V], datetime]
     wait_for_system_duration: timedelta
     now_getter: Callable[[], datetime] = _get_system_utc
+    to_system_utc: Callable[[datetime], Optional[datetime]] = _identity
 
     @override
     def build(self, resume_state: Optional[_EventClockState]) -> _EventClockLogic[V]:
         return _EventClockLogic(
-            self.now_getter, self.ts_getter, self.wait_for_system_duration, resume_state
+            self.now_getter,
+            self.ts_getter,
+            self.to_system_utc,
+            self.wait_for_system_duration,
+            resume_state,
         )
 
 
@@ -1098,7 +1138,10 @@ class _WindowLogic(
 
     @override
     def notify_at(self) -> Optional[datetime]:
-        return self.windower.notify_at()
+        notify_at = self.windower.notify_at()
+        if notify_at is not None:
+            notify_at = self.clock.to_system_utc(notify_at)
+        return notify_at
 
     @override
     def snapshot(self) -> _WindowSnapshot[SC, SW, S]:
