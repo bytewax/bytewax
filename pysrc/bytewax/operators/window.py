@@ -549,7 +549,10 @@ class _SlidingWindowerLogic(WindowerLogic[_SlidingWindowerState]):
         assert self.offset <= self.length
         # Pre-calc constants for performance.
         self._origin_close = self.align_to + self.length
-        # Hell yes: "upside-down floor division" to get ceil.
+        # Hell yes: "upside-down floor division" to get ceil. Use this
+        # instead of `math.ceil` so that the "interface" of a
+        # timestamp doesn't need to include `__ceil__`. It already has
+        # to support `__floordiv__` and `__mod__` for other reasons.
         self._overlap_factor = -(self.length // -self.offset) + 1
         self._overlap_remainder = self.length % self.offset
 
