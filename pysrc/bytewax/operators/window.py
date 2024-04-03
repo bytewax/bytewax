@@ -89,7 +89,7 @@ class ClockLogic(ABC, Generic[V, S]):
     """
 
     @abstractmethod
-    def on_batch(self) -> None:
+    def before_batch(self) -> None:
         """Prepare to process items incoming simultaneously.
 
         Called once before a series of {py:obj}`on_item` calls.
@@ -178,7 +178,7 @@ class _SystemClockLogic(ClockLogic[V, None]):
         self._now = datetime.now(tz=timezone.utc)
 
     @override
-    def on_batch(self) -> None:
+    def before_batch(self) -> None:
         self._now = datetime.now(tz=timezone.utc)
 
     @override
@@ -219,7 +219,7 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
         self._system_now = self.now_getter()
 
     @override
-    def on_batch(self) -> None:
+    def before_batch(self) -> None:
         self._system_now = self.now_getter()
 
     @override
@@ -1042,7 +1042,7 @@ class _WindowLogic(
 
     @override
     def on_batch(self, values: List[V]) -> Tuple[Iterable[_WindowEvent[V, W]], bool]:
-        self.clock.on_batch()
+        self.clock.before_batch()
         events: List[_WindowEvent[V, W]] = []
 
         for value in values:
