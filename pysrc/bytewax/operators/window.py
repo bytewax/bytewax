@@ -800,13 +800,20 @@ class SlidingWindower(Windower[_SlidingWindowerState]):
 
     Window open times are inclusive, but close times are exclusive.
 
+    :::{warning}
+
+    Changing any of the windowing parameters across executions will
+    result in incorrect output for any windows that were open at the
+    time of the resume snapshot.
+
+    :::
+
     :arg length: Length of windows.
 
     :arg offset: Duration between start times of adjacent windows.
 
-    :arg align_to: Align windows so this instant starts a window. This
-        must be a constant. You can use this to align all windows to
-        an hour boundary, e.g.
+    :arg align_to: Align windows so this instant starts a window. You
+        can use this to align all windows to an hour boundary, e.g.
 
     """
 
@@ -838,11 +845,18 @@ class TumblingWindower(Windower[_SlidingWindowerState]):
 
     Window open times are inclusive, but close times are exclusive.
 
+    :::{warning}
+
+    Changing any of the windowing parameters across executions will
+    result in incorrect output for any windows that were open at the
+    time of the resume snapshot.
+
+    :::
+
     :arg length: Length of windows.
 
-    :arg align_to: Align windows so this instant starts a window. This
-        must be a constant. You can use this to align all windows to
-        an hour boundary, e.g.
+    :arg align_to: Align windows so this instant starts a window. You
+        can use this to align all windows to an hour boundary, e.g.
 
     """
 
