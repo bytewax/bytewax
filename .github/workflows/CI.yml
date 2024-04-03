@@ -5,8 +5,6 @@ on:
     branches:
       - main
     paths-ignore:
-      - "apidocs/**"
-      - "**.md"
       - ".github/ISSUE_TEMPLATE/**"
   pull_request: {}
   merge_group:
@@ -31,7 +29,7 @@ jobs:
             tar --strip-components 1 -xvf cbfmt.tar.gz
             mv cbfmt /usr/local/bin/
       - name: Install cbfmt sub-formatting commands
-        run: pip install .[cbfmt]
+        run: pip install -r requirements/pre-commit.txt --no-deps
       - uses: pre-commit/action@v3.0.0
 
   linux:
@@ -74,8 +72,9 @@ jobs:
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
+          pip install -r requirements/test.txt --no-deps
           WHEEL_FILE=$(ls ./dist/*.whl)
-          pip install $WHEEL_FILE'[dev]' -v --force-reinstall
+          pip install $WHEEL_FILE -v --no-deps
           PY_IGNORE_IMPORTMISMATCH=1 pytest
         if: ${{ matrix.target == 'x86_64' }}
       - name: Upload wheels
@@ -129,8 +128,9 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
+          pip install -r requirements/test.txt --no-deps
           WHEEL_FILE=$(ls ./dist/*.whl)
-          pip install $WHEEL_FILE'[dev]' -v --force-reinstall
+          pip install $WHEEL_FILE -v --no-deps
           PY_IGNORE_IMPORTMISMATCH=1 pytest
         # Only run tests for the host architecture, as aarch64 is cross-compiled.
         if: ${{ matrix.target != 'aarch64' }}
@@ -174,9 +174,9 @@ jobs:
           sccache: true
       - name: Run tests
         run: |
+          pip install -r requirements/test.txt --no-deps
           $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
-          $WHEEL_FILE_DEV=$WHEEL_FILE+"[dev]"
-          pip install $WHEEL_FILE_DEV -v
+          pip install $WHEEL_FILE -v --no-deps
           $env:PY_IGNORE_IMPORTMISMATCH = '1'
           pytest
       - name: Upload wheels
