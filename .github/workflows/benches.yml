@@ -28,8 +28,9 @@ jobs:
           sccache: true
       - name: Install dependencies
         run: |
+          pip install -r requirements/test.txt --no-deps
           WHEEL_FILE=$(ls ./dist/*.whl)
-          pip install $WHEEL_FILE'[dev]' -v --force-reinstall
+          pip install $WHEEL_FILE -v --no-deps
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v2
         with:
