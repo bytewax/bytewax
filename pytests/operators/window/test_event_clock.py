@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from bytewax.operators.window import (
@@ -6,17 +5,7 @@ from bytewax.operators.window import (
     UTC_MIN,
     _EventClockLogic,
 )
-
-
-@dataclass
-class TimeTestSource:
-    now: datetime
-
-    def advance(self, td: timedelta) -> None:
-        self.now += td
-
-    def get(self) -> datetime:
-        return self.now
+from bytewax.testing import TimeTestSource
 
 
 def test_watermark_starts_at_beginning_of_time():
