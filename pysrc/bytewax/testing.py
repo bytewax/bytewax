@@ -30,7 +30,7 @@ from bytewax.run import (
 __all__ = [
     "TestingSink",
     "TestingSource",
-    "TimeTestSource",
+    "TimeTestingGetter",
     "cluster_main",
     "ffwd_iter",
     "poll_next_batch",
@@ -39,7 +39,7 @@ __all__ = [
 
 
 @dataclass
-class TimeTestSource:
+class TimeTestingGetter:
     """Wrapper to provide a modifyable system clock for unit tests."""
 
     now: datetime
