@@ -33,7 +33,7 @@ on documentation without needing to make a PR or release.
 
 The quickest way to iterate on your docs is to run the
 `./autobuild.sh` script from the `/docs` directory from inside the
-`dev` virtualenv. See <project:#xref-venv> on how to set that up.
+`dev` virtualenv. See <project:#xref-dev-venv> on how to set that up.
 
 ```console
 (dev-3.10) $ cd docs
