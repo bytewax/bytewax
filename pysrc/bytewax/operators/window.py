@@ -187,14 +187,15 @@ class ClockLogic(ABC, Generic[V, S]):
 
 @dataclass
 class _SystemClockLogic(ClockLogic[V, None]):
+    now_getter: Callable[[], datetime]
     _now: datetime = field(init=False)
 
     def __post_init__(self) -> None:
-        self._now = datetime.now(tz=timezone.utc)
+        self._now = self.now_getter()
 
     @override
     def before_batch(self) -> None:
-        self._now = datetime.now(tz=timezone.utc)
+        self._now = self.now_getter()
 
     @override
     def on_item(self, value: V) -> Tuple[datetime, datetime]:
@@ -202,13 +203,12 @@ class _SystemClockLogic(ClockLogic[V, None]):
 
     @override
     def on_notify(self) -> datetime:
-        self._now = datetime.now(tz=timezone.utc)
+        self._now = self.now_getter()
         return self._now
 
     @override
     def on_eof(self) -> datetime:
-        self._now = datetime.now(tz=timezone.utc)
-        return self._now
+        return UTC_MAX
 
     @override
     def to_system_utc(self, timestamp: datetime) -> Optional[datetime]:
@@ -319,6 +319,10 @@ class Clock(ABC, Generic[V, S]):
         ...
 
 
+def _get_system_utc() -> datetime:
+    return datetime.now(tz=timezone.utc)
+
+
 @dataclass
 class SystemClock(Clock[V, None]):
     """Uses the current system time as the timestamp for each item.
@@ -333,11 +337,7 @@ class SystemClock(Clock[V, None]):
 
     @override
     def build(self, resume_state: None) -> _SystemClockLogic[V]:
-        return _SystemClockLogic()
-
-
-def _get_system_utc() -> datetime:
-    return datetime.now(tz=timezone.utc)
+        return _SystemClockLogic(_get_system_utc)
 
 
 @dataclass
@@ -1087,7 +1087,6 @@ class _WindowLogic(
 
         for value in values:
             value_timestamp, watermark = self.clock.on_item(value)
-            print(self._last_watermark, watermark)
             assert watermark >= self._last_watermark
             self._last_watermark = watermark
 
@@ -1106,7 +1105,8 @@ class _WindowLogic(
                         (window_id, _Meta(self.windower.metadata_for(window_id)))
                     )
 
-                events.extend((window_id, _Emit(w)) for w in logic.on_value(value))
+                ws = logic.on_value(value)
+                events.extend((window_id, _Emit(w)) for w in ws)
 
             for window_id in late_windows:
                 events.append((window_id, _Late(value)))

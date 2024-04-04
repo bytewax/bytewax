@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from bytewax.operators.window import (
@@ -6,21 +5,11 @@ from bytewax.operators.window import (
     UTC_MIN,
     _EventClockLogic,
 )
-
-
-@dataclass
-class TimeTestSource:
-    now: datetime
-
-    def advance(self, td: timedelta) -> None:
-        self.now += td
-
-    def get(self) -> datetime:
-        return self.now
+from bytewax.testing import TimeTestingGetter
 
 
 def test_watermark_starts_at_beginning_of_time():
-    source = TimeTestSource(datetime(2024, 1, 1, tzinfo=timezone.utc))
+    source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
         source.get,
@@ -33,7 +22,7 @@ def test_watermark_starts_at_beginning_of_time():
 
 
 def test_watermark_is_item_timestamp_minus_wait():
-    source = TimeTestSource(datetime(2024, 1, 1, tzinfo=timezone.utc))
+    source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
         source.get,
@@ -49,7 +38,7 @@ def test_watermark_is_item_timestamp_minus_wait():
 
 
 def test_watermark_forwards_by_system_time():
-    source = TimeTestSource(datetime(2024, 1, 1, tzinfo=timezone.utc))
+    source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
         source.get,
@@ -66,7 +55,7 @@ def test_watermark_forwards_by_system_time():
 
 
 def test_watermark_advances_in_batch():
-    source = TimeTestSource(datetime(2024, 1, 1, tzinfo=timezone.utc))
+    source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
         source.get,
@@ -84,7 +73,7 @@ def test_watermark_advances_in_batch():
 
 
 def test_watermark_does_not_reverse_in_batch():
-    source = TimeTestSource(datetime(2024, 1, 1, tzinfo=timezone.utc))
+    source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
         source.get,
@@ -102,7 +91,7 @@ def test_watermark_does_not_reverse_in_batch():
 
 
 def test_watermark_does_not_reverse_and_forwards_by_system_time_next_batch():
-    source = TimeTestSource(datetime(2024, 1, 1, tzinfo=timezone.utc))
+    source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
         source.get,
@@ -122,7 +111,7 @@ def test_watermark_does_not_reverse_and_forwards_by_system_time_next_batch():
 
 
 def test_watermark_is_end_of_time_on_eof():
-    source = TimeTestSource(datetime(2024, 1, 1, tzinfo=timezone.utc))
+    source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
         source.get,
@@ -136,7 +125,7 @@ def test_watermark_is_end_of_time_on_eof():
 
 
 def test_watermark_doesnt_overflow_after_eof():
-    source = TimeTestSource(datetime(2024, 1, 1, tzinfo=timezone.utc))
+    source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
         source.get,

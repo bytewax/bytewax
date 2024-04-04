@@ -30,11 +30,37 @@ from bytewax.run import (
 __all__ = [
     "TestingSink",
     "TestingSource",
+    "TimeTestingGetter",
     "cluster_main",
     "ffwd_iter",
     "poll_next_batch",
     "run_main",
 ]
+
+
+@dataclass
+class TimeTestingGetter:
+    """Wrapper to provide a modifyable system clock for unit tests."""
+
+    now: datetime
+
+    def advance(self, td: timedelta) -> None:
+        """Advance the current time.
+
+        :arg td: By this amount.
+
+        """
+        self.now += td
+
+    def get(self) -> datetime:
+        """Return the "current time".
+
+        Use this if you need a getter.
+
+        :returns: The "current time".
+
+        """
+        return self.now
 
 
 def ffwd_iter(it: Iterator[Any], n: int) -> None:

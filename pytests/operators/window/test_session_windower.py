@@ -1,12 +1,18 @@
 from datetime import datetime, timedelta, timezone
 
+import bytewax.operators as op
+import bytewax.operators.window as win
+from bytewax.dataflow import Dataflow
 from bytewax.operators.window import (
     LATE_SESSION_ID,
+    SessionWindower,
+    SystemClock,
     WindowMetadata,
     _session_find_merges,
     _SessionWindowerLogic,
     _SessionWindowerState,
 )
+from bytewax.testing import TestingSink, TestingSource, run_main
 
 
 def test_initial_session():
@@ -314,3 +320,30 @@ def test_find_merges_no_yes_no():
             close_time=datetime(2024, 1, 1, 9, 0, 40, tzinfo=timezone.utc),
         ),
     }
+
+
+def test_session_with_system_clock():
+    flow = Dataflow("test_df")
+    s = op.input("input", flow, TestingSource(range(10)))
+    s = op.key_on("key", s, lambda x: "ALL")
+
+    def folder(s, v):
+        s.append(v)
+        return s
+
+    wo = win.fold_window(
+        "collect_records",
+        s,
+        SystemClock(),
+        SessionWindower(gap=timedelta(seconds=10)),
+        list,
+        folder,
+        list.__add__,
+    )
+
+    out = []
+    op.output("out", wo.down, TestingSink(out))
+
+    run_main(flow)
+
+    assert out == [("ALL", (0, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]))]
