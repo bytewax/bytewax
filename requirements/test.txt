@@ -28,13 +28,17 @@ beautifulsoup4==4.12.3
 certifi==2024.2.2
     # via
     #   -r docs.txt
+    #   -r library.txt
     #   requests
 cffi==1.16.0
     # via pytest-codspeed
 charset-normalizer==3.3.2
     # via
     #   -r docs.txt
+    #   -r library.txt
     #   requests
+confluent-kafka==2.3.0
+    # via -r library.txt
 docutils==0.20.1
     # via
     #   -r docs.txt
@@ -43,11 +47,14 @@ docutils==0.20.1
     #   sphinx
 exceptiongroup==1.2.0
     # via pytest
+fastavro==1.9.4
+    # via -r library.txt
 filelock==3.13.3
     # via pytest-codspeed
 idna==3.6
     # via
     #   -r docs.txt
+    #   -r library.txt
     #   requests
 imagesize==1.4.1
     # via
@@ -119,6 +126,7 @@ pyyaml==6.0.1
 requests==2.31.0
     # via
     #   -r docs.txt
+    #   -r library.txt
     #   sphinx
 snowballstemmer==2.2.0
     # via
@@ -181,4 +189,5 @@ typing-extensions==4.10.0
 urllib3==2.2.1
     # via
     #   -r docs.txt
+    #   -r library.txt
     #   requests

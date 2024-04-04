@@ -39,6 +39,8 @@ charset-normalizer==3.3.2
     #   requests
 colorama==0.4.6
     # via sphinx-autobuild
+confluent-kafka==2.3.0
+    # via -r test.txt
 docutils==0.20.1
     # via
     #   -r test.txt
@@ -49,6 +51,8 @@ exceptiongroup==1.2.0
     # via
     #   -r test.txt
     #   pytest
+fastavro==1.9.4
+    # via -r test.txt
 filelock==3.13.3
     # via
     #   -r test.txt
