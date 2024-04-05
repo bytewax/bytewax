@@ -4,12 +4,20 @@ from abc import ABC, abstractmethod
 from typing import Any, cast
 
 import jsonpickle
-import jsonpickle.ext.numpy as jsonpickle_numpy
-import jsonpickle.ext.pandas as jsonpickle_pandas
 from typing_extensions import override
 
-jsonpickle_numpy.register_handlers()
-jsonpickle_pandas.register_handlers()
+try:
+    import jsonpickle.ext.numpy as jsonpickle_numpy
+
+    jsonpickle_numpy.register_handlers()
+except ImportError:
+    pass
+try:
+    import jsonpickle.ext.pandas as jsonpickle_pandas
+
+    jsonpickle_pandas.register_handlers()
+except ImportError:
+    pass
 
 
 class Serde(ABC):
