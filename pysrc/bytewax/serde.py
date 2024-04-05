@@ -4,7 +4,12 @@ from abc import ABC, abstractmethod
 from typing import Any, cast
 
 import jsonpickle
+import jsonpickle.ext.numpy as jsonpickle_numpy
+import jsonpickle.ext.pandas as jsonpickle_pandas
 from typing_extensions import override
+
+jsonpickle_numpy.register_handlers()
+jsonpickle_pandas.register_handlers()
 
 
 class Serde(ABC):
