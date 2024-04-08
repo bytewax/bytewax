@@ -33,19 +33,16 @@ use crate::with_timer;
 pub(crate) struct Sink(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for Sink {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        let abc = ob
-            .py()
-            .import("bytewax.outputs")?
-            .getattr("Sink")?
-            .extract()?;
-        if !ob.is_instance(abc)? {
+impl<'py> FromPyObject<'py> for Sink {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let py = ob.py();
+        let abc = py.import_bound("bytewax.outputs")?.getattr("Sink")?;
+        if !ob.is_instance(&abc)? {
             Err(tracked_err::<PyTypeError>(
                 "sink must subclass `bytewax.outputs.Sink`",
             ))
         } else {
-            Ok(Self(ob.into()))
+            Ok(Self(ob.to_object(py)))
         }
     }
 }
@@ -76,19 +73,18 @@ impl Sink {
 pub(crate) struct FixedPartitionedSink(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for FixedPartitionedSink {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        let abc = ob
-            .py()
-            .import("bytewax.outputs")?
-            .getattr("FixedPartitionedSink")?
-            .extract()?;
-        if !ob.is_instance(abc)? {
+impl<'py> FromPyObject<'py> for FixedPartitionedSink {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let py = ob.py();
+        let abc = py
+            .import_bound("bytewax.outputs")?
+            .getattr("FixedPartitionedSink")?;
+        if !ob.is_instance(&abc)? {
             Err(tracked_err::<PyTypeError>(
                 "fixed partitioned sink must subclass `bytewax.outputs.FixedPartitionedSink`",
             ))
         } else {
-            Ok(Self(ob.into()))
+            Ok(Self(ob.to_object(py)))
         }
     }
 }
@@ -125,19 +121,18 @@ impl FixedPartitionedSink {
 struct StatefulPartition(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for StatefulPartition {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        let abc = ob
-            .py()
-            .import("bytewax.outputs")?
-            .getattr("StatefulSinkPartition")?
-            .extract()?;
-        if !ob.is_instance(abc)? {
+impl<'py> FromPyObject<'py> for StatefulPartition {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let py = ob.py();
+        let abc = py
+            .import_bound("bytewax.outputs")?
+            .getattr("StatefulSinkPartition")?;
+        if !ob.is_instance(&abc)? {
             Err(tracked_err::<PyTypeError>(
                 "stateful sink partition must subclass `bytewax.outputs.StatefulSinkPartition`",
             ))
         } else {
-            Ok(Self(ob.into()))
+            Ok(Self(ob.to_object(py)))
         }
     }
 }
@@ -414,19 +409,16 @@ where
 pub(crate) struct DynamicSink(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for DynamicSink {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        let abc = ob
-            .py()
-            .import("bytewax.outputs")?
-            .getattr("DynamicSink")?
-            .extract()?;
-        if !ob.is_instance(abc)? {
+impl<'py> FromPyObject<'py> for DynamicSink {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let py = ob.py();
+        let abc = py.import_bound("bytewax.outputs")?.getattr("DynamicSink")?;
+        if !ob.is_instance(&abc)? {
             Err(tracked_err::<PyTypeError>(
                 "dynamic sink must subclass `bytewax.outputs.DynamicSink`",
             ))
         } else {
-            Ok(Self(ob.into()))
+            Ok(Self(ob.to_object(py)))
         }
     }
 }
@@ -449,19 +441,18 @@ impl DynamicSink {
 struct StatelessPartition(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for StatelessPartition {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        let abc = ob
-            .py()
-            .import("bytewax.outputs")?
-            .getattr("StatelessSinkPartition")?
-            .extract()?;
-        if !ob.is_instance(abc)? {
+impl<'py> FromPyObject<'py> for StatelessPartition {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let py = ob.py();
+        let abc = py
+            .import_bound("bytewax.outputs")?
+            .getattr("StatelessSinkPartition")?;
+        if !ob.is_instance(&abc)? {
             Err(tracked_err::<PyTypeError>(
                 "stateless sink partition must subclass `bytewax.outputs.StatelessSinkPartition`",
             ))
         } else {
-            Ok(Self(ob.into()))
+            Ok(Self(ob.to_object(py)))
         }
     }
 }

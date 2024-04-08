@@ -40,7 +40,7 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
     // Since the dataflow can't change at runtime, we encode it as a
     // string of JSON once, when the webserver starts.
     let dataflow_json: String = Python::with_gil(|py| -> PyResult<String> {
-        let encoder_mod = PyModule::import(py, "bytewax._encoder")?;
+        let encoder_mod = PyModule::import_bound(py, "bytewax._encoder")?;
         let to_json = encoder_mod.getattr("to_json")?;
 
         let dataflow_json = to_json
@@ -146,7 +146,10 @@ pub(crate) fn run_main(
         eprintln!();
         if let Some(err) = panic_err.downcast_ref::<PyErr>() {
             // Special case for keyboard interrupt.
-            if err.get_type(py).is(PyType::new::<PyKeyboardInterrupt>(py)) {
+            if err
+                .get_type_bound(py)
+                .is(&PyType::new_bound::<PyKeyboardInterrupt>(py))
+            {
                 tracked_err::<PyKeyboardInterrupt>(
                     "interrupt signal received, all processes have been shut down",
                 )
@@ -446,7 +449,7 @@ pub(crate) fn test_cluster(
     Ok(())
 }
 
-pub(crate) fn register(_py: Python, m: &PyModule) -> PyResult<()> {
+pub(crate) fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_main, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
     m.add_function(wrap_pyfunction!(cli_main, m)?)?;

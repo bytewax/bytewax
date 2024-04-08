@@ -68,12 +68,11 @@ where
                         data.swap(&mut inbuf);
                         let mut trues_session = trues_handle.session(&time);
                         let mut falses_session = falses_handle.session(&time);
-                        let pred = predicate.as_ref(py);
+                        let pred = predicate.bind(py);
                         unwrap_any!(|| -> PyResult<()> {
                             for item in inbuf.drain(..) {
-                                let item = PyObject::from(item);
                                 let res = pred
-                                    .call1((item.clone_ref(py),))
+                                    .call1((item.bind(py),))
                                     .reraise_with(|| {
                                         format!("error calling predicate in step {step_id}")
                                     })?
@@ -84,9 +83,9 @@ where
                                     )
                                     })?;
                                 if res {
-                                    trues_session.give(TdPyAny::from(item));
+                                    trues_session.give(item);
                                 } else {
-                                    falses_session.give(TdPyAny::from(item));
+                                    falses_session.give(item);
                                 }
                             }
                             Ok(())
@@ -100,7 +99,11 @@ where
     }
 }
 
-fn next_batch(outbuf: &mut Vec<TdPyAny>, mapper: &PyAny, in_batch: Vec<PyObject>) -> PyResult<()> {
+fn next_batch(
+    outbuf: &mut Vec<TdPyAny>,
+    mapper: &Bound<'_, PyAny>,
+    in_batch: Vec<PyObject>,
+) -> PyResult<()> {
     let res = mapper.call1((in_batch,)).reraise("error calling mapper")?;
     let iter = res.iter().reraise_with(|| {
         format!(
@@ -195,7 +198,7 @@ where
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     let batch: Vec<_> =
                                         batch.into_iter().map(PyObject::from).collect();
-                                    let mapper = mapper.as_ref(py);
+                                    let mapper = mapper.bind(py);
 
                                     with_timer!(
                                         mapper_histogram,
@@ -279,11 +282,9 @@ where
                                 let mut clock_session = clock_handle.session(clock_cap);
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    let inspector = inspector.as_ref(py);
+                                    let inspector = inspector.bind(py);
 
                                     for item in items.iter() {
-                                        let item = <&PyObject>::from(item);
-
                                         inspector
                                             .call1((
                                                 step_id.clone(),
@@ -391,7 +392,7 @@ where
                                     .extract::<(&PyAny, PyObject)>(py)
                                     .raise_with::<PyTypeError>(|| {
                                         format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
-                                            unwrap_any!(item.as_ref(py).get_type().name()),
+                                            unwrap_any!(item.bind(py).get_type().name()),
                                         )
                                     })?;
 
@@ -451,19 +452,18 @@ where
 struct StatefulBatchLogic(PyObject);
 
 /// Do some eager type checking.
-impl<'source> FromPyObject<'source> for StatefulBatchLogic {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        let abc = ob
-            .py()
-            .import("bytewax.operators")?
-            .getattr("StatefulBatchLogic")?
-            .extract()?;
-        if !ob.is_instance(abc)? {
+impl<'py> FromPyObject<'py> for StatefulBatchLogic {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let py = ob.py();
+        let abc = py
+            .import_bound("bytewax.operators")?
+            .getattr("StatefulBatchLogic")?;
+        if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "logic must subclass `bytewax.operators.StatefulBatchLogic`",
             ))
         } else {
-            Ok(Self(ob.into()))
+            Ok(Self(ob.to_object(py)))
         }
     }
 }
@@ -473,8 +473,8 @@ enum IsComplete {
     Discard,
 }
 
-impl<'source> FromPyObject<'source> for IsComplete {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+impl<'py> FromPyObject<'py> for IsComplete {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         if ob.extract::<bool>().reraise_with(|| {
             format!(
                 "`is_complete` was not a `bool`; got a `{}` instead",
@@ -489,7 +489,7 @@ impl<'source> FromPyObject<'source> for IsComplete {
 }
 
 impl StatefulBatchLogic {
-    fn extract_ret(res: &PyAny) -> PyResult<(Vec<PyObject>, IsComplete)> {
+    fn extract_ret(res: Bound<'_, PyAny>) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let (iter, is_complete) = res.extract::<(&PyAny, &PyAny)>().reraise_with(|| {
             format!(
                 "did not return a 2-tuple of `(emit, is_complete)`; got a `{}` instead",
@@ -514,23 +514,23 @@ impl StatefulBatchLogic {
     ) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let res = self
             .0
-            .as_ref(py)
+            .bind(py)
             .call_method1(intern!(py, "on_batch"), (items,))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
     fn on_notify<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let res = self.0.as_ref(py).call_method0(intern!(py, "on_notify"))?;
+        let res = self.0.bind(py).call_method0(intern!(py, "on_notify"))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
     fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let res = self.0.as_ref(py).call_method0("on_eof")?;
+        let res = self.0.bind(py).call_method0("on_eof")?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
     fn notify_at(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
-        let res = self.0.as_ref(py).call_method0(intern!(py, "notify_at"))?;
+        let res = self.0.bind(py).call_method0(intern!(py, "notify_at"))?;
         res.extract().reraise_with(|| {
             format!(
                 "did not return a `datetime`; got a `{}` instead",
@@ -755,7 +755,7 @@ where
                                 }
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    let builder = builder.as_ref(py);
+                                    let builder = builder.bind(py);
 
                                     for (key, values) in keyed_items {
                                         // Ok, let's actually run the logic code!
@@ -961,7 +961,7 @@ where
 
                                 if let Some(loads) = loads_inbuf.remove(&epoch) {
                                     unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                        let builder = builder.as_ref(py);
+                                        let builder = builder.bind(py);
 
                                         for (worker, (key, change)) in loads {
                                             tracing::trace!(
