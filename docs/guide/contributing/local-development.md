@@ -3,8 +3,18 @@
 Here we'll describe how to get a reproducible local development
 environment setup.
 
+## Installing `pyenv`
+
+We want Bytewax to run under many different versions of the Python
+interpreter, so we need a quick way to create virtualenvs in different
+versions. I suggest using [`pyenv`](https://github.com/pyenv/pyenv).
+Follow the instructions there to install it.
+
 (xref-dev-venv)=
 ## Setup a Virtual Environment
+
+I keep all of my different versioned virtualenvs in a `venv` dir. This
+is already git-ignored.
 
 ```console
 $ mkdir venv
