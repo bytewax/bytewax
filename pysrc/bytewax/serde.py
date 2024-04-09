@@ -1,10 +1,26 @@
 """Serialization for recovery and transport."""
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, cast
 
 import jsonpickle
 from typing_extensions import override
+
+logger = logging.getLogger(__name__)
+
+try:
+    import jsonpickle.ext.numpy as jsonpickle_numpy
+
+    jsonpickle_numpy.register_handlers()
+except ImportError:
+    logger.debug("Unable to register jsonpickle numpy extensions")
+try:
+    import jsonpickle.ext.pandas as jsonpickle_pandas
+
+    jsonpickle_pandas.register_handlers()
+except ImportError:
+    logger.debug("Unable to register jsonpickle pandas handlers")
 
 
 class Serde(ABC):
