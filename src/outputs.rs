@@ -169,7 +169,7 @@ struct PartitionAssigner(TdPyCallable);
 
 impl PartitionAssigner {
     fn part_fn(&self, py: Python, key: &StateKey) -> PyResult<usize> {
-        self.0.call1(py, (key.clone(),))?.extract(py)
+        self.0.bind(py).call1((key.clone(),))?.extract()
     }
 }
 

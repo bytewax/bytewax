@@ -285,6 +285,8 @@ where
                                     let inspector = inspector.bind(py);
 
                                     for item in items.iter() {
+                                        let item = item.bind(py);
+
                                         inspector
                                             .call1((
                                                 step_id.clone(),
