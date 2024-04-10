@@ -99,7 +99,7 @@ impl FixedPartitionedSink {
         py: Python,
         step_id: &StepId,
         for_part: &StateKey,
-        resume_state: Option<TdPyAny>,
+        resume_state: Option<PyObject>,
     ) -> PyResult<StatefulPartition> {
         self.0
             .call_method1(
@@ -138,7 +138,7 @@ impl<'py> FromPyObject<'py> for StatefulPartition {
 }
 
 impl StatefulPartition {
-    fn write_batch(&self, py: Python, values: Vec<TdPyAny>) -> PyResult<()> {
+    fn write_batch(&self, py: Python, values: Vec<PyObject>) -> PyResult<()> {
         let _ = self
             .0
             .call_method1(py, intern!(py, "write_batch"), (values,))?;
@@ -169,12 +169,18 @@ struct PartitionAssigner(TdPyCallable);
 
 impl PartitionAssigner {
     fn part_fn(&self, py: Python, key: &StateKey) -> PyResult<usize> {
-        self.0.call1(py, (key.clone(),))?.extract(py)
+        self.0.bind(py).call1((key.clone(),))?.extract()
     }
 }
 
 impl PartitionFn<StateKey> for PartitionAssigner {
     fn assign(&self, key: &StateKey) -> usize {
+        // TODO: This is a hot inner GIL acquisition. This should be
+        // refactored into the output operator itself, but because
+        // we're piggy-backing on the pure-Timely recovery partitioned
+        // IO operators, we don't have access to batches. TBH probably
+        // this will go away with 2PC being worked into `stateful`
+        // operator in Python.
         unwrap_any!(Python::with_gil(|py| self.part_fn(py, key))
             .reraise("error assigning output partition"))
     }
@@ -318,7 +324,7 @@ where
                                             });
 
                                         let batch: Vec<_> =
-                                            items.into_iter().map(|(_k, v)| v).collect();
+                                            items.into_iter().map(|(_k, v)| v.into()).collect();
                                         item_inp_count.add(batch.len() as u64, &labels);
                                         with_timer!(
                                             write_batch_histogram,
@@ -379,7 +385,7 @@ where
                                                         py,
                                                         &step_id,
                                                         &part_key,
-                                                        Some(state),
+                                                        Some(state.into()),
                                                     )
                                                     .reraise("error resuming StatefulSink")
                                                 }));
@@ -458,7 +464,7 @@ impl<'py> FromPyObject<'py> for StatelessPartition {
 }
 
 impl StatelessPartition {
-    fn write_batch(&self, py: Python, items: Vec<TdPyAny>) -> PyResult<()> {
+    fn write_batch(&self, py: Python, items: Vec<PyObject>) -> PyResult<()> {
         let _ = self
             .0
             .call_method1(py, intern!(py, "write_batch"), (items,))?;
@@ -534,7 +540,11 @@ where
 
                         let mut output_session = output.session(&cap);
 
-                        let batch = tmp_incoming.split_off(0);
+                        let batch: Vec<PyObject> = tmp_incoming
+                            .split_off(0)
+                            .into_iter()
+                            .map(|item| item.into())
+                            .collect();
                         item_inp_count.add(batch.len() as u64, &labels);
                         with_timer!(
                             write_batch_histogram,

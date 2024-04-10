@@ -1553,6 +1553,8 @@ where
                                 .map(|Snapshot(step_id, state_key, snap_change)| {
                                     let ser_change = match snap_change {
                                         StateChange::Upsert(snap) => {
+                                            let snap = PyObject::from(snap);
+
                                             let ser_snap = unwrap_any!(serde.ser(py, snap));
                                             Some(ser_snap)
                                         }

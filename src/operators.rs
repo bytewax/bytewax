@@ -285,6 +285,8 @@ where
                                     let inspector = inspector.bind(py);
 
                                     for item in items.iter() {
+                                        let item = item.bind(py);
+
                                         inspector
                                             .call1((
                                                 step_id.clone(),
@@ -970,6 +972,8 @@ where
                                             assert!(worker == this_worker);
                                             match change {
                                                 StateChange::Upsert(state) => {
+                                                    let state: PyObject = state.into();
+
                                                     let logic = builder
                                                         .call1((Some(state),))?
                                                         .extract::<StatefulBatchLogic>()?;
