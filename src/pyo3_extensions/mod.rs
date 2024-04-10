@@ -228,21 +228,6 @@ impl PartialEq for TdPyAny {
     }
 }
 
-/// A Python iterator that only gets the GIL when calling [`next`] and
-/// automatically wraps in [`TdPyAny`].
-///
-/// Otherwise the GIL would be held for the entire life of the iterator.
-#[derive(Clone)]
-pub(crate) struct TdPyIterator(Py<PyIterator>);
-
-/// Have PyO3 do type checking to ensure we only make from iterable
-/// objects.
-impl<'source> FromPyObject<'source> for TdPyIterator {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        Ok(Self(ob.iter()?.into()))
-    }
-}
-
 /// A Python object that is callable.
 #[derive(Clone)]
 pub(crate) struct TdPyCallable(Py<PyAny>);
