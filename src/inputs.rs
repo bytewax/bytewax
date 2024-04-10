@@ -214,7 +214,7 @@ impl FixedPartitionedSource {
         py: Python,
         step_id: &StepId,
         for_part: &StateKey,
-        resume_state: Option<TdPyAny>,
+        resume_state: Option<PyObject>,
     ) -> PyResult<StatefulPartition> {
         self.0
             .call_method1(
@@ -338,7 +338,7 @@ impl FixedPartitionedSource {
                                         py,
                                         &step_id,
                                         &part_key,
-                                        Some(state)
+                                        Some(state.into())
                                     ).reraise_with(|| format!("error calling `FixedPartitionSource.build_part` in step {step_id} for partition {part_key}"))?;
                                     let next_awake = part.next_awake(py)
                                         .reraise_with(|| format!("error calling `StatefulSourcePartition.next_awake` in step {step_id} for partition {part_key}"))?;

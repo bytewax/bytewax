@@ -79,7 +79,7 @@ impl Serde {
         Self(self.0.clone_ref(py))
     }
 
-    pub(crate) fn ser(&self, py: Python, state: TdPyAny) -> PyResult<String> {
+    pub(crate) fn ser(&self, py: Python, state: PyObject) -> PyResult<String> {
         self.0
             .call_method1(py, intern!(py, "ser"), (state,))?
             .extract(py)

@@ -972,6 +972,8 @@ where
                                             assert!(worker == this_worker);
                                             match change {
                                                 StateChange::Upsert(state) => {
+                                                    let state: PyObject = state.into();
+
                                                     let logic = builder
                                                         .call1((Some(state),))?
                                                         .extract::<StatefulBatchLogic>()?;

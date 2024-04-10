@@ -8,41 +8,23 @@ use pyo3::prelude::*;
 use pyo3::types::*;
 use serde::ser::Error;
 use std::fmt;
-use std::ops::Deref;
 
 /// Represents a Python object flowing through a Timely dataflow.
+///
+/// As soon as you need to manipulate this object, convert it into a
+/// [`PyObject`] or bind it into a [`Bound`]. This should only exist
+/// within the dataflow.
 ///
 /// A newtype for [`Py`]<[`PyAny`]> so we can
 /// extend it with traits that Timely needs. See
 /// <https://github.com/Ixrec/rust-orphan-rules> for why we need a
 /// newtype and what they are.
-#[derive(Clone, FromPyObject)]
-pub(crate) struct TdPyAny(Py<PyAny>);
+#[derive(Clone)]
+pub(crate) struct TdPyAny(PyObject);
 
-/// Have access to all [`Py`] methods.
-impl Deref for TdPyAny {
-    type Target = Py<PyAny>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl ToPyObject for TdPyAny {
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        self.0.to_object(py)
-    }
-}
-
-impl IntoPy<PyObject> for TdPyAny {
-    fn into_py(self, _py: Python) -> Py<PyAny> {
-        self.0
-    }
-}
-
-impl IntoPy<PyObject> for &TdPyAny {
-    fn into_py(self, py: Python) -> Py<PyAny> {
-        self.0.clone_ref(py)
+impl TdPyAny {
+    pub(crate) fn bind<'py>(&self, py: Python<'py>) -> &Bound<'py, PyAny> {
+        self.0.bind(py)
     }
 }
 
@@ -52,26 +34,8 @@ impl From<TdPyAny> for PyObject {
     }
 }
 
-impl<'a> From<&'a TdPyAny> for &'a PyObject {
-    fn from(x: &'a TdPyAny) -> Self {
-        &x.0
-    }
-}
-
-impl From<&PyAny> for TdPyAny {
-    fn from(x: &PyAny) -> Self {
-        Self(x.into())
-    }
-}
-
-impl From<&PyString> for TdPyAny {
-    fn from(x: &PyString) -> Self {
-        Self(x.into())
-    }
-}
-
-impl From<Py<PyAny>> for TdPyAny {
-    fn from(x: Py<PyAny>) -> Self {
+impl From<PyObject> for TdPyAny {
+    fn from(x: PyObject) -> Self {
         Self(x)
     }
 }
@@ -147,7 +111,7 @@ impl<'de> serde::de::Visitor<'de> for PickleVisitor {
     {
         let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
             let pickle = py.import_bound("pickle")?;
-            let x = pickle.call_method1("loads", (bytes,))?.as_gil_ref().into();
+            let x = pickle.call_method1("loads", (bytes,))?.unbind().into();
             Ok(x)
         });
         x.map_err(E::custom)
@@ -175,7 +139,7 @@ fn test_serde() {
     pyo3::prepare_freethreaded_python();
 
     let pyobj: TdPyAny =
-        Python::with_gil(|py| PyString::new_bound(py, "hello").as_gil_ref().into());
+        Python::with_gil(|py| PyString::new_bound(py, "hello").into_any().unbind().into());
 
     // Python < 3.8 serializes strings differently than python >= 3.8.
     // We get the current python version here so we can assert based on that.
