@@ -1,7 +1,3 @@
-[build-system]
-requires = ["maturin>=1"]
-build-backend = "maturin"
-
 [project]
 name = "bytewax"
 requires-python = ">=3.8"
@@ -17,6 +13,7 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: System :: Networking",
     "Topic :: System :: Distributed Computing",
 ]
@@ -47,8 +44,56 @@ Changelog = "https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md"
 long_description = "file: README.md"
 long_description_content_type = "text/markdown"
 
+[build-system]
+requires = ["maturin"]
+build-backend = "maturin"
+
+[tool.hatch]
+
+[tool.hatch.env]
+requires = [
+    "hatch-pip-compile",
+]
+
+[tool.maturin]
+module-name = "bytewax._bytewax"
+python-source = "pysrc"
+
+# TODO: Get stubgen automatically built.
+# https://hatch.pypa.io/latest/plugins/build-hook/custom/
+# [tool.hatch.build.hooks.custom]
+# path = "stubgen.py"
+
+[tool.hatch.env.default]
+type = "pip-compile"
+pip-compile-hashes = true
+
+[tool.hatch.envs.test]
+dependencies = [
+    "pytest",
+    "pytest-benchmark",
+    "pytest-codspeed",
+    "sybil",
+]
+features = [
+    "kafka",
+]
+
+[[tool.hatch.envs.test.matrix]]
+python = [
+    "3.8",
+    "3.9",
+    "3.10",
+    "3.11",
+    "3.12",
+]
+
+[tool.hatch.envs.test.scripts]
+tests = "pytest --benchmark-skip {args}"
+benchmarks = "pytest --benchmark-only {args}"
+
 [tool.pytest.ini_options]
-addopts = "-v -p no:doctest --benchmark-skip"
+addopts = "-v -p no:doctest"
 testpaths = [
     "docs",
     "pytests",
@@ -56,17 +101,25 @@ testpaths = [
     "README.md",
 ]
 
-[tool.maturin]
-module-name = "bytewax._bytewax"
-python-source = "pysrc"
+[tool.hatch.envs.lint]
+skip-install = true
+dependencies = [
+    "mypy",
+    "ruff",
+    "vermin",
+]
 
-[tool.pip-tools]
-generate-hashes = true
+[tool.hatch.envs.lint.scripts]
+check = [
+    "ruff check",
+    "mypy pysrc/",
+    "vermin --no-tips --eval-annotations --no-parse-comments --violations -t=3.8- pysrc/",
+]
 
 [tool.mypy]
 mypy_path = "pysrc"
 
-[tool.ruff]
+[tool.ruff.lint]
 select = [
     "A",
     "B",
@@ -85,15 +138,32 @@ ignore = [
     "PLR",
 ]
 
-[tool.ruff.pydocstyle]
+[tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.ruff.format]
 docstring-code-format = true
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "examples/*.py" = ["D"]
 "pytests/test_flows/*.py" = ["D"]
 "test_*.py" = ["D"]
 # Because `test_encoder` has huge literals in it.
 "pytests/test_encoder.py" = ["E501"]
+
+[tool.hatch.envs.docs]
+skip-install = true
+python = "3.10"  # To match .readthedocs.yml.
+dependencies = [
+    "myst-parser",
+    "pydata-sphinx-theme",
+    "sphinx",
+    "sphinx-autodoc2",
+    "sphinx-favicon",
+    "sphinxcontrib-mermaid",
+]
+
+[tool.hatch.envs.docs.scripts]
+autobuild = "sphinx-autobuild -E docs docs/_build"
+build = "sphinx-build -b html -E docs docs/_build"
+tests = "sphinx-build -b doctest -E docs docs/_build"
