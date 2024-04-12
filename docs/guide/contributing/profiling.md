@@ -1,3 +1,4 @@
+(xref-profiling)=
 # Profiling Bytewax
 
 So you think Bytewax is slow? Let's do some profiling to produce CPU

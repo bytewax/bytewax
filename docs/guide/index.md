@@ -55,6 +55,7 @@ deployment/metrics.md
 
 reference/glossary.md
 reference/migration.md
+reference/performance.md
 ```
 
 
