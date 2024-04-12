@@ -51,9 +51,13 @@ build-backend = "maturin"
 [tool.hatch]
 
 [tool.hatch.env]
-requires = [
-    "hatch-pip-compile",
-]
+requires = ["hatch-pip-compile"]
+
+# This is the built-in env that is run during `hatch fmt`.
+[tool.hatch.envs.hatch-static-analysis]
+# We can make it pin its deps.
+type = "pip-compile"
+pip-compile-hashes = true
 
 [tool.maturin]
 module-name = "bytewax._bytewax"
@@ -64,9 +68,13 @@ python-source = "pysrc"
 # [tool.hatch.build.hooks.custom]
 # path = "stubgen.py"
 
-[tool.hatch.env.default]
+[tool.hatch.envs.default]
 type = "pip-compile"
 pip-compile-hashes = true
+# Activate these features when dev installing the library in all envs.
+features = [
+    "kafka",
+]
 
 [tool.hatch.envs.test]
 dependencies = [
@@ -74,9 +82,6 @@ dependencies = [
     "pytest-benchmark",
     "pytest-codspeed",
     "sybil",
-]
-features = [
-    "kafka",
 ]
 
 [[tool.hatch.envs.test.matrix]]
@@ -102,22 +107,10 @@ testpaths = [
 ]
 
 [tool.hatch.envs.lint]
-skip-install = true
 dependencies = [
     "mypy",
-    "ruff",
     "vermin",
 ]
-
-[tool.hatch.envs.lint.scripts]
-check = [
-    "ruff check",
-    "mypy pysrc/",
-    "vermin --no-tips --eval-annotations --no-parse-comments --violations -t=3.8- pysrc/",
-]
-
-[tool.mypy]
-mypy_path = "pysrc"
 
 [tool.ruff.lint]
 select = [
@@ -152,6 +145,8 @@ docstring-code-format = true
 "pytests/test_encoder.py" = ["E501"]
 
 [tool.hatch.envs.docs]
+# sphinx-autodoc2 parses the source. Does not need bytewax installed
+# in the venv.
 skip-install = true
 python = "3.10"  # To match .readthedocs.yml.
 dependencies = [
@@ -164,6 +159,16 @@ dependencies = [
 ]
 
 [tool.hatch.envs.docs.scripts]
-autobuild = "sphinx-autobuild -E docs docs/_build"
 build = "sphinx-build -b html -E docs docs/_build"
+
+[tool.hatch.envs.docs-dev]
+template = "docs"
+# We need Bytewax installed to run doctests.
+skip-install = false
+extra-dependencies = [
+    "sphinx-autobuild",
+]
+
+[tool.hatch.envs.docs-dev.scripts]
+autobuild = "sphinx-autobuild -E docs docs/_build"
 tests = "sphinx-build -b doctest -E docs docs/_build"
