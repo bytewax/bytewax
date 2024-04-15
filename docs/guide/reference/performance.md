@@ -1,3 +1,4 @@
+(xref-performance)=
 # Performance
 
 In this section, we will cover some of the important considerations when tuning
