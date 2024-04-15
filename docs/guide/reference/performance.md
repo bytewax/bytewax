@@ -9,7 +9,7 @@ at the cost of overall throughput. In this guide, we will use the word performan
 represent a desired goal, whether that goal is throughput or latency.
 
 As with all performance tuning, it is important to have good tooling to measure the
-effect of any changes you make. See the section on [Profiling](project:#xref-profiling)
+effect of any changes you make. See the section on <project:#xref-profiling>
 for some tips on how to profile Bytewax.
 
 ## Bytewax's worker execution model
