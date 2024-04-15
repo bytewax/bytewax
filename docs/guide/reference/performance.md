@@ -1,7 +1,7 @@
 # Performance
 
 In this section, we will cover some of the important considerations when tuning
-your bytewax dataflow for performance.
+your Bytewax dataflow for performance.
 
 Performance is a tricky subject to cover generally, as the goals for performance can
 vary across different use cases. As an example, some use-cases may prioritize latency,
