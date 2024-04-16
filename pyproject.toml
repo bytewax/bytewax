@@ -114,6 +114,19 @@ dependencies = [
     "vermin",
 ]
 
+# TODO: Turn this on to typecheck all tests.
+# [tool.mypy]
+# check_untyped_defs = true
+# TODO: Also consider
+# disallow_untyped_calls = true
+
+# TODO: See if we can get
+# https://github.com/benbenbang/types-confluent-kafka fixed up to work
+# here.
+[[tool.mypy.overrides]]
+module = "confluent_kafka.*"
+ignore_missing_imports = true
+
 [tool.ruff.lint]
 select = [
     "A",
