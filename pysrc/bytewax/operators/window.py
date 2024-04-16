@@ -1249,11 +1249,23 @@ def window(
         return _WindowLogic(clock_logic, windower_logic, builder, logics)
 
     events = op.stateful_batch("stateful_batch", up, shim_builder)
-    return WindowOut(
-        events.then(op.filter_map_value, "unwrap_down", _unwrap_emit),
-        events.then(op.filter_map_value, "unwrap_late", _unwrap_late),
-        events.then(op.filter_map_value, "unwrap_meta", _unwrap_meta),
+
+    downs: KeyedStream[Tuple[int, W]] = op.filter_map_value(
+        "unwrap_down",
+        events,
+        _unwrap_emit,
     )
+    lates: KeyedStream[Tuple[int, V]] = op.filter_map_value(
+        "unwrap_late",
+        events,
+        _unwrap_late,
+    )
+    metas: KeyedStream[Tuple[int, WindowMetadata]] = op.filter_map_value(
+        "unwrap_meta",
+        events,
+        _unwrap_meta,
+    )
+    return WindowOut(downs, lates, metas)
 
 
 def _collect_list_folder(s: List[V], v: V) -> List[V]:
