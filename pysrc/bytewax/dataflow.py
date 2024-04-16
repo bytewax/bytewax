@@ -157,14 +157,17 @@ class _Scope:
 
 @runtime_checkable
 class _HasScope(Protocol):
-    def _get_scopes(self) -> Iterable[_Scope]: ...
+    def _get_scopes(self) -> Iterable[_Scope]:
+        ...
 
-    def _with_scope(self, scope: _Scope) -> Self: ...
+    def _with_scope(self, scope: _Scope) -> Self:
+        ...
 
 
 @runtime_checkable
 class _ToRef(Protocol):
-    def _to_ref(self, port_id: str): ...
+    def _to_ref(self, port_id: str):
+        ...
 
 
 @dataclass(frozen=True)
@@ -689,11 +692,13 @@ def _gen_op_fn(
 
 
 @overload
-def operator(builder: F) -> F: ...
+def operator(builder: F) -> F:
+    ...
 
 
 @overload
-def operator(*, _core: bool = False) -> Callable[[F], F]: ...
+def operator(*, _core: bool = False) -> Callable[[F], F]:
+    ...
 
 
 def operator(builder=None, *, _core: bool = False) -> Callable:

@@ -18,7 +18,8 @@ class Event:
 
 
 @dataclass
-class AppOpen(Event): ...
+class AppOpen(Event):
+    ...
 
 
 @dataclass
@@ -37,11 +38,13 @@ class ClickResult(Event):
 
 
 @dataclass
-class AppClose(Event): ...
+class AppClose(Event):
+    ...
 
 
 @dataclass
-class Timeout(Event): ...
+class Timeout(Event):
+    ...
 
 
 start = datetime(2023, 1, 1, tzinfo=timezone.utc)
