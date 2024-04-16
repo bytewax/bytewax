@@ -43,7 +43,7 @@ that only one Python thread can run at a time, preventing race conditions and
 ensuring thread-safety.
 
 In practice this means that when you are attempting to increase the parallelism
-of a dataflow, should try starting with multiple processes using the
+of a dataflow, you should try starting with multiple processes using the
 `-i/--process-id`, `-a/--addresses` instead of multiple workers with `-w`.
 
 If your code can make use of libraries that make progress without holding the GIL,
