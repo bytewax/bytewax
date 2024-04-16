@@ -1,26 +1,15 @@
 """Serialization for recovery and transport."""
 
 import logging
+import pickle
 from abc import ABC, abstractmethod
-from typing import Any, cast
+from datetime import datetime
+from typing import Any
 
-import jsonpickle  # type: ignore
+import msgspec
 from typing_extensions import override
 
 logger = logging.getLogger(__name__)
-
-try:
-    import jsonpickle.ext.numpy as jsonpickle_numpy
-
-    jsonpickle_numpy.register_handlers()
-except ImportError:
-    logger.debug("Unable to register jsonpickle numpy extensions")
-try:
-    import jsonpickle.ext.pandas as jsonpickle_pandas
-
-    jsonpickle_pandas.register_handlers()
-except ImportError:
-    logger.debug("Unable to register jsonpickle pandas handlers")
 
 
 class Serde(ABC):
@@ -39,34 +28,34 @@ class Serde(ABC):
 
     @staticmethod
     @abstractmethod
-    def ser(obj: Any) -> str:
+    def ser(obj: Any) -> bytes:
         """Serialize the given object."""
         ...
 
     @staticmethod
     @abstractmethod
-    def de(s: str) -> Any:
+    def de(s: bytes) -> Any:
         """Deserialize the given object."""
         ...
 
 
-class JsonPickleSerde(Serde):
-    """Serialize objects using `jsonpickle`.
-
-    See [`jsonpickle`](https://github.com/jsonpickle/jsonpickle) for
-    more info.
-
-    """
+class PickleSerde(Serde):
+    """Serialize objects using `pickle`."""
 
     @override
     @staticmethod
-    def ser(obj: Any) -> str:
-        # Enable `keys`, otherwise all __dict__ keys are coereced to
-        # strings, which might not be true in general. `jsonpickle`
-        # isn't at typed library, so we have to cast here.
-        return cast(str, jsonpickle.encode(obj, keys=True))
+    def ser(obj: Any) -> bytes:
+        return pickle.dumps(obj)
 
     @override
     @staticmethod
-    def de(s: str) -> Any:
-        return jsonpickle.decode(s, keys=True)
+    def de(s: bytes) -> Any:
+        return pickle.loads(s)
+
+
+class TestData(msgspec.Struct, kw_only=True, tag="testdata"):
+    timestamp: datetime
+
+
+def unpack(x: bytes) -> TestData:
+    return msgspec.msgpack.decode(x, type=TestData)

@@ -40,7 +40,7 @@ class RecoveryConfig:
 
     :arg snapshot_serde: Format to use when encoding state snapshot
         objects in the recovery partitions. Defaults to
-        {py:obj}`~bytewax.serde.JsonPickleSerde`.
+        {py:obj}`~bytewax.serde.PickleSerde`.
 
     :type snapshot_serde: typing.Optional[bytewax.serde.Serde]
 

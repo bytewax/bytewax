@@ -4,6 +4,7 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
+use pyo3::types::PyBytes;
 use pyo3::types::PyType;
 
 use crate::pyo3_extensions::TdPyAny;
@@ -38,7 +39,7 @@ static SERDE_JP: GILOnceCell<Serde> = GILOnceCell::new();
 fn get_serde_jp(py: Python) -> PyResult<Serde> {
     Ok(SERDE_JP
         .get_or_try_init(py, || -> PyResult<Serde> {
-            get_serde_module(py)?.getattr("JsonPickleSerde")?.extract()
+            get_serde_module(py)?.getattr("PickleSerde")?.extract()
         })?
         .clone())
 }
@@ -79,13 +80,16 @@ impl Serde {
         Self(self.0.clone_ref(py))
     }
 
-    pub(crate) fn ser(&self, py: Python, state: PyObject) -> PyResult<String> {
+    pub(crate) fn ser(&self, py: Python, state: PyObject) -> PyResult<Vec<u8>> {
         self.0
             .call_method1(py, intern!(py, "ser"), (state,))?
             .extract(py)
     }
 
-    pub(crate) fn de(&self, py: Python, s: String) -> PyResult<TdPyAny> {
-        Ok(self.0.call_method1(py, intern!(py, "de"), (s,))?.into())
+    pub(crate) fn de(&self, py: Python, s: Vec<u8>) -> PyResult<TdPyAny> {
+        Ok(self
+            .0
+            .call_method1(py, intern!(py, "de"), (PyBytes::new_bound(py, &s),))?
+            .into())
     }
 }

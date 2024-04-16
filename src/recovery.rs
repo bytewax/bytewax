@@ -286,7 +286,7 @@ struct SnapshotEpoch(u64);
 ///
 /// This represents a row in the `snaps` table.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<String>);
+struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<Vec<u8>>);
 
 /// Configuration settings for recovery.
 ///
@@ -305,7 +305,7 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<String>);
 ///
 /// :arg snapshot_serde: Format to use when encoding state snapshot
 ///     objects in the recovery partitions. Defaults to
-///     {py:obj}`~bytewax.serde.JsonPickleSerde`.
+///     {py:obj}`~bytewax.serde.PickleSerde`.
 ///
 /// :type snapshot_serde: typing.Optional[bytewax.serde.Serde]
 #[pyclass(module = "bytewax.recovery")]
@@ -514,7 +514,7 @@ fn get_migrations(py: Python) -> &Migrations<'static> {
                  step_id TEXT NOT NULL,
                  state_key TEXT NOT NULL,
                  snap_epoch INTEGER NOT NULL,
-                 ser_change TEXT,
+                 ser_change BLOB,
                  PRIMARY KEY (step_id, state_key, snap_epoch)
                  ) STRICT",
             ),
@@ -1007,19 +1007,19 @@ fn gc_leaves_only_final_snap() {
             StepId(String::from("step_1")),
             StateKey(String::from("a")),
             SnapshotEpoch(1),
-            Some(String::from("PICKLED_DATA1")),
+            Some("PICKLED_DATA1".as_bytes().to_vec()),
         ),
         SerializedSnapshot(
             StepId(String::from("step_1")),
             StateKey(String::from("a")),
             SnapshotEpoch(2),
-            Some(String::from("PICKLED_DATA2")),
+            Some("PICKLED_DATA2".as_bytes().to_vec()),
         ),
         SerializedSnapshot(
             StepId(String::from("step_1")),
             StateKey(String::from("a")),
             SnapshotEpoch(5),
-            Some(String::from("PICKLED_DATA5")),
+            Some("PICKLED_DATA5".as_bytes().to_vec()),
         ),
     ]);
     conn.committer(PartitionIndex(0)).commit(&5);

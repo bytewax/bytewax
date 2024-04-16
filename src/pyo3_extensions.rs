@@ -84,9 +84,11 @@ impl serde::Serialize for TdPyAny {
     {
         Python::with_gil(|py| {
             let x = self.bind(py);
-            let pickle = py.import_bound("pickle").map_err(S::Error::custom)?;
+            let pickle = py
+                .import_bound("msgspec.msgpack")
+                .map_err(S::Error::custom)?;
             let binding = pickle
-                .call_method1("dumps", (x,))
+                .call_method1("encode", (x,))
                 .map_err(S::Error::custom)?;
             let bytes = binding.downcast::<PyBytes>().map_err(S::Error::custom)?;
             serializer
@@ -110,8 +112,8 @@ impl<'de> serde::de::Visitor<'de> for PickleVisitor {
         E: serde::de::Error,
     {
         let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
-            let pickle = py.import_bound("pickle")?;
-            let x = pickle.call_method1("loads", (bytes,))?.unbind().into();
+            let s = py.import_bound("bytewax.serde")?;
+            let x = s.call_method1("unpack", (bytes,))?.unbind().into();
             Ok(x)
         });
         x.map_err(E::custom)
