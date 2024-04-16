@@ -46,8 +46,8 @@ In practice this means that when you are attempting to increase the parallelism
 of a dataflow, you should try starting with multiple processes using the
 `-i/--process-id`, `-a/--addresses` instead of multiple workers with `-w`.
 
-If your code can make use of libraries that make progress without holding the GIL,
-adding workers to each process with `-w` may increase performance.
+If your code can make use of libraries that make progress without holding the GIL
+(like python's urllib), adding workers to each process with `-w` may increase performance.
 
 The downside of starting multiple processes is that data must be serialized and
 sent over the network when it is exchanged to other workers, while a single
