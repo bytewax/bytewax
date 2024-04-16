@@ -58,6 +58,8 @@ requires = ["hatch-pip-compile"]
 # We can make it pin its deps.
 type = "pip-compile"
 pip-compile-hashes = true
+# Disable Hatch's built-in default ruff config.
+config-path = "none"
 
 [tool.maturin]
 module-name = "bytewax._bytewax"
