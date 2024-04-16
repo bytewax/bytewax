@@ -70,21 +70,41 @@ python-source = "pysrc"
 # [tool.hatch.build.hooks.custom]
 # path = "stubgen.py"
 
+# This is the `default` venv. It is your "do everything from the
+# command line" env. Every other env inherits from this one. All
+# dependencies are included here so `mypy` / LSP can give you correct
+# feedback on library code, tests, and doc building code.
 [tool.hatch.envs.default]
 type = "pip-compile"
-pip-compile-hashes = true
-# Activate these features when dev installing the library in all envs.
+path = "./venv"
 features = [
     "kafka",
 ]
 
 [tool.hatch.envs.test]
 dependencies = [
+    "mypy",
+    "myst-parser",
+    "pydata-sphinx-theme",
     "pytest",
     "pytest-benchmark",
     "pytest-codspeed",
+    "sphinx",
+    "sphinx-autobuild",
+    "sphinx-autodoc2",
+    "sphinx-favicon",
+    "sphinxcontrib-mermaid",
     "sybil",
+    "types-docutils",
+    "vermin",
 ]
+
+[tool.hatch.envs.default.scripts]
+docs-autobuild = "sphinx-autobuild -E docs docs/_build"
+docs-tests = "sphinx-build -b doctest -E docs docs/_build"
+
+# This is the `test` venv for running tests in a deterministic way.
+[tool.hatch.envs.test]
 
 [[tool.hatch.envs.test.matrix]]
 python = [
@@ -96,8 +116,8 @@ python = [
 ]
 
 [tool.hatch.envs.test.scripts]
-tests = "pytest --benchmark-skip {args}"
 benchmarks = "pytest --benchmark-only {args}"
+tests = "pytest --benchmark-skip {args}"
 
 [tool.pytest.ini_options]
 addopts = "-v -p no:doctest"
@@ -106,12 +126,6 @@ testpaths = [
     "pytests",
     "pysrc",
     "README.md",
-]
-
-[tool.hatch.envs.lint]
-dependencies = [
-    "mypy",
-    "vermin",
 ]
 
 # TODO: Turn this on to typecheck all tests.
@@ -125,6 +139,10 @@ dependencies = [
 # here.
 [[tool.mypy.overrides]]
 module = "confluent_kafka.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "jsonpickle.*"
 ignore_missing_imports = true
 
 [tool.ruff.lint]
@@ -159,11 +177,15 @@ docstring-code-format = true
 # Because `test_encoder` has huge literals in it.
 "pytests/test_encoder.py" = ["E501"]
 
+# This is the `docs` venv and is used for Read the Docs.
 [tool.hatch.envs.docs]
 # sphinx-autodoc2 parses the source. Does not need bytewax installed
 # in the venv.
 skip-install = true
-python = "3.10"  # To match .readthedocs.yml.
+# To match .readthedocs.yml.
+python = "3.10"
+# If you add / remove dependencies here, also add / remove them from
+# the `default` env.
 dependencies = [
     "myst-parser",
     "pydata-sphinx-theme",
@@ -175,15 +197,3 @@ dependencies = [
 
 [tool.hatch.envs.docs.scripts]
 build = "sphinx-build -b html -E docs docs/_build"
-
-[tool.hatch.envs.docs-dev]
-template = "docs"
-# We need Bytewax installed to run doctests.
-skip-install = false
-extra-dependencies = [
-    "sphinx-autobuild",
-]
-
-[tool.hatch.envs.docs-dev.scripts]
-autobuild = "sphinx-autobuild -E docs docs/_build"
-tests = "sphinx-build -b doctest -E docs docs/_build"

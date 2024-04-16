@@ -19,7 +19,7 @@ repos:
         name: "check compatible with Python 3.8"
         language: system
         types: ["python"]
-        entry: "hatch run lint:vermin"
+        entry: "hatch run vermin"
       - id: ruff
         name: "lint Python"
         language: system
@@ -29,12 +29,12 @@ repos:
         name: "typecheck Python"
         language: system
         types: ["python"]
-        entry: "hatch run lint:mypy"
+        entry: "hatch run mypy"
       - id: cbfmt
         name: "format Markdown code blocks"
         language: system
         types: ["markdown"]
-        entry: "hatch run lint:cbfmt -w"
+        entry: "hatch run cbfmt -w"
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
