@@ -86,7 +86,7 @@ Our list of IDs can be split into single records with the
 {py:obj}`~bytewax.operators.flat_map` operator and the resulting data
 can be {py:obj}`~bytewax.operators.redistribute`d amongst the workers
 defined when running the dataflow. This is particularly helpful for
-instances such as this where we might have a bottle neck in the
+instances such as this where we might have a bottleneck in the
 downstream http request to fetch additional data.
 
 ```python

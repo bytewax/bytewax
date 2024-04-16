@@ -35,6 +35,7 @@ concepts/rescaling.md
 
 advanced-concepts/custom-operators.md
 advanced-concepts/custom-connectors.md
+advanced-concepts/performance.md
 ```
 
 ```{toctree}
