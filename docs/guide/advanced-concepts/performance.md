@@ -29,10 +29,10 @@ ensure your dataflow is performant.
 A Bytewax **worker** is a thread that is executing your dataflow. Workers can be grouped
 into separate processes, but refer to a single thread within a single process.
 
-Bytewax's execution model uses identical workers. Workers execute all of the steps
-in a dataflow, including input and output steps. Workers **may** exchange
-data to ensure the semantics of operators, but do not automatically
-exchange work to other workers in order to increase performance.
+Bytewax's execution model uses identical workers. Workers have a copy of all of the
+steps for a dataflow and can execute any of those steps including input and output.
+Workers **may** exchange data to ensure the semantics of operators, but do not
+automatically exchange work to other workers in order to increase performance.
 
 ## Workers, processes and GIL contention
 
