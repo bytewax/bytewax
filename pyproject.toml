@@ -58,6 +58,11 @@ requires = ["hatch-pip-compile"]
 # We can make it pin its deps.
 type = "pip-compile"
 pip-compile-hashes = true
+pip-compile-constraint = "default"
+dependencies = [
+    # Unpin the default internal version of Ruff.
+    "ruff",
+]
 # Disable Hatch's built-in default ruff config.
 config-path = "none"
 
@@ -78,7 +83,6 @@ python-source = "pysrc"
 # The default pinned deps will be in `bytewax/requirements.txt`.
 type = "pip-compile"
 pip-compile-hashes = true
-pip-compile-constraint = "hatch-static-analysis"
 # If you need to manually frob the venv, it'll be in `bytewax/venv`.
 path = "./venv"
 features = [
