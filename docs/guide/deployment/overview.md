@@ -9,7 +9,7 @@ We built the Bytewax Platform to make deploying, managing and operating dataflow
 
 ## Container Based Deployment
 
-Docker containers provide a good way to wrap up dependencies and run a containerized version of Bytewax across many different services and orchestration tools. From docker compose to kubernetes. 
+Docker containers provide a good way to wrap up dependencies and run a containerized version of Bytewax across many different services and orchestration tools. From docker compose to kubernetes. The [container documentation](#xref-container) provides an overview of how to leverage bytewax in containers.
 
 ## Running Locally with waxctl
 
@@ -20,6 +20,8 @@ Test it out locally after installing:
 ```bash
 waxctl run mydataflow.py -p 2
 ```
+
+You can find more information in the [waxctl documentation](#xref-waxctl)
 
 ## Running in Kubernetes
 
