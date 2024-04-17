@@ -78,6 +78,7 @@ python-source = "pysrc"
 # dependencies are included here so `mypy` / LSP can give you correct
 # feedback on library code, tests, and doc building code.
 [tool.hatch.envs.default]
+# The default pinned deps will be in `bytewax/requirements.txt`.
 type = "pip-compile"
 pip-compile-hashes = true
 # If you need to manually frob the venv, it'll be in `bytewax/venv`.
@@ -126,6 +127,8 @@ tests = [
 
 # This is the `test` venv for running tests in a deterministic way.
 [tool.hatch.envs.test]
+# All the specific test deps will be in
+# `bytewax/requirements/requirements-test.pyX.Y.txt`.
 
 [[tool.hatch.envs.test.matrix]]
 python = [
@@ -193,6 +196,10 @@ docstring-code-format = true
 
 # This is the `docs` venv and is used for Read the Docs.
 [tool.hatch.envs.docs]
+# This venv is separate. Do not inherit from `default`.
+template = "docs"
+type = "pip-compile"
+pip-compile-hashes = true
 # sphinx-autodoc2 parses the source. Does not need Bytewax installed
 # in the venv.
 skip-install = true
