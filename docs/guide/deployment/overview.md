@@ -1,7 +1,7 @@
 (xref-deployment)=
 # Deployment Overview
 
-There are many ways you can run Bytewax, in this section we will highlight the main ways we recommend deploying Bytewax. 
+There are many ways you can run Bytewax, in this section we will highlight the main ways we recommend deploying Bytewax.
 
 ## The Bytewax Platform
 
@@ -9,7 +9,7 @@ We built the Bytewax Platform to make deploying, managing and operating dataflow
 
 ## Container Based Deployment
 
-Docker containers provide a good way to wrap up dependencies and run a containerized version of Bytewax across many different services and orchestration tools. From docker compose to kubernetes. The [container documentation](#xref-container) provides an overview of how to leverage bytewax in containers.
+Docker containers provide a good way to wrap up dependencies and run a containerized version of Bytewax across many different services and orchestration tools. From docker compose to kubernetes. The [container documentation](#xref-container) provides an overview of how to leverage Bytewax in containers.
 
 ## Running Locally with waxctl
 
@@ -29,4 +29,4 @@ Kubernetes is the most common orchestration platform for running containers. You
 
 ## Running on cloud VMs
 
-You can deploy a dataflow directly to a cloud VM with waxctl doing the heavy lifting of setting up the machine and running the dataflow. 
+You can deploy a dataflow directly to a cloud VM with waxctl doing the heavy lifting of setting up the machine and running the dataflow.

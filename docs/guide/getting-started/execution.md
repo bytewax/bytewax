@@ -76,7 +76,7 @@ To run this flow use `simple` because creating a file named
 > python -m bytewax.run simple
 ```
 
-### Running with waxctl
+### Running dataflows with waxctl
 
 The `waxctl run` command expects only one argument, a path or URI of a python script:
 
@@ -100,7 +100,7 @@ workers/processes, but the dataflow will not have any gain from
 parallelization.
 
 By changing the `-w/--workers-per-process` arguments, you can spawn
-mulitple workers per process. We can run the previous dataflow with 3
+multiple workers per process. We can run the previous dataflow with 3
 workers using the same file, changing only the command:
 
 ```shell
@@ -171,7 +171,7 @@ the addresses for you.
 waxctl run simple.py --processes=2 --workers=4
 ```
 
-You can specify the initial port with the `-i` flag and add --debug for 
+You can specify the initial port with the `-i` flag and add --debug for
 verbose output.
 
 ```shell
@@ -180,4 +180,3 @@ waxctl run simple.py --processes=2 --workers=4 --initial-port=2101 --debug
 
 For more information about deployment options for Bytewax dataflows,
 please see the documentation for [`deployment`](#xref-deployment).
-
