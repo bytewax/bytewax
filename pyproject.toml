@@ -53,10 +53,7 @@ build-backend = "maturin"
 [tool.hatch.env]
 requires = ["hatch-pip-compile"]
 
-# This is the built-in env that is run during `hatch fmt`. You should
-# avoid using it, though, because we have to manually guarantee that
-# the version of Ruff within this env is the same as the one in the
-# `default` env. Use `hatch run ruff format` instead.
+# This is the built-in env that is run during `hatch fmt`.
 [tool.hatch.envs.hatch-static-analysis]
 # We can make it pin its deps.
 type = "pip-compile"
@@ -81,6 +78,7 @@ python-source = "pysrc"
 # The default pinned deps will be in `bytewax/requirements.txt`.
 type = "pip-compile"
 pip-compile-hashes = true
+pip-compile-constraint = "hatch-static-analysis"
 # If you need to manually frob the venv, it'll be in `bytewax/venv`.
 path = "./venv"
 features = [
@@ -127,6 +125,7 @@ tests = [
 
 # This is the `test` venv for running tests in a deterministic way.
 [tool.hatch.envs.test]
+pip-compile-constraint = "default"
 # All the specific test deps will be in
 # `bytewax/requirements/requirements-test.pyX.Y.txt`.
 
@@ -200,13 +199,15 @@ docstring-code-format = true
 template = "docs"
 type = "pip-compile"
 pip-compile-hashes = true
+pip-compile-constraint = "default"
 # sphinx-autodoc2 parses the source. Does not need Bytewax installed
 # in the venv.
 skip-install = true
 # To match .readthedocs.yml.
 python = "3.10"
 # If you add / remove dependencies here, also add / remove them from
-# the `default` env.
+# the `default` env. `pip-compile-constraint` ensures we get exactly
+# the same versions in both.
 dependencies = [
     "myst-parser",
     "pydata-sphinx-theme",
