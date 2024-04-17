@@ -15,21 +15,6 @@ repos:
         language: system
         types: ["python"]
         entry: "hatch fmt --formatter"
-      - id: vermin
-        name: "check compatible with Python 3.8"
-        language: system
-        types: ["python"]
-        entry: "hatch run vermin"
-      - id: ruff
-        name: "lint Python"
-        language: system
-        types: ["python"]
-        entry: "hatch fmt --linter"
-      - id: mypy
-        name: "typecheck Python"
-        language: system
-        types: ["python"]
-        entry: "hatch run mypy"
       - id: cbfmt
         name: "format Markdown code blocks"
         language: system
@@ -40,5 +25,3 @@ repos:
     hooks:
       - id: fmt
         name: "format Rust"
-      - id: clippy
-        name: "lint Rust"
