@@ -25,7 +25,7 @@ You can find more information in the [waxctl documentation](#xref-waxctl)
 
 ## Running in Kubernetes
 
-Kubernetes is the most common orchestration platform for running containers. You can use the publicly available helm chart to run Bytewax on a kubernetes cluster.
+Kubernetes is the most common orchestration platform for running containers. You can use the publicly available [helm chart](#xref-helm) to run Bytewax on a kubernetes cluster.
 
 ## Running on cloud VMs
 
