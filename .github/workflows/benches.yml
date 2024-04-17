@@ -21,18 +21,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install Hatch
+        run: pip install hatch
       - uses: PyO3/maturin-action@v1
         with:
           command: build
           args: --release -o dist -i python-3.12
           sccache: true
-      - name: Install dependencies
+      - name: Prep test venv
+        shell: bash
+        # First `PIP_COMPILE_DISABLE` ensures that we have a fully
+        # locked venv. Then we do something gross which that Hatch
+        # automatically installs the local dev version of Bytewax, so
+        # we manually uninstall it from the venv and re-install the
+        # final wheel.
         run: |
-          pip install -r requirements/test.txt --no-deps
+          export PIP_COMPILE_DISABLE=1
+          hatch env create test.py3.12
+          hatch env run -e test.py3.12 -- pip uninstall -vy bytewax
           WHEEL_FILE=$(ls ./dist/*.whl)
-          pip install $WHEEL_FILE -v --no-deps
+          hatch env run -e test.py3.12 -- pip install -v --no-deps $WHEEL_FILE
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v2
         with:
           token: ${{ secrets.CODSPEED_TOKEN }}
-          run: pytest --benchmark-enable --benchmark-only --codspeed
+          run: hatch env run -e test.py3.12 benchmark-ci

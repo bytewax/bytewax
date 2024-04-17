@@ -21,6 +21,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - uses: actions/setup-python@v3
+      - name: Install Hatch
+        run: pip install hatch
       - uses: mkroening/rust-toolchain-toml@main
       - name: Install cbfmt
         run: |
@@ -28,8 +30,6 @@ jobs:
             curl -fsSL -o cbfmt.tar.gz "https://github.com/lukas-reineke/cbfmt/releases/download/v0.2.0/cbfmt_linux-x86_64_v0.2.0.tar.gz"
             tar --strip-components 1 -xvf cbfmt.tar.gz
             mv cbfmt /usr/local/bin/
-      - name: Install cbfmt sub-formatting commands
-        run: pip install -r requirements/pre-commit.txt --no-deps
       - uses: pre-commit/action@v3.0.0
 
   linux:
@@ -53,18 +53,31 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install Hatch
+        run: pip install hatch
       - uses: mkroening/rust-toolchain-toml@main
-      - name: Run Rust tests
-        run: cargo test --no-default-features
-        # Only run tests for the host architecture, as aarch64
-        # and armv7 are cross-compiled.
-        if: ${{ matrix.target == 'x86_64' }}
       - uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           command: build
           args: --release -o dist -i python${{ matrix.python-version }}
           sccache: true
+      - name: Prep test venv
+        shell: bash
+        # First `PIP_COMPILE_DISABLE` ensures that we have a fully
+        # locked venv. Then we do something gross which that Hatch
+        # automatically installs the local dev version of Bytewax, so
+        # we manually uninstall it from the venv and re-install the
+        # final wheel.
+        run: |
+          export PIP_COMPILE_DISABLE=1
+          hatch env create test.py${{ matrix.python-version }}
+          hatch env run -e test.py${{ matrix.python-version }} -- pip uninstall -vy bytewax
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          hatch env run -e test.py${{ matrix.python-version }} -- pip install -v --no-deps $WHEEL_FILE
+        # Only run tests for the host architecture, as aarch64
+        # and armv7 are cross-compiled.
+        if: ${{ matrix.target == 'x86_64' }}
       - name: Run tests
         shell: bash
         env:
@@ -72,10 +85,10 @@ jobs:
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
-          pip install -r requirements/test.txt --no-deps
-          WHEEL_FILE=$(ls ./dist/*.whl)
-          pip install $WHEEL_FILE -v --no-deps
-          PY_IGNORE_IMPORTMISMATCH=1 pytest
+          export PIP_COMPILE_DISABLE=1
+          hatch env run -e test.py${{ matrix.python-version }} tests
+        # Only run tests for the host architecture, as aarch64
+        # and armv7 are cross-compiled.
         if: ${{ matrix.target == 'x86_64' }}
       - name: Upload wheels
         uses: actions/upload-artifact@v3
@@ -97,6 +110,8 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install Hatch
+        run: pip install hatch
       - name: Install aarch64-apple-darwin Rust target
         run: rustup target add aarch64-apple-darwin
       # Caching
@@ -115,25 +130,40 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Run Rust tests
-        run: cargo test --no-default-features
-        # Only run tests for the host architecture, as aarch64 is cross-compiled.
-        if: ${{ matrix.target != 'aarch64' }}
       - uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           command: build
           args: --release -o dist -i python${{ matrix.python-version }}
           sccache: true
+      - name: Prep test venv
+        shell: bash
+        # First `PIP_COMPILE_DISABLE` ensures that we have a fully
+        # locked venv. Then we do something gross which that Hatch
+        # automatically installs the local dev version of Bytewax, so
+        # we manually uninstall it from the venv and re-install the
+        # final wheel.
+        run: |
+          export PIP_COMPILE_DISABLE=1
+          hatch env create test.py${{ matrix.python-version }}
+          hatch env run -e test.py${{ matrix.python-version }} -- pip uninstall -vy bytewax
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          hatch env run -e test.py${{ matrix.python-version }} -- pip install -v --no-deps $WHEEL_FILE
+        # Only run tests for the host architecture, as aarch64
+        # and armv7 are cross-compiled.
+        if: ${{ matrix.target == 'x86_64' }}
       - name: Run tests
         shell: bash
+        env:
+          TEST_KAFKA_BROKER : ${{ secrets.TEST_KAFKA_BROKER }}
+          CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
+          CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
-          pip install -r requirements/test.txt --no-deps
-          WHEEL_FILE=$(ls ./dist/*.whl)
-          pip install $WHEEL_FILE -v --no-deps
-          PY_IGNORE_IMPORTMISMATCH=1 pytest
-        # Only run tests for the host architecture, as aarch64 is cross-compiled.
-        if: ${{ matrix.target != 'aarch64' }}
+          export PIP_COMPILE_DISABLE=1
+          hatch env run -e test.py${{ matrix.python-version }} tests
+        # Only run tests for the host architecture, as aarch64
+        # and armv7 are cross-compiled.
+        if: ${{ matrix.target == 'x86_64' }}
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
@@ -164,21 +194,25 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install Hatch
+        run: pip install hatch
       - uses: mkroening/rust-toolchain-toml@main
-      - name: Run Rust tests
-        run: cargo test --no-default-features
       - uses: messense/maturin-action@v1
         with:
           command: build
           args: --release -o dist --interpreter python${{ matrix.python-version }}
           sccache: true
+      - name: Prep test venv
+        run: |
+          $env:PIP_COMPILE_DISABLE=1
+          hatch env create test.py${{ matrix.python-version }}
+          hatch env run -e test.py${{ matrix.python-version }} -- pip uninstall -vy bytewax
+          $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
+          hatch env run -e test.py${{ matrix.python-version }} -- pip install -v --no-deps $WHEEL_FILE
       - name: Run tests
         run: |
-          pip install -r requirements/test.txt --no-deps
-          $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
-          pip install $WHEEL_FILE -v --no-deps
-          $env:PY_IGNORE_IMPORTMISMATCH = '1'
-          pytest
+          $env:PIP_COMPILE_DISABLE=1
+          hatch env run -e test.py${{ matrix.python-version }} tests
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:

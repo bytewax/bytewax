@@ -45,7 +45,10 @@ long_description = "file: README.md"
 long_description_content_type = "text/markdown"
 
 [build-system]
-requires = ["maturin"]
+requires = [
+    "hatchling",
+    "maturin",
+]
 build-backend = "maturin"
 
 [tool.hatch]
@@ -119,10 +122,12 @@ lint-tests = [
     "cargo clippy",
 ]
 py-tests = "pytest --benchmark-skip pytests"
+rust-tests = "cargo test --no-default-features"
 benchmarks = "pytest --benchmark-only pytests"
 tests = [
     "lint-tests",
     "py-tests",
+    "rust-tests",
     # TODO: Turn these back on once we fix them up.
     # "doc-tests",
 ]
@@ -143,7 +148,7 @@ python = [
 ]
 
 [tool.hatch.envs.test.scripts]
-
+benchmark-ci = "pytest --benchmark-enable --benchmark-only --codspeed"
 
 [tool.pytest.ini_options]
 addopts = "-v"
