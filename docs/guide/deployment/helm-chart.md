@@ -1,3 +1,4 @@
+(xref-helm)=
 # Helm Chart
 
 <!-- (below is old K8S ecosystem) -->
