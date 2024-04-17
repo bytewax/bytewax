@@ -1321,8 +1321,7 @@ def collect_window(
     up: KeyedStream[V],
     clock: Clock,
     windower: Windower,
-) -> WindowOut[V, List[V]]:
-    ...
+) -> WindowOut[V, List[V]]: ...
 
 
 @overload
@@ -1332,8 +1331,7 @@ def collect_window(
     clock: Clock,
     windower: Windower,
     into: Type[List],
-) -> WindowOut[V, List[V]]:
-    ...
+) -> WindowOut[V, List[V]]: ...
 
 
 @overload
@@ -1343,8 +1341,7 @@ def collect_window(
     clock: Clock,
     windower: Windower,
     into: Type[Set],
-) -> WindowOut[V, Set[V]]:
-    ...
+) -> WindowOut[V, Set[V]]: ...
 
 
 @overload
@@ -1354,8 +1351,7 @@ def collect_window(
     clock: Clock,
     windower: Windower,
     into: Type[Dict],
-) -> WindowOut[Tuple[DK, DV], Dict[DK, DV]]:
-    ...
+) -> WindowOut[Tuple[DK, DV], Dict[DK, DV]]: ...
 
 
 @operator
@@ -1735,8 +1731,7 @@ def max_window(
     up: KeyedStream[V],
     clock: Clock,
     windower: Windower,
-) -> WindowOut[V, V]:
-    ...
+) -> WindowOut[V, V]: ...
 
 
 @overload
@@ -1746,8 +1741,7 @@ def max_window(
     clock: Clock,
     windower: Windower,
     by: Callable[[V], Any],
-) -> WindowOut[V, V]:
-    ...
+) -> WindowOut[V, V]: ...
 
 
 @operator
@@ -1784,8 +1778,7 @@ def min_window(
     up: KeyedStream[V],
     clock: Clock,
     windower: Windower,
-) -> WindowOut[V, V]:
-    ...
+) -> WindowOut[V, V]: ...
 
 
 @overload
@@ -1795,8 +1788,7 @@ def min_window(
     clock: Clock,
     windower: Windower,
     by: Callable[[V], Any],
-) -> WindowOut[V, V]:
-    ...
+) -> WindowOut[V, V]: ...
 
 
 @operator
