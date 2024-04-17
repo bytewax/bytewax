@@ -56,3 +56,12 @@ stream = op.input("inp", flow, TestingSource(["one"]))
 # mypy will error here: "Unsupported operand types for + ("str" and "int")"
 stream = op.map("string", stream, lambda x: x + 1)
 ```
+
+Bytewax provides a command line tool for managing dataflows, you
+can install this by downloading the binaries from the
+[website](https://www.bytewax.io/waxctl) or via homebrew.
+
+```shell
+brew tap bytewax/tap
+brew install waxctl
+```
