@@ -53,7 +53,10 @@ build-backend = "maturin"
 [tool.hatch.env]
 requires = ["hatch-pip-compile"]
 
-# This is the built-in env that is run during `hatch fmt`.
+# This is the built-in env that is run during `hatch fmt`. You should
+# avoid using it, though, because we have to manually guarantee that
+# the version of Ruff within this env is the same as the one in the
+# `default` env. Use `hatch run ruff format` instead.
 [tool.hatch.envs.hatch-static-analysis]
 # We can make it pin its deps.
 type = "pip-compile"

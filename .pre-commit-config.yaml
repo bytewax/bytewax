@@ -14,7 +14,7 @@ repos:
         name: "format Python"
         language: system
         types: ["python"]
-        entry: "hatch fmt --formatter"
+        entry: "hatch run ruff format"
       - id: cbfmt
         name: "format Markdown code blocks"
         language: system
