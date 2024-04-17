@@ -61,6 +61,7 @@ requires = ["hatch-pip-compile"]
 # We can make it pin its deps.
 type = "pip-compile"
 pip-compile-hashes = true
+pip-compile-installer = "pip-sync"
 pip-compile-constraint = "default"
 dependencies = [
     # Unpin the default internal version of Ruff.
@@ -89,6 +90,7 @@ python-source = "pysrc"
 # The default pinned deps will be in `bytewax/requirements.txt`.
 type = "pip-compile"
 pip-compile-hashes = true
+pip-compile-installer = "pip-sync"
 # If you need to manually frob the venv, it'll be in `bytewax/venv`.
 path = "./venv"
 python = "3.12"
@@ -218,6 +220,7 @@ docstring-code-format = true
 template = "docs"
 type = "pip-compile"
 pip-compile-hashes = true
+pip-compile-installer = "pip-sync"
 pip-compile-constraint = "default"
 # sphinx-autodoc2 parses the source. Does not need Bytewax installed
 # in the venv.
