@@ -31,6 +31,16 @@ jobs:
             tar --strip-components 1 -xvf cbfmt.tar.gz
             mv cbfmt /usr/local/bin/
       - uses: pre-commit/action@v3.0.0
+      - name: Prep lint venv
+        shell: bash
+        env:
+          PIP_COMPILE_DISABLE: 1
+        run: hatch env create
+      - name: Run lints
+        shell: bash
+        env:
+          PIP_COMPILE_DISABLE: 1
+        run: hatch env run repo-tests
 
   linux:
     strategy:
@@ -64,13 +74,14 @@ jobs:
           sccache: true
       - name: Prep test venv
         shell: bash
+        env:
+          PIP_COMPILE_DISABLE: 1
         # First `PIP_COMPILE_DISABLE` ensures that we have a fully
         # locked venv. Then we do something gross which that Hatch
         # automatically installs the local dev version of Bytewax, so
         # we manually uninstall it from the venv and re-install the
         # final wheel.
         run: |
-          export PIP_COMPILE_DISABLE=1
           hatch env create test.py${{ matrix.python-version }}
           hatch env run -e test.py${{ matrix.python-version }} -- pip uninstall -vy bytewax
           WHEEL_FILE=$(ls ./dist/*.whl)
@@ -81,12 +92,11 @@ jobs:
       - name: Run tests
         shell: bash
         env:
+          PIP_COMPILE_DISABLE: 1
           TEST_KAFKA_BROKER : ${{ secrets.TEST_KAFKA_BROKER }}
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
-        run: |
-          export PIP_COMPILE_DISABLE=1
-          hatch env run -e test.py${{ matrix.python-version }} tests
+        run: hatch env run -e test.py${{ matrix.python-version }} py-tests
         # Only run tests for the host architecture, as aarch64
         # and armv7 are cross-compiled.
         if: ${{ matrix.target == 'x86_64' }}
@@ -138,13 +148,14 @@ jobs:
           sccache: true
       - name: Prep test venv
         shell: bash
+        env:
+          PIP_COMPILE_DISABLE: 1
         # First `PIP_COMPILE_DISABLE` ensures that we have a fully
         # locked venv. Then we do something gross which that Hatch
         # automatically installs the local dev version of Bytewax, so
         # we manually uninstall it from the venv and re-install the
         # final wheel.
         run: |
-          export PIP_COMPILE_DISABLE=1
           hatch env create test.py${{ matrix.python-version }}
           hatch env run -e test.py${{ matrix.python-version }} -- pip uninstall -vy bytewax
           WHEEL_FILE=$(ls ./dist/*.whl)
@@ -155,12 +166,11 @@ jobs:
       - name: Run tests
         shell: bash
         env:
+          PIP_COMPILE_DISABLE: 1
           TEST_KAFKA_BROKER : ${{ secrets.TEST_KAFKA_BROKER }}
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
-        run: |
-          export PIP_COMPILE_DISABLE=1
-          hatch env run -e test.py${{ matrix.python-version }} tests
+        run: hatch env run -e test.py${{ matrix.python-version }} py-tests
         # Only run tests for the host architecture, as aarch64
         # and armv7 are cross-compiled.
         if: ${{ matrix.target == 'x86_64' }}
@@ -212,7 +222,7 @@ jobs:
       - name: Run tests
         run: |
           $env:PIP_COMPILE_DISABLE=1
-          hatch env run -e test.py${{ matrix.python-version }} tests
+          hatch env run -e test.py${{ matrix.python-version }} py-tests
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
