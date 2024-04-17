@@ -80,6 +80,7 @@ python-source = "pysrc"
 [tool.hatch.envs.default]
 type = "pip-compile"
 pip-compile-hashes = true
+# If you need to manually frob the venv, it'll be in `bytewax/venv`.
 path = "./venv"
 features = [
     "kafka",
