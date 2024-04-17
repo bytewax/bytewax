@@ -76,6 +76,7 @@ python-source = "pysrc"
 # feedback on library code, tests, and doc building code.
 [tool.hatch.envs.default]
 type = "pip-compile"
+pip-compile-hashes = true
 path = "./venv"
 features = [
     "kafka",
@@ -89,19 +90,35 @@ dependencies = [
     "pytest",
     "pytest-benchmark",
     "pytest-codspeed",
+    "ruff",
     "sphinx",
     "sphinx-autobuild",
     "sphinx-autodoc2",
     "sphinx-favicon",
     "sphinxcontrib-mermaid",
-    "sybil",
     "types-docutils",
     "vermin",
 ]
 
 [tool.hatch.envs.default.scripts]
-docs-autobuild = "sphinx-autobuild -E docs docs/_build"
-docs-tests = "sphinx-build -b doctest -E docs docs/_build"
+doc-autobuild = "sphinx-autobuild -E docs docs/_build"
+doc-tests = "sphinx-build -b doctest -E docs docs/_build"
+lint-tests = [
+    "vermin pysrc/ pytests/ docs/ examples/ *.py",
+    "ruff check pysrc/ pytests/ docs/ examples/ *.py",
+    # TODO: Add `examples/` to mypy checking. Will require a lot of
+    # fixup?
+    "mypy pysrc/ pytests/ docs/ *.py",
+    "cargo clippy",
+]
+py-tests = "pytest --benchmark-skip pytests"
+benchmarks = "pytest --benchmark-only pytests"
+tests = [
+    "lint-tests",
+    "py-tests",
+    # TODO: Turn these back on once we fix them up.
+    # "doc-tests",
+]
 
 # This is the `test` venv for running tests in a deterministic way.
 [tool.hatch.envs.test]
@@ -116,20 +133,13 @@ python = [
 ]
 
 [tool.hatch.envs.test.scripts]
-benchmarks = "pytest --benchmark-only {args}"
-tests = "pytest --benchmark-skip {args}"
+
 
 [tool.pytest.ini_options]
-addopts = "-v -p no:doctest"
-testpaths = [
-    "docs",
-    "pytests",
-    "pysrc",
-    "README.md",
-]
+addopts = "-v"
 
+[tool.mypy]
 # TODO: Turn this on to typecheck all tests.
-# [tool.mypy]
 # check_untyped_defs = true
 # TODO: Also consider
 # disallow_untyped_calls = true
@@ -179,7 +189,7 @@ docstring-code-format = true
 
 # This is the `docs` venv and is used for Read the Docs.
 [tool.hatch.envs.docs]
-# sphinx-autodoc2 parses the source. Does not need bytewax installed
+# sphinx-autodoc2 parses the source. Does not need Bytewax installed
 # in the venv.
 skip-install = true
 # To match .readthedocs.yml.
@@ -196,4 +206,4 @@ dependencies = [
 ]
 
 [tool.hatch.envs.docs.scripts]
-build = "sphinx-build -b html -E docs docs/_build"
+doc-build = "sphinx-build -b html -E docs docs/_build"
