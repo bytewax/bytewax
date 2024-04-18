@@ -21,8 +21,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install Hatch
-        run: pip install hatch
+      - name: Install pipx and Hatch
+        run: |
+          python3 -m pip install --user pipx
+          pipx ensurepath
+          pipx install hatch
       - uses: PyO3/maturin-action@v1
         with:
           command: build
