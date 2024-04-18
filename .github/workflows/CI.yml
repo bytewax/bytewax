@@ -35,7 +35,7 @@ jobs:
         shell: bash
         env:
           PIP_COMPILE_DISABLE: 1
-        run: hatch env create
+        run: hatch -vv env create
       - name: Run lints
         shell: bash
         env:
@@ -82,7 +82,7 @@ jobs:
         # we manually uninstall it from the venv and re-install the
         # final wheel.
         run: |
-          hatch env create test.py${{ matrix.python-version }}
+          hatch -vv env create test.py${{ matrix.python-version }}
           hatch env run -e test.py${{ matrix.python-version }} -- pip uninstall -vy bytewax
           WHEEL_FILE=$(ls ./dist/*.whl)
           hatch env run -e test.py${{ matrix.python-version }} -- pip install -v --no-deps $WHEEL_FILE
@@ -156,7 +156,7 @@ jobs:
         # we manually uninstall it from the venv and re-install the
         # final wheel.
         run: |
-          hatch env create test.py${{ matrix.python-version }}
+          hatch -vv env create test.py${{ matrix.python-version }}
           hatch env run -e test.py${{ matrix.python-version }} -- pip uninstall -vy bytewax
           WHEEL_FILE=$(ls ./dist/*.whl)
           hatch env run -e test.py${{ matrix.python-version }} -- pip install -v --no-deps $WHEEL_FILE
@@ -215,7 +215,7 @@ jobs:
       - name: Prep test venv
         run: |
           $env:PIP_COMPILE_DISABLE=1
-          hatch env create test.py${{ matrix.python-version }}
+          hatch -vv env create test.py${{ matrix.python-version }}
           hatch env run -e test.py${{ matrix.python-version }} -- pip uninstall -vy bytewax
           $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
           hatch env run -e test.py${{ matrix.python-version }} -- pip install -v --no-deps $WHEEL_FILE

@@ -63,6 +63,7 @@ type = "pip-compile"
 pip-compile-hashes = true
 pip-compile-installer = "pip-sync"
 pip-compile-constraint = "default"
+pip-compile-verbose = true
 dependencies = [
     # Unpin the default internal version of Ruff.
     "ruff",
@@ -92,6 +93,7 @@ type = "pip-compile"
 pip-compile-hashes = true
 pip-compile-installer = "pip-sync"
 pip-compile-constraint = "default"
+pip-compile-verbose = true
 # If you need to manually frob the venv, it'll be in `bytewax/venv`.
 path = "./venv"
 python = "3.12"
@@ -222,6 +224,7 @@ type = "pip-compile"
 pip-compile-hashes = true
 pip-compile-installer = "pip-sync"
 pip-compile-constraint = "default"
+pip-compile-verbose = true
 # sphinx-autodoc2 parses the source. Does not need Bytewax installed
 # in the venv.
 skip-install = true
