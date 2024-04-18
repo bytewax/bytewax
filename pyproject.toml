@@ -91,6 +91,7 @@ python-source = "pysrc"
 type = "pip-compile"
 pip-compile-hashes = true
 pip-compile-installer = "pip-sync"
+pip-compile-constraint = "default"
 # If you need to manually frob the venv, it'll be in `bytewax/venv`.
 path = "./venv"
 python = "3.12"
@@ -139,7 +140,6 @@ py-benchmarks = "pytest --benchmark-only --codspeed pytests/"
 # This is the `test` venv for running Bytewax Python tests in a
 # deterministic way across all versions of Python.
 [tool.hatch.envs.test]
-pip-compile-constraint = "default"
 # All the specific test deps will be in
 # `bytewax/requirements/requirements-test.pyX.Y.txt`. If you add /
 # remove dependencies here, also add / remove them from the `default`
