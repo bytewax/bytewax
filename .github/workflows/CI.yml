@@ -30,7 +30,6 @@ jobs:
             curl -fsSL -o cbfmt.tar.gz "https://github.com/lukas-reineke/cbfmt/releases/download/v0.2.0/cbfmt_linux-x86_64_v0.2.0.tar.gz"
             tar --strip-components 1 -xvf cbfmt.tar.gz
             mv cbfmt /usr/local/bin/
-      - uses: pre-commit/action@v3.0.0
       - name: Prep lint venv
         shell: bash
         env:
@@ -41,6 +40,7 @@ jobs:
         env:
           PIP_COMPILE_DISABLE: 1
         run: hatch env run repo-tests
+      - uses: pre-commit/action@v3.0.0
 
   linux:
     strategy:
