@@ -137,7 +137,7 @@ repo-tests = [
     # TODO: Turn these back on once we fix them up.
     # "doc-tests",
 ]
-py-benchmarks = "pytest --benchmark-only --codspeed pytests/"
+py-benchmarks = "pytest --codspeed pytests/"
 
 # This is the `test` venv for running Bytewax Python tests in a
 # deterministic way across all versions of Python.
