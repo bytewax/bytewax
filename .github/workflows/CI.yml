@@ -225,9 +225,8 @@ jobs:
           args: --release -o dist --interpreter python${{ matrix.python-version }}
           sccache: true
       - name: Prep test venv
-        # Allow Windows CI to modify the lock files so we don't have
-        # to make per-platform lock files. $env:PIP_COMPILE_DISABLE=1
         run: |
+          $env:PIP_COMPILE_DISABLE=1
           hatch -vv env create test.py${{ matrix.python-version }}
           hatch env run -e test.py${{ matrix.python-version }} -- pip uninstall -vy bytewax
           $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]

@@ -3,6 +3,7 @@
 #
 # [constraints] requirements.txt (SHA256: 1f157be0de43861ee44b644843a6bf6e0eaa94d738fb521471b3923e4e062f1e)
 #
+# - colorama
 # - pytest
 # - pytest-benchmark
 # - jsonpickle>=3
@@ -113,6 +114,12 @@ charset-normalizer==3.3.2 \
     # via
     #   -c requirements.txt
     #   requests
+colorama==0.4.6 \
+    --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
+    --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
+    # via
+    #   -c requirements.txt
+    #   hatch.envs.test.py3.11
 confluent-kafka==2.3.0 \
     --hash=sha256:030fb237927ec2296882a9bb96237ebf86e48388166b15ec0bbf3fdeb48df81a \
     --hash=sha256:0470dc5e56e639693149961409bc6b663df94d68ceae296ae9c42e079fe65d00 \

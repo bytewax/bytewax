@@ -148,6 +148,9 @@ py-benchmarks = "pytest --codspeed pytests/"
 # env. `pip-compile-constraint` ensures we get exactly the same
 # versions in both.
 dependencies = [
+    # Require this locally because it is optionally reqired on
+    # Windows.
+    "colorama",
     "pytest",
     "pytest-benchmark",
 ]
