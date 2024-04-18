@@ -5,6 +5,7 @@ use crate::try_unwrap;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+use pyo3::sync::GILOnceCell;
 use pyo3::types::*;
 use serde::ser::Error;
 use std::fmt;
@@ -59,8 +60,21 @@ impl std::fmt::Debug for TdPyAny {
     }
 }
 
+static SERDE_CLASS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+
+fn get_serde_class(py: Python) -> PyResult<&Bound<'_, PyAny>> {
+    Ok(SERDE_CLASS
+        .get_or_try_init(py, || -> PyResult<Py<PyAny>> {
+            let bytewax_serde = py.import_bound("bytewax.serde")?;
+            let pickle = bytewax_serde.getattr("SERDE_CLASS")?;
+            Ok(pickle.into_py(py))
+        })?
+        .bind(py))
+}
+
 /// Serialize Python objects flowing through Timely that cross
-/// process bounds as pickled bytes.
+/// process bounds as bytes.
+/// See the Python documentation in `bytewax.serde`.
 impl serde::Serialize for TdPyAny {
     // We can't do better than isolating the Result<_, PyErr> part and
     // the explicitly converting.  1. `?` automatically trys to
@@ -84,11 +98,9 @@ impl serde::Serialize for TdPyAny {
     {
         Python::with_gil(|py| {
             let x = self.bind(py);
-            let pickle = py
-                .import_bound("msgspec.msgpack")
-                .map_err(S::Error::custom)?;
-            let binding = pickle
-                .call_method1("encode", (x,))
+            let binding = get_serde_class(py)
+                .map_err(S::Error::custom)?
+                .call_method1("ser", (x,))
                 .map_err(S::Error::custom)?;
             let bytes = binding.downcast::<PyBytes>().map_err(S::Error::custom)?;
             serializer
@@ -112,8 +124,10 @@ impl<'de> serde::de::Visitor<'de> for PickleVisitor {
         E: serde::de::Error,
     {
         let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
-            let s = py.import_bound("bytewax.serde")?;
-            let x = s.call_method1("unpack", (bytes,))?.unbind().into();
+            let x = get_serde_class(py)?
+                .call_method1("de", (bytes,))?
+                .unbind()
+                .into();
             Ok(x)
         });
         x.map_err(E::custom)

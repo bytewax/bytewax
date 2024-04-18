@@ -12,6 +12,7 @@ If you need to execute a dataflow as part of running unit tests, see
 
 import argparse
 import ast
+import importlib
 import inspect
 import os
 import sys
@@ -21,6 +22,7 @@ from typing import Tuple
 
 from bytewax._bytewax import cli_main
 from bytewax.recovery import RecoveryConfig
+from bytewax.serde import SERDE_CLASS
 
 __all__ = [
     "cli_main",
@@ -201,7 +203,9 @@ def _create_arg_parser():
     that are used only for testing in the testing namespace.
     """
     parser = argparse.ArgumentParser(
-        prog="python -m bytewax.run", description="Run a bytewax dataflow"
+        prog="python -m bytewax.run",
+        description="Run a bytewax dataflow",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "import_str",
@@ -210,6 +214,16 @@ def _create_arg_parser():
         "<module_name>[:<dataflow_variable_or_factory>] "
         "Example: src.dataflow or src.dataflow:flow or "
         "src.dataflow:get_flow('string_argument')",
+    )
+    parser.add_argument(
+        "--serde",
+        type=str,
+        default="bytewax.serde.PickleSerde",
+        help="the full module and class path to a `bytewax.serde.Serde` "
+        "serializer to use in place of the default for recovery and "
+        "exchanging data.",
+        action=_EnvDefault,
+        envvar="BYTEWAX_SERDE_CLASS",
     )
 
     recovery = parser.add_argument_group(
@@ -243,7 +257,6 @@ def _create_arg_parser():
         action=_EnvDefault,
         envvar="BYTEWAX_RECOVERY_BACKUP_INTERVAL",
     )
-
     return parser
 
 
@@ -328,6 +341,9 @@ def _parse_args():
 if __name__ == "__main__":
     kwargs = vars(_parse_args())
     snapshot_interval = kwargs.pop("snapshot_interval")
+    module_name, serde_class_name = kwargs.pop("serde").rsplit(".", 1)
+    serde_class = getattr(importlib.import_module(module_name), serde_class_name)
+    SERDE_CLASS = serde_class
 
     recovery_directory, backup_interval = (
         kwargs.pop("recovery_directory"),
@@ -336,7 +352,9 @@ if __name__ == "__main__":
     kwargs["recovery_config"] = None
     if recovery_directory is not None:
         kwargs["epoch_interval"] = snapshot_interval
-        kwargs["recovery_config"] = RecoveryConfig(recovery_directory, backup_interval)
+        kwargs["recovery_config"] = RecoveryConfig(
+            recovery_directory, serde_class, backup_interval
+        )
     else:
         # Default epoch interval if there is no recovery setup. Since
         # there's no recovery, this needs not be coordinated with

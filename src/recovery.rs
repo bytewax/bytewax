@@ -295,6 +295,11 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<Vec<u8>>);
 ///
 /// :type db_dir: pathlib.Path
 ///
+/// :arg snapshot_serde: Format to use when encoding state snapshot
+///     objects in the recovery partitions.
+///
+/// :type snapshot_serde: bytewax.serde.Serde
+///
 /// :arg backup_interval: Amount of system time to wait to permanently
 ///     delete a state snapshot after it is no longer needed. You
 ///     should set this to the interval at which you are backing up
@@ -302,20 +307,14 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<Vec<u8>>);
 ///     storage (e.g. S3). Defaults to zero duration.
 ///
 /// :type backup_interval: typing.Optional[datetime.timedelta]
-///
-/// :arg snapshot_serde: Format to use when encoding state snapshot
-///     objects in the recovery partitions. Defaults to
-///     {py:obj}`~bytewax.serde.PickleSerde`.
-///
-/// :type snapshot_serde: typing.Optional[bytewax.serde.Serde]
 #[pyclass(module = "bytewax.recovery")]
 pub(crate) struct RecoveryConfig {
     #[pyo3(get)]
     db_dir: PathBuf,
     #[pyo3(get)]
-    backup_interval: BackupInterval,
-    #[pyo3(get)]
     snapshot_serde: Serde,
+    #[pyo3(get)]
+    backup_interval: BackupInterval,
 }
 
 #[pymethods]
@@ -323,13 +322,13 @@ impl RecoveryConfig {
     #[new]
     fn new(
         db_dir: PathBuf,
+        snapshot_serde: Serde,
         backup_interval: Option<BackupInterval>,
-        snapshot_serde: Option<Serde>,
     ) -> Self {
         Self {
             db_dir,
+            snapshot_serde,
             backup_interval: backup_interval.unwrap_or_default(),
-            snapshot_serde: snapshot_serde.unwrap_or_default(),
         }
     }
 }

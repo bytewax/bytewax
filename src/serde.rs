@@ -8,7 +8,6 @@ use pyo3::types::PyBytes;
 use pyo3::types::PyType;
 
 use crate::pyo3_extensions::TdPyAny;
-use crate::unwrap_any;
 
 /// Represents a `bytewax.serde.Serde` from Python.
 #[derive(Clone)]
@@ -34,16 +33,6 @@ fn get_serde_abc(py: Python) -> PyResult<&Bound<'_, PyAny>> {
         .bind(py))
 }
 
-static SERDE_JP: GILOnceCell<Serde> = GILOnceCell::new();
-
-fn get_serde_jp(py: Python) -> PyResult<Serde> {
-    Ok(SERDE_JP
-        .get_or_try_init(py, || -> PyResult<Serde> {
-            get_serde_module(py)?.getattr("PickleSerde")?.extract()
-        })?
-        .clone())
-}
-
 /// Do some eager type checking.
 impl<'py> FromPyObject<'py> for Serde {
     fn extract_bound(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
@@ -66,12 +55,6 @@ impl<'py> FromPyObject<'py> for Serde {
 impl IntoPy<Py<PyAny>> for Serde {
     fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
         self.0
-    }
-}
-
-impl Default for Serde {
-    fn default() -> Self {
-        unwrap_any!(Python::with_gil(|py| { get_serde_jp(py) }))
     }
 }
 

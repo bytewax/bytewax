@@ -7,6 +7,7 @@ use.
 
 """
 
+
 class BytewaxTracer:
     """Utility class used to handle tracing.
 
@@ -22,6 +23,7 @@ class BytewaxTracer:
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
 
+
 class RecoveryConfig:
     """Configuration settings for recovery.
 
@@ -29,6 +31,11 @@ class RecoveryConfig:
         database partitions.
 
     :type db_dir: pathlib.Path
+
+    :arg snapshot_serde: Format to use when encoding state snapshot
+        objects in the recovery partitions.
+
+    :type snapshot_serde: bytewax.serde.Serde
 
     :arg backup_interval: Amount of system time to wait to permanently
         delete a state snapshot after it is no longer needed. You
@@ -38,17 +45,11 @@ class RecoveryConfig:
 
     :type backup_interval: typing.Optional[datetime.timedelta]
 
-    :arg snapshot_serde: Format to use when encoding state snapshot
-        objects in the recovery partitions. Defaults to
-        {py:obj}`~bytewax.serde.PickleSerde`.
-
-    :type snapshot_serde: typing.Optional[bytewax.serde.Serde]
-
     """
 
     ...
 
-    def __init__(self, db_dir, backup_interval=None, snapshot_serde=None): ...
+    def __init__(self, db_dir, snapshot_serde, backup_interval=None): ...
     def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
@@ -59,6 +60,7 @@ class RecoveryConfig:
     def db_dir(self): ...
     @property
     def snapshot_serde(self): ...
+
 
 class TracingConfig:
     """Base class for tracing/logging configuration.
@@ -76,6 +78,7 @@ class TracingConfig:
     def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
+
 
 def cli_main(
     flow,
@@ -155,6 +158,7 @@ def cluster_main(
     """
     ...
 
+
 def init_db_dir(db_dir, count):
     """Create and init a set of empty recovery partitions.
 
@@ -168,6 +172,7 @@ def init_db_dir(db_dir, count):
 
     """
     ...
+
 
 def run_main(flow, *, epoch_interval=None, recovery_config=None):
     """Execute a dataflow in the current thread.
@@ -212,6 +217,7 @@ def run_main(flow, *, epoch_interval=None, recovery_config=None):
     """
     ...
 
+
 def setup_tracing(tracing_config=None, log_level=None):
     """Setup Bytewax's internal tracing and logging.
 
@@ -242,10 +248,12 @@ def setup_tracing(tracing_config=None, log_level=None):
     """
     ...
 
+
 class AbortExecution(RuntimeError):
     """Raise this from `next_batch` to abort for testing purposes."""
 
     ...
+
 
 class InconsistentPartitionsError(ValueError):
     """Raised when two recovery partitions are from very different times.
@@ -262,6 +270,7 @@ class InconsistentPartitionsError(ValueError):
     """
 
     ...
+
 
 class JaegerConfig(TracingConfig):
     """Configure tracing to send traces to a Jaeger instance.
@@ -304,6 +313,7 @@ class JaegerConfig(TracingConfig):
     @property
     def service_name(self): ...
 
+
 class OtlpTracingConfig(TracingConfig):
     """Send traces to the OpenTelemetry collector.
 
@@ -345,10 +355,12 @@ class OtlpTracingConfig(TracingConfig):
     @property
     def url(self): ...
 
+
 class MissingPartitionsError(FileNotFoundError):
     """Raised when an incomplete set of recovery partitions is detected."""
 
     ...
+
 
 class NoPartitionsError(FileNotFoundError):
     """Raised when no recovery partitions are found on any worker.

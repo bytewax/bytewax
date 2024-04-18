@@ -3,10 +3,8 @@
 import logging
 import pickle
 from abc import ABC, abstractmethod
-from datetime import datetime
 from typing import Any
 
-import msgspec
 from typing_extensions import override
 
 logger = logging.getLogger(__name__)
@@ -53,9 +51,10 @@ class PickleSerde(Serde):
         return pickle.loads(s)
 
 
-class TestData(msgspec.Struct, kw_only=True, tag="testdata"):
-    timestamp: datetime
+SERDE_CLASS = PickleSerde
 
 
-def unpack(x: bytes) -> TestData:
-    return msgspec.msgpack.decode(x, type=TestData)
+def set_serde_class(serde_class: Serde):
+    """Set the serde implementation for this Dataflow."""
+    global SERDE_CLASS
+    SERDE_CLASS = serde_class  # noqa: F841
