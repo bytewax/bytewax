@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pre-commit:
+  repo-tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
