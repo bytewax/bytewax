@@ -33,6 +33,7 @@ from bytewax.operators import (
     KeyedStream,
     S,
     StatefulBatchLogic,
+    U,
     V,
     W,
     X,
@@ -1514,6 +1515,60 @@ def _join_asdicts_flat_mapper(
 def _join_merger(s: _JoinState, t: _JoinState) -> _JoinState:
     s += t
     return s
+
+
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock,
+    windower: Windower,
+    side1: KeyedStream[V],
+    /,
+    *,
+    product: bool = False,
+) -> WindowOut[V, Tuple[V]]: ...
+
+
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock,
+    windower: Windower,
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    /,
+    *,
+    product: bool = False,
+) -> WindowOut[V, Tuple[U, V]]: ...
+
+
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock,
+    windower: Windower,
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    side3: KeyedStream[W],
+    /,
+    *,
+    product: bool = False,
+) -> WindowOut[V, Tuple[U, V, W]]: ...
+
+
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock,
+    windower: Windower,
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    side3: KeyedStream[W],
+    side4: KeyedStream[X],
+    /,
+    *,
+    product: bool = False,
+) -> WindowOut[V, Tuple[U, V, W, X]]: ...
 
 
 @operator
