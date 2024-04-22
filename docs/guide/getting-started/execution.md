@@ -36,9 +36,8 @@ all of the available runtime options, run the following command:
 waxctl can be used to run dataflows locally as well as remotely.
 You can see the available options with the command:
 
-```shell
-waxctl run --help
-```
+```console
+$ waxctl run --help
 
 ## Selecting the dataflow
 
@@ -80,15 +79,13 @@ To run this flow use `simple` because creating a file named
 
 The `waxctl run` command expects only one argument, a path or URI of a python script:
 
-```shell
-waxctl run simple.py
-```
+```console
+$ waxctl run simple.py
 
-You can also run a remote dataflow in a public github repo with waxctl
+You can also run a remote dataflow in a public GitHub repo with `waxctl`:
 
-```shell
-waxctl run https://raw.githubusercontent.com/bytewax/bytewax/main/examples/basic.py
-```
+```console
+$ waxctl run https://raw.githubusercontent.com/bytewax/bytewax/main/examples/basic.py
 
 ## Starting a Single Process
 
@@ -109,9 +106,8 @@ workers using the same file, changing only the command:
 
 ### Adding workers with waxctl
 
-```shell
-waxctl run simple.py --workers=4
-```
+```console
+$ waxctl run simple.py --workers=4
 
 (xref-cluster)=
 ## Starting a Cluster of Processes
@@ -164,19 +160,17 @@ And on the `cluster_two` machine as:
 
 ### Scaling processes with waxctl
 
-It is simple to start multiple processes with waxctl as it will configure
+It is simple to start multiple processes with `waxctl` as it will configure
 the addresses for you.
 
-```shell
-waxctl run simple.py --processes=2 --workers=4
-```
+```console
+$ waxctl run simple.py --processes=2 --workers=4
 
-You can specify the initial port with the `-i` flag and add --debug for
+You can specify the initial port with the `-i` flag and add `--debug` for
 verbose output.
 
-```shell
-waxctl run simple.py --processes=2 --workers=4 --initial-port=2101 --debug
-```
+```console
+$ waxctl run simple.py --processes=2 --workers=4 --initial-port=2101 --debug
 
 For more information about deployment options for Bytewax dataflows,
-please see the documentation for [`deployment`](#xref-deployment).
+please see <project:#xref-deployment>.

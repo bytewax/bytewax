@@ -13,15 +13,14 @@ Docker containers provide a good way to wrap up dependencies and run a container
 
 ## Running Locally with waxctl
 
-We recommend using waxctl locally to test running your dataflow with multiple processes, you can find more about waxctl on the [website](https://bytewax.io/waxctl).
+We recommend using `waxctl` locally to test running your dataflow with multiple processes, you can find more about `waxctl` on the [website](https://bytewax.io/waxctl).
 
 Test it out locally after installing:
 
-```bash
-waxctl run mydataflow.py -p 2
-```
+```console
+$ waxctl run mydataflow.py -p 2
 
-You can find more information in the [waxctl documentation](#xref-waxctl)
+You can find more information in <project:#ref-waxctl>.
 
 ## Running in Kubernetes
 
@@ -29,4 +28,4 @@ Kubernetes is the most common orchestration platform for running containers. The
 
 ## Running on Cloud Instances
 
-You can deploy a dataflow directly to a cloud instance on [aws](#xref-waxctlaws) and [gcp](#xref-waxctlgcp) with waxctl doing the heavy lifting of setting up the machine and running the dataflow.
+You can deploy a dataflow directly to a cloud instance on [AWS](#xref-waxctlaws) and [GCP](#xref-waxctlgcp) with `waxctl` doing the heavy lifting of setting up the machine and running the dataflow.

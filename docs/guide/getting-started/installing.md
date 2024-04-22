@@ -61,7 +61,6 @@ Bytewax provides a command line tool for managing dataflows, you
 can install this by downloading the binaries from the
 [website](https://www.bytewax.io/waxctl) or via homebrew.
 
-```shell
-brew tap bytewax/tap
-brew install waxctl
-```
+```console
+$ brew tap bytewax/tap
+$ brew install waxctl
