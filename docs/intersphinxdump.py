@@ -10,9 +10,10 @@ role syntax.
 """
 
 import warnings
-from typing import Dict
+from typing import Dict, cast
 
 from conf import intersphinx_mapping
+from sphinx.application import Sphinx
 from sphinx.ext import intersphinx
 
 
@@ -32,7 +33,8 @@ class _MockApp:
 
 
 def _fetch_inventory(uri: str) -> Dict:
-    return intersphinx.fetch_inventory(_MockApp(), "", uri)
+    app = _MockApp()
+    return intersphinx.fetch_inventory(cast(Sphinx, app), "", uri)
 
 
 def _main() -> None:
