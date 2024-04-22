@@ -5,7 +5,7 @@ There are many ways you can run Bytewax, in this section we will highlight the m
 
 ## The Bytewax Platform
 
-We built the Bytewax Platform to make deploying, managing and operating dataflows. You can find out more about the platform features on the [bytewax website](https://www.bytewax.io/platform) and the [platform documentation](https://platform.bytewax.io/).
+We built the Bytewax Platform to make deploying, managing and operating dataflows. You can find out more about the platform features on the [Bytewax website](https://www.bytewax.io/platform) and the [platform documentation](https://platform.bytewax.io/).
 
 ## Container Based Deployment
 
