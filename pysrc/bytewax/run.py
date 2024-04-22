@@ -22,7 +22,7 @@ from typing import Tuple
 
 from bytewax._bytewax import cli_main
 from bytewax.recovery import RecoveryConfig
-from bytewax.serde import SERDE_CLASS
+from bytewax.serde import set_serde_obj
 
 __all__ = [
     "cli_main",
@@ -343,7 +343,7 @@ if __name__ == "__main__":
     snapshot_interval = kwargs.pop("snapshot_interval")
     module_name, serde_class_name = kwargs.pop("serde").rsplit(".", 1)
     serde_class = getattr(importlib.import_module(module_name), serde_class_name)
-    SERDE_CLASS = serde_class
+    set_serde_obj(serde_class())
 
     recovery_directory, backup_interval = (
         kwargs.pop("recovery_directory"),

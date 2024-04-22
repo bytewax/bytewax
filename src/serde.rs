@@ -1,78 +1,62 @@
 //! Serialization of Python object for recovery and transport.
 
-use pyo3::exceptions::PyTypeError;
-use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
-use pyo3::types::PyBytes;
-use pyo3::types::PyType;
 
-use crate::pyo3_extensions::TdPyAny;
+use crate::unwrap_any;
 
-/// Represents a `bytewax.serde.Serde` from Python.
-#[derive(Clone)]
-pub(crate) struct Serde(Py<PyAny>);
+static mut SERDE_OBJ: GILOnceCell<PyObject> = GILOnceCell::new();
 
-static SERDE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
-
-fn get_serde_module(py: Python) -> PyResult<&Bound<'_, PyModule>> {
-    Ok(SERDE_MODULE
-        .get_or_try_init(py, || -> PyResult<Py<PyModule>> {
-            Ok(py.import_bound("bytewax.serde")?.into())
-        })?
-        .bind(py))
-}
-
-static SERDE_ABC: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
-
-fn get_serde_abc(py: Python) -> PyResult<&Bound<'_, PyAny>> {
-    Ok(SERDE_ABC
-        .get_or_try_init(py, || -> PyResult<Py<PyAny>> {
-            Ok(get_serde_module(py)?.getattr("Serde")?.into())
-        })?
-        .bind(py))
-}
-
-/// Do some eager type checking.
-impl<'py> FromPyObject<'py> for Serde {
-    fn extract_bound(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let py = obj.py();
-        let ob: &PyType = obj.extract()?;
-        // We use [`PyType::is_subclass`] rather than
-        // [`PyAny::is_instance`] because all the ABC methods are
-        // `@staticmethod` so we call them on the class itself rather
-        // than an instance.
-        if !ob.is_subclass(get_serde_abc(py)?.as_gil_ref())? {
-            Err(PyTypeError::new_err(
-                "serialization must subclass `bytewax.serde.Serde`",
-            ))
-        } else {
-            Ok(Self(ob.into()))
-        }
+/// Load, or return the specified serde object from the Python side
+/// into a GILOnceCell.
+pub(crate) fn get_serde_obj(py: Python) -> PyResult<&Bound<'_, PyAny>> {
+    // SAFETY: Safety here is provided by GilOnceCell requiring the GIL
+    // to be held when getting this value.
+    unsafe {
+        Ok(SERDE_OBJ
+            .get(py)
+            .expect("No serde object has been set.")
+            .bind(py))
     }
 }
 
-impl IntoPy<Py<PyAny>> for Serde {
-    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
-        self.0
+/// Setup Bytewax's internal serde for Python objects
+///
+/// ```python
+/// import json
+/// from bytewax.serde import Serde, set_serde_obj
+/// from typing import override, Any
+///
+/// class JSONSerde(Serde):
+///     @override
+///     def ser(self, obj: Any) -> bytes:
+///         return json.dumps(obj).encode("utf-8")
+///
+///     @override
+///     def de(self, s: bytes) -> Any:
+///         return json.loads(s)
+///
+///
+/// set_serde_obj(JSONSerde())
+///
+/// ```
+///
+/// :arg serde_obj: The instantiated bytewax.serde.Serde class to use
+///
+/// :type serde_obj: bytewax.serde.Serde
+#[pyfunction]
+fn set_serde_obj(py: Python, serde_object: PyObject) -> PyResult<()> {
+    // SAFETY: Safety here is provided by GilOnceCell requiring the GIL
+    // to be held when setting this value.
+    unsafe {
+        // Remove the currently set object.
+        SERDE_OBJ.take();
+        unwrap_any!(SERDE_OBJ.set(py, serde_object));
     }
+    Ok(())
 }
 
-impl Serde {
-    pub(crate) fn clone_ref(&self, py: Python) -> Self {
-        Self(self.0.clone_ref(py))
-    }
-
-    pub(crate) fn ser(&self, py: Python, state: PyObject) -> PyResult<Vec<u8>> {
-        self.0
-            .call_method1(py, intern!(py, "ser"), (state,))?
-            .extract(py)
-    }
-
-    pub(crate) fn de(&self, py: Python, s: Vec<u8>) -> PyResult<TdPyAny> {
-        Ok(self
-            .0
-            .call_method1(py, intern!(py, "de"), (PyBytes::new_bound(py, &s),))?
-            .into())
-    }
+pub(crate) fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(set_serde_obj, m)?)?;
+    Ok(())
 }

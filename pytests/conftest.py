@@ -7,6 +7,7 @@ This sets up our fixtures and logging.
 from datetime import datetime, timezone
 
 from bytewax.recovery import RecoveryConfig, init_db_dir
+from bytewax.serde import PickleSerde, set_serde_obj
 from bytewax.testing import cluster_main, run_main
 from bytewax.tracing import setup_tracing
 from pytest import fixture
@@ -56,10 +57,12 @@ def entry_point(entry_point_name):
 def recovery_config(tmp_path):
     """Generate a recovery config.
 
-    It will point to a single partition recovery store.
+    It will point to a single partition recovery store, and
+    set the default Serde implementation to PickleSerde.
 
     """
     init_db_dir(tmp_path, 1)
+    set_serde_obj(PickleSerde())
     yield RecoveryConfig(str(tmp_path))
 
 

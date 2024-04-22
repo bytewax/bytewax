@@ -1,13 +1,19 @@
 """Serialization for recovery and transport."""
 
-import logging
 import pickle
 from abc import ABC, abstractmethod
 from typing import Any
 
 from typing_extensions import override
 
-logger = logging.getLogger(__name__)
+from bytewax._bytewax import (
+    set_serde_obj,
+)
+
+__all__ = [
+    "PickleSerde",
+    "set_serde_obj",
+]
 
 
 class Serde(ABC):
@@ -24,15 +30,13 @@ class Serde(ABC):
 
     """
 
-    @staticmethod
     @abstractmethod
-    def ser(obj: Any) -> bytes:
+    def ser(self, obj: Any) -> bytes:
         """Serialize the given object."""
         ...
 
-    @staticmethod
     @abstractmethod
-    def de(s: bytes) -> Any:
+    def de(self, s: bytes) -> Any:
         """Deserialize the given object."""
         ...
 
@@ -41,20 +45,9 @@ class PickleSerde(Serde):
     """Serialize objects using `pickle`."""
 
     @override
-    @staticmethod
-    def ser(obj: Any) -> bytes:
+    def ser(self, obj: Any) -> bytes:
         return pickle.dumps(obj)
 
     @override
-    @staticmethod
-    def de(s: bytes) -> Any:
+    def de(self, s: bytes) -> Any:
         return pickle.loads(s)
-
-
-SERDE_CLASS = PickleSerde
-
-
-def set_serde_class(serde_class: Serde):
-    """Set the serde implementation for this Dataflow."""
-    global SERDE_CLASS
-    SERDE_CLASS = serde_class  # noqa: F841

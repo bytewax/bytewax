@@ -24,7 +24,7 @@ from bytewax.run import (
     _create_arg_parser,
     _EnvDefault,
 )
-from bytewax.serde import set_serde_class
+from bytewax.serde import set_serde_obj
 
 __all__ = [
     "TestingSink",
