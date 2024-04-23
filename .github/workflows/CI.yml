@@ -199,7 +199,7 @@ jobs:
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
         run: |
-          venv/bin/activate
+          venv/Scripts/activate
           just build
       - name: Run tests
         run: |
