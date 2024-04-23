@@ -1,6 +1,6 @@
 //! Serialization of Python object for recovery and transport.
 
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 
@@ -50,14 +50,22 @@ pub(crate) fn get_serde_obj(py: Python) -> PyResult<&Bound<'_, PyAny>> {
 ///
 /// :type serde_obj: bytewax.serde.Serde
 #[pyfunction]
-fn set_serde_obj(py: Python, serde_object: PyObject) -> PyResult<()> {
+fn set_serde_obj(py: Python, serde_object: &Bound<'_, PyAny>) -> PyResult<()> {
+    let ob = serde_object.get_type();
+    let superclass = py.import_bound("bytewax.serde")?.getattr("Serde")?;
+    if !ob.is_subclass(&superclass)? {
+        return Err(PyTypeError::new_err(
+            "serialization must subclass `bytewax.serde.Serde`",
+        ));
+    }
     // SAFETY: Safety here is provided by GilOnceCell requiring the GIL
     // to be held when setting this value.
+    let s = serde_object.clone().unbind();
     unsafe {
         // Remove the currently set object.
         SERDE_OBJ.take();
         SERDE_OBJ
-            .set(py, serde_object)
+            .set(py, s)
             .map_err(|err| PyErr::new::<PyRuntimeError, _>(err.to_string()))?;
     }
     Ok(())

@@ -1,4 +1,26 @@
-"""Serialization for recovery and transport."""
+"""Serialization for recovery and worker exchange.
+
+This module provides a way to add custom ser/deserializers to Bytewax
+that will be used internally to exchange data to other workers, in
+the case of multiple processes, and to serialize data to be written
+to the recovery store.
+
+Using a custom serializer can result in better performance when
+resuming a dataflow and when exchanging data between workers.
+
+:::{warning}
+
+Take care when implementing a custom Serde class to account for
+things like schema evolution, and handling intermediary data types
+that are exchanged between workers.
+
+Creating a custom Serde class can result in performance gains,
+but should be considered an advanced optimization.
+
+:::
+
+By default, Python's {py:obj}`pickle` is used for serialization.
+"""
 
 import pickle
 from abc import ABC, abstractmethod

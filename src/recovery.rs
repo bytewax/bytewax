@@ -297,11 +297,6 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<Vec<u8>>);
 ///
 /// :type db_dir: pathlib.Path
 ///
-/// :arg snapshot_serde: Format to use when encoding state snapshot
-///     objects in the recovery partitions.
-///
-/// :type snapshot_serde: bytewax.serde.Serde
-///
 /// :arg backup_interval: Amount of system time to wait to permanently
 ///     delete a state snapshot after it is no longer needed. You
 ///     should set this to the interval at which you are backing up
