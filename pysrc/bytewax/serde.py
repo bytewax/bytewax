@@ -35,6 +35,8 @@ from bytewax._bytewax import (
 
 __all__ = [
     "set_serde_obj",
+    "Serde",
+    "PickleSerde",
 ]
 
 
