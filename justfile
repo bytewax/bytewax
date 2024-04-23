@@ -18,7 +18,7 @@ get-started:
     test -d venvs/dev/ || uv venv -p 3.12 venvs/dev/
     @echo 'Installing all the tools and dependencies'
     just sync dev
-    @echo 'Ensuring pre-commit hooks are installed'
+    @echo 'Ensuring Git pre-commit hooks are installed'
     venvs/dev/bin/pre-commit install
     @echo 'All done!'
     @echo 'Each time before you do any work in this repo you should run `. venvs/dev/bin/activate`'
@@ -90,9 +90,13 @@ test-doc: _assert-venv
 ci-pre: lint test-py test-rs test-doc test-benchmark
 
 # CI uses this command to run all non-Python tests
-_test-repo: lint test-rs
+_test-repo:
+    just lint
+    just test-rs
+    # TODO: Add back in `test-doc` once those are fixed.
+    # just test-doc
     pre-commit run --all-files --show-diff-on-failure
-# TODO: Add back in `test-doc` once those are fixed.
+
 
 # Start an auto-refreshing doc development server
 doc-autobuild: _assert-venv
