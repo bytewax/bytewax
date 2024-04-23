@@ -33,13 +33,12 @@ from bytewax._bytewax import (
 )
 
 __all__ = [
-    "PickleSerde",
     "set_serde_obj",
 ]
 
 
 class Serde(ABC):
-    """A serialization format.
+    """A serialization encoder/decoder.
 
     This must support serializing arbitray Python objects and
     reconstituting them exactly. This means using things like

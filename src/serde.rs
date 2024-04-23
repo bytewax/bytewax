@@ -25,28 +25,9 @@ pub(crate) fn get_serde_obj(py: Python) -> PyResult<&Bound<'_, PyAny>> {
     }
 }
 
-/// Setup Bytewax's internal serde for Python objects
+/// Override Bytewax's internal serialization for Python objects.
 ///
-/// ```python
-/// import json
-/// from bytewax.serde import Serde, set_serde_obj
-/// from typing import override, Any
-///
-/// class JSONSerde(Serde):
-///     @override
-///     def ser(self, obj: Any) -> bytes:
-///         return json.dumps(obj).encode("utf-8")
-///
-///     @override
-///     def de(self, s: bytes) -> Any:
-///         return json.loads(s)
-///
-///
-/// set_serde_obj(JSONSerde())
-///
-/// ```
-///
-/// :arg serde_obj: The instantiated bytewax.serde.Serde class to use
+/// :arg serde_obj: The Serde object to use.
 ///
 /// :type serde_obj: bytewax.serde.Serde
 #[pyfunction]

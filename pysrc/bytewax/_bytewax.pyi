@@ -30,11 +30,6 @@ class RecoveryConfig:
 
     :type db_dir: pathlib.Path
 
-    :arg snapshot_serde: Format to use when encoding state snapshot
-        objects in the recovery partitions.
-
-    :type snapshot_serde: bytewax.serde.Serde
-
     :arg backup_interval: Amount of system time to wait to permanently
         delete a state snapshot after it is no longer needed. You
         should set this to the interval at which you are backing up
@@ -210,26 +205,9 @@ def run_main(flow, *, epoch_interval=None, recovery_config=None):
     ...
 
 def set_serde_obj(serde_object):
-    """Setup Bytewax's internal serde for Python objects
+    """Override Bytewax's internal serialization for Python objects.
 
-    ```python
-    import json
-    from bytewax.serde import Serde, set_serde_obj
-    from typing import override, Any
-
-    class JSONSerde(Serde):
-        @override
-        def ser(self, obj: Any) -> bytes:
-            return json.dumps(obj).encode("utf-8")
-
-        @override
-        def de(self, s: bytes) -> Any:
-            return json.loads(s)
-
-    set_serde_obj(JSONSerde())
-    ```
-
-    :arg serde_obj: The instantiated bytewax.serde.Serde class to use
+    :arg serde_obj: The Serde object to use.
 
     :type serde_obj: bytewax.serde.Serde
 
