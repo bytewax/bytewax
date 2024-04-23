@@ -208,6 +208,7 @@ autodoc2_module_all_regexes = [
     re.escape("bytewax.run"),
     re.escape("bytewax.testing"),
     re.escape("bytewax.tracing"),
+    re.escape("bytewax.serde"),
 ]
 # The build process for API docs has an automatic "pre-build" step
 # which parses the Python code and then writes out Markdown files with

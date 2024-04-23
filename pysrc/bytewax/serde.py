@@ -11,8 +11,9 @@ resuming a dataflow and when exchanging data between workers.
 :::{warning}
 
 Take care when implementing a custom Serde class to account for
-things like schema evolution, and handling intermediary data types
-that are exchanged between workers.
+things like schema evolution, and the handling of all data types
+that are exchanged between workers which can include Bytewax
+classes like {py:obj}`~bytewax.operators.window.WindowMetadata`.
 
 Creating a custom Serde class can result in performance gains,
 but should be considered an advanced optimization.
