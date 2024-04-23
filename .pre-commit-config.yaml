@@ -14,15 +14,12 @@ repos:
         name: "format Python"
         language: system
         types: ["python"]
-        # Set `PIP_COMPILE_DISABLE` so that the hook itself isn't
-        # updating the lock files. If you get `HatchPipCompileError`,
-        # you need to commit updating the requirements files first.
-        entry: "env PIP_COMPILE_DISABLE=1 hatch run ruff format"
+        entry: "just fmt-py"
       - id: cbfmt
         name: "format Markdown code blocks"
         language: system
         types: ["markdown"]
-        entry: "env PIP_COMPILE_DISABLE=1 hatch run cbfmt -w"
+        entry: "just fmt-md"
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
