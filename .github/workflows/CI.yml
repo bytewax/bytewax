@@ -195,7 +195,7 @@ jobs:
       - name: Prep build venv
         run: |
           uv venv -p ${{ matrix.python-version }} venv/
-          . ./venv/bin/activate.ps1
+          venv/Scripts/activate
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
         run: |
@@ -203,7 +203,7 @@ jobs:
           just build
       - name: Run tests
         run: |
-          . ./venv/bin/activate.ps1
+          venv/Scripts/activate
           $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
           uv pip install -v --no-deps $WHEEL_FILE
           just test-py
